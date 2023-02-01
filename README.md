@@ -260,3 +260,5 @@ A large part of the code is borrowed from [Zhongdao/Towards-Realtime-MOT](https:
 }
 ```
 
+## Other datasets
+[Sports Classification Dataset](https://www.kaggle.com/datasets/ponrajsubramaniian/sportclassificationdataset)
