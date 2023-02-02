@@ -1,5 +1,5 @@
 {
-    "root":"/home/zyf/dataset",
+    "root":"/home/colivier/src/FairMOT/src",
     "train":
     {
         "mot17":"./data/mot17.train",

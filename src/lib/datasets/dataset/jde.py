@@ -48,6 +48,7 @@ class LoadImages:  # for inference
 
         # Read image
         img0 = cv2.imread(img_path)  # BGR
+
         assert img0 is not None, 'Failed to load ' + img_path
 
         # Padded resize
@@ -113,6 +114,9 @@ class LoadVideo:  # for inference
             raise StopIteration
         # Read image
         res, img0 = self.cap.read()  # BGR
+        if img0 is None:
+            print('Error loading frame: {self.count}')
+            raise StopIteration()
         assert img0 is not None, 'Failed to load frame {:d}'.format(self.count)
         img0 = cv2.resize(img0, (self.w, self.h))
 

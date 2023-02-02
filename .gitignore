@@ -1,2 +1,7 @@
 .idea
-/crowdhuman
+/data
+*.pyc
+/h-demo
+=======
+*.pyc
+/demos
