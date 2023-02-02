@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import _init_paths
+import time
 import os
 import os.path as osp
 import cv2
@@ -111,6 +112,9 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         if show_image:
             #cv2.imshow('online_im', online_im)
             cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
+            # sleep(3)
+            # if frame_id % 20 == 0:
+            cv2.waitKey(1)
         if save_dir is not None:
             #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
             cv2.imwrite(os.path.join(save_dir, '{:05d}.png'.format(frame_id)), online_im)

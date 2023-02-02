@@ -41,7 +41,7 @@ def demo(opt):
 
     frame_dir = None if opt.output_format == 'text' else osp.join(result_root, 'frame')
     eval_seq(opt, dataloader, 'mot', result_filename,
-             save_dir=frame_dir, show_image=False, frame_rate=frame_rate,
+             save_dir=frame_dir, show_image=True, frame_rate=frame_rate,
              use_cuda=opt.gpus!=[-1])
 
     if opt.output_format == 'video':
