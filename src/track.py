@@ -12,6 +12,9 @@ import argparse
 import motmetrics as mm
 import numpy as np
 import torch
+import typing
+
+from typing import Dict, List
 
 from tracker.multitracker import JDETracker
 from tracking_utils import visualization as vis
@@ -67,6 +70,82 @@ def write_results_score(filename, results, data_type):
                 f.write(line)
     logger.info('save results to {}'.format(filename))
 
+def _make_pruned_map(map, allowed_keys):
+    key_set = set(allowed_keys)
+    new_map = dict()
+    for map_key in map.keys():
+        if map_key in key_set:
+            new_map[map_key] = map[map_key]
+    return new_map
+
+def _normalize_map(map, reference_map):
+    for key in reference_map:
+        if key not in map:
+            map[key] = reference_map[key]
+    return map
+
+
+class PositionHistory(object):
+    def __init__(self, id: int):
+        self.id_ = id
+        self.position_history_ = list()
+    
+    @property
+    def id(self):
+        return self.id_
+
+    @property
+    def position_history(self):
+        return self.position_history_
+    
+    @staticmethod
+    def center_point(tlwh):
+        top = tlwh[0]
+        left = tlwh[1]
+        width = tlwh[2]
+        height = tlwh[3]
+        x_center = left + width / 2
+        y_center = top + height / 2
+        return np.array((x_center, y_center), dtype=np.float32)
+    
+    def speed(self):
+        if len(self.position_history) < 2:
+            return 0.0
+        start_point = self.center_point(self.position_history_[-1])
+        end_point = self.center_point(self.position_history_[0])
+        velocity_vector = end_point - start_point
+        distance_traveled = np.linalg.norm(velocity_vector)
+        speed = distance_traveled / len(self.position_history)
+        return speed
+
+
+
+def _get_id_to_pos_history_map(tlwhs_history: Dict, speed_history: int, online_ids: List[int]):
+    assert len(tlwhs_history) > 0
+    online_ids_set = set(online_ids)
+    id_to_pos_history = dict()
+    for id_to_tlwhs_map in reversed(tlwhs_history):
+        # Iterating histories in reverse order
+        for this_id in id_to_tlwhs_map.keys():
+            if this_id not in online_ids_set:
+                continue
+            if this_id not in id_to_pos_history:
+                pos_hist = PositionHistory(this_id)
+                id_to_pos_history[this_id] = pos_hist
+            else:
+                pos_hist = id_to_pos_history[this_id]
+            if speed_history <= 0 or len(pos_hist.position_history) < speed_history:
+                tlwh = id_to_tlwhs_map[this_id]
+                pos_hist.position_history.append(tlwh)
+    return id_to_pos_history
+
+
+def _get_id_to_speed_map(id_to_pos_history: Dict[int, PositionHistory]):
+    id_to_speed_map = dict()
+    for id in id_to_pos_history.keys():
+        id_to_speed_map[id] = id_to_pos_history[id].speed()
+    return id_to_speed_map
+
 
 def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_image=True, frame_rate=30, use_cuda=True):
     if save_dir:
@@ -75,6 +154,9 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     timer = Timer()
     results = []
     frame_id = 0
+    online_tlwhs_history = list()
+    max_history = 26
+    speed_history = 26
     #for path, img, img0 in dataloader:
     for i, (path, img, img0) in enumerate(dataloader):
         #if i % 8 != 0:
@@ -91,6 +173,7 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         online_targets = tracker.update(blob, img0)
         online_tlwhs = []
         online_ids = []
+        online_tlwhs_map = dict()
         #online_scores = []
         for t in online_targets:
             tlwh = t.tlwh
@@ -99,22 +182,56 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
                 online_tlwhs.append(tlwh)
                 online_ids.append(tid)
+                online_tlwhs_map[tid] = tlwh
                 #online_scores.append(t.score)
             else:
                 print(f'Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})')
         timer.toc()
+
+        online_tlwhs_history.append(online_tlwhs_map)
+        if len(online_tlwhs_history) > max_history:
+            online_tlwhs_history = online_tlwhs_history[len(online_tlwhs_history) - max_history:]
+
+        id_to_tlwhs_history_map = _get_id_to_pos_history_map(online_tlwhs_history, speed_history, online_ids)
+        
+        id_to_speed_map = _get_id_to_speed_map(id_to_tlwhs_history_map)
+        #id_to_speed_map = _make_pruned_map(id_to_speed_map, online_ids)
+        assert len(id_to_speed_map) == len(online_ids)
+
         # save results
         results.append((frame_id + 1, online_tlwhs, online_ids))
         #results.append((frame_id + 1, online_tlwhs, online_ids, online_scores))
         if show_image or save_dir is not None:
-            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, frame_id=frame_id,
-                                          fps=1. / timer.average_time)
+            #online_im = img0
+
+            these_online_speeds = []
+            for id in online_ids:
+                these_online_speeds.append(id_to_speed_map[id])
+
+            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, 
+                                          frame_id=frame_id, fps=1. / timer.average_time, 
+                                          speeds=these_online_speeds)
+            current_pos_map = None
+            for pos_map in reversed(online_tlwhs_history):
+                if current_pos_map is None:
+                    current_pos_map = pos_map
+                else:
+                  # Prune any items not currently online
+                  pos_map = _make_pruned_map(pos_map, online_ids)
+                  pos_map = _normalize_map(pos_map, current_pos_map)
+                  assert len(pos_map) == len(current_pos_map)
+                # Make order the same
+                these_online_tlws = []
+                for id in online_ids:
+                    these_online_tlws.append(pos_map[id])
+                online_im = vis.plot_trajectory(online_im, these_online_tlws, online_ids)
         if show_image:
-            #cv2.imshow('online_im', online_im)
-            cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
+            cv2.imshow('online_im', online_im)
+            #cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
             # sleep(3)
             # if frame_id % 20 == 0:
             cv2.waitKey(1)
+            pass
         if save_dir is not None:
             #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
             cv2.imwrite(os.path.join(save_dir, '{:05d}.png'.format(frame_id)), online_im)

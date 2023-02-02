@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+from typing import List
 
 def tlwhs_to_tlbrs(tlwhs):
     tlbrs = np.copy(tlwhs)
@@ -25,7 +25,10 @@ def resize_image(image, max_size=800):
     return image
 
 
-def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=None):
+def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=None, speeds: List[float]=None):
+    assert len(tlwhs) == len(obj_ids)
+    if speeds:
+        assert len(speeds) == len(obj_ids)
     im = np.ascontiguousarray(np.copy(image))
     im_h, im_w = im.shape[:2]
 
@@ -33,7 +36,8 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
 
     text_scale = max(1, image.shape[1] / 1600.)
     text_thickness = 2
-    line_thickness = max(1, int(image.shape[1] / 500.))
+    #line_thickness = max(1, int(image.shape[1] / 1000.))
+    line_thickness = 1
 
     radius = max(5, int(im_w/140.))
     cv2.putText(im, 'frame: %d fps: %.2f num: %d' % (frame_id, fps, len(tlwhs)),
@@ -51,15 +55,24 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
         cv2.rectangle(im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness)
         cv2.putText(im, id_text, (intbox[0], intbox[1] + 30), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255),
                     thickness=text_thickness)
+        if speeds:
+            speed_text = "{:.1f}".format(speeds[i])
+            cv2.putText(im, speed_text, (intbox[2] - (intbox[0] + intbox[2])/2, intbox[3]), cv2.FONT_HERSHEY_PLAIN, text_scale/2., (0, 255, 0),
+                        thickness=text_thickness//2)
     return im
 
 
 def plot_trajectory(image, tlwhs, track_ids):
     image = image.copy()
+    assert len(tlwhs) == len(track_ids)
     for one_tlwhs, track_id in zip(tlwhs, track_ids):
         color = get_color(int(track_id))
         for tlwh in one_tlwhs:
-            x1, y1, w, h = tuple(map(int, tlwh))
+            #x1, y1, w, h = tuple(map(int, tlwh))
+            x1 = int(one_tlwhs[0])
+            y1 = int(one_tlwhs[1])
+            w = int(one_tlwhs[2])
+            h = int(one_tlwhs[3])
             cv2.circle(image, (int(x1 + 0.5 * w), int(y1 + h)), 2, color, thickness=2)
 
     return image
