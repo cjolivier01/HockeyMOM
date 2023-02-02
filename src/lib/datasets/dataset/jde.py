@@ -85,7 +85,7 @@ class LoadImages:  # for inference
 
 
 class LoadVideo:  # for inference
-    def __init__(self, path, img_size=(1088, 608)):
+    def __init__(self, path, img_size=(1088, 608), process_img_size=(1920, 1080)):
         self.cap = cv2.VideoCapture(path)
         self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
         self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -95,14 +95,20 @@ class LoadVideo:  # for inference
         self.width = img_size[0]
         self.height = img_size[1]
         self.count = 0
+        self._last_size = None
 
-        self.w, self.h = 1920, 1080
+        self.w, self.h = process_img_size
         print('Lenth of the video: {:d} frames'.format(self.vn))
 
     def get_size(self, vw, vh, dw, dh):
         wa, ha = float(dw) / vw, float(dh) / vh
         a = min(wa, ha)
-        return int(vw * a), int(vh * a)
+        size = int(vw * a), int(vh * a)
+        if self._last_size is not None:
+            assert size == self._last_size
+        else:
+            self._last_size = size
+        return size
 
     def __iter__(self):
         self.count = -1

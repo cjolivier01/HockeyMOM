@@ -88,11 +88,16 @@ class Model(nn.Module):
 
     def forward_once(self, x, profile=False):
         y, dt = [], []  # outputs
+        pass_nr = 0
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
 
+            #start_shape = x.data.shape
             x = m(x)  # run
+            #end_shape = x.data.shape
+            #print(f'Pass {pass_nr}: {m.__class__.__name__}: {start_shape} -> {end_shape}')
+            pass_nr += 1
             y.append(x if m.i in self.save else None)  # save output
 
         return x

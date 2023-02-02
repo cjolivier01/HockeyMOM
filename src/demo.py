@@ -16,6 +16,8 @@ from track import eval_seq
 
 logger.setLevel(logging.INFO)
 
+ORIGINAL_IMAGE_SIZE = (1088, 608)
+ORIGINAL_PROCESS_IMAGE_SIZE = (1920, 1080)
 
 def demo(opt):
     result_root = opt.output_root if opt.output_root != '' else '.'
@@ -23,9 +25,17 @@ def demo(opt):
 
     logger.info('Starting tracking...')
 
-    opt.img_size = 
+    #opt.img_size = (4096, 1800)
+    opt.img_size = (4096, 1024)
+    #opt.img_size = (4095, 1800)
+    #opt.img_size = (1088, 608)
+    #opt.img_size = ORIGINAL_IMAGE_SIZE
+    #opt.img_size = (2194, 1214)
+    
+    opt.process_img_size = opt.img_size
+    #opt.process_img_size = ORIGINAL_PROCESS_IMAGE_SIZE
 
-    dataloader = datasets.LoadVideo(path=opt.input_video, img_size=opt.img_size)
+    dataloader = datasets.LoadVideo(path=opt.input_video, img_size=opt.img_size, process_img_size=opt.process_img_size)
     result_filename = os.path.join(result_root, 'results.txt')
     frame_rate = dataloader.frame_rate
 
@@ -36,7 +46,8 @@ def demo(opt):
 
     if opt.output_format == 'video':
         output_video_path = osp.join(result_root, 'MOT16-03-results.mp4')
-        cmd_str = 'ffmpeg -f image2 -i {}/%05d.jpg -b 5000k -c:v mpeg4 {}'.format(osp.join(result_root, 'frame'), output_video_path)
+        #cmd_str = 'ffmpeg -f image2 -i {}/%05d.jpg -b 5000k -c:v mpeg4 {}'.format(osp.join(result_root, 'frame'), output_video_path)
+        cmd_str = 'ffmpeg -f image2 -i {}/%05d.png -b 5000k -c:v mpeg4 {}'.format(osp.join(result_root, 'frame'), output_video_path)
         os.system(cmd_str)
 
 

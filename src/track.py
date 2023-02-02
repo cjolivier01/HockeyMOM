@@ -99,6 +99,8 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
                 online_tlwhs.append(tlwh)
                 online_ids.append(tid)
                 #online_scores.append(t.score)
+            else:
+                print(f'Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})')
         timer.toc()
         # save results
         results.append((frame_id + 1, online_tlwhs, online_ids))
@@ -107,9 +109,11 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, frame_id=frame_id,
                                           fps=1. / timer.average_time)
         if show_image:
-            cv2.imshow('online_im', online_im)
+            #cv2.imshow('online_im', online_im)
+            cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
         if save_dir is not None:
-            cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
+            #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
+            cv2.imwrite(os.path.join(save_dir, '{:05d}.png'.format(frame_id)), online_im)
         frame_id += 1
     # save results
     write_results(result_filename, results, data_type)

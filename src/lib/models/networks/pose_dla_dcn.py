@@ -29,6 +29,8 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 
 class BasicBlock(nn.Module):
+    pass_ = 0
+
     def __init__(self, inplanes, planes, stride=1, dilation=1):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3,
@@ -43,6 +45,8 @@ class BasicBlock(nn.Module):
         self.stride = stride
 
     def forward(self, x, residual=None):
+        BasicBlock.pass_ += 1
+
         if residual is None:
             residual = x
 
