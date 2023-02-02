@@ -56,8 +56,14 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
         cv2.putText(im, id_text, (intbox[0], intbox[1] + 30), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255),
                     thickness=text_thickness)
         if speeds:
-            speed_text = "{:.1f}".format(speeds[i])
-            cv2.putText(im, speed_text, (intbox[2] - (intbox[0] + intbox[2])/2, intbox[3]), cv2.FONT_HERSHEY_PLAIN, text_scale/2., (0, 255, 0),
+            speed = speeds[i]
+            if speed < 10:
+                speed_text = "{:.1f}".format(speeds[i])
+            else:
+                speed_text = f"{int(speed + 0.5)}"
+            pos_x = intbox[2] - 30
+            pos_y = intbox[3]
+            cv2.putText(im, speed_text, (pos_x, pos_y), cv2.FONT_HERSHEY_PLAIN, text_scale/2, (0, 255, 0),
                         thickness=text_thickness//2)
     return im
 
