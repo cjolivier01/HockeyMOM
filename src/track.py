@@ -226,11 +226,11 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
                     these_online_tlws.append(pos_map[id])
                 online_im = vis.plot_trajectory(online_im, these_online_tlws, online_ids)
         if show_image:
-            #cv2.imshow('online_im', online_im)
+            cv2.imshow('online_im', online_im)
             #cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
             # sleep(3)
             # if frame_id % 20 == 0:
-            #cv2.waitKey(1)
+            cv2.waitKey(1)
             pass
         if save_dir is not None:
             #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)

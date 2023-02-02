@@ -63,8 +63,8 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
                 speed_text = f"{int(speed + 0.5)}"
             pos_x = intbox[2] - 30
             pos_y = intbox[3]
-            cv2.putText(im, speed_text, (pos_x, pos_y), cv2.FONT_HERSHEY_PLAIN, text_scale/2, (0, 255, 0),
-                        thickness=text_thickness//2)
+            cv2.putText(im, speed_text, (pos_x, pos_y), cv2.FONT_HERSHEY_PLAIN, text_scale/2, (150, 0, 150),
+                        thickness=text_thickness)
     return im
 
 
