@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import _init_paths
+import math
 import time
 import os
 import os.path as osp
@@ -85,11 +86,43 @@ def _normalize_map(map, reference_map):
     return map
 
 
+class VideoFrame(object):
+
+    def __init__(self, image_width:int, image_height:int, scale_width=0.1, scale_height=0.05):
+        self.image_width_ = image_width
+        self.image_height_ = image_height
+        self.vertical_center_ = image_width / 2
+        self.horizontal_center_ = image_height / 2
+        self.scale_width_ = scale_width
+        self.scale_height_ = scale_height
+
+    def point_ratio_vertical_away(self, point):
+        """
+        Vertical is farther away towards the top
+        """
+        # Is the first one X?
+        y = point[0]
+        return y / self.image_height_
+
+    def point_ratio_horizontal_away(self, point):
+        """
+        Horizontal is farther away towards the left anf right sides
+        """
+        # Is the first one X?
+        x = point[1]
+        dx = abs(x - self.horizontal_center_)
+        # TODO: Probably can work this out with trig, the actual linear distance,
+        # # esp since we know the rink's size
+        # Just do a meatball calculation for now...
+        return dx / self.horizontal_center_
+
+
 class PositionHistory(object):
-    def __init__(self, id: int):
+    def __init__(self, id: int, video_frame: VideoFrame):
         self.id_ = id
+        self.video_frame_ = video_frame
         self.position_history_ = list()
-    
+
     @property
     def id(self):
         return self.id_
@@ -97,7 +130,7 @@ class PositionHistory(object):
     @property
     def position_history(self):
         return self.position_history_
-    
+
     @staticmethod
     def center_point(tlwh):
         top = tlwh[0]
@@ -107,20 +140,35 @@ class PositionHistory(object):
         x_center = left + width / 2
         y_center = top + height / 2
         return np.array((x_center, y_center), dtype=np.float32)
-    
+
     def speed(self):
         if len(self.position_history) < 2:
             return 0.0
-        start_point = self.center_point(self.position_history_[-1])
-        end_point = self.center_point(self.position_history_[0])
-        velocity_vector = end_point - start_point
-        distance_traveled = np.linalg.norm(velocity_vector)
-        speed = distance_traveled / len(self.position_history)
-        return speed
+        speed_sum = 0
+        movement_count = len(self.position_history_) - 1
+        for i in range(movement_count):
+          start_point = self.center_point(self.position_history_[i])
+          end_point = self.center_point(self.position_history_[i+1])
+          center_point_y = (end_point[0] + start_point[0]) / 2
+          center_point_x = (end_point[1] + start_point[1]) / 2
+          center_point = np.array((center_point_y, center_point_x))
+          ratio_y = self.video_frame_.point_ratio_vertical_away(center_point)
+          ratio_x = self.video_frame_.point_ratio_horizontal_away(center_point)
+          dy = end_point[0] - start_point[0]
+          dx = end_point[1] - start_point[1]
+          dy += dy * ratio_y
+          dx += dx * ratio_x
+          #velocity_vector = np.array()
+          #distance_traveled = np.linalg.norm(velocity_vector)
+          distance_traveled = math.sqrt(dx * dx + dy * dy)
+          speed = distance_traveled / len(self.position_history)
+          speed_sum += speed
+        average_speed = speed_sum / movement_count
+        return average_speed
 
 
 
-def _get_id_to_pos_history_map(tlwhs_history: Dict, speed_history: int, online_ids: List[int]):
+def _get_id_to_pos_history_map(tlwhs_history: Dict, speed_history: int, online_ids: List[int], video_frame: VideoFrame):
     assert len(tlwhs_history) > 0
     online_ids_set = set(online_ids)
     id_to_pos_history = dict()
@@ -130,7 +178,7 @@ def _get_id_to_pos_history_map(tlwhs_history: Dict, speed_history: int, online_i
             if this_id not in online_ids_set:
                 continue
             if this_id not in id_to_pos_history:
-                pos_hist = PositionHistory(this_id)
+                pos_hist = PositionHistory(this_id, video_frame)
                 id_to_pos_history[this_id] = pos_hist
             else:
                 pos_hist = id_to_pos_history[this_id]
@@ -157,6 +205,7 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     online_tlwhs_history = list()
     max_history = 26
     speed_history = 26
+    video_frame = None
     #for path, img, img0 in dataloader:
     for i, (path, img, img0) in enumerate(dataloader):
         #if i % 8 != 0:
@@ -170,6 +219,13 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             blob = torch.from_numpy(img).cuda().unsqueeze(0)
         else:
             blob = torch.from_numpy(img).unsqueeze(0)
+        
+        if video_frame is None:    
+            video_frame = VideoFrame(
+              image_width=img.shape[2], image_height=img.shape[1],
+              scale_width=0.1, scale_height=0.05
+            )
+            
         online_targets = tracker.update(blob, img0)
         online_tlwhs = []
         online_ids = []
@@ -192,8 +248,8 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         if len(online_tlwhs_history) > max_history:
             online_tlwhs_history = online_tlwhs_history[len(online_tlwhs_history) - max_history:]
 
-        id_to_tlwhs_history_map = _get_id_to_pos_history_map(online_tlwhs_history, speed_history, online_ids)
-        
+        id_to_tlwhs_history_map = _get_id_to_pos_history_map(online_tlwhs_history, speed_history, online_ids, video_frame)
+
         id_to_speed_map = _get_id_to_speed_map(id_to_tlwhs_history_map)
         #id_to_speed_map = _make_pruned_map(id_to_speed_map, online_ids)
         assert len(id_to_speed_map) == len(online_ids)
@@ -208,8 +264,8 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             for id in online_ids:
                 these_online_speeds.append(id_to_speed_map[id])
 
-            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, 
-                                          frame_id=frame_id, fps=1. / timer.average_time, 
+            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids,
+                                          frame_id=frame_id, fps=1. / timer.average_time,
                                           speeds=these_online_speeds)
             current_pos_map = None
             for pos_map in reversed(online_tlwhs_history):
@@ -226,11 +282,10 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
                     these_online_tlws.append(pos_map[id])
                 online_im = vis.plot_trajectory(online_im, these_online_tlws, online_ids)
         if show_image:
-            #cv2.imshow('online_im', online_im)
-            #cv2.imshow('online_im', np.array(online_im, dtype=np.uint8))
             # sleep(3)
-            # if frame_id % 20 == 0:
-            #cv2.waitKey(1)
+            if frame_id % 1 == 0:
+              cv2.imshow('online_im', online_im)
+              cv2.waitKey(1)
             pass
         if save_dir is not None:
             #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
