@@ -1,5 +1,5 @@
 {
-    "root":"/home/colivier/src/FairMOT",
+    "root":"/home/colivier/src/hockeymom",
     "train":
     {
         "mot17":"./data/mot16.train"

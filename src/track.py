@@ -14,6 +14,11 @@ import motmetrics as mm
 import numpy as np
 import torch
 import typing
+import matplotlib.pyplot as plt
+
+from sklearn.cluster import KMeans
+
+#from PIL import Image
 
 from typing import Dict, List
 
@@ -27,6 +32,7 @@ import datasets.dataset.jde as datasets
 from tracking_utils.utils import mkdir_if_missing
 from opts import opts
 
+from camera.camera import HockeyMOM
 
 def write_results(filename, results, data_type):
     if data_type == 'mot':
@@ -71,129 +77,6 @@ def write_results_score(filename, results, data_type):
                 f.write(line)
     logger.info('save results to {}'.format(filename))
 
-def _make_pruned_map(map, allowed_keys):
-    key_set = set(allowed_keys)
-    new_map = dict()
-    for map_key in map.keys():
-        if map_key in key_set:
-            new_map[map_key] = map[map_key]
-    return new_map
-
-def _normalize_map(map, reference_map):
-    for key in reference_map:
-        if key not in map:
-            map[key] = reference_map[key]
-    return map
-
-
-class VideoFrame(object):
-
-    def __init__(self, image_width:int, image_height:int, scale_width=0.1, scale_height=0.05):
-        self.image_width_ = image_width
-        self.image_height_ = image_height
-        self.vertical_center_ = image_width / 2
-        self.horizontal_center_ = image_height / 2
-        self.scale_width_ = scale_width
-        self.scale_height_ = scale_height
-
-    def point_ratio_vertical_away(self, point):
-        """
-        Vertical is farther away towards the top
-        """
-        # Is the first one X?
-        y = point[0]
-        return y / self.image_height_
-
-    def point_ratio_horizontal_away(self, point):
-        """
-        Horizontal is farther away towards the left anf right sides
-        """
-        # Is the first one X?
-        x = point[1]
-        dx = abs(x - self.horizontal_center_)
-        # TODO: Probably can work this out with trig, the actual linear distance,
-        # # esp since we know the rink's size
-        # Just do a meatball calculation for now...
-        return dx / self.horizontal_center_
-
-
-class PositionHistory(object):
-    def __init__(self, id: int, video_frame: VideoFrame):
-        self.id_ = id
-        self.video_frame_ = video_frame
-        self.position_history_ = list()
-
-    @property
-    def id(self):
-        return self.id_
-
-    @property
-    def position_history(self):
-        return self.position_history_
-
-    @staticmethod
-    def center_point(tlwh):
-        top = tlwh[0]
-        left = tlwh[1]
-        width = tlwh[2]
-        height = tlwh[3]
-        x_center = left + width / 2
-        y_center = top + height / 2
-        return np.array((x_center, y_center), dtype=np.float32)
-
-    def speed(self):
-        if len(self.position_history) < 2:
-            return 0.0
-        speed_sum = 0
-        movement_count = len(self.position_history_) - 1
-        for i in range(movement_count):
-          start_point = self.center_point(self.position_history_[i])
-          end_point = self.center_point(self.position_history_[i+1])
-          center_point_y = (end_point[0] + start_point[0]) / 2
-          center_point_x = (end_point[1] + start_point[1]) / 2
-          center_point = np.array((center_point_y, center_point_x))
-          ratio_y = self.video_frame_.point_ratio_vertical_away(center_point)
-          ratio_x = self.video_frame_.point_ratio_horizontal_away(center_point)
-          dy = end_point[0] - start_point[0]
-          dx = end_point[1] - start_point[1]
-          dy += dy * ratio_y
-          dx += dx * ratio_x
-          #velocity_vector = np.array()
-          #distance_traveled = np.linalg.norm(velocity_vector)
-          distance_traveled = math.sqrt(dx * dx + dy * dy)
-          speed = distance_traveled / len(self.position_history)
-          speed_sum += speed
-        average_speed = speed_sum / movement_count
-        return average_speed
-
-
-
-def _get_id_to_pos_history_map(tlwhs_history: Dict, speed_history: int, online_ids: List[int], video_frame: VideoFrame):
-    assert len(tlwhs_history) > 0
-    online_ids_set = set(online_ids)
-    id_to_pos_history = dict()
-    for id_to_tlwhs_map in reversed(tlwhs_history):
-        # Iterating histories in reverse order
-        for this_id in id_to_tlwhs_map.keys():
-            if this_id not in online_ids_set:
-                continue
-            if this_id not in id_to_pos_history:
-                pos_hist = PositionHistory(this_id, video_frame)
-                id_to_pos_history[this_id] = pos_hist
-            else:
-                pos_hist = id_to_pos_history[this_id]
-            if speed_history <= 0 or len(pos_hist.position_history) < speed_history:
-                tlwh = id_to_tlwhs_map[this_id]
-                pos_hist.position_history.append(tlwh)
-    return id_to_pos_history
-
-
-def _get_id_to_speed_map(id_to_pos_history: Dict[int, PositionHistory]):
-    id_to_speed_map = dict()
-    for id in id_to_pos_history.keys():
-        id_to_speed_map[id] = id_to_pos_history[id].speed()
-    return id_to_speed_map
-
 
 def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_image=True, frame_rate=30, use_cuda=True):
     if save_dir:
@@ -202,10 +85,19 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     timer = Timer()
     results = []
     frame_id = 0
-    online_tlwhs_history = list()
-    max_history = 26
-    speed_history = 26
-    video_frame = None
+    #online_tlwhs_history = list()
+    # max_history = 26
+    # speed_history = 26
+    plot_tracking = True
+    hockey_mom = None
+    current_bounding_box = None
+    last_bounding_box = None
+    last_fast_bounding_box = None
+    plot_interias = False
+    #image_viewer: Viewer = None
+    camera_box = None
+    show_image_interval = 1
+    last_both_boxes = None
     #for path, img, img0 in dataloader:
     for i, (path, img, img0) in enumerate(dataloader):
         #if i % 8 != 0:
@@ -219,17 +111,16 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             blob = torch.from_numpy(img).cuda().unsqueeze(0)
         else:
             blob = torch.from_numpy(img).unsqueeze(0)
-        
-        if video_frame is None:    
-            video_frame = VideoFrame(
+
+        if hockey_mom is None:
+            hockey_mom = HockeyMOM(
               image_width=img.shape[2], image_height=img.shape[1],
-              scale_width=0.1, scale_height=0.05
+              scale_width=0, scale_height=0
             )
-            
+
         online_targets = tracker.update(blob, img0)
         online_tlwhs = []
         online_ids = []
-        online_tlwhs_map = dict()
         #online_scores = []
         for t in online_targets:
             tlwh = t.tlwh
@@ -238,55 +129,169 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
                 online_tlwhs.append(tlwh)
                 online_ids.append(tid)
-                online_tlwhs_map[tid] = tlwh
                 #online_scores.append(t.score)
             else:
                 print(f'Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})')
         timer.toc()
 
-        online_tlwhs_history.append(online_tlwhs_map)
-        if len(online_tlwhs_history) > max_history:
-            online_tlwhs_history = online_tlwhs_history[len(online_tlwhs_history) - max_history:]
+        # online_tlwhs = []
+        # online_ids = []
 
-        id_to_tlwhs_history_map = _get_id_to_pos_history_map(online_tlwhs_history, speed_history, online_ids, video_frame)
+        hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
-        id_to_speed_map = _get_id_to_speed_map(id_to_tlwhs_history_map)
+        hockey_mom.calculate_clusters(n_clusters=2)
+
+        largest_cluster_id_set = hockey_mom.get_largest_cluster_id_set()
+
+        #last_fast_online_ids = None
+
+        # if last_bounding_box is None:
+        #     last_bounding_box = hockey_mom.get_current_bounding_box()
+
         #id_to_speed_map = _make_pruned_map(id_to_speed_map, online_ids)
-        assert len(id_to_speed_map) == len(online_ids)
+        #assert len(id_to_speed_map) == len(online_ids)
 
         # save results
         results.append((frame_id + 1, online_tlwhs, online_ids))
         #results.append((frame_id + 1, online_tlwhs, online_ids, online_scores))
         if show_image or save_dir is not None:
-            #online_im = img0
+            online_im = img0
+            fast_bounding_box = None
+            # if plot_tracking:
+            #     online_im = vis.plot_tracking(online_im, online_tlwhs, online_ids, frame_id=frame_id, fps=1./timer.average_time)
 
-            these_online_speeds = []
-            for id in online_ids:
-                these_online_speeds.append(id_to_speed_map[id])
-
-            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids,
-                                          frame_id=frame_id, fps=1. / timer.average_time,
-                                          speeds=these_online_speeds)
-            current_pos_map = None
-            for pos_map in reversed(online_tlwhs_history):
-                if current_pos_map is None:
-                    current_pos_map = pos_map
+            if i == 0:
+                # First step, we have no velocities, so pick everyone
+                # fast_online_ids = online_ids
+                # fast_online_tlwhs = online_tlwhs
+                # fast_online_speeds = np.zeros(len(online_ids))
+                # fast_ids = online_ids
+                # fast_online_tlwhs = online_tlwhs
+                fast_ids = []
+                fast_online_tlwhs = []
+            else:
+                # fast_online_ids = []
+                # fast_online_tlwhs = []
+                # fast_online_speeds = []
+                fast_ids = hockey_mom.get_fast_ids()
+                if fast_ids:
+                    fast_online_tlwhs = [hockey_mom.get_tlwh(id) for id in fast_ids]
+                    fast_bounding_box = hockey_mom.get_current_bounding_box(ids=fast_ids)
                 else:
-                  # Prune any items not currently online
-                  pos_map = _make_pruned_map(pos_map, online_ids)
-                  pos_map = _normalize_map(pos_map, current_pos_map)
-                  assert len(pos_map) == len(current_pos_map)
-                # Make order the same
-                these_online_tlws = []
+                    #fast_ids = online_ids
+                    #fast_online_tlwhs = online_tlwhs
+                    pass
+                # for fast_id, fast_tlwhs in zip(online_ids, online_tlwhs):
+                #     if fast_id in fast_ids:
+                #         fast_online_ids.append(fast_id)
+                #         fast_online_tlwhs.append(fast_tlwhs)
+                #         fast_online_speeds.append(hockey_mom.get_speed(fast_id))
+
+            #last_bounding_box = hockey_mom.get_current_bounding_box(obj_ids=fast_ids)
+
+            if fast_ids and False:
+                online_im = vis.plot_tracking(online_im, fast_online_tlwhs, fast_ids,
+                                              frame_id=frame_id, fps=1. / timer.average_time)
+                # if current_bounding_box is None:
+                #     current_bounding_box = last_bounding_box
+                # else:
+                #     current_bounding_box = hockey_mom.translate_box(
+                #       current_bounding_box,
+                #       last_bounding_box,
+                #       max_x=30,
+                #       max_y=30,
+                #       clamp_box=hockey_mom.clamp_box)
+                #     print(current_bounding_box)
+            else:
+                these_online_speeds = []
                 for id in online_ids:
-                    these_online_tlws.append(pos_map[id])
-                online_im = vis.plot_trajectory(online_im, these_online_tlws, online_ids)
+                    these_online_speeds.append(hockey_mom.get_spatial_speed(id))
+                online_im = vis.plot_tracking(online_im, online_tlwhs, online_ids,
+                                              frame_id=frame_id, fps=1. / timer.average_time,
+                                              speeds=these_online_speeds)
+                pass
+            if fast_ids:
+                current_bounding_box = hockey_mom.get_current_bounding_box(ids=fast_ids)
+                last_bounding_box = current_bounding_box
+            else:
+                current_bounding_box = last_bounding_box
+
+            if plot_tracking:
+                # if fast_bounding_box is not None:
+                #     cv2.rectangle(online_im, fast_bounding_box[0:2], fast_bounding_box[2:4], color=(255, 255, 0), thickness=6)
+                #     last_fast_bounding_box = fast_bounding_box
+                # elif last_fast_bounding_box is not None:
+                #     cv2.rectangle(online_im, last_fast_bounding_box[0:2], last_fast_bounding_box[2:4], color=(128, 128, 0), thickness=6)
+
+                largest_cluster_ids = hockey_mom.prune_not_in_largest_cluster(online_ids)
+                #largest_cluster_ids = hockey_mom.prune_not_in_largest_cluster(fast_ids)
+                if largest_cluster_ids:
+                    largest_cluster_ids_box = hockey_mom.get_current_bounding_box(largest_cluster_ids)
+                    largest_cluster_ids_box = hockey_mom.make_normalized_bounding_box(largest_cluster_ids_box)
+                    cv2.rectangle(online_im, largest_cluster_ids_box[0:2], largest_cluster_ids_box[2:4], color=(0, 255, 128), thickness=4)
+
+            if plot_tracking and current_bounding_box is not None:
+                cv2.rectangle(online_im, current_bounding_box[0:2], current_bounding_box[2:4], color=(255, 0, 0), thickness=4)
+                # Union box
+
+            if current_bounding_box is not None and largest_cluster_ids_box is not None:
+                both_boxes = HockeyMOM._union(current_bounding_box, largest_cluster_ids_box)
+            elif largest_cluster_ids_box is not None:
+                both_boxes = largest_cluster_ids_box
+            elif current_bounding_box is not None:
+                both_boxes = current_bounding_box
+
+            cv2.rectangle(online_im, both_boxes[0:2], both_boxes[2:4], color=(255, 0, 255), thickness=8)
+            if last_both_boxes is not None:
+                both_boxes = hockey_mom.translate_box(last_both_boxes, both_boxes, clamp_box=hockey_mom._video_frame.box())
+            cv2.rectangle(online_im, both_boxes[0:2], both_boxes[2:4], color=(0, 0, 255), thickness=8)
+            last_both_boxes = both_boxes
+
+
+            # if not fast_online_ids:
+            #     fast_online_ids = last_fast_online_ids
+            # elif fast_online_ids:
+            #     last_fast_online_ids = fast_online_ids
+            # if fast_online_ids:
+            #     online_im = vis.plot_camera(image=online_im, obj_ids=fast_online_ids, hockey_mom=hockey_mom)
+
+            # TODO: slowly towards last_bounding_box
+            #current_bounding_box = last_bounding_box
+
+            # current_pos_map = None
+            # for pos_map in reversed(online_tlwhs_history):
+            #     if current_pos_map is None:
+            #         current_pos_map = pos_map
+            #     else:
+            #       # Prune any items not currently online
+            #       pos_map = hockey_mom._make_pruned_map(pos_map, online_ids)
+            #       pos_map = hockey_mom._normalize_map(pos_map, current_pos_map)
+            #       assert len(pos_map) == len(current_pos_map)
+
+            # # Make order the same
+            # these_online_tlws = []
+            # for id in online_ids:
+            #     these_online_tlws.append(pos_map[id])
+            # # Plot the trajectories
+            if plot_tracking:
+                online_im = vis.plot_trajectory(online_im, hockey_mom.get_image_tracking(online_ids), online_ids)
+
+            # kmeans = KMeans(n_clusters=3)
+            # kmeans.fit(hockey_mom.online_image_center_points)
+            # plt.scatter(x, y, c=kmeans.labels_)
+            # plt.show()
+
         if show_image:
             # sleep(3)
-            if frame_id % 1 == 0:
+            if frame_id % show_image_interval == 0:
               cv2.imshow('online_im', online_im)
               cv2.waitKey(1)
+              pass
             pass
+
+        if plot_interias:
+            vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
+
         if save_dir is not None:
             #cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
             cv2.imwrite(os.path.join(save_dir, '{:05d}.png'.format(frame_id)), online_im)

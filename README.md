@@ -1,4 +1,4 @@
-# FairMOT
+# HockeyMOM
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-simple-baseline-for-multi-object-tracking/multi-object-tracking-on-2dmot15-1)](https://paperswithcode.com/sota/multi-object-tracking-on-2dmot15-1?p=a-simple-baseline-for-multi-object-tracking)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-simple-baseline-for-multi-object-tracking/multi-object-tracking-on-mot16)](https://paperswithcode.com/sota/multi-object-tracking-on-mot16?p=a-simple-baseline-for-multi-object-tracking)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-simple-baseline-for-multi-object-tracking/multi-object-tracking-on-mot17)](https://paperswithcode.com/sota/multi-object-tracking-on-mot17?p=a-simple-baseline-for-multi-object-tracking)
@@ -15,11 +15,11 @@ There has been remarkable progress on object detection and re-identification in 
 ## News
 * (2021.08.03) Our paper is accepted by IJCV!
 * (2021.06.01) A [nice re-implementation](https://github.com/PaddlePaddle/PaddleDetection/tree/release/2.1/configs/mot) by Baidu [PaddleDetection](https://github.com/PaddlePaddle/PaddleDetection)!
-* (2021.05.24) A light version of FairMOT using yolov5s backbone is released! 
-* (2020.09.10) A new version of FairMOT is released! (73.7 MOTA on MOT17)
+* (2021.05.24) A light version of HockeyMOM using yolov5s backbone is released! 
+* (2020.09.10) A new version of HockeyMOM is released! (73.7 MOTA on MOT17)
 
 ## Main updates
-* We pretrain FairMOT on the CrowdHuman dataset using a weakly-supervised learning approach.
+* We pretrain HockeyMOM on the CrowdHuman dataset using a weakly-supervised learning approach.
 * To detect bounding boxes outside the image, we use left, top, right and bottom (4 channel) to replace the WH head (2 channel). 
 
 ## Tracking performance
@@ -39,13 +39,15 @@ There has been remarkable progress on object detection and re-identification in 
 
 
 ## Installation
-* Clone this repo, and we'll call the directory that you cloned as ${FAIRMOT_ROOT}
+* Clone this repo, and we'll call the directory that you cloned as ${HOCKEYMOM_ROOT}
 * Install dependencies. We use python 3.8 and pytorch >= 1.7.0
 ```
-conda create -n FairMOT
-conda activate FairMOT
-conda install pytorch==1.7.0 torchvision==0.8.0 cudatoolkit=10.2 -c pytorch
-cd ${FAIRMOT_ROOT}
+conda create -n HockeyMOM
+conda activate HockeyMOM
+conda install pytorch==1.7.0 torchvision==0.8.0 cudatoolkit=10.2 opencv-python=4.7 opencv-contrib-python=4.7 -c pytorch
+# In order to build 
+conda install gcc_linux-64=9.3.0 gxx_linux-64=9.3.0
+cd ${HOCKEYMOM_ROOT}
 pip install cython
 pip install -r requirements.txt
 ```
@@ -115,7 +117,7 @@ DLA-34 COCO pretrained model: [DLA-34 official](https://drive.google.com/file/d/
 HRNetV2 ImageNet pretrained model: [HRNetV2-W18 official](https://1drv.ms/u/s!Aus8VCZ_C_33cMkPimlmClRvmpw), [HRNetV2-W32 official](https://1drv.ms/u/s!Aus8VCZ_C_33dYBMemi9xOUFR0w).
 After downloading, you should put the pretrained models in the following structure:
 ```
-${FAIRMOT_ROOT}
+${HOCKEYMOM_ROOT}
    └——————models
            └——————ctdet_coco_dla_2x.pth
            └——————hrnetv2_w32_imagenet_pretrained.pth
@@ -123,12 +125,12 @@ ${FAIRMOT_ROOT}
 ```
 * **Baseline model**
 
-Our baseline FairMOT model (DLA-34 backbone) is pretrained on the CrowdHuman for 60 epochs with the self-supervised learning approach and then trained on the MIX dataset for 30 epochs. The models can be downloaded here: 
+Our baseline HockeyMOM model (DLA-34 backbone) is pretrained on the CrowdHuman for 60 epochs with the self-supervised learning approach and then trained on the MIX dataset for 30 epochs. The models can be downloaded here: 
 crowdhuman_dla34.pth [[Google]](https://drive.google.com/file/d/1SFOhg_vos_xSYHLMTDGFVZBYjo8cr2fG/view?usp=sharing) [[Baidu, code:ggzx ]](https://pan.baidu.com/s/1JZMCVDyQnQCa5veO73YaMw) [[Onedrive]](https://microsoftapc-my.sharepoint.com/:u:/g/personal/v-yifzha_microsoft_com/EUsj0hkTNuhKkj9bo9kE7ZsBpmHvqDz6DylPQPhm94Y08w?e=3OF4XN).
 fairmot_dla34.pth [[Google]](https://drive.google.com/file/d/1iqRQjsG9BawIl8SlFomMg5iwkb6nqSpi/view?usp=sharing) [[Baidu, code:uouv]](https://pan.baidu.com/s/1H1Zp8wrTKDk20_DSPAeEkg) [[Onedrive]](https://microsoftapc-my.sharepoint.com/:u:/g/personal/v-yifzha_microsoft_com/EWHN_RQA08BDoEce_qFW-ogBNUsb0jnxG3pNS3DJ7I8NmQ?e=p0Pul1). (This is the model we get 73.7 MOTA on the MOT17 test set. )
 After downloading, you should put the baseline model in the following structure:
 ```
-${FAIRMOT_ROOT}
+${HOCKEYMOM_ROOT}
    └——————models
            └——————fairmot_dla34.pth
            └——————...
@@ -168,7 +170,7 @@ sh experiments/crowdhuman_dla34.sh
 sh experiments/mix_ft_ch_dla34.sh
 sh experiments/mot20_ft_mix_dla34.sh
 ```
-The MOT20 model 'mot20_fairmot.pth' can be downloaded here: [[Google]](https://drive.google.com/file/d/1HVzDTrYSSZiVqExqG9rou3zZXX1-GGQn/view?usp=sharing) [[Baidu, code:jmce]](https://pan.baidu.com/s/1bpMtu972ZszsBx4TzIT_CA).
+The MOT20 model 'mot20_HockeyMOM.pth' can be downloaded here: [[Google]](https://drive.google.com/file/d/1HVzDTrYSSZiVqExqG9rou3zZXX1-GGQn/view?usp=sharing) [[Baidu, code:jmce]](https://pan.baidu.com/s/1bpMtu972ZszsBx4TzIT_CA).
 * For ablation study, we use MIX and half of MOT17 as training data, you can use different backbones such as ResNet, ResNet-FPN, HRNet and DLA::
 ```
 sh experiments/mix_mot17_half_dla34.sh
@@ -185,7 +187,7 @@ The ablation study model 'mix_mot17_half_dla34.pth' can be downloaded here: [[Go
 |MOT17  | 69.8 | 69.9 | 3996                |
 |MIX       | 72.9 | 73.2 | 3345             |
 |CrowdHuman + MIX     | 73.7 | 72.3 | 3303  |
-* We use CrowdHuman, MIX and MOT17 to train the light version of FairMOT using yolov5s as backbone:
+* We use CrowdHuman, MIX and MOT17 to train the light version of HockeyMOM using yolov5s as backbone:
 ```
 sh experiments/all_yolov5s.sh
 ```
@@ -212,7 +214,7 @@ cd src
 python track.py mot --test_mot17 True --load_model ../models/fairmot_dla34.pth --conf_thres 0.4
 python track.py mot --test_mot16 True --load_model ../models/fairmot_dla34.pth --conf_thres 0.4
 ```
-* To run tracking using the light version of FairMOT (68.5 MOTA on the test of MOT17), you can run:
+* To run tracking using the light version of HockeyMOM (68.5 MOTA on the test of MOT17), you can run:
 ```
 cd src
 python track.py mot --test_mot17 True --load_model ../models/fairmot_yolov5s.pth --conf_thres 0.4 --arch yolo --reid_dim 64
@@ -237,7 +239,7 @@ You can change --input-video and --output-root to get the demos of your own vide
 --conf_thres can be set from 0.3 to 0.7 depending on your own videos.
 
 ## Train on custom dataset
-You can train FairMOT on custom dataset by following several steps bellow:
+You can train HockeyMOM on custom dataset by following several steps bellow:
 1. Generate one txt label file for one image. Each line of the txt label file represents one object. The format of the line is: "class id x_center/img_width y_center/img_height w/img_width h/img_height". You can modify src/gen_labels_16.py to generate label files for your custom dataset.
 2. Generate files containing image paths. The example files are in src/data/. Some similar code can be found in src/gen_labels_crowd.py
 3. Create a json file for your custom dataset in src/lib/cfg/. You need to specify the "root" and "train" keys in the json file. You can find some examples in src/lib/cfg/.
@@ -249,8 +251,8 @@ A large part of the code is borrowed from [Zhongdao/Towards-Realtime-MOT](https:
 ## Citation
 
 ```
-@article{zhang2021fairmot,
-  title={Fairmot: On the fairness of detection and re-identification in multiple object tracking},
+@article{zhang2021HockeyMOM,
+  title={HockeyMOM: On the fairness of detection and re-identification in multiple object tracking},
   author={Zhang, Yifu and Wang, Chunyu and Wang, Xinggang and Zeng, Wenjun and Liu, Wenyu},
   journal={International Journal of Computer Vision},
   volume={129},

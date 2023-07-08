@@ -18,6 +18,13 @@ from datasets.dataset_factory import get_dataset
 from trains.train_factory import train_factory
 
 
+def checkpoint_model(model, optimizer, file_path: str):
+    checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict() if optimizer else None,
+    }
+    torch.save(checkpoint, file_path)
+
 def main(opt):
     torch.manual_seed(opt.seed)
     torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test

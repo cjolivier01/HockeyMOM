@@ -1,9 +1,7 @@
 .idea
-/data
-*.pyc
-/h-demo
-=======
 *.pyc
 /demos
 /models/*.pth
 /models/*.pt
+/exp
+__pycache__

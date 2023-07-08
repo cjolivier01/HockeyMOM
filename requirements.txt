@@ -11,3 +11,7 @@ openpyxl
 Pillow
 tensorboardX
 fvcore
+opencv-python
+opencv-contrib-python
+cameratransform
+

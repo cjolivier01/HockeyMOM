@@ -1,6 +1,10 @@
+import copy
 import numpy as np
 import cv2
-from typing import List
+from typing import List, Tuple
+from camera.camera import HockeyMOM
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
 
 def tlwhs_to_tlbrs(tlwhs):
     tlbrs = np.copy(tlwhs)
@@ -25,7 +29,7 @@ def resize_image(image, max_size=800):
     return image
 
 
-def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=None, speeds: List[float]=None):
+def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=None, speeds: List[float]=None, box_color: Tuple[int,int,int] = None):
     assert len(tlwhs) == len(obj_ids)
     if speeds:
         assert len(speeds) == len(obj_ids)
@@ -39,7 +43,7 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
     #line_thickness = max(1, int(image.shape[1] / 1000.))
     line_thickness = 1
 
-    radius = max(5, int(im_w/140.))
+    #radius = max(5, int(im_w/140.))
     cv2.putText(im, 'frame: %d fps: %.2f num: %d' % (frame_id, fps, len(tlwhs)),
                 (0, int(15 * text_scale)), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255), thickness=2)
 
@@ -50,8 +54,8 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
         id_text = '{}'.format(int(obj_id))
         if ids2 is not None:
             id_text = id_text + ', {}'.format(int(ids2[i]))
-        _line_thickness = 1 if obj_id <= 0 else line_thickness
-        color = get_color(abs(obj_id))
+        #_line_thickness = 1 if obj_id <= 0 else line_thickness
+        color = box_color if box_color is not None else get_color(abs(obj_id))
         cv2.rectangle(im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness)
         cv2.putText(im, id_text, (intbox[0], intbox[1] + 30), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255),
                     thickness=text_thickness)
@@ -63,22 +67,33 @@ def plot_tracking(image, tlwhs, obj_ids, scores=None, frame_id=0, fps=0., ids2=N
                 speed_text = f"{int(speed + 0.5)}"
             pos_x = intbox[2] - 30
             pos_y = intbox[3]
-            cv2.putText(im, speed_text, (pos_x, pos_y), cv2.FONT_HERSHEY_PLAIN, text_scale/2, (150, 0, 150),
+            cv2.putText(im, speed_text, (pos_x, pos_y), cv2.FONT_HERSHEY_PLAIN, text_scale, (150, 0, 150),
                         thickness=text_thickness)
     return im
 
 
+def plot_camera(image, obj_ids: List[int], hockey_mom: HockeyMOM):
+    original_bounding_box = hockey_mom.get_current_bounding_box(obj_ids=obj_ids)
+    print(original_bounding_box)
+    cv2.rectangle(image, original_bounding_box[0:2], original_bounding_box[2:4], color=(0, 0, 0), thickness=6)
+    x1 = int(original_bounding_box[0])
+    y1 = int(original_bounding_box[1])
+    w = int(original_bounding_box[2])
+    h = int(original_bounding_box[3])
+    cv2.circle(image, (int(x1 + 0.5 * w), int(y1 + h)), 2, color=(255, 255, 0), thickness=20)
+    return image
+    
+
 def plot_trajectory(image, tlwhs, track_ids):
-    image = image.copy()
+    #image = image.copy()
     assert len(tlwhs) == len(track_ids)
     for one_tlwhs, track_id in zip(tlwhs, track_ids):
         color = get_color(int(track_id))
         for tlwh in one_tlwhs:
-            #x1, y1, w, h = tuple(map(int, tlwh))
-            x1 = int(one_tlwhs[0])
-            y1 = int(one_tlwhs[1])
-            w = int(one_tlwhs[2])
-            h = int(one_tlwhs[3])
+            x1 = int(tlwh[0])
+            y1 = int(tlwh[1])
+            w = int(tlwh[2])
+            h = int(tlwh[3])
             cv2.circle(image, (int(x1 + 0.5 * w), int(y1 + h)), 2, color, thickness=2)
 
     return image
@@ -107,3 +122,26 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
         cv2.rectangle(im, (x1, y1), (x2, y2), color, 2)
 
     return im
+
+
+def plot_kmeans_intertias(hockey_mom: HockeyMOM):
+    inertias = []
+    object_count = len(hockey_mom.online_image_center_points)
+    for i in range(1, object_count):
+        kmeans = KMeans(n_clusters=i, n_init='auto')
+        kmeans.fit(hockey_mom.online_image_center_points)
+        inertias.append(kmeans.inertia_)
+
+    plt.plot(range(1,object_count), inertias, marker='o')
+    plt.title('Elbow method')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Inertia')
+    plt.show()    
+
+# def plot_kmeans_scatter(hockey_mom: HockeyMOM, n_clusters: int=3):
+#     kmeans = KMeans(n_clusters=n_clusters)
+#     kmeans.fit(hockey_mom.online_image_center_points)
+#     for x, y in hockey_mom.online_image_center_points:
+#         plt.scatter(x, y, c=kmeans.labels_)
+#     plt.show()
+

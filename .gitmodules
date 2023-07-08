@@ -2,3 +2,6 @@
 [submodule "DCNv2"]
 	path = DCNv2
 	url = ssh://git@github.com/cjolivier01/DCNv2
+[submodule "opencv"]
+	path = opencv
+	url = ssh://git@github.com/cjolivier01/opencv
