@@ -11,7 +11,8 @@ import torch.nn as nn
 from PIL import Image
 from torch.cuda import amp
 from dcn_v2 import DCN
-
+#from mmcv.ops.deform_conv import DeformConv2d as DCN
+#from mmcv.ops.modulated_deform_conv import ModulatedDeformConv2dPack as DCN
 
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'

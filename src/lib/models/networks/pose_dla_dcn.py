@@ -14,6 +14,8 @@ import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 
 from dcn_v2 import DCN
+#from mmcv.ops.deform_conv import DeformConv2d as DCN
+#from mmcv.ops.modulated_deform_conv import ModulatedDeformConv2dPack as DCN
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -367,11 +369,11 @@ class IDAUp(nn.Module):
         super(IDAUp, self).__init__()
         for i in range(1, len(channels)):
             c = channels[i]
-            f = int(up_f[i])  
+            f = int(up_f[i])
             proj = DeformConv(c, o)
             node = DeformConv(o, o)
-     
-            up = nn.ConvTranspose2d(o, o, f * 2, stride=f, 
+
+            up = nn.ConvTranspose2d(o, o, f * 2, stride=f,
                                     padding=f // 2, output_padding=0,
                                     groups=o, bias=False)
             fill_up_weights(up)
@@ -379,8 +381,8 @@ class IDAUp(nn.Module):
             setattr(self, 'proj_' + str(i), proj)
             setattr(self, 'up_' + str(i), up)
             setattr(self, 'node_' + str(i), node)
-                 
-        
+
+
     def forward(self, layers, startp, endp):
         for i in range(startp + 1, endp):
             upsample = getattr(self, 'up_' + str(i - startp))
@@ -422,7 +424,7 @@ class Interpolate(nn.Module):
         super(Interpolate, self).__init__()
         self.scale = scale
         self.mode = mode
-        
+
     def forward(self, x):
         x = F.interpolate(x, scale_factor=self.scale, mode=self.mode, align_corners=False)
         return x
@@ -443,9 +445,9 @@ class DLASeg(nn.Module):
         if out_channel == 0:
             out_channel = channels[self.first_level]
 
-        self.ida_up = IDAUp(out_channel, channels[self.first_level:self.last_level], 
+        self.ida_up = IDAUp(out_channel, channels[self.first_level:self.last_level],
                             [2 ** i for i in range(self.last_level - self.first_level)])
-        
+
         self.heads = heads
         for head in self.heads:
             classes = self.heads[head]
@@ -454,16 +456,16 @@ class DLASeg(nn.Module):
                   nn.Conv2d(channels[self.first_level], head_conv,
                     kernel_size=3, padding=1, bias=True),
                   nn.ReLU(inplace=True),
-                  nn.Conv2d(head_conv, classes, 
-                    kernel_size=final_kernel, stride=1, 
+                  nn.Conv2d(head_conv, classes,
+                    kernel_size=final_kernel, stride=1,
                     padding=final_kernel // 2, bias=True))
               if 'hm' in head:
                 fc[-1].bias.data.fill_(-2.19)
               else:
                 fill_fc_weights(fc)
             else:
-              fc = nn.Conv2d(channels[self.first_level], classes, 
-                  kernel_size=final_kernel, stride=1, 
+              fc = nn.Conv2d(channels[self.first_level], classes,
+                  kernel_size=final_kernel, stride=1,
                   padding=final_kernel // 2, bias=True)
               if 'hm' in head:
                 fc.bias.data.fill_(-2.19)
@@ -484,7 +486,7 @@ class DLASeg(nn.Module):
         for head in self.heads:
             z[head] = self.__getattr__(head)(y[-1])
         return [z]
-    
+
 
 def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4):
   model = DLASeg('dla{}'.format(num_layers), heads,
