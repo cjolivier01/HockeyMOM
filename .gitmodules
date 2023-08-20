@@ -13,7 +13,7 @@
 	url = ssh://git@github.com/open-mmlab/mmcv
 [submodule "external/opencv-python"]
 	path = external/opencv-python
-	url = ssh://git@github.com/colivier01/opencv-python
+	url = ssh://git@github.com/cjolivier01/opencv-python
 [submodule "models/centrack"]
 	path = models/centrack
 	url = ssh://git@github.com/cjolivier01/CenterTrack
