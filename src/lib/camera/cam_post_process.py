@@ -42,7 +42,7 @@ core.hello_world()
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = Falsw
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -57,7 +57,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Only apply zoom when the camera box is against
         # either the left or right edge of the video
-        self.no_max_in_aspec_ratio_at_edges = True
+        self.no_max_in_aspec_ratio_at_edges = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -554,8 +554,8 @@ class FramePostProcessor:
                         thickness=1,
                         label="after-aspect",
                     )
-                ZOOM_SHRINK_SIZE_INCREMENT = 1
                 if self._args.max_in_aspec_ratio and self._args.no_max_in_aspec_ratio_at_edges:
+                    ZOOM_SHRINK_SIZE_INCREMENT = 1
                     box_is_at_right_edge = hockey_mom.is_box_at_right_edge(current_box)
                     box_is_at_left_edge = hockey_mom.is_box_at_left_edge(current_box)
                     cb_center = center(current_box)
@@ -623,14 +623,14 @@ class FramePostProcessor:
                             dtype=np.float32,
                         )
                         current_box = hockey_mom.shift_box_to_edge(current_box)
-                if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
-                        online_im,
-                        current_box,
-                        color=(60, 60, 60),  # Gray
-                        thickness=6,
-                        label="after-aspect",
-                    )
+                    if self._args.plot_camera_tracking:
+                        vis.plot_rectangle(
+                            online_im,
+                            current_box,
+                            color=(60, 60, 60),  # Gray
+                            thickness=6,
+                            label="after-aspect",
+                        )
 
                 # current_box = hockey_mom.make_box_proper_aspect_ratio(
                 #     frame_id=self._frame_id,
