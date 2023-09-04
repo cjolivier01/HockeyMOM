@@ -196,7 +196,6 @@ class Clustering:
         pass
 
 
-
 class HockeyMOM:
     def __init__(
         self,
@@ -241,8 +240,10 @@ class HockeyMOM:
         )
 
         # Max acceleration in pixels per frame
-        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 15.0, 5.0)
-        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 15.0, 5.0)
+        self._camera_box_max_accel_x = 3
+        self._camera_box_max_accel_y = 3
+        # self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 15.0, 5.0)
+        # self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 15.0, 5.0)
         print(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
@@ -256,7 +257,7 @@ class HockeyMOM:
             roll_degrees=5,  # <-- looks correct
             focal_length=12,
             sensor_size_mm=(73, 4.55),
-            #image_size_px=(4096, 1024),
+            # image_size_px=(4096, 1024),
             image_size_px=(image_width, image_height),
         )
 
@@ -434,7 +435,7 @@ class HockeyMOM:
 
     @classmethod
     def _box_center(cls, box):
-        return [(box[0] + box[2]) / 2., (box[1] + box[3]) / 2.]
+        return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
 
     @classmethod
     def _clamp(cls, box, clamp_box):
@@ -565,6 +566,7 @@ class HockeyMOM:
         the_box: torch.Tensor,
         desired_aspect_ratio: float,
         max_in_aspec_ratio: bool,
+        no_max_in_aspec_ratio_at_edges: bool,
         verbose: bool = False,
         extra_validation: bool = True,
     ):
@@ -673,7 +675,7 @@ class HockeyMOM:
             assert ww <= (self._video_frame.width + self._epsilon)
             assert hh <= (self._video_frame.height + self._epsilon)
 
-        #assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
+        # assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
         return new_box
 
@@ -866,6 +868,17 @@ class HockeyMOM:
             self._current_camera_box_speed_y /= 2
         if current_box[3] >= bounding_box[3] and self._current_camera_box_speed_y > 0:
             self._current_camera_box_speed_y /= 2
+
+    def is_box_at_left_right_edge(self, box):
+        if box[0] <= 0 or box[2] >= self._clamp_box[2]:
+            return True
+        return False
+
+    def is_box_at_right_edge(self, box):
+        return box[2] >= self._clamp_box[2]
+
+    def is_box_at_left_edge(self, box):
+        return box[0] <= 0
 
     def _curtail_speeed_at_edges(self, box):
         """

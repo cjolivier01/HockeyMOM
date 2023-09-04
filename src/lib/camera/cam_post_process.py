@@ -21,10 +21,11 @@ from tracking_utils import visualization as vis
 from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 
-from .camera import aspect_ratio, width, height
+from .camera import aspect_ratio, width, height, center
 
 from hockeymom import core
 
+core.hello_world()
 
 ##
 #  _____         __             _ _                                                     _
@@ -52,12 +53,19 @@ class DefaultArguments(argparse.Namespace):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = False
+        self.max_in_aspec_ratio = True
+
+        # Only apply zoom when the camera box is against
+        # either the left or right edge of the video
+        self.no_max_in_aspec_ratio_at_edges = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.skip_frame_count = 0
+
+        # Moving right-to-left
+        #self.skip_frame_count = 450
 
         # Stop at the given frame and (presumably) output the final video.
         # Useful for debugging a
@@ -300,6 +308,9 @@ class FramePostProcessor:
         self, hockey_mom, save_dir, result_filename, show_image, opt
     ):
         last_temporal_box = None
+        last_dx_shrink_size = 0
+        max_dx_shrink_size = 100
+        center_dx_shift = 0
         # show_image_interval = 1
         # tv_resizer = None
         timer = Timer()
@@ -489,7 +500,6 @@ class FramePostProcessor:
                     last_temporal_box = current_box.copy()
 
                     if self._args.plot_camera_tracking:
-                        # print(f"get_next_temporal_box() ar={aspect_ratio(new_temporal_box)}, box={new_temporal_box}")
                         vis.plot_rectangle(
                             online_im,
                             current_box,
@@ -509,13 +519,29 @@ class FramePostProcessor:
                 # Aspect Ratio
                 #
                 current_box = hockey_mom.clamp(current_box)
+
+                if self._args.plot_camera_tracking:
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(0, 0, 0),
+                        thickness=4,
+                        label="clamped_pre_aspect",
+                    )
+
                 current_box = hockey_mom.make_box_proper_aspect_ratio(
                     frame_id=self._frame_id,
                     the_box=current_box,
                     desired_aspect_ratio=self._final_aspect_ratio,
                     max_in_aspec_ratio=self._args.max_in_aspec_ratio,
+                    no_max_in_aspec_ratio_at_edges=self._args.no_max_in_aspec_ratio_at_edges,
                 )
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+
+                #current_box = hockey_mom.clamp(current_box)
+
+                #last_temporal_box = current_box.copy()
+                #current_box = _apply_temporal()
 
                 # print(f"make_box_proper_aspect_ratio ar={aspect_ratio(current_box)}")
                 current_box = hockey_mom.shift_box_to_edge(current_box)
@@ -528,8 +554,92 @@ class FramePostProcessor:
                         thickness=1,
                         label="after-aspect",
                     )
+                ZOOM_SHRINK_SIZE_INCREMENT = 1
+                if self._args.max_in_aspec_ratio and self._args.no_max_in_aspec_ratio_at_edges:
+                    box_is_at_right_edge = hockey_mom.is_box_at_right_edge(current_box)
+                    box_is_at_left_edge = hockey_mom.is_box_at_left_edge(current_box)
+                    cb_center = center(current_box)
+                    if box_is_at_right_edge:
+                        lt_center = center(last_temporal_box)
+                        #frame_center = center(hockey_mom._video_frame.box())
+                        if cb_center[0] < lt_center[0]:
+                            last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
+                        elif cb_center[0] > lt_center[0]:
+                            last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
+                    elif box_is_at_left_edge:
+                        lt_center = center(last_temporal_box)
+                        #frame_center = center(hockey_mom._video_frame.box())
+                        if cb_center[0] > lt_center[0]:
+                            last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
+                        elif cb_center[0] < lt_center[0]:
+                            last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
+                    else:
+                        # When not on edge, decay away the shrink sizes
+                        # TODO: do with min/max
+                        if last_dx_shrink_size > 0:
+                            last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT * 1.5
+                            if last_dx_shrink_size < 0:
+                                last_dx_shrink_size = 0
+                        elif last_dx_shrink_size < 0:
+                            last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT * 1.5
+                            if last_dx_shrink_size > 0:
+                                last_dx_shrink_size = 0
 
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                    if last_dx_shrink_size > max_dx_shrink_size:
+                        last_dx_shrink_size = max_dx_shrink_size
+                    elif last_dx_shrink_size < -max_dx_shrink_size:
+                        last_dx_shrink_size = -max_dx_shrink_size
+                    if True: #last_dx_shrink_size:
+                        #print(f"Shrink width: {last_dx_shrink_size}")
+                        w = width(current_box)
+                        w -= last_dx_shrink_size
+                        if box_is_at_right_edge:
+                            center_dx_shift += 2
+                            if center_dx_shift > last_dx_shrink_size:
+                                center_dx_shift = last_dx_shrink_size
+                            cb_center[0] += center_dx_shift
+                        elif box_is_at_left_edge:
+                            center_dx_shift -= 2
+                            if center_dx_shift < -last_dx_shrink_size:
+                                center_dx_shift = -last_dx_shrink_size
+                        else:
+                            if center_dx_shift < 0:
+                                center_dx_shift += 2
+                                if center_dx_shift > 0:
+                                    center_dx_shift = 0
+                            elif center_dx_shift > 0:
+                                center_dx_shift -= 2
+                                if center_dx_shift < 0:
+                                    center_dx_shift = 0
+                        cb_center[0] += center_dx_shift
+                        h = w / self._final_aspect_ratio
+                        current_box = np.array(
+                            (
+                                cb_center[0] - (w / 2.0) + 0.5,
+                                cb_center[1] - (h / 2.0) + 0.5,
+                                cb_center[0] + (w / 2.0) - 0.5,
+                                cb_center[1] + (h / 2.0) - 0.5,
+                            ),
+                            dtype=np.float32,
+                        )
+                        current_box = hockey_mom.shift_box_to_edge(current_box)
+                if self._args.plot_camera_tracking:
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(60, 60, 60),  # Gray
+                        thickness=6,
+                        label="after-aspect",
+                    )
+
+                # current_box = hockey_mom.make_box_proper_aspect_ratio(
+                #     frame_id=self._frame_id,
+                #     the_box=current_box,
+                #     desired_aspect_ratio=self._final_aspect_ratio,
+                #     max_in_aspec_ratio=False, # FALSE HERE HARD CODED
+                #     no_max_in_aspec_ratio_at_edges=self._args.no_max_in_aspec_ratio_at_edges,
+                # )
+                # assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
                 # Plot the trajectories
                 if self._args.plot_camera_tracking:
