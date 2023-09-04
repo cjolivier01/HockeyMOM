@@ -52,7 +52,7 @@ class DefaultArguments(argparse.Namespace):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -69,7 +69,7 @@ class DefaultArguments(argparse.Namespace):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True
@@ -191,20 +191,126 @@ class FramePostProcessor:
             traceback.print_exc()
             raise
 
+    def final_image_processing(self):
+        plot_interias = False
+        show_image_interval = 1
+        skip_frames_before_show = 0
+        timer = Timer()
+        while True:
+            imgproc_data = self._imgproc_queue.get()
+            if imgproc_data is None:
+                break
+            timer.tic()
+
+            if imgproc_data.frame_id % 20 == 0:
+                logger.info(
+                    "Image Post-Processing frame {} ({:.2f} fps)".format(
+                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+
+            current_box = imgproc_data.current_box
+            online_im = imgproc_data.img
+            if self._args.crop_output_image:
+                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                # print(f"crop ar={aspect_ratio(current_box)}")
+                intbox = [int(i) for i in current_box]
+                x1 = intbox[0]
+                # x2 = intbox[2]
+                y1 = intbox[1]
+                y2 = intbox[3]
+                x2 = x1 + int(float(y2 - y1) * self._final_aspect_ratio)
+
+                # Sanity check clip dimensions
+                # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
+                assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+                assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
+                assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                # hh = y2 - y1
+                # ww = x2 - x1
+                # assert hh < self.final_frame_height
+                # assert ww < self.final_frame_width
+
+                if not self._args.fake_crop_output_image:
+                    if self._args.use_cuda:
+                        gpu_image = torch.Tensor(online_im)[
+                            y1 : y2 + 1, x1 : x2 + 1, 0:3
+                        ].to("cuda")
+                        # gpu_image = torch.Tensor(online_im).to("cuda:1")
+                        # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
+                        # gpu_image = cv2.cuda_GpuMat(online_im)
+                        # gpu_image = cv2.cuda_GpuMat(gpu_image, (x1, y1, x2, y2))
+                    else:
+                        online_im = online_im[y1 : y2 + 1, x1 : x2 + 1, 0:3]
+                if not self._args.fake_crop_output_image and (
+                    online_im.shape[0] != self.final_frame_height
+                    or online_im.shape[1] != self.final_frame_width
+                ):
+                    if self._args.use_cuda:
+                        if tv_resizer is None:
+                            tv_resizer = tv.transforms.Resize(
+                                size=(
+                                    int(self.final_frame_width),
+                                    int(self.final_frame_height),
+                                )
+                            )
+                        gpu_image = tv_resizer.forward(gpu_image)
+                    else:
+                        # image_ar = float(online_im.shape[1])/float(online_im.shape[0])
+                        # if not np.isclose(image_ar, self._final_aspect_ratio):
+                        #      print(f"Not close: {image_ar} vs {self._final_aspect_ratio}")
+                        # #     assert False
+
+                        online_im = cv2.resize(
+                            online_im,
+                            dsize=(
+                                int(self.final_frame_width),
+                                int(self.final_frame_height),
+                            ),
+                            interpolation=cv2.INTER_CUBIC,
+                        )
+                assert online_im.shape[0] == self.final_frame_height
+                assert online_im.shape[1] == self.final_frame_width
+                if self._args.use_cuda:
+                    # online_im = gpu_image.download()
+                    online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
+
+            if (
+                self._args.show_image
+                and imgproc_data.frame_id >= skip_frames_before_show
+            ):
+                if imgproc_data.frame_id % show_image_interval == 0:
+                    cv2.imshow("online_im", online_im)
+                    cv2.waitKey(1)
+
+            if plot_interias:
+                vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
+
+            if imgproc_data.save_dir is not None:
+                cv2.imwrite(
+                    os.path.join(
+                        imgproc_data.save_dir,
+                        "{:05d}.png".format(imgproc_data.frame_id),
+                    ),
+                    online_im,
+                )
+            timer.toc()
+
     def _postprocess_frame_impl(
         self, hockey_mom, save_dir, result_filename, show_image, opt
     ):
-        plot_interias = False
         last_temporal_box = None
-        #show_image_interval = 1
-        tv_resizer = None
+        # show_image_interval = 1
+        # tv_resizer = None
         timer = Timer()
 
         remove_largest = True
 
         if self._args.crop_output_image and not self._args.fake_crop_output_image:
             self.final_frame_height = int(hockey_mom.video.height)
-            self.final_frame_width = int(hockey_mom.video.height * self._final_aspect_ratio)
+            self.final_frame_width = int(
+                hockey_mom.video.height * self._final_aspect_ratio
+            )
             if self._args.use_cuda:
                 self.final_frame_height /= 2.25
                 self.final_frame_width /= 2.25
@@ -435,98 +541,13 @@ class FramePostProcessor:
                 # kmeans.fit(hockey_mom.online_image_center_points)
                 # plt.scatter(x, y, c=kmeans.labels_)
                 # plt.show()
-            imgproc_data = ImageProcData(frame_id=self._frame_id, img=online_im, current_box=current_box, save_dir=save_dir)
+            imgproc_data = ImageProcData(
+                frame_id=self._frame_id,
+                img=online_im,
+                current_box=current_box,
+                save_dir=save_dir,
+            )
+            timer.toc()
+            # while self._imgproc_queue.qsize() > 0:
+            #     time.sleep(0.001)
             self._imgproc_queue.put(imgproc_data)
-            timer.toc()
-
-    def final_image_processing(self):
-        show_image_interval = 1
-        skip_frames_before_show = 0
-        timer = Timer()
-        while True:
-            imgproc_data = self._imgproc_queue.get()
-            if imgproc_data is None:
-                break
-            timer.tic()
-
-            if imgproc_data.frame_id % 20 == 0:
-                logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps)".format(
-                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
-                    )
-                )
-
-            current_box = imgproc_data.current_box
-            online_im = imgproc_data.img
-            if self._args.crop_output_image:
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-                # print(f"crop ar={aspect_ratio(current_box)}")
-                intbox = [int(i) for i in current_box]
-                x1 = intbox[0]
-                # x2 = intbox[2]
-                y1 = intbox[1]
-                y2 = intbox[3]
-                x2 = x1 + int(float(y2 - y1) * self._final_aspect_ratio)
-
-                # Sanity check clip dimensions
-                # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
-                assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
-                # hh = y2 - y1
-                # ww = x2 - x1
-                # assert hh < self.final_frame_height
-                # assert ww < self.final_frame_width
-
-                if not self._args.fake_crop_output_image:
-                    if self._args.use_cuda:
-                        gpu_image = torch.Tensor(online_im)[
-                            y1 : y2 + 1, x1 : x2 + 1, 0:3
-                        ].to("cuda")
-                        # gpu_image = torch.Tensor(online_im).to("cuda:1")
-                        # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
-                        # gpu_image = cv2.cuda_GpuMat(online_im)
-                        # gpu_image = cv2.cuda_GpuMat(gpu_image, (x1, y1, x2, y2))
-                    else:
-                        online_im = online_im[y1 : y2 + 1, x1 : x2 + 1, 0:3]
-                if not self._args.fake_crop_output_image and (
-                    online_im.shape[0] != self.final_frame_height
-                    or online_im.shape[1] != self.final_frame_width
-                ):
-                    if self._args.use_cuda:
-                        if tv_resizer is None:
-                            tv_resizer = tv.transforms.Resize(
-                                size=(int(self.final_frame_width), int(self.final_frame_height))
-                            )
-                        gpu_image = tv_resizer.forward(gpu_image)
-                    else:
-                        # image_ar = float(online_im.shape[1])/float(online_im.shape[0])
-                        # if not np.isclose(image_ar, self._final_aspect_ratio):
-                        #      print(f"Not close: {image_ar} vs {self._final_aspect_ratio}")
-                        # #     assert False
-
-                        online_im = cv2.resize(
-                            online_im,
-                            dsize=(int(self.final_frame_width), int(self.final_frame_height)),
-                            interpolation=cv2.INTER_CUBIC,
-                        )
-                assert online_im.shape[0] == self.final_frame_height
-                assert online_im.shape[1] == self.final_frame_width
-                if self._args.use_cuda:
-                    # online_im = gpu_image.download()
-                    online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
-
-            if self._args.show_image and imgproc_data.frame_id >= skip_frames_before_show:
-                if imgproc_data.frame_id % show_image_interval == 0:
-                    cv2.imshow("online_im", online_im)
-                    cv2.waitKey(1)
-
-            # if plot_interias:
-            #     vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
-
-            if imgproc_data.save_dir is not None:
-                cv2.imwrite(
-                    os.path.join(imgproc_data.save_dir, "{:05d}.png".format(imgproc_data.frame_id)),
-                    online_im,
-                )
-            timer.toc()

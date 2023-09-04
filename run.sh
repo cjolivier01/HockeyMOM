@@ -1,7 +1,6 @@
 #!/bin/bash
 
-#VIDEO="${HOME}"/Downloads/hockey.mov
-VIDEO="${HOME}"/Downloads/hockey_clip_1_min.mp4
+VIDEO="${HOME}"/Downloads/hockey.mov
 #VIDEO="${HOME}"/Downloads/pdp_hockey_game.mp4
 #VIDEO="${HOME}/Downloads/pdp_whole_game.mp4"
 
