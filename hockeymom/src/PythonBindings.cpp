@@ -64,7 +64,7 @@ PYBIND11_MODULE(_hockeymom, m)
       py::arg("color") = hm::sublibA::ConsoleForegroundColor::Blue
   );
 
-  m.def("_hello_worls", []() {
+  m.def("_hello_world", []() {
     std::cout << "Hello, world!" << std::endl;
   });
 
