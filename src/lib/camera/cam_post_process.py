@@ -41,7 +41,7 @@ from hockeymom import core
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -98,6 +98,14 @@ def make_scale_array(from_img, to_img):
     w_scale = to_sz[0] / from_sz[0]
     h_scale = to_sz[1] / from_sz[1]
     return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+
+
+class ImageProcData:
+    def __init__(self, frame_id: int, img, current_box, save_dir: str):
+        self.frame_id = frame_id
+        self.img = img
+        self.current_box = current_box.copy()
+        self.save_dir = save_dir
 
 
 class FramePostProcessor:
@@ -188,22 +196,21 @@ class FramePostProcessor:
     ):
         plot_interias = False
         last_temporal_box = None
-        skip_frames_before_show = 0
-        show_image_interval = 1
+        #show_image_interval = 1
         tv_resizer = None
         timer = Timer()
 
         remove_largest = True
 
         if self._args.crop_output_image and not self._args.fake_crop_output_image:
-            final_frame_height = int(hockey_mom.video.height)
-            final_frame_width = int(hockey_mom.video.height * self._final_aspect_ratio)
+            self.final_frame_height = int(hockey_mom.video.height)
+            self.final_frame_width = int(hockey_mom.video.height * self._final_aspect_ratio)
             if self._args.use_cuda:
-                final_frame_height /= 2.25
-                final_frame_width /= 2.25
+                self.final_frame_height /= 2.25
+                self.final_frame_width /= 2.25
         else:
-            final_frame_height = int(hockey_mom.video.height)
-            final_frame_width = int(hockey_mom.video.width)
+            self.final_frame_height = int(hockey_mom.video.height)
+            self.final_frame_width = int(hockey_mom.video.width)
 
         while True:
             online_targets_and_img = self._queue.get()
@@ -428,7 +435,29 @@ class FramePostProcessor:
                 # kmeans.fit(hockey_mom.online_image_center_points)
                 # plt.scatter(x, y, c=kmeans.labels_)
                 # plt.show()
+            imgproc_data = ImageProcData(frame_id=self._frame_id, img=online_im, current_box=current_box, save_dir=save_dir)
+            self._imgproc_queue.put(imgproc_data)
+            timer.toc()
 
+    def final_image_processing(self):
+        show_image_interval = 1
+        skip_frames_before_show = 0
+        timer = Timer()
+        while True:
+            imgproc_data = self._imgproc_queue.get()
+            if imgproc_data is None:
+                break
+            timer.tic()
+
+            if imgproc_data.frame_id % 20 == 0:
+                logger.info(
+                    "Image Post-Processing frame {} ({:.2f} fps)".format(
+                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+
+            current_box = imgproc_data.current_box
+            online_im = imgproc_data.img
             if self._args.crop_output_image:
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 # print(f"crop ar={aspect_ratio(current_box)}")
@@ -446,8 +475,8 @@ class FramePostProcessor:
                 assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
                 # hh = y2 - y1
                 # ww = x2 - x1
-                # assert hh < final_frame_height
-                # assert ww < final_frame_width
+                # assert hh < self.final_frame_height
+                # assert ww < self.final_frame_width
 
                 if not self._args.fake_crop_output_image:
                     if self._args.use_cuda:
@@ -461,13 +490,13 @@ class FramePostProcessor:
                     else:
                         online_im = online_im[y1 : y2 + 1, x1 : x2 + 1, 0:3]
                 if not self._args.fake_crop_output_image and (
-                    online_im.shape[0] != final_frame_height
-                    or online_im.shape[1] != final_frame_width
+                    online_im.shape[0] != self.final_frame_height
+                    or online_im.shape[1] != self.final_frame_width
                 ):
                     if self._args.use_cuda:
                         if tv_resizer is None:
                             tv_resizer = tv.transforms.Resize(
-                                size=(int(final_frame_width), int(final_frame_height))
+                                size=(int(self.final_frame_width), int(self.final_frame_height))
                             )
                         gpu_image = tv_resizer.forward(gpu_image)
                     else:
@@ -478,29 +507,26 @@ class FramePostProcessor:
 
                         online_im = cv2.resize(
                             online_im,
-                            dsize=(int(final_frame_width), int(final_frame_height)),
+                            dsize=(int(self.final_frame_width), int(self.final_frame_height)),
                             interpolation=cv2.INTER_CUBIC,
                         )
-                assert online_im.shape[0] == final_frame_height
-                assert online_im.shape[1] == final_frame_width
+                assert online_im.shape[0] == self.final_frame_height
+                assert online_im.shape[1] == self.final_frame_width
                 if self._args.use_cuda:
                     # online_im = gpu_image.download()
                     online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
 
-            if show_image and self._frame_id >= skip_frames_before_show:
-                if self._frame_id % show_image_interval == 0:
+            if self._args.show_image and imgproc_data.frame_id >= skip_frames_before_show:
+                if imgproc_data.frame_id % show_image_interval == 0:
                     cv2.imshow("online_im", online_im)
                     cv2.waitKey(1)
 
-            if plot_interias:
-                vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
+            # if plot_interias:
+            #     vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
 
-            if save_dir is not None:
+            if imgproc_data.save_dir is not None:
                 cv2.imwrite(
-                    os.path.join(save_dir, "{:05d}.png".format(self._frame_id)),
+                    os.path.join(imgproc_data.save_dir, "{:05d}.png".format(imgproc_data.frame_id)),
                     online_im,
                 )
             timer.toc()
-
-    def final_image_processing(self):
-        pass
