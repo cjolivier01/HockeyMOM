@@ -83,7 +83,7 @@ class DefaultArguments(argparse.Namespace):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -715,6 +715,8 @@ class FramePostProcessor:
                 save_dir=save_dir,
             )
             timer.toc()
-            # while self._imgproc_queue.qsize() > 0:
-            #     time.sleep(0.001)
+            # Only let it get ahead around 25 frames so as not to use too much
+            # memory for no gain
+            while self._imgproc_queue.qsize() > 25:
+                time.sleep(0.001)
             self._imgproc_queue.put(imgproc_data)
