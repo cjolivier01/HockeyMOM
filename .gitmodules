@@ -2,6 +2,30 @@
 [submodule "DCNv2"]
 	path = DCNv2
 	url = ssh://git@github.com/cjolivier01/DCNv2
-[submodule "opencv"]
-	path = opencv
-	url = ssh://git@github.com/cjolivier01/opencv
+[submodule "external/pybind11"]
+	path = external/pybind11
+	url = ssh://git@github.com/pybind/pybind11
+[submodule "external/eigen"]
+	path = external/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "mmcv"]
+	path = mmcv
+	url = ssh://git@github.com/open-mmlab/mmcv
+[submodule "external/opencv-python"]
+	path = external/opencv-python
+	url = ssh://git@github.com/cjolivier01/opencv-python
+[submodule "models/centrack"]
+	path = models/centrack
+	url = ssh://git@github.com/cjolivier01/CenterTrack
+[submodule "models/deft"]
+	path = models/deft
+	url = ssh://git@github.com/cjolivier01/DEFT
+[submodule "models/mixsort"]
+	path = models/mixsort
+	url = ssh://git@github.com/cjolivier01/MixSort
+[submodule "models/yolox"]
+	path = models/yolox
+	url = ssh://git@github.com/cjolivier01/YOLOX
+[submodule "external/fast_pytorch_kmeans"]
+	path = external/fast_pytorch_kmeans
+	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans

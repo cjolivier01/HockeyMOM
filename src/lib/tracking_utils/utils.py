@@ -35,7 +35,7 @@ def init_seeds(seed=0):
 
 def load_classes(path):
     """
-    Loads class labels at 'path'
+    Loads class labels at 'path'6
     """
     fp = open(path, 'r')
     names = fp.read().split('\n')
@@ -233,7 +233,7 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
     twh = torch.zeros(nB, nA, nGh, nGw, 2).cuda()
     tconf = torch.LongTensor(nB, nA, nGh, nGw).fill_(0).cuda()
     tcls = torch.ByteTensor(nB, nA, nGh, nGw, nC).fill_(0).cuda()  # nC = number of classes
-    tid = torch.LongTensor(nB, nA, nGh, nGw, 1).fill_(-1).cuda() 
+    tid = torch.LongTensor(nB, nA, nGh, nGw, 1).fill_(-1).cuda()
     for b in range(nB):
         t = target[b]
         t_id = t[:, 1].clone().long().cuda()
@@ -285,7 +285,7 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
         else:
             if iou_best < 0.60:
                 continue
-        
+
         tc, gxy, gwh = t[:, 0].long(), t[:, 1:3].clone(), t[:, 3:5].clone()
         gxy[:, 0] = gxy[:, 0] * nGw
         gxy[:, 1] = gxy[:, 1] * nGh
@@ -347,7 +347,7 @@ def decode_delta_map(delta_map, anchors):
     :param: anchors, shape (nA,4)
     '''
     nB, nA, nGh, nGw, _ = delta_map.shape
-    anchor_mesh = generate_anchor(nGh, nGw, anchors) 
+    anchor_mesh = generate_anchor(nGh, nGw, anchors)
     anchor_mesh = anchor_mesh.permute(0,2,3,1).contiguous()              # Shpae (nA x nGh x nGw) x 4
     anchor_mesh = anchor_mesh.unsqueeze(0).repeat(nB,1,1,1,1)
     pred_list = decode_delta(delta_map.view(-1,4), anchor_mesh.view(-1,4))
@@ -389,7 +389,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.2):
         # From (center x, center y, width, height) to (x1, y1, x2, y2)
         pred[:, :4] = xywh2xyxy(pred[:, :4])
         nms_indices = nms(pred[:, :4], pred[:, 4], nms_thres)
-        det_max = pred[nms_indices]        
+        det_max = pred[nms_indices]
 
         if len(det_max) > 0:
             # Add max detections to outputs

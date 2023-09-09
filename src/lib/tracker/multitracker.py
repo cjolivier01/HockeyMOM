@@ -168,11 +168,14 @@ class STrack(BaseTrack):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
 
 
+def torch_device():
+    return "cuda:0"
+
 class JDETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
         if opt.gpus[0] >= 0:
-            opt.device = torch.device('cuda')
+            opt.device = torch.device(torch_device())
         else:
             opt.device = torch.device('cpu')
         print('Creating model...')
@@ -221,7 +224,7 @@ class JDETracker(object):
                 results[j] = results[j][keep_inds]
         return results
 
-    def update(self, im_blob, img0):
+    def update(self, im_blob, img0, log_debug: bool = False):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -239,6 +242,7 @@ class JDETracker(object):
                 'out_width': inp_width // self.opt.down_ratio}
 
         ''' Step 1: Network forward, get detections & embeddings'''
+        start_model = time.time()
         with torch.no_grad():
             output = self.model(im_blob)[-1]
             hm = output['hm'].sigmoid_()
@@ -252,8 +256,15 @@ class JDETracker(object):
             id_feature = id_feature.squeeze(0)
             id_feature = id_feature.cpu().numpy()
 
+        #start_model = time.time()
         dets = self.post_process(dets, meta)
+        duration = time.time() - start_model
+        #print(f"duration: {duration} seconds")
+
+        #start_model = time.time()
         dets = self.merge_outputs([dets])[1]
+        #duration = time.time() - start_model
+        #print(f"duration: {duration} seconds")
 
         remain_inds = dets[:, 4] > self.opt.conf_thres
         dets = dets[remain_inds]
@@ -355,7 +366,7 @@ class JDETracker(object):
                 track.mark_removed()
                 removed_stracks.append(track)
 
-        # print('Ramained match {} s'.format(t4-t3))
+        #print('Ramained match {} s'.format(t4-t3))
 
         self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
         self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
@@ -365,14 +376,16 @@ class JDETracker(object):
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
-        logger.debug('===========Frame {}=========='.format(self.frame_id))
-        logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
-        logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
-        logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
-        logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
+        if log_debug:
+            logger.debug('===========Frame {}=========='.format(self.frame_id))
+            logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
+            logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
+            logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
+            logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
 
         return output_stracks
 

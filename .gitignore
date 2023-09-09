@@ -1,7 +1,10 @@
 .idea
 *.pyc
 /demos
-/models/*.pth
+/h-demo
+# /models/*.pth
 /models/*.pt
 /exp
 __pycache__
+/.cache
+/build
