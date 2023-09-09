@@ -21,7 +21,7 @@ from tracking_utils import visualization as vis
 from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 
-from .camera import aspect_ratio, width, height, center
+from .camera import aspect_ratio, width, height, center, center_distance
 
 from hockeymom import core
 
@@ -39,16 +39,19 @@ core.hello_world()
 #
 # Some experimental and debugging parameters that aid in development
 #
+
+BASIC_DEBUGGING = False
+
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
-        self.plot_camera_tracking = False
+        self.plot_camera_tracking = False or BASIC_DEBUGGING
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -57,7 +60,10 @@ class DefaultArguments(argparse.Namespace):
 
         # Only apply zoom when the camera box is against
         # either the left or right edge of the video
-        self.no_max_in_aspec_ratio_at_edges = False
+        self.no_max_in_aspec_ratio_at_edges = True
+
+        # Use "sticky" panning, where panning occurs in less frequent, but possibly faster pans rather than a constant pan (which may appear tpo "wiggle")
+        self.sticky_pan = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -80,7 +86,7 @@ class DefaultArguments(argparse.Namespace):
         self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = True
+        self.crop_output_image = True and not BASIC_DEBUGGING
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -308,6 +314,7 @@ class FramePostProcessor:
         self, hockey_mom, save_dir, result_filename, show_image, opt
     ):
         last_temporal_box = None
+        last_sticky_temporal_box = None
         last_dx_shrink_size = 0
         max_dx_shrink_size = 100
         center_dx_shift = 0
@@ -489,27 +496,26 @@ class FramePostProcessor:
                 #         label="scaled_union_clusters_2_and_3",
                 #     )
 
-                def _apply_temporal():
+                def _apply_temporal(last_box, grays_level:int = 128):
                     #
                     # Temporal: Apply velocity and acceleration
                     #
-                    nonlocal current_box, last_temporal_box, self
+                    nonlocal current_box, self
                     current_box = hockey_mom.get_next_temporal_box(
-                        current_box, last_temporal_box
+                        current_box, last_box
                     )
-                    last_temporal_box = current_box.copy()
-
+                    last_box = current_box.copy()
                     if self._args.plot_camera_tracking:
                         vis.plot_rectangle(
                             online_im,
                             current_box,
-                            color=(128, 255, 128),
+                            color=(grays_level, grays_level, grays_level),
                             thickness=2,
                             label="next_temporal_box",
                         )
-                    return current_box
+                    return current_box, last_box
 
-                current_box = _apply_temporal()
+                current_box, last_temporal_box = _apply_temporal(last_temporal_box)
 
                 hockey_mom.curtail_velocity_if_outside_box(
                     current_box, outside_expanded_box
@@ -632,6 +638,56 @@ class FramePostProcessor:
                             label="after-aspect",
                         )
 
+                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+
+
+                def _fix_aspect_ratio(box):
+                    box = hockey_mom.make_box_proper_aspect_ratio(
+                        frame_id=self._frame_id,
+                        the_box=box,
+                        desired_aspect_ratio=self._final_aspect_ratio,
+                        max_in_aspec_ratio=False,
+                        no_max_in_aspec_ratio_at_edges=False,
+                    )
+                    return hockey_mom.shift_box_to_edge(box)
+
+                stuck = hockey_mom.changed_direction()
+                #if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
+                if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30):
+                    hockey_mom.control_speed(5, 5)
+                    hockey_mom.changed_direction(False)
+                    stuck = False
+
+                if not stuck:
+                    current_box, last_sticky_temporal_box = _apply_temporal(last_sticky_temporal_box)
+                    current_box = _fix_aspect_ratio(current_box)
+                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                    hockey_mom.changed_direction(False)
+                elif last_sticky_temporal_box is None:
+                    last_sticky_temporal_box = current_box.copy()
+                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                else:
+                    current_box = last_sticky_temporal_box.copy()
+                    current_box = _fix_aspect_ratio(current_box)
+                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+
+                if stuck and self._args.plot_camera_tracking:
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(0, 160, 255),
+                        thickness=10,
+                        label="stuck",
+                    )
+                elif self._args.plot_camera_tracking:
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(160, 160, 255),  # Gray
+                        thickness=6,
+                        label="post-sticky",
+                    )
+
                 # current_box = hockey_mom.make_box_proper_aspect_ratio(
                 #     frame_id=self._frame_id,
                 #     the_box=current_box,
@@ -651,6 +707,7 @@ class FramePostProcessor:
                 # kmeans.fit(hockey_mom.online_image_center_points)
                 # plt.scatter(x, y, c=kmeans.labels_)
                 # plt.show()
+            assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             imgproc_data = ImageProcData(
                 frame_id=self._frame_id,
                 img=online_im,
