@@ -20,6 +20,7 @@ from multiprocessing import Queue
 from tracking_utils import visualization as vis
 from tracking_utils.log import logger
 from tracking_utils.timer import Timer
+from tracker.multitracker import torch_device
 
 from .camera import aspect_ratio, width, height, center, center_distance
 
@@ -156,7 +157,7 @@ class FramePostProcessor:
         if self._use_fork:
             self._child_pid = os.fork()
             if not self._child_pid:
-                self.device = torch.device("cuda:0")
+                self.device = torch.device(torch_device())
                 self._start()
         else:
             self._thread = Thread(target=self._start)

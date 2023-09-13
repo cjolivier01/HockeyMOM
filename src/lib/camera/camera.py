@@ -283,9 +283,9 @@ class HockeyMOM:
 
     def get_speed(self):
         return math.sqrt(
-                self._current_camera_box_speed_x * self._current_camera_box_speed_x
-                + self._current_camera_box_speed_y * self._current_camera_box_speed_y
-            )
+            self._current_camera_box_speed_x * self._current_camera_box_speed_x
+            + self._current_camera_box_speed_y * self._current_camera_box_speed_y
+        )
 
     def is_fast(self, speed: float = 7):
         # return abs(self._current_camera_box_speed_x) > speed or abs(self._current_camera_box_speed_y) > speed
@@ -721,13 +721,23 @@ class HockeyMOM:
 
         return new_box
 
-    def shift_box_to_edge(self, box):
+    def shift_box_to_edge(self, box, strict: bool = False):
         """
         If a box is off the edge of the image, translate
         the box to be flush with the edge instead.
         """
-        assert width(box) <= self._video_frame.width
-        assert height(box) <= self._video_frame.height
+        if strict:
+            assert width(box) <= self._video_frame.width
+            assert height(box) <= self._video_frame.height
+        else:
+            if width(box) > self._video_frame.width:
+                print(
+                    f"ERROR: Width {width(box)} is too wide! Larger than video frame width of {self._video_frame.width}"
+                )
+            if height(box) > self._video_frame.height:
+                print(
+                    f"ERROR: Height {height(box)} is too tall! Larger than video frame width of {self._video_frame.height}"
+                )
         if box[0] < 0:
             box[2] += -box[0]
             box[0] += -box[0]
@@ -918,8 +928,11 @@ class HockeyMOM:
             print(f"moved_box: {self.box_str(moved_box)}")
         return moved_box
 
-    def changed_direction(self, reset:bool = False):
-        return self._current_camera_box_speed_reversed_x or self._current_camera_box_speed_reversed_x
+    def changed_direction(self, reset: bool = False):
+        return (
+            self._current_camera_box_speed_reversed_x
+            or self._current_camera_box_speed_reversed_x
+        )
 
     def curtail_velocity_if_outside_box(self, current_box, bounding_box):
         if current_box[0] <= bounding_box[0] and self._current_camera_box_speed_x < 0:
