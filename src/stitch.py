@@ -144,6 +144,7 @@ def main(args):
 
     scale_down_images = False
     show_image = False
+    skip_frame_count = 0
 
     input_dir = os.path.join(os.environ["HOME"], "Downloads")
     left_file = os.path.join(input_dir, f"left-{video_number}", ".mp4")
@@ -185,6 +186,10 @@ def main(args):
         timer.tic()
         r1, frame1 = vidcap_left.read()
         r2, frame2 = vidcap_right.read()
+
+        if frame_id < skip_frame_count:
+            frame_id += 1
+            continue
 
         if final_frame_height != frame_height:
             frame1 = cv2.resize(frame1, (final_frame_width // 2, final_frame_height))
