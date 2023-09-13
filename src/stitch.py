@@ -157,6 +157,7 @@ def main(args):
     total_frames = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
 
     print(f"Video FPS={fps}")
+    print(f"Frame count={total_frames}")
     print(f"Input size: {frame_width} x {frame_height}")
 
     final_frame_width = frame_width * 2
