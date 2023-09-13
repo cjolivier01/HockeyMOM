@@ -160,7 +160,7 @@ def eval(video_number: int, callback_fn: callable = None):
     filename_stitched = None
     filename_with_audio = None
 
-    input_dir = os.path.join(os.environ["HOME"], "Downloads")
+    input_dir = os.path.join(os.environ["HOME"], "Videos")
     left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
     right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
     vidcap_left = cv2.VideoCapture(left_file)
