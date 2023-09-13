@@ -237,7 +237,7 @@ def eval(video_number: int, callback_fn: callable = None):
         timer.toc()
         if frame_id % 20 == 0:
             print(
-                "Processing frame {}/{} ({:.2f} fps)".format(
+                "Stitching frame {}/{} ({:.2f} fps)".format(
                     frame_id, total_frames, 1.0 / max(1e-5, timer.average_time)
                 )
             )
