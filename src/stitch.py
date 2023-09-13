@@ -142,7 +142,7 @@ def eval(callback_fn: callable = None):
 
     video_number = 1
 
-    scale_down_images = False
+    scale_down_images = True
     show_image = False
     skip_frame_count = 0
 
@@ -176,6 +176,7 @@ def eval(callback_fn: callable = None):
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
         )
+        assert out.isOpened()
     else:
         out = None
 
