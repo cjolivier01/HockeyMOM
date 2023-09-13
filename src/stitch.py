@@ -138,9 +138,11 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def main():
+def main(args):
+
     video_number = 1
 
+    scale_down_images = False
     show_image = False
 
     input_dir = os.path.join(os.environ["HOME"], "Downloads")
@@ -159,11 +161,12 @@ def main():
     final_frame_width = frame_width * 2
     final_frame_height = frame_height
 
-    # final_frame_width = (frame_width * 2) // 2
-    # final_frame_height = frame_height // 2
+    if scale_down_images:
+        final_frame_width = (frame_width * 2) // 2
+        final_frame_height = frame_height // 2
 
     out = cv2.VideoWriter(
-        filename=f"stitrched-output-{video_number}.mov",
+        filename=f"stitched-output-{video_number}.mov",
         fourcc=cv2.VideoWriter_fourcc(*"XVID"),
         fps=fps,
         frameSize=(final_frame_width, final_frame_height),
