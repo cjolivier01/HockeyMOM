@@ -138,7 +138,7 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def main(args):
+def eval(callback_fn: callable = None):
 
     video_number = 1
 
@@ -168,13 +168,16 @@ def main(args):
         final_frame_width = (frame_width * 2) // 2
         final_frame_height = frame_height // 2
 
-    out = cv2.VideoWriter(
-        filename=f"stitched-output-{video_number}.mov",
-        fourcc=cv2.VideoWriter_fourcc(*"XVID"),
-        fps=fps,
-        frameSize=(final_frame_width, final_frame_height),
-        isColor=True,
-    )
+    if callback_fn is None:
+        out = cv2.VideoWriter(
+            filename=f"stitched-output-{video_number}.mov",
+            fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+            fps=fps,
+            frameSize=(final_frame_width, final_frame_height),
+            isColor=True,
+        )
+    else:
+        out = None
 
     r1, frame1 = vidcap_left.read()
     r2, frame2 = vidcap_right.read()
@@ -202,7 +205,12 @@ def main(args):
             cv2.imshow('Combined Image', combined_frame)
             cv2.waitKey(0)
 
-        out.write(combined_frame)
+        if out is not None:
+            out.write(combined_frame)
+
+        if callback_fn is not None:
+            if not callback_fn(combined_frame, (final_frame_width, final_frame_height)):
+                break
 
         timer.toc()
         if frame_id % 20 == 0:
@@ -213,12 +221,17 @@ def main(args):
             )
         frame_id += 1
 
-    out.release()
+    if out is not None:
+        out.release()
     vidcap_left.release()
     vidcap_right.release()
 
     if show_image:
         cv2.destroyAllWindows()
+
+
+def main():
+    eval()
 
 
 if __name__ == "__main__":
