@@ -246,6 +246,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         out = cv2.VideoWriter(
             filename=filename_stitched,
             fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+            #fourcc=cv2.VideoWriter_fourcc(*"X265"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
@@ -311,7 +312,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         copy_audio(left_file, filename_stitched, filename_with_audio)
 
 
-class 
+class
 
 
 def eval(video_number: int, callback_fn: callable = None):
