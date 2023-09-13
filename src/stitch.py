@@ -152,8 +152,9 @@ def main(args):
     vidcap_right = cv2.VideoCapture(right_file)
 
     fps = vidcap_left.get(cv2.CAP_PROP_FPS)
-    frame_width = int(vidcap_left.get(3))
-    frame_height = int(vidcap_left.get(4))
+    frame_width = int(vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
 
     print(f"Video FPS={fps}")
     print(f"Input size: {frame_width} x {frame_height}")
@@ -200,8 +201,8 @@ def main(args):
         timer.toc()
         if frame_id % 20 == 0:
             print(
-                "Processing frame {} ({:.2f} fps)".format(
-                    frame_id, 1.0 / max(1e-5, timer.average_time)
+                "Processing frame {}/{} ({:.2f} fps)".format(
+                    frame_id, total_frames, 1.0 / max(1e-5, timer.average_time)
                 )
             )
         frame_id += 1
