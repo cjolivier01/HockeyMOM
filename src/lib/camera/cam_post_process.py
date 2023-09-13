@@ -472,6 +472,8 @@ class FramePostProcessor:
                     current_box = hockey_mom._video_frame.box()
 
                 # current_box = hockey_mom.ratioed_expand(current_box)
+                if current_box is None:
+                    current_box = hockey_mom._video_frame.box()
 
                 outside_expanded_box = current_box.copy()
 
