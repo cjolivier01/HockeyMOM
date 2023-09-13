@@ -25,8 +25,6 @@ def demo(opt):
 
     logger.info('Starting tracking...')
 
-    image_number = 0
-
     #opt.img_size = (4096, 1024)
 
     opt.img_size = (4096//2, 1024//2)

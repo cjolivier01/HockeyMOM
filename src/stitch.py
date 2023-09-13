@@ -216,7 +216,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     #image_scale_down_value = 3
     show_image = False
     skip_frame_count = 0
-    stop_at_frame_count = 10000
+    stop_at_frame_count = 0
     filename_stitched = None
     filename_with_audio = None
 
@@ -241,15 +241,16 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     final_frame_height = frame_height
 
     if scale_down_images:
-        final_frame_width = (frame_width * 2) // 2
-        final_frame_height = frame_height // 2
+        final_frame_width = (frame_width * 2) // int(image_scale_down_value)
+        final_frame_height = frame_height // int(image_scale_down_value)
 
     if callback_fn is None:
         filename_stitched = f"stitched-output-{video_number}.mov"
         out = cv2.VideoWriter(
             filename=filename_stitched,
-            fourcc=cv2.VideoWriter_fourcc(*"XVID"),
-            #fourcc=cv2.VideoWriter_fourcc(*"X265"),
+            #fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+            #fourcc=cv2.VideoWriter_fourcc(*"H265"),
+            fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
@@ -274,7 +275,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
             frame_id += 1
             continue
 
-        if frame_id >= stop_at_frame_count:
+        if stop_at_frame_count and frame_id >= stop_at_frame_count:
             break
 
         if final_frame_height != frame_height:
