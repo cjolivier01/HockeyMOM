@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #VIDEO="${HOME}"/Downloads/hockey.mov
-VIDEO="${HOME}"/Downloads/stitched-${1}-with-sound.mp4
+VIDEO="${HOME}"/Videos/stitched-${1}-with-audio.mp4
 #VIDEO="${HOME}/Downloads/pdp_whole_game.mp4"
 
 mkdir -p h-demo-${1}
