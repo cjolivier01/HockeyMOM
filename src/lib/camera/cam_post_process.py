@@ -41,7 +41,7 @@ core.hello_world()
 # Some experimental and debugging parameters that aid in development
 #
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 
 class DefaultArguments(argparse.Namespace):
@@ -79,8 +79,8 @@ class DefaultArguments(argparse.Namespace):
         # Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
-        self.stop_at_frame = None
-        #self.stop_at_frame = 1000
+        #self.stop_at_frame = None
+        self.stop_at_frame = 10
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera

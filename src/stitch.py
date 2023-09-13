@@ -7,7 +7,7 @@ import cv2
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
 
-pefrom lib import copy_audio
+from lib.ffmpeg import copy_audio
 
 import time
 
@@ -212,8 +212,11 @@ def stitch_matcher(image1, image2, crop_black_borders: bool = True):
 
 def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
     scale_down_images = True
+    image_scale_down_value = 2
+    #image_scale_down_value = 3
     show_image = False
     skip_frame_count = 0
+    stop_at_frame_count = 10000
     filename_stitched = None
     filename_with_audio = None
 
@@ -271,6 +274,9 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
             frame_id += 1
             continue
 
+        if frame_id >= stop_at_frame_count:
+            break
+
         if final_frame_height != frame_height:
             frame1 = cv2.resize(frame1, (final_frame_width // 2, final_frame_height))
             frame2 = cv2.resize(frame2, (final_frame_width // 2, final_frame_height))
@@ -312,18 +318,15 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         copy_audio(left_file, filename_stitched, filename_with_audio)
 
 
-class
-
-
 def eval(video_number: int, callback_fn: callable = None):
     input_dir = os.path.join(os.environ["HOME"], "Videos")
     left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
     right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
-    return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callbacvk_fn=callback_fn)
+    return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callback_fn=callback_fn)
 
 
 def main():
-    eval(video_number=0)
+    eval(video_number=1)
 
 
 if __name__ == "__main__":

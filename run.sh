@@ -1,8 +1,9 @@
 #!/bin/bash
 
-VIDEO="${HOME}"/Downloads/hockey.mov
+#VIDEO="${HOME}"/Downloads/hockey.mov
 #VIDEO="${HOME}"/Downloads/pdp_hockey_game.mp4
 #VIDEO="${HOME}/Downloads/pdp_whole_game.mp4"
+VIDEO="${HOME}/Videos/left-${1}.mp4,${HOME}/Videos/right-${1}.mp4"
 
 rm -rf h-demo/*
 
