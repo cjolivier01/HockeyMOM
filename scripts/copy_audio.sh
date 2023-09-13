@@ -10,6 +10,8 @@ ffmpeg \
   -c:v copy -c:a aac -strict experimental \
   -map 1:v:0 \
   -map 0:a:0 \
+  -b:v 2700k \
+  -b:a 192k \
   -shortest \
   "${OUTPUT_VIDEO_WITH_AUDIO}"
 

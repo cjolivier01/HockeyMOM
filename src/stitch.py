@@ -216,7 +216,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     #image_scale_down_value = 3
     show_image = False
     skip_frame_count = 0
-    stop_at_frame_count = 0
+    stop_at_frame_count = 100
     filename_stitched = None
     filename_with_audio = None
 
@@ -243,17 +243,17 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     if scale_down_images:
         final_frame_width = (frame_width * 2) // int(image_scale_down_value)
         final_frame_height = frame_height // int(image_scale_down_value)
+    print(f"Stitched output size: {final_frame_width} x {final_frame_height}")
 
     if callback_fn is None:
         filename_stitched = f"stitched-output-{video_number}.mov"
         out = cv2.VideoWriter(
             filename=filename_stitched,
-            #fourcc=cv2.VideoWriter_fourcc(*"XVID"),
-            #fourcc=cv2.VideoWriter_fourcc(*"H265"),
-            fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
+            fourcc=cv2.VideoWriter_fourcc(*"XVID"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
+            bitrate=27000,
         )
         assert out.isOpened()
         filename_with_audio = f"stitched-output-{video_number}-with-audio.mov"

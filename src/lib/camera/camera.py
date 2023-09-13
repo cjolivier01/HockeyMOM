@@ -619,7 +619,17 @@ class HockeyMOM:
 
         center = self._box_center(the_box)
         w = width(the_box)
+        if w > self._video_frame.width:
+            diff = w - self._video_frame.width
+            the_box[0] -= diff/2
+            the_box[2] += diff/2
+            w = width(the_box)
         h = height(the_box)
+        if h > self._video_frame.height:
+            diff = w - self._video_frame.width
+            the_box[1] -= diff/2
+            the_box[3] += diff/2
+            h = height(the_box)
 
         if w < self._video_frame.width / 3:
             w = self._video_frame.width / 3
