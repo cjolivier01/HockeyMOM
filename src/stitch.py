@@ -138,10 +138,7 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def eval(callback_fn: callable = None):
-
-    video_number = 1
-
+def eval(video_number: int, callback_fn: callable = None):
     scale_down_images = True
     show_image = False
     skip_frame_count = 0
@@ -232,7 +229,7 @@ def eval(callback_fn: callable = None):
 
 
 def main():
-    eval()
+    eval(video_number=2)
 
 
 if __name__ == "__main__":
