@@ -138,10 +138,27 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
+def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
+    # output audio from original
+    output_audio_path = f"/tmp/output-audio-{uuid.uuid4().hex}.mp3"
+    cmd_str = f'ffmpeg -i {original_video} -q:a 0 -map a {output_audio_path}'
+    print(cmd_str)
+    os.system(cmd_str)
+    # attach audio to new video
+    cmd_str = f'ffmpeg -i {soundless_video} -i {output_audio_path} -map 0:v -map 1:a -c:v copy -shortest {final_audio_video}'
+    print(cmd_str)
+    os.system(cmd_str)
+    # delete temp audio
+    if os.path.isfile(output_audio_path):
+        os.unlink(output_audio_path)
+
+
 def eval(video_number: int, callback_fn: callable = None):
     scale_down_images = True
     show_image = False
     skip_frame_count = 0
+    filename_stitched = None
+    filename_with_audio = None
 
     input_dir = os.path.join(os.environ["HOME"], "Downloads")
     left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
@@ -166,14 +183,16 @@ def eval(video_number: int, callback_fn: callable = None):
         final_frame_height = frame_height // 2
 
     if callback_fn is None:
+        filename_stitched = f"stitched-output-{video_number}.mov"
         out = cv2.VideoWriter(
-            filename=f"stitched-output-{video_number}.mov",
+            filename=filename_stitched,
             fourcc=cv2.VideoWriter_fourcc(*"XVID"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
         )
         assert out.isOpened()
+        filename_with_audio = f"stitched-output-{video_number}-with-audio.mov"
     else:
         out = None
 
@@ -227,6 +246,8 @@ def eval(video_number: int, callback_fn: callable = None):
     if show_image:
         cv2.destroyAllWindows()
 
+    if filename_with_audio:
+        copy_audio(left_file, filename_stitched, filename_with_audio)
 
 def main():
     eval(video_number=2)
