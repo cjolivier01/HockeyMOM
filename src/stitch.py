@@ -257,7 +257,7 @@ def eval(video_number: int, callback_fn: callable = None):
         copy_audio(left_file, filename_stitched, filename_with_audio)
 
 def main():
-    eval(video_number=2)
+    eval(video_number=0)
 
 
 if __name__ == "__main__":
