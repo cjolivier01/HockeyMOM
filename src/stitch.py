@@ -169,7 +169,12 @@ def eval(video_number: int, callback_fn: callable = None):
     fps = vidcap_left.get(cv2.CAP_PROP_FPS)
     frame_width = int(vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    total_frames_left = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
+    total_frames_right = int(vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    assert total_frames_left == total_frames_right
+    total_frames = min(total_frames_left, total_frames_right)
 
     print(f"Video FPS={fps}")
     print(f"Frame count={total_frames}")
@@ -237,6 +242,8 @@ def eval(video_number: int, callback_fn: callable = None):
                 )
             )
         frame_id += 1
+        if frame_id >= total_frames:
+            break
 
     if out is not None:
         out.release()
