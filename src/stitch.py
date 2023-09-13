@@ -7,6 +7,8 @@ import cv2
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
 
+pefrom lib import copy_audio
+
 import time
 
 
@@ -206,21 +208,6 @@ def stitch_matcher(image1, image2, crop_black_borders: bool = True):
 
     return stitched_image
 
-
-
-def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
-    # output audio from original
-    output_audio_path = f"/tmp/output-audio-{uuid.uuid4().hex}.mp3"
-    cmd_str = f'ffmpeg -i {original_video} -q:a 0 -map a {output_audio_path}'
-    print(cmd_str)
-    os.system(cmd_str)
-    # attach audio to new video
-    cmd_str = f'ffmpeg -i {soundless_video} -i {output_audio_path} -map 0:v -map 1:a -c:v copy -shortest {final_audio_video}'
-    print(cmd_str)
-    os.system(cmd_str)
-    # delete temp audio
-    if os.path.isfile(output_audio_path):
-        os.unlink(output_audio_path)
 
 
 def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
