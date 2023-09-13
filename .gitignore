@@ -1,7 +1,7 @@
 .idea
 *.pyc
 /demos
-/h-demo
+/h-demo*
 # /models/*.pth
 /models/*.pt
 /exp
