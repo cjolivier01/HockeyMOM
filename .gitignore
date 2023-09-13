@@ -1,5 +1,6 @@
 .idea
 *.pyc
+/*.log
 /demos
 /h-demo*
 # /models/*.pth
