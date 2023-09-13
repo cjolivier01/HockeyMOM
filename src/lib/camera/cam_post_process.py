@@ -78,6 +78,7 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
+        #self.stop_at_frame = 600
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -149,6 +150,7 @@ class FramePostProcessor:
         self._imgproc_thread = None
         self._use_fork = use_fork
         self._final_aspect_ratio = 16.0 / 9.0
+        self._output_video = None
 
     def start(self):
         if self._use_fork:
@@ -210,9 +212,14 @@ class FramePostProcessor:
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
+        if self._output_video is None:
+            fourcc = cv2.VideoWriter_fourcc(*'H264')
+            self._output_video = cv2.VideoWriter(filename=self._save_dir + '/../output.avi', fourcc=fourcc, fps=30, frameSize=(self.final_frame_width, self.final_frame_height))
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
+                if self._output_video is not None:
+                    self._output_video.release()
                 break
             timer.tic()
 
@@ -301,13 +308,16 @@ class FramePostProcessor:
                 vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
 
             if imgproc_data.save_dir is not None:
-                cv2.imwrite(
-                    os.path.join(
-                        imgproc_data.save_dir,
-                        "{:05d}.png".format(imgproc_data.frame_id),
-                    ),
-                    online_im,
-                )
+                if self._output_video is not None:
+                    self._output_video.write(online_im)
+                else:
+                    cv2.imwrite(
+                        os.path.join(
+                            imgproc_data.save_dir,
+                            "{:05d}.png".format(imgproc_data.frame_id),
+                        ),
+                        online_im,
+                    )
             timer.toc()
 
     def _postprocess_frame_impl(
