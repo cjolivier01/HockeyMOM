@@ -25,6 +25,7 @@ def demo(opt):
 
     logger.info('Starting tracking...')
 
+    image_number = 0
 
     #opt.img_size = (4096, 1024)
 
@@ -40,7 +41,15 @@ def demo(opt):
     #opt.process_img_size = my_process_image_size
     #opt.process_img_size = ORIGINAL_PROCESS_IMAGE_SIZE
 
-    dataloader = datasets.LoadVideoWithOrig(path=opt.input_video, img_size=opt.img_size, process_img_size=opt.process_img_size)
+    if not opt.stitched:
+        dataloader = datasets.LoadVideoWithOrig(path=opt.input_video, img_size=opt.img_size, process_img_size=opt.process_img_size)
+    else:
+        dataloader = datasets.LoadStitchedVideoWithOrig(
+            left_file=f"/home/colivier/Videos/left-{image_number}.mp4",
+            right_file=f"/home/colivier/Videos/right-{image_number}.mp4",
+            img_size=opt.img_size,
+            process_img_size=opt.process_img_size
+        )
     result_filename = os.path.join(result_root, 'results.txt')
     frame_rate = dataloader.frame_rate
     print(f"Video frame rate: {frame_rate}")
@@ -64,4 +73,5 @@ if __name__ == '__main__':
     # if 'CUDA_VISIBLE_DEVICES' not in os.environ:
     #     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     opt = opts().init()
+    opt.stitched = True
     demo(opt)

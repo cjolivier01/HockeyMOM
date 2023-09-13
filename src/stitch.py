@@ -311,6 +311,9 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         copy_audio(left_file, filename_stitched, filename_with_audio)
 
 
+class 
+
+
 def eval(video_number: int, callback_fn: callable = None):
     input_dir = os.path.join(os.environ["HOME"], "Videos")
     left_file = os.path.join(input_dir, f"left-{video_number}.mp4")

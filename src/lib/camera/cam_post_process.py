@@ -43,6 +43,7 @@ core.hello_world()
 
 BASIC_DEBUGGING = False
 
+
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
@@ -72,14 +73,14 @@ class DefaultArguments(argparse.Namespace):
         self.skip_frame_count = 0
 
         # Moving right-to-left
-        #self.skip_frame_count = 450
+        # self.skip_frame_count = 450
 
         # Stop at the given frame and (presumably) output the final video.
         # Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        #self.stop_at_frame = 600
+        #self.stop_at_frame = 1000
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -214,8 +215,13 @@ class FramePostProcessor:
         skip_frames_before_show = 0
         timer = Timer()
         if self._output_video is None:
-            fourcc = cv2.VideoWriter_fourcc(*'H264')
-            self._output_video = cv2.VideoWriter(filename=self._save_dir + '/../output.avi', fourcc=fourcc, fps=30, frameSize=(self.final_frame_width, self.final_frame_height))
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            self._output_video = cv2.VideoWriter(
+                filename=self._save_dir + "/../tracking_output.mov",
+                fourcc=fourcc,
+                fps=30,
+                frameSize=(self.final_frame_width, self.final_frame_height),
+            )
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
@@ -509,7 +515,7 @@ class FramePostProcessor:
                 #         label="scaled_union_clusters_2_and_3",
                 #     )
 
-                def _apply_temporal(last_box, grays_level:int = 128):
+                def _apply_temporal(last_box, grays_level: int = 128):
                     #
                     # Temporal: Apply velocity and acceleration
                     #
@@ -557,10 +563,10 @@ class FramePostProcessor:
                 )
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-                #current_box = hockey_mom.clamp(current_box)
+                # current_box = hockey_mom.clamp(current_box)
 
-                #last_temporal_box = current_box.copy()
-                #current_box = _apply_temporal()
+                # last_temporal_box = current_box.copy()
+                # current_box = _apply_temporal()
 
                 # print(f"make_box_proper_aspect_ratio ar={aspect_ratio(current_box)}")
                 current_box = hockey_mom.shift_box_to_edge(current_box)
@@ -573,21 +579,24 @@ class FramePostProcessor:
                         thickness=1,
                         label="after-aspect",
                     )
-                if self._args.max_in_aspec_ratio and self._args.no_max_in_aspec_ratio_at_edges:
+                if (
+                    self._args.max_in_aspec_ratio
+                    and self._args.no_max_in_aspec_ratio_at_edges
+                ):
                     ZOOM_SHRINK_SIZE_INCREMENT = 1
                     box_is_at_right_edge = hockey_mom.is_box_at_right_edge(current_box)
                     box_is_at_left_edge = hockey_mom.is_box_at_left_edge(current_box)
                     cb_center = center(current_box)
                     if box_is_at_right_edge:
                         lt_center = center(last_temporal_box)
-                        #frame_center = center(hockey_mom._video_frame.box())
+                        # frame_center = center(hockey_mom._video_frame.box())
                         if cb_center[0] < lt_center[0]:
                             last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
                         elif cb_center[0] > lt_center[0]:
                             last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
                     elif box_is_at_left_edge:
                         lt_center = center(last_temporal_box)
-                        #frame_center = center(hockey_mom._video_frame.box())
+                        # frame_center = center(hockey_mom._video_frame.box())
                         if cb_center[0] > lt_center[0]:
                             last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
                         elif cb_center[0] < lt_center[0]:
@@ -608,8 +617,8 @@ class FramePostProcessor:
                         last_dx_shrink_size = max_dx_shrink_size
                     elif last_dx_shrink_size < -max_dx_shrink_size:
                         last_dx_shrink_size = -max_dx_shrink_size
-                    if True: #last_dx_shrink_size:
-                        #print(f"Shrink width: {last_dx_shrink_size}")
+                    if True:  # last_dx_shrink_size:
+                        # print(f"Shrink width: {last_dx_shrink_size}")
                         w = width(current_box)
                         w -= last_dx_shrink_size
                         if box_is_at_right_edge:
@@ -653,7 +662,6 @@ class FramePostProcessor:
 
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-
                 def _fix_aspect_ratio(box):
                     box = hockey_mom.make_box_proper_aspect_ratio(
                         frame_id=self._frame_id,
@@ -665,24 +673,34 @@ class FramePostProcessor:
                     return hockey_mom.shift_box_to_edge(box)
 
                 stuck = hockey_mom.changed_direction()
-                #if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
-                if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30):
+                # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
+                if stuck and (
+                    center_distance(current_box, last_sticky_temporal_box) > 30
+                ):
                     hockey_mom.control_speed(5, 5)
                     hockey_mom.changed_direction(False)
                     stuck = False
 
                 if not stuck:
-                    current_box, last_sticky_temporal_box = _apply_temporal(last_sticky_temporal_box)
+                    current_box, last_sticky_temporal_box = _apply_temporal(
+                        last_sticky_temporal_box
+                    )
                     current_box = _fix_aspect_ratio(current_box)
-                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                    assert np.isclose(
+                        aspect_ratio(current_box), self._final_aspect_ratio
+                    )
                     hockey_mom.changed_direction(False)
                 elif last_sticky_temporal_box is None:
                     last_sticky_temporal_box = current_box.copy()
-                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                    assert np.isclose(
+                        aspect_ratio(current_box), self._final_aspect_ratio
+                    )
                 else:
                     current_box = last_sticky_temporal_box.copy()
                     current_box = _fix_aspect_ratio(current_box)
-                    assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                    assert np.isclose(
+                        aspect_ratio(current_box), self._final_aspect_ratio
+                    )
 
                 if stuck and self._args.plot_camera_tracking:
                     vis.plot_rectangle(

@@ -201,12 +201,40 @@ class LoadVideoWithOrig:  # for inference
 
 
 class LoadStitchedVideoWithOrig: # for inference
-    def __init__(self, path, img_size=(1088, 608), process_img_size=(1920, 1080)):
-        self.cap = cv2.VideoCapture(path)
-        self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
-        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    def __init__(self, left_file: str, right_file: str, scale_down_images: bool = True, img_size=(1088, 608), process_img_size=(1920, 1080)):
+        self.vidcap_left = cv2.VideoCapture(left_file)
+        self.vidcap_right = cv2.VideoCapture(right_file)
+
+        self.fps = self.vidcap_left.get(cv2.CAP_PROP_FPS)
+        self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.frame_height = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        self.total_frames_left = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total_frames_right = int(self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        assert self.total_frames_left == self.total_frames_right
+        self.total_frames = min(self.total_frames_left, self.total_frames_right)
+
+        print(f"Video FPS={self.fps}")
+        print(f"Frame count={self.total_frames}")
+        print(f"Input size: {self.frame_width} x {self.frame_height}")
+
+        self.frame_rate_left = int(round(self.vidcap_left.get(cv2.CAP_PROP_FPS)))
+        self.frame_rate_right = int(round(self.vidcap_right.get(cv2.CAP_PROP_FPS)))
+        assert self.frame_rate_left == self.frame_rate_right
+        self.frame_rate = self.frame_rate_left
+
+        self.scale_down_images = scale_down_images
+
+        self.final_frame_width = self.frame_width * 2
+        self.final_frame_height = self.frame_height
+
+        if self.scale_down_images:
+            self.final_frame_width = (self.frame_width * 2) // 2
+            self.final_frame_height = self.frame_height // 2
+
+        self.vw = self.final_frame_width
+        self.vh = self.final_frame_height
 
         self.width = img_size[0]
         self.height = img_size[1]
@@ -214,7 +242,7 @@ class LoadStitchedVideoWithOrig: # for inference
         self._last_size = None
 
         self.w, self.h = process_img_size
-        print('Lenth of the video: {:d} frames'.format(self.vn))
+        print('Lenth of the video: {:d} frames'.format(self.total_frames))
 
     def get_size(self, vw, vh, dw, dh):
         wa, ha = float(dw) / vw, float(dh) / vh
@@ -234,12 +262,26 @@ class LoadStitchedVideoWithOrig: # for inference
         self.count += 1
         if self.count == len(self):
             raise StopIteration
-        # Read image
-        res, img0 = self.cap.read()  # BGR
-        if img0 is None:
+
+        # Read images (BGR)
+        r1, frame1 = self.vidcap_left.read()
+        r2, frame2 = self.vidcap_right.read()
+        if not r1 or not r2:
+            print(f'Could not load frame: {self.count}')
+            raise StopIteration()
+
+        if frame1 is None or frame2 is None:
             print(f'Error loading frame: {self.count}')
             raise StopIteration()
-        assert img0 is not None, 'Failed to load frame {:d}'.format(self.count)
+        assert frame1 is not None, 'Failed to load frame {:d}'.format(self.count)
+        assert frame2 is not None, 'Failed to load frame {:d}'.format(self.count)
+
+        if self.final_frame_height != self.frame_height:
+            frame1 = cv2.resize(frame1, (self.final_frame_width // 2, self.final_frame_height))
+            frame2 = cv2.resize(frame2, (self.final_frame_width // 2, self.final_frame_height))
+
+        # Concatenate the frames side-by-side
+        img0 = cv2.hconcat([frame1, frame2])
 
         original_img = img0.copy()
 
@@ -257,7 +299,7 @@ class LoadStitchedVideoWithOrig: # for inference
         return self.count, img, img0, original_img
 
     def __len__(self):
-        return self.vn  # number of files
+        return self.total_frames  # number of files
 
 
 class LoadImagesAndLabels:  # for training
