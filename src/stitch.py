@@ -147,8 +147,8 @@ def eval(callback_fn: callable = None):
     skip_frame_count = 0
 
     input_dir = os.path.join(os.environ["HOME"], "Downloads")
-    left_file = os.path.join(input_dir, f"left-{video_number}", ".mp4")
-    right_file = os.path.join(input_dir, f"right-{video_number}", ".mp4")
+    left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
+    right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
     vidcap_left = cv2.VideoCapture(left_file)
     vidcap_right = cv2.VideoCapture(right_file)
 
