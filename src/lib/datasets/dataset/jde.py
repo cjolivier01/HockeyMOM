@@ -18,7 +18,7 @@ from cython_bbox import bbox_overlaps as bbox_ious
 from opts import opts
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
-
+from stitch import eval
 
 class LoadImages:  # for inference
     def __init__(self, path, img_size=(1088, 608)):
@@ -142,6 +142,66 @@ class LoadVideo:  # for inference
 
 
 class LoadVideoWithOrig:  # for inference
+    def __init__(self, path, img_size=(1088, 608), process_img_size=(1920, 1080)):
+        self.cap = cv2.VideoCapture(path)
+        self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
+        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        self.width = img_size[0]
+        self.height = img_size[1]
+        self.count = 0
+        self._last_size = None
+
+        self.w, self.h = process_img_size
+        print('Lenth of the video: {:d} frames'.format(self.vn))
+
+    def get_size(self, vw, vh, dw, dh):
+        wa, ha = float(dw) / vw, float(dh) / vh
+        a = min(wa, ha)
+        size = int(vw * a), int(vh * a)
+        if self._last_size is not None:
+            assert size == self._last_size
+        else:
+            self._last_size = size
+        return size
+
+    def __iter__(self):
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        if self.count == len(self):
+            raise StopIteration
+        # Read image
+        res, img0 = self.cap.read()  # BGR
+        if img0 is None:
+            print(f'Error loading frame: {self.count}')
+            raise StopIteration()
+        assert img0 is not None, 'Failed to load frame {:d}'.format(self.count)
+
+        original_img = img0.copy()
+
+        img0 = cv2.resize(img0, (self.w, self.h))
+
+        # Padded resize
+        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+
+        # Normalize RGB
+        img = img[:, :, ::-1].transpose(2, 0, 1)
+        img = np.ascontiguousarray(img, dtype=np.float32)
+        img /= 255.0
+
+        # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
+        return self.count, img, img0, original_img
+
+    def __len__(self):
+        return self.vn  # number of files
+
+
+class LoadStitchedVideoWithOrig: # for inference
     def __init__(self, path, img_size=(1088, 608), process_img_size=(1920, 1080)):
         self.cap = cv2.VideoCapture(path)
         self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))

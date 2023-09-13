@@ -1,11 +1,8 @@
 import os
 import torch
 import torch.nn as nn
-
-import random
+import numpy as np
 import cv2
-
-import pprint
 
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
@@ -138,6 +135,79 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
+def stitch_matcher(image1, image2, crop_black_borders: bool = True):
+    #
+    # Detect keypoints and compute descriptors for both images.
+    # You can use an algorithm like SIFT or ORB for this purpose:
+    #
+
+    # Initialize SIFT detector (you can use other detectors like ORB)
+    sift = cv2.SIFT_create()
+
+    # Detect keypoints and compute descriptors
+    keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
+    keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
+
+    #
+    # Match the keypoints in the two images:
+    #
+
+    # Initialize a Brute-Force Matcher
+    bf = cv2.BFMatcher()
+
+    # Match descriptors
+    matches = bf.knnMatch(descriptors1, descriptors2, k=2)
+
+    # Apply ratio test to find good matches
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good_matches.append(m)
+
+    #
+    # Extract the corresponding keypoints:
+    #
+
+    # Extract corresponding keypoints
+    matched_keypoints1 = [keypoints1[match.queryIdx] for match in good_matches]
+    matched_keypoints2 = [keypoints2[match.trainIdx] for match in good_matches]
+
+    # Convert keypoints to NumPy arrays
+    pts1 = np.float32([kp.pt for kp in matched_keypoints1])
+    pts2 = np.float32([kp.pt for kp in matched_keypoints2])
+
+    #
+    # Find the Homography matrix that relates the two images:
+    #
+
+    # Find the Homography matrix
+    H, _ = cv2.findHomography(pts2, pts1, cv2.RANSAC)
+
+    #
+    # Warp the second image onto the first image:
+    #
+
+    # Warp the second image onto the first image
+    stitched_image = cv2.warpPerspective(image2, H, (image1.shape[1] + image2.shape[1], image1.shape[0]))
+
+    # Copy the first image onto the stitched image
+    stitched_image[0:image1.shape[0], 0:image1.shape[1]] = image1
+
+    #
+    # Optionally, you can crop the black borders in the stitched image to obtain a cleaner result:
+    #
+    if crop_black_borders:
+        stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(stitched_image, 1, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        max_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(max_contour)
+        stitched_image = stitched_image[y:y+h, x:x+w]
+
+    return stitched_image
+
+
+
 def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
     # output audio from original
     output_audio_path = f"/tmp/output-audio-{uuid.uuid4().hex}.mp3"
@@ -153,16 +223,13 @@ def copy_audio(original_video: str, soundless_video: str, final_audio_video: str
         os.unlink(output_audio_path)
 
 
-def eval(video_number: int, callback_fn: callable = None):
+def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
     scale_down_images = True
     show_image = False
     skip_frame_count = 0
     filename_stitched = None
     filename_with_audio = None
 
-    input_dir = os.path.join(os.environ["HOME"], "Videos")
-    left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
-    right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
     vidcap_left = cv2.VideoCapture(left_file)
     vidcap_right = cv2.VideoCapture(right_file)
 
@@ -255,6 +322,14 @@ def eval(video_number: int, callback_fn: callable = None):
 
     if filename_with_audio:
         copy_audio(left_file, filename_stitched, filename_with_audio)
+
+
+def eval(video_number: int, callback_fn: callable = None):
+    input_dir = os.path.join(os.environ["HOME"], "Videos")
+    left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
+    right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
+    return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callbacvk_fn=callback_fn)
+
 
 def main():
     eval(video_number=0)
