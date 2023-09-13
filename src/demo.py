@@ -41,15 +41,18 @@ def demo(opt):
     #opt.process_img_size = my_process_image_size
     #opt.process_img_size = ORIGINAL_PROCESS_IMAGE_SIZE
 
-    if not opt.stitched:
-        dataloader = datasets.LoadVideoWithOrig(path=opt.input_video, img_size=opt.img_size, process_img_size=opt.process_img_size)
-    else:
+    input_video_files = opt.input_video.split(',')
+
+    if len(input_video_files) == 2:
         dataloader = datasets.LoadStitchedVideoWithOrig(
-            left_file=f"/home/colivier/Videos/left-{image_number}.mp4",
-            right_file=f"/home/colivier/Videos/right-{image_number}.mp4",
+            left_file=input_video_files[0],
+            right_file=input_video_files[1],
             img_size=opt.img_size,
             process_img_size=opt.process_img_size
         )
+    else:
+        assert len(input_video_files) == 1
+        dataloader = datasets.LoadVideoWithOrig(path=input_video_files[0], img_size=opt.img_size, process_img_size=opt.process_img_size)
     result_filename = os.path.join(result_root, 'results.txt')
     frame_rate = dataloader.frame_rate
     print(f"Video frame rate: {frame_rate}")
@@ -73,5 +76,4 @@ if __name__ == '__main__':
     # if 'CUDA_VISIBLE_DEVICES' not in os.environ:
     #     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     opt = opts().init()
-    opt.stitched = True
     demo(opt)

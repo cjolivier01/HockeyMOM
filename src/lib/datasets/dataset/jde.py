@@ -201,7 +201,9 @@ class LoadVideoWithOrig:  # for inference
 
 
 class LoadStitchedVideoWithOrig: # for inference
-    def __init__(self, left_file: str, right_file: str, scale_down_images: bool = True, img_size=(1088, 608), process_img_size=(1920, 1080)):
+    def __init__(self, left_file: str, right_file: str, scale_down_images: bool = True, img_size=(1088, 608), process_img_size=(1920, 1080), skip_frame_count: int = 0):
+        self.skip_frame_count = skip_frame_count
+
         self.vidcap_left = cv2.VideoCapture(left_file)
         self.vidcap_right = cv2.VideoCapture(right_file)
 
