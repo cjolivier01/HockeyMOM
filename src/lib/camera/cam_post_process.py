@@ -79,8 +79,8 @@ class DefaultArguments(argparse.Namespace):
         # Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
-        #self.stop_at_frame = None
-        self.stop_at_frame = 100
+        self.stop_at_frame = None
+        #self.stop_at_frame = 100
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -216,13 +216,12 @@ class FramePostProcessor:
         timer = Timer()
         if self._output_video is None:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
-            bitrate = 27000 * 1024
             self._output_video = cv2.VideoWriter(
                 filename=self._save_dir + "/../tracking_output.mov",
                 fourcc=fourcc,
                 fps=30,
                 frameSize=(self.final_frame_width, self.final_frame_height),
-                bitrate=bitrate,
+                #bitrate=27000,
             )
         while True:
             imgproc_data = self._imgproc_queue.get()
