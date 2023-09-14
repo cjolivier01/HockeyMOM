@@ -253,9 +253,9 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
-            bitrate=27000,
         )
         assert out.isOpened()
+        out.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
         filename_with_audio = f"stitched-output-{video_number}-with-audio.mov"
     else:
         out = None

@@ -80,7 +80,7 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        #self.stop_at_frame = 100
+        self.stop_at_frame = 1000
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -221,8 +221,10 @@ class FramePostProcessor:
                 fourcc=fourcc,
                 fps=30,
                 frameSize=(self.final_frame_width, self.final_frame_height),
-                #bitrate=27000,
+                isColor=True,
             )
+            assert self._output_video.isOpened()
+            self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
