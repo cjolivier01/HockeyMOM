@@ -80,7 +80,7 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        self.stop_at_frame = 1000
+        #self.stop_at_frame = 1000
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
