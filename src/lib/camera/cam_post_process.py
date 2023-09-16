@@ -47,7 +47,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -87,13 +87,13 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        # self.stop_at_frame = 1000
+        self.stop_at_frame = 30 * 30
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
