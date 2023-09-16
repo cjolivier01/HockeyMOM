@@ -47,7 +47,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -87,7 +87,7 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        #self.stop_at_frame = 30*30
+        # self.stop_at_frame = 30*30
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -160,6 +160,30 @@ class FramePostProcessor:
         self._use_fork = use_fork
         self._final_aspect_ratio = 16.0 / 9.0
         self._output_video = None
+        self.watermark = cv2.imread(
+            os.path.realpath(
+                os.path.join(
+                    os.path.dirname(os.path.realpath(__file__)),
+                    "..",
+                    "..",
+                    "..",
+                    "images",
+                    "sports_ai_watermark.png",
+                )
+            ),
+            cv2.IMREAD_UNCHANGED,
+        )
+        self.watermark_height = self.watermark.shape[0]
+        self.watermark_width = self.watermark.shape[1]
+        self.watermark_rgb_channels = self.watermark[:, :, :3]
+        self.watermark_alpha_channel = self.watermark[:, :, 3]
+        self.watermark_mask = cv2.merge(
+            [
+                self.watermark_alpha_channel,
+                self.watermark_alpha_channel,
+                self.watermark_alpha_channel,
+            ]
+        )
 
     def get_first_frame_id(self):
         return self._args.skip_frame_count
@@ -229,7 +253,7 @@ class FramePostProcessor:
         if self._output_video is None:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
-                #filename=self._save_dir + "/../tracking_output.mov",
+                # filename=self._save_dir + "/../tracking_output.mov",
                 filename=self._save_dir + "/../tracking_output.avi",
                 fourcc=fourcc,
                 fps=30,
@@ -318,7 +342,21 @@ class FramePostProcessor:
                 if self._args.use_cuda:
                     # online_im = gpu_image.download()
                     online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
-
+            #
+            # Watermark
+            #
+            y = int(online_im.shape[0] - self.watermark_height)
+            x = int(online_im.shape[1] - self.watermark_width - self.watermark_width / 10)
+            online_im[
+                y : y + self.watermark_height, x : x + self.watermark_width
+            ] = online_im[
+                y : y + self.watermark_height, x : x + self.watermark_width
+            ] * (
+                1 - self.watermark_mask / 255.0
+            ) + self.watermark_rgb_channels * (
+                self.watermark_mask / 255.0
+            )
+            # Output (and maybe show) the final image
             if (
                 self._args.show_image
                 and imgproc_data.frame_id >= skip_frames_before_show
@@ -574,7 +612,7 @@ class FramePostProcessor:
                 #
                 # Aspect Ratio
                 #
-                #current_box = hockey_mom.clamp(current_box)
+                # current_box = hockey_mom.clamp(current_box)
 
                 if self._args.plot_camera_tracking:
                     vis.plot_rectangle(
@@ -732,8 +770,10 @@ class FramePostProcessor:
                         # sticky circle
                         cc = center(current_box)
                         cl = center(last_sticky_temporal_box)
+
                         def _to_int(vals):
                             return [int(i) for i in vals]
+
                         cv2.circle(
                             online_im,
                             _to_int(cl),
@@ -750,7 +790,9 @@ class FramePostProcessor:
                         )
                         vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
                         vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
-                        vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
+                        vis.plot_line(
+                            online_im, cl, cc, color=(255, 255, 255), thickness=2
+                        )
 
                         # current velocity vector
                         vis.plot_line(
@@ -774,8 +816,8 @@ class FramePostProcessor:
                     > sticky_size
                 ):
                     hockey_mom.control_speed(
-                        hockey_mom._camera_box_max_speed_x/6,
-                        hockey_mom._camera_box_max_speed_y/6,
+                        hockey_mom._camera_box_max_speed_x / 6,
+                        hockey_mom._camera_box_max_speed_y / 6,
                         set_speed_x=False,
                     )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
@@ -804,7 +846,10 @@ class FramePostProcessor:
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
 
-                if self._args.apply_fixed_edge_scaling and self._args.apply_fixed_edge_scaling:
+                if (
+                    self._args.apply_fixed_edge_scaling
+                    and self._args.apply_fixed_edge_scaling
+                ):
                     current_box = hockey_mom.apply_fixed_edge_scaling(current_box)
                     if self._args.plot_camera_tracking:
                         vis.plot_rectangle(
