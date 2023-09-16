@@ -210,6 +210,8 @@ class FramePostProcessor:
             raise
 
     def final_image_processing(self):
+        ready_string = self._imgproc_queue.get()
+        assert ready_string == "ready"
         plot_interias = False
         show_image_interval = 1
         skip_frames_before_show = 0
@@ -356,6 +358,7 @@ class FramePostProcessor:
             self.final_frame_height = int(hockey_mom.video.height)
             self.final_frame_width = int(hockey_mom.video.width)
 
+        self._imgproc_queue.put("ready")
         while True:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
@@ -732,7 +735,7 @@ class FramePostProcessor:
                 # assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
                 # Plot the trajectories
-                if self._args.plot_camera_tracking:
+                if self._args.plot_individual_player_tracking:
                     online_im = vis.plot_trajectory(
                         online_im, hockey_mom.get_image_tracking(online_ids), online_ids
                     )
