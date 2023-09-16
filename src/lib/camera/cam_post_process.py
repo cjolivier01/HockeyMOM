@@ -681,7 +681,8 @@ class FramePostProcessor:
                 stuck = hockey_mom.changed_direction()
                 # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
                 if stuck and (
-                    center_distance(current_box, last_sticky_temporal_box) > 30
+                    #center_distance(current_box, last_sticky_temporal_box) > 30
+                    center_distance(current_box, last_sticky_temporal_box) > 60
                 ):
                     hockey_mom.control_speed(5, 5)
                     hockey_mom.changed_direction(False)
