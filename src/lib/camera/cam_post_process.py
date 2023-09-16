@@ -47,7 +47,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -56,7 +56,7 @@ class DefaultArguments(argparse.Namespace):
         self.plot_camera_tracking = False or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
-        self.plot_speed = True
+        self.plot_speed = False
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -67,13 +67,17 @@ class DefaultArguments(argparse.Namespace):
         # either the left or right edge of the video
         self.no_max_in_aspec_ratio_at_edges = True
 
+        # Zooming is fixed based upon the horizonal position's distance from center
+        self.apply_fixed_edge_scaling = True
+
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
+        self.plot_sticky_camera = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
-        self.skip_frame_count = 30
+        self.skip_frame_count = 0
 
         # Moving right-to-left
         # self.skip_frame_count = 450
@@ -693,47 +697,57 @@ class FramePostProcessor:
 
                 stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
 
-                sticky_size = hockey_mom._camera_box_max_speed_x * 3
+                if self._args.max_in_aspec_ratio:
+                    sticky_size = hockey_mom._camera_box_max_speed_x * 3
+                    unsticky_size = sticky_size / 4
+                    movement_speed_divisor = 1.0
+                else:
+                    sticky_size = hockey_mom._camera_box_max_speed_x * 5
+                    unsticky_size = sticky_size / 2
+                    movement_speed_divisor = 3.0
 
                 if last_sticky_temporal_box is not None:
-                    vis.plot_rectangle(
-                        online_im,
-                        last_sticky_temporal_box,
-                        color=(255, 255, 255),
-                        thickness=6,
-                    )
-                    # sticky circle
-                    cc = center(current_box)
-                    cl = center(last_sticky_temporal_box)
+                    if self._args.plot_sticky_camera:
+                        vis.plot_rectangle(
+                            online_im,
+                            last_sticky_temporal_box,
+                            color=(255, 255, 255),
+                            thickness=6,
+                        )
+                        # sticky circle
+                        cc = center(current_box)
+                        cl = center(last_sticky_temporal_box)
+                        def _to_int(vals):
+                            return [int(i) for i in vals]
+                        cv2.circle(
+                            online_im,
+                            _to_int(cl),
+                            radius=int(sticky_size),
+                            color=(255, 0, 0) if stuck else (255, 255, 255),
+                            thickness=3,
+                        )
+                        cv2.circle(
+                            online_im,
+                            _to_int(cl),
+                            radius=int(unsticky_size),
+                            color=(0, 255, 255) if stuck else (128, 128, 255),
+                            thickness=2,
+                        )
+                        vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
+                        vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
+                        vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
 
-                    def _to_int(vals):
-                        return [int(i) for i in vals]
-
-                    if not stuck:
-                        pass
-
-                    cv2.circle(
-                        online_im,
-                        _to_int(cl),
-                        radius=int(sticky_size),
-                        color=(255, 0, 0) if stuck else (255, 255, 255),
-                        thickness=3,
-                    )
-                    vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
-                    vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
-                    vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
-
-                    # current velocity vector
-                    vis.plot_line(
-                        online_im,
-                        cl,
-                        [
-                            cl[0] + hockey_mom._current_camera_box_speed_x,
-                            cl[1] + hockey_mom._current_camera_box_speed_y,
-                        ],
-                        color=(0, 0, 0),
-                        thickness=2,
-                    )
+                        # current velocity vector
+                        vis.plot_line(
+                            online_im,
+                            cl,
+                            [
+                                cl[0] + hockey_mom._current_camera_box_speed_x,
+                                cl[1] + hockey_mom._current_camera_box_speed_y,
+                            ],
+                            color=(0, 0, 0),
+                            thickness=2,
+                        )
 
                 cdist = center_distance(current_box, last_sticky_temporal_box)
 
@@ -744,10 +758,14 @@ class FramePostProcessor:
                     cdist
                     > sticky_size
                 ):
-                    hockey_mom.control_speed(5, 5)
+                    hockey_mom.control_speed(
+                        hockey_mom._camera_box_max_speed_x/3,
+                        hockey_mom._camera_box_max_speed_y/3,
+                        set_speed_x=False,
+                    )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                     stuck = False
-                elif cdist < sticky_size / 4:
+                elif cdist < unsticky_size:
                     stuck = hockey_mom.set_direction_changed(dx=True, dy=True)
 
                 if not stuck:
@@ -771,6 +789,16 @@ class FramePostProcessor:
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
 
+                if self._args.apply_fixed_edge_scaling and self._args.apply_fixed_edge_scaling:
+                    current_box = hockey_mom.apply_fixed_edge_scaling(current_box)
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(255, 0, 255),
+                        thickness=15,
+                        label="edge-scaled",
+                    )
+
                 if stuck and self._args.plot_camera_tracking:
                     vis.plot_rectangle(
                         online_im,
@@ -783,7 +811,7 @@ class FramePostProcessor:
                     vis.plot_rectangle(
                         online_im,
                         current_box,
-                        color=(160, 160, 255),  # Gray
+                        color=(160, 160, 255),
                         thickness=6,
                         label="post-sticky",
                     )

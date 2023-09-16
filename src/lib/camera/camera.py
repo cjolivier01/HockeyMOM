@@ -53,6 +53,17 @@ def center(box):
     return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
 
 
+def make_box_at_center(center_point, w: float, h: float):
+    return np.array(
+        (
+            center_point[0] - (float(w) / 2.0) + 0.5,
+            center_point[1] - (float(h) / 2.0) + 0.5,
+            center_point[0] + (float(w) / 2.0) - 0.5,
+            center_point[1] + (float(h) / 2.0) - 0.5,
+        ),
+        dtype=np.float32,
+    )
+
 def center_distance(box1, box2) -> float:
     if box1 is None or box2 is None:
         return 0.0
@@ -262,8 +273,8 @@ class HockeyMOM:
         # self._camera_box_max_accel_y = 6
         # self._camera_box_max_accel_x = 3
         # self._camera_box_max_accel_y = 3
-        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 5.0, 5.0)
-        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 5.0, 5.0)
+        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 5.0, 2.0)
+        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 5.0, 2.0)
         print(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
@@ -300,7 +311,13 @@ class HockeyMOM:
         # return abs(self._current_camera_box_speed_x) > speed or abs(self._current_camera_box_speed_y) > speed
         return self.get_speed() >= speed
 
-    def control_speed(self, abs_max_x: float, abs_max_y: float):
+    def control_speed(self, abs_max_x: float, abs_max_y: float, set_speed_x: bool):
+        if set_speed_x:
+            if self._current_camera_box_speed_x < 0:
+                self._current_camera_box_speed_x = -abs_max_x
+            elif self._current_camera_box_speed_x > 0:
+                self._current_camera_box_speed_x = abs_max_x
+
         if abs(self._current_camera_box_speed_x) > abs_max_x:
             if self._current_camera_box_speed_x < 0:
                 self._current_camera_box_speed_x = -abs_max_x
@@ -627,6 +644,7 @@ class HockeyMOM:
         """
 
         center = self._box_center(the_box)
+
         w = width(the_box)
         if w > self._video_frame.width:
             diff = w - self._video_frame.width
@@ -715,15 +733,7 @@ class HockeyMOM:
         center[0] = float(int(center[0]))
         center[1] = float(int(center[1]))
 
-        new_box = np.array(
-            (
-                center[0] - (new_w / 2.0) + 0.5,
-                center[1] - (new_h / 2.0) + 0.5,
-                center[0] + (new_w / 2.0) - 0.5,
-                center[1] + (new_h / 2.0) - 0.5,
-            ),
-            dtype=np.float32,
-        )
+        new_box = make_box_at_center(center, new_w, new_h)
 
         if verbose:
             print(f"frame_id={frame_id}, ar={aspect_ratio(new_box)}")
@@ -738,6 +748,47 @@ class HockeyMOM:
 
         # assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
+        return new_box
+
+
+    def apply_fixed_edge_scaling(self, box, edge_scaling_factor: float = 0.8, verbose:bool = False):
+        current_center = center(box)
+        w = width(box)
+        # h = height(box)
+        # ar = w / h
+        dist_from_center_x = 0
+        half_frame_width = float(self._video_frame.width) / 2
+        if current_center[0] < half_frame_width:
+            dist_from_center_x = half_frame_width - current_center[0]
+        elif current_center[0] > half_frame_width:
+            dist_from_center_x = current_center[0] - half_frame_width
+        dist_center_ratio = dist_from_center_x / float(self._video_frame.width)
+        if verbose:
+            print(f"dist_center_ratio={dist_center_ratio}")
+        box_scaling = edge_scaling_factor * dist_center_ratio
+        width_reduction = w * box_scaling
+        if verbose:
+            print(f"width_reduction={width_reduction}")
+
+        # w = width(box)
+        # h = height(box)
+        # ar = w / h
+
+        ar = w / height(box)
+        h = self._video_frame.height
+        w = h * ar
+        w -= width_reduction
+        h = w / ar
+        new_box = make_box_at_center(current_center, w, h)
+
+        if current_center[0] < half_frame_width:
+            # shift left the amount
+            new_box[0] -= width_reduction/2
+            new_box[2] -= width_reduction/2
+        elif current_center[0] > half_frame_width:
+            new_box[0] += width_reduction/2
+            new_box[2] += width_reduction/2
+        #return self.shift_box_to_edge(new_box)
         return new_box
 
     def shift_box_to_edge(self, box, strict: bool = False):
