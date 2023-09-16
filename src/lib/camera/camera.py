@@ -769,10 +769,8 @@ class HockeyMOM:
         width_reduction = w * box_scaling
         if verbose:
             print(f"width_reduction={width_reduction}")
-
-        # w = width(box)
-        # h = height(box)
-        # ar = w / h
+        if width_reduction == 0.0:
+            return box
 
         ar = w / height(box)
         h = self._video_frame.height
@@ -788,8 +786,7 @@ class HockeyMOM:
         elif current_center[0] > half_frame_width:
             new_box[0] += width_reduction/2
             new_box[2] += width_reduction/2
-        #return self.shift_box_to_edge(new_box)
-        return new_box
+        return self.shift_box_to_edge(new_box)
 
     def shift_box_to_edge(self, box, strict: bool = False):
         """

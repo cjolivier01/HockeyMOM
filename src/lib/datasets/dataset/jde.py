@@ -4,7 +4,10 @@ import os
 import os.path as osp
 import random
 import time
+import multiprocessing
+import threading
 from collections import OrderedDict
+from typing import List
 
 import cv2
 import json
@@ -18,6 +21,13 @@ from cython_bbox import bbox_overlaps as bbox_ious
 from opts import opts
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
+
+
+class Images:
+    def __init__(self, img, img0, original_img):
+        self.img = img
+        self.img0 = img0
+        self.original_img = original_img
 
 
 class LoadImages:  # for inference
@@ -217,11 +227,36 @@ class LoadStitchedVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         skip_frame_count: int = 0,
+        clip_box: List[int] = None,
     ):
         self.skip_frame_count = skip_frame_count
+        self.left_file = left_file
+        self.right_file = right_file
+        self.vidcap_left = None
+        self.vidcap_right = None
 
-        self.vidcap_left = cv2.VideoCapture(left_file)
-        self.vidcap_right = cv2.VideoCapture(right_file)
+        self.clip_box = clip_box
+        self.processing_queue = None
+        self.main_queue = None
+        self.processing_thread = None
+
+        self.next_img = None
+        self.next_im0 = None
+        self.next_original_img = None
+        self.scale_down_images = scale_down_images
+
+        self.w, self.h = process_img_size
+
+        self.width = img_size[0]
+        self.height = img_size[1]
+        self.count = 0
+        self._last_size = None
+
+        self.init(is_creator_process=True)
+
+    def init(self, is_creator_process):
+        self.vidcap_left = cv2.VideoCapture(self.left_file)
+        self.vidcap_right = cv2.VideoCapture(self.right_file)
 
         self.fps = self.vidcap_left.get(cv2.CAP_PROP_FPS)
         self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -236,13 +271,12 @@ class LoadStitchedVideoWithOrig:  # for inference
         print(f"Video FPS={self.fps}")
         print(f"Frame count={self.total_frames}")
         print(f"Input size: {self.frame_width} x {self.frame_height}")
+        print("Lenth of the video: {:d} frames".format(self.total_frames))
 
         self.frame_rate_left = int(round(self.vidcap_left.get(cv2.CAP_PROP_FPS)))
         self.frame_rate_right = int(round(self.vidcap_right.get(cv2.CAP_PROP_FPS)))
         assert self.frame_rate_left == self.frame_rate_right
         self.frame_rate = self.frame_rate_left
-
-        self.scale_down_images = scale_down_images
 
         self.final_frame_width = self.frame_width * 2
         self.final_frame_height = self.frame_height
@@ -254,13 +288,49 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.vw = self.final_frame_width
         self.vh = self.final_frame_height
 
-        self.width = img_size[0]
-        self.height = img_size[1]
-        self.count = 0
-        self._last_size = None
+        if is_creator_process:
+            self.vidcap_left.release()
+            self.vidcap_right.release()
+            self.vidcap_left = None
+            self.vidcap_right = None
 
-        self.w, self.h = process_img_size
-        print("Lenth of the video: {:d} frames".format(self.total_frames))
+
+    def processing_thread_main(self):
+        while True:
+            msg = self.processing_queue.get()
+            if msg is None:
+                return
+            if msg == "next":
+                try:
+                    self.process_next_frame()
+                    #self.main_queue.put("ready")
+                except StopIteration as ex:
+                    self.main_queue.put(None)
+                    raise
+            else:
+                print(f"Unknown message: {msg}")
+
+    def stop(self):
+        if self.processing_queue is not None:
+            self.processing_queue.put(None)
+            if self.processing_thread is not None:
+                self.processing_thread.join()
+                self.processing_thread = None
+        self.processing_queue = None
+        self.main_queue = None
+
+    def start(self):
+        self.stop()
+        self.processing_queue = multiprocessing.Queue()
+        self.main_queue = multiprocessing.Queue()
+        #self.processing_thread = threading.Thread(target=self.processing_thread)
+        if not os.fork():
+            self.init(is_creator_process=False)
+            self.processing_thread_main()
+            os._exit(0)
+        else:
+            self.processing_queue.put("next")
+        #self.processing_thread.start()
 
     def set_frame_number(self, frame_id: int):
         current_frame_left = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
@@ -293,22 +363,21 @@ class LoadStitchedVideoWithOrig:  # for inference
 
     def __iter__(self):
         self.count = -1
+        self.start()
         return self
 
-    def __next__(self):
-        self.count += 1
-        if self.count == len(self):
-            raise StopIteration
-
+    def process_next_frame(self):
         # Read images (BGR)
         r1, frame1 = self.vidcap_left.read()
         r2, frame2 = self.vidcap_right.read()
         if not r1 or not r2:
             print(f"Could not load frame: {self.count}")
+            self.stop()
             raise StopIteration()
 
         if frame1 is None or frame2 is None:
             print(f"Error loading frame: {self.count}")
+            self.stop()
             raise StopIteration()
         assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
         assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
@@ -324,6 +393,11 @@ class LoadStitchedVideoWithOrig:  # for inference
         # Concatenate the frames side-by-side
         img0 = cv2.hconcat([frame1, frame2])
 
+        if self.clip_box is not None:
+            img0 = img0[
+                self.clip_box[0] : self.clip_box[1], self.clip_box[2] : self.clip_box[3]
+            ]
+
         original_img = img0.copy()
 
         img0 = cv2.resize(img0, (self.w, self.h))
@@ -336,8 +410,78 @@ class LoadStitchedVideoWithOrig:  # for inference
         img = np.ascontiguousarray(img, dtype=np.float32)
         img /= 255.0
 
-        # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return self.count, img, img0, original_img
+        self.next_img = img
+        self.next_im0 = img0
+        self.next_original_img = original_img
+        self.images = Images(img, img0, original_img)
+        self.main_queue.put(self.images)
+
+    def __next__(self):
+        self.count += 1
+        if self.count == len(self):
+            self.stop()
+            raise StopIteration
+
+        process_msg = self.main_queue.get()
+        if process_msg is None:
+            raise StopIteration
+        else:
+            img = process_msg.img
+            img0 = process_msg.img0
+            original_img = process_msg.original_img
+            # img = self.next_img
+            # img0 = self.next_img0
+            # original_img = self.next_original_img
+            self.processing_queue.put("next")
+            return self.count, img, img0, original_img
+
+        # self.process_next_frame()
+
+        # # Read images (BGR)
+        # r1, frame1 = self.vidcap_left.read()
+        # r2, frame2 = self.vidcap_right.read()
+        # if not r1 or not r2:
+        #     print(f"Could not load frame: {self.count}")
+        #     self.stop()
+        #     raise StopIteration()
+
+        # if frame1 is None or frame2 is None:
+        #     print(f"Error loading frame: {self.count}")
+        #     self.stop()
+        #     raise StopIteration()
+        # assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
+        # assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
+
+        # if self.final_frame_height != self.frame_height:
+        #     frame1 = cv2.resize(
+        #         frame1, (self.final_frame_width // 2, self.final_frame_height)
+        #     )
+        #     frame2 = cv2.resize(
+        #         frame2, (self.final_frame_width // 2, self.final_frame_height)
+        #     )
+
+        # # Concatenate the frames side-by-side
+        # img0 = cv2.hconcat([frame1, frame2])
+
+        # if self.clip_box is not None:
+        #     img0 = img0[
+        #         self.clip_box[0] : self.clip_box[1], self.clip_box[2] : self.clip_box[3]
+        #     ]
+
+        # original_img = img0.copy()
+
+        # img0 = cv2.resize(img0, (self.w, self.h))
+
+        # # Padded resize
+        # img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+
+        # # Normalize RGB
+        # img = img[:, :, ::-1].transpose(2, 0, 1)
+        # img = np.ascontiguousarray(img, dtype=np.float32)
+        # img /= 255.0
+
+        # # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
+        # return self.count, img, img0, original_img
 
     def __len__(self):
         return self.total_frames  # number of files
