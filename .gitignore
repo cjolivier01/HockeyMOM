@@ -11,3 +11,4 @@ __pycache__
 /build
 /*.mov
 /*.aac
+pybind11_project_example.egg-info
