@@ -213,10 +213,9 @@ def stitch_matcher(image1, image2, crop_black_borders: bool = True):
 def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
     scale_down_images = True
     image_scale_down_value = 2
-    #image_scale_down_value = 3
     show_image = False
     skip_frame_count = 0
-    stop_at_frame_count = 100
+    stop_at_frame_count = 0
     filename_stitched = None
     filename_with_audio = None
 
@@ -250,6 +249,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         out = cv2.VideoWriter(
             filename=filename_stitched,
             fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+            #fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
@@ -327,7 +327,7 @@ def eval(video_number: int, callback_fn: callable = None):
 
 
 def main():
-    eval(video_number=1)
+    eval(video_number=0)
 
 
 if __name__ == "__main__":
