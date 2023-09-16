@@ -682,7 +682,8 @@ class FramePostProcessor:
                 # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
                 if stuck and (
                     #center_distance(current_box, last_sticky_temporal_box) > 30
-                    center_distance(current_box, last_sticky_temporal_box) > 60
+                    # Past some distance of number of frames at max speed
+                    center_distance(current_box, last_sticky_temporal_box) > hockey_mom._camera_box_max_speed_x * 2
                 ):
                     hockey_mom.control_speed(5, 5)
                     hockey_mom.changed_direction(False)

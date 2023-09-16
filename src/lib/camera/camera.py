@@ -249,8 +249,8 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / 100.0, 12.0)
+        self._camera_box_max_speed_y = max(image_height / 100.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
         print(
@@ -262,8 +262,8 @@ class HockeyMOM:
         # self._camera_box_max_accel_y = 6
         # self._camera_box_max_accel_x = 3
         # self._camera_box_max_accel_y = 3
-        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 15.0, 5.0)
-        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 15.0, 5.0)
+        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 5.0, 5.0)
+        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 5.0, 5.0)
         print(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
