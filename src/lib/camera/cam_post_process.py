@@ -105,6 +105,9 @@ class DefaultArguments(argparse.Namespace):
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
 
+        # Draw watermark on the image
+        self.use_watermark = True
+
 
 def scale_box(box, from_img, to_img):
     from_sz = (from_img.shape[1], from_img.shape[0])
@@ -345,17 +348,18 @@ class FramePostProcessor:
             #
             # Watermark
             #
-            y = int(online_im.shape[0] - self.watermark_height)
-            x = int(online_im.shape[1] - self.watermark_width - self.watermark_width / 10)
-            online_im[
-                y : y + self.watermark_height, x : x + self.watermark_width
-            ] = online_im[
-                y : y + self.watermark_height, x : x + self.watermark_width
-            ] * (
-                1 - self.watermark_mask / 255.0
-            ) + self.watermark_rgb_channels * (
-                self.watermark_mask / 255.0
-            )
+            if self._args.use_watermark:
+                y = int(online_im.shape[0] - self.watermark_height)
+                x = int(online_im.shape[1] - self.watermark_width - self.watermark_width / 10)
+                online_im[
+                    y : y + self.watermark_height, x : x + self.watermark_width
+                ] = online_im[
+                    y : y + self.watermark_height, x : x + self.watermark_width
+                ] * (
+                    1 - self.watermark_mask / 255.0
+                ) + self.watermark_rgb_channels * (
+                    self.watermark_mask / 255.0
+                )
             # Output (and maybe show) the final image
             if (
                 self._args.show_image
