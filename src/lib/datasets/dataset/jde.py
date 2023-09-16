@@ -19,12 +19,17 @@ from opts import opts
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
 
+
 class LoadImages:  # for inference
     def __init__(self, path, img_size=(1088, 608)):
         if os.path.isdir(path):
-            image_format = ['.jpg', '.jpeg', '.png', '.tif']
-            self.files = sorted(glob.glob('%s/*.*' % path))
-            self.files = list(filter(lambda x: os.path.splitext(x)[1].lower() in image_format, self.files))
+            image_format = [".jpg", ".jpeg", ".png", ".tif"]
+            self.files = sorted(glob.glob("%s/*.*" % path))
+            self.files = list(
+                filter(
+                    lambda x: os.path.splitext(x)[1].lower() in image_format, self.files
+                )
+            )
         elif os.path.isfile(path):
             self.files = [path]
 
@@ -33,7 +38,7 @@ class LoadImages:  # for inference
         self.height = img_size[1]
         self.count = 0
 
-        assert self.nF > 0, 'No images found in ' + path
+        assert self.nF > 0, "No images found in " + path
 
     def __iter__(self):
         self.count = -1
@@ -48,7 +53,7 @@ class LoadImages:  # for inference
         # Read image
         img0 = cv2.imread(img_path)  # BGR
 
-        assert img0 is not None, 'Failed to load ' + img_path
+        assert img0 is not None, "Failed to load " + img_path
 
         # Padded resize
         img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
@@ -67,7 +72,7 @@ class LoadImages:  # for inference
 
         # Read image
         img0 = cv2.imread(img_path)  # BGR
-        assert img0 is not None, 'Failed to load ' + img_path
+        assert img0 is not None, "Failed to load " + img_path
 
         # Padded resize
         img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
@@ -97,7 +102,7 @@ class LoadVideo:  # for inference
         self._last_size = None
 
         self.w, self.h = process_img_size
-        print('Lenth of the video: {:d} frames'.format(self.vn))
+        print("Lenth of the video: {:d} frames".format(self.vn))
 
     def get_size(self, vw, vh, dw, dh):
         wa, ha = float(dw) / vw, float(dh) / vh
@@ -120,9 +125,9 @@ class LoadVideo:  # for inference
         # Read image
         res, img0 = self.cap.read()  # BGR
         if img0 is None:
-            print(f'Error loading frame: {self.count}')
+            print(f"Error loading frame: {self.count}")
             raise StopIteration()
-        assert img0 is not None, 'Failed to load frame {:d}'.format(self.count)
+        assert img0 is not None, "Failed to load frame {:d}".format(self.count)
         img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
@@ -154,7 +159,10 @@ class LoadVideoWithOrig:  # for inference
         self._last_size = None
 
         self.w, self.h = process_img_size
-        print('Lenth of the video: {:d} frames'.format(self.vn))
+        print("Lenth of the video: {:d} frames".format(self.vn))
+
+    def set_frame_number(self, frame_id: int):
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
 
     def get_size(self, vw, vh, dw, dh):
         wa, ha = float(dw) / vw, float(dh) / vh
@@ -177,9 +185,9 @@ class LoadVideoWithOrig:  # for inference
         # Read image
         res, img0 = self.cap.read()  # BGR
         if img0 is None:
-            print(f'Error loading frame: {self.count}')
+            print(f"Error loading frame: {self.count}")
             raise StopIteration()
-        assert img0 is not None, 'Failed to load frame {:d}'.format(self.count)
+        assert img0 is not None, "Failed to load frame {:d}".format(self.count)
 
         original_img = img0.copy()
 
@@ -200,8 +208,16 @@ class LoadVideoWithOrig:  # for inference
         return self.vn  # number of files
 
 
-class LoadStitchedVideoWithOrig: # for inference
-    def __init__(self, left_file: str, right_file: str, scale_down_images: bool = True, img_size=(1088, 608), process_img_size=(1920, 1080), skip_frame_count: int = 0):
+class LoadStitchedVideoWithOrig:  # for inference
+    def __init__(
+        self,
+        left_file: str,
+        right_file: str,
+        scale_down_images: bool = True,
+        img_size=(1088, 608),
+        process_img_size=(1920, 1080),
+        skip_frame_count: int = 0,
+    ):
         self.skip_frame_count = skip_frame_count
 
         self.vidcap_left = cv2.VideoCapture(left_file)
@@ -244,7 +260,26 @@ class LoadStitchedVideoWithOrig: # for inference
         self._last_size = None
 
         self.w, self.h = process_img_size
-        print('Lenth of the video: {:d} frames'.format(self.total_frames))
+        print("Lenth of the video: {:d} frames".format(self.total_frames))
+
+    def set_frame_number(self, frame_id: int):
+        current_frame_left = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
+        current_frame_right = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
+        if current_frame_left == current_frame_right:
+            self.vidcap_left.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+            self.vidcap_right.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+        elif current_frame_left < current_frame_right:
+            self.vidcap_left.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+            self.vidcap_right.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                frame_id + (current_frame_right - current_frame_left),
+            )
+        else:
+            self.vidcap_left.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                frame_id + (current_frame_left - current_frame_right),
+            )
+            self.vidcap_right.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
 
     def get_size(self, vw, vh, dw, dh):
         wa, ha = float(dw) / vw, float(dh) / vh
@@ -269,18 +304,22 @@ class LoadStitchedVideoWithOrig: # for inference
         r1, frame1 = self.vidcap_left.read()
         r2, frame2 = self.vidcap_right.read()
         if not r1 or not r2:
-            print(f'Could not load frame: {self.count}')
+            print(f"Could not load frame: {self.count}")
             raise StopIteration()
 
         if frame1 is None or frame2 is None:
-            print(f'Error loading frame: {self.count}')
+            print(f"Error loading frame: {self.count}")
             raise StopIteration()
-        assert frame1 is not None, 'Failed to load frame {:d}'.format(self.count)
-        assert frame2 is not None, 'Failed to load frame {:d}'.format(self.count)
+        assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
+        assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
 
         if self.final_frame_height != self.frame_height:
-            frame1 = cv2.resize(frame1, (self.final_frame_width // 2, self.final_frame_height))
-            frame2 = cv2.resize(frame2, (self.final_frame_width // 2, self.final_frame_height))
+            frame1 = cv2.resize(
+                frame1, (self.final_frame_width // 2, self.final_frame_height)
+            )
+            frame2 = cv2.resize(
+                frame2, (self.final_frame_width // 2, self.final_frame_height)
+            )
 
         # Concatenate the frames side-by-side
         img0 = cv2.hconcat([frame1, frame2])
@@ -306,13 +345,17 @@ class LoadStitchedVideoWithOrig: # for inference
 
 class LoadImagesAndLabels:  # for training
     def __init__(self, path, img_size=(1088, 608), augment=False, transforms=None):
-        with open(path, 'r') as file:
+        with open(path, "r") as file:
             self.img_files = file.readlines()
-            self.img_files = [x.replace('\n', '') for x in self.img_files]
+            self.img_files = [x.replace("\n", "") for x in self.img_files]
             self.img_files = list(filter(lambda x: len(x) > 0, self.img_files))
 
-        self.label_files = [x.replace('images', 'labels_with_ids').replace('.png', '.txt').replace('.jpg', '.txt')
-                            for x in self.img_files]
+        self.label_files = [
+            x.replace("images", "labels_with_ids")
+            .replace(".png", ".txt")
+            .replace(".jpg", ".txt")
+            for x in self.img_files
+        ]
 
         self.nF = len(self.img_files)  # number of image files
         self.width = img_size[0]
@@ -330,7 +373,7 @@ class LoadImagesAndLabels:  # for training
         width = self.width
         img = cv2.imread(img_path)  # BGR
         if img is None:
-            raise ValueError('File corrupt {}'.format(img_path))
+            raise ValueError("File corrupt {}".format(img_path))
         augment_hsv = True
         if self.augment and augment_hsv:
             # SV augmentation by 50%
@@ -371,18 +414,22 @@ class LoadImagesAndLabels:  # for training
 
         # Augment image and labels
         if self.augment:
-            img, labels, M = random_affine(img, labels, degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.50, 1.20))
+            img, labels, M = random_affine(
+                img, labels, degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.50, 1.20)
+            )
 
         plotFlag = False
         if plotFlag:
             import matplotlib
-            matplotlib.use('Agg')
+
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
+
             plt.figure(figsize=(50, 50))
             plt.imshow(img[:, :, ::-1])
-            plt.plot(labels[:, [1, 3, 3, 1, 1]].T, labels[:, [2, 2, 4, 4, 2]].T, '.-')
-            plt.axis('off')
-            plt.savefig('test.jpg')
+            plt.plot(labels[:, [1, 3, 3, 1, 1]].T, labels[:, [2, 2, 4, 4, 2]].T, ".-")
+            plt.axis("off")
+            plt.savefig("test.jpg")
             time.sleep(10)
 
         nL = len(labels)
@@ -412,22 +459,35 @@ class LoadImagesAndLabels:  # for training
         return self.nF  # number of batches
 
 
-def letterbox(img, height=608, width=1088,
-              color=(127.5, 127.5, 127.5)):  # resize a rectangular image to a padded rectangular
+def letterbox(
+    img, height=608, width=1088, color=(127.5, 127.5, 127.5)
+):  # resize a rectangular image to a padded rectangular
     shape = img.shape[:2]  # shape = [height, width]
     ratio = min(float(height) / shape[0], float(width) / shape[1])
-    new_shape = (round(shape[1] * ratio), round(shape[0] * ratio))  # new_shape = [width, height]
+    new_shape = (
+        round(shape[1] * ratio),
+        round(shape[0] * ratio),
+    )  # new_shape = [width, height]
     dw = (width - new_shape[0]) / 2  # width padding
     dh = (height - new_shape[1]) / 2  # height padding
     top, bottom = round(dh - 0.1), round(dh + 0.1)
     left, right = round(dw - 0.1), round(dw + 0.1)
     img = cv2.resize(img, new_shape, interpolation=cv2.INTER_AREA)  # resized, no border
-    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # padded rectangular
+    img = cv2.copyMakeBorder(
+        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+    )  # padded rectangular
     return img, ratio, dw, dh
 
 
-def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-2, 2),
-                  borderValue=(127.5, 127.5, 127.5)):
+def random_affine(
+    img,
+    targets=None,
+    degrees=(-10, 10),
+    translate=(0.1, 0.1),
+    scale=(0.9, 1.1),
+    shear=(-2, 2),
+    borderValue=(127.5, 127.5, 127.5),
+):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
     # https://medium.com/uruvideo/dataset-augmentation-with-random-homographies-a8f4b44830d4
 
@@ -440,21 +500,32 @@ def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scal
     a = random.random() * (degrees[1] - degrees[0]) + degrees[0]
     # a += random.choice([-180, -90, 0, 90])  # 90deg rotations added to small rotations
     s = random.random() * (scale[1] - scale[0]) + scale[0]
-    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(img.shape[1] / 2, img.shape[0] / 2), scale=s)
+    R[:2] = cv2.getRotationMatrix2D(
+        angle=a, center=(img.shape[1] / 2, img.shape[0] / 2), scale=s
+    )
 
     # Translation
     T = np.eye(3)
-    T[0, 2] = (random.random() * 2 - 1) * translate[0] * img.shape[0] + border  # x translation (pixels)
-    T[1, 2] = (random.random() * 2 - 1) * translate[1] * img.shape[1] + border  # y translation (pixels)
+    T[0, 2] = (random.random() * 2 - 1) * translate[0] * img.shape[
+        0
+    ] + border  # x translation (pixels)
+    T[1, 2] = (random.random() * 2 - 1) * translate[1] * img.shape[
+        1
+    ] + border  # y translation (pixels)
 
     # Shear
     S = np.eye(3)
-    S[0, 1] = math.tan((random.random() * (shear[1] - shear[0]) + shear[0]) * math.pi / 180)  # x shear (deg)
-    S[1, 0] = math.tan((random.random() * (shear[1] - shear[0]) + shear[0]) * math.pi / 180)  # y shear (deg)
+    S[0, 1] = math.tan(
+        (random.random() * (shear[1] - shear[0]) + shear[0]) * math.pi / 180
+    )  # x shear (deg)
+    S[1, 0] = math.tan(
+        (random.random() * (shear[1] - shear[0]) + shear[0]) * math.pi / 180
+    )  # y shear (deg)
 
     M = S @ T @ R  # Combined rotation matrix. ORDER IS IMPORTANT HERE!!
-    imw = cv2.warpPerspective(img, M, dsize=(width, height), flags=cv2.INTER_LINEAR,
-                              borderValue=borderValue)  # BGR order borderValue
+    imw = cv2.warpPerspective(
+        img, M, dsize=(width, height), flags=cv2.INTER_LINEAR, borderValue=borderValue
+    )  # BGR order borderValue
 
     # Return warped points also
     if targets is not None:
@@ -465,13 +536,17 @@ def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scal
 
             # warp points
             xy = np.ones((n * 4, 3))
-            xy[:, :2] = points[:, [0, 1, 2, 3, 0, 3, 2, 1]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
+            xy[:, :2] = points[:, [0, 1, 2, 3, 0, 3, 2, 1]].reshape(
+                n * 4, 2
+            )  # x1y1, x2y2, x1y2, x2y1
             xy = (xy @ M.T)[:, :2].reshape(n, 8)
 
             # create new boxes
             x = xy[:, [0, 2, 4, 6]]
             y = xy[:, [1, 3, 5, 7]]
-            xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+            xy = (
+                np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+            )
 
             # apply angle-based reduction
             radians = a * math.pi / 180
@@ -480,13 +555,17 @@ def random_affine(img, targets=None, degrees=(-10, 10), translate=(.1, .1), scal
             y = (xy[:, 3] + xy[:, 1]) / 2
             w = (xy[:, 2] - xy[:, 0]) * reduction
             h = (xy[:, 3] - xy[:, 1]) * reduction
-            xy = np.concatenate((x - w / 2, y - h / 2, x + w / 2, y + h / 2)).reshape(4, n).T
+            xy = (
+                np.concatenate((x - w / 2, y - h / 2, x + w / 2, y + h / 2))
+                .reshape(4, n)
+                .T
+            )
 
             # reject warped points outside of image
-            #np.clip(xy[:, 0], 0, width, out=xy[:, 0])
-            #np.clip(xy[:, 2], 0, width, out=xy[:, 2])
-            #np.clip(xy[:, 1], 0, height, out=xy[:, 1])
-            #np.clip(xy[:, 3], 0, height, out=xy[:, 3])
+            # np.clip(xy[:, 0], 0, width, out=xy[:, 0])
+            # np.clip(xy[:, 2], 0, width, out=xy[:, 2])
+            # np.clip(xy[:, 1], 0, height, out=xy[:, 1])
+            # np.clip(xy[:, 3], 0, height, out=xy[:, 3])
             w = xy[:, 2] - xy[:, 0]
             h = xy[:, 3] - xy[:, 1]
             area = w * h
@@ -529,7 +608,9 @@ class JointDataset(LoadImagesAndLabels):  # for training
     std = None
     num_classes = 1
 
-    def __init__(self, opt, root, paths, img_size=(1088, 608), augment=False, transforms=None):
+    def __init__(
+        self, opt, root, paths, img_size=(1088, 608), augment=False, transforms=None
+    ):
         self.opt = opt
         dataset_names = paths.keys()
         self.img_files = OrderedDict()
@@ -539,14 +620,21 @@ class JointDataset(LoadImagesAndLabels):  # for training
         self.num_classes = 1
 
         for ds, path in paths.items():
-            with open(path, 'r') as file:
+            with open(path, "r") as file:
                 self.img_files[ds] = file.readlines()
-                self.img_files[ds] = [osp.join(root, x.strip()) for x in self.img_files[ds]]
-                self.img_files[ds] = list(filter(lambda x: len(x) > 0, self.img_files[ds]))
+                self.img_files[ds] = [
+                    osp.join(root, x.strip()) for x in self.img_files[ds]
+                ]
+                self.img_files[ds] = list(
+                    filter(lambda x: len(x) > 0, self.img_files[ds])
+                )
 
             self.label_files[ds] = [
-                x.replace('images', 'labels_with_ids').replace('.png', '.txt').replace('.jpg', '.txt')
-                for x in self.img_files[ds]]
+                x.replace("images", "labels_with_ids")
+                .replace(".png", ".txt")
+                .replace(".jpg", ".txt")
+                for x in self.img_files[ds]
+            ]
 
         for ds, label_paths in self.label_files.items():
             max_index = -1
@@ -577,16 +665,15 @@ class JointDataset(LoadImagesAndLabels):  # for training
         self.augment = augment
         self.transforms = transforms
 
-        print('=' * 80)
-        print('dataset summary')
+        print("=" * 80)
+        print("dataset summary")
         print(self.tid_num)
-        print('total # identities:', self.nID)
-        print('start index')
+        print("total # identities:", self.nID)
+        print("start index")
         print(self.tid_start_index)
-        print('=' * 80)
+        print("=" * 80)
 
     def __getitem__(self, files_index):
-
         for i, c in enumerate(self.cds):
             if files_index >= c:
                 ds = list(self.label_files.keys())[i]
@@ -610,9 +697,9 @@ class JointDataset(LoadImagesAndLabels):  # for training
         else:
             wh = np.zeros((self.max_objs, 2), dtype=np.float32)
         reg = np.zeros((self.max_objs, 2), dtype=np.float32)
-        ind = np.zeros((self.max_objs, ), dtype=np.int64)
-        reg_mask = np.zeros((self.max_objs, ), dtype=np.uint8)
-        ids = np.zeros((self.max_objs, ), dtype=np.int64)
+        ind = np.zeros((self.max_objs,), dtype=np.int64)
+        reg_mask = np.zeros((self.max_objs,), dtype=np.uint8)
+        ids = np.zeros((self.max_objs,), dtype=np.int64)
         bbox_xys = np.zeros((self.max_objs, 4), dtype=np.float32)
 
         draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else draw_umich_gaussian
@@ -623,8 +710,8 @@ class JointDataset(LoadImagesAndLabels):  # for training
             bbox[[0, 2]] = bbox[[0, 2]] * output_w
             bbox[[1, 3]] = bbox[[1, 3]] * output_h
             bbox_amodal = copy.deepcopy(bbox)
-            bbox_amodal[0] = bbox_amodal[0] - bbox_amodal[2] / 2.
-            bbox_amodal[1] = bbox_amodal[1] - bbox_amodal[3] / 2.
+            bbox_amodal[0] = bbox_amodal[0] - bbox_amodal[2] / 2.0
+            bbox_amodal[1] = bbox_amodal[1] - bbox_amodal[3] / 2.0
             bbox_amodal[2] = bbox_amodal[0] + bbox_amodal[2]
             bbox_amodal[3] = bbox_amodal[1] + bbox_amodal[3]
             bbox[0] = np.clip(bbox[0], 0, output_w - 1)
@@ -642,43 +729,63 @@ class JointDataset(LoadImagesAndLabels):  # for training
                 radius = gaussian_radius((math.ceil(h), math.ceil(w)))
                 radius = max(0, int(radius))
                 radius = 6 if self.opt.mse_loss else radius
-                #radius = max(1, int(radius)) if self.opt.mse_loss else radius
-                ct = np.array(
-                    [bbox[0], bbox[1]], dtype=np.float32)
+                # radius = max(1, int(radius)) if self.opt.mse_loss else radius
+                ct = np.array([bbox[0], bbox[1]], dtype=np.float32)
                 ct_int = ct.astype(np.int32)
                 draw_gaussian(hm[cls_id], ct_int, radius)
                 if self.opt.ltrb:
-                    wh[k] = ct[0] - bbox_amodal[0], ct[1] - bbox_amodal[1], \
-                            bbox_amodal[2] - ct[0], bbox_amodal[3] - ct[1]
+                    wh[k] = (
+                        ct[0] - bbox_amodal[0],
+                        ct[1] - bbox_amodal[1],
+                        bbox_amodal[2] - ct[0],
+                        bbox_amodal[3] - ct[1],
+                    )
                 else:
-                    wh[k] = 1. * w, 1. * h
+                    wh[k] = 1.0 * w, 1.0 * h
                 ind[k] = ct_int[1] * output_w + ct_int[0]
                 reg[k] = ct - ct_int
                 reg_mask[k] = 1
                 ids[k] = label[1]
                 bbox_xys[k] = bbox_xy
 
-        ret = {'input': imgs, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh, 'reg': reg, 'ids': ids, 'bbox': bbox_xys}
+        ret = {
+            "input": imgs,
+            "hm": hm,
+            "reg_mask": reg_mask,
+            "ind": ind,
+            "wh": wh,
+            "reg": reg,
+            "ids": ids,
+            "bbox": bbox_xys,
+        }
         return ret
 
 
 class DetDataset(LoadImagesAndLabels):  # for training
-    def __init__(self, root, paths, img_size=(1088, 608), augment=False, transforms=None):
-
+    def __init__(
+        self, root, paths, img_size=(1088, 608), augment=False, transforms=None
+    ):
         dataset_names = paths.keys()
         self.img_files = OrderedDict()
         self.label_files = OrderedDict()
         self.tid_num = OrderedDict()
         self.tid_start_index = OrderedDict()
         for ds, path in paths.items():
-            with open(path, 'r') as file:
+            with open(path, "r") as file:
                 self.img_files[ds] = file.readlines()
-                self.img_files[ds] = [osp.join(root, x.strip()) for x in self.img_files[ds]]
-                self.img_files[ds] = list(filter(lambda x: len(x) > 0, self.img_files[ds]))
+                self.img_files[ds] = [
+                    osp.join(root, x.strip()) for x in self.img_files[ds]
+                ]
+                self.img_files[ds] = list(
+                    filter(lambda x: len(x) > 0, self.img_files[ds])
+                )
 
             self.label_files[ds] = [
-                x.replace('images', 'labels_with_ids').replace('.png', '.txt').replace('.jpg', '.txt')
-                for x in self.img_files[ds]]
+                x.replace("images", "labels_with_ids")
+                .replace(".png", ".txt")
+                .replace(".jpg", ".txt")
+                for x in self.img_files[ds]
+            ]
 
         for ds, label_paths in self.label_files.items():
             max_index = -1
@@ -708,16 +815,15 @@ class DetDataset(LoadImagesAndLabels):  # for training
         self.augment = augment
         self.transforms = transforms
 
-        print('=' * 80)
-        print('dataset summary')
+        print("=" * 80)
+        print("dataset summary")
         print(self.tid_num)
-        print('total # identities:', self.nID)
-        print('start index')
+        print("total # identities:", self.nID)
+        print("start index")
         print(self.tid_start_index)
-        print('=' * 80)
+        print("=" * 80)
 
     def __getitem__(self, files_index):
-
         for i, c in enumerate(self.cds):
             if files_index >= c:
                 ds = list(self.label_files.keys())[i]
@@ -734,5 +840,3 @@ class DetDataset(LoadImagesAndLabels):  # for training
                 labels[i, 1] += self.tid_start_index[ds]
 
         return imgs, labels0, img_path, (h, w)
-
-

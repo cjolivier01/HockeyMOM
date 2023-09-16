@@ -73,7 +73,7 @@ class DefaultArguments(argparse.Namespace):
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
-        self.skip_frame_count = 0
+        self.skip_frame_count = 30
 
         # Moving right-to-left
         # self.skip_frame_count = 450
@@ -156,6 +156,9 @@ class FramePostProcessor:
         self._use_fork = use_fork
         self._final_aspect_ratio = 16.0 / 9.0
         self._output_video = None
+
+    def get_first_frame_id(self):
+        return self._args.skip_frame_count
 
     def start(self):
         if self._use_fork:

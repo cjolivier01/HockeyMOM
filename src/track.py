@@ -157,7 +157,14 @@ def eval_seq(
                 opt,
                 args=args,
             )
+            # maybe seek to frame
+            first_frame_id = postprocessor.get_first_frame_id()
             postprocessor.start()
+            if first_frame_id and hasattr(dataloader, "set_frame_number"):
+                dataloader.set_frame_number(first_frame_id)
+                postprocessor._frame_id = first_frame_id
+                print(f"Starting at frame: {first_frame_id}")
+                continue
 
         frame_id = i
         if frame_id > 0 and frame_id <= args.skip_frame_count:
