@@ -47,13 +47,16 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_camera_tracking = False or BASIC_DEBUGGING
+
+        # Plot frame ID and speed/velocity in upper-left corner
+        self.plot_speed = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -64,7 +67,7 @@ class DefaultArguments(argparse.Namespace):
         # either the left or right edge of the video
         self.no_max_in_aspec_ratio_at_edges = True
 
-        # Use "sticky" panning, where panning occurs in less frequent, but possibly faster pans rather than a constant pan (which may appear tpo "wiggle")
+        # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
@@ -80,7 +83,7 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        #self.stop_at_frame = 1000
+        # self.stop_at_frame = 1000
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -521,6 +524,13 @@ class FramePostProcessor:
                 #         label="scaled_union_clusters_2_and_3",
                 #     )
 
+                if self._args.plot_speed:
+                    vis.plot_frame_id_and_speeds(
+                        online_im,
+                        self._frame_id,
+                        *hockey_mom.get_velocity_and_acceleratrion_xy(),
+                    )
+
                 def _apply_temporal(last_box, grays_level: int = 128):
                     #
                     # Temporal: Apply velocity and acceleration
@@ -678,16 +688,64 @@ class FramePostProcessor:
                     )
                     return hockey_mom.shift_box_to_edge(box)
 
-                stuck = hockey_mom.changed_direction()
+                stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
+
+                sticky_size = hockey_mom._camera_box_max_speed_x * 3
+
+                if last_sticky_temporal_box is not None:
+                    vis.plot_rectangle(
+                        online_im,
+                        last_sticky_temporal_box,
+                        color=(255, 255, 255),
+                        thickness=6,
+                    )
+                    # sticky circle
+                    cc = center(current_box)
+                    cl = center(last_sticky_temporal_box)
+
+                    def _to_int(vals):
+                        return [int(i) for i in vals]
+
+                    if not stuck:
+                        pass
+
+                    cv2.circle(
+                        online_im,
+                        _to_int(cl),
+                        radius=int(sticky_size),
+                        color=(255, 0, 0) if stuck else (255, 255, 255),
+                        thickness=3,
+                    )
+                    vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
+                    vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
+                    vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
+
+                    # current velocity vector
+                    vis.plot_line(
+                        online_im,
+                        cl,
+                        [
+                            cl[0] + hockey_mom._current_camera_box_speed_x,
+                            cl[1] + hockey_mom._current_camera_box_speed_y,
+                        ],
+                        color=(0, 0, 0),
+                        thickness=2,
+                    )
+
+                cdist = center_distance(current_box, last_sticky_temporal_box)
+
                 # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
                 if stuck and (
-                    #center_distance(current_box, last_sticky_temporal_box) > 30
+                    # center_distance(current_box, last_sticky_temporal_box) > 30
                     # Past some distance of number of frames at max speed
-                    center_distance(current_box, last_sticky_temporal_box) > hockey_mom._camera_box_max_speed_x * 2
+                    cdist
+                    > sticky_size
                 ):
                     hockey_mom.control_speed(5, 5)
-                    hockey_mom.changed_direction(False)
+                    hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                     stuck = False
+                elif cdist < sticky_size / 4:
+                    stuck = hockey_mom.set_direction_changed(dx=True, dy=True)
 
                 if not stuck:
                     current_box, last_sticky_temporal_box = _apply_temporal(
@@ -697,7 +755,7 @@ class FramePostProcessor:
                     assert np.isclose(
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
-                    hockey_mom.changed_direction(False)
+                    hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                 elif last_sticky_temporal_box is None:
                     last_sticky_temporal_box = current_box.copy()
                     assert np.isclose(

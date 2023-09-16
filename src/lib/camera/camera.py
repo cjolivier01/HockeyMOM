@@ -249,10 +249,10 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_box_max_speed_x = max(image_width / 100.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 100.0, 12.0)
-        # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
-        # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
+        # self._camera_box_max_speed_x = max(image_width / 100.0, 12.0)
+        # self._camera_box_max_speed_y = max(image_height / 100.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
+        self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
@@ -268,16 +268,25 @@ class HockeyMOM:
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
 
-        self._camera_box_max_width_change_per_frame = 3
-        self._camera_box_max_height_change_per_frame = 3
+        self._last_acceleration_dx = 0
+        self._last_acceleration_dy = 0
 
+        #
+        # Zoom velocity
+        #
+        self._camera_box_size_change_velocity_x = 0
+        self._camera_box_size_change_velocity_y = 0
+
+        self._camera_box_max_size_change_velocity_x = 3
+        self._camera_box_max_size_change_velocity_y = 3
+
+        # Create the camera transofrmer
         self._camera = create_camera(
             elevation_m=3,
             tilt_degrees=45,
-            roll_degrees=5,  # <-- looks correct
+            roll_degrees=5,  # <-- looks correct for Vallco left penalty box glass
             focal_length=12,
             sensor_size_mm=(73, 4.55),
-            # image_size_px=(4096, 1024),
             image_size_px=(image_width, image_height),
         )
 
@@ -834,6 +843,9 @@ class HockeyMOM:
         old_s_x = self._current_camera_box_speed_x
         old_s_y = self._current_camera_box_speed_y
 
+        self._last_acceleration_dx = allowed_acceleration_dx
+        self._last_acceleration_dy = allowed_acceleration_dy
+
         self._current_camera_box_speed_x += allowed_acceleration_dx
         self._current_camera_box_speed_y += allowed_acceleration_dy
 
@@ -880,20 +892,20 @@ class HockeyMOM:
 
         if proposed_width_change < 0:
             allowed_width_change = max(
-                proposed_width_change, -self._camera_box_max_width_change_per_frame
+                proposed_width_change, -self._camera_box_max_size_change_velocity_x
             )
         else:
             allowed_width_change = min(
-                proposed_width_change, self._camera_box_max_height_change_per_frame
+                proposed_width_change, self._camera_box_max_size_change_velocity_y
             )
 
         if proposed_height_change < 0:
             allowed_height_change = max(
-                proposed_height_change, -self._camera_box_max_width_change_per_frame
+                proposed_height_change, -self._camera_box_max_size_change_velocity_x
             )
         else:
             allowed_height_change = min(
-                proposed_height_change, self._camera_box_max_width_change_per_frame
+                proposed_height_change, self._camera_box_max_size_change_velocity_x
             )
 
         # Apply the height change against the center
@@ -938,10 +950,31 @@ class HockeyMOM:
             print(f"moved_box: {self.box_str(moved_box)}")
         return moved_box
 
-    def changed_direction(self, reset: bool = False):
+    def did_direction_change(self, dx: bool=True, dy:bool=True, reset: bool = False):
+        if reset:
+            if dx:
+                self._current_camera_box_speed_reversed_x = False
+            if dy:
+                self._current_camera_box_speed_reversed_y = False
+            return None
         return (
-            self._current_camera_box_speed_reversed_x
-            or self._current_camera_box_speed_reversed_x
+            (dx and self._current_camera_box_speed_reversed_x)
+            or (dy and self._current_camera_box_speed_reversed_y)
+        )
+
+    def set_direction_changed(self, dx: bool=True, dy:bool=True):
+        if dx:
+            self._current_camera_box_speed_reversed_x = True
+        if dy:
+            self._current_camera_box_speed_reversed_y = True
+        return dx or dy
+
+    def get_velocity_and_acceleratrion_xy(self):
+        return (
+            self._current_camera_box_speed_x,
+            self._current_camera_box_speed_y,
+            self._last_acceleration_dx,
+            self._last_acceleration_dy,
         )
 
     def curtail_velocity_if_outside_box(self, current_box, bounding_box):
