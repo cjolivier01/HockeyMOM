@@ -72,7 +72,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
-        self.plot_sticky_camera = True or BASIC_DEBUGGING
+        self.plot_sticky_camera = False or BASIC_DEBUGGING
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -806,13 +806,14 @@ class FramePostProcessor:
 
                 if self._args.apply_fixed_edge_scaling and self._args.apply_fixed_edge_scaling:
                     current_box = hockey_mom.apply_fixed_edge_scaling(current_box)
-                    vis.plot_rectangle(
-                        online_im,
-                        current_box,
-                        color=(255, 0, 255),
-                        thickness=15,
-                        label="edge-scaled",
-                    )
+                    if self._args.plot_camera_tracking:
+                        vis.plot_rectangle(
+                            online_im,
+                            current_box,
+                            color=(255, 0, 255),
+                            thickness=15,
+                            label="edge-scaled",
+                        )
 
                 if stuck and self._args.plot_camera_tracking:
                     vis.plot_rectangle(
