@@ -72,7 +72,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
-        self.plot_sticky_camera = True
+        self.plot_sticky_camera = True or BASIC_DEBUGGING
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -87,13 +87,13 @@ class DefaultArguments(argparse.Namespace):
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
         self.stop_at_frame = None
-        self.stop_at_frame = 30 * 30
+        #self.stop_at_frame = 30*30
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -229,7 +229,8 @@ class FramePostProcessor:
         if self._output_video is None:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
-                filename=self._save_dir + "/../tracking_output.mov",
+                #filename=self._save_dir + "/../tracking_output.mov",
+                filename=self._save_dir + "/../tracking_output.avi",
                 fourcc=fourcc,
                 fps=30,
                 frameSize=(self.final_frame_width, self.final_frame_height),
@@ -481,15 +482,15 @@ class FramePostProcessor:
                     largest_cluster_ids_box3 = None
 
                 if (
-                    largest_cluster_ids_2 is not None
+                    largest_cluster_ids_box2 is not None
                     and largest_cluster_ids_box3 is not None
                 ):
                     current_box = hockey_mom.union_box(
                         largest_cluster_ids_box2, largest_cluster_ids_box3
                     )
-                elif largest_cluster_ids_2 is not None:
+                elif largest_cluster_ids_box2 is not None:
                     current_box = largest_cluster_ids_box2
-                elif largest_cluster_ids_3 is not None:
+                elif largest_cluster_ids_box3 is not None:
                     current_box = largest_cluster_ids_box3
                 else:
                     current_box = hockey_mom._video_frame.box()
@@ -555,6 +556,13 @@ class FramePostProcessor:
                             thickness=2,
                             label="next_temporal_box",
                         )
+                        cv2.circle(
+                            online_im,
+                            [int(i) for i in center(current_box)],
+                            radius=25,
+                            color=(0, 0, 0),
+                            thickness=25,
+                        )
                     return current_box, last_box
 
                 current_box, last_temporal_box = _apply_temporal(last_temporal_box)
@@ -566,16 +574,23 @@ class FramePostProcessor:
                 #
                 # Aspect Ratio
                 #
-                current_box = hockey_mom.clamp(current_box)
+                #current_box = hockey_mom.clamp(current_box)
 
                 if self._args.plot_camera_tracking:
                     vis.plot_rectangle(
                         online_im,
                         current_box,
                         color=(0, 0, 0),
-                        thickness=4,
+                        thickness=10,
                         label="clamped_pre_aspect",
                     )
+                    # vis.plot_rectangle(
+                    #     online_im,
+                    #     current_box,
+                    #     color=(0, 0, 0),
+                    #     thickness=10,
+                    #     label="clamped_pre_aspect",
+                    # )
 
                 current_box = hockey_mom.make_box_proper_aspect_ratio(
                     frame_id=self._frame_id,
