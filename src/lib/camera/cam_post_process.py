@@ -774,8 +774,8 @@ class FramePostProcessor:
                     > sticky_size
                 ):
                     hockey_mom.control_speed(
-                        hockey_mom._camera_box_max_speed_x/3,
-                        hockey_mom._camera_box_max_speed_y/3,
+                        hockey_mom._camera_box_max_speed_x/6,
+                        hockey_mom._camera_box_max_speed_y/6,
                         set_speed_x=False,
                     )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)

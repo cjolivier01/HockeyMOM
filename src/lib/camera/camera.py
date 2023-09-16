@@ -260,8 +260,10 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
+        # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
+        # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
+        self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
         print(
