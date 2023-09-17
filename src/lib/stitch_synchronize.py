@@ -6,14 +6,11 @@ import numpy as np
 def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 5):
     # Load the videos
     print("Openning videos...")
-    full_video0 = mp.VideoFileClip(file0_path).subclip(0, 30)
-    full_video1 = mp.VideoFileClip(file1_path).subclip(0, 30)
+    full_video0 = mp.VideoFileClip(file0_path)
+    full_video1 = mp.VideoFileClip(file1_path)
 
     video0 = full_video0.subclip(0, seconds)
     video1 = full_video1.subclip(0, seconds)
-
-    # full_video0 = video0
-    # full_video1 = video1
 
     video_1_frame_count = video0.fps * video0.duration
     video_2_frame_count = video1.fps * video0.duration
@@ -76,7 +73,8 @@ def add_suffix_to_filename(filename, suffix):
 
 if __name__ == "__main__":
     video_number = 0
-    # Currently, expects files to be named like "left-0.mp4", "right-0.mp4" and in /home/Videos directory
+    # Currently, expects files to be named like
+    # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
         file0_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
         file1_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
