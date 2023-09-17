@@ -23,6 +23,82 @@ from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
 
 
+def stitch_matcher(image1, image2, crop_black_borders: bool = True):
+    #
+    # Detect keypoints and compute descriptors for both images.
+    # You can use an algorithm like SIFT or ORB for this purpose:
+    #
+
+    # Initialize SIFT detector (you can use other detectors like ORB)
+    sift = cv2.SIFT_create()
+
+    # Detect keypoints and compute descriptors
+    keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
+    keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
+
+    #
+    # Match the keypoints in the two images:
+    #
+
+    # Initialize a Brute-Force Matcher
+    bf = cv2.BFMatcher()
+
+    # Match descriptors
+    matches = bf.knnMatch(descriptors1, descriptors2, k=2)
+
+    # Apply ratio test to find good matches
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good_matches.append(m)
+
+    #
+    # Extract the corresponding keypoints:
+    #
+
+    # Extract corresponding keypoints
+    matched_keypoints1 = [keypoints1[match.queryIdx] for match in good_matches]
+    matched_keypoints2 = [keypoints2[match.trainIdx] for match in good_matches]
+
+    # Convert keypoints to NumPy arrays
+    pts1 = np.float32([kp.pt for kp in matched_keypoints1])
+    pts2 = np.float32([kp.pt for kp in matched_keypoints2])
+
+    #
+    # Find the Homography matrix that relates the two images:
+    #
+
+    # Find the Homography matrix
+    H, _ = cv2.findHomography(pts2, pts1, cv2.RANSAC)
+
+    #
+    # Warp the second image onto the first image:
+    #
+
+    # Warp the second image onto the first image
+    stitched_image = cv2.warpPerspective(
+        image2, H, (image1.shape[1] + image2.shape[1], image1.shape[0])
+    )
+
+    # Copy the first image onto the stitched image
+    stitched_image[0 : image1.shape[0], 0 : image1.shape[1]] = image1
+
+    #
+    # Optionally, you can crop the black borders in the stitched image to obtain a cleaner result:
+    #
+    if crop_black_borders:
+        stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(stitched_image, 1, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        max_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(max_contour)
+        stitched_image = stitched_image[y : y + h, x : x + w]
+
+    return stitched_image
+
+
 class Images:
     def __init__(self, img, img0, original_img):
         self.img = img
@@ -226,8 +302,14 @@ class LoadStitchedVideoWithOrig:  # for inference
         scale_down_images: bool = True,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
-        skip_frame_count: int = 0,
+        skip_frame_count: int = 155,
         clip_box: List[int] = None,
+        left_stitch_clip_x_size: int = 557,
+        left_stitch_clip_y_size: int = 118,
+        left_start_frame_number: int = 20,
+        right_stitch_clip_x_size: int = 557,
+        right_stitch_clip_y_size: int = 0,
+        right_start_frame_number: int = 113,
     ):
         self.skip_frame_count = skip_frame_count
         self.left_file = left_file
@@ -252,11 +334,30 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.count = 0
         self._last_size = None
 
+        self.left_stitch_clip_x_size = left_stitch_clip_x_size
+        self.left_stitch_clip_y_size = left_stitch_clip_y_size
+        self.left_start_frame_number = left_start_frame_number
+        self.right_stitch_clip_x_size = right_stitch_clip_x_size
+        self.right_stitch_clip_y_size = right_stitch_clip_y_size
+        self.right_start_frame_number = right_start_frame_number
+
         self.init(is_creator_process=True)
 
     def init(self, is_creator_process):
         self.vidcap_left = cv2.VideoCapture(self.left_file)
         self.vidcap_right = cv2.VideoCapture(self.right_file)
+
+        if self.left_start_frame_number:
+            self.vidcap_left.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self.skip_frame_count + self.left_start_frame_number,
+            )
+
+        if self.right_start_frame_number:
+            self.vidcap_right.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self.skip_frame_count + self.right_start_frame_number,
+            )
 
         self.fps = self.vidcap_left.get(cv2.CAP_PROP_FPS)
         self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -294,7 +395,6 @@ class LoadStitchedVideoWithOrig:  # for inference
             self.vidcap_left = None
             self.vidcap_right = None
 
-
     def processing_thread_main(self):
         while True:
             msg = self.processing_queue.get()
@@ -303,7 +403,7 @@ class LoadStitchedVideoWithOrig:  # for inference
             if msg == "next":
                 try:
                     self.process_next_frame()
-                    #self.main_queue.put("ready")
+                    # self.main_queue.put("ready")
                 except StopIteration as ex:
                     self.main_queue.put(None)
                     raise
@@ -323,14 +423,14 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.stop()
         self.processing_queue = multiprocessing.Queue()
         self.main_queue = multiprocessing.Queue()
-        #self.processing_thread = threading.Thread(target=self.processing_thread)
+        # self.processing_thread = threading.Thread(target=self.processing_thread)
         if not os.fork():
             self.init(is_creator_process=False)
             self.processing_thread_main()
             os._exit(0)
         else:
             self.processing_queue.put("next")
-        #self.processing_thread.start()
+        # self.processing_thread.start()
 
     def set_frame_number(self, frame_id: int):
         current_frame_left = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
@@ -382,13 +482,34 @@ class LoadStitchedVideoWithOrig:  # for inference
         assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
         assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
 
-        if self.final_frame_height != self.frame_height:
-            frame1 = cv2.resize(
-                frame1, (self.final_frame_width // 2, self.final_frame_height)
-            )
-            frame2 = cv2.resize(
-                frame2, (self.final_frame_width // 2, self.final_frame_height)
-            )
+        if False:
+            img0 = stitch_matcher(frame1, frame2)
+        else:
+            # if self.final_frame_height != self.frame_height:
+            #     frame1 = cv2.resize(
+            #         frame1, (self.final_frame_width // 2, self.final_frame_height)
+            #     )
+            #     frame2 = cv2.resize(
+            #         frame2, (self.final_frame_width // 2, self.final_frame_height)
+            #     )
+            clip_y = (self.left_stitch_clip_y_size + self.right_stitch_clip_y_size) // 2
+            if self.left_stitch_clip_x_size or clip_y:
+                w = frame1.shape[1]
+                h = frame1.shape[0]
+                frame1 = frame1[
+                    clip_y:,
+                    0 : w - self.left_stitch_clip_x_size,
+                    :,
+                ]
+
+            if self.right_stitch_clip_x_size or clip_y:
+                w = frame2.shape[1]
+                h = frame2.shape[0]
+                frame2 = frame2[
+                    0 : h - clip_y,
+                    self.right_stitch_clip_x_size :,
+                    :,
+                ]
 
         # Concatenate the frames side-by-side
         img0 = cv2.hconcat([frame1, frame2])

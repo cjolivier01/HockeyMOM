@@ -213,7 +213,7 @@ def stitch_matcher(image1, image2, crop_black_borders: bool = True):
 def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
     scale_down_images = True
     image_scale_down_value = 2
-    show_image = False
+    show_image = True
     skip_frame_count = 0
     stop_at_frame_count = 0
     filename_stitched = None
@@ -282,8 +282,12 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
             frame1 = cv2.resize(frame1, (final_frame_width // 2, final_frame_height))
             frame2 = cv2.resize(frame2, (final_frame_width // 2, final_frame_height))
 
-        # Concatenate the frames side-by-side
-        combined_frame = cv2.hconcat([frame1, frame2])
+        if True:
+            combined_frame = stitch_matcher(frame1, frame2)
+            print(f"combined_frame.shape={combined_frame.shape}")
+        else:
+            # Concatenate the frames side-by-side
+            combined_frame = cv2.hconcat([frame1, frame2])
 
         if show_image:
             cv2.imshow('Combined Image', combined_frame)
