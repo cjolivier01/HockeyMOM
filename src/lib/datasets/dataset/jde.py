@@ -304,12 +304,12 @@ class LoadStitchedVideoWithOrig:  # for inference
         process_img_size=(1920, 1080),
         skip_frame_count: int = 155,
         clip_box: List[int] = None,
-        left_stitch_clip_x_size: int = 557,
-        left_stitch_clip_y_size: int = 118,
-        left_start_frame_number: int = 20,
-        right_stitch_clip_x_size: int = 557,
+        left_stitch_clip_x_size: int = 555,
+        left_stitch_clip_y_size: int = 38,
+        left_start_frame_number: int = 21,
+        right_stitch_clip_x_size: int = 556,
         right_stitch_clip_y_size: int = 0,
-        right_start_frame_number: int = 113,
+        right_start_frame_number: int = 112,
     ):
         self.skip_frame_count = skip_frame_count
         self.left_file = left_file
