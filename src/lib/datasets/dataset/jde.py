@@ -303,7 +303,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         skip_frame_count: int = 0,
-        clip_offset_box: List[int] = [300, 0, 0, 0],
+        clip_offset_box: List[int] = [0, 700, 0, 0],
         left_stitch_clip_x_size: int = 555,
         left_stitch_clip_y_size: int = 38,
         left_start_frame_number: int = 21,
