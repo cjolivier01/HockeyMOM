@@ -47,7 +47,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
