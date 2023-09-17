@@ -303,7 +303,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         skip_frame_count: int = 0,
-        clip_offset_box: List[int] = [0, 700, 0, 0],
+        clip_offset_box: List[int] = [0, 750, 0, 0],
         left_stitch_clip_x_size: int = 555,
         left_stitch_clip_y_size: int = 38,
         left_start_frame_number: int = 21,
@@ -521,9 +521,9 @@ class LoadStitchedVideoWithOrig:  # for inference
         img0 = cv2.hconcat([frame1, frame2])
 
         # Cut in half after stitching
-        # new_w = (frame1.shape[1] + frame2.shape[1]) // 2
-        # new_h = (frame1.shape[0] + frame2.shape[0]) // 2
-        # img0 = cv2.resize(img0, (new_w, new_h))
+        new_w = (frame1.shape[1] + frame2.shape[1]) // 2
+        new_h = (frame1.shape[0] + frame2.shape[0]) // 2
+        img0 = cv2.resize(img0, (new_w, new_h))
 
         # self.vw = new_w
         # self.vh = new_h
