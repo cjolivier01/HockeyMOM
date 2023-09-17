@@ -302,7 +302,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         scale_down_images: bool = True,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
-        skip_frame_count: int = 155,
+        skip_frame_count: int = 0,
         clip_box: List[int] = None,
         left_stitch_clip_x_size: int = 555,
         left_stitch_clip_y_size: int = 38,
@@ -363,10 +363,10 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        self.total_frames_left = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.total_frames_right = int(self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.total_frames_left = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT) - self.left_start_frame_number)
+        self.total_frames_right = int(self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT) - self.right_start_frame_number)
 
-        assert self.total_frames_left == self.total_frames_right
+        #assert self.total_frames_left == self.total_frames_right
         self.total_frames = min(self.total_frames_left, self.total_frames_right)
 
         print(f"Video FPS={self.fps}")
