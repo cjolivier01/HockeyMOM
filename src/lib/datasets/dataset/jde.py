@@ -294,30 +294,54 @@ class LoadVideoWithOrig:  # for inference
         return self.vn  # number of files
 
 
+class StitchConfig:
+    def __init__(self):
+        self.skip_frame_count = 0
+        self.clip_offset_box = None
+        self.left_stitch_clip_x_size = 0
+        self.left_stitch_clip_y_size = 0
+        self.left_start_frame_number = 0
+        self.right_stitch_clip_x_size = 0
+        self.right_stitch_clip_y_size= 0
+        self.right_start_frame_number= 0
+
+
+class StitchConfig_YB_0(StitchConfig):
+    def __init__(self):
+        super().__init__()
+        self.skip_frame_count = 0
+        self.clip_offset_box = [0, 750, 0, 0]
+        self.left_stitch_clip_x_size = 555
+        self.left_stitch_clip_y_size = 38
+        self.left_start_frame_number = 21
+        self.right_stitch_clip_x_size = 556
+        self.right_stitch_clip_y_size= 0
+        self.right_start_frame_number= 112
+
+
 class LoadStitchedVideoWithOrig:  # for inference
     def __init__(
         self,
         left_file: str,
         right_file: str,
+        stitch_config,
         scale_down_images: bool = True,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
-        skip_frame_count: int = 0,
-        clip_offset_box: List[int] = [0, 750, 0, 0],
-        left_stitch_clip_x_size: int = 555,
-        left_stitch_clip_y_size: int = 38,
-        left_start_frame_number: int = 21,
-        right_stitch_clip_x_size: int = 556,
-        right_stitch_clip_y_size: int = 0,
-        right_start_frame_number: int = 112,
+        # skip_frame_count: int = 0,
+        # clip_offset_box: List[int] = [0, 750, 0, 0],
+        # left_stitch_clip_x_size: int = 555,
+        # left_stitch_clip_y_size: int = 38,
+        # left_start_frame_number: int = 21,
+        # right_stitch_clip_x_size: int = 556,
+        # right_stitch_clip_y_size: int = 0,
+        # right_start_frame_number: int = 112,
     ):
-        self.skip_frame_count = skip_frame_count
         self.left_file = left_file
         self.right_file = right_file
         self.vidcap_left = None
         self.vidcap_right = None
 
-        self.clip_offset_box = clip_offset_box
         self.processing_queue = None
         self.main_queue = None
         self.processing_thread = None
@@ -334,12 +358,14 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.count = 0
         self._last_size = None
 
-        self.left_stitch_clip_x_size = left_stitch_clip_x_size
-        self.left_stitch_clip_y_size = left_stitch_clip_y_size
-        self.left_start_frame_number = left_start_frame_number
-        self.right_stitch_clip_x_size = right_stitch_clip_x_size
-        self.right_stitch_clip_y_size = right_stitch_clip_y_size
-        self.right_start_frame_number = right_start_frame_number
+        self.skip_frame_count = stitch_config.skip_frame_count
+        self.clip_offset_box = stitch_config.clip_offset_box
+        self.left_stitch_clip_x_size = stitch_config.left_stitch_clip_x_size
+        self.left_stitch_clip_y_size = stitch_config.left_stitch_clip_y_size
+        self.left_start_frame_number = stitch_config.left_start_frame_number
+        self.right_stitch_clip_x_size = stitch_config.right_stitch_clip_x_size
+        self.right_stitch_clip_y_size = stitch_config.right_stitch_clip_y_size
+        self.right_start_frame_number = stitch_config.right_start_frame_number
 
         self.init(is_creator_process=True)
 
