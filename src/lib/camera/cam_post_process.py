@@ -61,7 +61,7 @@ class DefaultArguments(argparse.Namespace):
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_camera_tracking = False or BASIC_DEBUGGING
@@ -300,11 +300,21 @@ class FramePostProcessor:
                 # print(f"crop ar={aspect_ratio(current_box)}")
                 intbox = [int(i) for i in current_box]
                 x1 = intbox[0]
-                # x2 = intbox[2]
                 y1 = intbox[1]
                 y2 = intbox[3]
-                x2 = x1 + int(float(y2 - y1) * self._final_aspect_ratio)
-
+                x2 = int(x1 + int(float(y2 - y1) * self._final_aspect_ratio))
+                # if y2 == online_im.shape[0]:
+                #     # Possible to be off by one here sometimes
+                #     print(f"y2 off by one")
+                #     y2 == online_im.shape[0] - 1
+                #     assert y1 > 0
+                #     y1 -= 1
+                # if x2 == online_im.shape[1]:
+                #     print(f"x2 off by one")
+                #     # Possible to be off by one here sometimes
+                #     x2 == online_im.shape[1] - 1
+                #     assert x1 > 0
+                #     x1 -= 1
                 # Sanity check clip dimensions
                 # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0

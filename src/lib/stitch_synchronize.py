@@ -40,6 +40,6 @@ def synchronize_by_audio(file1_path: str, file2_path: str):
 if __name__ == "__main__":
     video_number = 0
     synchronize_by_audio(
-        file1_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
-        file2_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/left-{video_number}-one-minute.mp4",
+        file2_path=f"{os.environ['HOME']}/Videos/right-{video_number}-one-minute.mp4",
     )
