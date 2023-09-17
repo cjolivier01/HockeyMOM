@@ -313,10 +313,12 @@ class StitchConfig_YB_0(StitchConfig):
         self.clip_offset_box = [0, 750, 0, 0]
         self.left_stitch_clip_x_size = 555
         self.left_stitch_clip_y_size = 38
-        self.left_start_frame_number = 21
+        #self.left_start_frame_number = 21
+        self.left_start_frame_number = 0
         self.right_stitch_clip_x_size = 556
         self.right_stitch_clip_y_size= 0
-        self.right_start_frame_number= 112
+        #self.right_start_frame_number= 112
+        self.right_start_frame_number= 0
 
 
 class LoadStitchedVideoWithOrig:  # for inference
@@ -328,14 +330,6 @@ class LoadStitchedVideoWithOrig:  # for inference
         scale_down_images: bool = True,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
-        # skip_frame_count: int = 0,
-        # clip_offset_box: List[int] = [0, 750, 0, 0],
-        # left_stitch_clip_x_size: int = 555,
-        # left_stitch_clip_y_size: int = 38,
-        # left_start_frame_number: int = 21,
-        # right_stitch_clip_x_size: int = 556,
-        # right_stitch_clip_y_size: int = 0,
-        # right_start_frame_number: int = 112,
     ):
         self.left_file = left_file
         self.right_file = right_file
@@ -650,7 +644,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         # return self.count, img, img0, original_img
 
     def __len__(self):
-        return self.total_frames  # number of files
+        return self.total_frames  # number of frames
 
 
 class LoadImagesAndLabels:  # for training

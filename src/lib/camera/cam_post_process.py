@@ -53,7 +53,7 @@ RINK_CONFIG = {
     }
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
