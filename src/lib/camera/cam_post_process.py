@@ -41,16 +41,27 @@ core.hello_world()
 # Some experimental and debugging parameters that aid in development
 #
 
+RINK_CONFIG = {
+    "vallco": {
+        "fixed_edge_scaling_factor": 0.8,
+    },
+    "dublin": {
+        "fixed_edge_scaling_factor": 0.8,
+    },
+    "yerba_buena": {
+        "fixed_edge_scaling_factor": 2.0,
+    }
+}
+
 BASIC_DEBUGGING = False
 
-
 class DefaultArguments(argparse.Namespace):
-    def __init__(self, args: argparse.Namespace = None):
+    def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_camera_tracking = False or BASIC_DEBUGGING
@@ -69,6 +80,8 @@ class DefaultArguments(argparse.Namespace):
 
         # Zooming is fixed based upon the horizonal position's distance from center
         self.apply_fixed_edge_scaling = True
+
+        self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
@@ -350,7 +363,11 @@ class FramePostProcessor:
             #
             if self._args.use_watermark:
                 y = int(online_im.shape[0] - self.watermark_height)
-                x = int(online_im.shape[1] - self.watermark_width - self.watermark_width / 10)
+                x = int(
+                    online_im.shape[1]
+                    - self.watermark_width
+                    - self.watermark_width / 10
+                )
                 online_im[
                     y : y + self.watermark_height, x : x + self.watermark_width
                 ] = online_im[
@@ -854,7 +871,10 @@ class FramePostProcessor:
                     self._args.apply_fixed_edge_scaling
                     and self._args.apply_fixed_edge_scaling
                 ):
-                    current_box = hockey_mom.apply_fixed_edge_scaling(current_box)
+                    current_box = hockey_mom.apply_fixed_edge_scaling(
+                        current_box,
+                        edge_scaling_factor=self._args.fixed_edge_scaling_factor,
+                    )
                     if self._args.plot_camera_tracking:
                         vis.plot_rectangle(
                             online_im,

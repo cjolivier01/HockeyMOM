@@ -749,7 +749,7 @@ class HockeyMOM:
         return new_box
 
 
-    def apply_fixed_edge_scaling(self, box, edge_scaling_factor: float = 0.8, verbose:bool = False):
+    def apply_fixed_edge_scaling(self, box, edge_scaling_factor: float, verbose:bool = False):
         current_center = center(box)
         w = width(box)
         # h = height(box)

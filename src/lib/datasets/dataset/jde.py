@@ -547,9 +547,10 @@ class LoadStitchedVideoWithOrig:  # for inference
         img0 = cv2.hconcat([frame1, frame2])
 
         # Cut in half after stitching
-        new_w = (frame1.shape[1] + frame2.shape[1]) // 2
-        new_h = (frame1.shape[0] + frame2.shape[0]) // 2
-        img0 = cv2.resize(img0, (new_w, new_h))
+        if self.scale_down_images:
+            new_w = (frame1.shape[1] + frame2.shape[1]) // 2
+            new_h = (frame1.shape[0] + frame2.shape[0]) // 2
+            img0 = cv2.resize(img0, (new_w, new_h))
 
         # self.vw = new_w
         # self.vh = new_h
