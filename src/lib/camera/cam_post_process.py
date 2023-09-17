@@ -56,7 +56,7 @@ class DefaultArguments(argparse.Namespace):
         self.plot_camera_tracking = False or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
-        self.plot_speed = True
+        self.plot_speed = False
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -96,7 +96,7 @@ class DefaultArguments(argparse.Namespace):
         self.scale_to_original_image = True
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = False and not BASIC_DEBUGGING
+        self.crop_output_image = True and not BASIC_DEBUGGING
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations

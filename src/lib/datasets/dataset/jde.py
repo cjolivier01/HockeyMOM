@@ -379,15 +379,15 @@ class LoadStitchedVideoWithOrig:  # for inference
         assert self.frame_rate_left == self.frame_rate_right
         self.frame_rate = self.frame_rate_left
 
-        self.final_frame_width = self.frame_width * 2
-        self.final_frame_height = self.frame_height
+        # self.final_frame_width = self.frame_width * 2
+        # self.final_frame_height = self.frame_height
 
-        if self.scale_down_images:
-            self.final_frame_width = (self.frame_width * 2) // 2
-            self.final_frame_height = self.frame_height // 2
+        # if self.scale_down_images:
+        #     self.final_frame_width = (self.frame_width * 2) // 2
+        #     self.final_frame_height = self.frame_height // 2
 
-        self.vw = self.final_frame_width
-        self.vh = self.final_frame_height
+        # self.vw = self.final_frame_width
+        # self.vh = self.final_frame_height
 
         if is_creator_process:
             self.vidcap_left.release()
@@ -513,6 +513,14 @@ class LoadStitchedVideoWithOrig:  # for inference
 
         # Concatenate the frames side-by-side
         img0 = cv2.hconcat([frame1, frame2])
+
+        # Cut in half after stitching
+        # new_w = (frame1.shape[1] + frame2.shape[1]) // 2
+        # new_h = (frame1.shape[0] + frame2.shape[0]) // 2
+        # img0 = cv2.resize(img0, (new_w, new_h))
+
+        # self.vw = new_w
+        # self.vh = new_h
 
         if self.clip_box is not None:
             img0 = img0[

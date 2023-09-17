@@ -3,9 +3,9 @@
 #VIDEO="${HOME}"/Downloads/hockey.mov
 #VIDEO="${HOME}"/Downloads/pdp_hockey_game.mp4
 #VIDEO="${HOME}/Downloads/pdp_whole_game.mp4"
-#VIDEO="${HOME}/Videos/left-${1}.mp4,${HOME}/Videos/right-${1}.mp4"
+VIDEO="${HOME}/Videos/left-${1}.mp4,${HOME}/Videos/right-${1}.mp4"
 #VIDEO="${HOME}/Videos/clips/vlc-record-2023-09-15-18h18m32s-stitched-output-2.mov-.mp4"
-VIDEO="${HOME}/Videos/clips/ethan_goal.mp4"
+#VIDEO="${HOME}/Videos/clips/ethan_goal.mp4"
 
 rm -rf h-demo/*
 
