@@ -135,15 +135,11 @@ def eval_seq(
                 hockey_mom = HockeyMOM(
                     image_width=original_img.shape[1],
                     image_height=original_img.shape[0],
-                    scale_width=0,
-                    scale_height=0,
                 )
             else:
                 hockey_mom = HockeyMOM(
                     image_width=img.shape[2],
                     image_height=img.shape[1],
-                    scale_width=0,
-                    scale_height=0,
                 )
 
         if postprocessor is None:

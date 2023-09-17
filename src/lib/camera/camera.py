@@ -104,14 +104,12 @@ def is_equal(f1, f2):
 
 class VideoFrame(object):
     def __init__(
-        self, image_width: int, image_height: int, scale_width=0.1, scale_height=0.05
+        self, image_width: int, image_height: int
     ):
         self._image_width = image_width
         self._image_height = image_height
         self._vertical_center = image_height / 2
         self._horizontal_center = image_width / 2
-        self._scale_width = scale_width
-        self._scale_height = scale_height
 
     def box(self):
         return np.array(
@@ -225,16 +223,12 @@ class HockeyMOM:
         self,
         image_width: int,
         image_height: int,
-        scale_width: float = 0.1,
-        scale_height: float = 0.05,
         max_history: int = 26,
         speed_history: int = 26,
     ):
         self._video_frame = VideoFrame(
             image_width=image_width,
             image_height=image_height,
-            scale_width=scale_width,
-            scale_height=scale_height,
         )
         self._clamp_box = self._video_frame.box()
         self._online_tlwhs_history = list()

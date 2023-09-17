@@ -303,7 +303,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         skip_frame_count: int = 0,
-        clip_box: List[int] = None,
+        clip_offset_box: List[int] = [300, 0, 0, 0],
         left_stitch_clip_x_size: int = 555,
         left_stitch_clip_y_size: int = 38,
         left_start_frame_number: int = 21,
@@ -317,7 +317,7 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.vidcap_left = None
         self.vidcap_right = None
 
-        self.clip_box = clip_box
+        self.clip_offset_box = clip_offset_box
         self.processing_queue = None
         self.main_queue = None
         self.processing_thread = None
@@ -363,10 +363,16 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        self.total_frames_left = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT) - self.left_start_frame_number)
-        self.total_frames_right = int(self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT) - self.right_start_frame_number)
+        self.total_frames_left = int(
+            self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT)
+            - self.left_start_frame_number
+        )
+        self.total_frames_right = int(
+            self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT)
+            - self.right_start_frame_number
+        )
 
-        #assert self.total_frames_left == self.total_frames_right
+        # assert self.total_frames_left == self.total_frames_right
         self.total_frames = min(self.total_frames_left, self.total_frames_right)
 
         print(f"Video FPS={self.fps}")
@@ -522,9 +528,13 @@ class LoadStitchedVideoWithOrig:  # for inference
         # self.vw = new_w
         # self.vh = new_h
 
-        if self.clip_box is not None:
+        if self.clip_offset_box is not None:
+            ch = img0.shape[0]
+            cw = img0.shape[1]
             img0 = img0[
-                self.clip_box[0] : self.clip_box[1], self.clip_box[2] : self.clip_box[3]
+                self.clip_offset_box[1] : ch - self.clip_offset_box[3],
+                self.clip_offset_box[0] : cw - self.clip_offset_box[2],
+                :
             ]
 
         original_img = img0.copy()
