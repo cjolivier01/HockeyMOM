@@ -56,7 +56,7 @@ RINK_CONFIG = {
 BASIC_DEBUGGING = True
 
 class DefaultArguments(argparse.Namespace):
-    def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 

@@ -46,7 +46,8 @@ def demo(opt):
         dataloader = datasets.LoadStitchedVideoWithOrig(
             left_file=input_video_files[0],
             right_file=input_video_files[1],
-            stitch_config=datasets.StitchConfig_YB_0(),
+            #stitch_config=datasets.StitchConfig_YB_0(),
+            stitch_config=datasets.StitchConfig(),
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
         )
