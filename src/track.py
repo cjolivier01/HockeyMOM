@@ -122,11 +122,11 @@ def eval_seq(
     hockey_mom = None
     postprocessor = None
     image_scale_array = None
+    first_frame_id = 0
 
     results = []
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
-
         if args.scale_to_original_image and image_scale_array is None:
             image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
 
@@ -145,7 +145,7 @@ def eval_seq(
         if postprocessor is None:
             postprocessor = FramePostProcessor(
                 hockey_mom,
-                first_frame_id=dataloader.frame_id,
+                start_frame_id=frame_id,
                 data_type=data_type,
                 fps=dataloader.fps,
                 save_dir=save_dir,
