@@ -145,12 +145,13 @@ def eval_seq(
         if postprocessor is None:
             postprocessor = FramePostProcessor(
                 hockey_mom,
-                frame_id,
-                data_type,
-                save_dir,
-                result_filename,
-                show_image,
-                opt,
+                first_frame_id=dataloader.frame_id,
+                data_type=data_type,
+                fps=dataloader.fps,
+                save_dir=save_dir,
+                result_filename=result_filename,
+                show_image=show_image,
+                opt=opt,
                 args=args,
             )
             # maybe seek to frame

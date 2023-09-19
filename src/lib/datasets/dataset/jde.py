@@ -238,6 +238,7 @@ class LoadVideoWithOrig:  # for inference
         self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
 
         self.width = img_size[0]
         self.height = img_size[1]
@@ -301,6 +302,18 @@ class StitchConfig:
         self.left_stitch_clip_x_size = 200
         self.left_stitch_clip_y_size = 0
         self.left_start_frame_number = 217
+        self.right_stitch_clip_x_size = 200
+        self.right_stitch_clip_y_size= 0
+        self.right_start_frame_number= 0
+
+
+class StitchConfigVallco:
+    def __init__(self):
+        self.skip_frame_count = 0
+        self.clip_offset_box = None
+        self.left_stitch_clip_x_size = 200
+        self.left_stitch_clip_y_size = 0
+        self.left_start_frame_number = 0
         self.right_stitch_clip_x_size = 200
         self.right_stitch_clip_y_size= 0
         self.right_start_frame_number= 0

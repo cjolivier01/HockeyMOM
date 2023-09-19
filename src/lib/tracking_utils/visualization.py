@@ -205,10 +205,13 @@ def plot_tracking(
         )
         if speeds:
             speed = speeds[i]
-            if speed < 10:
-                speed_text = "{:.1f}".format(speeds[i])
+            if not np.isnan(speed):
+                if speed < 10:
+                    speed_text = "{:.1f}".format(speeds[i])
+                else:
+                    speed_text = f"{int(speed + 0.5)}"
             else:
-                speed_text = f"{int(speed + 0.5)}"
+                speed_text = "NaN"
             pos_x = intbox[2] - text_offset
             pos_y = intbox[3]
             cv2.putText(
