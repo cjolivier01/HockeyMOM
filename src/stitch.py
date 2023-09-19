@@ -137,79 +137,6 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def stitch_matcher(image1, image2, crop_black_borders: bool = True):
-    #
-    # Detect keypoints and compute descriptors for both images.
-    # You can use an algorithm like SIFT or ORB for this purpose:
-    #
-
-    # Initialize SIFT detector (you can use other detectors like ORB)
-    sift = cv2.SIFT_create()
-
-    # Detect keypoints and compute descriptors
-    keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
-    keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
-
-    #
-    # Match the keypoints in the two images:
-    #
-
-    # Initialize a Brute-Force Matcher
-    bf = cv2.BFMatcher()
-
-    # Match descriptors
-    matches = bf.knnMatch(descriptors1, descriptors2, k=2)
-
-    # Apply ratio test to find good matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
-            good_matches.append(m)
-
-    #
-    # Extract the corresponding keypoints:
-    #
-
-    # Extract corresponding keypoints
-    matched_keypoints1 = [keypoints1[match.queryIdx] for match in good_matches]
-    matched_keypoints2 = [keypoints2[match.trainIdx] for match in good_matches]
-
-    # Convert keypoints to NumPy arrays
-    pts1 = np.float32([kp.pt for kp in matched_keypoints1])
-    pts2 = np.float32([kp.pt for kp in matched_keypoints2])
-
-    #
-    # Find the Homography matrix that relates the two images:
-    #
-
-    # Find the Homography matrix
-    H, _ = cv2.findHomography(pts2, pts1, cv2.RANSAC)
-
-    #
-    # Warp the second image onto the first image:
-    #
-
-    # Warp the second image onto the first image
-    stitched_image = cv2.warpPerspective(image2, H, (image1.shape[1] + image2.shape[1], image1.shape[0]))
-
-    # Copy the first image onto the stitched image
-    stitched_image[0:image1.shape[0], 0:image1.shape[1]] = image1
-
-    #
-    # Optionally, you can crop the black borders in the stitched image to obtain a cleaner result:
-    #
-    if crop_black_borders:
-        stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(stitched_image, 1, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        max_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(max_contour)
-        stitched_image = stitched_image[y:y+h, x:x+w]
-
-    return stitched_image
-
-
-
 def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
     scale_down_images = True
     image_scale_down_value = 2
@@ -229,7 +156,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     total_frames_left = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
     total_frames_right = int(vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    assert total_frames_left == total_frames_right
+    #assert total_frames_left == total_frames_right
     total_frames = min(total_frames_left, total_frames_right)
 
     print(f"Video FPS={fps}")
@@ -325,13 +252,105 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
 
 def eval(video_number: int, callback_fn: callable = None):
     input_dir = os.path.join(os.environ["HOME"], "Videos")
-    left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
-    right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
+    # left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
+    # right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
+    left_file = os.path.join(input_dir, f"left.mp4")
+    right_file = os.path.join(input_dir, f"right.mp4")
     return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callback_fn=callback_fn)
 
 
+def stitch_witrh_warp():
+    # Load the two video files
+    video1 = cv2.VideoCapture('/mnt/data/Videos/left_sync.mp4')
+    video2 = cv2.VideoCapture('/mnt/data/Videos/right.mp4')
+
+    # Initialize the video writer to save the stitched video
+    output_video = cv2.VideoWriter('stitched_video.mp4',
+                                cv2.VideoWriter_fourcc(*'mp4v'),
+                                30,  # Frames per second
+                                (1920, 1080))  # Width and height of the output video
+
+    # Iterate through the frames of the first video
+    frame_id = 0
+    while True:
+        ret1, image1 = video1.read()
+        if not ret1:
+            break
+
+        # Read the corresponding frame from the second video
+        ret2, image2 = video2.read()
+        if not ret2:
+            break
+
+        # Convert images to grayscale
+        gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+
+        # Create SIFT detector object
+        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
+
+        # Detect key points and compute descriptors
+        keypoints1, descriptors1 = sift.detectAndCompute(gray1, None)
+        keypoints2, descriptors2 = sift.detectAndCompute(gray2, None)
+
+        # Perform feature detection and matching (e.g., using SIFT or ORB)
+        # Here, we'll use simple feature detection for demonstration purposes
+        # detector = cv2.ORB_create()
+        # kp1, des1 = detector.detectAndCompute(frame1, None)
+        # kp2, des2 = detector.detectAndCompute(frame2, None)
+
+        # Match features and find a homography
+        bf = cv2.BFMatcher()
+        matches = bf.knnMatch(descriptors1, descriptors2, k=2)
+
+
+        # Apply ratio test to find good matches
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.75 * n.distance:
+                good_matches.append(m)
+
+        # for m, n in matches:
+        #     if m.distance < 0.75 * n.distance:
+        #         good_matches.append(m)
+
+        # Sort matches by their distance
+        good_matches = sorted(good_matches, key=lambda x: x.distance)
+
+        # Draw the first 10 matches
+        match_img = cv2.drawMatches(image1, keypoints1, image2, keypoints2, good_matches[:100], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+        cv2.imshow('Match Image', match_img)
+        cv2.waitKey(0)
+
+        if len(good_matches) >= 4:
+            src_pts = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+            # Compute the Homography matrix
+            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+            # Use the Homography matrix to warp the images
+            warped_image = cv2.warpPerspective(image2, M, (image2.shape[1] + image2.shape[1], image2.shape[0]))
+
+            # Copy the second image onto the warped image
+            warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
+
+            cv2.imshow('Stitched Image', match_img)
+            cv2.waitKey(0)
+
+            frame_id += 1
+
+    # Release video objects and close the output video writer
+    video1.release()
+    video2.release()
+    output_video.release()
+    cv2.destroyAllWindows()
+
+
 def main():
-    eval(video_number=0)
+    #eval(video_number=0)
+    stitch_witrh_warp()
 
 
 if __name__ == "__main__":

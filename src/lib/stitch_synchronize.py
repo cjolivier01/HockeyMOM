@@ -3,7 +3,7 @@ import moviepy.editor as mp
 import numpy as np
 
 
-def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 5):
+def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 15):
     # Load the videos
     print("Openning videos...")
     full_video0 = mp.VideoFileClip(file0_path)
@@ -72,10 +72,12 @@ def add_suffix_to_filename(filename, suffix):
 
 
 if __name__ == "__main__":
-    video_number = 0
+    #video_number = 0
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
+        file0_path=f"{os.environ['HOME']}/Videos/left.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/right.mp4",
+        # file0_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
+        # file1_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
     )
