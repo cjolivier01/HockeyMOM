@@ -6,7 +6,8 @@
 #VIDEO="${HOME}/Videos/left_sync.mp4,${HOME}/Videos/right.mp4"
 #VIDEO="${HOME}/Videos/clips/vlc-record-2023-09-15-18h18m32s-stitched-output-2.mov-.mp4"
 #VIDEO="${HOME}/Videos/clips/ethan_goal.mp4"
-VIDEO="${HOME}/Videos/olivier2_stitched_hd.mp4"
+#VIDEO="${HOME}/Videos/olivier2_stitched_hd.mp4"
+VIDEO="${HOME}/Videos/ethan_jets_first_goal.mp4"
 
 mkdir -p h-demo-x
 rm -rf h-demo-x/*

@@ -61,13 +61,13 @@ class DefaultArguments(argparse.Namespace):
         self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
-        self.plot_camera_tracking = True or BASIC_DEBUGGING
+        self.plot_camera_tracking = False or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
-        self.plot_speed = True
+        self.plot_speed = False
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -88,7 +88,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
-        self.plot_sticky_camera = True or BASIC_DEBUGGING
+        self.plot_sticky_camera = False or BASIC_DEBUGGING
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -113,7 +113,7 @@ class DefaultArguments(argparse.Namespace):
         #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = False and not BASIC_DEBUGGING
+        self.crop_output_image = True and not BASIC_DEBUGGING
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -123,7 +123,8 @@ class DefaultArguments(argparse.Namespace):
         self.use_cuda = False
 
         # Draw watermark on the image
-        self.use_watermark = True
+        #self.use_watermark = True
+        self.use_watermark = False
 
 
 def scale_box(box, from_img, to_img):
@@ -692,15 +693,16 @@ class FramePostProcessor:
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
                 if group_x_velocity:
                     print(f"group x velocity: {group_x_velocity}")
-                    cv2.circle(
-                        online_im,
-                        _to_int(edge_center),
-                        radius=30,
-                        color=(255, 0, 255),
-                        thickness=20,
-                    )
+                    # cv2.circle(
+                    #     online_im,
+                    #     _to_int(edge_center),
+                    #     radius=30,
+                    #     color=(255, 0, 255),
+                    #     thickness=20,
+                    # )
                     current_box = make_box_at_center(edge_center, width(current_box), height(current_box))
-                    last_temporal_box = translate_box(last_temporal_box, group_x_velocity / 2, 0)
+                    hockey_mom._current_camera_box_speed_x = group_x_velocity
+                    #last_temporal_box = translate_box(last_temporal_box, group_x_velocity, 0)
                     #hockey_mom.add_x_velocity(group_x_velocity)
                     #hockey_mom.apply_box_velocity(current_box, scale_speed = 1.0)
                     #current_box = translate_box(current_box, group_x_velocity * 100, 0)
@@ -715,16 +717,17 @@ class FramePostProcessor:
                 #current_box = hockey_mom.smooth_resize_box(current_box, last_temporal_box)
                 current_box, last_temporal_box = _apply_temporal(current_box, last_temporal_box, scale_speed=1.0)
 
-                vis.plot_rectangle(
-                    online_im,
-                    outside_expanded_box,
-                    color=(0, 0, 0),
-                    thickness=5,
-                    label="",
-                )
-                hockey_mom.curtail_velocity_if_outside_box(
-                    current_box, outside_expanded_box
-                )
+                # vis.plot_rectangle(
+                #     online_im,
+                #     outside_expanded_box,
+                #     color=(0, 0, 0),
+                #     thickness=5,
+                #     label="",
+                # )
+                if not group_x_velocity:
+                    hockey_mom.curtail_velocity_if_outside_box(
+                        current_box, outside_expanded_box
+                    )
 
                 #
                 # Aspect Ratio
