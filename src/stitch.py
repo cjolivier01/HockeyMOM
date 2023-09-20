@@ -1,3 +1,6 @@
+"""
+Experiments in stitching
+"""
 import os
 import torch
 import torch.nn as nn
