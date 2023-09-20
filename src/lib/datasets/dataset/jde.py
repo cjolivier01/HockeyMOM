@@ -232,14 +232,21 @@ class LoadVideo:  # for inference
 
 
 class LoadVideoWithOrig:  # for inference
-    def __init__(self, path, img_size=(1088, 608), process_img_size=(1920, 1080)):
+    def __init__(
+        self,
+        path,
+        img_size=(1088, 608),
+        process_img_size=(1920, 1080),
+         clip_original=None,
+        #clip_original=(43, 236, 1917, 864),
+    ):
         self.cap = cv2.VideoCapture(path)
         self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
         self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-
+        self.clip_original = clip_original
         self.width = img_size[0]
         self.height = img_size[1]
         self.count = 0
@@ -274,7 +281,12 @@ class LoadVideoWithOrig:  # for inference
         if img0 is None:
             print(f"Error loading frame: {self.count}")
             raise StopIteration()
-        assert img0 is not None, "Failed to load frame {:d}".format(self.count)
+        if self.clip_original:
+            img0 = img0[
+                self.clip_original[1] : self.clip_original[3],
+                self.clip_original[0] : self.clip_original[2],
+                :,
+            ]
 
         original_img = img0.copy()
 
@@ -303,8 +315,8 @@ class StitchConfig:
         self.left_stitch_clip_y_size = 0
         self.left_start_frame_number = 0
         self.right_stitch_clip_x_size = 0
-        self.right_stitch_clip_y_size= 0
-        self.right_start_frame_number= 0
+        self.right_stitch_clip_y_size = 0
+        self.right_start_frame_number = 0
 
 
 class StitchConfigVallco:
@@ -315,8 +327,8 @@ class StitchConfigVallco:
         self.left_stitch_clip_y_size = 25
         self.left_start_frame_number = 217
         self.right_stitch_clip_x_size = 300 + 25
-        self.right_stitch_clip_y_size= 0
-        self.right_start_frame_number= 0
+        self.right_stitch_clip_y_size = 0
+        self.right_start_frame_number = 0
 
 
 class StitchConfig_YB_0(StitchConfig):
@@ -326,12 +338,12 @@ class StitchConfig_YB_0(StitchConfig):
         self.clip_offset_box = [0, 750, 0, 0]
         self.left_stitch_clip_x_size = 555
         self.left_stitch_clip_y_size = 38
-        #self.left_start_frame_number = 21
+        # self.left_start_frame_number = 21
         self.left_start_frame_number = 0
         self.right_stitch_clip_x_size = 556
-        self.right_stitch_clip_y_size= 0
-        #self.right_start_frame_number= 112
-        self.right_start_frame_number= 0
+        self.right_stitch_clip_y_size = 0
+        # self.right_start_frame_number= 112
+        self.right_start_frame_number = 0
 
 
 class LoadStitchedVideoWithOrig:  # for inference
@@ -563,7 +575,7 @@ class LoadStitchedVideoWithOrig:  # for inference
             img0 = img0[
                 self.clip_offset_box[1] : ch - self.clip_offset_box[3],
                 self.clip_offset_box[0] : cw - self.clip_offset_box[2],
-                :
+                :,
             ]
 
         original_img = img0.copy()
