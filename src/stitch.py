@@ -354,7 +354,9 @@ def stitch_witrh_warp():
 
 def panoramic_warp():
     # Load the two video files
-    video = cv2.VideoCapture('/mnt/data/Videos/olivier2_stitched_hd.mp4')
+    #video = cv2.VideoCapture('/mnt/data/Videos/olivier2_stitched_hd.mp4')
+    #video = cv2.VideoCapture('/mnt/data/Videos/left.mp4')
+    video = cv2.VideoCapture('/mnt/data/Videos/right.mp4')
 
     fps = video.get(cv2.CAP_PROP_FPS)
     frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))

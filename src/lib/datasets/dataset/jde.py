@@ -322,12 +322,13 @@ class StitchConfig:
 class StitchConfigVallco:
     def __init__(self):
         self.skip_frame_count = 2300 + 140
+        self.skip_frame_count = 0
         self.clip_offset_box = None
-        self.left_stitch_clip_x_size = 300 + 100 + 50
-        self.left_stitch_clip_y_size = 25
+        self.left_stitch_clip_x_size = 400
+        self.left_stitch_clip_y_size = 0
         self.left_start_frame_number = 217
-        self.right_stitch_clip_x_size = 300 + 25
-        self.right_stitch_clip_y_size = 0
+        self.right_stitch_clip_x_size = 250
+        self.right_stitch_clip_y_size = 70
         self.right_start_frame_number = 0
 
 
@@ -541,7 +542,8 @@ class LoadStitchedVideoWithOrig:  # for inference
                 w = frame1.shape[1]
                 h = frame1.shape[0]
                 frame1 = frame1[
-                    clip_y:,
+                    #clip_y:,
+                    :h - clip_y,
                     0 : w - self.left_stitch_clip_x_size,
                     :,
                 ]
@@ -550,7 +552,8 @@ class LoadStitchedVideoWithOrig:  # for inference
                 w = frame2.shape[1]
                 h = frame2.shape[0]
                 frame2 = frame2[
-                    0 : h - clip_y,
+                    #0 : h - clip_y,
+                    clip_y:,
                     self.right_stitch_clip_x_size :,
                     :,
                 ]
