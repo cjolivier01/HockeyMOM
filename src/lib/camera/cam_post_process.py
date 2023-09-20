@@ -58,7 +58,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -83,7 +83,7 @@ class DefaultArguments(argparse.Namespace):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
         self.fixed_edge_rotation_angle = 35.0
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
