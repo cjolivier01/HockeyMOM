@@ -254,12 +254,12 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
+        # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
+        # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
-        # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
-        # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
+        self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
@@ -284,10 +284,10 @@ class HockeyMOM:
         self._camera_box_size_change_velocity_x = 0
         self._camera_box_size_change_velocity_y = 0
 
-        self._camera_box_max_size_change_velocity_x = 0
-        self._camera_box_max_size_change_velocity_y = 0
-        # self._camera_box_max_size_change_velocity_x = 3
-        # self._camera_box_max_size_change_velocity_y = 3
+        # self._camera_box_max_size_change_velocity_x = 0
+        # self._camera_box_max_size_change_velocity_y = 0
+        self._camera_box_max_size_change_velocity_x = 1
+        self._camera_box_max_size_change_velocity_y = 1
 
         # Create the camera transofrmer
         self._camera = create_camera(

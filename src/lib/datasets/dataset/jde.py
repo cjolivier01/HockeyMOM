@@ -299,22 +299,22 @@ class StitchConfig:
     def __init__(self):
         self.skip_frame_count = 0
         self.clip_offset_box = None
-        self.left_stitch_clip_x_size = 200
+        self.left_stitch_clip_x_size = 0
         self.left_stitch_clip_y_size = 0
-        self.left_start_frame_number = 217
-        self.right_stitch_clip_x_size = 200
+        self.left_start_frame_number = 0
+        self.right_stitch_clip_x_size = 0
         self.right_stitch_clip_y_size= 0
         self.right_start_frame_number= 0
 
 
 class StitchConfigVallco:
     def __init__(self):
-        self.skip_frame_count = 0
+        self.skip_frame_count = 2300 + 140
         self.clip_offset_box = None
-        self.left_stitch_clip_x_size = 200
-        self.left_stitch_clip_y_size = 0
-        self.left_start_frame_number = 0
-        self.right_stitch_clip_x_size = 200
+        self.left_stitch_clip_x_size = 300 + 100 + 50
+        self.left_stitch_clip_y_size = 25
+        self.left_start_frame_number = 217
+        self.right_stitch_clip_x_size = 300 + 25
         self.right_stitch_clip_y_size= 0
         self.right_start_frame_number= 0
 
@@ -380,13 +380,13 @@ class LoadStitchedVideoWithOrig:  # for inference
         self.vidcap_left = cv2.VideoCapture(self.left_file)
         self.vidcap_right = cv2.VideoCapture(self.right_file)
 
-        if self.left_start_frame_number:
+        if self.left_start_frame_number or self.skip_frame_count:
             self.vidcap_left.set(
                 cv2.CAP_PROP_POS_FRAMES,
                 self.skip_frame_count + self.left_start_frame_number,
             )
 
-        if self.right_start_frame_number:
+        if self.right_start_frame_number or self.skip_frame_count:
             self.vidcap_right.set(
                 cv2.CAP_PROP_POS_FRAMES,
                 self.skip_frame_count + self.right_start_frame_number,
@@ -524,13 +524,6 @@ class LoadStitchedVideoWithOrig:  # for inference
         if False:
             img0 = stitch_matcher(frame1, frame2)
         else:
-            # if self.final_frame_height != self.frame_height:
-            #     frame1 = cv2.resize(
-            #         frame1, (self.final_frame_width // 2, self.final_frame_height)
-            #     )
-            #     frame2 = cv2.resize(
-            #         frame2, (self.final_frame_width // 2, self.final_frame_height)
-            #     )
             clip_y = (self.left_stitch_clip_y_size + self.right_stitch_clip_y_size) // 2
             if self.left_stitch_clip_x_size or clip_y:
                 w = frame1.shape[1]
@@ -555,8 +548,10 @@ class LoadStitchedVideoWithOrig:  # for inference
 
         # Cut in half after stitching
         if self.scale_down_images:
-            new_w = (frame1.shape[1] + frame2.shape[1]) // 2
-            new_h = (frame1.shape[0] + frame2.shape[0]) // 2
+            new_w = img0.shape[1] // 2
+            new_h = img0.shape[0] // 2
+            # new_w = (frame1.shape[1] + frame2.shape[1]) // 2
+            # new_h = (frame1.shape[0] + frame2.shape[0]) // 2
             img0 = cv2.resize(img0, (new_w, new_h))
 
         # self.vw = new_w

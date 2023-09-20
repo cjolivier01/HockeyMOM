@@ -83,6 +83,9 @@ class DefaultArguments(argparse.Namespace):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
+        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation_angle = 35.0
+
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
         self.plot_sticky_camera = False or BASIC_DEBUGGING
@@ -107,6 +110,7 @@ class DefaultArguments(argparse.Namespace):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -154,6 +158,7 @@ class FramePostProcessor:
         hockey_mom,
         start_frame_id,
         data_type,
+        fps: float,
         save_dir,
         result_filename,
         show_image,
@@ -170,6 +175,7 @@ class FramePostProcessor:
         self._save_dir = save_dir
         self._result_filename = result_filename
         self._show_image = show_image
+        self._fps = fps
         self._opt = opt
         self._thread = None
         self._imgproc_thread = None
@@ -272,7 +278,7 @@ class FramePostProcessor:
                 # filename=self._save_dir + "/../tracking_output.mov",
                 filename=self._save_dir + "/../tracking_output.avi",
                 fourcc=fourcc,
-                fps=30,
+                fps=self._fps,
                 frameSize=(self.final_frame_width, self.final_frame_height),
                 isColor=True,
             )
@@ -295,6 +301,21 @@ class FramePostProcessor:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+
+            if self._args.fixed_edge_rotation:
+                rotation_point = [int(i) for i in center(current_box)]
+                width_center = online_im.shape[1] / 2
+                if rotation_point[0] < width_center:
+                    dist_from_center_pct = (width_center - rotation_point[0])/width_center
+                    mult = -1
+                else:
+                    dist_from_center_pct = (rotation_point[0] - width_center)/width_center
+                    mult = 1
+                angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
+                #print(f"angle={angle}")
+                rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
+                online_im = cv2.warpAffine(online_im, rotation_matrix, (online_im.shape[1], online_im.shape[0]))
+
             if self._args.crop_output_image:
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 # print(f"crop ar={aspect_ratio(current_box)}")
@@ -608,13 +629,13 @@ class FramePostProcessor:
                         *hockey_mom.get_velocity_and_acceleratrion_xy(),
                     )
 
-                def _apply_temporal(last_box, grays_level: int = 128):
+                def _apply_temporal(last_box, scale_speed: float, grays_level: int = 128):
                     #
                     # Temporal: Apply velocity and acceleration
                     #
                     nonlocal current_box, self
                     current_box = hockey_mom.get_next_temporal_box(
-                        current_box, last_box
+                        current_box, last_box, scale_speed=scale_speed,
                     )
                     last_box = current_box.copy()
                     if self._args.plot_camera_tracking:
@@ -634,7 +655,7 @@ class FramePostProcessor:
                         )
                     return current_box, last_box
 
-                current_box, last_temporal_box = _apply_temporal(last_temporal_box)
+                current_box, last_temporal_box = _apply_temporal(last_temporal_box, scale_speed=1.0)
 
                 hockey_mom.curtail_velocity_if_outside_box(
                     current_box, outside_expanded_box
@@ -784,11 +805,11 @@ class FramePostProcessor:
                 if self._args.max_in_aspec_ratio:
                     sticky_size = hockey_mom._camera_box_max_speed_x * 3
                     unsticky_size = sticky_size / 4
-                    movement_speed_divisor = 1.0
+                    #movement_speed_divisor = 1.0
                 else:
                     sticky_size = hockey_mom._camera_box_max_speed_x * 5
                     unsticky_size = sticky_size / 2
-                    movement_speed_divisor = 3.0
+                    #movement_speed_divisor = 3.0
 
                 if last_sticky_temporal_box is not None:
                     if self._args.plot_sticky_camera:
@@ -849,7 +870,7 @@ class FramePostProcessor:
                     hockey_mom.control_speed(
                         hockey_mom._camera_box_max_speed_x / 6,
                         hockey_mom._camera_box_max_speed_y / 6,
-                        set_speed_x=False,
+                        set_speed_x=True,
                     )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                     stuck = False
@@ -858,7 +879,7 @@ class FramePostProcessor:
 
                 if not stuck:
                     current_box, last_sticky_temporal_box = _apply_temporal(
-                        last_sticky_temporal_box
+                        last_sticky_temporal_box, scale_speed=1.0,
                     )
                     current_box = _fix_aspect_ratio(current_box)
                     assert np.isclose(
