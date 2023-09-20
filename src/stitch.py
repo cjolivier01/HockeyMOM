@@ -348,9 +348,85 @@ def stitch_witrh_warp():
     cv2.destroyAllWindows()
 
 
+def panoramic_warp():
+    # Load the two video files
+    video = cv2.VideoCapture('/mnt/data/Videos/olivier2_stitched_hd.mp4')
+
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    output_video = cv2.VideoWriter('panoramic_video.mp4',
+                                cv2.VideoWriter_fourcc(*'mp4v'),
+                                fps,
+                                (frame_width, frame_height))
+
+    # Initialize the video writer to save the stitched video
+    output_video = None
+
+    # Iterate through the frames of the first video
+    frame_id = 0
+    while True:
+        ret1, panoramic_image = video.read()
+        if not ret1:
+            break
+
+        # Convert images to grayscale
+        #panoramic_image = cv2.cvtColor(panoramic_image, cv2.COLOR_BGR2GRAY)
+
+        # Read the corresponding frame from the second video
+        # ret2, image2 = video2.read()
+        # if not ret2:
+        #     break
+
+        # Define the left and right ends of the panoramic image
+        left_end = panoramic_image[:, :panoramic_image.shape[1]//2]
+        right_end = panoramic_image[:, panoramic_image.shape[1]//2:]
+
+        # Create SIFT detector object
+        #sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
+        sift = cv2.SIFT_create()
+
+        # Step 1: Detect keypoints and descriptors (using SIFT in this example)
+        sift = cv2.SIFT_create()
+
+        keypoints_left, descriptors_left = sift.detectAndCompute(left_end, None)
+        keypoints_right, descriptors_right = sift.detectAndCompute(right_end, None)
+
+        # Step 2: Match keypoints
+        matcher = cv2.BFMatcher()
+        matches = matcher.knnMatch(descriptors_left, descriptors_right, k=2)
+
+        # Apply ratio test to find good matches
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.75 * n.distance:
+                good_matches.append(m)
+
+        # Extract matched keypoints
+        matched_keypoints_left = np.float32([keypoints_left[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+        matched_keypoints_right = np.float32([keypoints_right[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+        # Step 3: Find homography matrix
+        homography_matrix, _ = cv2.findHomography(matched_keypoints_left, matched_keypoints_right, cv2.RANSAC, 5.0)
+
+        # Step 4: Apply warp perspective
+        corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
+
+        cv2.imshow('Corrected Panoramic Image', corrected_perspective)
+        cv2.waitKey(0)
+
+    # Release video objects and close the output video writer
+    video.release()
+    output_video.release()
+    cv2.destroyAllWindows()
+
+
+
 def main():
     #eval(video_number=0)
-    stitch_witrh_warp()
+    #stitch_witrh_warp()
+    panoramic_warp()
 
 
 if __name__ == "__main__":
