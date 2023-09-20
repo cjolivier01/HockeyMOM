@@ -11,6 +11,7 @@ from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
 
 from lib.ffmpeg import copy_audio
+from lib.ui.mousing import draw_box_with_mouse
 
 import time
 
@@ -373,6 +374,8 @@ def panoramic_warp():
         ret1, panoramic_image = video.read()
         if not ret1:
             break
+
+        draw_box_with_mouse(panoramic_image)
 
         # Convert images to grayscale
         #panoramic_image = cv2.cvtColor(panoramic_image, cv2.COLOR_BGR2GRAY)

@@ -1,14 +1,14 @@
 import cv2
 import numpy as np
 
-def draw_box_with_mouse(image, destroy_all_windows_after: bool = False):
+def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False):
     # Global variables to store the starting and ending coordinates of the box
     start_x, start_y, end_x, end_y = -1, -1, -1, -1
     drawing = False
-
+    image = original_image.copy()
     # Mouse callback function
     def draw_box(event, x, y, flags, param):
-        global start_x, start_y, end_x, end_y, drawing
+        nonlocal start_x, start_y, end_x, end_y, drawing
 
         if event == cv2.EVENT_LBUTTONDOWN:
             start_x, start_y = x, y
@@ -39,10 +39,12 @@ def draw_box_with_mouse(image, destroy_all_windows_after: bool = False):
         # Press 'c' to clear the drawn box
         if key == ord('c'):
             start_x, start_y, end_x, end_y = -1, -1, -1, -1
-            image = np.zeros((512, 512, 3), dtype=np.uint8)
+            image = original_image.copy()
         # Press 'q' to quit
         elif key == ord('q'):
             break
 
-    cv2.setMouseCallback('Draw Box', None)
     cv2.destroyAllWindows()
+    # Return the box
+    print(start_x, start_y, end_x, end_y)
+    return start_x, start_y, end_x, end_y
