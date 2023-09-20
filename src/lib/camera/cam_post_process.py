@@ -64,7 +64,7 @@ class DefaultArguments(argparse.Namespace):
         self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
-        self.plot_camera_tracking = False or BASIC_DEBUGGING
+        self.plot_camera_tracking = True or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -88,7 +88,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
         self.sticky_pan = True
-        self.plot_sticky_camera = False or BASIC_DEBUGGING
+        self.plot_sticky_camera = True or BASIC_DEBUGGING
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -109,11 +109,11 @@ class DefaultArguments(argparse.Namespace):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        #self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = True and not BASIC_DEBUGGING
+        self.crop_output_image = False and not BASIC_DEBUGGING
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations

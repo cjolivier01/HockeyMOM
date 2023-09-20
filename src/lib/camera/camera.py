@@ -64,6 +64,7 @@ def make_box_at_center(center_point, w: float, h: float):
         dtype=np.float32,
     )
 
+
 def center_distance(box1, box2) -> float:
     if box1 is None or box2 is None:
         return 0.0
@@ -103,9 +104,7 @@ def is_equal(f1, f2):
 
 
 class VideoFrame(object):
-    def __init__(
-        self, image_width: int, image_height: int
-    ):
+    def __init__(self, image_width: int, image_height: int):
         self._image_width = image_width
         self._image_height = image_height
         self._vertical_center = image_height / 2
@@ -134,8 +133,10 @@ class TlwhHistory(object):
         self._spatial_position_history = list()
         self._spatial_distance_sum = 0.0
         self._current_spatial_speed = 0.0
+        self._current_spatial_x_speed = 0.0
         self._image_distance_sum = 0.0
         self._current_image_speed = 0.0
+        self._current_image_x_speed = 0.0
         self._spatial_speed_multiplier = 100.0
 
     @property
@@ -180,9 +181,24 @@ class TlwhHistory(object):
             self._current_image_speed = self._image_distance_sum / (
                 len(self._image_position_history) - 1
             )
+            X_SPEED_HISTORY_LENGTH = 5
+            if len(self._spatial_position_history) >= X_SPEED_HISTORY_LENGTH:
+                self._current_image_x_speed = (
+                    self._image_position_history[-1][0]
+                    - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
+                ) / float(X_SPEED_HISTORY_LENGTH)
+                # x speed from last X_SPEED_HISTORY_LENGTH frames
+                #print(f"id {self.id_} has image x speed {self._current_image_x_speed}")
+            else:
+                self._current_image_x_speed = 0.0
         else:
             self._current_spatial_speed = 0.0
             self._current_image_speed = 0.0
+            self._current_image_x_speed = 0.0
+
+    @property
+    def current_image_x_speed(self):
+        return self._current_image_x_speed
 
     @property
     def image_position_history(self):
@@ -646,14 +662,14 @@ class HockeyMOM:
         w = width(the_box)
         if w > self._video_frame.width:
             diff = w - self._video_frame.width
-            the_box[0] -= diff/2
-            the_box[2] += diff/2
+            the_box[0] -= diff / 2
+            the_box[2] += diff / 2
             w = width(the_box)
         h = height(the_box)
         if h > self._video_frame.height:
             diff = w - self._video_frame.width
-            the_box[1] -= diff/2
-            the_box[3] += diff/2
+            the_box[1] -= diff / 2
+            the_box[3] += diff / 2
             h = height(the_box)
 
         if w < self._video_frame.width / 3:
@@ -748,8 +764,9 @@ class HockeyMOM:
 
         return new_box
 
-
-    def apply_fixed_edge_scaling(self, box, edge_scaling_factor: float, verbose:bool = False):
+    def apply_fixed_edge_scaling(
+        self, box, edge_scaling_factor: float, verbose: bool = False
+    ):
         current_center = center(box)
         w = width(box)
         # h = height(box)
@@ -779,11 +796,11 @@ class HockeyMOM:
 
         if current_center[0] < half_frame_width:
             # shift left the amount
-            new_box[0] -= width_reduction/2
-            new_box[2] -= width_reduction/2
+            new_box[0] -= width_reduction / 2
+            new_box[2] -= width_reduction / 2
         elif current_center[0] > half_frame_width:
-            new_box[0] += width_reduction/2
-            new_box[2] += width_reduction/2
+            new_box[0] += width_reduction / 2
+            new_box[2] += width_reduction / 2
         return self.shift_box_to_edge(new_box)
 
     def shift_box_to_edge(self, box, strict: bool = False):
@@ -993,26 +1010,27 @@ class HockeyMOM:
 
         self._curtail_speeed_at_edges(moved_box)
 
-        #moved_box = self.shift_box_to_edge(moved_box)
-        #moved_box = self.clamp(moved_box)
+        # moved_box = self.shift_box_to_edge(moved_box)
+        # moved_box = self.clamp(moved_box)
 
         if verbose:
             print(f"moved_box: {self.box_str(moved_box)}")
         return moved_box
 
-    def did_direction_change(self, dx: bool=True, dy:bool=True, reset: bool = False):
+    def did_direction_change(
+        self, dx: bool = True, dy: bool = True, reset: bool = False
+    ):
         if reset:
             if dx:
                 self._current_camera_box_speed_reversed_x = False
             if dy:
                 self._current_camera_box_speed_reversed_y = False
             return None
-        return (
-            (dx and self._current_camera_box_speed_reversed_x)
-            or (dy and self._current_camera_box_speed_reversed_y)
+        return (dx and self._current_camera_box_speed_reversed_x) or (
+            dy and self._current_camera_box_speed_reversed_y
         )
 
-    def set_direction_changed(self, dx: bool=True, dy:bool=True):
+    def set_direction_changed(self, dx: bool = True, dy: bool = True):
         if dx:
             self._current_camera_box_speed_reversed_x = True
         if dy:
