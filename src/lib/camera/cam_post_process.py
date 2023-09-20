@@ -22,7 +22,7 @@ from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 from tracker.multitracker import torch_device
 
-from .camera import aspect_ratio, width, height, center, center_distance
+from .camera import aspect_ratio, width, height, center, center_distance, translate_box, make_box_at_center
 
 from hockeymom import core
 
@@ -61,13 +61,13 @@ class DefaultArguments(argparse.Namespace):
         self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_camera_tracking = True or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
-        self.plot_speed = False
+        self.plot_speed = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -109,8 +109,8 @@ class DefaultArguments(argparse.Namespace):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        #self.scale_to_original_image = True
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = False and not BASIC_DEBUGGING
@@ -522,8 +522,32 @@ class FramePostProcessor:
                 for id in online_ids:
                     these_online_speeds.append(hockey_mom.get_spatial_speed(id))
 
+                fast_ids_set = None
                 if self._args.plot_individual_player_tracking:
                     # Plot the player boxes
+                    fast_ids_set = set(hockey_mom.get_fast_ids())
+                    if fast_ids_set:
+                        #print(fast_ids_set)
+                        fast_ids = []
+                        fast_tlwhs = []
+                        fast_speeds = []
+                        for i, id in enumerate(online_ids):
+                            if id in fast_ids_set:
+                                fast_ids.append(id)
+                                fast_tlwhs.append(online_tlwhs[i])
+                                fast_speeds.append(these_online_speeds[i])
+                        # online_ids = fast_ids
+                        # online_tlwhs = fast_tlwhs
+                        # these_online_speeds = fast_speeds
+                        # online_im = vis.plot_tracking(
+                        #     online_im,
+                        #     fast_tlwhs,
+                        #     fast_ids,
+                        #     frame_id=self._frame_id,
+                        #     fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                        #     speeds=fast_speeds,
+                        # )
+
                     online_im = vis.plot_tracking(
                         online_im,
                         online_tlwhs,
@@ -531,6 +555,7 @@ class FramePostProcessor:
                         frame_id=self._frame_id,
                         fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=these_online_speeds,
+                        line_thickness=1 if not fast_ids_set else 4,
                     )
 
                 # Examine as 2 clusters
@@ -552,6 +577,10 @@ class FramePostProcessor:
                 else:
                     largest_cluster_ids_box2 = None
 
+                # if fast_ids_set:
+                #     print("Skipping 2-cluster box")
+                #     largest_cluster_ids_box2 = None
+
                 # Examine as 3 clusters
                 largest_cluster_ids_3 = hockey_mom.prune_not_in_largest_cluster(
                     n_clusters=3, ids=online_ids
@@ -571,6 +600,10 @@ class FramePostProcessor:
                 else:
                     largest_cluster_ids_box3 = None
 
+                # if fast_ids_set:
+                #     print("Skipping 3-cluster box")
+                #     largest_cluster_ids_box3 = None
+
                 if (
                     largest_cluster_ids_box2 is not None
                     and largest_cluster_ids_box3 is not None
@@ -589,7 +622,7 @@ class FramePostProcessor:
                 if current_box is None:
                     current_box = hockey_mom._video_frame.box()
 
-                outside_expanded_box = current_box.copy()
+                outside_expanded_box = current_box + np.array([-100., -100., 100., 100.], dtype=np.float32)
 
                 # if self._args.plot_camera_tracking:
                 #     vis.plot_rectangle(
@@ -624,18 +657,19 @@ class FramePostProcessor:
 
                 if self._args.plot_speed:
                     vis.plot_frame_id_and_speeds(
-                        online_im,
+                        online_im,-
                         self._frame_id,
                         *hockey_mom.get_velocity_and_acceleratrion_xy(),
                     )
 
-                def _apply_temporal(last_box, scale_speed: float, grays_level: int = 128):
+                def _apply_temporal(current_box, last_box, scale_speed: float, grays_level: int = 128, verbose: bool = False):
                     #
                     # Temporal: Apply velocity and acceleration
                     #
-                    nonlocal current_box, self
+                    #nonlocal current_box, self
+                    nonlocal self
                     current_box = hockey_mom.get_next_temporal_box(
-                        current_box, last_box, scale_speed=scale_speed,
+                        current_box, last_box, scale_speed=scale_speed, verbose=verbose,
                     )
                     last_box = current_box.copy()
                     if self._args.plot_camera_tracking:
@@ -646,17 +680,48 @@ class FramePostProcessor:
                             thickness=2,
                             label="next_temporal_box",
                         )
-                        cv2.circle(
-                            online_im,
-                            [int(i) for i in center(current_box)],
-                            radius=25,
-                            color=(0, 0, 0),
-                            thickness=25,
-                        )
+                        # cv2.circle(
+                        #     online_im,
+                        #     [int(i) for i in center(current_box)],
+                        #     radius=25,
+                        #     color=(0, 0, 0),
+                        #     thickness=25,
+                        # )
                     return current_box, last_box
 
-                current_box, last_temporal_box = _apply_temporal(last_temporal_box, scale_speed=1.0)
+                group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
+                if group_x_velocity:
+                    print(f"group x velocity: {group_x_velocity}")
+                    cv2.circle(
+                        online_im,
+                        _to_int(edge_center),
+                        radius=30,
+                        color=(255, 0, 255),
+                        thickness=20,
+                    )
+                    current_box = make_box_at_center(edge_center, width(current_box), height(current_box))
+                    last_temporal_box = translate_box(last_temporal_box, group_x_velocity / 2, 0)
+                    #hockey_mom.add_x_velocity(group_x_velocity)
+                    #hockey_mom.apply_box_velocity(current_box, scale_speed = 1.0)
+                    #current_box = translate_box(current_box, group_x_velocity * 100, 0)
+                    # vis.plot_rectangle(
+                    #     online_im,
+                    #     current_box,
+                    #     color=(0, 0, 0),
+                    #     thickness=10,
+                    #     label="clamped_pre_aspect",
+                    # )
 
+                #current_box = hockey_mom.smooth_resize_box(current_box, last_temporal_box)
+                current_box, last_temporal_box = _apply_temporal(current_box, last_temporal_box, scale_speed=1.0)
+
+                vis.plot_rectangle(
+                    online_im,
+                    outside_expanded_box,
+                    color=(0, 0, 0),
+                    thickness=5,
+                    label="",
+                )
                 hockey_mom.curtail_velocity_if_outside_box(
                     current_box, outside_expanded_box
                 )
@@ -878,10 +943,24 @@ class FramePostProcessor:
                     stuck = hockey_mom.set_direction_changed(dx=True, dy=True)
 
                 if not stuck:
+                    xx0 = center(current_box)[0]
                     current_box, last_sticky_temporal_box = _apply_temporal(
+                        current_box,
                         last_sticky_temporal_box, scale_speed=1.0,
+                        verbose=True,
                     )
+                    xx1 = center(current_box)[0]
+                    #print(f'A final temporal x change: {xx1 - xx0}')
                     current_box = _fix_aspect_ratio(current_box)
+                    xx1 = center(current_box)[0]
+                    #print(f'final temporal x change: {xx1 - xx0}')
+                    # vis.plot_rectangle(
+                    #     online_im,
+                    #     current_box,
+                    #     color=(0, 128, 255),
+                    #     thickness=15,
+                    #     label="edge-scaled",
+                    # )
                     assert np.isclose(
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
@@ -911,7 +990,7 @@ class FramePostProcessor:
                             online_im,
                             current_box,
                             color=(255, 0, 255),
-                            thickness=15,
+                            thickness=5,
                             label="edge-scaled",
                         )
 

@@ -151,6 +151,7 @@ def plot_tracking(
     speeds: List[float] = None,
     box_color: Tuple[int, int, int] = None,
     show_frame_heading: bool = False,
+    line_thickness: int = 1,
 ):
     global last_frame_id
     # don't call this more than once per frame
@@ -169,7 +170,6 @@ def plot_tracking(
 
     text_scale = max(2, image.shape[1] / 1600.0)
     text_thickness = 2
-    line_thickness = 1
     text_offset = int(8 * text_scale)
 
     if show_frame_heading:

@@ -13,6 +13,8 @@ import torch
 
 # nosec B101
 
+X_SPEED_HISTORY_LENGTH = 5
+
 
 def create_camera(
     elevation_m: float,
@@ -53,6 +55,15 @@ def center(box):
     return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
 
 
+def clamp_value(low, val, high):
+    assert high > low
+    if val < low:
+        return low
+    elif val > high:
+        return high
+    return val
+
+
 def make_box_at_center(center_point, w: float, h: float):
     return np.array(
         (
@@ -63,6 +74,10 @@ def make_box_at_center(center_point, w: float, h: float):
         ),
         dtype=np.float32,
     )
+
+
+def translate_box(box, dx, dy):
+    return box + np.array([dx, dy, dx, dy], dtype=np.float32)
 
 
 def center_distance(box1, box2) -> float:
@@ -181,14 +196,13 @@ class TlwhHistory(object):
             self._current_image_speed = self._image_distance_sum / (
                 len(self._image_position_history) - 1
             )
-            X_SPEED_HISTORY_LENGTH = 5
             if len(self._spatial_position_history) >= X_SPEED_HISTORY_LENGTH:
                 self._current_image_x_speed = (
                     self._image_position_history[-1][0]
                     - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
                 ) / float(X_SPEED_HISTORY_LENGTH)
                 # x speed from last X_SPEED_HISTORY_LENGTH frames
-                #print(f"id {self.id_} has image x speed {self._current_image_x_speed}")
+                # print(f"id {self.id_} has image x speed {self._current_image_x_speed}")
             else:
                 self._current_image_x_speed = 0.0
         else:
@@ -272,10 +286,10 @@ class HockeyMOM:
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
-        # self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
-        # self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
-        self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
+        self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
+        # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
+        # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
@@ -285,8 +299,10 @@ class HockeyMOM:
         # self._camera_box_max_accel_y = 6
         # self._camera_box_max_accel_x = 3
         # self._camera_box_max_accel_y = 3
-        self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 20.0, 0.01)
-        self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 20.0, 0.01)
+        self._camera_box_max_accel_x = 1
+        self._camera_box_max_accel_y = 1
+        # self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 20.0, 1)
+        # self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 20.0, 1)
         print(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
@@ -302,8 +318,8 @@ class HockeyMOM:
 
         # self._camera_box_max_size_change_velocity_x = 0
         # self._camera_box_max_size_change_velocity_y = 0
-        self._camera_box_max_size_change_velocity_x = 1
-        self._camera_box_max_size_change_velocity_y = 1
+        self._camera_box_max_size_change_velocity_x = 3
+        self._camera_box_max_size_change_velocity_y = 3
 
         # Create the camera transofrmer
         self._camera = create_camera(
@@ -468,11 +484,11 @@ class HockeyMOM:
             results.append(self._id_to_tlwhs_history_map[id].image_position_history)
         return results
 
-    def get_fast_ids(self, min_fast_items: int = 1, max_fast_items: int = 6):
+    def get_fast_ids(self, min_fast_items: int = 4, max_fast_items: int = 6):
         return self._prune_slow_ids(
             id_to_pos_history=self._id_to_tlwhs_history_map,
             min_fast_items=min_fast_items,
-            max_fast_items=min_fast_items,
+            max_fast_items=max_fast_items,
         )
 
     def get_spatial_speed(self, id: int):
@@ -514,6 +530,49 @@ class HockeyMOM:
 
         # Now prune to
         return fast_ids
+
+    def get_group_x_velocity(
+        self, min_considered_velocity: float = 0.01, group_threshhold: float = 0.6
+    ):
+        neg_count = 0
+        pos_count = 0
+        idle_count = 0
+        neg_sum = 0.0
+        pos_sum = 0.0
+        leftmost_center = None
+        rightmost_center = None
+        for _, hist in self._id_to_tlwhs_history_map.items():
+            pos = hist.image_position_history[-1]
+            this_pos_center = [pos[0] + pos[2] / 2, pos[1] + pos[3] / 2]
+            if leftmost_center is None:
+                leftmost_center = this_pos_center
+            if rightmost_center is None:
+                rightmost_center = this_pos_center
+            image_speed = hist.current_image_x_speed
+            if image_speed < -min_considered_velocity:
+                neg_count += 1
+                neg_sum += image_speed
+                if this_pos_center[0] < leftmost_center[0]:
+                    leftmost_center = this_pos_center
+            elif image_speed > min_considered_velocity:
+                pos_count += 1
+                pos_sum += image_speed
+                if this_pos_center[0] > rightmost_center[0]:
+                    rightmost_center = this_pos_center
+            else:
+                idle_count += 1
+        total_ids = len(self._id_to_tlwhs_history_map)
+        if float(pos_count) / total_ids > group_threshhold:
+            avg_x_speed = pos_sum / pos_count
+            return avg_x_speed, rightmost_center
+        elif float(neg_count) / total_ids > group_threshhold:
+            avg_x_speed = neg_sum / neg_count
+            return avg_x_speed, leftmost_center
+        else:
+            return 0, None
+
+    def add_x_velocity(self, x_velocity_to_add):
+        self._current_camera_box_speed_x += x_velocity_to_add
 
     @classmethod
     def _box_center(cls, box):
@@ -837,12 +896,77 @@ class HockeyMOM:
             box[3] -= offset
         return box
 
-    def _apply_box_velocity(self, box, scale_speed: float):
-        box[0] += self._current_camera_box_speed_x * scale_speed
-        box[2] += self._current_camera_box_speed_x * scale_speed
-        box[1] += self._current_camera_box_speed_y * scale_speed
-        box[3] += self._current_camera_box_speed_y * scale_speed
-        return box
+    def apply_box_velocity(self, box, scale_speed: float, verbose: bool = False):
+        dx = self._current_camera_box_speed_x * scale_speed
+        dy = self._current_camera_box_speed_y * scale_speed
+        # if verbose:
+        #     print(f"Moving box by {dx} x {dy}")
+        return box + np.array([dx, dy, dx, dy], dtype=np.float32)
+
+    def adjust_veclocity_based_upon_new_box(
+        self,
+        proposed_point: List[int],
+        last_point: List[int],
+    ):
+        dx = proposed_point[0] - last_point[0]
+        dy = proposed_point[1] - last_point[1]
+        #print(f"want: dx={dx}, dy={dy}")
+
+        acceleration_dx = dx - self._current_camera_box_speed_x
+        acceleration_dy = dy - self._current_camera_box_speed_y
+
+        allowed_acceleration_dx = clamp_value(
+            -self._camera_box_max_accel_x, acceleration_dx, self._camera_box_max_accel_x
+        )
+        allowed_acceleration_dy = clamp_value(
+            -self._camera_box_max_accel_y, acceleration_dy, self._camera_box_max_accel_y
+        )
+
+        # if verbose:
+        #     print(
+        #         f"attempted accel x : {acceleration_dx}, allowed: {allowed_acceleration_dx}"
+        #     )
+        #     print(
+        #         f"attempted accel y : {acceleration_dy}, allowed: {allowed_acceleration_dy}"
+        #     )
+
+        #
+        # now adjust velocity based on the allowed accelerations
+        #
+        old_speed_x = self._current_camera_box_speed_x
+        # old_speed_y = self._current_camera_box_speed_y
+
+        self._last_acceleration_dx = allowed_acceleration_dx
+        self._last_acceleration_dy = allowed_acceleration_dy
+
+        self._current_camera_box_speed_x += allowed_acceleration_dx
+        self._current_camera_box_speed_y += allowed_acceleration_dy
+
+        #
+        # Check if the new velocity is a change of direction
+        #
+        if old_speed_x < 0 and self._current_camera_box_speed_x >= 0:
+            self._current_camera_box_speed_reversed_x = True
+        elif old_speed_x > 0 and self._current_camera_box_speed_x <= 0:
+            self._current_camera_box_speed_reversed_x = True
+        # if old_speed_y < 0 and self._current_camera_box_speed_y >= 0:
+        #     self._current_camera_box_speed_reversed_y = True
+        # elif old_speed_y > 0 and self._current_camera_box_speed_y <= 0:
+        #     self._current_camera_box_speed_reversed_y = True
+
+        self._current_camera_box_speed_x = clamp_value(
+            -self._camera_box_max_speed_x,
+            self._current_camera_box_speed_x,
+            self._camera_box_max_speed_x,
+        )
+        self._current_camera_box_speed_y = clamp_value(
+            -self._camera_box_max_speed_y,
+            self._current_camera_box_speed_y,
+            self._camera_box_max_speed_y,
+        )
+        # print(
+        #     f"change in speed speed: {old_speed_x} -> {self._current_camera_box_speed_y}"
+        # )
 
     def get_next_temporal_box(
         self,
@@ -852,10 +976,62 @@ class HockeyMOM:
         scale_speed: float = 1.0,
         verbose: bool = False,
     ):
-        if verbose:
-            print(f"\nproposed_new_box: {self.box_str(proposed_new_box)}")
-            if last_box is not None:
-                print(f"last_box: {self.box_str(last_box)}")
+        if last_box is not None:
+            self.adjust_veclocity_based_upon_new_box(
+                center(proposed_new_box), center(last_box)
+            )
+        else:
+            last_box = proposed_new_box
+        moved_box = self.apply_box_velocity(
+            last_box, scale_speed=scale_speed, verbose=verbose
+        )
+        self._curtail_speed_at_edges(moved_box)
+        return moved_box
+
+    def smooth_resize_box(self, proposed_new_box, last_box):
+        if last_box is None:
+            last_box = proposed_new_box
+        #
+        # Now we curtail in their allowed height and width changes per frame
+        # This should bew simpler, just a max allowable change in size
+        #
+        proposed_width = proposed_new_box[2] - proposed_new_box[0]
+        proposed_height = proposed_new_box[3] - proposed_new_box[1]
+
+        last_width = last_box[2] - last_box[0]
+        last_height = last_box[3] - last_box[1]
+
+        proposed_width_change = proposed_width - last_width
+        proposed_height_change = proposed_height - last_height
+
+        allowed_width_change = clamp_value(
+            -self._camera_box_max_size_change_velocity_x,
+            proposed_width_change,
+            self._camera_box_max_size_change_velocity_x,
+        )
+        allowed_height_change = clamp_value(
+            -self._camera_box_max_size_change_velocity_y,
+            proposed_height_change,
+            self._camera_box_max_size_change_velocity_y,
+        )
+        return make_box_at_center(
+            center(proposed_new_box),
+            last_width + allowed_width_change,
+            last_height + allowed_height_change,
+        )
+
+    def old_get_next_temporal_box(
+        self,
+        proposed_new_box: List[int],
+        last_box: List[int],
+        pre_clamp_to_video_frame: bool = True,
+        scale_speed: float = 1.0,
+        verbose: bool = False,
+    ):
+        # if verbose:
+        #     print(f"\nproposed_new_box: {self.box_str(proposed_new_box)}")
+        #     if last_box is not None:
+        #         print(f"last_box: {self.box_str(last_box)}")
 
         next_box = proposed_new_box.copy()
 
@@ -889,13 +1065,13 @@ class HockeyMOM:
         else:
             allowed_acceleration_dy = min(acceleration_dy, self._camera_box_max_accel_y)
 
-        if verbose:
-            print(
-                f"attempted accel x : {acceleration_dx}, allowed: {allowed_acceleration_dx}"
-            )
-            print(
-                f"attempted accel y : {acceleration_dy}, allowed: {allowed_acceleration_dy}"
-            )
+        # if verbose:
+        #     print(
+        #         f"attempted accel x : {acceleration_dx}, allowed: {allowed_acceleration_dx}"
+        #     )
+        #     print(
+        #         f"attempted accel y : {acceleration_dy}, allowed: {allowed_acceleration_dy}"
+        #     )
 
         #
         # now adjust velocity based on the allowed accelerations
@@ -1006,15 +1182,17 @@ class HockeyMOM:
         else:
             new_last_box = last_box.copy()
 
-        moved_box = self._apply_box_velocity(new_last_box, scale_speed=scale_speed)
+        moved_box = self.apply_box_velocity(
+            new_last_box, scale_speed=scale_speed, verbose=verbose
+        )
 
-        self._curtail_speeed_at_edges(moved_box)
+        self._curtail_speed_at_edges(moved_box)
 
         # moved_box = self.shift_box_to_edge(moved_box)
         # moved_box = self.clamp(moved_box)
 
-        if verbose:
-            print(f"moved_box: {self.box_str(moved_box)}")
+        # if verbose:
+        #     print(f"moved_box: {self.box_str(moved_box)}")
         return moved_box
 
     def did_direction_change(
@@ -1066,7 +1244,7 @@ class HockeyMOM:
     def is_box_at_left_edge(self, box):
         return box[0] <= 0
 
-    def _curtail_speeed_at_edges(self, box):
+    def _curtail_speed_at_edges(self, box):
         """
         If we are on (or past) and edge, cut the speed in half.
         Setting to zero tends to make it have too much of a "bounce" effect,
