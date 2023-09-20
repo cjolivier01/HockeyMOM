@@ -22,7 +22,7 @@ from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 from tracker.multitracker import torch_device
 
-from .camera import aspect_ratio, width, height, center, center_distance, translate_box, make_box_at_center
+from .camera import aspect_ratio, width, height, center, center_distance, center_x_distance, translate_box, make_box_at_center
 
 from hockeymom import core
 
@@ -43,7 +43,7 @@ core.hello_world()
 
 RINK_CONFIG = {
     "vallco": {
-        "fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_scaling_factor": 1.0,
     },
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
@@ -58,12 +58,14 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
+        self.plot_cluster_tracking = False or BASIC_DEBUGGING
+
         self.plot_camera_tracking = False or BASIC_DEBUGGING
 
         # Plot frame ID and speed/velocity in upper-left corner
@@ -567,7 +569,7 @@ class FramePostProcessor:
                     largest_cluster_ids_box2 = hockey_mom.get_current_bounding_box(
                         largest_cluster_ids_2
                     )
-                    if self._args.plot_camera_tracking:
+                    if self._args.plot_cluster_tracking:
                         vis.plot_rectangle(
                             online_im,
                             largest_cluster_ids_box2,
@@ -590,7 +592,7 @@ class FramePostProcessor:
                     largest_cluster_ids_box3 = hockey_mom.get_current_bounding_box(
                         largest_cluster_ids_3
                     )
-                    if self._args.plot_camera_tracking:
+                    if self._args.plot_cluster_tracking:
                         vis.plot_rectangle(
                             online_im,
                             largest_cluster_ids_box3,
@@ -701,7 +703,7 @@ class FramePostProcessor:
                     #     thickness=20,
                     # )
                     current_box = make_box_at_center(edge_center, width(current_box), height(current_box))
-                    hockey_mom._current_camera_box_speed_x = group_x_velocity
+                    hockey_mom._current_camera_box_speed_x += group_x_velocity/2
                     #last_temporal_box = translate_box(last_temporal_box, group_x_velocity, 0)
                     #hockey_mom.add_x_velocity(group_x_velocity)
                     #hockey_mom.apply_box_velocity(current_box, scale_speed = 1.0)
@@ -733,7 +735,7 @@ class FramePostProcessor:
                 # Aspect Ratio
                 #
                 # current_box = hockey_mom.clamp(current_box)
-
+                fine_tracking_box = current_box.copy()
                 if self._args.plot_camera_tracking:
                     vis.plot_rectangle(
                         online_im,
@@ -871,8 +873,8 @@ class FramePostProcessor:
                 stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
 
                 if self._args.max_in_aspec_ratio:
-                    sticky_size = hockey_mom._camera_box_max_speed_x * 3
-                    unsticky_size = sticky_size / 4
+                    sticky_size = hockey_mom._camera_box_max_speed_x * 6
+                    unsticky_size = sticky_size / 2
                     #movement_speed_divisor = 1.0
                 else:
                     sticky_size = hockey_mom._camera_box_max_speed_x * 5
@@ -888,7 +890,8 @@ class FramePostProcessor:
                             thickness=6,
                         )
                         # sticky circle
-                        cc = center(current_box)
+                        #cc = center(current_box)
+                        cc = center(fine_tracking_box)
                         cl = center(last_sticky_temporal_box)
 
                         def _to_int(vals):
@@ -926,7 +929,8 @@ class FramePostProcessor:
                             thickness=2,
                         )
 
-                cdist = center_distance(current_box, last_sticky_temporal_box)
+                #cdist = center_distance(current_box, last_sticky_temporal_box)
+                cdist = center_x_distance(current_box, last_sticky_temporal_box)
 
                 # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
                 if stuck and (
@@ -938,7 +942,8 @@ class FramePostProcessor:
                     hockey_mom.control_speed(
                         hockey_mom._camera_box_max_speed_x / 6,
                         hockey_mom._camera_box_max_speed_y / 6,
-                        set_speed_x=True,
+                        #set_speed_x=True,
+                        set_speed_x=False,
                     )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                     stuck = False
@@ -946,16 +951,16 @@ class FramePostProcessor:
                     stuck = hockey_mom.set_direction_changed(dx=True, dy=True)
 
                 if not stuck:
-                    xx0 = center(current_box)[0]
+                    #xx0 = center(current_box)[0]
                     current_box, last_sticky_temporal_box = _apply_temporal(
                         current_box,
                         last_sticky_temporal_box, scale_speed=1.0,
                         verbose=True,
                     )
-                    xx1 = center(current_box)[0]
+                    #xx1 = center(current_box)[0]
                     #print(f'A final temporal x change: {xx1 - xx0}')
                     current_box = _fix_aspect_ratio(current_box)
-                    xx1 = center(current_box)[0]
+                    #xx1 = center(current_box)[0]
                     #print(f'final temporal x change: {xx1 - xx0}')
                     # vis.plot_rectangle(
                     #     online_im,

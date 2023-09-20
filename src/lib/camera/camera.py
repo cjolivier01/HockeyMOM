@@ -92,6 +92,11 @@ def center_distance(box1, box2) -> float:
     return math.sqrt(w * w + h * h)
 
 
+def center_x_distance(box1, box2) -> float:
+    if box1 is None or box2 is None:
+        return 0.0
+    return abs(center(box1)[0] - center(box2)[0])
+
 # def scale(box, scale_width, scale_height):
 #     w = width(box) * scale_width
 #     h = height(box) * scale_height
@@ -562,14 +567,14 @@ class HockeyMOM:
             else:
                 idle_count += 1
         total_ids = len(self._id_to_tlwhs_history_map)
-        if float(pos_count) / total_ids > group_threshhold:
-            avg_x_speed = pos_sum / pos_count
-            return avg_x_speed, rightmost_center
-        elif float(neg_count) / total_ids > group_threshhold:
-            avg_x_speed = neg_sum / neg_count
-            return avg_x_speed, leftmost_center
-        else:
-            return 0, None
+        if total_ids and total_ids > 4:  # Don't just consider two players
+            if float(pos_count) / total_ids > group_threshhold:
+                avg_x_speed = pos_sum / pos_count
+                return avg_x_speed, rightmost_center
+            elif float(neg_count) / total_ids > group_threshhold:
+                avg_x_speed = neg_sum / neg_count
+                return avg_x_speed, leftmost_center
+        return 0, None
 
     def add_x_velocity(self, x_velocity_to_add):
         self._current_camera_box_speed_x += x_velocity_to_add
