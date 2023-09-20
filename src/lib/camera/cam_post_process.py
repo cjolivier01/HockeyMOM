@@ -58,7 +58,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -692,7 +692,7 @@ class FramePostProcessor:
 
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
                 if group_x_velocity:
-                    print(f"group x velocity: {group_x_velocity}")
+                    #print(f"group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
