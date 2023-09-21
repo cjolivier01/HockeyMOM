@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
+import matplotlib.pyplot as plt
 
 import torch
 
@@ -323,8 +324,8 @@ class HockeyMOM:
 
         # self._camera_box_max_size_change_velocity_x = 0
         # self._camera_box_max_size_change_velocity_y = 0
-        self._camera_box_max_size_change_velocity_x = 3
-        self._camera_box_max_size_change_velocity_y = 3
+        self._camera_box_max_size_change_velocity_x = 2
+        self._camera_box_max_size_change_velocity_y = 2
 
         # Create the camera transofrmer
         self._camera = create_camera(
@@ -335,6 +336,29 @@ class HockeyMOM:
             sensor_size_mm=(73, 4.55),
             image_size_px=(image_width, image_height),
         )
+        self.setup_gaussian(length=image_width)
+
+    def get_gaussian_y_from_image_x_position(self, image_x_position: float):
+        return self.gaussian_y[int(image_x_position)]
+
+    def setup_gaussian(self, length: int):
+        std_dev = float(length)/8.0
+        mean = 1.0
+        x = np.linspace(-length/2, length/2, length + 1)
+        self.gaussian_y = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(x - mean)**2 / (2 * std_dev**2)) * 1000
+        #sum = np.sum(self.gaussian_y)
+
+        if False:
+            # Plot the Gaussian curve
+            plt.plot(x, self.gaussian_y)
+            plt.title('Gaussian Curve')
+            plt.xlabel('X')
+            plt.ylabel('Y')
+            # Show the plot
+            plt.show()
+            print("Plotted")
+            import time
+            time.sleep(1000)
 
     def get_speed(self):
         return math.sqrt(

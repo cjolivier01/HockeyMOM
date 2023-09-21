@@ -58,7 +58,7 @@ BASIC_DEBUGGING = False
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False
@@ -78,7 +78,7 @@ class DefaultArguments(argparse.Namespace):
 
         # Only apply zoom when the camera box is against
         # either the left or right edge of the video
-        self.no_max_in_aspec_ratio_at_edges = True
+        self.no_max_in_aspec_ratio_at_edges = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
         self.apply_fixed_edge_scaling = True
@@ -88,8 +88,12 @@ class DefaultArguments(argparse.Namespace):
         self.fixed_edge_rotation = False
         self.fixed_edge_rotation_angle = 35.0
 
-        # Use "sticky" panning, where panning occurs in less frequent, but possibly faster, pans rather than a constant pan (which may appear tpo "wiggle")
+        # Use "sticky" panning, where panning occurs in less frequent,
+        # but possibly faster, pans rather than a constant
+        # pan (which may appear tpo "wiggle")
         self.sticky_pan = True
+
+        # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
 
         # Skip some number of frames before post-processing. Useful for debugging a
@@ -115,7 +119,7 @@ class DefaultArguments(argparse.Namespace):
         #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = False and not BASIC_DEBUGGING
+        self.crop_output_image = True and not BASIC_DEBUGGING
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -873,8 +877,15 @@ class FramePostProcessor:
                 stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
 
                 if self._args.max_in_aspec_ratio:
-                    sticky_size = hockey_mom._camera_box_max_speed_x * 6
-                    unsticky_size = sticky_size / 2
+                    if last_sticky_temporal_box is not None:
+                        gaussian_factor = hockey_mom.get_gaussian_y_from_image_x_position(center(last_sticky_temporal_box)[0])
+                    else:
+                        gaussian_factor = 1
+                    gaussian_mult = 10
+                    gaussian_add = gaussian_factor * gaussian_mult
+                    #print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+                    sticky_size = hockey_mom._camera_box_max_speed_x * (6 + gaussian_add)
+                    unsticky_size = sticky_size * 3 / 4
                     #movement_speed_divisor = 1.0
                 else:
                     sticky_size = hockey_mom._camera_box_max_speed_x * 5
