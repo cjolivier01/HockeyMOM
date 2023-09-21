@@ -321,8 +321,8 @@ class StitchConfig:
 
 class StitchConfigVallco:
     def __init__(self):
-        self.skip_frame_count = 2300 + 1400
-        #self.skip_frame_count = 0
+        #self.skip_frame_count = 2300 + 1400
+        self.skip_frame_count = 0
         self.clip_offset_box = None
         self.left_stitch_clip_x_size = 400
         self.left_stitch_clip_y_size = 0
