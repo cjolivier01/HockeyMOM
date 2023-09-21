@@ -327,7 +327,7 @@ class StitchConfigVallco:
         self.left_stitch_clip_x_size = 400
         self.left_stitch_clip_y_size = 0
         self.left_start_frame_number = 217
-        self.right_stitch_clip_x_size = 250
+        self.right_stitch_clip_x_size = 275
         self.right_stitch_clip_y_size = 70
         self.right_start_frame_number = 0
 

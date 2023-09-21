@@ -43,7 +43,7 @@ core.hello_world()
 
 RINK_CONFIG = {
     "vallco": {
-        "fixed_edge_scaling_factor": 1.0,
+        "fixed_edge_scaling_factor": 1.25,
     },
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
@@ -85,8 +85,10 @@ class DefaultArguments(argparse.Namespace):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = False
-        self.fixed_edge_rotation_angle = 35.0
+        self.fixed_edge_rotation = True
+
+        #self.fixed_edge_rotation_angle = 35.0
+        self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
@@ -313,12 +315,17 @@ class FramePostProcessor:
                 rotation_point = [int(i) for i in center(current_box)]
                 width_center = online_im.shape[1] / 2
                 if rotation_point[0] < width_center:
-                    dist_from_center_pct = (width_center - rotation_point[0])/width_center
-                    mult = -1
+                #     dist_from_center_pct = (width_center - rotation_point[0])/width_center
+                     mult = -1
                 else:
-                    dist_from_center_pct = (rotation_point[0] - width_center)/width_center
-                    mult = 1
-                angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
+                #     dist_from_center_pct = (rotation_point[0] - width_center)/width_center
+                     mult = 1
+                #angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
+
+                gaussian = 1 - self._hockey_mom.get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
+                #print(f"gaussian={gaussian}")
+                angle = self._args.fixed_edge_rotation_angle - self._args.fixed_edge_rotation_angle * gaussian
+                angle *= mult
                 #print(f"angle={angle}")
                 rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
                 online_im = cv2.warpAffine(online_im, rotation_matrix, (online_im.shape[1], online_im.shape[0]))
