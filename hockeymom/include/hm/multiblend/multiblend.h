@@ -16,10 +16,10 @@ int enblend_main(std::string output_image,
                  std::vector<std::string> input_files);
 
 class MatrixRGB {
-  static constexpr std::size_t kChannels = 3;
+  static inline constexpr std::size_t kChannels = 3;
 
 public:
-  MatrixRGB(py::array_t<uint8_t> &input_image) {
+  inline MatrixRGB(py::array_t<uint8_t> &input_image) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
     if (input_image.ndim() != kChannels || input_image.shape(2) != kChannels ||
         !input_image.dtype().is(py::dtype::of<uint8_t>())) {
@@ -38,17 +38,18 @@ public:
     m_own_data = false;
     m_array = input_image;
   }
-  MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
+  inline MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
     m_data = new std::uint8_t[rows * cols * kChannels];
     m_own_data = true;
   }
-  ~MatrixRGB() { delete m_data; }
-  std::uint8_t *data() { return m_data; }
-  size_t rows() const { return m_rows; }
-  size_t cols() const { return m_cols; }
-  size_t channels() const { return kChannels; }
+  inline ~MatrixRGB() { delete m_data; }
 
-  py::array_t<std::uint8_t> to_py_array() {
+  inline std::uint8_t *data() { return m_data; }
+  inline size_t rows() const { return m_rows; }
+  inline size_t cols() const { return m_cols; }
+  inline size_t channels() const { return kChannels; }
+
+  inline py::array_t<std::uint8_t> to_py_array() {
     if (m_array) {
       return std::move(m_array);
     }
@@ -70,6 +71,6 @@ private:
   std::uint8_t *m_data;
 };
 
-MatrixRGB enblend(MatrixRGB& image1, MatrixRGB& image2);
+MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2);
 
 } // namespace enblend

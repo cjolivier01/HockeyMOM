@@ -19,7 +19,9 @@
 
 #define NOMINMAX
 #include <stdio.h>
-#include <stdint.h>
+#include <cstdint>
+
+#include <cassert>
 #include <vector>
 #include <algorithm>
 #include <cassert>
@@ -81,7 +83,7 @@ extern "C" FILE * __cdecl __iob_func(void) {
 
 #define MASKVAL(X) (((X) & 0x7fffffffffffffff) | images[(X) & 0xffffffff]->mask_state)
 
-int multiblend_main(int argc, char* argv[]) {
+int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images = {}) {
 // This is here because of a weird problem encountered during development with Visual Studio. It should never be triggered.
 	if (verbosity != 1) {
 		printf("bad compile?\n");
@@ -1684,7 +1686,7 @@ int multiblend_main(int argc, char* argv[]) {
 }
 
 namespace enblend {
-int enblend_main(std::string output_image, std::vector<std::string> input_files) {
+int enblend_main(std::string output_image, std::vector<std::string> input_files, std::vector<std::reference_wrapper<enblend::MatrixRGB>>& raw_images) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
@@ -1714,7 +1716,35 @@ int enblend_main(std::string output_image, std::vector<std::string> input_files)
   return return_value;
 }
 
-MatrixRGB enblend(MatrixRGB& image1, MatrixRGB& image2) {
+MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
+
+  std::vector<std::string> args;
+  args.push_back("python");
+  args.push_back("--timing");
+  args.push_back("-o");
+  args.push_back("output_image.png");
+
+  int argc = args.size();
+  char **argv = new char *[argc];
+
+  for (int i = 0; i < argc; ++i) {
+    argv[i] = new char[args[i].length() + 1];
+    std::strcpy(argv[i], args[i].c_str());
+  }
+
+  std::vector<std::reference_wrapper<enblend::MatrixRGB>> images;
+  images.push_back(image1);
+  images.push_back(image2);
+  int result = multiblend_main(argc, argv, images);
+
+  // Clean up the allocated memory
+  for (int i = 0; i < argc; ++i) {
+    delete[] argv[i];
+  }
+  delete[] argv;
+
+  assert(!result);
+
   return image1;
 }
 
