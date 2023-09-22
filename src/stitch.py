@@ -288,6 +288,39 @@ def expand_image_width(input_image, new_width: int):
     return output_image
 
 
+def make_transformed_image(input_image, matrix):
+    # Calculate the dimensions of the output image
+    height, width = input_image.shape[:2]
+    transformed_corners = np.array([
+        np.dot(matrix, [0, 0, 1]),
+        np.dot(matrix, [width, 0, 1]),
+        np.dot(matrix, [0, height, 1]),
+        np.dot(matrix, [width, height, 1])
+    ])
+    min_x = int(np.min(transformed_corners[:, 0]))
+    max_x = int(np.max(transformed_corners[:, 0]))
+    min_y = int(np.min(transformed_corners[:, 1]))
+    max_y = int(np.max(transformed_corners[:, 1]))
+    output_width = max_x - min_x
+    output_height = max_y - min_y
+
+    # Create a new output image with the calculated dimensions
+    output_image = np.zeros((output_height, output_width, 3), dtype=np.uint8)
+
+    # Calculate the translation matrix to account for the min_x and min_y values
+    translation_matrix = np.array([[1, 0, -min_x],
+                                    [0, 1, -min_y],
+                                    [0, 0, 1]])
+
+    # Combine the translation matrix and the original transformation matrix
+    combined_matrix = np.dot(translation_matrix, matrix)
+
+    # Apply the perspective transformation and place it on the output image
+    output_image = cv2.warpPerspective(input_image, combined_matrix, (output_width, output_height))
+    output_image = cv2.resize(output_image, dsize=[3000, 3000])
+    return output_image
+
+
 def stitch_with_warp():
     # Load the two video files
     video1 = cv2.VideoCapture("/mnt/data/Videos/left.mp4")
@@ -335,6 +368,7 @@ def stitch_with_warp():
 
         # Create a black mask with the same dimensions as the input image
         left_mask = np.zeros_like(gray1)
+        #left_mask = np.ones_like(gray1)
 
         # Fill the ROI region with white
         cv2.rectangle(left_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
@@ -352,6 +386,7 @@ def stitch_with_warp():
 
         # Create a black mask with the same dimensions as the input image
         right_mask = np.zeros_like(gray2)
+        #right_mask = np.ones_like(gray2)
 
         # Fill the ROI region with white
         cv2.rectangle(right_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
@@ -392,7 +427,7 @@ def stitch_with_warp():
         good_matches = sorted(good_matches, key=lambda x: x.distance)
         # good_matches = good_matches[:10]
 
-        N = 100  # Number of keypoints to consider
+        N = 6  # Number of keypoints to consider
 
         # Draw the first 10 matches
         match_img = cv2.drawMatches(
@@ -400,7 +435,7 @@ def stitch_with_warp():
             keypoints1,
             image2,
             keypoints2,
-            good_matches[:100],
+            good_matches[:N],
             None,
             flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
         )
@@ -419,21 +454,23 @@ def stitch_with_warp():
             matches_mask = np.zeros(len(good_matches), dtype=np.uint8)
             matches_mask[:N] = 1  # Set the first N matches as inliers
             # Compute the Homography matrix
-            M, mask = cv2.findHomography(
+            homography_matrix, mask = cv2.findHomography(
                 src_pts, dst_pts, cv2.RANSAC, 5.0, mask=matches_mask
             )
 
             # Use the Homography matrix to warp the images
             # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image2.shape[0]))
 
-            panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
-            cv2.imshow("Big image", panoramic_image)
+            #panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
+            #cv2.imshow("Big image", panoramic_image)
 
             # corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
             # corrected_perspective = cv2.warpPerspective(image2, M, (image2.shape[1] * 2, image2.shape[0] * 2))
-            corrected_perspective = cv2.warpPerspective(
-                image1, M, (panoramic_image.shape[1], panoramic_image.shape[0])
-            )
+            # corrected_perspective = cv2.warpPerspective(
+            #     image2, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0])
+            # )
+
+            corrected_perspective = make_transformed_image(image1, homography_matrix)
 
             # Copy the second image onto the warped image
             # warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2

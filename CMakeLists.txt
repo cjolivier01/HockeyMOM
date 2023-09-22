@@ -18,7 +18,11 @@ include_directories(SYSTEM external/pybind11/include)
 include_directories(SYSTEM external/eigen)
 include_directories(SYSTEM /home/colivier/.conda/envs/HockeyMOM/include)
 
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}:${CMAKE_CURRENT_SOURCE_DIR}/external/enblend-enfuse/CMakeModules")
+
 add_subdirectory(external/eigen)
 #add_subdirectory(external/opencv)
+#add_subdirectory(external/enblend-enfuse)
+#add_subdirectory(external/hugin)
 add_subdirectory(hockeymom)
 
