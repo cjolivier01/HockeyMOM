@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <vector>
 #include <algorithm>
+#include <cassert>
 #ifdef __APPLE__
 #define memalign(a,b) malloc((b))
 #else
@@ -44,6 +45,8 @@ void fopen_s(FILE** f, const char* filename, const char* mode) { *f = fopen(file
 
 int verbosity = 1;
 
+#include "hm/multiblend/multiblend.h"
+
 #include "pnger.cpp"
 #include "pyramid.cpp"
 #include "functions.cpp"
@@ -58,7 +61,7 @@ public:
 	std::vector<Flex*> masks;
 };
 
-enum class ImageType { MB_NONE, MB_TIFF, MB_JPEG, MB_PNG };
+enum class ImageType { MB_NONE, MB_TIFF, MB_JPEG, MB_PNG, MB_MEM };
 
 #include "image.cpp"
 
@@ -1684,6 +1687,7 @@ namespace enblend {
 int enblend_main(std::string output_image, std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
+  args.push_back("--timing");
   args.push_back("-o");
   args.push_back(output_image);
   for (const auto& s : input_files) {
@@ -1709,4 +1713,9 @@ int enblend_main(std::string output_image, std::vector<std::string> input_files)
 
   return return_value;
 }
+
+MatrixRGB enblend(MatrixRGB& image1, MatrixRGB& image2) {
+  return image1;
+}
+
 }

@@ -9,7 +9,9 @@ set(
 add_library(hm SHARED ${SOURCES})
 #add_compile_options(-std=c++14 -msse4.1 -pthread -ffast-math -Ofast)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.1 -pthread -ffast-math -Ofast")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 target_include_directories(hm PUBLIC ./include)
 

@@ -16,9 +16,10 @@ public:
 class Image {
 public:
 	Image(char* _filename);
+	Image(void* data, std::size_t size, std::vector<std::size_t> shape);
 	~Image();
-	char* filename;
-	ImageType type;
+	char* filename{nullptr};
+	ImageType type{ImageType::MB_NONE};
 	int width;
 	int height;
 	int xpos;
@@ -55,9 +56,19 @@ private:
 	struct jpeg_decompress_struct cinfo;
 	struct jpeg_error_mgr jerr;
 	png_structp png_ptr;
+  uint8_t*raw_data{nullptr};
+  std::size_t raw_data_size{0};
+  std::vector<std::size_t> raw_shape;
 };
 
 Image::Image(char* _filename) : filename(_filename) {
+}
+
+Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape) {
+  type = ImageType::MB_MEM;
+  raw_data = reinterpret_cast<std::uint8_t*>(data);
+  raw_data_size = size;
+  raw_shape = std::move(shape);
 }
 
 Image::~Image() {
@@ -78,22 +89,23 @@ void Image::Open() {
 	float tiff_xpos, tiff_ypos;
 	uint16_t compression;
 
-	char* ext = strrchr(filename, '.');
-	if (!ext) {
-		die("Could not identify file extension: %s", filename);
-	}
-	++ext;
+  if (type == ImageType::MB_NONE) {
+		char* ext = strrchr(filename, '.');
+		if (!ext) {
+			die("Could not identify file extension: %s", filename);
+		}
+		++ext;
 
-	if (!_stricmp(ext, "tif") || !_stricmp(ext, "tiff")) {
-		type = ImageType::MB_TIFF;
-	} else if (!_stricmp(ext, "jpg") || !_stricmp(ext, "jpeg")) {
-		type = ImageType::MB_JPEG;
-	} else if (!_stricmp(ext, "png")) {
-		type = ImageType::MB_PNG;
-	} else {
-		die("Unknown file extension: %s", filename);
-	}
-
+    if (!_stricmp(ext, "tif") || !_stricmp(ext, "tiff")) {
+      type = ImageType::MB_TIFF;
+    } else if (!_stricmp(ext, "jpg") || !_stricmp(ext, "jpeg")) {
+      type = ImageType::MB_JPEG;
+    } else if (!_stricmp(ext, "png")) {
+      type = ImageType::MB_PNG;
+    } else {
+      die("Unknown file extension: %s", filename);
+    }
+  }
 	switch (type) {
 		case ImageType::MB_TIFF: {
 			tiff = TIFFOpen(filename, "r");
@@ -249,6 +261,14 @@ void Image::Open() {
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
 		} break;
+    case ImageType::MB_MEM: {
+      bpp = 8;
+      tiff_width = raw_shape.at(1);
+      tiff_height = raw_shape.at(0);
+			xpos = ypos = 0;
+			tiff_xpos = tiff_ypos = 0;
+			tiff_xres = tiff_yres = 90;
+    } break;
 	}
 
 	xpos += xpos_add;
@@ -290,6 +310,18 @@ void Image::Read(void* data, bool gamma) {
 				png_read_row(png_ptr, pointer, NULL);
 				pointer += (tiff_width * spp) << (bpp >> 4);
 			}
+		} break;
+		case ImageType::MB_MEM: {
+			uint8_t* pointer = (uint8_t*)data;
+      uint8_t* this_data = raw_data;
+      std::size_t inc =  (tiff_width * spp) << (bpp >> 4);
+      assert(inc * tiff_height == raw_data_size);
+			//memcpy(pointer, inc * tiff_height);
+			// for (int y = 0; y < tiff_height; ++y) {
+			// 	memcpy(png_ptr, pointer, );
+			// 	pointer += inc;
+      //   this_data += tiff_width * raw_shape.size();
+			// }
 		} break;
 	}
 

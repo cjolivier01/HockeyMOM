@@ -1,16 +1,10 @@
 #include "hm/ImagePostProcess.h"
-#include "hm/sublibA/add.h"
-#include "hm/sublibA/ConsoleColors.h"
-#include "hm/NestedClasses.h"
 #include "hm/Inheritance.h"
+#include "hm/NestedClasses.h"
+#include "hm/sublibA/ConsoleColors.h"
+#include "hm/sublibA/add.h"
 
 #include "hm/multiblend/multiblend.h"
-
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-#include <pybind11/eigen.h>
-#include <pybind11/stl.h>
-#include <pybind11/stl_bind.h>
 
 #include <iostream>
 
@@ -19,85 +13,132 @@ namespace forgotten {
 
 struct Unbound {};
 
-enum Enum{
-    ONE=1,
-    TWO=2
-};
+enum Enum { ONE = 1, TWO = 2 };
 
-}
-
+} // namespace forgotten
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(_hockeymom, m)
-{
-  std::cout << "Initializing hockymom module" << std::endl;
-  auto pyFoo = py::class_<hm::Foo>(m,"Foo");
-  pyFoo
-    .def(py::init<>())
-    .def("f",&hm::Foo::f);
+class Matrix2DFloat {
+public:
+  Matrix2DFloat(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
+    m_data = new float[rows * cols];
+  }
+  float *data() { return m_data; }
+  size_t rows() const { return m_rows; }
+  size_t cols() const { return m_cols; }
 
-  py::class_<hm::Foo::Child> (pyFoo, "FooChild")
-    .def(py::init<>())
-    .def("g",&hm::Foo::Child::g);
+private:
+  size_t m_rows, m_cols;
+  float *m_data;
+};
+
+PYBIND11_MODULE(_hockeymom, m) {
+  std::cout << "Initializing hockymom module" << std::endl;
+
+  py::class_<Matrix2DFloat>(m, "Matrix2DFloat", py::buffer_protocol())
+      .def_buffer([](Matrix2DFloat &m) -> py::buffer_info {
+        return py::buffer_info(
+            m.data(),                               /* Pointer to buffer */
+            sizeof(float),                          /* Size of one scalar */
+            py::format_descriptor<float>::format(), /* Python struct-style
+                                                       format descriptor */
+            2,                                      /* Number of dimensions */
+            {m.rows(), m.cols()},                   /* Buffer dimensions */
+            {sizeof(float) * m.cols(), /* Strides (in bytes) for each index */
+             sizeof(float)});
+      });
+
+  py::class_<enblend::MatrixRGB>(m, "MatrixRGB", py::buffer_protocol())
+      .def_buffer([](enblend::MatrixRGB &m) -> py::buffer_info {
+        return py::buffer_info(
+            m.data(),             /* Pointer to buffer */
+            sizeof(std::uint8_t), /* Size of one scalar */
+            py::format_descriptor<std::uint8_t>::
+                format(), /* Python struct-style format descriptor */
+            3,            /* Number of dimensions */
+            {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
+            {m.channels() * sizeof(std::uint8_t) *
+                 m.cols(), /* Strides (in bytes) for each index */
+             m.channels() * sizeof(std::uint8_t), sizeof(std::uint8_t)});
+      });
+
+  auto pyFoo = py::class_<hm::Foo>(m, "Foo");
+  pyFoo.def(py::init<>()).def("f", &hm::Foo::f);
+
+  py::class_<hm::Foo::Child>(pyFoo, "FooChild")
+      .def(py::init<>())
+      .def("g", &hm::Foo::Child::g);
 
   auto sublibA = m.def_submodule("sublibA");
   sublibA.def("add", hm::sublibA::add);
 
-  py::enum_<hm::sublibA::ConsoleForegroundColor> (sublibA, "ConsoleForegroundColor")
-    .value("Green", hm::sublibA::ConsoleForegroundColor::Green)
-    .value("Yellow", hm::sublibA::ConsoleForegroundColor::Yellow)
-    .value("Blue", hm::sublibA::ConsoleForegroundColor::Blue)
-    .value("Magenta", hm::sublibA::ConsoleForegroundColor::Magenta)
-    .export_values();
+  py::enum_<hm::sublibA::ConsoleForegroundColor>(sublibA,
+                                                 "ConsoleForegroundColor")
+      .value("Green", hm::sublibA::ConsoleForegroundColor::Green)
+      .value("Yellow", hm::sublibA::ConsoleForegroundColor::Yellow)
+      .value("Blue", hm::sublibA::ConsoleForegroundColor::Blue)
+      .value("Magenta", hm::sublibA::ConsoleForegroundColor::Magenta)
+      .export_values();
 
-  py::enum_<hm::sublibA::ConsoleBackgroundColor> (sublibA, "ConsoleBackgroundColor")
-    .value("Green", hm::sublibA::Green)
-    .value("Yellow", hm::sublibA::Yellow)
-    .value("Blue", hm::sublibA::Blue)
-    .value("Magenta", hm::sublibA::Magenta)
-    .export_values();
+  py::enum_<hm::sublibA::ConsoleBackgroundColor>(sublibA,
+                                                 "ConsoleBackgroundColor")
+      .value("Green", hm::sublibA::Green)
+      .value("Yellow", hm::sublibA::Yellow)
+      .value("Blue", hm::sublibA::Blue)
+      .value("Magenta", hm::sublibA::Magenta)
+      .export_values();
 
-  sublibA.def("accept_defaulted_enum",
-      [](const hm::sublibA::ConsoleForegroundColor& color){},
-      py::arg("color") = hm::sublibA::ConsoleForegroundColor::Blue
-  );
+  sublibA.def(
+      "accept_defaulted_enum",
+      [](const hm::sublibA::ConsoleForegroundColor &color) {},
+      py::arg("color") = hm::sublibA::ConsoleForegroundColor::Blue);
 
-  m.def("_hello_world", []() {
-    std::cout << "Hello, world!" << std::endl;
-  });
+  m.def("_hello_world", []() { std::cout << "Hello, world!" << std::endl; });
 
-  m.def("_enblend", [](std::string output_image, std::vector<std::string> input_files) -> int {
-    return enblend::enblend_main(std::move(output_image), std::move(input_files));
-  });
+  m.def("_enblend",
+        [](std::string output_image,
+           std::vector<std::string> input_files) -> int {
+          return enblend::enblend_main(std::move(output_image),
+                                       std::move(input_files));
+        });
 
-  auto pyOuter = py::class_<hm::Outer> (m, "Outer");
-  auto pyInner = py::class_<hm::Outer::Inner> (pyOuter, "Inner");
+  m.def("_emblend_images",
+        [](py::array_t<uint8_t> &image1, py::array_t<uint8_t> &image2) {
+          enblend::MatrixRGB m1(image1);
+          enblend::MatrixRGB m2(image2);
+          // return enblend::enblend_main(std::move(output_image),
+          // std::move(input_files));
+          //std::cout << "_emblend_images()" << std::endl;
+          enblend::MatrixRGB result = enblend::enblend(m1, m2);
+          return result.to_py_array();
+        });
 
-  py::enum_<hm::Outer::Inner::NestedEnum> (pyInner, "NestedEnum")
-    .value("ONE", hm::Outer::Inner::NestedEnum::ONE)
-    .value("TWO", hm::Outer::Inner::NestedEnum::TWO)
-    ;
+  auto pyOuter = py::class_<hm::Outer>(m, "Outer");
+  auto pyInner = py::class_<hm::Outer::Inner>(pyOuter, "Inner");
+
+  py::enum_<hm::Outer::Inner::NestedEnum>(pyInner, "NestedEnum")
+      .value("ONE", hm::Outer::Inner::NestedEnum::ONE)
+      .value("TWO", hm::Outer::Inner::NestedEnum::TWO);
 
   py::class_<hm::Base> pyBase(m, "Base");
 
-  pyBase
-    .def_readwrite("name", &hm::Base::name);
+  pyBase.def_readwrite("name", &hm::Base::name);
 
   py::class_<hm::Base::Inner>(pyBase, "Inner");
 
   // py::class_<hm::Derived, hm::Base> (m, "Derived")
   //   .def_readwrite("count", &hm::Derived::count);
 
-  pyInner
-    .def_readwrite("value", &hm::Outer::Inner::value );
+  pyInner.def_readwrite("value", &hm::Outer::Inner::value);
 
-  pyOuter
-    .def_readwrite("inner", &hm::Outer::inner)
-    .def_property_readonly_static("linalg", [](py::object){ return py::module::import("numpy.linalg"); });
+  pyOuter.def_readwrite("inner", &hm::Outer::inner)
+      .def_property_readonly_static("linalg", [](py::object) {
+        return py::module::import("numpy.linalg");
+      });
 
   py::register_exception<hm::CppException>(m, "CppException");
 
@@ -110,56 +151,70 @@ PYBIND11_MODULE(_hockeymom, m)
   m.attr("foolist") = foolist;
   m.attr("none") = py::none();
   {
-      py::list li;
-      li.append(py::none{});
-      li.append(2);
-      li.append(py::dict{});
-      m.attr("list_with_none") = li;
+    py::list li;
+    li.append(py::none{});
+    li.append(2);
+    li.append(py::dict{});
+    m.attr("list_with_none") = li;
   }
 
-
   auto numeric = m.def_submodule("numeric");
-  numeric.def("get_ndarray_int", []{ return py::array_t<int>{}; });
-  numeric.def("get_ndarray_float64", []{ return py::array_t<double>{}; });
-  numeric.def("accept_ndarray_int", [](py::array_t<int>){});
-  numeric.def("accept_ndarray_float64", [](py::array_t<double>){});
-
+  numeric.def("get_ndarray_int", [] { return py::array_t<int>{}; });
+  numeric.def("get_ndarray_float64", [] { return py::array_t<double>{}; });
+  numeric.def("accept_ndarray_int", [](py::array_t<int>) {});
+  numeric.def("accept_ndarray_float64", [](py::array_t<double>) {});
 
   auto eigen = m.def_submodule("eigen");
-  eigen.def("get_matrix_int", []{ return Eigen::Matrix3i{}; });
-  eigen.def("get_vector_float64", []{ return Eigen::Vector3d{}; });
-  eigen.def("accept_matrix_int", [](Eigen::Matrix3i){});
-  eigen.def("accept_vector_float64", [](Eigen::Vector3d){});
+  eigen.def("get_matrix_int", [] { return Eigen::Matrix3i{}; });
+  eigen.def("get_vector_float64", [] { return Eigen::Vector3d{}; });
+  eigen.def("accept_matrix_int", [](Eigen::Matrix3i) {});
+  eigen.def("accept_vector_float64", [](Eigen::Vector3d) {});
 
   auto opaque_types = m.def_submodule("opaque_types");
 
-  py::bind_vector<std::vector<std::pair<std::string, double>>>(opaque_types, "VectorPairStringDouble");
-  py::bind_map<std::map<std::string, std::complex<double>>>(opaque_types, "MapStringComplex");
+  py::bind_vector<std::vector<std::pair<std::string, double>>>(
+      opaque_types, "VectorPairStringDouble");
+  py::bind_map<std::map<std::string, std::complex<double>>>(opaque_types,
+                                                            "MapStringComplex");
 
-  opaque_types.def("get_complex_map", []{return std::map<std::string, std::complex<double>>{}; });
-  opaque_types.def("get_vector_of_pairs", []{return std::vector<std::pair<std::string, double>>{}; });
+  opaque_types.def("get_complex_map", [] {
+    return std::map<std::string, std::complex<double>>{};
+  });
+  opaque_types.def("get_vector_of_pairs", [] {
+    return std::vector<std::pair<std::string, double>>{};
+  });
 
   auto copy_types = m.def_submodule("copy_types");
-  copy_types.def("get_complex_map", []{return std::map<int, std::complex<double>>{}; });
-  copy_types.def("get_vector_of_pairs", []{return std::vector<std::pair<int, double>>{}; });
+  copy_types.def("get_complex_map",
+                 [] { return std::map<int, std::complex<double>>{}; });
+  copy_types.def("get_vector_of_pairs",
+                 [] { return std::vector<std::pair<int, double>>{}; });
 
-  // This submodule will have C++ signatures in python docstrings to emulate poorly written pybind11-bindings
+  // This submodule will have C++ signatures in python docstrings to emulate
+  // poorly written pybind11-bindings
   auto invalid_signatures = m.def_submodule("invalid_signatures");
-  invalid_signatures.def("get_unbound_type", []{return forgotten::Unbound{}; });
-  invalid_signatures.def("accept_unbound_type", [](std::pair<forgotten::Unbound, int>){ return 0;});
-  invalid_signatures.def("accept_unbound_enum", [](forgotten::Enum){ return 0;});
+  invalid_signatures.def("get_unbound_type",
+                         [] { return forgotten::Unbound{}; });
+  invalid_signatures.def("accept_unbound_type",
+                         [](std::pair<forgotten::Unbound, int>) { return 0; });
+  invalid_signatures.def("accept_unbound_enum",
+                         [](forgotten::Enum) { return 0; });
 
   py::class_<forgotten::Unbound>(invalid_signatures, "Unbound");
   py::class_<forgotten::Enum>(invalid_signatures, "Enum");
-  invalid_signatures.def("accept_unbound_type_defaulted", [](forgotten::Unbound){ return 0;}, py::arg("x")=forgotten::Unbound{});
-  invalid_signatures.def("accept_unbound_enum_defaulted", [](forgotten::Enum){ return 0;}, py::arg("x")=forgotten::Enum::ONE);
+  invalid_signatures.def(
+      "accept_unbound_type_defaulted", [](forgotten::Unbound) { return 0; },
+      py::arg("x") = forgotten::Unbound{});
+  invalid_signatures.def(
+      "accept_unbound_enum_defaulted", [](forgotten::Enum) { return 0; },
+      py::arg("x") = forgotten::Enum::ONE);
 
   auto issues = m.def_submodule("issues");
-  issues.def("issue_51", [](int*, int*){}, R"docstring(
+  issues.def(
+      "issue_51", [](int *, int *) {}, R"docstring(
 
     Use-case:
         issue_51(os.get_handle_inheritable, os.set_handle_inheritable))docstring");
-
 }
 
 static std::string get_python_string(PyObject *obj) {
