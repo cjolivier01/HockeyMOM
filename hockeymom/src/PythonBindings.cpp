@@ -4,6 +4,8 @@
 #include "hm/NestedClasses.h"
 #include "hm/Inheritance.h"
 
+#include "hm/multiblend/multiblend.h"
+
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/eigen.h>
@@ -66,6 +68,10 @@ PYBIND11_MODULE(_hockeymom, m)
 
   m.def("_hello_world", []() {
     std::cout << "Hello, world!" << std::endl;
+  });
+
+  m.def("_enblend", [](std::string output_image, std::vector<std::string> input_files) {
+    return enblend::enblend_main(std::move(output_image), std::move(input_files));
   });
 
   auto pyOuter = py::class_<hm::Outer> (m, "Outer");

@@ -1679,3 +1679,32 @@ int multiblend_main(int argc, char* argv[]) {
 
 	return EXIT_SUCCESS;
 }
+
+int enblend_main(std::string output_image, std::vector<std::string> input_files) {
+  std::vector<std::string> args;
+  args.push_back("python");
+  args.push_back("-o");
+  args.push_back(output_image);
+  for (const auto& s : input_files) {
+    args.push_back(s);
+  }
+
+	int argc = args.size();
+	char **argv = new char*[argc];
+
+	for (int i = 0; i < argc; ++i) {
+			argv[i] = new char[args[i].length() + 1];
+			std::strcpy(argv[i], args[i].c_str());
+	}
+
+	// Call the main function with the converted arguments
+	int return_value = multiblend_main(argc, argv);
+
+	// Clean up the allocated memory
+	for (int i = 0; i < argc; ++i) {
+			delete[] argv[i];
+	}
+	delete[] argv;
+
+  return return_value;
+}
