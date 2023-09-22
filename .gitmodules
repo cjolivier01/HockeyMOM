@@ -29,3 +29,9 @@
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
+[submodule "external/hugin"]
+	path = external/hugin
+	url = ssh://git@github.com/cjolivier01/hugin
+[submodule "external/enblend-enfuse"]
+	path = external/enblend-enfuse
+	url = ssh://git@github.com/cjolivier01/enblend-enfuse
