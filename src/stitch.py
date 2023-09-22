@@ -15,6 +15,7 @@ from lib.ui.mousing import draw_box_with_mouse
 
 import time
 
+from hockeymom import core
 
 class Timer(object):
     """A simple timer."""
@@ -498,8 +499,12 @@ def stitch_with_warp():
 
 
 def main():
+    core.enblend("/mnt/data/Videos/pano-1.png", [
+        "/mnt/data/Videos/my_project0000.tif",
+        "/mnt/data/Videos/my_project0001.tif",
+    ])
     # eval(video_number=0)
-    stitch_with_warp()
+    #stitch_with_warp()
     # panoramic_warp()
 
 

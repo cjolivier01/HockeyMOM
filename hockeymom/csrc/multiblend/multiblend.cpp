@@ -1680,6 +1680,7 @@ int multiblend_main(int argc, char* argv[]) {
 	return EXIT_SUCCESS;
 }
 
+namespace enblend {
 int enblend_main(std::string output_image, std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
@@ -1707,4 +1708,5 @@ int enblend_main(std::string output_image, std::vector<std::string> input_files)
 	delete[] argv;
 
   return return_value;
+}
 }

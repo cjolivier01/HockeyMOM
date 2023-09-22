@@ -70,7 +70,7 @@ PYBIND11_MODULE(_hockeymom, m)
     std::cout << "Hello, world!" << std::endl;
   });
 
-  m.def("_enblend", [](std::string output_image, std::vector<std::string> input_files) {
+  m.def("_enblend", [](std::string output_image, std::vector<std::string> input_files) -> int {
     return enblend::enblend_main(std::move(output_image), std::move(input_files));
   });
 
