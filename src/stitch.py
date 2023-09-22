@@ -263,10 +263,13 @@ def eval(video_number: int, callback_fn: callable = None):
     return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callback_fn=callback_fn)
 
 
-def stitch_witrh_warp():
+def stitch_with_warp():
     # Load the two video files
-    video1 = cv2.VideoCapture('/mnt/data/Videos/left_sync.mp4')
+    video1 = cv2.VideoCapture('/mnt/data/Videos/left.mp4')
     video2 = cv2.VideoCapture('/mnt/data/Videos/right.mp4')
+
+    video1.set(cv2.CAP_PROP_POS_FRAMES, 217)
+    video2.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     # Initialize the video writer to save the stitched video
     output_video = cv2.VideoWriter('stitched_video.mp4',
@@ -286,16 +289,59 @@ def stitch_witrh_warp():
         if not ret2:
             break
 
+        #left_start = int(image1.shape[1] - 500)
+        overlap_size = 750
+        # image1 = image1[:,-overlap_size:,:]
+        # image2 = image2[:,:overlap_size,:]
+
         # Convert images to grayscale
         gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
         gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
+        #
+        # Left mask
+        #
+        # Define the coordinates of the ROI (top-left and bottom-right corners)
+        # in (x, y) coordinates (even though image shape is [height, width])
+        roi_start = (image1.shape[1] - overlap_size, 0)  # Example coordinates
+        roi_end = (image1.shape[1] - 1, image1.shape[0] - 1)    # Example coordinates
+
+        # Create a black mask with the same dimensions as the input image
+        left_mask = np.zeros_like(gray1)
+
+        # Fill the ROI region with white
+        cv2.rectangle(left_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
+
+        # cv2.imshow('Left Mask', left_mask)
+        # cv2.waitKey(0)
+
+
+        #
+        # Right mask
+        #
+        # Define the coordinates of the ROI (top-left and bottom-right corners)
+        # in (x, y) coordinates (even though image shape is [height, width])
+        roi_start = (0, 0)  # Example coordinates
+        roi_end = (overlap_size, image1.shape[0] - 1)    # Example coordinates
+
+        # Create a black mask with the same dimensions as the input image
+        right_mask = np.zeros_like(gray2)
+
+        # Fill the ROI region with white
+        cv2.rectangle(right_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
+
+        # cv2.imshow('Right Mask', right_mask)
+        # cv2.waitKey(0)
+
         # Create SIFT detector object
-        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
+        #sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
+        sift = cv2.SIFT_create()
 
         # Detect key points and compute descriptors
-        keypoints1, descriptors1 = sift.detectAndCompute(gray1, None)
-        keypoints2, descriptors2 = sift.detectAndCompute(gray2, None)
+        # keypoints1, descriptors1 = sift.detectAndCompute(image1, mask=left_mask)
+        # keypoints2, descriptors2 = sift.detectAndCompute(image2, mask=right_mask)
+        keypoints1, descriptors1 = sift.detectAndCompute(gray1, mask=left_mask)
+        keypoints2, descriptors2 = sift.detectAndCompute(gray2, mask=right_mask)
 
         # Perform feature detection and matching (e.g., using SIFT or ORB)
         # Here, we'll use simple feature detection for demonstration purposes
@@ -310,16 +356,14 @@ def stitch_witrh_warp():
 
         # Apply ratio test to find good matches
         good_matches = []
+
         for m, n in matches:
             if m.distance < 0.75 * n.distance:
                 good_matches.append(m)
 
-        # for m, n in matches:
-        #     if m.distance < 0.75 * n.distance:
-        #         good_matches.append(m)
-
         # Sort matches by their distance
         good_matches = sorted(good_matches, key=lambda x: x.distance)
+        #good_matches = good_matches[:8]
 
         # Draw the first 10 matches
         match_img = cv2.drawMatches(image1, keypoints1, image2, keypoints2, good_matches[:100], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
@@ -340,7 +384,7 @@ def stitch_witrh_warp():
             # Copy the second image onto the warped image
             warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
 
-            cv2.imshow('Stitched Image', match_img)
+            cv2.imshow('Stitched Image', warped_image)
             cv2.waitKey(0)
 
             frame_id += 1
@@ -433,8 +477,8 @@ def panoramic_warp():
 
 def main():
     #eval(video_number=0)
-    #stitch_witrh_warp()
-    panoramic_warp()
+    stitch_with_warp()
+    #panoramic_warp()
 
 
 if __name__ == "__main__":
