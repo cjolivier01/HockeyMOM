@@ -83,7 +83,7 @@ extern "C" FILE * __cdecl __iob_func(void) {
 
 #define MASKVAL(X) (((X) & 0x7fffffffffffffff) | images[(X) & 0xffffffff]->mask_state)
 
-int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images = {}) {
+int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images) {
 // This is here because of a weird problem encountered during development with Visual Studio. It should never be triggered.
 	if (verbosity != 1) {
 		printf("bad compile?\n");
@@ -361,7 +361,9 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 	if (seamload_filename && seamsave_filename) die("Error: Cannot load and save seams at the same time");
 	if (wrap == 3) die("Error: Wrapping in both directions is not currently supported");
 
-	if (!strcmp(my_argv[i], "--")) ++i;
+	if (i < my_argv.size()) {
+		if (!strcmp(my_argv[i], "--")) ++i;
+	}
 
 /***********************************************************************
 * Push remaining arguments to images vector
@@ -382,7 +384,16 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 		images.push_back(new Image(my_argv[i++]));
 	}
 
-	int n_images = (int)images.size();
+        for (auto &img : incoming_images) {
+          std::size_t size =
+              img.get().rows() * img.get().cols() * img.get().channels();
+					std::vector<size_t> shape{img.get().rows(), img.get().cols(), img.get().channels()};
+          images.push_back(new Image(
+              img.get().data(), size,
+              std::move(shape)));
+        }
+
+        int n_images = (int)images.size();
 
 	if (n_images == 0) die("Error: No input files specified");
 	if (seamsave_filename && n_images > 256) { seamsave_filename = NULL; Output(0, "Warning: seam saving not possible with more than 256 images"); }
@@ -392,9 +403,9 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 /***********************************************************************
 * Print banner
 ***********************************************************************/
-	Output(1, "\n");
-	Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/multiblend/\n");
-	Output(1, "----------------------------------------------------------------------------\n");
+	// Output(1, "\n");
+	// Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/multiblend/\n");
+	// Output(1, "----------------------------------------------------------------------------\n");
 
 	Threadpool* threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
 
@@ -414,6 +425,10 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 			if (!jpeg_file) die("Error: Could not open output file");
 		} break;
 		case ImageType::MB_PNG: {
+			fopen_s(&jpeg_file, output_filename, "wb");
+			if (!jpeg_file) die("Error: Could not open output file");
+		} break;
+		case ImageType::MB_MEM: {
 			fopen_s(&jpeg_file, output_filename, "wb");
 			if (!jpeg_file) die("Error: Could not open output file");
 		} break;
@@ -1686,7 +1701,8 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 }
 
 namespace enblend {
-int enblend_main(std::string output_image, std::vector<std::string> input_files, std::vector<std::reference_wrapper<enblend::MatrixRGB>>& raw_images) {
+
+int enblend_main(std::string output_image, std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
@@ -1705,7 +1721,7 @@ int enblend_main(std::string output_image, std::vector<std::string> input_files,
 	}
 
 	// Call the main function with the converted arguments
-	int return_value = multiblend_main(argc, argv);
+	int return_value = multiblend_main(argc, argv, {});
 
 	// Clean up the allocated memory
 	for (int i = 0; i < argc; ++i) {
@@ -1748,4 +1764,5 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
   return image1;
 }
 
-}
+}  // namespace enblend
+

@@ -69,6 +69,8 @@ Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape) {
   raw_data = reinterpret_cast<std::uint8_t*>(data);
   raw_data_size = size;
   raw_shape = std::move(shape);
+  tiff_xres = shape.at(1);
+  tiff_yres = shape.at(0);
 }
 
 Image::~Image() {
