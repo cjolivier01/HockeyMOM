@@ -318,13 +318,13 @@ void Image::Read(void* data, bool gamma) {
 			uint8_t* pointer = (uint8_t*)data;
       uint8_t* this_data = raw_data;
       std::size_t inc =  (tiff_width * spp) << (bpp >> 4);
-      assert(inc * tiff_height == raw_data_size);
+      //assert(inc * tiff_height == raw_data_size);
 			//memcpy(pointer, inc * tiff_height);
-			// for (int y = 0; y < tiff_height; ++y) {
-			// 	memcpy(png_ptr, pointer, );
-			// 	pointer += inc;
-      //   this_data += tiff_width * raw_shape.size();
-			// }
+			for (int y = 0; y < tiff_height; ++y) {
+				memcpy(pointer, this_data, inc);
+				pointer += inc;
+        this_data += inc;
+			}
 		} break;
 	}
 

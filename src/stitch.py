@@ -501,7 +501,7 @@ def pyramid_blending():
     A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
     B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
 
-    core.emblend_images(A, B)
+    img = core.emblend_images(A, B)
     # A = cv2.resize(A, (512, 512))
     # B = cv2.resize(B, (512, 512))
 
@@ -548,6 +548,8 @@ def pyramid_blending():
 
     # # image with direct connecting each half
     # real = np.hstack((A[:,:cols//2],B[:,cols//2:]))
+    cv2.imshow('Pyramid_blending.jpg', img)
+    cv2.waitKey(0)
     # cv2.imshow('Pyramid_blending.jpg',ls_)
     # cv2.waitKey(0)
     # cv2.imshow('Direct_blending.jpg',real)

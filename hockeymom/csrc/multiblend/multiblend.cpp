@@ -1751,6 +1751,8 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
   std::vector<std::reference_wrapper<enblend::MatrixRGB>> images;
   images.push_back(image1);
   images.push_back(image2);
+
+  //MatrixRGB result_image;
   int result = multiblend_main(argc, argv, images);
 
   // Clean up the allocated memory
