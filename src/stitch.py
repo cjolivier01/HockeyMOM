@@ -141,7 +141,9 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def stitch_images(left_file: str, right_file: str, video_number: int, callback_fn: callable = None):
+def stitch_images(
+    left_file: str, right_file: str, video_number: int, callback_fn: callable = None
+):
     scale_down_images = True
     image_scale_down_value = 2
     show_image = True
@@ -160,7 +162,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
     total_frames_left = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
     total_frames_right = int(vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    #assert total_frames_left == total_frames_right
+    # assert total_frames_left == total_frames_right
     total_frames = min(total_frames_left, total_frames_right)
 
     print(f"Video FPS={fps}")
@@ -180,7 +182,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
         out = cv2.VideoWriter(
             filename=filename_stitched,
             fourcc=cv2.VideoWriter_fourcc(*"XVID"),
-            #fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
+            # fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
             fps=fps,
             frameSize=(final_frame_width, final_frame_height),
             isColor=True,
@@ -221,7 +223,7 @@ def stitch_images(left_file: str, right_file: str, video_number: int, callback_f
             combined_frame = cv2.hconcat([frame1, frame2])
 
         if show_image:
-            cv2.imshow('Combined Image', combined_frame)
+            cv2.imshow("Combined Image", combined_frame)
             cv2.waitKey(0)
 
         if out is not None:
@@ -260,22 +262,47 @@ def eval(video_number: int, callback_fn: callable = None):
     # right_file = os.path.join(input_dir, f"right-{video_number}.mp4")
     left_file = os.path.join(input_dir, f"left.mp4")
     right_file = os.path.join(input_dir, f"right.mp4")
-    return stitch_images(left_file=left_file, right_file=right_file, video_number=video_number, callback_fn=callback_fn)
+    return stitch_images(
+        left_file=left_file,
+        right_file=right_file,
+        video_number=video_number,
+        callback_fn=callback_fn,
+    )
+
+
+def expand_image_width(input_image, new_width: int):
+    # Get the dimensions of the input image
+    height, width, channels = input_image.shape
+
+    # Create a new image with twice the width
+    output_image = np.zeros((height, int(new_width), channels), dtype=np.uint8)
+
+    # Calculate the padding on both sides
+    # padding_left = (new_width - width) // 2
+    # padding_right = new_width - width - padding_left
+
+    # Copy the input image to the center of the new image
+    # output_image[:, padding_left:padding_left + width, :] = input_image
+
+    output_image[:, 0:width, :] = input_image
+    return output_image
 
 
 def stitch_with_warp():
     # Load the two video files
-    video1 = cv2.VideoCapture('/mnt/data/Videos/left.mp4')
-    video2 = cv2.VideoCapture('/mnt/data/Videos/right.mp4')
+    video1 = cv2.VideoCapture("/mnt/data/Videos/left.mp4")
+    video2 = cv2.VideoCapture("/mnt/data/Videos/right.mp4")
 
     video1.set(cv2.CAP_PROP_POS_FRAMES, 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     # Initialize the video writer to save the stitched video
-    output_video = cv2.VideoWriter('stitched_video.mp4',
-                                cv2.VideoWriter_fourcc(*'mp4v'),
-                                30,  # Frames per second
-                                (1920, 1080))  # Width and height of the output video
+    output_video = cv2.VideoWriter(
+        "stitched_video.mp4",
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        30,  # Frames per second
+        (1920, 1080),
+    )  # Width and height of the output video
 
     # Iterate through the frames of the first video
     frame_id = 0
@@ -289,7 +316,7 @@ def stitch_with_warp():
         if not ret2:
             break
 
-        #left_start = int(image1.shape[1] - 500)
+        # left_start = int(image1.shape[1] - 500)
         overlap_size = 750
         # image1 = image1[:,-overlap_size:,:]
         # image2 = image2[:,:overlap_size,:]
@@ -304,7 +331,7 @@ def stitch_with_warp():
         # Define the coordinates of the ROI (top-left and bottom-right corners)
         # in (x, y) coordinates (even though image shape is [height, width])
         roi_start = (image1.shape[1] - overlap_size, 0)  # Example coordinates
-        roi_end = (image1.shape[1] - 1, image1.shape[0] - 1)    # Example coordinates
+        roi_end = (image1.shape[1] - 1, image1.shape[0] - 1)  # Example coordinates
 
         # Create a black mask with the same dimensions as the input image
         left_mask = np.zeros_like(gray1)
@@ -315,14 +342,13 @@ def stitch_with_warp():
         # cv2.imshow('Left Mask', left_mask)
         # cv2.waitKey(0)
 
-
         #
         # Right mask
         #
         # Define the coordinates of the ROI (top-left and bottom-right corners)
         # in (x, y) coordinates (even though image shape is [height, width])
         roi_start = (0, 0)  # Example coordinates
-        roi_end = (overlap_size, image1.shape[0] - 1)    # Example coordinates
+        roi_end = (overlap_size, image1.shape[0] - 1)  # Example coordinates
 
         # Create a black mask with the same dimensions as the input image
         right_mask = np.zeros_like(gray2)
@@ -334,7 +360,7 @@ def stitch_with_warp():
         # cv2.waitKey(0)
 
         # Create SIFT detector object
-        #sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
+        # sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
         sift = cv2.SIFT_create()
 
         # Detect key points and compute descriptors
@@ -353,38 +379,75 @@ def stitch_with_warp():
         bf = cv2.BFMatcher()
         matches = bf.knnMatch(descriptors1, descriptors2, k=2)
 
-
         # Apply ratio test to find good matches
         good_matches = []
 
         for m, n in matches:
-            if m.distance < 0.75 * n.distance:
+            if m.distance < 0.65 * n.distance:
                 good_matches.append(m)
+            # if m.distance < 0.75 * n.distance:
+            #     good_matches.append(m)
 
         # Sort matches by their distance
         good_matches = sorted(good_matches, key=lambda x: x.distance)
-        #good_matches = good_matches[:8]
+        # good_matches = good_matches[:10]
+
+        N = 100  # Number of keypoints to consider
 
         # Draw the first 10 matches
-        match_img = cv2.drawMatches(image1, keypoints1, image2, keypoints2, good_matches[:100], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        match_img = cv2.drawMatches(
+            image1,
+            keypoints1,
+            image2,
+            keypoints2,
+            good_matches[:100],
+            None,
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        )
 
         cv2.imshow('Match Image', match_img)
         cv2.waitKey(0)
 
         if len(good_matches) >= 4:
-            src_pts = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            src_pts = np.float32(
+                [keypoints1[m.queryIdx].pt for m in good_matches]
+            ).reshape(-1, 1, 2)
+            dst_pts = np.float32(
+                [keypoints2[m.trainIdx].pt for m in good_matches]
+            ).reshape(-1, 1, 2)
 
+            matches_mask = np.zeros(len(good_matches), dtype=np.uint8)
+            matches_mask[:N] = 1  # Set the first N matches as inliers
             # Compute the Homography matrix
-            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            M, mask = cv2.findHomography(
+                src_pts, dst_pts, cv2.RANSAC, 5.0, mask=matches_mask
+            )
 
             # Use the Homography matrix to warp the images
-            warped_image = cv2.warpPerspective(image2, M, (image2.shape[1] + image2.shape[1], image2.shape[0]))
+            # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image2.shape[0]))
+
+            panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
+            cv2.imshow("Big image", panoramic_image)
+
+            # corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
+            # corrected_perspective = cv2.warpPerspective(image2, M, (image2.shape[1] * 2, image2.shape[0] * 2))
+            corrected_perspective = cv2.warpPerspective(
+                image1, M, (panoramic_image.shape[1], panoramic_image.shape[0])
+            )
 
             # Copy the second image onto the warped image
-            warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
+            # warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
 
-            cv2.imshow('Stitched Image', warped_image)
+            # cv2.imshow('Warped Image', warped_image)``
+            # cv2.waitKey(0)
+
+            # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image1.shape[0]))
+            # warped_image = cv2.warpPerspective(image2, M, (int(image1.shape[1] + image2.shape[1]), int(image1.shape[0] * 2)))
+
+            # # Copy the second image onto the warped image
+            # #warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
+            cv2.imshow("Warped Image", corrected_perspective)
+            # cv2.imshow('Warped Image', panoramic_image)
             cv2.waitKey(0)
 
             frame_id += 1
@@ -396,89 +459,11 @@ def stitch_with_warp():
     cv2.destroyAllWindows()
 
 
-def panoramic_warp():
-    # Load the two video files
-    #video = cv2.VideoCapture('/mnt/data/Videos/olivier2_stitched_hd.mp4')
-    #video = cv2.VideoCapture('/mnt/data/Videos/left.mp4')
-    video = cv2.VideoCapture('/mnt/data/Videos/right.mp4')
-
-    fps = video.get(cv2.CAP_PROP_FPS)
-    frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    output_video = cv2.VideoWriter('panoramic_video.mp4',
-                                cv2.VideoWriter_fourcc(*'mp4v'),
-                                fps,
-                                (frame_width, frame_height))
-
-    # Initialize the video writer to save the stitched video
-    output_video = None
-
-    # Iterate through the frames of the first video
-    frame_id = 0
-    while True:
-        ret1, panoramic_image = video.read()
-        if not ret1:
-            break
-
-        draw_box_with_mouse(panoramic_image)
-
-        # Convert images to grayscale
-        #panoramic_image = cv2.cvtColor(panoramic_image, cv2.COLOR_BGR2GRAY)
-
-        # Read the corresponding frame from the second video
-        # ret2, image2 = video2.read()
-        # if not ret2:
-        #     break
-
-        # Define the left and right ends of the panoramic image
-        left_end = panoramic_image[:, :panoramic_image.shape[1]//2]
-        right_end = panoramic_image[:, panoramic_image.shape[1]//2:]
-
-        # Create SIFT detector object
-        #sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
-        sift = cv2.SIFT_create()
-
-        # Step 1: Detect keypoints and descriptors (using SIFT in this example)
-        sift = cv2.SIFT_create()
-
-        keypoints_left, descriptors_left = sift.detectAndCompute(left_end, None)
-        keypoints_right, descriptors_right = sift.detectAndCompute(right_end, None)
-
-        # Step 2: Match keypoints
-        matcher = cv2.BFMatcher()
-        matches = matcher.knnMatch(descriptors_left, descriptors_right, k=2)
-
-        # Apply ratio test to find good matches
-        good_matches = []
-        for m, n in matches:
-            if m.distance < 0.75 * n.distance:
-                good_matches.append(m)
-
-        # Extract matched keypoints
-        matched_keypoints_left = np.float32([keypoints_left[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-        matched_keypoints_right = np.float32([keypoints_right[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-        # Step 3: Find homography matrix
-        homography_matrix, _ = cv2.findHomography(matched_keypoints_left, matched_keypoints_right, cv2.RANSAC, 5.0)
-
-        # Step 4: Apply warp perspective
-        corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
-
-        cv2.imshow('Corrected Panoramic Image', corrected_perspective)
-        cv2.waitKey(0)
-
-    # Release video objects and close the output video writer
-    video.release()
-    output_video.release()
-    cv2.destroyAllWindows()
-
-
 
 def main():
-    #eval(video_number=0)
+    # eval(video_number=0)
     stitch_with_warp()
-    #panoramic_warp()
+    # panoramic_warp()
 
 
 if __name__ == "__main__":
