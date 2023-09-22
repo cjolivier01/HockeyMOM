@@ -384,16 +384,16 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 		images.push_back(new Image(my_argv[i++]));
 	}
 
-        for (auto &img : incoming_images) {
-          std::size_t size =
-              img.get().rows() * img.get().cols() * img.get().channels();
-					std::vector<size_t> shape{img.get().rows(), img.get().cols(), img.get().channels()};
-          images.push_back(new Image(
-              img.get().data(), size,
-              std::move(shape)));
-        }
+	for (auto &img : incoming_images) {
+		std::size_t size =
+				img.get().rows() * img.get().cols() * img.get().channels();
+		std::vector<size_t> shape{img.get().rows(), img.get().cols(), img.get().channels()};
+		images.push_back(new Image(
+				img.get().data(), size,
+				std::move(shape)));
+	}
 
-        int n_images = (int)images.size();
+	int n_images = (int)images.size();
 
 	if (n_images == 0) die("Error: No input files specified");
 	if (seamsave_filename && n_images > 256) { seamsave_filename = NULL; Output(0, "Warning: seam saving not possible with more than 256 images"); }

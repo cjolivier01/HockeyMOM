@@ -42,7 +42,11 @@ public:
     m_data = new std::uint8_t[rows * cols * kChannels];
     m_own_data = true;
   }
-  inline ~MatrixRGB() { delete m_data; }
+  inline ~MatrixRGB() {
+    if (m_data && m_own_data) {
+      delete m_data;
+    }
+  }
 
   inline std::uint8_t *data() { return m_data; }
   inline size_t rows() const { return m_rows; }

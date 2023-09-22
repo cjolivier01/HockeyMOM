@@ -69,8 +69,8 @@ Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape) {
   raw_data = reinterpret_cast<std::uint8_t*>(data);
   raw_data_size = size;
   raw_shape = std::move(shape);
-  tiff_xres = shape.at(1);
-  tiff_yres = shape.at(0);
+  tiff_xres = raw_shape.at(1);
+  tiff_yres = raw_shape.at(0);
 }
 
 Image::~Image() {
@@ -265,8 +265,9 @@ void Image::Open() {
 		} break;
     case ImageType::MB_MEM: {
       bpp = 8;
+			spp = 3;
       tiff_width = raw_shape.at(1);
-      tiff_height = raw_shape.at(0);
+      tiff_u_height = tiff_height = raw_shape.at(0);
 			xpos = ypos = 0;
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
