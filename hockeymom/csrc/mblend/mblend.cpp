@@ -392,7 +392,8 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 		std::vector<size_t> shape{img.get().rows(), img.get().cols(), img.get().channels()};
 		images.push_back(new Image(
 				img.get().data(), size,
-				std::move(shape)));
+				std::move(shape),
+				img.get().xy_pos()));
 	}
 
 	int n_images = (int)images.size();

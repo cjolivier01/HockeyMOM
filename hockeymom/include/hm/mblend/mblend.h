@@ -54,7 +54,9 @@ public:
       delete m_data;
     }
   }
-
+  std::vector<std::size_t> xy_pos() const {
+    return {m_xpos, m_ypos};
+  }
   inline std::uint8_t *data() { return m_data; }
   inline size_t rows() const { return m_rows; }
   inline size_t cols() const { return m_cols; }

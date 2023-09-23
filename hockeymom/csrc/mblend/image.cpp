@@ -16,7 +16,7 @@ public:
 class Image {
 public:
 	Image(char* _filename);
-	Image(void* data, std::size_t size, std::vector<std::size_t> shape);
+	Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos);
 	~Image();
 	char* filename{nullptr};
 	ImageType type{ImageType::MB_NONE};
@@ -64,13 +64,15 @@ private:
 Image::Image(char* _filename) : filename(_filename) {
 }
 
-Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape) {
+Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos) {
   type = ImageType::MB_MEM;
   raw_data = reinterpret_cast<std::uint8_t*>(data);
   raw_data_size = size;
   raw_shape = std::move(shape);
   tiff_xres = raw_shape.at(1);
   tiff_yres = raw_shape.at(0);
+  xpos   = xy_pos.at(0);
+  ypos   = xy_pos.at(1);
 }
 
 Image::~Image() {
@@ -268,7 +270,7 @@ void Image::Open() {
 			spp = 3;
       tiff_width = raw_shape.at(1);
       tiff_u_height = tiff_height = raw_shape.at(0);
-			xpos = ypos = 0;
+			//xpos = ypos = 0;
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
     } break;
@@ -575,7 +577,6 @@ void Image::Read(void* data, bool gamma) {
 							this_line[x++] = 0;
 							++mc;
 						}
-//						}
 					} break;
 				}
 

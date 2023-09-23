@@ -9,7 +9,7 @@ import cv2
 
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
-from osgeo import gdal
+import tifffile
 
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
@@ -498,33 +498,44 @@ def stitch_with_warp():
     cv2.destroyAllWindows()
 
 
+    # if (!TIFFGetField(tiff, TIFFTAG_XPOSITION, &tiff_xpos)) tiff_xpos = -1;
+    # if (!TIFFGetField(tiff, TIFFTAG_YPOSITION, &tiff_ypos)) tiff_ypos = -1;
+    # if (!TIFFGetField(tiff, TIFFTAG_XRESOLUTION, &tiff_xres)) tiff_xres = -1;
+    # if (!TIFFGetField(tiff, TIFFTAG_YRESOLUTION, &tiff_yres)) tiff_yres = -1;
+    # if (tiff_xpos != -1 && tiff_xres > 0) xpos = (int)(tiff_xpos * tiff_xres + 0.5);
+    # if (tiff_ypos != -1 && tiff_yres > 0) ypos = (int)(tiff_ypos * tiff_yres + 0.5);
+
+def get_tiff_tag_value(tiff_tag):
+    if len(tiff_tag.value) == 1:
+        return tiff_tag.value
+    assert len(tiff_tag.value) == 2
+    numerator, denominator = tiff_tag.value
+    return float(numerator)/denominator
+
+
 def get_image_geo_position(tiff_image_file: str):
-    dataset = gdal.Open(tiff_image_file)
-    # Get georeferencing information
-    geotransform = dataset.GetGeoTransform()
-    spatial_reference = dataset.GetProjection()
-    # close the dataset
-    dataset = None
-
-    # Print or use georeferencing information
-    print("GeoTransform:", geotransform)
-    print("Spatial Reference:", spatial_reference)
-
-    x_geo_ref = geotransform[0]  # X-coordinate of the top-left corner
-    y_geo_ref = geotransform[1]  # X-coordinate of the top-left corner
-
-    print(f"x={x_geo_ref}, y={y_geo_ref}")
-    return x_geo_ref, y_geo_ref
+    xpos, ypos = 0, 0
+    with tifffile.TiffFile(tiff_image_file) as tif:
+        tags = tif.pages[0].tags
+        # Access the TIFFTAG_XPOSITION
+        x_position = get_tiff_tag_value(tags.get('XPosition'))
+        y_position = get_tiff_tag_value(tags.get('YPosition'))
+        x_resolution = get_tiff_tag_value(tags.get('XResolution'))
+        y_resolution = get_tiff_tag_value(tags.get('YResolution'))
+        xpos = int(x_position * x_resolution + 0.5)
+        ypos = int(y_position * y_resolution + 0.5)
+        print(f"x={xpos}, y={ypos}")
+    return xpos, ypos
 
 
 def pyramid_blending():
     A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
     B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
 
-    get_image_geo_position("/mnt/data/Videos/my_project0000.tif")
-    get_image_geo_position("/mnt/data/Videos/my_project0001.tif")
+    xpos_1, ypos_1 = get_image_geo_position("/mnt/data/Videos/my_project0000.tif")
+    xpos_2, ypos_2 = get_image_geo_position("/mnt/data/Videos/my_project0001.tif")
 
-    img = core.emblend_images(A, B, [0, 0], [0, 0])
+    img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
     # A = cv2.resize(A, (512, 512))
     # B = cv2.resize(B, (512, 512))
 
@@ -571,8 +582,8 @@ def pyramid_blending():
 
     # # image with direct connecting each half
     # real = np.hstack((A[:,:cols//2],B[:,cols//2:]))
-    cv2.imshow('Pyramid_blending.jpg', img)
-    cv2.waitKey(0)
+    #cv2.imshow('Pyramid_blending.jpg', img)
+    #cv2.waitKey(0)
     # cv2.imshow('Pyramid_blending.jpg',ls_)
     # cv2.waitKey(0)
     # cv2.imshow('Direct_blending.jpg',real)
