@@ -72,6 +72,11 @@ class PyramidWithMasks : public Pyramid {
 public:
   using Pyramid::Pyramid;
   std::vector<Flex *> masks;
+  ~PyramidWithMasks() {
+    for (auto m : masks) {
+      delete m;
+    }
+  }
 };
 
 enum class ImageType { MB_NONE, MB_TIFF, MB_JPEG, MB_PNG, MB_MEM };
@@ -151,10 +156,13 @@ class Blender {
   double out_time = 0;
   double write_time = 0;
 
+  std::size_t pass = 0;
+
   Timer timer_all, timer;
 
   int blend_levels = 0;
   Threadpool* threadpool = nullptr;
+  int total_levels = 0;
 
  public:
   int multiblend_main(int argc, char* argv[]) {
@@ -1499,7 +1507,7 @@ class Blender {
       const std::vector<std::reference_wrapper<enblend::MatrixRGB>>&
           next_images,
       std::unique_ptr<enblend::MatrixRGB>* output_image = nullptr) {
-    if (!next_images.empty()) {
+    if (pass++ && !next_images.empty()) {
       for (std::size_t i = 0, n = next_images.size(); i < n; ++i) {
         auto& img = next_images[i];
         auto& prev_image = images.at(i);
@@ -1525,38 +1533,41 @@ class Blender {
       /***********************************************************************
        * Shrink masks
        ***********************************************************************/
-      Output(1, "Shrinking masks...\n");
+      if (pass == 1) {
+        Output(1, "Shrinking masks...\n");
+        timer.Start();
 
-      timer.Start();
+        for (i = 0; i < n_images; ++i) {
+          threadpool->Queue([=] { ShrinkMasks(images[i]->masks, blend_levels); });
+        }
+        threadpool->Wait();
 
-      for (i = 0; i < n_images; ++i) {
-        threadpool->Queue([=] { ShrinkMasks(images[i]->masks, blend_levels); });
+        shrink_mask_time = timer.Read();
       }
-      threadpool->Wait();
-
-      shrink_mask_time = timer.Read();
-
       /***********************************************************************
        * Create shared input pyramids
        ***********************************************************************/
       // wrapping
-      std::vector<PyramidWithMasks*> wrap_pyramids;
+      //if (pass == 1) {
+      std::vector<std::shared_ptr<PyramidWithMasks>> wrap_pyramids;
       int wrap_levels_h = 0;
       int wrap_levels_v = 0;
 
+      wrap_pyramids.clear();
+
       if (wrap & 1) {
         wrap_levels_h = (int)floor(log2((width >> 1) + 4.0f) - 1);
-        wrap_pyramids.push_back(new PyramidWithMasks(
+        wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
             width >> 1, height, wrap_levels_h, 0, 0, true));
-        wrap_pyramids.push_back(new PyramidWithMasks(
+        wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
             (width + 1) >> 1, height, wrap_levels_h, width >> 1, 0, true));
       }
 
       if (wrap & 2) {
         wrap_levels_v = (int)floor(log2((height >> 1) + 4.0f) - 1);
-        wrap_pyramids.push_back(new PyramidWithMasks(
+        wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
             width, height >> 1, wrap_levels_v, 0, 0, true));
-        wrap_pyramids.push_back(new PyramidWithMasks(
+        wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
             width, (height + 1) >> 1, wrap_levels_v, 0, height >> 1, true));
       }
 
@@ -1589,7 +1600,7 @@ class Blender {
       threadpool->Wait();
       // end wrapping
 
-      int total_levels =
+      total_levels =
           std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
 
       for (int i = 0; i < n_images; ++i) {
@@ -1636,7 +1647,7 @@ class Blender {
             py->GetLevel(l).data = temp;
         }
       }
-
+      //}
       /***********************************************************************
        * Create output pyramid
        ***********************************************************************/
