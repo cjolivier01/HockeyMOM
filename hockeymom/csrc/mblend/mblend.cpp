@@ -25,6 +25,7 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <memory>
 #ifdef __APPLE__
 #define memalign(a,b) malloc((b))
 #else
@@ -88,7 +89,7 @@ extern "C" FILE * __cdecl __iob_func(void) {
 int multiblend_main(
     int argc, char *argv[],
     std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images,
-    enblend::MatrixRGB *output_image = nullptr) {
+    std::unique_ptr<enblend::MatrixRGB>* output_image = nullptr) {
   // This is here because of a weird problem encountered during development with
   // Visual Studio. It should never be triggered.
   if (verbosity != 1) {
@@ -126,6 +127,7 @@ int multiblend_main(
   TIFF *tiff_file = NULL;
   FILE *jpeg_file = NULL;
   Pnger *png_file = NULL;
+	std::unique_ptr<Image> output_image_ptr_;
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
@@ -399,26 +401,30 @@ int multiblend_main(
     else if (!strcmp(my_argv[i], "-o") || !strcmp(my_argv[i], "--output")) {
       if (++i < (int)my_argv.size()) {
         output_filename = my_argv[i];
-        char *ext = strrchr(output_filename, '.');
+				if (!*output_filename) {
+					output_type = ImageType::MB_MEM;
+				} else {
+					char *ext = strrchr(output_filename, '.');
 
-        if (!ext) {
-          die("Error: Unknown output filetype");
-        }
+					if (!ext) {
+						die("Error: Unknown output filetype");
+					}
 
-        ++ext;
-        if (!(_stricmp(ext, "jpg") && _stricmp(ext, "jpeg"))) {
-          output_type = ImageType::MB_JPEG;
-          if (jpeg_quality == -1)
-            jpeg_quality = 75;
-        } else if (!(_stricmp(ext, "tif") && _stricmp(ext, "tiff"))) {
-          output_type = ImageType::MB_TIFF;
-        } else if (!_stricmp(ext, "png")) {
-          output_type = ImageType::MB_PNG;
-        } else {
-          die("Error: Unknown file extension");
-        }
+					++ext;
+					if (!(_stricmp(ext, "jpg") && _stricmp(ext, "jpeg"))) {
+						output_type = ImageType::MB_JPEG;
+						if (jpeg_quality == -1)
+							jpeg_quality = 75;
+					} else if (!(_stricmp(ext, "tif") && _stricmp(ext, "tiff"))) {
+						output_type = ImageType::MB_TIFF;
+					} else if (!_stricmp(ext, "png")) {
+						output_type = ImageType::MB_PNG;
+					} else {
+						die("Error: Unknown file extension");
+					}
 
-        ++i;
+					++i;
+				}
         break;
       }
     } else if (!strcmp(my_argv[i], "--no-output")) {
@@ -544,9 +550,9 @@ int multiblend_main(
       die("Error: Could not open output file");
   } break;
   case ImageType::MB_MEM: {
-    fopen_s(&jpeg_file, output_filename, "wb");
-    if (!jpeg_file)
-      die("Error: Could not open output file");
+    // fopen_s(&jpeg_file, output_filename, "wb");
+    // if (!jpeg_file)
+    //   die("Error: Could not open output file");
   } break;
   }
 
@@ -1699,6 +1705,11 @@ int multiblend_main(
 			case ImageType::MB_PNG: {
 				png_file = new Pnger(output_filename, NULL, width, height, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA, output_bpp, jpeg_file, jpeg_quality);
 			} break;
+			case ImageType::MB_MEM: {
+				assert(output_bpp == 8); // per channel
+				//png_file = new Pnger(output_filename, NULL, width, height, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA, output_bpp, jpeg_file, jpeg_quality);
+				output_image_ptr_ = std::make_unique<Image>(std::vector<std::size_t>{(std::size_t)width, (std::size_t)height}, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA);
+			} break;
 		}
 
 		if (output_type == ImageType::MB_PNG || output_type == ImageType::MB_JPEG) {
@@ -1779,6 +1790,9 @@ int multiblend_main(
 				case ImageType::MB_PNG: {
 					png_file->WriteRows(scanlines, rows);
 				} break;
+				case ImageType::MB_MEM: {
+					output_image_ptr_->write_rows(scanlines, rows);
+				}
 			}
 
 			remaining -= ROWS_PER_STRIP;
@@ -1792,6 +1806,16 @@ int multiblend_main(
 				jpeg_finish_compress(&cinfo);
 				jpeg_destroy_compress(&cinfo);
 				fclose(jpeg_file);
+			} break;
+			case ImageType::MB_MEM: {
+				if (!output_image_ptr_) {
+					die("no target image created");
+				}
+				if (!output_image) {
+					die("No output image given");
+				}
+				auto& img = *output_image_ptr_;
+				*output_image = std::make_unique<enblend::MatrixRGB>(img.width, img.height, img.consume_raw_data());
 			} break;
 		}
 
@@ -1864,13 +1888,13 @@ int enblend_main(std::string output_image, std::vector<std::string> input_files)
   return return_value;
 }
 
-MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
-
+std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
   args.push_back("-o");
-  args.push_back("/home/colivier/Videos/output_image.png");
+  //args.push_back("/home/colivier/Videos/output_image.png");
+	args.push_back("");
 
   int argc = args.size();
   char **argv = new char *[argc];
@@ -1883,8 +1907,7 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
   std::vector<std::reference_wrapper<enblend::MatrixRGB>> images;
   images.push_back(image1);
   images.push_back(image2);
-	enblend::MatrixRGB output_image;
-  //MatrixRGB result_image;
+	std::unique_ptr<MatrixRGB> output_image;
   int result = multiblend_main(argc, argv, images, &output_image);
 
   // Clean up the allocated memory
@@ -1895,7 +1918,7 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
 
   assert(!result);
 
-  return image1;
+  return std::move(output_image);
 }
 
 }  // namespace enblend

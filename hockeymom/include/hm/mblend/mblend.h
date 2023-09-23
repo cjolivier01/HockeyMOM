@@ -24,6 +24,9 @@ class MatrixRGB {
 
 public:
   MatrixRGB() {}
+  MatrixRGB(const MatrixRGB&) = delete;
+  MatrixRGB(MatrixRGB&& other) = default;
+
   inline MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
                    std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
@@ -48,6 +51,11 @@ public:
   }
   inline MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
     m_data = new std::uint8_t[rows * cols * kChannels];
+    m_own_data = true;
+  }
+  inline MatrixRGB(size_t rows, size_t cols, std::uint8_t *consume_data)
+      : m_rows(rows), m_cols(cols) {
+    m_data = consume_data;
     m_own_data = true;
   }
   inline ~MatrixRGB() {
@@ -87,6 +95,6 @@ private:
   std::size_t m_ypos{0};
 };
 
-MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2);
+std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2);
 
 } // namespace enblend

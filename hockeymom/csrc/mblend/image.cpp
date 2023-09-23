@@ -17,7 +17,9 @@ class Image {
 public:
 	Image(char* _filename);
 	Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos);
+  Image(std::vector<std::size_t> shape, std::size_t num_channels);
 	~Image();
+  void write_rows(unsigned char **scanlines, std::size_t num_rows);
 	char* filename{nullptr};
 	ImageType type{ImageType::MB_NONE};
 	int width;
@@ -49,6 +51,12 @@ public:
 	bool seam_present;
 	std::vector<Flex*> masks;
 	void MaskPng(int i);
+  int row_stride{0};
+
+  constexpr std::uint8_t *consume_raw_data() {
+    own_raw_data = false;
+    return raw_data;
+  }
 
 private:
 	TIFF* tiff;
@@ -57,6 +65,8 @@ private:
 	struct jpeg_error_mgr jerr;
 	png_structp png_ptr;
   uint8_t*raw_data{nullptr};
+  uint8_t*raw_data_write_ptr_{nullptr};
+  bool own_raw_data{false};
   std::size_t raw_data_size{0};
   std::vector<std::size_t> raw_shape;
 };
@@ -75,13 +85,32 @@ Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape, const
   ypos   = xy_pos.at(1);
 }
 
+Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
+  assert(shape.size() == 2);
+  width = shape.at(0);
+  height = shape.at(1);
+  row_stride = sizeof(std::uint8_t) * num_channels * width;
+  raw_data = new std::uint8_t[row_stride * height];
+  raw_data_write_ptr_ = raw_data;
+}
+
+void Image::write_rows(unsigned char **scanlines, std::size_t num_rows) {
+  // const std::size_t num_bytes = row_stride * num_rows;
+  // memcpy(raw_data_write_ptr_, data, num_bytes);
+  // raw_data_write_ptr_ += num_bytes;
+}
+
 Image::~Image() {
 	for (auto it = channels.begin(); it < channels.end(); ++it) delete (*it);
 	for (auto it = masks.begin(); it < masks.end(); ++it) delete (*it);
 	channels.clear();
 	masks.clear();
-
-	delete pyramid;
+  if (pyramid) {
+	  delete pyramid;
+  }
+  if (own_raw_data && raw_data) {
+    delete [] raw_data;
+  }
 }
 
 /***********************************************************************

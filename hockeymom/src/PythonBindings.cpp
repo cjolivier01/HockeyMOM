@@ -111,8 +111,8 @@ PYBIND11_MODULE(_hockeymom, m) {
            py::array_t<uint8_t> &image2, std::vector<std::size_t> xy_pos_2) {
           enblend::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
           enblend::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
-          enblend::MatrixRGB result = enblend::enblend(m1, m2);
-          return result.to_py_array();
+          std::unique_ptr<enblend::MatrixRGB> result = enblend::enblend(m1, m2);
+          return result->to_py_array();
         });
 
   auto pyOuter = py::class_<hm::Outer>(m, "Outer");
