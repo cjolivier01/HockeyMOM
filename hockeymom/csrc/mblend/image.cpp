@@ -270,7 +270,7 @@ void Image::Open() {
 			spp = 3;
       tiff_width = raw_shape.at(1);
       tiff_u_height = tiff_height = raw_shape.at(0);
-			//xpos = ypos = 0;
+      // xpos, ypos has already been set in the constructor
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
     } break;
