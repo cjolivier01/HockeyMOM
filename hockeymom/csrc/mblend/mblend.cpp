@@ -1516,9 +1516,10 @@ public:
       /***********************************************************************
        * Create output pyramid
        ***********************************************************************/
-      Pyramid *output_pyramid = NULL;
+      std::unique_ptr<Pyramid> output_pyramid;
 
-      output_pyramid = new Pyramid(width, height, total_levels, 0, 0, true);
+      output_pyramid =
+          std::make_unique<Pyramid>(width, height, total_levels, 0, 0, true);
 
       for (int l = total_levels - 1; l >= 0; --l) {
         float *temp;
@@ -1645,9 +1646,9 @@ public:
             if (wrap & w) {
 
               if (w == 1) {
-                SwapH(output_pyramid);
+                SwapH(output_pyramid.get());
               } else {
-                SwapV(output_pyramid);
+                SwapV(output_pyramid.get());
               }
 
               int wrap_levels = (w == 1) ? wrap_levels_h : wrap_levels_v;
@@ -1701,9 +1702,9 @@ public:
               output_pyramid->Collapse(wrap_levels);
 
               if (w == 1) {
-                UnswapH(output_pyramid);
+                UnswapH(output_pyramid.get());
               } else {
-                UnswapV(output_pyramid);
+                UnswapV(output_pyramid.get());
               }
             } // if (wrap & w)
           }   // w loop
