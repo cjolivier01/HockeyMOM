@@ -529,62 +529,26 @@ def get_image_geo_position(tiff_image_file: str):
 
 
 def pyramid_blending():
-    A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
-    B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
+    files_left = [
+        "/mnt/data/Videos/my_project0000.tif",
+        "/mnt/data/Videos/my_project20000.tif",
+    ]
+    files_right = [
+        "/mnt/data/Videos/my_project0001.tif",
+        "/mnt/data/Videos/my_project20001.tif",
+    ]
 
-    xpos_1, ypos_1 = get_image_geo_position("/mnt/data/Videos/my_project0000.tif")
-    xpos_2, ypos_2 = get_image_geo_position("/mnt/data/Videos/my_project0001.tif")
+    xpos_1, ypos_1 = get_image_geo_position(files_left[0])
+    xpos_2, ypos_2 = get_image_geo_position(files_right[0])
 
-    for i in range(2):
+    for i in range(len(files_left)):
+        A = cv2.imread(files_left[i])
+        B = cv2.imread(files_right[i])
+
         img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
         cv2.imshow('Panoramic blended image', img)
         cv2.waitKey(0)
-    # A = cv2.resize(A, (512, 512))
-    # B = cv2.resize(B, (512, 512))
 
-    # # generate Gaussian pyramid for A
-    # G = A.copy()
-    # gpA = [G]
-    # for i in range(6):
-    #     G = cv2.pyrDown(G)
-    #     gpA.append(G)
-
-    # # generate Gaussian pyramid for B
-    # G = B.copy()
-    # gpB = [G]
-    # for i in range(6):
-    #     G = cv2.pyrDown(G)
-    #     gpB.append(G)
-
-    # # generate Laplacian Pyramid for A
-    # lpA = [gpA[5]]
-    # for i in range(5,0,-1):
-    #     GE = cv2.pyrUp(gpA[i])
-    #     L = cv2.subtract(gpA[i-1],GE)
-    #     lpA.append(L)
-
-    # # generate Laplacian Pyramid for B
-    # lpB = [gpB[5]]
-    # for i in range(5,0,-1):
-    #     GE = cv2.pyrUp(gpB[i])
-    #     L = cv2.subtract(gpB[i-1],GE)
-    #     lpB.append(L)
-
-    # # Now add left and right halves of images in each level
-    # LS = []
-    # for la,lb in zip(lpA,lpB):
-    #     rows,cols,dpt = la.shape
-    #     ls = np.hstack((la[:,0:cols//2], lb[:,cols//2:]))
-    #     LS.append(ls)
-
-    # # now reconstruct
-    # ls_ = LS[0]
-    # for i in range(1,6):
-    #     ls_ = cv2.pyrUp(ls_)
-    #     ls_ = cv2.add(ls_, LS[i])
-
-    # # image with direct connecting each half
-    # real = np.hstack((A[:,:cols//2],B[:,cols//2:]))
     cv2.destroyAllWindows()
 
 def main():
