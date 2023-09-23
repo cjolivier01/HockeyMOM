@@ -81,6 +81,7 @@ Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape, const
   raw_shape = std::move(shape);
   tiff_xres = raw_shape.at(1);
   tiff_yres = raw_shape.at(0);
+	spp = raw_shape.at(2);
   xpos   = xy_pos.at(0);
   ypos   = xy_pos.at(1);
 }
@@ -89,15 +90,24 @@ Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
   assert(shape.size() == 2);
   width = shape.at(0);
   height = shape.at(1);
+	spp = num_channels;
   row_stride = sizeof(std::uint8_t) * num_channels * width;
   raw_data = new std::uint8_t[row_stride * height];
   raw_data_write_ptr_ = raw_data;
 }
 
 void Image::write_rows(unsigned char **scanlines, std::size_t num_rows) {
-  // const std::size_t num_bytes = row_stride * num_rows;
-  // memcpy(raw_data_write_ptr_, data, num_bytes);
-  // raw_data_write_ptr_ += num_bytes;
+	if (scanlines) {
+		for (std::size_t i = 0; i < num_rows; ++i) {
+			assert(scanlines[i]);
+			memcpy(raw_data_write_ptr_, scanlines[i], row_stride);
+			raw_data_write_ptr_ += row_stride;
+		}
+	} else {
+		const std::size_t num_bytes = row_stride * num_rows;
+		bzero(raw_data_write_ptr_, num_bytes);
+		raw_data_write_ptr_ += num_bytes;
+	}
 }
 
 Image::~Image() {
@@ -296,10 +306,9 @@ void Image::Open() {
 		} break;
     case ImageType::MB_MEM: {
       bpp = 8;
-			spp = 3;
       tiff_width = raw_shape.at(1);
       tiff_u_height = tiff_height = raw_shape.at(0);
-      // xpos, ypos has already been set in the constructor
+      // xpos, ypos spp, has already been set in the constructor
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
     } break;

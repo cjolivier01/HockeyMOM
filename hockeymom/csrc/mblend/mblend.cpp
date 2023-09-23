@@ -1250,7 +1250,9 @@ int multiblend_main(
 	delete xor_map;
 	delete seam_map;
 
-	if (!alpha || output_type == ImageType::MB_JPEG) no_mask = true;
+	if (!alpha || output_type == ImageType::MB_JPEG || output_type == ImageType::MB_MEM /* arbitrarily have no mask */) {
+		no_mask = true;
+	}
 
 /***********************************************************************
 * Seam load
@@ -1709,13 +1711,11 @@ int multiblend_main(
 				png_file = new Pnger(output_filename, NULL, width, height, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA, output_bpp, jpeg_file, jpeg_quality);
 			} break;
 			case ImageType::MB_MEM: {
-				assert(output_bpp == 8); // per channel
-				//png_file = new Pnger(output_filename, NULL, width, height, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA, output_bpp, jpeg_file, jpeg_quality);
-				output_image_ptr_ = std::make_unique<Image>(std::vector<std::size_t>{(std::size_t)width, (std::size_t)height}, no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA);
+				output_image_ptr_ = std::make_unique<Image>(std::vector<std::size_t>{(std::size_t)width, (std::size_t)height}, no_mask ? 3 : 4);
 			} break;
 		}
 
-		if (output_type == ImageType::MB_PNG || output_type == ImageType::MB_JPEG) {
+		if (output_type == ImageType::MB_PNG || output_type == ImageType::MB_JPEG || output_type == ImageType::MB_MEM) {
 			scanlines = new JSAMPROW[ROWS_PER_STRIP];
 			for (i = 0; i < ROWS_PER_STRIP; ++i) {
 				scanlines[i] = (JSAMPROW) & ((uint8_t*)strip)[i * bytes_per_row];
