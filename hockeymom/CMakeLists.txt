@@ -1,5 +1,5 @@
 #file(GLOB_RECURSE SOURCES csrc/**.cpp)
-set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_BUILD_TYPE Debug)
 set(
   SOURCES
   csrc/mblend/mblend.cpp

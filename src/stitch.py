@@ -584,11 +584,7 @@ def pyramid_blending():
     # real = np.hstack((A[:,:cols//2],B[:,cols//2:]))
     cv2.imshow('Panoramic blended image', img)
     cv2.waitKey(0)
-    # cv2.imshow('Pyramid_blending.jpg',ls_)
-    # cv2.waitKey(0)
-    # cv2.imshow('Direct_blending.jpg',real)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
 
 def main():
     pyramid_blending()
