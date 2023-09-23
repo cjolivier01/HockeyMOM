@@ -85,509 +85,638 @@ extern "C" FILE * __cdecl __iob_func(void) {
 
 #define MASKVAL(X) (((X) & 0x7fffffffffffffff) | images[(X) & 0xffffffff]->mask_state)
 
-int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images) {
-// This is here because of a weird problem encountered during development with Visual Studio. It should never be triggered.
-	if (verbosity != 1) {
-		printf("bad compile?\n");
-		exit(EXIT_FAILURE);
-	}
+int multiblend_main(
+    int argc, char *argv[],
+    std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images,
+    enblend::MatrixRGB *output_image = nullptr) {
+  // This is here because of a weird problem encountered during development with
+  // Visual Studio. It should never be triggered.
+  if (verbosity != 1) {
+    printf("bad compile?\n");
+    exit(EXIT_FAILURE);
+  }
 
-	int i;
-	Timer timer_all, timer;
-	timer_all.Start();
+  int i;
+  Timer timer_all, timer;
+  timer_all.Start();
 
-	TIFFSetWarningHandler(NULL);
+  TIFFSetWarningHandler(NULL);
 
-/***********************************************************************
-* Variables
-***********************************************************************/
-	std::vector<Image*> images;
-	int fixed_levels = 0;
-	int add_levels = 0;
+  /***********************************************************************
+   * Variables
+   ***********************************************************************/
+  std::vector<Image *> images;
+  int fixed_levels = 0;
+  int add_levels = 0;
 
-	int width = 0;
-	int height = 0;
+  int width = 0;
+  int height = 0;
 
-	bool no_mask = false;
-	bool big_tiff = false;
-	bool bgr = false;
-	bool wideblend = false;
-	bool reverse = false;
-	bool timing = false;
-	bool dither = true;
-	bool gamma = false;
-	bool all_threads = true;
-	int wrap = 0;
+  bool no_mask = false;
+  bool big_tiff = false;
+  bool bgr = false;
+  bool wideblend = false;
+  bool reverse = false;
+  bool timing = false;
+  bool dither = true;
+  bool gamma = false;
+  bool all_threads = true;
+  int wrap = 0;
 
-	TIFF* tiff_file = NULL;
-	FILE* jpeg_file = NULL;
-	Pnger* png_file = NULL;
-	ImageType output_type = ImageType::MB_NONE;
-	int jpeg_quality = -1;
-	int compression = -1;
-	char* seamsave_filename = NULL;
-	char* seamload_filename = NULL;
-	char* xor_filename = NULL;
-	char* output_filename = NULL;
-	int output_bpp = 0;
+  TIFF *tiff_file = NULL;
+  FILE *jpeg_file = NULL;
+  Pnger *png_file = NULL;
+  ImageType output_type = ImageType::MB_NONE;
+  int jpeg_quality = -1;
+  int compression = -1;
+  char *seamsave_filename = NULL;
+  char *seamload_filename = NULL;
+  char *xor_filename = NULL;
+  char *output_filename = NULL;
+  int output_bpp = 0;
 
-	double images_time = 0;
-	double copy_time = 0;
-	double seam_time = 0;
-	double shrink_mask_time = 0;
-	double shrink_time = 0;
-	double laplace_time = 0;
-	double blend_time = 0;
-	double collapse_time = 0;
-	double wrap_time = 0;
-	double out_time = 0;
-	double write_time = 0;
+  double images_time = 0;
+  double copy_time = 0;
+  double seam_time = 0;
+  double shrink_mask_time = 0;
+  double shrink_time = 0;
+  double laplace_time = 0;
+  double blend_time = 0;
+  double collapse_time = 0;
+  double wrap_time = 0;
+  double out_time = 0;
+  double write_time = 0;
 
-/***********************************************************************
-* Help
-***********************************************************************/
-	if (argc == 1 || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help") || !strcmp(argv[1], "/?")) {
-		Output(1, "\n");
-		Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/mblend/\n");
-		Output(1, "----------------------------------------------------------------------------\n");
+  /***********************************************************************
+   * Help
+   ***********************************************************************/
+  if (argc == 1 || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help") ||
+      !strcmp(argv[1], "/?")) {
+    Output(1, "\n");
+    Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        "
+              "http://horman.net/mblend/\n");
+    Output(1, "----------------------------------------------------------------"
+              "------------\n");
 
-		printf("Usage: mblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] [INPUT]...\n");
-		printf("\n");
-		printf("Options:\n");
-		printf("  --levels X / -l X      X: set number of blending levels to X\n");
-		printf("                        -X: decrease number of blending levels by X\n");
-		printf("                        +X: increase number of blending levels by X\n");
-		printf("  --depth D / -d D       Override automatic output image depth (8 or 16)\n");
-		printf("  --bgr                  Swap RGB order\n");
-		printf("  --wideblend            Calculate number of levels based on output image size,\n");
-		printf("                         rather than input image size\n");
-		printf("  -w, --wrap=[mode]      Blend around images boundaries (NONE (default),\n");
-		printf("                         HORIZONTAL, VERTICAL). When specified without a mode,\n");
-		printf("                         defaults to HORIZONTAL.\n");
-		printf("  --compression=X        Output file compression. For TIFF output, X may be:\n");
-		printf("                         NONE (default), PACKBITS, or LZW\n");
-		printf("                         For JPEG output, X is JPEG quality (0-100, default 75)\n");
-		printf("                         For PNG output, X is PNG filter (0-9, default 3)\n");
-		printf("  --cache-threshold=     Allocate memory beyond X bytes/[K]ilobytes/\n");
-		printf("      X[K/M/G]           [M]egabytes/[G]igabytes to disk\n");
-		printf("  --no-dither            Disable dithering\n");
-		printf("  --tempdir <dir>        Specify temporary directory (default: system temp)\n");
-		printf("  --save-seams <file>    Save seams to PNG file for external editing\n");
-		printf("  --load-seams <file>    Load seams from PNG file\n");
-		printf("  --no-output            Do not blend (for use with --save-seams)\n");
-		printf("                         Must be specified as last option before input images\n");
-		printf("  --bigtiff              BigTIFF output\n");
-		printf("  --reverse              Reverse image priority (last=highest) for resolving\n");
-		printf("                         indeterminate pixels\n");
-		printf("  --quiet                Suppress output (except warnings)\n");
-		printf("  --all-threads          Use all available CPU threads\n");
-		printf("  [X,Y]                  Optional position adjustment for previous input image\n");
-		exit(EXIT_SUCCESS);
-	}
+    printf("Usage: mblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] "
+           "[INPUT]...\n");
+    printf("\n");
+    printf("Options:\n");
+    printf("  --levels X / -l X      X: set number of blending levels to X\n");
+    printf("                        -X: decrease number of blending levels by "
+           "X\n");
+    printf("                        +X: increase number of blending levels by "
+           "X\n");
+    printf("  --depth D / -d D       Override automatic output image depth (8 "
+           "or 16)\n");
+    printf("  --bgr                  Swap RGB order\n");
+    printf("  --wideblend            Calculate number of levels based on "
+           "output image size,\n");
+    printf("                         rather than input image size\n");
+    printf("  -w, --wrap=[mode]      Blend around images boundaries (NONE "
+           "(default),\n");
+    printf("                         HORIZONTAL, VERTICAL). When specified "
+           "without a mode,\n");
+    printf("                         defaults to HORIZONTAL.\n");
+    printf("  --compression=X        Output file compression. For TIFF output, "
+           "X may be:\n");
+    printf("                         NONE (default), PACKBITS, or LZW\n");
+    printf("                         For JPEG output, X is JPEG quality "
+           "(0-100, default 75)\n");
+    printf("                         For PNG output, X is PNG filter (0-9, "
+           "default 3)\n");
+    printf("  --cache-threshold=     Allocate memory beyond X "
+           "bytes/[K]ilobytes/\n");
+    printf("      X[K/M/G]           [M]egabytes/[G]igabytes to disk\n");
+    printf("  --no-dither            Disable dithering\n");
+    printf("  --tempdir <dir>        Specify temporary directory (default: "
+           "system temp)\n");
+    printf("  --save-seams <file>    Save seams to PNG file for external "
+           "editing\n");
+    printf("  --load-seams <file>    Load seams from PNG file\n");
+    printf(
+        "  --no-output            Do not blend (for use with --save-seams)\n");
+    printf("                         Must be specified as last option before "
+           "input images\n");
+    printf("  --bigtiff              BigTIFF output\n");
+    printf("  --reverse              Reverse image priority (last=highest) for "
+           "resolving\n");
+    printf("                         indeterminate pixels\n");
+    printf("  --quiet                Suppress output (except warnings)\n");
+    printf("  --all-threads          Use all available CPU threads\n");
+    printf("  [X,Y]                  Optional position adjustment for previous "
+           "input image\n");
+    exit(EXIT_SUCCESS);
+  }
 
-/***********************************************************************
-************************************************************************
-* Parse arguments
-************************************************************************
-***********************************************************************/
-	std::vector<char*> my_argv;
+  /***********************************************************************
+  ************************************************************************
+  * Parse arguments
+  ************************************************************************
+  ***********************************************************************/
+  std::vector<char *> my_argv;
 
-	bool skip = false;
+  bool skip = false;
 
-	for (i = 1; i < argc; ++i) {
-		my_argv.push_back(argv[i]);
+  for (i = 1; i < argc; ++i) {
+    my_argv.push_back(argv[i]);
 
-		if (!skip) {
-			int c = 0;
+    if (!skip) {
+      int c = 0;
 
-			while (argv[i][c]) {
-				if (argv[i][c] == '=') {
-					argv[i][c++] = 0;
-					if (argv[i][c]) {
-						my_argv.push_back(&argv[i][c]);
-					}
-					break;
-				}
-				++c;
-			}
+      while (argv[i][c]) {
+        if (argv[i][c] == '=') {
+          argv[i][c++] = 0;
+          if (argv[i][c]) {
+            my_argv.push_back(&argv[i][c]);
+          }
+          break;
+        }
+        ++c;
+      }
 
-			if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) {
-				skip = true;
-			}
-		}
-	}
+      if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) {
+        skip = true;
+      }
+    }
+  }
 
-	if ((int)my_argv.size() < 3) die("Error: Not enough arguments (try -h for help)");
+  if ((int)my_argv.size() < 3)
+    die("Error: Not enough arguments (try -h for help)");
 
-	for (i = 0; i < (int)my_argv.size(); ++i) {
-		if (!strcmp(my_argv[i], "-d") || !strcmp(my_argv[i], "--d") || !strcmp(my_argv[i], "--depth") || !strcmp(my_argv[i], "--bpp")) {
-			if (++i < (int)my_argv.size()) {
-				output_bpp = atoi(my_argv[i]);
-				if (output_bpp != 8 && output_bpp != 16) {
-					die("Error: Invalid output depth specified");
-				}
-			} else {
-				die("Error: Missing parameter value");
-			}
-		} 		else if (!strcmp(my_argv[i], "-l") || !strcmp(my_argv[i], "--levels")) {
-			if (++i < (int)my_argv.size()) {
-				int n;
-				if (my_argv[i][0] == '+' || my_argv[i][0] == '-') {
-					sscanf_s(my_argv[i], "%d%n", &add_levels, &n);
-				} else {
-					sscanf_s(my_argv[i], "%d%n", &fixed_levels, &n);
-					if (fixed_levels == 0) fixed_levels = 1;
-				}
-				if (my_argv[i][n]) die("Error: Bad --levels parameter");
-			} else {
-				die("Error: Missing parameter value");
-			}
-		} 		else if (!strcmp(my_argv[i], "--wrap") || !strcmp(my_argv[i], "-w")) {
-			if (i + 1 >= (int)my_argv.size()) {
-				die("Error: Missing parameters");
-			}
-			if (!strcmp(my_argv[i + 1], "none") || !strcmp(my_argv[i + 1], "open")) ++i;
-			else if (!strcmp(my_argv[i + 1], "horizontal") || !strcmp(my_argv[i + 1], "h")) { wrap = 1; ++i; } else if (!strcmp(my_argv[i + 1], "vertical") || !strcmp(my_argv[i + 1], "v")) { wrap = 2; ++i; } else if (!strcmp(my_argv[i + 1], "both") || !strcmp(my_argv[i + 1], "hv")) { wrap = 3; ++i; } else wrap = 1;
-		} 		else if (!strcmp(my_argv[i], "--cache-threshold")) {
-			if (i + 1 >= (int)my_argv.size()) {
-				die("Error: Missing parameters");
-			}
-			++i;
-			int shift = 0;
-			int n = 0;
-			size_t len = strlen(my_argv[i]);
-			size_t threshold;
-			sscanf_s(my_argv[i], "%zu%n", &threshold, &n);
-			if (n != len) {
-				if (n == len - 1) {
-					switch (my_argv[i][len - 1]) {
-						case 'k':
-						case 'K': shift = 10; break;
-						case 'm':
-						case 'M': shift = 20; break;
-						case 'g':
-						case 'G': shift = 30; break;
-						default: die("Error: Bad --cache-threshold parameter");
-					}
-					threshold <<= shift;
-				} else {
-					die("Error: Bad --cache-threshold parameter");
-				}
-			}
-			MapAlloc::CacheThreshold(threshold);
-		} 		else if (!strcmp(my_argv[i], "--nomask") || !strcmp(my_argv[i], "--no-mask")) no_mask = true;
-		else if (!strcmp(my_argv[i], "--timing") || !strcmp(my_argv[i], "--timings")) timing = true;
-		else if (!strcmp(my_argv[i], "--bigtiff"))   big_tiff = true;
-		else if (!strcmp(my_argv[i], "--bgr"))       bgr = true;
-		else if (!strcmp(my_argv[i], "--wideblend")) wideblend = true;
-		else if (!strcmp(my_argv[i], "--reverse"))   reverse = true;
-		else if (!strcmp(my_argv[i], "--gamma"))     gamma = true;
-		else if (!strcmp(my_argv[i], "--no-dither") || !strcmp(my_argv[i], "--nodither")) dither = false;
-		//		else if (!strcmp(my_argv[i], "--force"))     force_coverage = true;
-		else if (!strncmp(my_argv[i], "-f", 2)) Output(0, "ignoring Enblend option -f\n");
-		else if (!strcmp(my_argv[i], "-a")) Output(0, "ignoring Enblend option -a\n");
-		else if (!strcmp(my_argv[i], "--no-ciecam")) Output(0, "ignoring Enblend option --no-ciecam\n");
-		else if (!strcmp(my_argv[i], "--primary-seam-generator")) {
-			Output(0, "ignoring Enblend option --primary-seam-generator\n");
-			++i;
-		}
+  for (i = 0; i < (int)my_argv.size(); ++i) {
+    if (!strcmp(my_argv[i], "-d") || !strcmp(my_argv[i], "--d") ||
+        !strcmp(my_argv[i], "--depth") || !strcmp(my_argv[i], "--bpp")) {
+      if (++i < (int)my_argv.size()) {
+        output_bpp = atoi(my_argv[i]);
+        if (output_bpp != 8 && output_bpp != 16) {
+          die("Error: Invalid output depth specified");
+        }
+      } else {
+        die("Error: Missing parameter value");
+      }
+    } else if (!strcmp(my_argv[i], "-l") || !strcmp(my_argv[i], "--levels")) {
+      if (++i < (int)my_argv.size()) {
+        int n;
+        if (my_argv[i][0] == '+' || my_argv[i][0] == '-') {
+          sscanf_s(my_argv[i], "%d%n", &add_levels, &n);
+        } else {
+          sscanf_s(my_argv[i], "%d%n", &fixed_levels, &n);
+          if (fixed_levels == 0)
+            fixed_levels = 1;
+        }
+        if (my_argv[i][n])
+          die("Error: Bad --levels parameter");
+      } else {
+        die("Error: Missing parameter value");
+      }
+    } else if (!strcmp(my_argv[i], "--wrap") || !strcmp(my_argv[i], "-w")) {
+      if (i + 1 >= (int)my_argv.size()) {
+        die("Error: Missing parameters");
+      }
+      if (!strcmp(my_argv[i + 1], "none") || !strcmp(my_argv[i + 1], "open"))
+        ++i;
+      else if (!strcmp(my_argv[i + 1], "horizontal") ||
+               !strcmp(my_argv[i + 1], "h")) {
+        wrap = 1;
+        ++i;
+      } else if (!strcmp(my_argv[i + 1], "vertical") ||
+                 !strcmp(my_argv[i + 1], "v")) {
+        wrap = 2;
+        ++i;
+      } else if (!strcmp(my_argv[i + 1], "both") ||
+                 !strcmp(my_argv[i + 1], "hv")) {
+        wrap = 3;
+        ++i;
+      } else
+        wrap = 1;
+    } else if (!strcmp(my_argv[i], "--cache-threshold")) {
+      if (i + 1 >= (int)my_argv.size()) {
+        die("Error: Missing parameters");
+      }
+      ++i;
+      int shift = 0;
+      int n = 0;
+      size_t len = strlen(my_argv[i]);
+      size_t threshold;
+      sscanf_s(my_argv[i], "%zu%n", &threshold, &n);
+      if (n != len) {
+        if (n == len - 1) {
+          switch (my_argv[i][len - 1]) {
+          case 'k':
+          case 'K':
+            shift = 10;
+            break;
+          case 'm':
+          case 'M':
+            shift = 20;
+            break;
+          case 'g':
+          case 'G':
+            shift = 30;
+            break;
+          default:
+            die("Error: Bad --cache-threshold parameter");
+          }
+          threshold <<= shift;
+        } else {
+          die("Error: Bad --cache-threshold parameter");
+        }
+      }
+      MapAlloc::CacheThreshold(threshold);
+    } else if (!strcmp(my_argv[i], "--nomask") ||
+               !strcmp(my_argv[i], "--no-mask"))
+      no_mask = true;
+    else if (!strcmp(my_argv[i], "--timing") ||
+             !strcmp(my_argv[i], "--timings"))
+      timing = true;
+    else if (!strcmp(my_argv[i], "--bigtiff"))
+      big_tiff = true;
+    else if (!strcmp(my_argv[i], "--bgr"))
+      bgr = true;
+    else if (!strcmp(my_argv[i], "--wideblend"))
+      wideblend = true;
+    else if (!strcmp(my_argv[i], "--reverse"))
+      reverse = true;
+    else if (!strcmp(my_argv[i], "--gamma"))
+      gamma = true;
+    else if (!strcmp(my_argv[i], "--no-dither") ||
+             !strcmp(my_argv[i], "--nodither"))
+      dither = false;
+    //		else if (!strcmp(my_argv[i], "--force"))     force_coverage =
+    //true;
+    else if (!strncmp(my_argv[i], "-f", 2))
+      Output(0, "ignoring Enblend option -f\n");
+    else if (!strcmp(my_argv[i], "-a"))
+      Output(0, "ignoring Enblend option -a\n");
+    else if (!strcmp(my_argv[i], "--no-ciecam"))
+      Output(0, "ignoring Enblend option --no-ciecam\n");
+    else if (!strcmp(my_argv[i], "--primary-seam-generator")) {
+      Output(0, "ignoring Enblend option --primary-seam-generator\n");
+      ++i;
+    }
 
-		else if (!strcmp(my_argv[i], "--compression")) {
-			if (++i < (int)my_argv.size()) {
-				if (strcmp(my_argv[i], "0") == 0) jpeg_quality = 0;
-				else if (atoi(my_argv[i]) > 0) jpeg_quality = atoi(my_argv[i]);
-				else if (_stricmp(my_argv[i], "lzw") == 0) compression = COMPRESSION_LZW;
-				else if (_stricmp(my_argv[i], "packbits") == 0) compression = COMPRESSION_PACKBITS;
-				//				else if (_stricmp(my_argv[i], "deflate") == 0) compression = COMPRESSION_DEFLATE;
-				else if (_stricmp(my_argv[i], "none") == 0) compression = COMPRESSION_NONE;
-				else die("Error: Unknown compression codec %s", my_argv[i]);
-			} else {
-				die("Error: Missing parameter value");
-			}
-		} else if (!strcmp(my_argv[i], "-v") || !strcmp(my_argv[i], "--verbose")) ++verbosity;
-		else if (!strcmp(my_argv[i], "-q") || !strcmp(my_argv[i], "--quiet")) --verbosity;
-		else if ((!strcmp(my_argv[i], "--saveseams") || !strcmp(my_argv[i], "--save-seams")) && i < (int)my_argv.size() - 1) seamsave_filename = my_argv[++i];
-		else if ((!strcmp(my_argv[i], "--loadseams") || !strcmp(my_argv[i], "--load-seams")) && i < (int)my_argv.size() - 1) seamload_filename = my_argv[++i];
-		else if ((!strcmp(my_argv[i], "--savexor") || !strcmp(my_argv[i], "--save-xor")) && i < (int)my_argv.size() - 1) xor_filename = my_argv[++i];
-		else if (!strcmp(my_argv[i], "--tempdir") || !strcmp(my_argv[i], "--tmpdir") && i < (int)my_argv.size() - 1) MapAlloc::SetTmpdir(my_argv[++i]);
-		else if (!strcmp(my_argv[i], "--all-threads")) all_threads = true;
-		else if (!strcmp(my_argv[i], "-o") || !strcmp(my_argv[i], "--output")) {
-			if (++i < (int)my_argv.size()) {
-				output_filename = my_argv[i];
-				char* ext = strrchr(output_filename, '.');
+    else if (!strcmp(my_argv[i], "--compression")) {
+      if (++i < (int)my_argv.size()) {
+        if (strcmp(my_argv[i], "0") == 0)
+          jpeg_quality = 0;
+        else if (atoi(my_argv[i]) > 0)
+          jpeg_quality = atoi(my_argv[i]);
+        else if (_stricmp(my_argv[i], "lzw") == 0)
+          compression = COMPRESSION_LZW;
+        else if (_stricmp(my_argv[i], "packbits") == 0)
+          compression = COMPRESSION_PACKBITS;
+        //				else if (_stricmp(my_argv[i], "deflate") == 0)
+        //compression = COMPRESSION_DEFLATE;
+        else if (_stricmp(my_argv[i], "none") == 0)
+          compression = COMPRESSION_NONE;
+        else
+          die("Error: Unknown compression codec %s", my_argv[i]);
+      } else {
+        die("Error: Missing parameter value");
+      }
+    } else if (!strcmp(my_argv[i], "-v") || !strcmp(my_argv[i], "--verbose"))
+      ++verbosity;
+    else if (!strcmp(my_argv[i], "-q") || !strcmp(my_argv[i], "--quiet"))
+      --verbosity;
+    else if ((!strcmp(my_argv[i], "--saveseams") ||
+              !strcmp(my_argv[i], "--save-seams")) &&
+             i < (int)my_argv.size() - 1)
+      seamsave_filename = my_argv[++i];
+    else if ((!strcmp(my_argv[i], "--loadseams") ||
+              !strcmp(my_argv[i], "--load-seams")) &&
+             i < (int)my_argv.size() - 1)
+      seamload_filename = my_argv[++i];
+    else if ((!strcmp(my_argv[i], "--savexor") ||
+              !strcmp(my_argv[i], "--save-xor")) &&
+             i < (int)my_argv.size() - 1)
+      xor_filename = my_argv[++i];
+    else if (!strcmp(my_argv[i], "--tempdir") ||
+             !strcmp(my_argv[i], "--tmpdir") && i < (int)my_argv.size() - 1)
+      MapAlloc::SetTmpdir(my_argv[++i]);
+    else if (!strcmp(my_argv[i], "--all-threads"))
+      all_threads = true;
+    else if (!strcmp(my_argv[i], "-o") || !strcmp(my_argv[i], "--output")) {
+      if (++i < (int)my_argv.size()) {
+        output_filename = my_argv[i];
+        char *ext = strrchr(output_filename, '.');
 
-				if (!ext) {
-					die("Error: Unknown output filetype");
-				}
+        if (!ext) {
+          die("Error: Unknown output filetype");
+        }
 
-				++ext;
-				if (!(_stricmp(ext, "jpg") && _stricmp(ext, "jpeg"))) {
-					output_type = ImageType::MB_JPEG;
-					if (jpeg_quality == -1) jpeg_quality = 75;
-				} else if (!(_stricmp(ext, "tif") && _stricmp(ext, "tiff"))) {
-					output_type = ImageType::MB_TIFF;
-				} else if (!_stricmp(ext, "png")) {
-					output_type = ImageType::MB_PNG;
-				} else {
-					die("Error: Unknown file extension");
-				}
+        ++ext;
+        if (!(_stricmp(ext, "jpg") && _stricmp(ext, "jpeg"))) {
+          output_type = ImageType::MB_JPEG;
+          if (jpeg_quality == -1)
+            jpeg_quality = 75;
+        } else if (!(_stricmp(ext, "tif") && _stricmp(ext, "tiff"))) {
+          output_type = ImageType::MB_TIFF;
+        } else if (!_stricmp(ext, "png")) {
+          output_type = ImageType::MB_PNG;
+        } else {
+          die("Error: Unknown file extension");
+        }
 
-				++i;
-				break;
-			}
-		} else if (!strcmp(my_argv[i], "--no-output")) {
-			++i;
-			break;
-		} else {
-			die("Error: Unknown argument \"%s\"", my_argv[i]);
-		}
-	}
+        ++i;
+        break;
+      }
+    } else if (!strcmp(my_argv[i], "--no-output")) {
+      ++i;
+      break;
+    } else {
+      die("Error: Unknown argument \"%s\"", my_argv[i]);
+    }
+  }
 
-	if (compression != -1) {
-		if (output_type != ImageType::MB_TIFF) {
-			Output(0, "Warning: non-TIFF output; ignoring TIFF compression setting\n");
-		}
-	} else if (output_type == ImageType::MB_TIFF) {
-		compression = COMPRESSION_LZW;
-	}
+  if (compression != -1) {
+    if (output_type != ImageType::MB_TIFF) {
+      Output(0,
+             "Warning: non-TIFF output; ignoring TIFF compression setting\n");
+    }
+  } else if (output_type == ImageType::MB_TIFF) {
+    compression = COMPRESSION_LZW;
+  }
 
-	if (jpeg_quality != -1 && output_type != ImageType::MB_JPEG && output_type != ImageType::MB_PNG) {
-		Output(0, "Warning: non-JPEG/PNG output; ignoring compression quality setting\n");
-	}
+  if (jpeg_quality != -1 && output_type != ImageType::MB_JPEG &&
+      output_type != ImageType::MB_PNG) {
+    Output(
+        0,
+        "Warning: non-JPEG/PNG output; ignoring compression quality setting\n");
+  }
 
-	if ((jpeg_quality < -1 || jpeg_quality > 9) && output_type == ImageType::MB_PNG) {
-		die("Error: Bad PNG compression quality setting\n");
-	}
+  if ((jpeg_quality < -1 || jpeg_quality > 9) &&
+      output_type == ImageType::MB_PNG) {
+    die("Error: Bad PNG compression quality setting\n");
+  }
 
-	if (output_type == ImageType::MB_NONE && !seamsave_filename) die("Error: No output file specified");
-	if (seamload_filename && seamsave_filename) die("Error: Cannot load and save seams at the same time");
-	if (wrap == 3) die("Error: Wrapping in both directions is not currently supported");
+  if (output_type == ImageType::MB_NONE && !seamsave_filename)
+    die("Error: No output file specified");
+  if (seamload_filename && seamsave_filename)
+    die("Error: Cannot load and save seams at the same time");
+  if (wrap == 3)
+    die("Error: Wrapping in both directions is not currently supported");
 
-	if (i < my_argv.size()) {
-		if (!strcmp(my_argv[i], "--")) ++i;
-	}
+  if (i < my_argv.size()) {
+    if (!strcmp(my_argv[i], "--"))
+      ++i;
+  }
 
-/***********************************************************************
-* Push remaining arguments to images vector
-***********************************************************************/
-	int x, y, n;
+  /***********************************************************************
+   * Push remaining arguments to images vector
+   ***********************************************************************/
+  int x, y, n;
 
-	while (i < (int)my_argv.size()) {
-		if (images.size()) {
-			n = 0;
-			sscanf_s(my_argv[i], "%d,%d%n", &x, &y, &n);
-			if (!my_argv[i][n]) {
-				images.back()->xpos_add = x;
-				images.back()->ypos_add = y;
-				i++;
-				continue;
-			}
-		}
-		images.push_back(new Image(my_argv[i++]));
-	}
+  while (i < (int)my_argv.size()) {
+    if (images.size()) {
+      n = 0;
+      sscanf_s(my_argv[i], "%d,%d%n", &x, &y, &n);
+      if (!my_argv[i][n]) {
+        images.back()->xpos_add = x;
+        images.back()->ypos_add = y;
+        i++;
+        continue;
+      }
+    }
+    images.push_back(new Image(my_argv[i++]));
+  }
 
-	for (auto &img : incoming_images) {
-		std::size_t size =
-				img.get().rows() * img.get().cols() * img.get().channels();
-		std::vector<size_t> shape{img.get().rows(), img.get().cols(), img.get().channels()};
-		images.push_back(new Image(
-				img.get().data(), size,
-				std::move(shape),
-				img.get().xy_pos()));
-	}
+  for (auto &img : incoming_images) {
+    std::size_t size =
+        img.get().rows() * img.get().cols() * img.get().channels();
+    std::vector<size_t> shape{img.get().rows(), img.get().cols(),
+                              img.get().channels()};
+    images.push_back(new Image(img.get().data(), size, std::move(shape),
+                               img.get().xy_pos()));
+  }
 
-	int n_images = (int)images.size();
+  int n_images = (int)images.size();
 
-	if (n_images == 0) die("Error: No input files specified");
-	if (seamsave_filename && n_images > 256) { seamsave_filename = NULL; Output(0, "Warning: seam saving not possible with more than 256 images"); }
-	if (seamload_filename && n_images > 256) { seamload_filename = NULL; Output(0, "Warning: seam loading not possible with more than 256 images"); }
-	if (xor_filename && n_images > 255) { xor_filename = NULL; Output(0, "Warning: XOR map saving not possible with more than 255 images"); }
+  if (n_images == 0)
+    die("Error: No input files specified");
+  if (seamsave_filename && n_images > 256) {
+    seamsave_filename = NULL;
+    Output(0, "Warning: seam saving not possible with more than 256 images");
+  }
+  if (seamload_filename && n_images > 256) {
+    seamload_filename = NULL;
+    Output(0, "Warning: seam loading not possible with more than 256 images");
+  }
+  if (xor_filename && n_images > 255) {
+    xor_filename = NULL;
+    Output(0, "Warning: XOR map saving not possible with more than 255 images");
+  }
 
-/***********************************************************************
-* Print banner
-***********************************************************************/
-	// Output(1, "\n");
-	// Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/mblend/\n");
-	// Output(1, "----------------------------------------------------------------------------\n");
+  /***********************************************************************
+   * Print banner
+   ***********************************************************************/
+  // Output(1, "\n");
+  // Output(1, "Multiblend v2.0.0 (c) 2021 David Horman
+  // http://horman.net/mblend/\n"); Output(1,
+  // "----------------------------------------------------------------------------\n");
 
-	Threadpool* threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
+  Threadpool *threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
 
-/***********************************************************************
-************************************************************************
-* Open output
-************************************************************************
-***********************************************************************/
-	switch (output_type) {
-		case ImageType::MB_TIFF: {
-			if (!big_tiff) tiff_file = TIFFOpen(output_filename, "w"); else tiff_file = TIFFOpen(output_filename, "w8");
-			if (!tiff_file) die("Error: Could not open output file");
-		} break;
-		case ImageType::MB_JPEG: {
-			if (output_bpp == 16) die("Error: 16bpp output is incompatible with JPEG output");
-			fopen_s(&jpeg_file, output_filename, "wb");
-			if (!jpeg_file) die("Error: Could not open output file");
-		} break;
-		case ImageType::MB_PNG: {
-			fopen_s(&jpeg_file, output_filename, "wb");
-			if (!jpeg_file) die("Error: Could not open output file");
-		} break;
-		case ImageType::MB_MEM: {
-			fopen_s(&jpeg_file, output_filename, "wb");
-			if (!jpeg_file) die("Error: Could not open output file");
-		} break;
-	}
+  /***********************************************************************
+  ************************************************************************
+  * Open output
+  ************************************************************************
+  ***********************************************************************/
+  switch (output_type) {
+  case ImageType::MB_TIFF: {
+    if (!big_tiff)
+      tiff_file = TIFFOpen(output_filename, "w");
+    else
+      tiff_file = TIFFOpen(output_filename, "w8");
+    if (!tiff_file)
+      die("Error: Could not open output file");
+  } break;
+  case ImageType::MB_JPEG: {
+    if (output_bpp == 16)
+      die("Error: 16bpp output is incompatible with JPEG output");
+    fopen_s(&jpeg_file, output_filename, "wb");
+    if (!jpeg_file)
+      die("Error: Could not open output file");
+  } break;
+  case ImageType::MB_PNG: {
+    fopen_s(&jpeg_file, output_filename, "wb");
+    if (!jpeg_file)
+      die("Error: Could not open output file");
+  } break;
+  case ImageType::MB_MEM: {
+    fopen_s(&jpeg_file, output_filename, "wb");
+    if (!jpeg_file)
+      die("Error: Could not open output file");
+  } break;
+  }
 
-/***********************************************************************
-************************************************************************
-* Process images
-************************************************************************
-***********************************************************************/
-	timer.Start();
+  /***********************************************************************
+  ************************************************************************
+  * Process images
+  ************************************************************************
+  ***********************************************************************/
+  timer.Start();
 
-/***********************************************************************
-* Open images to get prelimary info
-***********************************************************************/
-	size_t untrimmed_bytes = 0;
+  /***********************************************************************
+   * Open images to get prelimary info
+   ***********************************************************************/
+  size_t untrimmed_bytes = 0;
 
-	for (i = 0; i < n_images; ++i) {
-		images[i]->Open();
-		untrimmed_bytes = std::max(untrimmed_bytes, images[i]->untrimmed_bytes);
-	}
+  for (i = 0; i < n_images; ++i) {
+    images[i]->Open();
+    untrimmed_bytes = std::max(untrimmed_bytes, images[i]->untrimmed_bytes);
+  }
 
-/***********************************************************************
-* Check paramters, display warnings
-***********************************************************************/
-	for (i = 1; i < n_images; ++i) {
-		if (images[i]->tiff_xres != images[0]->tiff_xres || images[i]->tiff_yres != images[0]->tiff_yres) {
-			Output(0, "Warning: TIFF resolution mismatch (%f %f/%f %f)\n", images[0]->tiff_xres, images[0]->tiff_yres, images[i]->tiff_xres, images[i]->tiff_yres);
-		}
-	}
+  /***********************************************************************
+   * Check paramters, display warnings
+   ***********************************************************************/
+  for (i = 1; i < n_images; ++i) {
+    if (images[i]->tiff_xres != images[0]->tiff_xres ||
+        images[i]->tiff_yres != images[0]->tiff_yres) {
+      Output(0, "Warning: TIFF resolution mismatch (%f %f/%f %f)\n",
+             images[0]->tiff_xres, images[0]->tiff_yres, images[i]->tiff_xres,
+             images[i]->tiff_yres);
+    }
+  }
 
-	for (i = 0; i < n_images; ++i) {
-		if (output_bpp == 0 && images[i]->bpp == 16) output_bpp = 16;
-		if (images[i]->bpp != images[0]->bpp) {
-			die("Error: mixture of 8bpp and 16bpp images detected (not currently handled)\n");
-		}
-	}
+  for (i = 0; i < n_images; ++i) {
+    if (output_bpp == 0 && images[i]->bpp == 16)
+      output_bpp = 16;
+    if (images[i]->bpp != images[0]->bpp) {
+      die("Error: mixture of 8bpp and 16bpp images detected (not currently "
+          "handled)\n");
+    }
+  }
 
-	if (output_bpp == 0) output_bpp = 8;
-	else if (output_bpp == 16 && output_type == ImageType::MB_JPEG) {
-		Output(0, "Warning: 8bpp output forced by JPEG output\n");
-		output_bpp = 8;
-	}
+  if (output_bpp == 0)
+    output_bpp = 8;
+  else if (output_bpp == 16 && output_type == ImageType::MB_JPEG) {
+    Output(0, "Warning: 8bpp output forced by JPEG output\n");
+    output_bpp = 8;
+  }
 
-/***********************************************************************
-* Allocate working space for reading/trimming/extraction
-***********************************************************************/
-	void* untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
+  /***********************************************************************
+   * Allocate working space for reading/trimming/extraction
+   ***********************************************************************/
+  void *untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
 
-/***********************************************************************
-* Read/trim/extract
-***********************************************************************/
-	for (i = 0; i < n_images; ++i) {
-		try {
-			images[i]->Read(untrimmed_data, gamma);
-		} catch (char* e) {
-			printf("\n\n");
-			printf("%s\n", e);
-			exit(EXIT_FAILURE);
-		}
-	}
+  /***********************************************************************
+   * Read/trim/extract
+   ***********************************************************************/
+  for (i = 0; i < n_images; ++i) {
+    try {
+      images[i]->Read(untrimmed_data, gamma);
+    } catch (char *e) {
+      printf("\n\n");
+      printf("%s\n", e);
+      exit(EXIT_FAILURE);
+    }
+  }
 
-/***********************************************************************
-* Clean up
-***********************************************************************/
-	MapAlloc::Free(untrimmed_data);
+  /***********************************************************************
+   * Clean up
+   ***********************************************************************/
+  MapAlloc::Free(untrimmed_data);
 
-/***********************************************************************
-* Tighten
-***********************************************************************/
-	int min_xpos = 0x7fffffff;
-	int min_ypos = 0x7fffffff;
-	width = 0;
-	height = 0;
+  /***********************************************************************
+   * Tighten
+   ***********************************************************************/
+  int min_xpos = 0x7fffffff;
+  int min_ypos = 0x7fffffff;
+  width = 0;
+  height = 0;
 
-	for (i = 0; i < n_images; ++i) {
-		min_xpos = std::min(min_xpos, images[i]->xpos);
-		min_ypos = std::min(min_ypos, images[i]->ypos);
-	}
+  for (i = 0; i < n_images; ++i) {
+    min_xpos = std::min(min_xpos, images[i]->xpos);
+    min_ypos = std::min(min_ypos, images[i]->ypos);
+  }
 
-	for (i = 0; i < n_images; ++i) {
-		images[i]->xpos -= min_xpos;
-		images[i]->ypos -= min_ypos;
-		width = std::max(width, images[i]->xpos + images[i]->width);
-		height = std::max(height, images[i]->ypos + images[i]->height);
-	}
+  for (i = 0; i < n_images; ++i) {
+    images[i]->xpos -= min_xpos;
+    images[i]->ypos -= min_ypos;
+    width = std::max(width, images[i]->xpos + images[i]->width);
+    height = std::max(height, images[i]->ypos + images[i]->height);
+  }
 
-	images_time = timer.Read();
+  images_time = timer.Read();
 
-/***********************************************************************
-* Determine number of levels
-***********************************************************************/
-	int blend_wh;
-	int blend_levels;
+  /***********************************************************************
+   * Determine number of levels
+   ***********************************************************************/
+  int blend_wh;
+  int blend_levels;
 
-	if (!fixed_levels) {
-		if (!wideblend) {
-			std::vector<int> widths;
-			std::vector<int> heights;
+  if (!fixed_levels) {
+    if (!wideblend) {
+      std::vector<int> widths;
+      std::vector<int> heights;
 
-			for (auto image : images) {
-				widths.push_back(image->width);
-				heights.push_back(image->height);
-			}
+      for (auto image : images) {
+        widths.push_back(image->width);
+        heights.push_back(image->height);
+      }
 
-			std::sort(widths.begin(), widths.end());
-			std::sort(heights.begin(), heights.end());
+      std::sort(widths.begin(), widths.end());
+      std::sort(heights.begin(), heights.end());
 
-			size_t halfway = (widths.size() - 1) >> 1;
+      size_t halfway = (widths.size() - 1) >> 1;
 
-			blend_wh = std::max(
-				widths.size() & 1 ? widths[halfway] : (widths[halfway] + widths[halfway + 1] + 1) >> 1,
-				heights.size() & 1 ? heights[halfway] : (heights[halfway] + heights[halfway + 1] + 1) >> 1
-			);
-		} else {
-			blend_wh = (std::max)(width, height);
-		}
+      blend_wh = std::max(
+          widths.size() & 1 ? widths[halfway]
+                            : (widths[halfway] + widths[halfway + 1] + 1) >> 1,
+          heights.size() & 1
+              ? heights[halfway]
+              : (heights[halfway] + heights[halfway + 1] + 1) >> 1);
+    } else {
+      blend_wh = (std::max)(width, height);
+    }
 
-		blend_levels = (int)floor(log2(blend_wh + 4.0f) - 1);
-		if (wideblend) blend_levels++;
-	} else {
-		blend_levels = fixed_levels;
-	}
+    blend_levels = (int)floor(log2(blend_wh + 4.0f) - 1);
+    if (wideblend)
+      blend_levels++;
+  } else {
+    blend_levels = fixed_levels;
+  }
 
-	blend_levels += add_levels;
+  blend_levels += add_levels;
 
-	if (n_images == 1) {
-		blend_levels = 0;
-		Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
-	} else {
-		Output(1, "\n%d x %d, %d levels, %d bpp\n\n", width, height, blend_levels, output_bpp);
-	}
+  if (n_images == 1) {
+    blend_levels = 0;
+    Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
+  } else {
+    Output(1, "\n%d x %d, %d levels, %d bpp\n\n", width, height, blend_levels,
+           output_bpp);
+  }
 
-/***********************************************************************
-************************************************************************
-* Seaming
-************************************************************************
-***********************************************************************/
-	timer.Start();
+  /***********************************************************************
+  ************************************************************************
+  * Seaming
+  ************************************************************************
+  ***********************************************************************/
+  timer.Start();
 
-	Output(1, "Seaming");
-	switch (((!!seamsave_filename) << 1) | !!xor_filename) {
-		case 1: Output(1, " (saving XOR map)"); break;
-		case 2: Output(1, " (saving seam map)"); break;
-		case 3: Output(1, " (saving XOR and seam maps)"); break;
-	}
-	Output(1, "...\n");
+  Output(1, "Seaming");
+  switch (((!!seamsave_filename) << 1) | !!xor_filename) {
+  case 1:
+    Output(1, " (saving XOR map)");
+    break;
+  case 2:
+    Output(1, " (saving seam map)");
+    break;
+  case 3:
+    Output(1, " (saving XOR and seam maps)");
+    break;
+  }
+  Output(1, "...\n");
 
-	int min_count;
-	int xor_count;
-	int xor_image;
-	uint64_t utemp;
-	int stop;
+  int min_count;
+  int xor_count;
+  int xor_image;
+  uint64_t utemp;
+  int stop;
 
-	uint64_t best;
-	uint64_t a, b, c, d;
+  uint64_t best;
+  uint64_t a, b, c, d;
 
 #define DT_MAX 0x9000000000000000
 	uint64_t* prev_line = NULL;
@@ -1754,9 +1883,9 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
   std::vector<std::reference_wrapper<enblend::MatrixRGB>> images;
   images.push_back(image1);
   images.push_back(image2);
-
+	enblend::MatrixRGB output_image;
   //MatrixRGB result_image;
-  int result = multiblend_main(argc, argv, images);
+  int result = multiblend_main(argc, argv, images, &output_image);
 
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {

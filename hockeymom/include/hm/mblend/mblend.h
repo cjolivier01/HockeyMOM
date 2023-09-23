@@ -23,6 +23,7 @@ class MatrixRGB {
   static inline constexpr std::size_t kChannels = 3;
 
 public:
+  MatrixRGB() {}
   inline MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
                    std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
@@ -80,7 +81,7 @@ public:
 private:
   py::array_t<uint8_t> m_array;
   bool m_own_data{false};
-  size_t m_rows, m_cols;
+  size_t m_rows{0}, m_cols{0};
   std::uint8_t *m_data;
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
