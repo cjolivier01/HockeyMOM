@@ -58,23 +58,25 @@ class CMakeBuild(build_ext):
         subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
         subprocess.check_call(['cmake',
                                '--build', '.',
-                               '--target', os.path.basename(ext.name)
+                               '--target', os.path.basename(ext.name),
+                               '--target', "nona",
+                               '--target', "pto_gen",
+                               '--target', "cpfind",
+                               '--target', "autooptimiser",
                                ] + build_args,
                               cwd=self.build_temp)
 
 setup(
-    name='pybind11-project-example',
-    version='0.0.0',
-    author='Sergei Izmailov',
-    author_email='sergei.a.izmailov@gmail.com',
-    description='A minimal self-contained pybind11 project',
+    name='hockeymom',
+    version='0.1.0',
+    author='Christopher Olivier',
+    author_email='cjolivier01@gmail.com',
+    description='HockeyMOM project',
     long_description=open("README.rst").read(),
     ext_modules=[CMakeExtension('hockeymom/_hockeymom')],
     packages=find_packages(),
     cmdclass=dict(build_ext=CMakeBuild),
-    url="https://github.com/sizmailov/pybind11-project-example",
+    url="https://github.com/cjolivier01/hockeymom2",
     zip_safe=False,
-    install_requires=[
-        "numpy"
-    ]
+    install_requires=[]
 )
