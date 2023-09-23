@@ -12,3 +12,5 @@ __pycache__
 /*.mov
 /*.aac
 pybind11_project_example.egg-info
+compile_commands.json
+/output_image.png

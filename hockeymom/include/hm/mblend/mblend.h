@@ -15,6 +15,10 @@ namespace enblend {
 int enblend_main(std::string output_image,
                  std::vector<std::string> input_files);
 
+/**
+ * @brief Class to carry python array for RGB data into the blend function
+ *        (in-place)
+ */
 class MatrixRGB {
   static inline constexpr std::size_t kChannels = 3;
 

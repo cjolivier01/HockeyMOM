@@ -4,7 +4,7 @@
 #include "hm/sublibA/ConsoleColors.h"
 #include "hm/sublibA/add.h"
 
-#include "hm/multiblend/multiblend.h"
+#include "hm/mblend/mblend.h"
 
 #include <iostream>
 

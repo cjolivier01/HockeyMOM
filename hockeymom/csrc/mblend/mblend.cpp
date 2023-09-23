@@ -48,7 +48,7 @@ void fopen_s(FILE** f, const char* filename, const char* mode) { *f = fopen(file
 int verbosity = 1;
 
 //#ifndef STANDALONE
-#include "../../include/hm/multiblend/multiblend.h"
+#include "../../include/hm/mblend/mblend.h"
 //#endif
 
 #include "pnger.cpp"
@@ -148,10 +148,10 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 ***********************************************************************/
 	if (argc == 1 || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help") || !strcmp(argv[1], "/?")) {
 		Output(1, "\n");
-		Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/multiblend/\n");
+		Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/mblend/\n");
 		Output(1, "----------------------------------------------------------------------------\n");
 
-		printf("Usage: multiblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] [INPUT]...\n");
+		printf("Usage: mblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] [INPUT]...\n");
 		printf("\n");
 		printf("Options:\n");
 		printf("  --levels X / -l X      X: set number of blending levels to X\n");
@@ -406,7 +406,7 @@ int multiblend_main(int argc, char* argv[], std::vector<std::reference_wrapper<e
 * Print banner
 ***********************************************************************/
 	// Output(1, "\n");
-	// Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/multiblend/\n");
+	// Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        http://horman.net/mblend/\n");
 	// Output(1, "----------------------------------------------------------------------------\n");
 
 	Threadpool* threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);

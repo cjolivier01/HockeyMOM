@@ -498,11 +498,8 @@ def stitch_with_warp():
     cv2.destroyAllWindows()
 
 
-def pyramid_blending():
-    A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
-    B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
-
-    dataset = gdal.Open("/mnt/data/Videos/my_project0000.tif")
+def get_image_geo_position(tiff_image_file: str):
+    dataset = gdal.Open(tiff_image_file)
     # Get georeferencing information
     geotransform = dataset.GetGeoTransform()
     spatial_reference = dataset.GetProjection()
@@ -517,6 +514,15 @@ def pyramid_blending():
     y_geo_ref = geotransform[1]  # X-coordinate of the top-left corner
 
     print(f"x={x_geo_ref}, y={y_geo_ref}")
+    return x_geo_ref, y_geo_ref
+
+
+def pyramid_blending():
+    A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
+    B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
+
+    get_image_geo_position("/mnt/data/Videos/my_project0000.tif")
+    get_image_geo_position("/mnt/data/Videos/my_project0001.tif")
 
     img = core.emblend_images(A, B, [0, 0], [0, 0])
     # A = cv2.resize(A, (512, 512))

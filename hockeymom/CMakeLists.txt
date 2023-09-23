@@ -2,7 +2,7 @@
 set(CMAKE_BUILD_TYPE Debug)
 set(
   SOURCES
-  csrc/multiblend/multiblend.cpp
+  csrc/mblend/mblend.cpp
   csrc/sublibA/add.cpp
   csrc/ImagePostProcess.cpp
 )
