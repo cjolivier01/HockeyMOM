@@ -531,11 +531,11 @@ def get_image_geo_position(tiff_image_file: str):
 def pyramid_blending():
     files_left = [
         "/mnt/data/Videos/my_project0000.tif",
-        "/mnt/data/Videos/my_project20000.tif",
+        "/mnt/data/Videos/my_project-20000.tif",
     ]
     files_right = [
         "/mnt/data/Videos/my_project0001.tif",
-        "/mnt/data/Videos/my_project20001.tif",
+        "/mnt/data/Videos/my_project-20001.tif",
     ]
 
     xpos_1, ypos_1 = get_image_geo_position(files_left[0])
