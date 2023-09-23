@@ -18,8 +18,8 @@
 */
 
 #define NOMINMAX
-#include <cstdint>
 #include <stdio.h>
+#include <cstdint>
 
 #include <algorithm>
 #include <cassert>
@@ -37,15 +37,19 @@
 
 #ifndef _WIN32
 #include <strings.h>
-int _stricmp(const char *a, const char *b) { return strcasecmp(a, b); }
+int _stricmp(const char* a, const char* b) {
+  return strcasecmp(a, b);
+}
 #define ZeroMemory(a, b) memset(a, 0, b)
 #define sprintf_s sprintf
 #define sscanf_s sscanf
-void *_aligned_malloc(size_t size, int boundary) {
+void* _aligned_malloc(size_t size, int boundary) {
   return memalign(boundary, size);
 }
-void _aligned_free(void *a) { free(a); }
-void fopen_s(FILE **f, const char *filename, const char *mode) {
+void _aligned_free(void* a) {
+  free(a);
+}
+void fopen_s(FILE** f, const char* filename, const char* mode) {
   *f = fopen(filename, mode);
 }
 #endif
@@ -78,7 +82,9 @@ enum class ImageType { MB_NONE, MB_TIFF, MB_JPEG, MB_PNG, MB_MEM };
 #ifdef _WIN32
 FILE _iob[] = {*stdin, *stdout, *stderr};
 
-extern "C" FILE *__cdecl __iob_func(void) { return _iob; }
+extern "C" FILE* __cdecl __iob_func(void) {
+  return _iob;
+}
 #pragma comment(lib, "legacy_stdio_definitions.lib")
 // the above are required to support VS 2010 build of libjpeg-turbo 2.0.6
 #pragma comment(lib, "tiff.lib")
@@ -87,20 +93,27 @@ extern "C" FILE *__cdecl __iob_func(void) { return _iob; }
 #pragma comment(lib, "zlib.lib")
 #endif
 
-#define MASKVAL(X)                                                             \
+#define MASKVAL(X) \
   (((X)&0x7fffffffffffffff) | images[(X)&0xffffffff]->mask_state)
 
 class Blender {
-
   /***********************************************************************
    * Variables
    ***********************************************************************/
-  std::vector<Image *> images;
+  std::vector<std::unique_ptr<Image>> images;
   int fixed_levels = 0;
   int add_levels = 0;
 
   int width = 0;
   int height = 0;
+
+  uint64_t total_pixels = 0;
+  uint64_t channel_totals[3] = {0};
+
+  std::unique_ptr<Flex> full_mask_ptr_;
+  std::unique_ptr<Flex> xor_mask_ptr_;
+  int min_xpos = 0x7fffffff;
+  int min_ypos = 0x7fffffff;
 
   bool no_mask = false;
   bool big_tiff = false;
@@ -113,17 +126,17 @@ class Blender {
   bool all_threads = true;
   int wrap = 0;
 
-  TIFF *tiff_file = NULL;
-  FILE *jpeg_file = NULL;
-  Pnger *png_file = NULL;
+  TIFF* tiff_file = NULL;
+  FILE* jpeg_file = NULL;
+  Pnger* png_file = NULL;
   std::unique_ptr<Image> output_image_ptr_;
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
-  char *seamsave_filename = NULL;
-  char *seamload_filename = NULL;
-  char *xor_filename = NULL;
-  char *output_filename = NULL;
+  char* seamsave_filename = NULL;
+  char* seamload_filename = NULL;
+  char* xor_filename = NULL;
+  char* output_filename = NULL;
   int output_bpp = 0;
 
   double images_time = 0;
@@ -138,10 +151,13 @@ class Blender {
   double out_time = 0;
   double write_time = 0;
 
-  Timer timer_all;
+  Timer timer_all, timer;
 
-public:
-  int multiblend_main(int argc, char *argv[]) {
+  int blend_levels = 0;
+  Threadpool* threadpool = nullptr;
+
+ public:
+  int multiblend_main(int argc, char* argv[]) {
     // This is here because of a weird problem encountered during development
     // with Visual Studio. It should never be triggered.
     if (verbosity != 1) {
@@ -161,14 +177,18 @@ public:
     if (argc == 1 || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help") ||
         !strcmp(argv[1], "/?")) {
       Output(1, "\n");
-      Output(1, "Multiblend v2.0.0 (c) 2021 David Horman        "
-                "http://horman.net/mblend/\n");
-      Output(1,
-             "----------------------------------------------------------------"
-             "------------\n");
+      Output(
+          1,
+          "Multiblend v2.0.0 (c) 2021 David Horman        "
+          "http://horman.net/mblend/\n");
+      Output(
+          1,
+          "----------------------------------------------------------------"
+          "------------\n");
 
-      printf("Usage: mblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] "
-             "[INPUT]...\n");
+      printf(
+          "Usage: mblend [options] [-o OUTPUT] INPUT [X,Y] [INPUT] [X,Y] "
+          "[INPUT]...\n");
       printf("\n");
       printf("Options:\n");
       printf(
@@ -183,35 +203,45 @@ public:
           "  --depth D / -d D       Override automatic output image depth (8 "
           "or 16)\n");
       printf("  --bgr                  Swap RGB order\n");
-      printf("  --wideblend            Calculate number of levels based on "
-             "output image size,\n");
+      printf(
+          "  --wideblend            Calculate number of levels based on "
+          "output image size,\n");
       printf("                         rather than input image size\n");
-      printf("  -w, --wrap=[mode]      Blend around images boundaries (NONE "
-             "(default),\n");
-      printf("                         HORIZONTAL, VERTICAL). When specified "
-             "without a mode,\n");
+      printf(
+          "  -w, --wrap=[mode]      Blend around images boundaries (NONE "
+          "(default),\n");
+      printf(
+          "                         HORIZONTAL, VERTICAL). When specified "
+          "without a mode,\n");
       printf("                         defaults to HORIZONTAL.\n");
       printf(
           "  --compression=X        Output file compression. For TIFF output, "
           "X may be:\n");
       printf("                         NONE (default), PACKBITS, or LZW\n");
-      printf("                         For JPEG output, X is JPEG quality "
-             "(0-100, default 75)\n");
-      printf("                         For PNG output, X is PNG filter (0-9, "
-             "default 3)\n");
-      printf("  --cache-threshold=     Allocate memory beyond X "
-             "bytes/[K]ilobytes/\n");
+      printf(
+          "                         For JPEG output, X is JPEG quality "
+          "(0-100, default 75)\n");
+      printf(
+          "                         For PNG output, X is PNG filter (0-9, "
+          "default 3)\n");
+      printf(
+          "  --cache-threshold=     Allocate memory beyond X "
+          "bytes/[K]ilobytes/\n");
       printf("      X[K/M/G]           [M]egabytes/[G]igabytes to disk\n");
       printf("  --no-dither            Disable dithering\n");
-      printf("  --tempdir <dir>        Specify temporary directory (default: "
-             "system temp)\n");
-      printf("  --save-seams <file>    Save seams to PNG file for external "
-             "editing\n");
+      printf(
+          "  --tempdir <dir>        Specify temporary directory (default: "
+          "system temp)\n");
+      printf(
+          "  --save-seams <file>    Save seams to PNG file for external "
+          "editing\n");
       printf("  --load-seams <file>    Load seams from PNG file\n");
-      printf("  --no-output            Do not blend (for use with "
-             "--save-seams)\n");
-      printf("                         Must be specified as last option before "
-             "input images\n");
+      printf(
+          "  --no-output            Do not blend (for use with "
+          "--save-seams)\n");
+      printf(
+          "                         Must be specified as last option before "
+          "input images\n");
       printf("  --bigtiff              BigTIFF output\n");
       printf(
           "  --reverse              Reverse image priority (last=highest) for "
@@ -230,7 +260,7 @@ public:
     * Parse arguments
     ************************************************************************
     ***********************************************************************/
-    std::vector<char *> my_argv;
+    std::vector<char*> my_argv;
 
     bool skip = false;
 
@@ -292,16 +322,18 @@ public:
         }
         if (!strcmp(my_argv[i + 1], "none") || !strcmp(my_argv[i + 1], "open"))
           ++i;
-        else if (!strcmp(my_argv[i + 1], "horizontal") ||
-                 !strcmp(my_argv[i + 1], "h")) {
+        else if (
+            !strcmp(my_argv[i + 1], "horizontal") ||
+            !strcmp(my_argv[i + 1], "h")) {
           wrap = 1;
           ++i;
-        } else if (!strcmp(my_argv[i + 1], "vertical") ||
-                   !strcmp(my_argv[i + 1], "v")) {
+        } else if (
+            !strcmp(my_argv[i + 1], "vertical") ||
+            !strcmp(my_argv[i + 1], "v")) {
           wrap = 2;
           ++i;
-        } else if (!strcmp(my_argv[i + 1], "both") ||
-                   !strcmp(my_argv[i + 1], "hv")) {
+        } else if (
+            !strcmp(my_argv[i + 1], "both") || !strcmp(my_argv[i + 1], "hv")) {
           wrap = 3;
           ++i;
         } else
@@ -319,20 +351,20 @@ public:
         if (n != len) {
           if (n == len - 1) {
             switch (my_argv[i][len - 1]) {
-            case 'k':
-            case 'K':
-              shift = 10;
-              break;
-            case 'm':
-            case 'M':
-              shift = 20;
-              break;
-            case 'g':
-            case 'G':
-              shift = 30;
-              break;
-            default:
-              die("Error: Bad --cache-threshold parameter");
+              case 'k':
+              case 'K':
+                shift = 10;
+                break;
+              case 'm':
+              case 'M':
+                shift = 20;
+                break;
+              case 'g':
+              case 'G':
+                shift = 30;
+                break;
+              default:
+                die("Error: Bad --cache-threshold parameter");
             }
             threshold <<= shift;
           } else {
@@ -340,11 +372,11 @@ public:
           }
         }
         MapAlloc::CacheThreshold(threshold);
-      } else if (!strcmp(my_argv[i], "--nomask") ||
-                 !strcmp(my_argv[i], "--no-mask"))
+      } else if (
+          !strcmp(my_argv[i], "--nomask") || !strcmp(my_argv[i], "--no-mask"))
         no_mask = true;
-      else if (!strcmp(my_argv[i], "--timing") ||
-               !strcmp(my_argv[i], "--timings"))
+      else if (
+          !strcmp(my_argv[i], "--timing") || !strcmp(my_argv[i], "--timings"))
         timing = true;
       else if (!strcmp(my_argv[i], "--bigtiff"))
         big_tiff = true;
@@ -356,8 +388,9 @@ public:
         reverse = true;
       else if (!strcmp(my_argv[i], "--gamma"))
         gamma = true;
-      else if (!strcmp(my_argv[i], "--no-dither") ||
-               !strcmp(my_argv[i], "--nodither"))
+      else if (
+          !strcmp(my_argv[i], "--no-dither") ||
+          !strcmp(my_argv[i], "--nodither"))
         dither = false;
       //		else if (!strcmp(my_argv[i], "--force")) force_coverage
       //=
@@ -396,20 +429,24 @@ public:
         ++verbosity;
       else if (!strcmp(my_argv[i], "-q") || !strcmp(my_argv[i], "--quiet"))
         --verbosity;
-      else if ((!strcmp(my_argv[i], "--saveseams") ||
-                !strcmp(my_argv[i], "--save-seams")) &&
-               i < (int)my_argv.size() - 1)
+      else if (
+          (!strcmp(my_argv[i], "--saveseams") ||
+           !strcmp(my_argv[i], "--save-seams")) &&
+          i < (int)my_argv.size() - 1)
         seamsave_filename = my_argv[++i];
-      else if ((!strcmp(my_argv[i], "--loadseams") ||
-                !strcmp(my_argv[i], "--load-seams")) &&
-               i < (int)my_argv.size() - 1)
+      else if (
+          (!strcmp(my_argv[i], "--loadseams") ||
+           !strcmp(my_argv[i], "--load-seams")) &&
+          i < (int)my_argv.size() - 1)
         seamload_filename = my_argv[++i];
-      else if ((!strcmp(my_argv[i], "--savexor") ||
-                !strcmp(my_argv[i], "--save-xor")) &&
-               i < (int)my_argv.size() - 1)
+      else if (
+          (!strcmp(my_argv[i], "--savexor") ||
+           !strcmp(my_argv[i], "--save-xor")) &&
+          i < (int)my_argv.size() - 1)
         xor_filename = my_argv[++i];
-      else if (!strcmp(my_argv[i], "--tempdir") ||
-               !strcmp(my_argv[i], "--tmpdir") && i < (int)my_argv.size() - 1)
+      else if (
+          !strcmp(my_argv[i], "--tempdir") ||
+          !strcmp(my_argv[i], "--tmpdir") && i < (int)my_argv.size() - 1)
         MapAlloc::SetTmpdir(my_argv[++i]);
       else if (!strcmp(my_argv[i], "--all-threads"))
         all_threads = true;
@@ -419,7 +456,7 @@ public:
           if (!*output_filename) {
             output_type = ImageType::MB_MEM;
           } else {
-            char *ext = strrchr(output_filename, '.');
+            char* ext = strrchr(output_filename, '.');
 
             if (!ext) {
               die("Error: Unknown output filetype");
@@ -453,8 +490,8 @@ public:
 
     if (compression != -1) {
       if (output_type != ImageType::MB_TIFF) {
-        Output(0,
-               "Warning: non-TIFF output; ignoring TIFF compression setting\n");
+        Output(
+            0, "Warning: non-TIFF output; ignoring TIFF compression setting\n");
       }
     } else if (output_type == ImageType::MB_TIFF) {
       compression = COMPRESSION_LZW;
@@ -462,8 +499,10 @@ public:
 
     if (jpeg_quality != -1 && output_type != ImageType::MB_JPEG &&
         output_type != ImageType::MB_PNG) {
-      Output(0, "Warning: non-JPEG/PNG output; ignoring compression quality "
-                "setting\n");
+      Output(
+          0,
+          "Warning: non-JPEG/PNG output; ignoring compression quality "
+          "setting\n");
     }
 
     if ((jpeg_quality < -1 || jpeg_quality > 9) &&
@@ -499,24 +538,24 @@ public:
           continue;
         }
       }
-      images.push_back(new Image(my_argv[i++]));
+      images.push_back(std::make_unique<Image>(my_argv[i++]));
     }
+    threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
     return EXIT_SUCCESS;
   }
 
   int process_images(
-      std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images,
-      std::unique_ptr<enblend::MatrixRGB> *output_image = nullptr) {
+      std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images) {
     if (!incoming_images.empty()) {
       images.clear();
     }
-    for (auto &img : incoming_images) {
+    for (auto& img : incoming_images) {
       std::size_t size =
           img.get().rows() * img.get().cols() * img.get().channels();
-      std::vector<size_t> shape{img.get().rows(), img.get().cols(),
-                                img.get().channels()};
-      images.push_back(new Image(img.get().data(), size, std::move(shape),
-                                 img.get().xy_pos()));
+      std::vector<size_t> shape{
+          img.get().rows(), img.get().cols(), img.get().channels()};
+      images.push_back(std::make_unique<Image>(
+          img.get().data(), size, std::move(shape), img.get().xy_pos()));
     }
 
     int n_images = (int)images.size();
@@ -533,8 +572,8 @@ public:
     }
     if (xor_filename && n_images > 255) {
       xor_filename = NULL;
-      Output(0,
-             "Warning: XOR map saving not possible with more than 255 images");
+      Output(
+          0, "Warning: XOR map saving not possible with more than 255 images");
     }
 
     /***********************************************************************
@@ -545,7 +584,7 @@ public:
     // http://horman.net/mblend/\n"); Output(1,
     // "----------------------------------------------------------------------------\n");
 
-    Threadpool *threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
+    // Threadpool *threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
 
     /***********************************************************************
     ************************************************************************
@@ -553,35 +592,34 @@ public:
     ************************************************************************
     ***********************************************************************/
     switch (output_type) {
-    case ImageType::MB_TIFF: {
-      if (!big_tiff)
-        tiff_file = TIFFOpen(output_filename, "w");
-      else
-        tiff_file = TIFFOpen(output_filename, "w8");
-      if (!tiff_file)
-        die("Error: Could not open output file");
-    } break;
-    case ImageType::MB_JPEG: {
-      if (output_bpp == 16)
-        die("Error: 16bpp output is incompatible with JPEG output");
-      fopen_s(&jpeg_file, output_filename, "wb");
-      if (!jpeg_file)
-        die("Error: Could not open output file");
-    } break;
-    case ImageType::MB_PNG: {
-      fopen_s(&jpeg_file, output_filename, "wb");
-      if (!jpeg_file)
-        die("Error: Could not open output file");
-    } break;
-    case ImageType::MB_MEM: {
-      // fopen_s(&jpeg_file, output_filename, "wb");
-      // if (!jpeg_file)
-      //   die("Error: Could not open output file");
-    } break;
+      case ImageType::MB_TIFF: {
+        if (!big_tiff)
+          tiff_file = TIFFOpen(output_filename, "w");
+        else
+          tiff_file = TIFFOpen(output_filename, "w8");
+        if (!tiff_file)
+          die("Error: Could not open output file");
+      } break;
+      case ImageType::MB_JPEG: {
+        if (output_bpp == 16)
+          die("Error: 16bpp output is incompatible with JPEG output");
+        fopen_s(&jpeg_file, output_filename, "wb");
+        if (!jpeg_file)
+          die("Error: Could not open output file");
+      } break;
+      case ImageType::MB_PNG: {
+        fopen_s(&jpeg_file, output_filename, "wb");
+        if (!jpeg_file)
+          die("Error: Could not open output file");
+      } break;
+      case ImageType::MB_MEM: {
+        // fopen_s(&jpeg_file, output_filename, "wb");
+        // if (!jpeg_file)
+        //   die("Error: Could not open output file");
+      } break;
     }
 
     int i = 0;
-    Timer timer;
 
     /***********************************************************************
     ************************************************************************
@@ -606,9 +644,13 @@ public:
     for (i = 1; i < n_images; ++i) {
       if (images[i]->tiff_xres != images[0]->tiff_xres ||
           images[i]->tiff_yres != images[0]->tiff_yres) {
-        Output(0, "Warning: TIFF resolution mismatch (%f %f/%f %f)\n",
-               images[0]->tiff_xres, images[0]->tiff_yres, images[i]->tiff_xres,
-               images[i]->tiff_yres);
+        Output(
+            0,
+            "Warning: TIFF resolution mismatch (%f %f/%f %f)\n",
+            images[0]->tiff_xres,
+            images[0]->tiff_yres,
+            images[i]->tiff_xres,
+            images[i]->tiff_yres);
       }
     }
 
@@ -631,7 +673,7 @@ public:
     /***********************************************************************
      * Allocate working space for reading/trimming/extraction
      ***********************************************************************/
-    void *untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
+    void* untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
 
     /***********************************************************************
      * Read/trim/extract
@@ -639,7 +681,7 @@ public:
     for (i = 0; i < n_images; ++i) {
       try {
         images[i]->Read(untrimmed_data, gamma);
-      } catch (char *e) {
+      } catch (char* e) {
         printf("\n\n");
         printf("%s\n", e);
         exit(EXIT_FAILURE);
@@ -654,8 +696,8 @@ public:
     /***********************************************************************
      * Tighten
      ***********************************************************************/
-    int min_xpos = 0x7fffffff;
-    int min_ypos = 0x7fffffff;
+    // int min_xpos = 0x7fffffff;
+    // int min_ypos = 0x7fffffff;
     width = 0;
     height = 0;
 
@@ -677,14 +719,14 @@ public:
      * Determine number of levels
      ***********************************************************************/
     int blend_wh;
-    int blend_levels;
+    // int blend_levels;
 
     if (!fixed_levels) {
       if (!wideblend) {
         std::vector<int> widths;
         std::vector<int> heights;
 
-        for (auto image : images) {
+        for (auto& image : images) {
           widths.push_back(image->width);
           heights.push_back(image->height);
         }
@@ -694,13 +736,13 @@ public:
 
         size_t halfway = (widths.size() - 1) >> 1;
 
-        blend_wh =
-            std::max(widths.size() & 1
-                         ? widths[halfway]
-                         : (widths[halfway] + widths[halfway + 1] + 1) >> 1,
-                     heights.size() & 1
-                         ? heights[halfway]
-                         : (heights[halfway] + heights[halfway + 1] + 1) >> 1);
+        blend_wh = std::max(
+            widths.size() & 1
+                ? widths[halfway]
+                : (widths[halfway] + widths[halfway + 1] + 1) >> 1,
+            heights.size() & 1
+                ? heights[halfway]
+                : (heights[halfway] + heights[halfway + 1] + 1) >> 1);
       } else {
         blend_wh = (std::max)(width, height);
       }
@@ -718,8 +760,13 @@ public:
       blend_levels = 0;
       Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
     } else {
-      Output(1, "\n%d x %d, %d levels, %d bpp\n\n", width, height, blend_levels,
-             output_bpp);
+      Output(
+          1,
+          "\n%d x %d, %d levels, %d bpp\n\n",
+          width,
+          height,
+          blend_levels,
+          output_bpp);
     }
 
     /***********************************************************************
@@ -731,15 +778,15 @@ public:
 
     Output(1, "Seaming");
     switch (((!!seamsave_filename) << 1) | !!xor_filename) {
-    case 1:
-      Output(1, " (saving XOR map)");
-      break;
-    case 2:
-      Output(1, " (saving seam map)");
-      break;
-    case 3:
-      Output(1, " (saving XOR and seam maps)");
-      break;
+      case 1:
+        Output(1, " (saving XOR map)");
+        break;
+      case 2:
+        Output(1, " (saving seam map)");
+        break;
+      case 3:
+        Output(1, " (saving XOR and seam maps)");
+        break;
     }
     Output(1, "...\n");
 
@@ -753,12 +800,12 @@ public:
     uint64_t a, b, c, d;
 
 #define DT_MAX 0x9000000000000000
-    uint64_t *prev_line = NULL;
-    uint64_t *this_line = NULL;
+    uint64_t* prev_line = NULL;
+    uint64_t* this_line = NULL;
     bool last_pixel = false;
     bool arbitrary_seam = false;
 
-    Flex *seam_flex = new Flex(width, height);
+    Flex* seam_flex = new Flex(width, height);
     int max_queue = 0;
 
     int x = 0, y = 0;
@@ -767,13 +814,13 @@ public:
      * Backward distance transform
      ***********************************************************************/
     int n_threads = std::max(2, threadpool->GetNThreads());
-    uint64_t **thread_lines = new uint64_t *[n_threads];
+    uint64_t** thread_lines = new uint64_t*[n_threads];
 
     if (!seamload_filename) {
-      std::mutex *flex_mutex_p = new std::mutex;
-      std::condition_variable *flex_cond_p = new std::condition_variable;
+      std::mutex* flex_mutex_p = new std::mutex;
+      std::condition_variable* flex_cond_p = new std::condition_variable;
 
-      uint8_t **thread_comp_lines = new uint8_t *[n_threads];
+      uint8_t** thread_comp_lines = new uint8_t*[n_threads];
 
       for (i = 0; i < n_threads; ++i) {
         thread_lines[i] = new uint64_t[width];
@@ -788,7 +835,7 @@ public:
       for (y = height - 1; y >= 0; --y) {
         int t = y % n_threads;
         this_line = thread_lines[t];
-        uint8_t *comp = thread_comp_lines[t];
+        uint8_t* comp = thread_comp_lines[t];
 
         // set initial image mask states
         for (i = 0; i < n_images; ++i) {
@@ -846,7 +893,7 @@ public:
             while (x > stop)
               this_line[x--] = xor_image;
           } else {
-            if (y == height - 1) {  // bottom row
+            if (y == height - 1) { // bottom row
               if (x == width - 1) { // first pixel(s)
                 while (x > stop)
                   this_line[x--] = DT_MAX; // max
@@ -859,7 +906,7 @@ public:
                                           // unlikely to happen
                 }
               }
-            } else {                // other rows
+            } else { // other rows
               if (x == width - 1) { // first pixel(s)
                 utemp = prev_line[x - 1] + 0x400000000;
                 a = MASKVAL(utemp);
@@ -960,8 +1007,10 @@ public:
 
       for (i = 0; i < n_images; ++i) {
         if (!images[i]->seam_present) {
-          Output(1, "Warning: %s is fully obscured by other images\n",
-                 images[i]->filename);
+          Output(
+              1,
+              "Warning: %s is fully obscured by other images\n",
+              images[i]->filename);
         }
       }
 
@@ -985,13 +1034,17 @@ public:
       images[i]->masks.push_back(new Flex(width, height));
     }
 
-    Pnger *xor_map = xor_filename ? new Pnger(xor_filename, "XOR map", width,
-                                              height, PNG_COLOR_TYPE_PALETTE)
-                                  : NULL;
-    Pnger *seam_map = seamsave_filename
-                          ? new Pnger(seamsave_filename, "Seam map", width,
-                                      height, PNG_COLOR_TYPE_PALETTE)
-                          : NULL;
+    Pnger* xor_map = xor_filename
+        ? new Pnger(
+              xor_filename, "XOR map", width, height, PNG_COLOR_TYPE_PALETTE)
+        : NULL;
+    Pnger* seam_map = seamsave_filename ? new Pnger(
+                                              seamsave_filename,
+                                              "Seam map",
+                                              width,
+                                              height,
+                                              PNG_COLOR_TYPE_PALETTE)
+                                        : NULL;
 
     /***********************************************************************
      * Forward distance transform
@@ -1002,11 +1055,15 @@ public:
 
     prev_line = thread_lines[1];
 
-    uint64_t total_pixels = 0;
-    uint64_t channel_totals[3] = {0};
+    // uint64_t total_pixels = 0;
+    // uint64_t channel_totals[3] = {0};
 
-    Flex full_mask(width, height);
-    Flex xor_mask(width, height);
+    full_mask_ptr_ = std::make_unique<Flex>(width, height);
+    xor_mask_ptr_ = std::make_unique<Flex>(width, height);
+    Flex& full_mask = *full_mask_ptr_;
+    Flex& xor_mask = *xor_mask_ptr_;
+    // Flex full_mask(width, height);
+    // Flex xor_mask(width, height);
 
     bool alpha = false;
 
@@ -1065,61 +1122,61 @@ public:
             memset(&xor_map->line[x], xor_image, min_count);
 
           size_t p = (y - images[xor_image]->ypos) * images[xor_image]->width +
-                     (x - images[xor_image]->xpos);
+              (x - images[xor_image]->xpos);
 
           int total_count = min_count;
           total_pixels += total_count;
           if (gamma) {
             switch (images[xor_image]->bpp) {
-            case 8: {
-              uint16_t v;
-              while (total_count--) {
-                v = ((uint8_t *)images[xor_image]->channels[0]->data)[p];
-                channel_totals[0] += v * v;
-                v = ((uint8_t *)images[xor_image]->channels[1]->data)[p];
-                channel_totals[1] += v * v;
-                v = ((uint8_t *)images[xor_image]->channels[2]->data)[p];
-                channel_totals[2] += v * v;
-                ++p;
-              }
-            } break;
-            case 16: {
-              uint32_t v;
-              while (total_count--) {
-                v = ((uint16_t *)images[xor_image]->channels[0]->data)[p];
-                channel_totals[0] += v * v;
-                v = ((uint16_t *)images[xor_image]->channels[1]->data)[p];
-                channel_totals[1] += v * v;
-                v = ((uint16_t *)images[xor_image]->channels[2]->data)[p];
-                channel_totals[2] += v * v;
-                ++p;
-              }
-            } break;
+              case 8: {
+                uint16_t v;
+                while (total_count--) {
+                  v = ((uint8_t*)images[xor_image]->channels[0]->data)[p];
+                  channel_totals[0] += v * v;
+                  v = ((uint8_t*)images[xor_image]->channels[1]->data)[p];
+                  channel_totals[1] += v * v;
+                  v = ((uint8_t*)images[xor_image]->channels[2]->data)[p];
+                  channel_totals[2] += v * v;
+                  ++p;
+                }
+              } break;
+              case 16: {
+                uint32_t v;
+                while (total_count--) {
+                  v = ((uint16_t*)images[xor_image]->channels[0]->data)[p];
+                  channel_totals[0] += v * v;
+                  v = ((uint16_t*)images[xor_image]->channels[1]->data)[p];
+                  channel_totals[1] += v * v;
+                  v = ((uint16_t*)images[xor_image]->channels[2]->data)[p];
+                  channel_totals[2] += v * v;
+                  ++p;
+                }
+              } break;
             }
           } else {
             switch (images[xor_image]->bpp) {
-            case 8: {
-              while (total_count--) {
-                channel_totals[0] +=
-                    ((uint8_t *)images[xor_image]->channels[0]->data)[p];
-                channel_totals[1] +=
-                    ((uint8_t *)images[xor_image]->channels[1]->data)[p];
-                channel_totals[2] +=
-                    ((uint8_t *)images[xor_image]->channels[2]->data)[p];
-                ++p;
-              }
-            } break;
-            case 16: {
-              while (total_count--) {
-                channel_totals[0] +=
-                    ((uint16_t *)images[xor_image]->channels[0]->data)[p];
-                channel_totals[1] +=
-                    ((uint16_t *)images[xor_image]->channels[1]->data)[p];
-                channel_totals[2] +=
-                    ((uint16_t *)images[xor_image]->channels[2]->data)[p];
-                ++p;
-              }
-            } break;
+              case 8: {
+                while (total_count--) {
+                  channel_totals[0] +=
+                      ((uint8_t*)images[xor_image]->channels[0]->data)[p];
+                  channel_totals[1] +=
+                      ((uint8_t*)images[xor_image]->channels[1]->data)[p];
+                  channel_totals[2] +=
+                      ((uint8_t*)images[xor_image]->channels[2]->data)[p];
+                  ++p;
+                }
+              } break;
+              case 16: {
+                while (total_count--) {
+                  channel_totals[0] +=
+                      ((uint16_t*)images[xor_image]->channels[0]->data)[p];
+                  channel_totals[1] +=
+                      ((uint16_t*)images[xor_image]->channels[1]->data)[p];
+                  channel_totals[2] +=
+                      ((uint16_t*)images[xor_image]->channels[2]->data)[p];
+                  ++p;
+                }
+              } break;
             }
           }
 
@@ -1339,7 +1396,7 @@ public:
       uint8_t sig[8];
       png_structp png_ptr;
       png_infop info_ptr;
-      FILE *f;
+      FILE* f;
 
       fopen_s(&f, seamload_filename, "rb");
       if (!f)
@@ -1360,8 +1417,16 @@ public:
       png_init_io(png_ptr, f);
       png_set_sig_bytes(png_ptr, 8);
       png_read_info(png_ptr, info_ptr);
-      png_get_IHDR(png_ptr, info_ptr, &png_width, &png_height, &png_depth,
-                   &png_colour, NULL, NULL, NULL);
+      png_get_IHDR(
+          png_ptr,
+          info_ptr,
+          &png_width,
+          &png_height,
+          &png_depth,
+          &png_colour,
+          NULL,
+          NULL,
+          NULL);
 
       if (png_width != width || png_height != png_height)
         die("Error: Seam PNG dimensions don't match workspace");
@@ -1395,14 +1460,68 @@ public:
     }
 
     seam_time = timer.Read();
+    return EXIT_SUCCESS;
+  }
 
+  void reopen_images() {
+    size_t untrimmed_bytes = 0;
+    int i = 0, n_images = images.size();
+    for (i = 0; i < n_images; ++i) {
+      images[i]->Open();
+      untrimmed_bytes = std::max(untrimmed_bytes, images[i]->untrimmed_bytes);
+    }
+
+    /***********************************************************************
+     * Allocate working space for reading/trimming/extraction
+     ***********************************************************************/
+    void* untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
+
+    /***********************************************************************
+     * Read/trim/extract
+     ***********************************************************************/
+    for (i = 0; i < n_images; ++i) {
+      try {
+        images[i]->Read(untrimmed_data, gamma);
+      } catch (char* e) {
+        printf("\n\n");
+        printf("%s\n", e);
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    /***********************************************************************
+     * Clean up
+     ***********************************************************************/
+    MapAlloc::Free(untrimmed_data);
+  }
+
+  int process_inputs(
+      const std::vector<std::reference_wrapper<enblend::MatrixRGB>>&
+          next_images,
+      std::unique_ptr<enblend::MatrixRGB>* output_image = nullptr) {
+    if (!next_images.empty()) {
+      for (std::size_t i = 0, n = next_images.size(); i < n; ++i) {
+        auto& img = next_images[i];
+        auto& prev_image = images.at(i);
+        // std::size_t size =
+        //     img.get().rows() * img.get().cols() * img.get().channels();
+        // std::vector<size_t> shape{
+        //     img.get().rows(), img.get().cols(), img.get().channels()};
+        // next_images.push_back(std::make_unique<Image>(
+        //     img.get().data(), size, std::move(shape), img.get().xy_pos()));
+        prev_image->set_raw_data(img.get().data());
+      }
+      //images = std::move(next_images);
+      reopen_images();
+    }
     /***********************************************************************
      * No output?
      ***********************************************************************/
-    void *output_channels[3] = {NULL, NULL, NULL};
+    void* output_channels[3] = {NULL, NULL, NULL};
+    int i = 0, x = 0, y = 0;
+    int n_images = images.size();
 
     if (output_type != ImageType::MB_NONE) {
-
       /***********************************************************************
        * Shrink masks
        ***********************************************************************/
@@ -1421,7 +1540,7 @@ public:
        * Create shared input pyramids
        ***********************************************************************/
       // wrapping
-      std::vector<PyramidWithMasks *> wrap_pyramids;
+      std::vector<PyramidWithMasks*> wrap_pyramids;
       int wrap_levels_h = 0;
       int wrap_levels_v = 0;
 
@@ -1442,7 +1561,7 @@ public:
       }
 
       // masks
-      for (auto &py : wrap_pyramids) {
+      for (auto& py : wrap_pyramids) {
         threadpool->Queue([=] {
           py->masks.push_back(new Flex(width, height));
           for (int y = 0; y < height; ++y) {
@@ -1461,8 +1580,9 @@ public:
             py->masks[0]->NextLine();
           }
 
-          ShrinkMasks(py->masks,
-                      py->GetWidth() == width ? wrap_levels_v : wrap_levels_h);
+          ShrinkMasks(
+              py->masks,
+              py->GetWidth() == width ? wrap_levels_v : wrap_levels_h);
         });
       }
 
@@ -1473,41 +1593,45 @@ public:
           std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
 
       for (int i = 0; i < n_images; ++i) {
-        images[i]->pyramid =
-            new Pyramid(images[i]->width, images[i]->height, blend_levels,
-                        images[i]->xpos, images[i]->ypos, true);
+        images[i]->pyramid = new Pyramid(
+            images[i]->width,
+            images[i]->height,
+            blend_levels,
+            images[i]->xpos,
+            images[i]->ypos,
+            true);
       }
 
       for (int l = total_levels - 1; l >= 0; --l) {
         size_t max_bytes = 0;
 
         if (l < blend_levels) {
-          for (auto &image : images) {
+          for (auto& image : images) {
             max_bytes = std::max(max_bytes, image->pyramid->GetLevel(l).bytes);
           }
         }
 
-        for (auto &py : wrap_pyramids) {
+        for (auto& py : wrap_pyramids) {
           if (l < py->GetNLevels())
             max_bytes = std::max(max_bytes, py->GetLevel(l).bytes);
         }
 
-        float *temp;
+        float* temp;
 
         try {
-          temp = (float *)MapAlloc::Alloc(max_bytes);
-        } catch (char *e) {
+          temp = (float*)MapAlloc::Alloc(max_bytes);
+        } catch (char* e) {
           printf("%s\n", e);
           exit(EXIT_FAILURE);
         }
 
         if (l < blend_levels) {
-          for (auto &image : images) {
+          for (auto& image : images) {
             image->pyramid->GetLevel(l).data = temp;
           }
         }
 
-        for (auto &py : wrap_pyramids) {
+        for (auto& py : wrap_pyramids) {
           if (l < py->GetNLevels())
             py->GetLevel(l).data = temp;
         }
@@ -1522,11 +1646,11 @@ public:
           std::make_unique<Pyramid>(width, height, total_levels, 0, 0, true);
 
       for (int l = total_levels - 1; l >= 0; --l) {
-        float *temp;
+        float* temp;
 
         try {
-          temp = (float *)MapAlloc::Alloc(output_pyramid->GetLevel(l).bytes);
-        } catch (char *e) {
+          temp = (float*)MapAlloc::Alloc(output_pyramid->GetLevel(l).bytes);
+        } catch (char* e) {
           printf("%s\n", e);
           exit(EXIT_FAILURE);
         }
@@ -1554,12 +1678,17 @@ public:
           for (i = 0; i < n_images; ++i) {
             timer.Start();
 
-            images[i]->pyramid->Copy((uint8_t *)images[i]->channels[c]->data, 1,
-                                     images[i]->width, gamma, images[i]->bpp);
+            images[i]->pyramid->Copy(
+                (uint8_t*)images[i]->channels[c]->data,
+                1,
+                images[i]->width,
+                gamma,
+                images[i]->bpp);
             if (output_bpp != images[i]->bpp)
               images[i]->pyramid->Multiply(
-                  0, gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
-                           : (output_bpp == 8 ? 1.0f / 257 : 257));
+                  0,
+                  gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
+                        : (output_bpp == 8 ? 1.0f / 257 : 257));
 
             delete images[i]->channels[c];
             images[i]->channels[c] = NULL;
@@ -1596,15 +1725,21 @@ public:
                       in_line = 0;
                     else if (in_line > in_level.height - 1)
                       in_line = in_level.height - 1;
-                    float *input_p =
+                    float* input_p =
                         in_level.data + (size_t)in_line * in_level.pitch;
-                    float *output_p =
+                    float* output_p =
                         out_level.data + (size_t)y * out_level.pitch;
 
-                    CompositeLine(input_p, output_p, i, x_offset,
-                                  in_level.width, out_level.width,
-                                  out_level.pitch, images[i]->masks[l]->data,
-                                  images[i]->masks[l]->rows[y]);
+                    CompositeLine(
+                        input_p,
+                        output_p,
+                        i,
+                        x_offset,
+                        in_level.width,
+                        out_level.width,
+                        out_level.pitch,
+                        images[i]->masks[l]->data,
+                        images[i]->masks[l]->rows[y]);
                   }
                 });
               }
@@ -1621,12 +1756,17 @@ public:
         } else {
           timer.Start();
 
-          output_pyramid->Copy((uint8_t *)images[0]->channels[c]->data, 1,
-                               images[0]->width, gamma, images[0]->bpp);
+          output_pyramid->Copy(
+              (uint8_t*)images[0]->channels[c]->data,
+              1,
+              images[0]->width,
+              gamma,
+              images[0]->bpp);
           if (output_bpp != images[0]->bpp)
             output_pyramid->Multiply(
-                0, gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
-                         : (output_bpp == 8 ? 1.0f / 257 : 257));
+                0,
+                gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
+                      : (output_bpp == 8 ? 1.0f / 257 : 257));
 
           delete images[0]->channels[c];
           images[0]->channels[c] = NULL;
@@ -1644,7 +1784,6 @@ public:
 
           for (int w = 1; w <= 2; ++w) {
             if (wrap & w) {
-
               if (w == 1) {
                 SwapH(output_pyramid.get());
               } else {
@@ -1680,16 +1819,21 @@ public:
                           in_line = 0;
                         else if (in_line > in_level.height - 1)
                           in_line = in_level.height - 1;
-                        float *input_p =
+                        float* input_p =
                             in_level.data + (size_t)in_line * in_level.pitch;
-                        float *output_p =
+                        float* output_p =
                             out_level.data + (size_t)y * out_level.pitch;
 
-                        CompositeLine(input_p, output_p, wp + (l == 0),
-                                      x_offset, in_level.width, out_level.width,
-                                      out_level.pitch,
-                                      wrap_pyramids[p]->masks[l]->data,
-                                      wrap_pyramids[p]->masks[l]->rows[y]);
+                        CompositeLine(
+                            input_p,
+                            output_p,
+                            wp + (l == 0),
+                            x_offset,
+                            in_level.width,
+                            out_level.width,
+                            out_level.pitch,
+                            wrap_pyramids[p]->masks[l]->data,
+                            wrap_pyramids[p]->masks[l]->rows[y]);
                       }
                     });
                   }
@@ -1707,7 +1851,7 @@ public:
                 UnswapV(output_pyramid.get());
               }
             } // if (wrap & w)
-          }   // w loop
+          } // w loop
 
           wrap_time += timer.Read();
         } // if (wrap)
@@ -1718,7 +1862,8 @@ public:
          ***********************************************************************/
         if (total_pixels) {
           double channel_total = 0; // must be a double
-          float *data = output_pyramid->GetData();
+          float* data = output_pyramid->GetData();
+          Flex& xor_mask = *xor_mask_ptr_;
           xor_mask.Start();
 
           for (y = 0; y < height; ++y) {
@@ -1741,12 +1886,12 @@ public:
           float avg = (float)channel_totals[c] / total_pixels;
           if (output_bpp != images[0]->bpp) {
             switch (output_bpp) {
-            case 8:
-              avg /= 256;
-              break;
-            case 16:
-              avg *= 256;
-              break;
+              case 8:
+                avg /= 256;
+                break;
+              case 16:
+                avg *= 256;
+                break;
             }
           }
           float output_avg = (float)channel_total / total_pixels;
@@ -1761,20 +1906,20 @@ public:
         try {
           output_channels[c] =
               MapAlloc::Alloc(((size_t)width * height) << (output_bpp >> 4));
-        } catch (char *e) {
+        } catch (char* e) {
           printf("%s\n", e);
           exit(EXIT_FAILURE);
         }
 
         switch (output_bpp) {
-        case 8:
-          output_pyramid->Out((uint8_t *)output_channels[c], width, gamma,
-                              dither, true);
-          break;
-        case 16:
-          output_pyramid->Out((uint16_t *)output_channels[c], width, gamma,
-                              dither, true);
-          break;
+          case 8:
+            output_pyramid->Out(
+                (uint8_t*)output_channels[c], width, gamma, dither, true);
+            break;
+          case 16:
+            output_pyramid->Out(
+                (uint16_t*)output_channels[c], width, gamma, dither, true);
+            break;
         }
 
         out_time += timer.Read();
@@ -1801,76 +1946,90 @@ public:
 
       int n_strips = (int)((height + ROWS_PER_STRIP - 1) / ROWS_PER_STRIP);
       int remaining = height;
-      void *strip =
+      void* strip =
           malloc((ROWS_PER_STRIP * (std::int64_t)width) * bytes_per_pixel);
-      void *oc_p[3] = {output_channels[0], output_channels[1],
-                       output_channels[2]};
+      void* oc_p[3] = {
+          output_channels[0], output_channels[1], output_channels[2]};
       if (bgr)
         std::swap(oc_p[0], oc_p[2]);
 
       switch (output_type) {
-      case ImageType::MB_TIFF: {
-        TIFFSetField(tiff_file, TIFFTAG_IMAGEWIDTH, width);
-        TIFFSetField(tiff_file, TIFFTAG_IMAGELENGTH, height);
-        TIFFSetField(tiff_file, TIFFTAG_COMPRESSION, compression);
-        TIFFSetField(tiff_file, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-        TIFFSetField(tiff_file, TIFFTAG_ROWSPERSTRIP, ROWS_PER_STRIP);
-        TIFFSetField(tiff_file, TIFFTAG_BITSPERSAMPLE, output_bpp);
-        if (no_mask) {
-          TIFFSetField(tiff_file, TIFFTAG_SAMPLESPERPIXEL, 3);
-        } else {
-          TIFFSetField(tiff_file, TIFFTAG_SAMPLESPERPIXEL, 4);
-          uint16_t out[1] = {EXTRASAMPLE_UNASSALPHA};
-          TIFFSetField(tiff_file, TIFFTAG_EXTRASAMPLES, 1, &out);
-        }
+        case ImageType::MB_TIFF: {
+          TIFFSetField(tiff_file, TIFFTAG_IMAGEWIDTH, width);
+          TIFFSetField(tiff_file, TIFFTAG_IMAGELENGTH, height);
+          TIFFSetField(tiff_file, TIFFTAG_COMPRESSION, compression);
+          TIFFSetField(tiff_file, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+          TIFFSetField(tiff_file, TIFFTAG_ROWSPERSTRIP, ROWS_PER_STRIP);
+          TIFFSetField(tiff_file, TIFFTAG_BITSPERSAMPLE, output_bpp);
+          if (no_mask) {
+            TIFFSetField(tiff_file, TIFFTAG_SAMPLESPERPIXEL, 3);
+          } else {
+            TIFFSetField(tiff_file, TIFFTAG_SAMPLESPERPIXEL, 4);
+            uint16_t out[1] = {EXTRASAMPLE_UNASSALPHA};
+            TIFFSetField(tiff_file, TIFFTAG_EXTRASAMPLES, 1, &out);
+          }
 
-        TIFFSetField(tiff_file, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
-        if (images[0]->tiff_xres != -1) {
-          TIFFSetField(tiff_file, TIFFTAG_XRESOLUTION, images[0]->tiff_xres);
-          TIFFSetField(tiff_file, TIFFTAG_XPOSITION,
-                       (float)(min_xpos / images[0]->tiff_xres));
-        }
-        if (images[0]->tiff_yres != -1) {
-          TIFFSetField(tiff_file, TIFFTAG_YRESOLUTION, images[0]->tiff_yres);
-          TIFFSetField(tiff_file, TIFFTAG_YPOSITION,
-                       (float)(min_ypos / images[0]->tiff_yres));
-        }
+          TIFFSetField(tiff_file, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+          if (images[0]->tiff_xres != -1) {
+            TIFFSetField(tiff_file, TIFFTAG_XRESOLUTION, images[0]->tiff_xres);
+            TIFFSetField(
+                tiff_file,
+                TIFFTAG_XPOSITION,
+                (float)(min_xpos / images[0]->tiff_xres));
+          }
+          if (images[0]->tiff_yres != -1) {
+            TIFFSetField(tiff_file, TIFFTAG_YRESOLUTION, images[0]->tiff_yres);
+            TIFFSetField(
+                tiff_file,
+                TIFFTAG_YPOSITION,
+                (float)(min_ypos / images[0]->tiff_yres));
+          }
 
-        if (images[0]->geotiff.set) {
-          // if we got a georeferenced input, store the geotags in the output
-          GeoTIFFInfo info(images[0]->geotiff);
-          info.XGeoRef = min_xpos * images[0]->geotiff.XCellRes;
-          info.YGeoRef = -min_ypos * images[0]->geotiff.YCellRes;
-          Output(1, "Output georef: UL: %f %f, pixel size: %f %f\n",
-                 info.XGeoRef, info.YGeoRef, info.XCellRes, info.YCellRes);
-          geotiff_write(tiff_file, &info);
-        }
-      } break;
-      case ImageType::MB_JPEG: {
-        cinfo.err = jpeg_std_error(&jerr);
-        jpeg_create_compress(&cinfo);
-        jpeg_stdio_dest(&cinfo, jpeg_file);
+          if (images[0]->geotiff.set) {
+            // if we got a georeferenced input, store the geotags in the output
+            GeoTIFFInfo info(images[0]->geotiff);
+            info.XGeoRef = min_xpos * images[0]->geotiff.XCellRes;
+            info.YGeoRef = -min_ypos * images[0]->geotiff.YCellRes;
+            Output(
+                1,
+                "Output georef: UL: %f %f, pixel size: %f %f\n",
+                info.XGeoRef,
+                info.YGeoRef,
+                info.XCellRes,
+                info.YCellRes);
+            geotiff_write(tiff_file, &info);
+          }
+        } break;
+        case ImageType::MB_JPEG: {
+          cinfo.err = jpeg_std_error(&jerr);
+          jpeg_create_compress(&cinfo);
+          jpeg_stdio_dest(&cinfo, jpeg_file);
 
-        cinfo.image_width = width;
-        cinfo.image_height = height;
-        cinfo.input_components = 3;
-        cinfo.in_color_space = JCS_RGB;
+          cinfo.image_width = width;
+          cinfo.image_height = height;
+          cinfo.input_components = 3;
+          cinfo.in_color_space = JCS_RGB;
 
-        jpeg_set_defaults(&cinfo);
-        jpeg_set_quality(&cinfo, jpeg_quality, (boolean) true);
-        jpeg_start_compress(&cinfo, (boolean) true);
-      } break;
-      case ImageType::MB_PNG: {
-        png_file =
-            new Pnger(output_filename, NULL, width, height,
-                      no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA,
-                      output_bpp, jpeg_file, jpeg_quality);
-      } break;
-      case ImageType::MB_MEM: {
-        output_image_ptr_ = std::make_unique<Image>(
-            std::vector<std::size_t>{(std::size_t)width, (std::size_t)height},
-            no_mask ? 3 : 4);
-      } break;
+          jpeg_set_defaults(&cinfo);
+          jpeg_set_quality(&cinfo, jpeg_quality, (boolean) true);
+          jpeg_start_compress(&cinfo, (boolean) true);
+        } break;
+        case ImageType::MB_PNG: {
+          png_file = new Pnger(
+              output_filename,
+              NULL,
+              width,
+              height,
+              no_mask ? PNG_COLOR_TYPE_RGB : PNG_COLOR_TYPE_RGB_ALPHA,
+              output_bpp,
+              jpeg_file,
+              jpeg_quality);
+        } break;
+        case ImageType::MB_MEM: {
+          output_image_ptr_ = std::make_unique<Image>(
+              std::vector<std::size_t>{(std::size_t)width, (std::size_t)height},
+              no_mask ? 3 : 4);
+        } break;
       }
 
       if (output_type == ImageType::MB_PNG ||
@@ -1878,10 +2037,11 @@ public:
           output_type == ImageType::MB_MEM) {
         scanlines = new JSAMPROW[ROWS_PER_STRIP];
         for (i = 0; i < ROWS_PER_STRIP; ++i) {
-          scanlines[i] = (JSAMPROW) & ((uint8_t *)strip)[i * bytes_per_row];
+          scanlines[i] = (JSAMPROW) & ((uint8_t*)strip)[i * bytes_per_row];
         }
       }
 
+      Flex& full_mask = *full_mask_ptr_;
       full_mask.Start();
 
       for (int s = 0; s < n_strips; ++s) {
@@ -1895,36 +2055,36 @@ public:
             if (cur & 0x80000000) {
               int lim = x + (cur & 0x7fffffff);
               switch (output_bpp) {
-              case 8: {
-                while (x < lim) {
-                  ((uint8_t *)strip)[strip_p++] = ((uint8_t *)(oc_p[0]))[x];
-                  ((uint8_t *)strip)[strip_p++] = ((uint8_t *)(oc_p[1]))[x];
-                  ((uint8_t *)strip)[strip_p++] = ((uint8_t *)(oc_p[2]))[x];
-                  if (!no_mask)
-                    ((uint8_t *)strip)[strip_p++] = 0xff;
-                  ++x;
-                }
-              } break;
-              case 16: {
-                while (x < lim) {
-                  ((uint16_t *)strip)[strip_p++] = ((uint16_t *)(oc_p[0]))[x];
-                  ((uint16_t *)strip)[strip_p++] = ((uint16_t *)(oc_p[1]))[x];
-                  ((uint16_t *)strip)[strip_p++] = ((uint16_t *)(oc_p[2]))[x];
-                  if (!no_mask)
-                    ((uint16_t *)strip)[strip_p++] = 0xffff;
-                  ++x;
-                }
-              } break;
+                case 8: {
+                  while (x < lim) {
+                    ((uint8_t*)strip)[strip_p++] = ((uint8_t*)(oc_p[0]))[x];
+                    ((uint8_t*)strip)[strip_p++] = ((uint8_t*)(oc_p[1]))[x];
+                    ((uint8_t*)strip)[strip_p++] = ((uint8_t*)(oc_p[2]))[x];
+                    if (!no_mask)
+                      ((uint8_t*)strip)[strip_p++] = 0xff;
+                    ++x;
+                  }
+                } break;
+                case 16: {
+                  while (x < lim) {
+                    ((uint16_t*)strip)[strip_p++] = ((uint16_t*)(oc_p[0]))[x];
+                    ((uint16_t*)strip)[strip_p++] = ((uint16_t*)(oc_p[1]))[x];
+                    ((uint16_t*)strip)[strip_p++] = ((uint16_t*)(oc_p[2]))[x];
+                    if (!no_mask)
+                      ((uint16_t*)strip)[strip_p++] = 0xffff;
+                    ++x;
+                  }
+                } break;
               }
             } else {
               size_t t = (size_t)cur * bytes_per_pixel;
               switch (output_bpp) {
-              case 8: {
-                ZeroMemory(&((uint8_t *)strip)[strip_p], t);
-              } break;
-              case 16: {
-                ZeroMemory(&((uint16_t *)strip)[strip_p], t);
-              } break;
+                case 8: {
+                  ZeroMemory(&((uint8_t*)strip)[strip_p], t);
+                } break;
+                case 16: {
+                  ZeroMemory(&((uint16_t*)strip)[strip_p], t);
+                } break;
               }
               strip_p += cur * spp;
               x += cur;
@@ -1932,58 +2092,61 @@ public:
           }
 
           switch (output_bpp) {
-          case 8: {
-            oc_p[0] = &((uint8_t *)(oc_p[0]))[width];
-            oc_p[1] = &((uint8_t *)(oc_p[1]))[width];
-            oc_p[2] = &((uint8_t *)(oc_p[2]))[width];
-          } break;
-          case 16: {
-            oc_p[0] = &((uint16_t *)(oc_p[0]))[width];
-            oc_p[1] = &((uint16_t *)(oc_p[1]))[width];
-            oc_p[2] = &((uint16_t *)(oc_p[2]))[width];
-          } break;
+            case 8: {
+              oc_p[0] = &((uint8_t*)(oc_p[0]))[width];
+              oc_p[1] = &((uint8_t*)(oc_p[1]))[width];
+              oc_p[2] = &((uint8_t*)(oc_p[2]))[width];
+            } break;
+            case 16: {
+              oc_p[0] = &((uint16_t*)(oc_p[0]))[width];
+              oc_p[1] = &((uint16_t*)(oc_p[1]))[width];
+              oc_p[2] = &((uint16_t*)(oc_p[2]))[width];
+            } break;
           }
         }
 
         switch (output_type) {
-        case ImageType::MB_TIFF: {
-          TIFFWriteEncodedStrip(tiff_file, s, strip,
-                                rows * (std::int64_t)bytes_per_row);
-        } break;
-        case ImageType::MB_JPEG: {
-          jpeg_write_scanlines(&cinfo, scanlines, rows);
-        } break;
-        case ImageType::MB_PNG: {
-          png_file->WriteRows(scanlines, rows);
-        } break;
-        case ImageType::MB_MEM: {
-          output_image_ptr_->write_rows(scanlines, rows);
-        }
+          case ImageType::MB_TIFF: {
+            TIFFWriteEncodedStrip(
+                tiff_file, s, strip, rows * (std::int64_t)bytes_per_row);
+          } break;
+          case ImageType::MB_JPEG: {
+            jpeg_write_scanlines(&cinfo, scanlines, rows);
+          } break;
+          case ImageType::MB_PNG: {
+            png_file->WriteRows(scanlines, rows);
+          } break;
+          case ImageType::MB_MEM: {
+            output_image_ptr_->write_rows(scanlines, rows);
+          } break;
+          default:
+            die("Bad output type)");
+            break;
         }
 
         remaining -= ROWS_PER_STRIP;
       }
 
       switch (output_type) {
-      case ImageType::MB_TIFF: {
-        TIFFClose(tiff_file);
-      } break;
-      case ImageType::MB_JPEG: {
-        jpeg_finish_compress(&cinfo);
-        jpeg_destroy_compress(&cinfo);
-        fclose(jpeg_file);
-      } break;
-      case ImageType::MB_MEM: {
-        if (!output_image_ptr_) {
-          die("no target image created");
-        }
-        if (!output_image) {
-          die("No output image given");
-        }
-        auto &img = *output_image_ptr_;
-        *output_image = std::make_unique<enblend::MatrixRGB>(
-            img.height, img.width, img.consume_raw_data());
-      } break;
+        case ImageType::MB_TIFF: {
+          TIFFClose(tiff_file);
+        } break;
+        case ImageType::MB_JPEG: {
+          jpeg_finish_compress(&cinfo);
+          jpeg_destroy_compress(&cinfo);
+          fclose(jpeg_file);
+        } break;
+        case ImageType::MB_MEM: {
+          if (!output_image_ptr_) {
+            die("no target image created");
+          }
+          if (!output_image) {
+            die("No output image given");
+          }
+          auto& img = *output_image_ptr_;
+          *output_image = std::make_unique<enblend::MatrixRGB>(
+              img.height, img.width, img.consume_raw_data());
+        } break;
       }
 
       write_time = timer.Read();
@@ -1997,6 +2160,7 @@ public:
       printf("Images:   %.3fs\n", images_time);
       printf("Seaming:  %.3fs\n", seam_time);
       if (output_type != ImageType::MB_NONE) {
+        // process_inputs()
         printf("Masks:    %.3fs\n", shrink_mask_time);
         printf("Copy:     %.3fs\n", copy_time);
         printf("Shrink:   %.3fs\n", shrink_time);
@@ -2027,30 +2191,33 @@ public:
 
 namespace enblend {
 
-int enblend_main(std::string output_image,
-                 std::vector<std::string> input_files) {
+int enblend_main(
+    std::string output_image,
+    std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
   args.push_back("-o");
   args.push_back(output_image);
-  for (const auto &s : input_files) {
+  for (const auto& s : input_files) {
     args.push_back(s);
   }
 
   int argc = args.size();
-  char **argv = new char *[argc];
+  char** argv = new char*[argc];
 
   for (int i = 0; i < argc; ++i) {
     argv[i] = new char[args[i].length() + 1];
     std::strcpy(argv[i], args[i].c_str());
   }
-
+  std::vector<std::reference_wrapper<enblend::MatrixRGB>> next_inputs;
   // Call the main function with the converted arguments
   Blender blender;
   int return_value = blender.multiblend_main(argc, argv);
-  return_value = return_value || blender.process_images({});
-
+  return_value = return_value || blender.process_images(next_inputs);
+  return_value = return_value ||
+      blender.process_inputs(
+          std::vector<std::reference_wrapper<enblend::MatrixRGB>>{}, nullptr);
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
     delete[] argv[i];
@@ -2060,7 +2227,9 @@ int enblend_main(std::string output_image,
   return return_value;
 }
 
-std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
+static std::unique_ptr<Blender> reusable_blender;
+
+std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
@@ -2069,7 +2238,7 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
   args.push_back("--no-output");
 
   int argc = args.size();
-  char **argv = new char *[argc];
+  char** argv = new char*[argc];
 
   for (int i = 0; i < argc; ++i) {
     argv[i] = new char[args[i].length() + 1];
@@ -2080,10 +2249,17 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
   images.push_back(image1);
   images.push_back(image2);
   std::unique_ptr<MatrixRGB> output_image;
-  Blender blender;
-  int result = blender.multiblend_main(argc, argv);
-  if (result == EXIT_SUCCESS) {
-    result = blender.process_images(images, &output_image);
+  int result = EXIT_SUCCESS;
+  if (!reusable_blender) {
+    reusable_blender = std::make_unique<Blender>();
+    result = reusable_blender->multiblend_main(argc, argv);
+    result = result || reusable_blender->process_images(images);
+    result = result ||
+        reusable_blender->process_inputs(
+            std::vector<std::reference_wrapper<enblend::MatrixRGB>>{},
+            &output_image);
+  } else {
+    result = result || reusable_blender->process_inputs(images, &output_image);
   }
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {

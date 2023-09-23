@@ -7,7 +7,9 @@ public:
 	Channel(size_t _bytes) : bytes(_bytes) {
 		data = MapAlloc::Alloc(bytes);
 	};
-	~Channel() { MapAlloc::Free(data); };
+	~Channel() {
+		MapAlloc::Free(data);
+	};
 	void* data;
 	size_t bytes;
 	FILE* file = NULL;
@@ -57,6 +59,11 @@ public:
     own_raw_data = false;
     return raw_data;
   }
+
+	void set_raw_data(std::uint8_t *data, bool own = false) {
+		raw_data_write_ptr_ = raw_data = data;
+		own_raw_data = own;
+	}
 
 private:
 	TIFF* tiff;
@@ -756,6 +763,7 @@ void Image::Read(void* data, bool gamma) {
 ***********************************************************************/
 	size_t channel_bytes = ((size_t)width * height) << (bpp >> 4);
 
+	channels.clear();
 	for (int c = 0; c < 3; ++c) {
 		channels.push_back(new Channel(channel_bytes));
 	}

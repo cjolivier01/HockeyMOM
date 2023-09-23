@@ -535,7 +535,10 @@ def pyramid_blending():
     xpos_1, ypos_1 = get_image_geo_position("/mnt/data/Videos/my_project0000.tif")
     xpos_2, ypos_2 = get_image_geo_position("/mnt/data/Videos/my_project0001.tif")
 
-    img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
+    for i in range(2):
+        img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
+        cv2.imshow('Panoramic blended image', img)
+        cv2.waitKey(0)
     # A = cv2.resize(A, (512, 512))
     # B = cv2.resize(B, (512, 512))
 
@@ -582,8 +585,6 @@ def pyramid_blending():
 
     # # image with direct connecting each half
     # real = np.hstack((A[:,:cols//2],B[:,cols//2:]))
-    cv2.imshow('Panoramic blended image', img)
-    cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 def main():

@@ -156,7 +156,7 @@ void die(const char* error, ...) {
 }
 
 /***********************************************************************
-* ShrinkMasks
+* Squish
 ***********************************************************************/
 int Squish(uint32_t* in, uint32_t* out, int in_width, int out_width) {
 	float current_val;
