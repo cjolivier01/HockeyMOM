@@ -47,7 +47,9 @@ void fopen_s(FILE** f, const char* filename, const char* mode) { *f = fopen(file
 
 int verbosity = 1;
 
-#include "hm/multiblend/multiblend.h"
+//#ifndef STANDALONE
+#include "../../include/hm/multiblend/multiblend.h"
+//#endif
 
 #include "pnger.cpp"
 #include "pyramid.cpp"
@@ -1738,7 +1740,7 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
   args.push_back("python");
   args.push_back("--timing");
   args.push_back("-o");
-  args.push_back("output_image.png");
+  args.push_back("/home/colivier/Videos/output_image.png");
 
   int argc = args.size();
   char **argv = new char *[argc];
@@ -1768,3 +1770,8 @@ MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2) {
 
 }  // namespace enblend
 
+// #ifdef STANDALONE
+// int main(int argc, char* argv[]) {
+//   return multiblend_main(argc, argv);
+// }
+// #endif

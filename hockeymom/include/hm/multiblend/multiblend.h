@@ -19,7 +19,8 @@ class MatrixRGB {
   static inline constexpr std::size_t kChannels = 3;
 
 public:
-  inline MatrixRGB(py::array_t<uint8_t> &input_image) {
+  inline MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
+                   std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
     if (input_image.ndim() != kChannels || input_image.shape(2) != kChannels ||
         !input_image.dtype().is(py::dtype::of<uint8_t>())) {
@@ -37,6 +38,8 @@ public:
     m_cols = buf_info.shape[1];
     m_own_data = false;
     m_array = input_image;
+    m_xpos = xpos;
+    m_ypos = ypos;
   }
   inline MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
     m_data = new std::uint8_t[rows * cols * kChannels];
@@ -73,6 +76,8 @@ private:
   bool m_own_data{false};
   size_t m_rows, m_cols;
   std::uint8_t *m_data;
+  std::size_t m_xpos{0};
+  std::size_t m_ypos{0};
 };
 
 MatrixRGB enblend(MatrixRGB &image1, MatrixRGB &image2);

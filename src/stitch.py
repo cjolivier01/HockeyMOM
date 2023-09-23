@@ -501,7 +501,7 @@ def pyramid_blending():
     A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
     B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
 
-    img = core.emblend_images(A, B)
+    img = core.emblend_images(A, B, [0, 0], [0, 0])
     # A = cv2.resize(A, (512, 512))
     # B = cv2.resize(B, (512, 512))
 

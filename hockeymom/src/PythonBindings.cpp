@@ -107,12 +107,10 @@ PYBIND11_MODULE(_hockeymom, m) {
         });
 
   m.def("_emblend_images",
-        [](py::array_t<uint8_t> &image1, py::array_t<uint8_t> &image2) {
-          enblend::MatrixRGB m1(image1);
-          enblend::MatrixRGB m2(image2);
-          // return enblend::enblend_main(std::move(output_image),
-          // std::move(input_files));
-          //std::cout << "_emblend_images()" << std::endl;
+        [](py::array_t<uint8_t> &image1, std::vector<std::size_t> xy_pos_1,
+           py::array_t<uint8_t> &image2, std::vector<std::size_t> xy_pos_2) {
+          enblend::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
+          enblend::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
           enblend::MatrixRGB result = enblend::enblend(m1, m2);
           return result.to_py_array();
         });
