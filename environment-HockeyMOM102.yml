@@ -16,16 +16,28 @@ dependencies:
   - binutils_impl_linux-64=2.39=he00db2b_1
   - binutils_linux-64=2.39=h5fc0e48_13
   - blas=1.0=mkl
-  - boost=1.82.0=py38h757e2ef_0
-  - boost-cpp=1.82.0=he19a28c_1
+  - blosc=1.21.5=h0f2a231_0
+  - boost=1.78.0=py38h4e30db6_4
+  - boost-cpp=1.78.0=h6582d0a_3
+  - brotli-bin=1.0.9=h166bdaf_9
+  - brunsli=0.1=h9c3ff4c_0
   - bzip2=1.0.8=h7b6447c_0
   - c-ares=1.18.1=h7f8727e_0
+  - c-blosc2=2.10.2=hb4ffafa_0
   - ca-certificates=2023.7.22=hbcca054_0
   - cairo=1.16.0=hbbf8b49_1016
   - cffi=1.15.1=py38h4a40e3a_3
+  - cfitsio=4.2.0=hd9d235c_0
+  - charls=2.4.2=h59595ed_0
   - clang=10.0.1=default_hb85057a_2
   - clang-12=12.0.1=default_ha53f305_4
   - cmake=3.25.1=h816a3e0_0
+  - coin-or-cbc=2.10.10=h9002f0b_0
+  - coin-or-cgl=0.60.7=h516709c_0
+  - coin-or-clp=1.17.8=h1ee7a9c_0
+  - coin-or-osi=0.108.8=ha2443b9_0
+  - coin-or-utils=2.11.9=hee58242_0
+  - coincbc=2.10.10=0_metapackage
   - cudatoolkit=10.2.89=hfd86e86_1
   - dav1d=1.2.1=hd590300_0
   - dbus=1.13.6=h5008d03_3
@@ -47,40 +59,53 @@ dependencies:
   - fribidi=1.0.10=h36c2ea0_0
   - gcc_impl_linux-64=10.4.0=h5231bdf_19
   - gcc_linux-64=10.4.0=h9215b83_13
+  - gdk-pixbuf=2.42.10=h6b639ba_2
   - gettext=0.21.1=h27087fc_0
   - giflib=5.2.1=h5eee18b_1
+  - glew=2.1.0=h9c3ff4c_2
   - glib=2.76.4=hfc55251_0
   - glib-tools=2.76.4=hfc55251_0
+  - glpk=5.0=h445213a_0
   - gmp=6.2.1=h295c915_3
   - gnutls=3.7.8=hf3e180e_0
   - graphite2=1.3.13=h58526e2_1001
+  - graphviz=8.1.0=h28d9a01_0
   - gsl=2.7=he838d99_0
   - gst-libav=1.22.5=hd5f137f_0
   - gst-plugins-base=1.22.5=hf7dbed1_0
   - gstreamer=1.22.5=h98fc4e7_0
   - gstreamer-orc=0.4.34=hd590300_0
+  - gtk2=2.24.33=h90689f9_2
+  - gts=0.7.6=h977cf35_4
   - gxx_impl_linux-64=10.4.0=h5231bdf_19
   - gxx_linux-64=10.4.0=h6e491c6_13
   - harfbuzz=7.3.0=hdb3a94d_0
   - hdf5=1.14.2=nompi_h4f84152_100
   - hicolor-icon-theme=0.17=ha770c72_2
   - icu=72.1=hcb278e6_0
+  - imagecodecs=2023.1.23=py38hd710160_2
   - imath=3.1.9=hfc55251_0
   - importlib-metadata=6.8.0=pyha770c72_0
   - intel-openmp=2021.4.0=h06a4308_3561
   - jack=1.9.22=h0e77e87_1
   - jasper=4.0.0=h32699f2_1
+  - jxrlib=1.1=h7f98852_2
   - kernel-headers_linux-64=3.10.0=h57e8cba_10
   - keyutils=1.6.1=h166bdaf_0
   - krb5=1.21.2=h659d440_0
   - lame=3.100=h7b6447c_0
   - lcms2=2.15=haa2dc70_1
   - ld_impl_linux-64=2.39=hcc3a1bd_1
+  - lemon=1.3.1=hc5b7c51_7
   - lerc=4.0.0=h27087fc_0
-  - libabseil=20230125.3=cxx17_h59595ed_0
+  - libabseil=20230802.1=cxx17_h59595ed_0
   - libaec=1.0.6=hcb278e6_1
   - libass=0.17.1=hc9aadba_0
+  - libavif=0.11.1=h8182462_2
   - libblas=3.9.0=12_linux64_mkl
+  - libbrotlicommon=1.0.9=h166bdaf_9
+  - libbrotlidec=1.0.9=h166bdaf_9
+  - libbrotlienc=1.0.9=h166bdaf_9
   - libcap=2.67=he9d0100_0
   - libcblas=3.9.0=12_linux64_mkl
   - libclang-cpp10=10.0.1=default_hb85057a_2
@@ -92,6 +117,7 @@ dependencies:
   - libdc1394=2.2.7=h59595ed_0
   - libdeflate=1.18=h0b41bf4_0
   - libdrm=2.4.114=h166bdaf_0
+  - libdrm-cos7-x86_64=2.4.97=h9b0a68f_1105
   - libedit=3.1.20221030=h5eee18b_0
   - libev=4.33=h7f8727e_1
   - libevent=2.1.12=hf998b51_1
@@ -101,10 +127,14 @@ dependencies:
   - libgcc-devel_linux-64=10.4.0=hd38fd1e_19
   - libgcc-ng=12.2.0=h65d4601_19
   - libgcrypt=1.10.1=h166bdaf_0
+  - libgd=2.3.3=hfa28ad5_6
   - libgfortran-ng=13.1.0=h69a702a_0
   - libgfortran5=13.1.0=h15d22d2_0
   - libglib=2.76.4=hebfc3b9_0
   - libglu=9.0.0=he1b5a44_1001
+  - libglvnd-cos7-x86_64=1.0.1=h9b0a68f_1105
+  - libglvnd-egl-cos7-x86_64=1.0.1=h9b0a68f_1105
+  - libglvnd-glx-cos7-x86_64=1.0.1=h9b0a68f_1105
   - libgomp=12.2.0=h65d4601_19
   - libgpg-error=1.47=h71f35ed_0
   - libhwloc=2.9.2=default_h554bfaf_1009
@@ -121,24 +151,25 @@ dependencies:
   - libnsl=2.0.0=h7f98852_0
   - libogg=1.3.4=h7f98852_1
   - libopenblas=0.3.23=pthreads_h80387f5_0
-  - libopencv=4.8.0=py38he4b2ccc_1
-  - libopenvino=2023.0.1=h59595ed_3
-  - libopenvino-auto-batch-plugin=2023.0.1=h59595ed_3
-  - libopenvino-auto-plugin=2023.0.1=h59595ed_3
-  - libopenvino-hetero-plugin=2023.0.1=h59595ed_3
-  - libopenvino-intel-cpu-plugin=2023.0.1=h59595ed_3
-  - libopenvino-intel-gpu-plugin=2023.0.1=h59595ed_3
-  - libopenvino-ir-frontend=2023.0.1=h59595ed_3
-  - libopenvino-onnx-frontend=2023.0.1=h59595ed_3
-  - libopenvino-paddle-frontend=2023.0.1=h59595ed_3
-  - libopenvino-pytorch-frontend=2023.0.1=h59595ed_3
-  - libopenvino-tensorflow-frontend=2023.0.1=h59595ed_3
-  - libopenvino-tensorflow-lite-frontend=2023.0.1=h59595ed_3
+  - libopencv=4.8.0=py38h6d7f99c_2
+  - libopenvino=2023.0.2=h59595ed_0
+  - libopenvino-auto-batch-plugin=2023.0.2=h59595ed_0
+  - libopenvino-auto-plugin=2023.0.2=h59595ed_0
+  - libopenvino-hetero-plugin=2023.0.2=h59595ed_0
+  - libopenvino-intel-cpu-plugin=2023.0.2=h59595ed_0
+  - libopenvino-intel-gpu-plugin=2023.0.2=h59595ed_0
+  - libopenvino-ir-frontend=2023.0.2=h59595ed_0
+  - libopenvino-onnx-frontend=2023.0.2=h59595ed_0
+  - libopenvino-paddle-frontend=2023.0.2=h59595ed_0
+  - libopenvino-pytorch-frontend=2023.0.2=h59595ed_0
+  - libopenvino-tensorflow-frontend=2023.0.2=h59595ed_0
+  - libopenvino-tensorflow-lite-frontend=2023.0.2=h59595ed_0
   - libopus=1.3.1=h7b6447c_0
   - libpciaccess=0.17=h166bdaf_0
   - libpng=1.6.39=h753d276_0
   - libpq=15.4=hfc447b1_0
-  - libprotobuf=4.23.3=hd1fb520_1
+  - libprotobuf=4.23.4=hf27288f_6
+  - librsvg=2.56.3=h98fae49_0
   - libsanitizer=10.4.0=h5246dfb_19
   - libsndfile=1.2.2=hbc2eb40_0
   - libsqlite=3.42.0=h2797004_0
@@ -157,13 +188,18 @@ dependencies:
   - libva=2.19.0=hd590300_0
   - libvorbis=1.3.7=h9c3ff4c_0
   - libvpx=1.13.0=hcb278e6_0
+  - libwebp=1.3.1=hbf2b3c1_0
   - libwebp-base=1.3.1=hd590300_0
   - libxcb=1.15=h0b41bf4_0
   - libxkbcommon=1.5.0=h5d7e998_3
   - libxml2=2.11.5=h0d562d8_0
   - libzlib=1.2.13=h166bdaf_4
+  - libzopfli=1.0.3=h9c3ff4c_0
   - llvmlite=0.40.1=py38h94a1851_0
   - lz4-c=1.9.4=h6a678d5_0
+  - mesa-libegl-cos7-x86_64=18.3.4=h9b0a68f_1105
+  - mesa-libgbm-cos7-x86_64=18.3.4=h9b0a68f_1105
+  - mesa-libglapi-cos7-x86_64=18.3.4=h9b0a68f_1105
   - mkl=2021.4.0=h06a4308_640
   - mkl-service=2.4.0=py38h7f8727e_0
   - mkl_fft=1.3.1=py38hd3c417c_0
@@ -196,7 +232,7 @@ dependencies:
   - pulseaudio=16.1=h59595ed_4
   - pulseaudio-client=16.1=hb77b528_4
   - pulseaudio-daemon=16.1=h298f92c_4
-  - py-opencv=4.8.0=py38hb563948_1
+  - py-opencv=4.8.0=py38hb563948_2
   - pycparser=2.21=pyhd8ed1ab_0
   - python=3.8.17=he550d4f_0_cpython
   - python_abi=3.8=2_cp38
@@ -213,6 +249,7 @@ dependencies:
   - tbb=2021.10.0=h00ab1b0_0
   - tk=8.6.12=h1ccaba5_0
   - typing_extensions=4.4.0=py38h06a4308_0
+  - vigra=1.11.1=py38he618331_1047
   - wayland=1.22.0=h8c25dac_1
   - x264=1!164.3095=h166bdaf_2
   - x265=3.5=h924138e_3
@@ -250,8 +287,10 @@ dependencies:
   - xorg-xf86vidmodeproto=2.3.1=h7f98852_1002
   - xorg-xproto=7.0.31=h7f98852_1007
   - xz=5.2.10=h5eee18b_1
+  - zfp=1.0.0=h27087fc_3
   - zipp=3.16.2=pyhd8ed1ab_0
   - zlib=1.2.13=h166bdaf_4
+  - zlib-ng=2.0.7=h0b41bf4_0
   - zstd=1.5.5=hfc55251_0
   - pip:
       - absl-py==1.4.0
@@ -359,6 +398,7 @@ dependencies:
       - onnxoptimizer==0.3.13
       - onnxruntime==1.8.0
       - opencv-contrib-python==4.7.0.68
+      - opencv-python==4.8.0+fb54cdc
       - opencv-python-headless==4.8.0.76
       - openpyxl==3.1.0
       - opt-einsum==3.3.0
@@ -433,7 +473,7 @@ dependencies:
       - timm==0.9.2
       - toml==0.10.2
       - tomli==2.0.1
-      - torchvision==0.8.0
+      - torchvision==0.8.0a0+291f7e2
       - tornado==6.3.2
       - tqdm==4.64.1
       - traitlets==5.9.0
