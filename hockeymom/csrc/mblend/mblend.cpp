@@ -141,10 +141,7 @@ class Blender {
   Timer timer_all;
 
 public:
-  int multiblend_main(
-      int argc, char *argv[],
-      std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images,
-      std::unique_ptr<enblend::MatrixRGB> *output_image = nullptr) {
+  int multiblend_main(int argc, char *argv[]) {
     // This is here because of a weird problem encountered during development
     // with Visual Studio. It should never be triggered.
     if (verbosity != 1) {
@@ -260,8 +257,8 @@ public:
       }
     }
 
-    if ((int)my_argv.size() < 3 && !output_image && incoming_images.empty())
-      die("Error: Not enough arguments (try -h for help)");
+    // if ((int)my_argv.size() < 3 && !output_image && incoming_images.empty())
+    //   die("Error: Not enough arguments (try -h for help)");
 
     for (i = 0; i < (int)my_argv.size(); ++i) {
       if (!strcmp(my_argv[i], "-d") || !strcmp(my_argv[i], "--d") ||
@@ -447,9 +444,7 @@ public:
         }
       } else if (!strcmp(my_argv[i], "--no-output")) {
         ++i;
-        if (output_image) {
-          output_type = ImageType::MB_MEM;
-        }
+        output_type = ImageType::MB_MEM;
         break;
       } else {
         die("Error: Unknown argument \"%s\"", my_argv[i]);
@@ -2052,7 +2047,8 @@ int enblend_main(std::string output_image,
 
   // Call the main function with the converted arguments
   Blender blender;
-  int return_value = blender.multiblend_main(argc, argv, {});
+  int return_value = blender.multiblend_main(argc, argv);
+  return_value = return_value || blender.process_images({});
 
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
@@ -2084,8 +2080,10 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
   images.push_back(image2);
   std::unique_ptr<MatrixRGB> output_image;
   Blender blender;
-  int result = blender.multiblend_main(argc, argv, images, &output_image);
-
+  int result = blender.multiblend_main(argc, argv);
+  if (result == EXIT_SUCCESS) {
+    result = blender.process_images(images, &output_image);
+  }
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
     delete[] argv[i];
