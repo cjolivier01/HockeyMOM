@@ -1818,7 +1818,7 @@ int multiblend_main(
 					die("No output image given");
 				}
 				auto& img = *output_image_ptr_;
-				*output_image = std::make_unique<enblend::MatrixRGB>(img.width, img.height, img.consume_raw_data());
+				*output_image = std::make_unique<enblend::MatrixRGB>(img.height, img.width, img.consume_raw_data());
 			} break;
 		}
 

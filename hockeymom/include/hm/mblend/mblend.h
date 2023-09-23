@@ -27,7 +27,7 @@ public:
   MatrixRGB(const MatrixRGB&) = delete;
   MatrixRGB(MatrixRGB&& other) = default;
 
-  inline MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
+  MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
                    std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
     if (input_image.ndim() != kChannels || input_image.shape(2) != kChannels ||
@@ -49,16 +49,16 @@ public:
     m_xpos = xpos;
     m_ypos = ypos;
   }
-  inline MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
+  MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
     m_data = new std::uint8_t[rows * cols * kChannels];
     m_own_data = true;
   }
-  inline MatrixRGB(size_t rows, size_t cols, std::uint8_t *consume_data)
+  MatrixRGB(size_t rows, size_t cols, std::uint8_t *consume_data)
       : m_rows(rows), m_cols(cols) {
     m_data = consume_data;
     m_own_data = true;
   }
-  inline ~MatrixRGB() {
+  ~MatrixRGB() {
     if (m_data && m_own_data) {
       delete m_data;
     }
@@ -66,17 +66,17 @@ public:
   std::vector<std::size_t> xy_pos() const {
     return {m_xpos, m_ypos};
   }
-  inline std::uint8_t *data() { return m_data; }
-  inline size_t rows() const { return m_rows; }
-  inline size_t cols() const { return m_cols; }
-  inline size_t channels() const { return kChannels; }
+  constexpr std::uint8_t *data() { return m_data; }
+  constexpr size_t rows() const { return m_rows; }
+  constexpr  size_t cols() const { return m_cols; }
+  constexpr  size_t channels() const { return kChannels; }
 
-  inline py::array_t<std::uint8_t> to_py_array() {
-    if (m_array) {
+  py::array_t<std::uint8_t> to_py_array() {
+    if (!m_data) {
       return std::move(m_array);
     }
     py::array_t<std::uint8_t> result(
-        {m_rows, m_cols},
+        {rows(), cols(), channels()},
         {channels() * sizeof(std::uint8_t) *
              cols(), /* Strides (in bytes) for each index */
          channels() * sizeof(std::uint8_t), sizeof(std::uint8_t)},

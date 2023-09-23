@@ -61,8 +61,7 @@ PYBIND11_MODULE(_hockeymom, m) {
                 format(), /* Python struct-style format descriptor */
             3,            /* Number of dimensions */
             {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
-            {m.channels() * sizeof(std::uint8_t) *
-                 m.cols(), /* Strides (in bytes) for each index */
+            {m.channels() * sizeof(std::uint8_t) * m.cols(),
              m.channels() * sizeof(std::uint8_t), sizeof(std::uint8_t)});
       });
 
@@ -97,11 +96,15 @@ PYBIND11_MODULE(_hockeymom, m) {
       [](const hm::sublibA::ConsoleForegroundColor &color) {},
       py::arg("color") = hm::sublibA::ConsoleForegroundColor::Blue);
 
-  m.def("_hello_world", []() { std::cout << "Hello, world!" << std::endl; });
+  m.def("_hello_world", []() {
+    py::gil_scoped_release release_gil();
+    std::cout << "Hello, world!" << std::endl;
+  });
 
   m.def("_enblend",
         [](std::string output_image,
            std::vector<std::string> input_files) -> int {
+          py::gil_scoped_release release_gil();
           return enblend::enblend_main(std::move(output_image),
                                        std::move(input_files));
         });
@@ -109,6 +112,7 @@ PYBIND11_MODULE(_hockeymom, m) {
   m.def("_emblend_images",
         [](py::array_t<uint8_t> &image1, std::vector<std::size_t> xy_pos_1,
            py::array_t<uint8_t> &image2, std::vector<std::size_t> xy_pos_2) {
+          py::gil_scoped_release release_gil();
           enblend::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
           enblend::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
           std::unique_ptr<enblend::MatrixRGB> result = enblend::enblend(m1, m2);
