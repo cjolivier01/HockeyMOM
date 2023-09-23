@@ -243,7 +243,7 @@ int multiblend_main(
     }
   }
 
-  if ((int)my_argv.size() < 3)
+  if ((int)my_argv.size() < 3 && !output_image && incoming_images.empty())
     die("Error: Not enough arguments (try -h for help)");
 
   for (i = 0; i < (int)my_argv.size(); ++i) {
@@ -429,6 +429,9 @@ int multiblend_main(
       }
     } else if (!strcmp(my_argv[i], "--no-output")) {
       ++i;
+			if (output_image) {
+				output_type = ImageType::MB_MEM;
+			}
       break;
     } else {
       die("Error: Unknown argument \"%s\"", my_argv[i]);
@@ -1892,9 +1895,9 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
   std::vector<std::string> args;
   args.push_back("python");
   args.push_back("--timing");
-  args.push_back("-o");
+  //args.push_back("-o");
   //args.push_back("/home/colivier/Videos/output_image.png");
-	args.push_back("");
+	args.push_back("--no-output");
 
   int argc = args.size();
   char **argv = new char *[argc];
@@ -1922,9 +1925,3 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB &image1, MatrixRGB &image2) {
 }
 
 }  // namespace enblend
-
-// #ifdef STANDALONE
-// int main(int argc, char* argv[]) {
-//   return multiblend_main(argc, argv);
-// }
-// #endif
