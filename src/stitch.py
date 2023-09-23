@@ -9,6 +9,7 @@ import cv2
 
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
+from osgeo import gdal
 
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
@@ -500,6 +501,22 @@ def stitch_with_warp():
 def pyramid_blending():
     A = cv2.imread("/mnt/data/Videos/my_project0000.tif")
     B = cv2.imread("/mnt/data/Videos/my_project0001.tif")
+
+    dataset = gdal.Open("/mnt/data/Videos/my_project0000.tif")
+    # Get georeferencing information
+    geotransform = dataset.GetGeoTransform()
+    spatial_reference = dataset.GetProjection()
+    # close the dataset
+    dataset = None
+
+    # Print or use georeferencing information
+    print("GeoTransform:", geotransform)
+    print("Spatial Reference:", spatial_reference)
+
+    x_geo_ref = geotransform[0]  # X-coordinate of the top-left corner
+    y_geo_ref = geotransform[1]  # X-coordinate of the top-left corner
+
+    print(f"x={x_geo_ref}, y={y_geo_ref}")
 
     img = core.emblend_images(A, B, [0, 0], [0, 0])
     # A = cv2.resize(A, (512, 512))
