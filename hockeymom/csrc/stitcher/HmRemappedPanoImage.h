@@ -12,26 +12,7 @@ class HmRemappedPanoImage
     : public HuginBase::Nona::RemappedPanoImage<RemapImage, AlphaImage> {
   typedef vigra_ext::ROIImage<RemapImage, AlphaImage> Base;
   using Super = HuginBase::Nona::RemappedPanoImage<RemapImage, AlphaImage>;
-  // public:
-  // // typedefs for the children types
-  //     typedef typename RemapImage::value_type      image_value_type;
-  //     typedef typename RemapImage::traverser       image_traverser;
-  //     typedef typename RemapImage::const_traverser const_image_traverser;
-  //     typedef typename RemapImage::Accessor        ImageAccessor;
-  //     typedef typename RemapImage::ConstAccessor   ConstImageAccessor;
-
-  //     typedef typename AlphaImage::value_type       mask_value_type;
-  //     typedef typename AlphaImage::traverser        mask_traverser;
-  //     typedef typename AlphaImage::const_traverser  const_mask_traverser;
-  //     typedef typename AlphaImage::Accessor         MaskAccessor;
-  //     typedef typename AlphaImage::ConstAccessor    ConstMaskAccessor;
-
-  //     typedef typename
-  //     vigra_ext::ValueTypeTraits<image_value_type>::value_type
-  //     component_type;
-
   using AdvancedOptions = HuginBase::Nona::AdvancedOptions;
-  //using SrcPanoImage = HuginBase::Nona::AdvancedOptions;
   using PanoramaOptions = HuginBase::PanoramaOptions;
 
  public:
@@ -42,7 +23,6 @@ class HmRemappedPanoImage
   HmRemappedPanoImage() = default;
 
  public:
-  ///
   // void setPanoImage(
   //     const HuginBase::SrcPanoImage& src,
   //     const PanoramaOptions& dest,
@@ -361,10 +341,8 @@ void remapImage(
     }
   }
 #endif
-  if (progress) {
-    progress->setMessage(
-        "remapping", hugin_utils::stripPath(src.getFilename()));
-  }
+  progress->setMessage(
+      "remapping", hugin_utils::stripPath(src.getFilename()));
   // set pano image
   DEBUG_DEBUG("setting src image with size: " << src.getSize());
   remapped.setPanoImage(src, dest, outputROI);

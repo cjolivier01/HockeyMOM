@@ -69,6 +69,10 @@ struct MatrixRGB {
   std::vector<std::size_t> xy_pos() const {
     return {m_xpos, m_ypos};
   }
+  void set_xy_pos(std::size_t xpos, std::size_t ypos) {
+    m_xpos = xpos;
+    m_ypos = ypos;
+  }
   constexpr std::uint8_t* data() {
     return m_data;
   }
