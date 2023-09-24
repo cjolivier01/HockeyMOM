@@ -135,11 +135,12 @@ class HmMultiImageRemapper
 
     // remap each image and save
     int i = 0;
-    for (UIntSet::const_iterator it = images.begin(); it != images.end();
-         ++it) {
-      // get a remapped image.
-      if (pass_ == 1) {
-        mod_options_.clear();
+
+    if (pass_ == 1) {
+      mod_options_.clear();
+      for (UIntSet::const_iterator it = images.begin(); it != images.end();
+           ++it) {
+        // get a remapped image.
         PanoramaOptions modOptions(opts);
         if (HuginBase::Nona::GetAdvancedOption(
                 advOptions, "ignoreExposure", false)) {
@@ -149,6 +150,11 @@ class HmMultiImageRemapper
         };
         mod_options_.emplace_back(std::move(modOptions));
       }
+    }
+
+    for (UIntSet::const_iterator it = images.begin(); it != images.end();
+         ++it) {
+      // get a remapped image.
       HmRemappedPanoImage<ImageType, AlphaType>* remapped =
           remapper.getRemapped(
               Base::m_pano,
@@ -157,7 +163,7 @@ class HmMultiImageRemapper
               Base::m_rois[i],
               Base::m_progress);
       try {
-        saveRemapped(
+        saveRemappedn (
             *remapped, *it, Base::m_pano.getNrOfImages(), opts, advOptions);
       } catch (vigra::PreconditionViolation& e) {
         // this can be thrown, if an image
