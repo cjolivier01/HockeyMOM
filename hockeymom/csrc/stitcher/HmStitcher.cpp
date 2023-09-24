@@ -14,16 +14,17 @@
 
 #include <getopt.h>
 
-#include <hugin_basic.h>
-#include "hugin_base/algorithms/basic/LayerStacks.h"
-#include <hugin_utils/platform.h>
 #include <algorithms/nona/NonaFileStitcher.h>
+#include <hugin_basic.h>
+#include <hugin_utils/platform.h>
 #include <vigra_ext/ImageTransformsGPU.h>
+#include "hugin_base/algorithms/basic/LayerStacks.h"
 #include "hugin_utils/stl_utils.h"
 #include "nona/StitcherOptions.h"
 
 #include <tiffio.h>
 
+/* clang-format off */
 static void usage(const char* name)
 {
     std::cout << name << ": stitch a panorama image" << std::endl
@@ -90,42 +91,42 @@ static void usage(const char* name)
          << "      --seam=hard|blend   select the blend mode for the seam" << std::endl
          << std::endl;
 }
+/* clang-format on */
 
-int main(int argc, char* argv[])
-{
+int nona_main(int argc, char* argv[]) {
+  // parse arguments
+  const char* optstring = "z:cho:i:t:m:p:r:e:vgd";
+  int c;
 
-    // parse arguments
-    const char* optstring = "z:cho:i:t:m:p:r:e:vgd";
-    int c;
+  bool doCoord = false;
+  HuginBase::UIntSet outputImages;
+  std::string basename;
+  std::string outputFormat;
+  bool overrideOutputMode = false;
+  std::string compression;
+  HuginBase::PanoramaOptions::OutputMode outputMode =
+      HuginBase::PanoramaOptions::OUTPUT_LDR;
+  bool overrideExposure = false;
+  double exposure = 0;
+  double rangeCompression = -1;
+  HuginBase::Nona::AdvancedOptions advOptions;
+  int verbose = 0;
+  bool useGPU = false;
+  std::string outputPixelType;
+  bool createExposureLayers = false;
 
-    bool doCoord = false;
-    HuginBase::UIntSet outputImages;
-    std::string basename;
-    std::string outputFormat;
-    bool overrideOutputMode = false;
-    std::string compression;
-    HuginBase::PanoramaOptions::OutputMode outputMode = HuginBase::PanoramaOptions::OUTPUT_LDR;
-    bool overrideExposure = false;
-    double exposure=0;
-    double rangeCompression = -1;
-    HuginBase::Nona::AdvancedOptions advOptions;
-    int verbose = 0;
-    bool useGPU = false;
-    std::string outputPixelType;
-    bool createExposureLayers = false;
-
-    enum
-    {
-        IGNOREEXPOSURE=1000,
-        SAVEINTERMEDIATEIMAGES,
-        INTERMEDIATESUFFIX,
-        FINALSUFFIX,
-        EXPOSURELAYERS,
-        MASKCLIPEXPOSURE,
-        SEAMMODE,
-        USE_BIGTIFF,
-        RANGECOMPRESSION
-    };
+  enum {
+    IGNOREEXPOSURE = 1000,
+    SAVEINTERMEDIATEIMAGES,
+    INTERMEDIATESUFFIX,
+    FINALSUFFIX,
+    EXPOSURELAYERS,
+    MASKCLIPEXPOSURE,
+    SEAMMODE,
+    USE_BIGTIFF,
+    RANGECOMPRESSION
+  };
+  /* clang-format off */
     static struct option longOptions[] =
     {
         { "ignore-exposure", no_argument, NULL, IGNOREEXPOSURE },
@@ -314,299 +315,268 @@ int main(int argc, char* argv[])
                 abort();
         }
     }
+  /* clang-format on */
 
-    if (basename.empty())
-    {
-        std::cerr << hugin_utils::stripPath(argv[0]) << ": No output prefix given." << std::endl;
+  if (basename.empty()) {
+    std::cerr << hugin_utils::stripPath(argv[0]) << ": No output prefix given."
+              << std::endl;
+    return 1;
+  };
+  if (argc - optind < 1) {
+    std::cerr << hugin_utils::stripPath(argv[0]) << ": No project file given."
+              << std::endl;
+    return 1;
+  }
+  unsigned nCmdLineImgs = argc - optind - 1;
+
+  const char* scriptFile = argv[optind];
+
+  // suppress tiff warnings
+  TIFFSetWarningHandler(0);
+
+  HuginBase::Panorama pano;
+  if (!pano.ReadPTOFile(scriptFile, hugin_utils::getPathPrefix(scriptFile))) {
+    exit(1);
+  };
+
+  if (nCmdLineImgs > 0) {
+    if (nCmdLineImgs != pano.getNrOfImages()) {
+      std::cerr
+          << "Incorrect number of images specified on command line\nProject required "
+          << pano.getNrOfImages() << " but " << nCmdLineImgs << " where given"
+          << std::endl;
+      exit(1);
+    }
+    for (unsigned i = 0; i < pano.getNrOfImages(); i++) {
+      pano.setImageFilename(i, argv[optind + i + 1]);
+    }
+  }
+  HuginBase::PanoramaOptions opts = pano.getOptions();
+
+  // save coordinate images, if requested
+  opts.saveCoordImgs = doCoord;
+  if (createExposureLayers) {
+    if (!outputFormat.empty()) {
+      std::cout
+          << "Warning: Ignoring output format " << outputFormat << std::endl
+          << "         Switch --create-exposure-layers will enforce TIFF_m output."
+          << std::endl;
+    };
+    outputFormat = "TIFF";
+    if (!outputImages.empty()) {
+      std::cout
+          << "Warning: Ignoring specified output images." << std::endl
+          << "         Switch --create-exposure-layers will always work on all active images."
+          << std::endl;
+      outputImages.clear();
+    };
+  };
+  if (outputFormat == "TIFF_m") {
+    opts.outputFormat = HuginBase::PanoramaOptions::TIFF_m;
+    opts.outputImageType = "tif";
+  } else if (outputFormat == "JPEG_m") {
+    opts.outputFormat = HuginBase::PanoramaOptions::JPEG_m;
+    opts.tiff_saveROI = false;
+    opts.outputImageType = "jpg";
+  } else if (outputFormat == "JPEG") {
+    opts.outputFormat = HuginBase::PanoramaOptions::JPEG;
+    opts.tiff_saveROI = false;
+    opts.outputImageType = "jpg";
+  } else if (outputFormat == "PNG_m") {
+    opts.outputFormat = HuginBase::PanoramaOptions::PNG_m;
+    opts.tiff_saveROI = false;
+    opts.outputImageType = "png";
+  } else if (outputFormat == "PNG") {
+    opts.outputFormat = HuginBase::PanoramaOptions::PNG;
+    opts.tiff_saveROI = false;
+    opts.outputImageType = "png";
+  } else if (outputFormat == "TIFF") {
+    opts.outputFormat = HuginBase::PanoramaOptions::TIFF;
+    opts.outputImageType = "tif";
+  } else if (outputFormat == "TIFF_multilayer") {
+    opts.outputFormat = HuginBase::PanoramaOptions::TIFF_multilayer;
+    opts.outputImageType = "tif";
+  } else if (outputFormat == "EXR_m") {
+    opts.outputFormat = HuginBase::PanoramaOptions::EXR_m;
+    opts.outputImageType = "exr";
+  } else if (outputFormat == "EXR") {
+    opts.outputFormat = HuginBase::PanoramaOptions::EXR;
+    opts.outputImageType = "exr";
+  } else if (outputFormat != "") {
+    std::cerr << "Error: unknown output format: " << outputFormat << endl;
+    return 1;
+  }
+
+  if (!compression.empty()) {
+    if (opts.outputImageType == "tif") {
+      opts.tiffCompression = compression;
+    } else {
+      if (opts.outputImageType == "jpg") {
+        int q = atoi(compression.c_str());
+        if (q > 0 && q <= 100) {
+          opts.quality = q;
+        } else {
+          std::cerr << "WARNING: \"" << compression
+                    << "\" is not valid compression value for jpeg images."
+                    << std::endl
+                    << "         Using value " << opts.quality
+                    << " found in pto file." << std::endl;
+        };
+      };
+    };
+  };
+
+  if (!outputPixelType.empty()) {
+    opts.outputPixelType = outputPixelType;
+  }
+
+  if (overrideOutputMode) {
+    opts.outputMode = outputMode;
+  }
+
+  if (overrideExposure) {
+    opts.outputExposureValue = exposure;
+    if (HuginBase::Nona::GetAdvancedOption(
+            advOptions, "ignoreExposure", false)) {
+      HuginBase::Nona::SetAdvancedOption(advOptions, "ignoreExposure", false);
+      std::cout
+          << "WARNING: Switches --ignore-exposure and -e can't to used together."
+          << std::endl
+          << "         Ignore switch --ignore-exposure." << std::endl;
+    }
+  }
+  if (rangeCompression >= 0.0) {
+    if (HuginBase::Nona::GetAdvancedOption(
+            advOptions, "ignoreExposure", false)) {
+      std::cout
+          << "WARNING: Switch --ignore-exposure disables range compression."
+          << std::endl
+          << "         --output-range-compression is therefore ignored."
+          << std::endl;
+    } else {
+      opts.outputRangeCompression = rangeCompression;
+    };
+  };
+
+  if (outputImages.empty()) {
+    outputImages = HuginBase::getImagesinROI(pano, pano.getActiveImages());
+  } else {
+    HuginBase::UIntSet activeImages =
+        HuginBase::getImagesinROI(pano, pano.getActiveImages());
+    for (HuginBase::UIntSet::const_iterator it = outputImages.begin();
+         it != outputImages.end();
+         ++it) {
+      if (!set_contains(activeImages, *it)) {
+        std::cerr << "The project file does not contains an image with number "
+                  << *it << std::endl;
         return 1;
+      };
     };
-    if(argc - optind < 1)
-    {
-        std::cerr << hugin_utils::stripPath(argv[0]) << ": No project file given." << std::endl;
-        return 1;
-    }
-    unsigned nCmdLineImgs = argc -optind -1;
-
-    const char* scriptFile = argv[optind];
-
-    // suppress tiff warnings
-    TIFFSetWarningHandler(0);
-
-    HuginBase::Panorama pano;
-    if (!pano.ReadPTOFile(scriptFile, hugin_utils::getPathPrefix(scriptFile)))
-    {
-        exit(1);
-    };
-
-    if ( nCmdLineImgs > 0)
-    {
-        if (nCmdLineImgs != pano.getNrOfImages())
-        {
-            std::cerr << "Incorrect number of images specified on command line\nProject required " << pano.getNrOfImages() << " but " << nCmdLineImgs << " where given" << std::endl;
-            exit(1);
-        }
-        for (unsigned i=0; i < pano.getNrOfImages(); i++)
-        {
-            pano.setImageFilename(i, argv[optind+i+1]);
-        }
-
-    }
-    HuginBase::PanoramaOptions  opts = pano.getOptions();
-
-    // save coordinate images, if requested
-    opts.saveCoordImgs = doCoord;
-    if (createExposureLayers)
-    {
-        if (!outputFormat.empty())
-        {
-            std::cout << "Warning: Ignoring output format " << outputFormat << std::endl
-                << "         Switch --create-exposure-layers will enforce TIFF_m output." << std::endl;
-        };
-        outputFormat = "TIFF";
-        if (!outputImages.empty())
-        {
-            std::cout << "Warning: Ignoring specified output images." << std::endl
-                << "         Switch --create-exposure-layers will always work on all active images." << std::endl;
-            outputImages.clear();
-        };
-    };
-    if (outputFormat == "TIFF_m")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::TIFF_m;
-        opts.outputImageType = "tif";
-    }
-    else if (outputFormat == "JPEG_m")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::JPEG_m;
-        opts.tiff_saveROI = false;
-        opts.outputImageType = "jpg";
-    }
-    else if (outputFormat == "JPEG")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::JPEG;
-        opts.tiff_saveROI = false;
-        opts.outputImageType = "jpg";
-    }
-    else if (outputFormat == "PNG_m")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::PNG_m;
-        opts.tiff_saveROI = false;
-        opts.outputImageType = "png";
-    }
-    else if (outputFormat == "PNG")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::PNG;
-        opts.tiff_saveROI = false;
-        opts.outputImageType = "png";
-    }
-    else if (outputFormat == "TIFF")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::TIFF;
-        opts.outputImageType = "tif";
-    }
-    else if (outputFormat == "TIFF_multilayer")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::TIFF_multilayer;
-        opts.outputImageType = "tif";
-    }
-    else if (outputFormat == "EXR_m")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::EXR_m;
-        opts.outputImageType = "exr";
-    }
-    else if (outputFormat == "EXR")
-    {
-        opts.outputFormat = HuginBase::PanoramaOptions::EXR;
-        opts.outputImageType = "exr";
-    }
-    else if (outputFormat != "")
-    {
-        std::cerr << "Error: unknown output format: " << outputFormat << endl;
-        return 1;
-    }
-
-    if (!compression.empty())
-    {
-        if (opts.outputImageType == "tif")
-        {
-            opts.tiffCompression = compression;
-        }
-        else
-        {
-            if (opts.outputImageType == "jpg")
-            {
-                int q = atoi(compression.c_str());
-                if (q > 0 && q <= 100)
-                {
-                    opts.quality = q;
-                }
-                else
-                {
-                    std::cerr << "WARNING: \"" << compression << "\" is not valid compression value for jpeg images." << std::endl
-                        << "         Using value " << opts.quality << " found in pto file." << std::endl;
-                };
-            };
-        };
-    };
-
-    if (!outputPixelType.empty())
-    {
-        opts.outputPixelType = outputPixelType;
-    }
-
-    if (overrideOutputMode)
-    {
-        opts.outputMode = outputMode;
-    }
-
-    if (overrideExposure)
-    {
-        opts.outputExposureValue = exposure;
-        if (HuginBase::Nona::GetAdvancedOption(advOptions, "ignoreExposure", false))
-        {
-            HuginBase::Nona::SetAdvancedOption(advOptions, "ignoreExposure", false);
-            std::cout << "WARNING: Switches --ignore-exposure and -e can't to used together." << std::endl
-                << "         Ignore switch --ignore-exposure." << std::endl;
-        }
-    }
-    if (rangeCompression >= 0.0)
-    {
-        if (HuginBase::Nona::GetAdvancedOption(advOptions, "ignoreExposure", false))
-        {
-            std::cout << "WARNING: Switch --ignore-exposure disables range compression." << std::endl
-                << "         --output-range-compression is therefore ignored." << std::endl;
-        }
-        else
-        {
-            opts.outputRangeCompression = rangeCompression;
-        };
-    };
-
-    if (outputImages.empty())
-    {
-        outputImages = HuginBase::getImagesinROI(pano, pano.getActiveImages());
-    }
-    else
-    {
-        HuginBase::UIntSet activeImages = HuginBase::getImagesinROI(pano, pano.getActiveImages());
-        for (HuginBase::UIntSet::const_iterator it = outputImages.begin(); it != outputImages.end(); ++it)
-        {
-            if(!set_contains(activeImages,*it))
-            {
-                std::cerr << "The project file does not contains an image with number " << *it << std::endl;
-                return 1;
-            };
-        };
-    };
-    if(outputImages.empty())
-    {
-        std::cout << "Project does not contain active images." << std::endl
-                  << "Nothing to do for nona." << std::endl;
-        return 0;
-    };
-    if(useGPU)
-    {
-        switch(opts.getProjection())
-        {
-            // the following projections are not supported by nona-gpu
-            case HuginBase::PanoramaOptions::BIPLANE:
-            case HuginBase::PanoramaOptions::TRIPLANE:
-            case HuginBase::PanoramaOptions::PANINI:
-            case HuginBase::PanoramaOptions::EQUI_PANINI:
-            case HuginBase::PanoramaOptions::GENERAL_PANINI:
-                useGPU=false;
-                std::cout << "Nona-GPU does not support this projection. Switch to CPU calculation."<<std::endl;
-                break;
-            default:
-                //fallthrough, to silence compiler warning
-                break;
-        };
-    };
-
-    DEBUG_DEBUG("output basename: " << basename);
-
-    try
-    {
-        AppBase::ProgressDisplay* pdisp = NULL;
-        if(verbose > 0)
-        {
-            pdisp = new AppBase::StreamProgressDisplay(std::cout);
-        }
-        else
-        {
-            pdisp = new AppBase::DummyProgressDisplay;
-        }
-
-        if (useGPU)
-        {
-            useGPU = hugin_utils::initGPU(&argc, argv);
-            if (!useGPU)
-            {
-                std::cout << "Could not initialize GPU. Switching back to CPU calculation." << std::endl;
-            };
-        }
-        opts.remapUsingGPU = useGPU;
-        pano.setOptions(opts);
-
-        if (createExposureLayers)
-        {
-            HuginBase::UIntSetVector exposureLayers = getExposureLayers(pano, outputImages, opts);
-            if (exposureLayers.empty())
-            {
-                std::cerr << "ERROR: Could not determine exposure layers. Cancel execution." << std::endl;
-            }
-            else
-            {
-                // we need to pass the basename to the stitcher
-                // because NonaFileOutputStitcher get already filename with numbers added
-                HuginBase::Nona::SetAdvancedOption(advOptions, "basename", basename);
-                for (size_t i = 0; i < exposureLayers.size(); ++i)
-                {
-                    HuginBase::PanoramaOptions modOptions(opts);
-                    // set output exposure to exposure value of first image of layers
-                    // normally this this invoked with --ignore-exposure, so this has no effect
-                    modOptions.outputExposureValue = pano.getImage(*(exposureLayers[i].begin())).getExposureValue();
-                    // build filename
-                    std::ostringstream filename;
-                    filename << basename << std::setfill('0') << std::setw(4) << i;
-                    HuginBase::NonaFileOutputStitcher(pano, pdisp, modOptions, exposureLayers[i], filename.str(), advOptions).run();
-                }
-            }
-        }
-        else
-        {
-            // stitch panorama
-            HuginBase::NonaFileOutputStitcher(pano, pdisp, opts, outputImages, basename, advOptions).run();
-        };
-        // add a final newline, after the last progress message
-        if (verbose > 0)
-        {
-            std::cout << std::endl;
-        }
-
-        if (useGPU)
-        {
-            hugin_utils::wrapupGPU();
-        }
-
-        if(pdisp != NULL)
-        {
-            delete pdisp;
-            pdisp=NULL;
-        }
-    }
-    catch (std::exception& e)
-    {
-        std::cerr << "caught exception: " << e.what() << std::endl;
-        return 1;
-    }
-
+  };
+  if (outputImages.empty()) {
+    std::cout << "Project does not contain active images." << std::endl
+              << "Nothing to do for nona." << std::endl;
     return 0;
+  };
+  if (useGPU) {
+    switch (opts.getProjection()) {
+      // the following projections are not supported by nona-gpu
+      case HuginBase::PanoramaOptions::BIPLANE:
+      case HuginBase::PanoramaOptions::TRIPLANE:
+      case HuginBase::PanoramaOptions::PANINI:
+      case HuginBase::PanoramaOptions::EQUI_PANINI:
+      case HuginBase::PanoramaOptions::GENERAL_PANINI:
+        useGPU = false;
+        std::cout
+            << "Nona-GPU does not support this projection. Switch to CPU calculation."
+            << std::endl;
+        break;
+      default:
+        // fallthrough, to silence compiler warning
+        break;
+    };
+  };
+
+  DEBUG_DEBUG("output basename: " << basename);
+
+  try {
+    AppBase::ProgressDisplay* pdisp = NULL;
+    if (verbose > 0) {
+      pdisp = new AppBase::StreamProgressDisplay(std::cout);
+    } else {
+      pdisp = new AppBase::DummyProgressDisplay;
+    }
+
+    if (useGPU) {
+      useGPU = hugin_utils::initGPU(&argc, argv);
+      if (!useGPU) {
+        std::cout
+            << "Could not initialize GPU. Switching back to CPU calculation."
+            << std::endl;
+      };
+    }
+    opts.remapUsingGPU = useGPU;
+    pano.setOptions(opts);
+
+    if (createExposureLayers) {
+      HuginBase::UIntSetVector exposureLayers =
+          getExposureLayers(pano, outputImages, opts);
+      if (exposureLayers.empty()) {
+        std::cerr
+            << "ERROR: Could not determine exposure layers. Cancel execution."
+            << std::endl;
+      } else {
+        // we need to pass the basename to the stitcher
+        // because NonaFileOutputStitcher get already filename with numbers
+        // added
+        HuginBase::Nona::SetAdvancedOption(advOptions, "basename", basename);
+        for (size_t i = 0; i < exposureLayers.size(); ++i) {
+          HuginBase::PanoramaOptions modOptions(opts);
+          // set output exposure to exposure value of first image of layers
+          // normally this this invoked with --ignore-exposure, so this has no
+          // effect
+          modOptions.outputExposureValue =
+              pano.getImage(*(exposureLayers[i].begin())).getExposureValue();
+          // build filename
+          std::ostringstream filename;
+          filename << basename << std::setfill('0') << std::setw(4) << i;
+          HuginBase::NonaFileOutputStitcher(
+              pano,
+              pdisp,
+              modOptions,
+              exposureLayers[i],
+              filename.str(),
+              advOptions)
+              .run();
+        }
+      }
+    } else {
+      // stitch panorama
+      HuginBase::NonaFileOutputStitcher(
+          pano, pdisp, opts, outputImages, basename, advOptions)
+          .run();
+    };
+    // add a final newline, after the last progress message
+    if (verbose > 0) {
+      std::cout << std::endl;
+    }
+
+    if (useGPU) {
+      hugin_utils::wrapupGPU();
+    }
+
+    if (pdisp != NULL) {
+      delete pdisp;
+      pdisp = NULL;
+    }
+  } catch (std::exception& e) {
+    std::cerr << "caught exception: " << e.what() << std::endl;
+    return 1;
+  }
+
+  return 0;
 }
 
 #endif
 
-namespace hm {
-
-
-}
+namespace hm {}
