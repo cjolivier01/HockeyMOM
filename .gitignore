@@ -1,6 +1,7 @@
 .idea
 *.pyc
 /*.log
+/*.tif
 /demos
 /h-demo*
 # /models/*.pth
