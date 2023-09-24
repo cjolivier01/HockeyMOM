@@ -11,6 +11,74 @@
 
 namespace hm {
 
+/** functor to create a remapped image */
+template <typename ImageType, typename AlphaType>
+class HmSingleImageRemapper {
+ public:
+  HmSingleImageRemapper() : m_advancedOptions(){};
+
+  /** create a remapped pano image.
+   *
+   *  The image ownership is transferred to the caller.
+   */
+  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+      const HuginBase::PanoramaData& pano,
+      const HuginBase::PanoramaOptions& opts,
+      unsigned int imgNr,
+      vigra::Rect2D outputROI,
+      AppBase::ProgressDisplay* progress) = 0;
+
+  virtual ~HmSingleImageRemapper(){};
+
+  void setAdvancedOptions(
+      const HuginBase::Nona::AdvancedOptions advancedOptions) {
+    m_advancedOptions = advancedOptions;
+  }
+
+  ///
+  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
+
+ protected:
+  HuginBase::Nona::AdvancedOptions m_advancedOptions;
+};
+
+/** functor to create a remapped image, loads image from disk */
+template <typename ImageType, typename AlphaType>
+class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
+ public:
+  HmFileRemapper() : HmSingleImageRemapper<ImageType, AlphaType>() {
+    m_remapped = 0;
+  }
+
+  virtual ~HmFileRemapper(){};
+
+  typedef std::vector<float> LUT;
+
+ public:
+  ///
+  void loadImage(
+      const HuginBase::PanoramaOptions& opts,
+      vigra::ImageImportInfo& info,
+      ImageType& srcImg,
+      AlphaType& srcAlpha) {}
+
+  ///
+  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+      const HuginBase::PanoramaData& pano,
+      const HuginBase::PanoramaOptions& opts,
+      unsigned int imgNr,
+      vigra::Rect2D outputROI,
+      AppBase::ProgressDisplay* progress);
+
+  ///
+  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) {
+    delete d;
+  }
+
+ protected:
+  HmRemappedPanoImage<ImageType, AlphaType>* m_remapped;
+};
+
 /** remap a set of images, and store the individual remapped files. */
 template <typename ImageType, typename AlphaType>
 class HmMultiImageRemapper
@@ -21,8 +89,6 @@ class HmMultiImageRemapper
   using Base = HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType>;
   using MultiImageRemapper =
       HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType>;
-  using SingleImageRemapper =
-      HuginBase::Nona::SingleImageRemapper<ImageType, AlphaType>;
   using PanoramaData = HuginBase::PanoramaData;
   using PanoramaOptions = HuginBase::PanoramaOptions;
   using AdvancedOptions = HuginBase::Nona::AdvancedOptions;
@@ -38,13 +104,19 @@ class HmMultiImageRemapper
   // {
   // }
 
-  virtual void stitch(
+  // virtual void stitch(const PanoramaOptions & opts, UIntSet & images,
+  //                     const std::string & basename,
+  //                     HmSingleImageRemapper<ImageType, AlphaType> & remapper,
+  //                     const AdvancedOptions& advOptions)
+
+  void stitch(
       const PanoramaOptions& opts,
       UIntSet& images,
       const std::string& basename,
-      SingleImageRemapper& remapper,
+      HmSingleImageRemapper<ImageType, AlphaType>& remapper,
       const AdvancedOptions& advOptions) {
-    Base::stitch(opts, images, basename, remapper);
+    // Skip over direct base class stitch call
+    // Base::Base::stitch(opts, images, basename, remapper);
     DEBUG_ASSERT(
         opts.outputFormat == PanoramaOptions::TIFF_multilayer ||
         opts.outputFormat == PanoramaOptions::TIFF_m ||
@@ -177,5 +249,110 @@ class HmMultiImageRemapper
   // protected:
   //     std::string m_basename;
 };
+
+template <typename ImageType, typename AlphaType>
+HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
+    ImageType,
+    AlphaType>::
+    getRemapped(
+        const HuginBase::PanoramaData& pano,
+        const HuginBase::PanoramaOptions& opts,
+        unsigned int imgNr,
+        vigra::Rect2D outputROI,
+        AppBase::ProgressDisplay* progress) {
+  typedef typename ImageType::value_type PixelType;
+
+  // typedef typename vigra::NumericTraits<PixelType>::RealPromote RPixelType;
+  //         typedef typename vigra::BasicImage<RPixelType> RImportImageType;
+  typedef typename vigra::BasicImage<float> FlatImgType;
+
+  FlatImgType ffImg;
+  AlphaType srcAlpha;
+
+  // choose image type...
+  const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
+
+  vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
+
+  m_remapped = new HmRemappedPanoImage<ImageType, AlphaType>;
+
+  // load image
+
+  vigra::ImageImportInfo info(img.getFilename().c_str());
+
+  int width = info.width();
+  int height = info.height();
+
+  if (opts.remapUsingGPU) {
+    // Extend image width to multiple of 8 for fast GPU transfers.
+    const int r = width % 8;
+    if (r != 0)
+      width += 8 - r;
+  }
+
+  ImageType srcImg(width, height);
+  m_remapped->m_ICCProfile = info.getICCProfile();
+
+  if (info.numExtraBands() > 0) {
+    srcAlpha.resize(width, height);
+  }
+  // int nb = info.numBands() - info.numExtraBands();
+  bool alpha = info.numExtraBands() > 0;
+  std::string type = info.getPixelType();
+
+  HuginBase::SrcPanoImage src = pano.getSrcImage(imgNr);
+
+  // import the image
+  progress->setMessage("loading", hugin_utils::stripPath(img.getFilename()));
+
+  if (alpha) {
+    vigra::importImageAlpha(
+        info, vigra::destImage(srcImg), vigra::destImage(srcAlpha));
+  } else {
+    vigra::importImage(info, vigra::destImage(srcImg));
+  }
+  // check if the image needs to be scaled to 0 .. 1,
+  // this only works for int -> float, since the image
+  // has already been loaded into the output container
+  double maxv = vigra_ext::getMaxValForPixelType(info.getPixelType());
+  if (maxv != vigra_ext::LUTTraits<PixelType>::max()) {
+    double scale = ((double)vigra_ext::LUTTraits<PixelType>::max()) / maxv;
+    // std::cout << "Scaling input image (pixel type: " << info.getPixelType()
+    // << " with: " << scale << std::endl;
+    transformImage(
+        vigra::srcImageRange(srcImg),
+        destImage(srcImg),
+        vigra::functor::Arg1() * vigra::functor::Param(scale));
+  }
+
+  // load flatfield, if needed.
+  if (img.getVigCorrMode() & HuginBase::SrcPanoImage::VIGCORR_FLATFIELD) {
+    // load flatfield image.
+    vigra::ImageImportInfo ffInfo(img.getFlatfieldFilename().c_str());
+    progress->setMessage(
+        "flatfield vignetting correction",
+        hugin_utils::stripPath(img.getFilename()));
+    vigra_precondition(
+        (ffInfo.numBands() == 1),
+        "flatfield vignetting correction: "
+        "Only single channel flatfield images are supported\n");
+    ffImg.resize(ffInfo.width(), ffInfo.height());
+    vigra::importImage(ffInfo, vigra::destImage(ffImg));
+  }
+  m_remapped->setAdvancedOptions(
+      HmSingleImageRemapper<ImageType, AlphaType>::m_advancedOptions);
+  // remap the image
+
+  remapImage(
+      srcImg,
+      srcAlpha,
+      ffImg,
+      pano.getSrcImage(imgNr),
+      opts,
+      outputROI,
+      *m_remapped,
+      progress);
+  return m_remapped;
+}
 
 } // namespace hm

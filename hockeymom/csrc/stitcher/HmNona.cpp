@@ -577,7 +577,6 @@ int nona_main(int argc, char* argv[]) {
   return 0;
 }
 
-
 namespace hm {
 using namespace HuginBase;
 using namespace HuginBase::Nona;
@@ -593,7 +592,7 @@ using namespace HuginBase::Nona;
  */
 HmNona::HmNona(std::string project_file)
     : project_file_(std::move(project_file)) {
-    TIFFSetWarningHandler(0);
+  TIFFSetWarningHandler(0);
   if (!load_project(project_file_)) {
     throw std::runtime_error(
         std::string("Failed to laod project file: ") + project_file_);
@@ -610,8 +609,8 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_ = pano_.getOptions();
   opts_.tiffCompression = "NONE";
 
-  //HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", true);
-  //HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", false);
+  // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", true);
+  // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", false);
   return true;
 }
 
@@ -619,31 +618,35 @@ std::pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
 HmNona::process_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
-    auto active_images = pano_.getActiveImages();
-    auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
+  auto active_images = pano_.getActiveImages();
+  auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
   auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
   // stitch panorama
-  HuginBase::NonaFileOutputStitcher stitcher(pano_, pdisp.get(), opts_, outputImages, "hm_nona", adv_options_);
-  stitcher.run();
+  HuginBase::NonaFileOutputStitcher nona_stitcher(
+      pano_, pdisp.get(), opts_, outputImages, "hm_nona", adv_options_);
+  nona_stitcher.run();
 
   // Our version...
   // From Nona stitcher
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
 
-  FileRemapper<vigra::BRGBImage, vigra::BImage> m;
-  MultiImageRemapper<vigra::BRGBImage, vigra::BImage> remapper_stitcher(pano_, pdisp.get());
-  m.setAdvancedOptions(adv_options_);
+  // FileRemapper<vigra::BRGBImage, vigra::BImage> m;
+  // HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage>
+  // remapper_stitcher(pano_, pdisp.get()); m.setAdvancedOptions(adv_options_);
 
   // Set up panorama options for the two images beforehand
   PanoramaOptions modOptions1(opts_), modOptions2(opts_);
-  if (GetAdvancedOption(adv_options_, "ignoreExposure", false))
-  {
-      modOptions1.outputExposureValue = pano_.getImage(0).getExposureValue();
-      modOptions1.outputRangeCompression = 0.0;
-      modOptions2.outputExposureValue = pano_.getImage(1).getExposureValue();
-      modOptions2.outputRangeCompression = 0.0;
+  if (GetAdvancedOption(adv_options_, "ignoreExposure", false)) {
+    modOptions1.outputExposureValue = pano_.getImage(0).getExposureValue();
+    modOptions1.outputRangeCompression = 0.0;
+    modOptions2.outputExposureValue = pano_.getImage(1).getExposureValue();
+    modOptions2.outputRangeCompression = 0.0;
   };
 
+  FileRemapper<vigra::BRGBImage, vigra::BImage> m;
+  m.setAdvancedOptions(adv_options_);
+  HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage> remapper_stitcher(
+      pano_, pdisp.get());
 
   return {nullptr, nullptr};
 }
