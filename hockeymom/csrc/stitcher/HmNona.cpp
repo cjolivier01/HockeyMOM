@@ -25,6 +25,7 @@
 
 #include <tiffio.h>
 
+#if 0
 /* clang-format off */
 static void usage(const char* name)
 {
@@ -576,6 +577,7 @@ int nona_main(int argc, char* argv[]) {
 
   return 0;
 }
+#endif
 
 namespace hm {
 using namespace HuginBase;
@@ -638,7 +640,7 @@ HmNona::process_images(
     file_remapper_.setAdvancedOptions(adv_options_);
   }
   HmMultiImageRemapper<ImageType, vigra::BImage> stitcher(pano_, pdisp.get());
-  stitcher.set_images(image1, image2);
+  stitcher.set_input_images(image1, image2);
   UIntSet img_indexes{0, 1};
   stitcher.stitch(
       opts_,
@@ -649,5 +651,6 @@ HmNona::process_images(
   return {nullptr, nullptr};
 }
 
-HmNona::~HmNona() = default;
+HmNona::~HmNona() {}
+
 } // namespace hm

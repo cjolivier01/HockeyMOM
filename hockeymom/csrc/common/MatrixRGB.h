@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vigra/multi_array.hxx>
 #include <vigra/impex.hxx>
+#include <vigra/multi_array.hxx>
 
 // TODO: remove pybind dependency int his file/class
 
@@ -11,7 +11,9 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 
+#include <cassert>
 #include <cstddef>
+#include <vector>
 
 namespace py = pybind11;
 
@@ -103,7 +105,8 @@ struct MatrixRGB {
   }
 
   std::unique_ptr<vigra::BRGBImage> to_vigra_brgb_image() {
-    const vigra::RGBValue<unsigned char>* rgb_data = reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
+    const vigra::RGBValue<unsigned char>* rgb_data =
+        reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
     return std::make_unique<vigra::BRGBImage>(cols(), rows(), rgb_data);
   }
 
@@ -114,6 +117,82 @@ struct MatrixRGB {
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
   py::array_t<uint8_t> m_array;
+};
+
+struct MatrixRGBEncoder : public vigra::Encoder {
+  virtual ~MatrixRGBEncoder() = default;
+  virtual void init(const std::string&) {}
+
+  // initialize with file access mode. For codecs that do not support this
+  // feature, the standard init is called.
+  virtual void init(const std::string& fileName, const std::string&) {
+    init(fileName);
+  }
+
+  virtual void close() {}
+  virtual void abort() {
+    assert(false);
+  }
+
+  virtual std::string getFileType() const {
+    assert(false);
+  }
+  virtual unsigned int getOffset() const {
+    assert(false);
+  }
+
+  virtual void setWidth(unsigned int) {
+    assert(false);
+  }
+  virtual void setHeight(unsigned int) {
+    assert(false);
+  }
+  virtual void setNumBands(unsigned int) {
+    assert(false);
+  }
+  virtual void setCompressionType(const std::string&, int = -1) {
+    assert(false);
+  }
+  virtual void setPixelType(const std::string&) {
+    assert(false);
+  }
+  virtual void finalizeSettings() {
+    assert(false);
+  }
+
+  virtual void setPosition(const vigra::Diff2D& pos) {
+    position_ = pos;
+  }
+  virtual void setCanvasSize(const vigra::Size2D& size) {
+    canvas_size_ = size;
+  }
+  virtual void setXResolution(float xres) {
+    x_res_ = xres;
+  }
+  virtual void setYResolution(float yres) {
+    y_res_ = yres;
+  }
+
+  typedef vigra::ArrayVector<unsigned char> ICCProfile;
+
+  virtual void setICCProfile(const ICCProfile& /* data */) {}
+
+  virtual void* currentScanlineOfBand(unsigned int) {
+    assert(false);
+  }
+  virtual void nextScanline() {
+    assert(false);
+  }
+
+  struct TIFFCompressionException {};
+
+ private:
+  std::size_t width_{0}, height_{0};
+  float x_res_{0}, y_res_{0};
+  vigra::Diff2D position_;
+  vigra::Size2D canvas_size_;
+  std::unique_ptr<MatrixRGB> matrix_rgb_{nullptr};
+  std::vector<std::uint8_t*> scanlines_;
 };
 
 } // namespace hm

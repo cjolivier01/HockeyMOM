@@ -1,8 +1,7 @@
 #pragma once
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
-//#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
-#include "hockeymom/csrc/stitcher/HmStitcher.h"
+#include "hockeymom/csrc/stitcher/FileRemapper.h"
 
 #include "nona/StitcherOptions.h"
 #include "panodata/Panorama.h"

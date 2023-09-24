@@ -2,6 +2,7 @@
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
+#include "hockeymom/csrc/stitcher/FileRemapper.h"
 
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
@@ -10,78 +11,6 @@
 #include <string>
 
 namespace hm {
-
-/** functor to create a remapped image */
-template <typename ImageType, typename AlphaType>
-class HmSingleImageRemapper {
- public:
-  HmSingleImageRemapper() : m_advancedOptions(){};
-
-  /** create a remapped pano image.
-   *
-   *  The image ownership is transferred to the caller.
-   */
-  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
-      const HuginBase::PanoramaData& pano,
-      const HuginBase::PanoramaOptions& opts,
-      unsigned int imgNr,
-      const std::shared_ptr<hm::MatrixRGB>& image,
-      vigra::Rect2D outputROI,
-      AppBase::ProgressDisplay* progress) = 0;
-
-  virtual ~HmSingleImageRemapper(){};
-
-  void setAdvancedOptions(
-      const HuginBase::Nona::AdvancedOptions advancedOptions) {
-    m_advancedOptions = advancedOptions;
-  }
-
-  ///
-  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
-
- protected:
-  HuginBase::Nona::AdvancedOptions m_advancedOptions;
-  std::size_t pass_{0};
-};
-
-/** functor to create a remapped image, loads image from disk */
-template <typename ImageType, typename AlphaType>
-class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
- public:
-  HmFileRemapper() : HmSingleImageRemapper<ImageType, AlphaType>() {
-    m_remapped = 0;
-  }
-
-  virtual ~HmFileRemapper(){};
-
-  typedef std::vector<float> LUT;
-
- public:
-  ///
-  void loadImage(
-      const HuginBase::PanoramaOptions& opts,
-      vigra::ImageImportInfo& info,
-      ImageType& srcImg,
-      AlphaType& srcAlpha) {}
-
-  ///
-  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
-      const HuginBase::PanoramaData& pano,
-      const HuginBase::PanoramaOptions& opts,
-      unsigned int imgNr,
-      const std::shared_ptr<hm::MatrixRGB>& image,
-      vigra::Rect2D outputROI,
-      AppBase::ProgressDisplay* progress);
-
-  ///
-  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) {
-    delete d;
-  }
-
- protected:
-  HmRemappedPanoImage<ImageType, AlphaType>* m_remapped;
-  std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
-};
 
 /** remap a set of images, and store the individual remapped files. */
 template <typename ImageType, typename AlphaType>
@@ -104,11 +33,13 @@ class HmMultiImageRemapper
       AppBase::ProgressDisplay* progress)
       : MultiImageRemapper(pano, progress) {}
 
-  void set_images(
+  void set_input_images(
       std::shared_ptr<hm::MatrixRGB> image1,
       std::shared_ptr<hm::MatrixRGB> image2) {
     images_ = std::vector<std::shared_ptr<hm::MatrixRGB>>{
         std::move(image1), std::move(image2)};
+    output_images_.clear();
+    output_images_.resize(images_.size());
   }
 
   void stitch(
@@ -192,130 +123,383 @@ class HmMultiImageRemapper
     // Base::m_progress->setMessage("Multiple images output");
   }
 
-    //template<typename ImageType, typename AlphaType>
-    void hmSaveRemapped(HmRemappedPanoImage<ImageType, AlphaType> & remapped,
-        unsigned int imgNr, unsigned int /*nImg*/,
-        const PanoramaOptions & opts,
-        const std::string& basename,
-        const bool useBigTIFF,
-        AppBase::ProgressDisplay* progress)
-    {
-        ImageType * final_img = 0;
-        AlphaType * alpha_img = 0;
-        ImageType complete;
-        vigra::BImage alpha;
+  template <
+      class ImageIterator,
+      class ImageAccessor,
+      class AlphaIterator,
+      class AlphaAccessor>
+  static void exportImageAlpha(
+      ImageIterator image_upper_left,
+      ImageIterator image_lower_right,
+      ImageAccessor image_accessor,
+      AlphaIterator alpha_upper_left,
+      AlphaAccessor alpha_accessor,
+      const vigra::ImageExportInfo& export_info,
+      /* isScalar? */ vigra::VigraFalseType) {
+    using namespace vigra;
+    using namespace vigra::detail;
+    typedef typename AlphaAccessor::value_type AlphaValueType;
 
-        if (remapped.boundingBox().isEmpty())
-            // do not save empty files...
-            // TODO: need to tell other parts (enblend etc.) about it too!
-            return;
+    VIGRA_UNIQUE_PTR<Encoder> encoder(vigra::encoder(export_info));
 
-        if (opts.outputMode == PanoramaOptions::OUTPUT_HDR)
-        {
-            // export alpha channel as gray channel (original pixel weights)
-            std::ostringstream greyname;
-            greyname << basename << std::setfill('0') << std::setw(4) << imgNr << "_gray.pgm";
-            vigra::ImageExportInfo exinfo1(greyname.str().c_str());
-            if (!opts.tiff_saveROI)
-            {
-                alpha.resize(opts.getROI().size());
-                vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
-                vigra::Rect2D newOutArea(newOutRect);
-                newOutRect.moveBy(-opts.getROI().upperLeft());
-                vigra::copyImage(vigra_ext::applyRect(newOutArea,
-                    vigra_ext::srcMaskRange(remapped)),
-                    vigra_ext::applyRect(newOutRect,
-                    destImage(alpha)));
-                vigra::exportImage(srcImageRange(alpha), exinfo1);
-            }
-            else
-            {
-                exinfo1.setPosition(remapped.boundingBox().upperLeft());
-                exinfo1.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
-                vigra::exportImage(srcImageRange(remapped.m_mask), exinfo1);
-            }
+    const std::string pixel_type(export_info.getPixelType());
+    const pixel_t type(pixel_t_of_string(pixel_type));
+    encoder->setPixelType(pixel_type);
 
-            // calculate real alpha for saving with the image
-            progress->setMessage("Calculating mask");
-            remapped.calcAlpha();
-        }
+    vigra_precondition(
+        isBandNumberSupported(
+            encoder->getFileType(), image_accessor.size(image_upper_left) + 1U),
+        "exportImageAlpha(): file format does not support requested number of bands (color channels)");
 
-        if (!opts.tiff_saveROI)
-        {
-            // FIXME: this is stupid. Should not require space for full image...
-            // but this would need a lower level interface in vigra impex
-            complete.resize(opts.getROI().size());
-            alpha.resize(opts.getROI().size());
-            vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
-            vigra::Rect2D newOutArea(newOutRect);
-            newOutRect.moveBy(-opts.getROI().upperLeft());
-            vigra::copyImage(vigra_ext::applyRect(newOutArea,
-                vigra_ext::srcImageRange(remapped)),
-                vigra_ext::applyRect(newOutRect,
-                destImage(complete)));
+    // TM: no explicit downcast, when needed this should be done by specialed
+    // code before calling exportImageAlpha
+    const range_t alpha_source_range(
+        vigra_ext::LUTTraits<AlphaValueType>::min(),
+        vigra_ext::LUTTraits<AlphaValueType>::max());
+    const range_t mask_destination_range(
+        0.0f, vigra_ext::getMaxValForPixelType(pixel_type));
 
-            vigra::copyImage(vigra_ext::applyRect(newOutArea,
-                vigra_ext::srcMaskRange(remapped)),
-                vigra_ext::applyRect(newOutRect,
-                destImage(alpha)));
-            final_img = &complete;
-            alpha_img = &alpha;
-        }
-        else
-        {
-            final_img = &remapped.m_image;
-            alpha_img = &remapped.m_mask;
-        }
+    // check if alpha channel matches
+    if (alpha_source_range.first != mask_destination_range.first ||
+        alpha_source_range.second != mask_destination_range.second) {
+      const linear_transform alpha_rescaler(
+          alpha_source_range, mask_destination_range);
+      switch (type) {
+        case UNSIGNED_INT_8:
+          write_image_bands_and_alpha<UInt8>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case UNSIGNED_INT_16:
+          write_image_bands_and_alpha<UInt16>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case UNSIGNED_INT_32:
+          write_image_bands_and_alpha<UInt32>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case SIGNED_INT_16:
+          write_image_bands_and_alpha<Int16>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case SIGNED_INT_32:
+          write_image_bands_and_alpha<Int32>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case IEEE_FLOAT_32:
+          write_image_bands_and_alpha<float>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        case IEEE_FLOAT_64:
+          write_image_bands_and_alpha<double>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              alpha_rescaler);
+          break;
+        default:
+          vigra_fail("vigra::detail::exportImageAlpha<scalar>: not reached");
+      }
+    } else {
+      switch (type) {
+        case UNSIGNED_INT_8:
+          write_image_bands_and_alpha<UInt8>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case UNSIGNED_INT_16:
+          write_image_bands_and_alpha<UInt16>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case UNSIGNED_INT_32:
+          write_image_bands_and_alpha<UInt32>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case SIGNED_INT_16:
+          write_image_bands_and_alpha<Int16>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case SIGNED_INT_32:
+          write_image_bands_and_alpha<Int32>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case IEEE_FLOAT_32:
+          write_image_bands_and_alpha<float>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        case IEEE_FLOAT_64:
+          write_image_bands_and_alpha<double>(
+              encoder.get(),
+              image_upper_left,
+              image_lower_right,
+              image_accessor,
+              identity(),
+              alpha_upper_left,
+              alpha_accessor,
+              identity());
+          break;
+        default:
+          vigra_fail(
+              "exportImageAlpha<non-scalar>: not reached");
+      }
+    }
 
-        std::string ext = opts.getOutputExtension();
-        std::ostringstream filename;
-        filename << basename << std::setfill('0') << std::setw(4) << imgNr << "." + ext;
+    encoder->close();
+  }
 
-        progress->setMessage("saving", hugin_utils::stripPath(filename.str()));
+  template <
+      class ImageIterator,
+      class ImageAccessor,
+      class AlphaIterator,
+      class AlphaAccessor>
+  static inline void exportImageAlpha(
+      ImageIterator image_upper_left,
+      ImageIterator image_lower_right,
+      ImageAccessor image_accessor,
+      AlphaIterator alpha_upper_left,
+      AlphaAccessor alpha_accessor,
+      const vigra::ImageExportInfo& export_info) {
+    typedef typename ImageAccessor::value_type ImageValueType;
+    typedef typename vigra::NumericTraits<ImageValueType>::isScalar is_scalar;
 
-        vigra::ImageExportInfo exinfo(filename.str().c_str(), useBigTIFF ? "w8" : "w");
-        exinfo.setXResolution(150);
-        exinfo.setYResolution(150);
-        exinfo.setICCProfile(remapped.m_ICCProfile);
-        if (opts.tiff_saveROI)
-        {
-            exinfo.setPosition(remapped.boundingBox().upperLeft());
-            exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
-        }
-        else
-        {
-            exinfo.setPosition(opts.getROI().upperLeft());
-            exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
-        }
-        if (!opts.outputPixelType.empty())
-        {
-            exinfo.setPixelType(opts.outputPixelType.c_str());
-        }
-        bool supportsAlpha = true;
-        if (ext == "tif")
-        {
-            exinfo.setCompression(opts.tiffCompression.c_str());
-        }
-        else
-        {
-            if (ext == "jpg")
-            {
-                std::ostringstream quality;
-                quality << "JPEG QUALITY=" << opts.quality;
-                exinfo.setCompression(quality.str().c_str());
-                supportsAlpha = false;
-            };
-        }
+    try {
+      exportImageAlpha(
+          image_upper_left,
+          image_lower_right,
+          image_accessor,
+          alpha_upper_left,
+          alpha_accessor,
+          export_info,
+          is_scalar());
+    } catch (vigra::Encoder::TIFFCompressionException&) {
+      vigra::ImageExportInfo info(export_info);
 
-        if (supportsAlpha)
-        {
-            vigra::exportImageAlpha(srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
-        }
-        else
-        {
-            vigra::exportImage(srcImageRange(*final_img), exinfo);
-        };
+      info.setCompression("");
+      exportImageAlpha(
+          image_upper_left,
+          image_lower_right,
+          image_accessor,
+          alpha_upper_left,
+          alpha_accessor,
+          info,
+          is_scalar());
+    }
+  }
+
+  template <
+      class ImageIterator,
+      class ImageAccessor,
+      class AlphaIterator,
+      class AlphaAccessor>
+  static inline void exportImageAlpha(
+      vigra::triple<ImageIterator, ImageIterator, ImageAccessor> image,
+      std::pair<AlphaIterator, AlphaAccessor> alpha,
+      vigra::ImageExportInfo const& export_info) {
+    exportImageAlpha(
+        image.first,
+        image.second,
+        image.third,
+        alpha.first,
+        alpha.second,
+        export_info);
+  }
+
+  // template<typename ImageType, typename AlphaType>
+  void hmSaveRemapped(
+      HmRemappedPanoImage<ImageType, AlphaType>& remapped,
+      unsigned int imgNr,
+      unsigned int /*nImg*/,
+      const PanoramaOptions& opts,
+      bool save_as_file,
+      const std::string& basename,
+      const bool useBigTIFF,
+      AppBase::ProgressDisplay* progress) {
+    ImageType* final_img = 0;
+    AlphaType* alpha_img = 0;
+    ImageType complete;
+    vigra::BImage alpha;
+
+    assert(!output_images_.at(imgNr));
+
+    if (remapped.boundingBox().isEmpty())
+      // do not save empty files...
+      // TODO: need to tell other parts (enblend etc.) about it too!
+      return;
+
+    if (opts.outputMode == PanoramaOptions::OUTPUT_HDR) {
+      // export alpha channel as gray channel (original pixel weights)
+      std::ostringstream greyname;
+      greyname << basename << std::setfill('0') << std::setw(4) << imgNr
+               << "_gray.pgm";
+      vigra::ImageExportInfo exinfo1(greyname.str().c_str());
+      if (!opts.tiff_saveROI) {
+        alpha.resize(opts.getROI().size());
+        vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
+        vigra::Rect2D newOutArea(newOutRect);
+        newOutRect.moveBy(-opts.getROI().upperLeft());
+        vigra::copyImage(
+            vigra_ext::applyRect(newOutArea, vigra_ext::srcMaskRange(remapped)),
+            vigra_ext::applyRect(newOutRect, destImage(alpha)));
+        vigra::exportImage(srcImageRange(alpha), exinfo1);
+      } else {
+        exinfo1.setPosition(remapped.boundingBox().upperLeft());
+        exinfo1.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+        vigra::exportImage(srcImageRange(remapped.m_mask), exinfo1);
+      }
+
+      // calculate real alpha for saving with the image
+      progress->setMessage("Calculating mask");
+      remapped.calcAlpha();
+    }
+
+    if (!opts.tiff_saveROI) {
+      // FIXME: this is stupid. Should not require space for full image...
+      // but this would need a lower level interface in vigra impex
+      complete.resize(opts.getROI().size());
+      alpha.resize(opts.getROI().size());
+      vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
+      vigra::Rect2D newOutArea(newOutRect);
+      newOutRect.moveBy(-opts.getROI().upperLeft());
+      vigra::copyImage(
+          vigra_ext::applyRect(newOutArea, vigra_ext::srcImageRange(remapped)),
+          vigra_ext::applyRect(newOutRect, destImage(complete)));
+
+      vigra::copyImage(
+          vigra_ext::applyRect(newOutArea, vigra_ext::srcMaskRange(remapped)),
+          vigra_ext::applyRect(newOutRect, destImage(alpha)));
+      final_img = &complete;
+      alpha_img = &alpha;
+    } else {
+      final_img = &remapped.m_image;
+      alpha_img = &remapped.m_mask;
+    }
+
+    std::string ext = opts.getOutputExtension();
+    std::ostringstream filename;
+    filename << basename << std::setfill('0') << std::setw(4) << imgNr
+             << "." + ext;
+
+    progress->setMessage("saving", hugin_utils::stripPath(filename.str()));
+
+    vigra::ImageExportInfo exinfo(
+        filename.str().c_str(), useBigTIFF ? "w8" : "w");
+    exinfo.setXResolution(150);
+    exinfo.setYResolution(150);
+    exinfo.setICCProfile(remapped.m_ICCProfile);
+    if (opts.tiff_saveROI) {
+      exinfo.setPosition(remapped.boundingBox().upperLeft());
+      exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+    } else {
+      exinfo.setPosition(opts.getROI().upperLeft());
+      exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+    }
+    if (!opts.outputPixelType.empty()) {
+      exinfo.setPixelType(opts.outputPixelType.c_str());
+    }
+    bool supportsAlpha = true;
+    if (ext == "tif") {
+      exinfo.setCompression(opts.tiffCompression.c_str());
+    } else {
+      if (ext == "jpg") {
+        std::ostringstream quality;
+        quality << "JPEG QUALITY=" << opts.quality;
+        exinfo.setCompression(quality.str().c_str());
+        supportsAlpha = false;
+      };
+    }
+
+    if (supportsAlpha) {
+      exportImageAlpha(srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+    } else {
+      vigra::exportImage(srcImageRange(*final_img), exinfo);
     };
+  };
 
   /** save a remapped image, or layer */
   virtual void saveRemapped(
@@ -323,15 +507,25 @@ class HmMultiImageRemapper
       unsigned int imgNr,
       unsigned int nImg,
       const PanoramaOptions& opts,
-      const AdvancedOptions& advOptions) {
-    hmSaveRemapped(
-        remapped,
-        imgNr,
-        nImg,
-        opts,
-        m_basename,
-        HuginBase::Nona::GetAdvancedOption(advOptions, "useBigTIFF", false),
-        Base::m_progress);
+      const AdvancedOptions& advOptions,
+      bool save_as_file = true) {
+    if (save_as_file) {
+      hmSaveRemapped(
+          remapped,
+          imgNr,
+          nImg,
+          opts,
+          /*save_as_file=*/true,
+          m_basename,
+          HuginBase::Nona::GetAdvancedOption(advOptions, "useBigTIFF", false),
+          Base::m_progress);
+    }
+
+    ImageType* final_img = &remapped.m_image;
+    AlphaType* alpha_img = &remapped.m_mask;
+
+    auto src_img_range = srcImageRange(*final_img);
+    auto src_alpha_image = srcImage(*alpha_img);
 
     if (opts.saveCoordImgs) {
       vigra::UInt16Image xImg;
@@ -397,6 +591,7 @@ class HmMultiImageRemapper
   //     std::string m_basename;
  private:
   std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
+  std::vector<std::shared_ptr<hm::MatrixRGB>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
 };
@@ -426,7 +621,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
 
   vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
 
-  m_remapped = new HmRemappedPanoImage<ImageType, AlphaType>;
+  m_remapped = std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
   // load image
   if (imgNr >= this->image_import_infos_.size()) {
@@ -464,7 +659,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   }
   // int nb = info.numBands() - info.numExtraBands();
   bool alpha = info.numExtraBands() > 0;
-  //std::string type = info.getPixelType();
+  // std::string type = info.getPixelType();
 
   HuginBase::SrcPanoImage src = pano.getSrcImage(imgNr);
 
@@ -479,10 +674,6 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
       vigra::importImage(info, vigra::destImage(srcImg));
     }
   }
-  //std::unique_ptr<vigra::MultiArrayView<3, std::uint8_t>> img;
-  //if (image) {
-//    img = image->to_vigra_multi_array_view();
-//  }
 
   // check if the image needs to be scaled to 0 .. 1,
   // this only works for int -> float, since the image
@@ -525,7 +716,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
       outputROI,
       *m_remapped,
       progress);
-  return m_remapped;
+  return m_remapped.get();
 }
 
 } // namespace hm
