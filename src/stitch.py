@@ -563,10 +563,10 @@ def pyramid_blending():
         B = cv2.imread(files_right[i])
 
         img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
-        cv2.imshow('Panoramic blended image', img)
-        cv2.waitKey(0)
+        # cv2.imshow('Panoramic blended image', img)
+        # cv2.waitKey(0)
 
-    cv2.destroyAllWindows()
+    #cv2.destroyAllWindows()
 
 def main():
     pyramid_blending()

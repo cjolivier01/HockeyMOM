@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
+#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 
 #include "nona/StitcherOptions.h"
 #include "panodata/Panorama.h"
@@ -36,6 +37,7 @@ class HmNona {
  private:
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
+  HuginBase::Nona::AdvancedOptions adv_options_;
   HuginBase::Panorama pano_;
 };
 

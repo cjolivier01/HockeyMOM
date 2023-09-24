@@ -606,6 +606,10 @@ bool HmNona::load_project(const std::string& project_file) {
     exit(1);
   };
   opts_ = pano_.getOptions();
+  opts_.tiffCompression = "NONE";
+
+  //HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", true);
+  //HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", false);
   return true;
 }
 
@@ -613,6 +617,18 @@ std::pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
 HmNona::process_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
+    auto active_images = pano_.getActiveImages();
+    auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
+  auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
+  // stitch panorama
+  HuginBase::NonaFileOutputStitcher stitcher(pano_, pdisp.get(), opts_, outputImages, "hm_nona", adv_options_);
+  stitcher.run();
+
+  // From Nona stitcher
+  opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
+
+
+
   return {nullptr, nullptr};
 }
 
