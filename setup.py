@@ -61,8 +61,8 @@ class CMakeBuild(build_ext):
                                '--target', os.path.basename(ext.name),
                                '--target', "nona",
                                '--target', "pto_gen",
-                               '--target', "cpfind",
-                               '--target', "autooptimiser",
+                               #'--target', "cpfind",
+                               #'--target', "autooptimiser",
                                ] + build_args,
                               cwd=self.build_temp)
 
