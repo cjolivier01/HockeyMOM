@@ -192,6 +192,131 @@ class HmMultiImageRemapper
     // Base::m_progress->setMessage("Multiple images output");
   }
 
+    //template<typename ImageType, typename AlphaType>
+    void hmSaveRemapped(HmRemappedPanoImage<ImageType, AlphaType> & remapped,
+        unsigned int imgNr, unsigned int /*nImg*/,
+        const PanoramaOptions & opts,
+        const std::string& basename,
+        const bool useBigTIFF,
+        AppBase::ProgressDisplay* progress)
+    {
+        ImageType * final_img = 0;
+        AlphaType * alpha_img = 0;
+        ImageType complete;
+        vigra::BImage alpha;
+
+        if (remapped.boundingBox().isEmpty())
+            // do not save empty files...
+            // TODO: need to tell other parts (enblend etc.) about it too!
+            return;
+
+        if (opts.outputMode == PanoramaOptions::OUTPUT_HDR)
+        {
+            // export alpha channel as gray channel (original pixel weights)
+            std::ostringstream greyname;
+            greyname << basename << std::setfill('0') << std::setw(4) << imgNr << "_gray.pgm";
+            vigra::ImageExportInfo exinfo1(greyname.str().c_str());
+            if (!opts.tiff_saveROI)
+            {
+                alpha.resize(opts.getROI().size());
+                vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
+                vigra::Rect2D newOutArea(newOutRect);
+                newOutRect.moveBy(-opts.getROI().upperLeft());
+                vigra::copyImage(vigra_ext::applyRect(newOutArea,
+                    vigra_ext::srcMaskRange(remapped)),
+                    vigra_ext::applyRect(newOutRect,
+                    destImage(alpha)));
+                vigra::exportImage(srcImageRange(alpha), exinfo1);
+            }
+            else
+            {
+                exinfo1.setPosition(remapped.boundingBox().upperLeft());
+                exinfo1.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+                vigra::exportImage(srcImageRange(remapped.m_mask), exinfo1);
+            }
+
+            // calculate real alpha for saving with the image
+            progress->setMessage("Calculating mask");
+            remapped.calcAlpha();
+        }
+
+        if (!opts.tiff_saveROI)
+        {
+            // FIXME: this is stupid. Should not require space for full image...
+            // but this would need a lower level interface in vigra impex
+            complete.resize(opts.getROI().size());
+            alpha.resize(opts.getROI().size());
+            vigra::Rect2D newOutRect = remapped.boundingBox() & opts.getROI();
+            vigra::Rect2D newOutArea(newOutRect);
+            newOutRect.moveBy(-opts.getROI().upperLeft());
+            vigra::copyImage(vigra_ext::applyRect(newOutArea,
+                vigra_ext::srcImageRange(remapped)),
+                vigra_ext::applyRect(newOutRect,
+                destImage(complete)));
+
+            vigra::copyImage(vigra_ext::applyRect(newOutArea,
+                vigra_ext::srcMaskRange(remapped)),
+                vigra_ext::applyRect(newOutRect,
+                destImage(alpha)));
+            final_img = &complete;
+            alpha_img = &alpha;
+        }
+        else
+        {
+            final_img = &remapped.m_image;
+            alpha_img = &remapped.m_mask;
+        }
+
+        std::string ext = opts.getOutputExtension();
+        std::ostringstream filename;
+        filename << basename << std::setfill('0') << std::setw(4) << imgNr << "." + ext;
+
+        progress->setMessage("saving", hugin_utils::stripPath(filename.str()));
+
+        vigra::ImageExportInfo exinfo(filename.str().c_str(), useBigTIFF ? "w8" : "w");
+        exinfo.setXResolution(150);
+        exinfo.setYResolution(150);
+        exinfo.setICCProfile(remapped.m_ICCProfile);
+        if (opts.tiff_saveROI)
+        {
+            exinfo.setPosition(remapped.boundingBox().upperLeft());
+            exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+        }
+        else
+        {
+            exinfo.setPosition(opts.getROI().upperLeft());
+            exinfo.setCanvasSize(vigra::Size2D(opts.getWidth(), opts.getHeight()));
+        }
+        if (!opts.outputPixelType.empty())
+        {
+            exinfo.setPixelType(opts.outputPixelType.c_str());
+        }
+        bool supportsAlpha = true;
+        if (ext == "tif")
+        {
+            exinfo.setCompression(opts.tiffCompression.c_str());
+        }
+        else
+        {
+            if (ext == "jpg")
+            {
+                std::ostringstream quality;
+                quality << "JPEG QUALITY=" << opts.quality;
+                exinfo.setCompression(quality.str().c_str());
+                supportsAlpha = false;
+            };
+        }
+
+        if (supportsAlpha)
+        {
+            vigra::exportImageAlpha(srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+        }
+        else
+        {
+            vigra::exportImage(srcImageRange(*final_img), exinfo);
+        };
+    };
+
   /** save a remapped image, or layer */
   virtual void saveRemapped(
       HmRemappedPanoImage<ImageType, AlphaType>& remapped,
@@ -199,7 +324,7 @@ class HmMultiImageRemapper
       unsigned int nImg,
       const PanoramaOptions& opts,
       const AdvancedOptions& advOptions) {
-    HuginBase::Nona::detail::saveRemapped(
+    hmSaveRemapped(
         remapped,
         imgNr,
         nImg,
