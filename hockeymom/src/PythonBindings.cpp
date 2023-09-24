@@ -5,7 +5,7 @@
 #include "hm/sublibA/add.h"
 
 #include "hockeymom/csrc/mblend/mblend.h"
-#include "hockeymom/csrc/stitcher/HmStitcher.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <iostream>
 
