@@ -5,7 +5,8 @@ from typing import List
 from ._hockeymom import (
     _hello_world,
     _enblend,
-    _emblend_images
+    _emblend_images,
+    _nona_process_images
 )
 
 # Classes
@@ -19,6 +20,7 @@ __all__ = [
     "enblend",
     "emblend_images",
     "HmNona",
+    "nona_process_images",
 ]
 
 def hello_world():
@@ -36,3 +38,6 @@ def emblend_images(
     xy_pos_2: List[int] = [0, 0],
 ) -> np.array:
     return _emblend_images(image_left, xy_pos_1, image_right, xy_pos_2)
+
+def nona_process_images(nona: HmNona, image_left: np.array, image_right: np.array):
+    return _nona_process_images(nona, image_left, image_right)

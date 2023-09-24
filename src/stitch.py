@@ -530,7 +530,21 @@ def get_image_geo_position(tiff_image_file: str):
 
 def pyramid_blending():
 
+    orig_files_left = [
+        "/mnt/data/Videos/images/left.png",
+        "/mnt/data/Videos/images/left-45min.png",
+    ]
+
+    orig_files_right = [
+        "/mnt/data/Videos/images/right.png",
+        "/mnt/data/Videos/images/right-45min.png",
+    ]
+
     nona = core.HmNona("/mnt/data/Videos/my_project.pto")
+
+    img1 = cv2.imread(orig_files_left[1])
+    img2 = cv2.imread(orig_files_right[1])
+    result = core.nona_process_images(nona, img1, img2)
 
     files_left = [
         "/mnt/data/Videos/my_project0000.tif",
