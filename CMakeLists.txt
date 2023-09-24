@@ -4,7 +4,10 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/hugin/CMakeMod
 
 project(hockeymom)
 
-set (CMAKE_BUILD_TYPE Debug)
+if (NOT CMAKE_BUILD_TYPE)
+  set (CMAKE_BUILD_TYPE Debug)
+endif(CMAKE_BUILD_TYPE)
+
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -22,6 +25,11 @@ include_directories(SYSTEM external/pybind11/include)
 include_directories(SYSTEM external/eigen)
 include_directories(SYSTEM /home/colivier/.conda/envs/HockeyMOM/include)
 
+# Very top dir is include dir start for project-wide relative imports
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+# And the external dir next
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external)
+
 # Include hugin sources as include dirs
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
 
@@ -31,9 +39,6 @@ SET(FLANN_FOUND 1)
 add_subdirectory(external/eigen)
 #add_subdirectory(external/opencv)
 add_subdirectory(external/hugin)
-
-message(FATAL " HM_HUGIN_COMMON_LIBS=${HM_HUGIN_COMMON_LIBS}")
-set(HM_HUGIN_COMMON_LIBS ${HUGIN_COMMON_LIBS})
 
 add_subdirectory(hockeymom)
 
