@@ -31,7 +31,7 @@ class HmRemappedPanoImage
   //     component_type;
 
   using AdvancedOptions = HuginBase::Nona::AdvancedOptions;
-  using SrcPanoImage = HuginBase::Nona::AdvancedOptions;
+  //using SrcPanoImage = HuginBase::Nona::AdvancedOptions;
   using PanoramaOptions = HuginBase::PanoramaOptions;
 
  public:
@@ -44,7 +44,7 @@ class HmRemappedPanoImage
  public:
   ///
   void setPanoImage(
-      const SrcPanoImage& src,
+      const HuginBase::SrcPanoImage& src,
       const PanoramaOptions& dest,
       vigra::Rect2D roi);
 
@@ -370,11 +370,12 @@ void remapImage(
   remapped.setPanoImage(src, dest, outputROI);
   // TODO: add provide support for flatfield images.
   if (srcAlpha.size().x > 0) {
-    remapped.remapImage(
-        vigra::srcImageRange(srcImg),
-        vigra::srcImage(srcAlpha),
-        dest.interpolator,
-        progress);
+    assert(false);
+    // remapped.Base::remapImage(
+    //     vigra::srcImageRange(srcImg),
+    //     vigra::srcImage(srcAlpha),
+    //     dest.interpolator,
+    //     progress);
   } else {
     remapped.remapImage(
         vigra::srcImageRange(srcImg), dest.interpolator, progress);

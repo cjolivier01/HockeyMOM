@@ -622,9 +622,9 @@ HmNona::process_images(
   auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
   auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
   // stitch panorama
-  HuginBase::NonaFileOutputStitcher nona_stitcher(
-      pano_, pdisp.get(), opts_, outputImages, "hm_nona", adv_options_);
-  nona_stitcher.run();
+  // HuginBase::NonaFileOutputStitcher nona_stitcher(
+  //     pano_, pdisp.get(), opts_, outputImages, "hm_nona", adv_options_);
+  // nona_stitcher.run();
 
   // Our version...
   // From Nona stitcher
@@ -643,11 +643,13 @@ HmNona::process_images(
     modOptions2.outputRangeCompression = 0.0;
   };
 
-  FileRemapper<vigra::BRGBImage, vigra::BImage> m;
+  HmFileRemapper<vigra::BRGBImage, vigra::BImage> m;
   m.setAdvancedOptions(adv_options_);
-  HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage> remapper_stitcher(
-      pano_, pdisp.get());
-
+  HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage> stitcher(pano_, pdisp.get());
+  stitcher.set_images(image1, image2);
+  UIntSet img_indexes{0, 1};
+  stitcher.stitch(opts_, img_indexes, "hm_nona", m, adv_options_);
+  //remapper_stitcher.stitch()
   return {nullptr, nullptr};
 }
 

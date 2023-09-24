@@ -5,7 +5,6 @@ set(
   csrc/mblend/mblend.cpp
   csrc/stitcher/HmNona.cpp
   csrc/stitcher/HmStitcher.cpp
-  csrc/sublibA/add.cpp
   csrc/ImagePostProcess.cpp
 )
 #include_directories(${CMAKE_CURRENT_LIST_DIR}/include)

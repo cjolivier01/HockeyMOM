@@ -1,8 +1,8 @@
 #pragma once
 
+#include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 
-//#include "panodata/Panorama.h"
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
 
@@ -100,14 +100,12 @@ class HmMultiImageRemapper
       AppBase::ProgressDisplay* progress)
       : MultiImageRemapper(pano, progress) {}
 
-  // virtual ~MultiImageRemapper()
-  // {
-  // }
-
-  // virtual void stitch(const PanoramaOptions & opts, UIntSet & images,
-  //                     const std::string & basename,
-  //                     HmSingleImageRemapper<ImageType, AlphaType> & remapper,
-  //                     const AdvancedOptions& advOptions)
+  void set_images(
+      std::shared_ptr<hm::MatrixRGB> image1,
+      std::shared_ptr<hm::MatrixRGB> image2) {
+    images_ = std::vector<std::shared_ptr<hm::MatrixRGB>>{
+        std::move(image1), std::move(image2)};
+  }
 
   void stitch(
       const PanoramaOptions& opts,
@@ -248,6 +246,8 @@ class HmMultiImageRemapper
 
   // protected:
   //     std::string m_basename;
+ private:
+  std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
 };
 
 template <typename ImageType, typename AlphaType>

@@ -17,16 +17,18 @@ namespace hm {
  * @brief Class to carry python array for RGB data into the blend function
  *        (in-place)
  */
-class MatrixRGB {
+struct MatrixRGB {
   static inline constexpr std::size_t kChannels = 3;
 
-public:
+ public:
   MatrixRGB() {}
   MatrixRGB(const MatrixRGB&) = delete;
   MatrixRGB(MatrixRGB&& other) = default;
 
-  MatrixRGB(py::array_t<uint8_t> &input_image, std::size_t xpos,
-                   std::size_t ypos) {
+  MatrixRGB(
+      py::array_t<uint8_t>& input_image,
+      std::size_t xpos,
+      std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
     if (input_image.ndim() != kChannels || input_image.shape(2) != kChannels ||
         !input_image.dtype().is(py::dtype::of<uint8_t>())) {
@@ -37,7 +39,7 @@ public:
     py::buffer_info buf_info = input_image.request();
 
     // Get the pointer to the data
-    m_data = static_cast<uint8_t *>(buf_info.ptr);
+    m_data = static_cast<uint8_t*>(buf_info.ptr);
 
     // Get the dimensions
     m_rows = buf_info.shape[0];
@@ -51,7 +53,7 @@ public:
     m_data = new std::uint8_t[rows * cols * kChannels];
     m_own_data = true;
   }
-  MatrixRGB(size_t rows, size_t cols, std::uint8_t *consume_data)
+  MatrixRGB(size_t rows, size_t cols, std::uint8_t* consume_data)
       : m_rows(rows), m_cols(cols) {
     m_data = consume_data;
     m_own_data = true;
@@ -64,10 +66,18 @@ public:
   std::vector<std::size_t> xy_pos() const {
     return {m_xpos, m_ypos};
   }
-  constexpr std::uint8_t *data() { return m_data; }
-  constexpr size_t rows() const { return m_rows; }
-  constexpr  size_t cols() const { return m_cols; }
-  constexpr  size_t channels() const { return kChannels; }
+  constexpr std::uint8_t* data() {
+    return m_data;
+  }
+  constexpr size_t rows() const {
+    return m_rows;
+  }
+  constexpr size_t cols() const {
+    return m_cols;
+  }
+  constexpr size_t channels() const {
+    return kChannels;
+  }
 
   py::array_t<std::uint8_t> to_py_array() {
     if (!m_data) {
@@ -77,21 +87,21 @@ public:
         {rows(), cols(), channels()},
         {channels() * sizeof(std::uint8_t) *
              cols(), /* Strides (in bytes) for each index */
-         channels() * sizeof(std::uint8_t), sizeof(std::uint8_t)},
+         channels() * sizeof(std::uint8_t),
+         sizeof(std::uint8_t)},
         m_data);
     m_data = nullptr;
 
     return result;
   }
 
-private:
-  py::array_t<uint8_t> m_array;
+ private:
   bool m_own_data{false};
   size_t m_rows{0}, m_cols{0};
-  std::uint8_t *m_data;
+  std::uint8_t* m_data;
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
+  py::array_t<uint8_t> m_array;
 };
 
-
-}
+} // namespace hm
