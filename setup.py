@@ -81,14 +81,14 @@ class CMakeBuild(build_ext):
         cmake_targets = [
             "--target",
             os.path.basename(ext.name),
-            "--target",
-            "nona",
-            "--target",
-            "pto_gen",
-            "--target",
-            "cpfind",
-            "--target",
-            "autooptimiser",
+            # "--target",
+            # "nona",
+            # "--target",
+            # "pto_gen",
+            # "--target",
+            # "cpfind",
+            # "--target",
+            # "autooptimiser",
         ]
         subprocess.check_call(
             ["cmake"] + ["--build", "."] + cmake_targets + build_args,
