@@ -59,10 +59,10 @@ class CMakeBuild(build_ext):
         subprocess.check_call(['cmake',
                                '--build', '.',
                                '--target', os.path.basename(ext.name),
-                               '--target', "nona",
-                               '--target', "pto_gen",
-                               #'--target', "cpfind",
-                               '--target', "autooptimiser",
+                               '--target', 'nona',
+                               '--target', 'pto_gen',
+                               '--target', 'cpfind',
+                               '--target', 'autooptimiser',
                                ] + build_args,
                               cwd=self.build_temp)
 

@@ -3,6 +3,7 @@
 set(
   SOURCES
   csrc/mblend/mblend.cpp
+  csrc/stitcher/HmStitcher.cpp
   csrc/sublibA/add.cpp
   csrc/ImagePostProcess.cpp
 )
@@ -15,6 +16,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 target_include_directories(hm PUBLIC ./include)
+target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
+
+message(FATAL " HM_HUGIN_COMMON_LIBS=${HM_HUGIN_COMMON_LIBS}")
+
+#
+#add_dependencies(hm nona pto_gen cpfind autooptimiser)
 
 file(GLOB_RECURSE PYXMOLPP_SOURCES
         src/**.cpp

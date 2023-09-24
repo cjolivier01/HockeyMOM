@@ -14,3 +14,4 @@ __pycache__
 pybind11_project_example.egg-info
 compile_commands.json
 /output_image.png
+hockeymom.egg-info

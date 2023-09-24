@@ -22,9 +22,18 @@ include_directories(SYSTEM external/pybind11/include)
 include_directories(SYSTEM external/eigen)
 include_directories(SYSTEM /home/colivier/.conda/envs/HockeyMOM/include)
 
+# Include hugin sources as include dirs
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
+
+FIND_PACKAGE(FLANN REQUIRED)
+SET(FLANN_FOUND 1)
+
 add_subdirectory(external/eigen)
 #add_subdirectory(external/opencv)
-#add_subdirectory(external/enblend-enfuse)
 add_subdirectory(external/hugin)
+
+message(FATAL " HM_HUGIN_COMMON_LIBS=${HM_HUGIN_COMMON_LIBS}")
+set(HM_HUGIN_COMMON_LIBS ${HUGIN_COMMON_LIBS})
+
 add_subdirectory(hockeymom)
 
