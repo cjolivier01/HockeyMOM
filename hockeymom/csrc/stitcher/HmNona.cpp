@@ -610,6 +610,7 @@ bool HmNona::load_project(const std::string& project_file) {
   //opts_.tiffCompression = "LZW";
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
+  opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
   // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", true);
   // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", false);
   return true;
@@ -620,9 +621,10 @@ HmNona::process_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
   ++image_pair_pass_count_;
-  auto active_images = pano_.getActiveImages();
-  auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
-  auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
+  //auto active_images = pano_.getActiveImages();
+  //auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
+  //auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
+  auto pdisp = std::make_unique<AppBase::DummyProgressDisplay>();
   // stitch panorama
   // HuginBase::NonaFileOutputStitcher nona_stitcher(
   //     pano_, pdisp.get(), opts_, outputImages, "hm_nona_old", adv_options_);
@@ -630,7 +632,6 @@ HmNona::process_images(
 
   // Our version...
   // From Nona stitcher
-  opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
 
   // Set up panorama options for the two images beforehand
   if (image_pair_pass_count_ == 1) {
