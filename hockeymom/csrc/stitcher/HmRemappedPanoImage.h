@@ -43,10 +43,10 @@ class HmRemappedPanoImage
 
  public:
   ///
-  void setPanoImage(
-      const HuginBase::SrcPanoImage& src,
-      const PanoramaOptions& dest,
-      vigra::Rect2D roi);
+  // void setPanoImage(
+  //     const HuginBase::SrcPanoImage& src,
+  //     const PanoramaOptions& dest,
+  //     vigra::Rect2D roi);
 
   // void setAdvancedOptions(const AdvancedOptions& advancedOptions) {
   //   m_advancedOptions = advancedOptions;
