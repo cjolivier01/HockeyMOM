@@ -56,9 +56,8 @@ void fopen_s(FILE** f, const char* filename, const char* mode) {
 
 int verbosity = 1;
 
-//#ifndef STANDALONE
-#include "../../include/hm/mblend/mblend.h"
-//#endif
+#include "hockeymom/csrc/mblend/mblend.h"
+
 /* clang-format off */
 #include "pnger.cpp"
 #include "pyramid.cpp"

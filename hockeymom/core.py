@@ -1,9 +1,25 @@
 import numpy as np
 from typing import List
-from ._hockeymom import _hello_world, _enblend, _emblend_images
+
+# Functions
+from ._hockeymom import (
+    _hello_world,
+    _enblend,
+    _emblend_images
+)
+
+# Classes
+from ._hockeymom import (
+    HmNona
+)
 
 # from ._hockeymom import  _enblend
-
+__all__ = [
+    "hello_world",
+    "enblend",
+    "emblend_images",
+    "HmNona",
+]
 
 def hello_world():
     _hello_world()

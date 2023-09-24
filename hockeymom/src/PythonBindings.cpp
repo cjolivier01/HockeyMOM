@@ -4,7 +4,8 @@
 #include "hm/sublibA/ConsoleColors.h"
 #include "hm/sublibA/add.h"
 
-#include "hm/mblend/mblend.h"
+#include "hockeymom/csrc/mblend/mblend.h"
+#include "hockeymom/csrc/stitcher/HmStitcher.h"
 
 #include <iostream>
 
@@ -118,6 +119,10 @@ PYBIND11_MODULE(_hockeymom, m) {
           std::unique_ptr<enblend::MatrixRGB> result = enblend::enblend(m1, m2);
           return result->to_py_array();
         });
+
+  py::class_<hm::HmNona>(m, "HmNona")
+      .def(py::init<>())
+      .def("count", &hm::HmNona::count);
 
   auto pyOuter = py::class_<hm::Outer>(m, "Outer");
   auto pyInner = py::class_<hm::Outer::Inner>(pyOuter, "Inner");

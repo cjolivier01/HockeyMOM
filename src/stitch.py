@@ -529,6 +529,9 @@ def get_image_geo_position(tiff_image_file: str):
 
 
 def pyramid_blending():
+
+    nona = core.HmNona()
+
     files_left = [
         "/mnt/data/Videos/my_project0000.tif",
         "/mnt/data/Videos/my_project-20000.tif",
