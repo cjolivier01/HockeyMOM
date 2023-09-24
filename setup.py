@@ -62,7 +62,7 @@ class CMakeBuild(build_ext):
                                '--target', "nona",
                                '--target', "pto_gen",
                                #'--target', "cpfind",
-                               #'--target', "autooptimiser",
+                               '--target', "autooptimiser",
                                ] + build_args,
                               cwd=self.build_temp)
 
