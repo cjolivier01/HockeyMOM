@@ -20,6 +20,9 @@ endif()
 
 set(HAS_UNINSTALL_TARGET 1)
 
+set(HOCKEYMOM_TOP_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(HOCKEYMOM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
 add_subdirectory(external/pybind11)
 include_directories(SYSTEM external/pybind11/include)
 include_directories(SYSTEM external/eigen)

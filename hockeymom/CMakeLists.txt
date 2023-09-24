@@ -18,7 +18,9 @@ add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 target_include_directories(hm PUBLIC ./include)
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 
-message(FATAL " HM_HUGIN_COMMON_LIBS=${HM_HUGIN_COMMON_LIBS}")
+
+include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
+include_directories(${HOCKEYMOM_BINARY_DIR}/src)
 
 #
 #add_dependencies(hm nona pto_gen cpfind autooptimiser)
