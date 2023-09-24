@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vigra/multi_array.hxx>
+#include <vigra/impex.hxx>
+
 // TODO: remove pybind dependency int his file/class
 
 #include <pybind11/eigen.h>
@@ -93,6 +96,11 @@ struct MatrixRGB {
     m_data = nullptr;
 
     return result;
+  }
+
+  std::unique_ptr<vigra::BRGBImage> to_vigra_brgb_image() {
+    const vigra::RGBValue<unsigned char>* rgb_data = reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
+    return std::make_unique<vigra::BRGBImage>(cols(), rows(), rgb_data);
   }
 
  private:

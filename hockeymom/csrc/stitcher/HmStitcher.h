@@ -25,6 +25,7 @@ class HmSingleImageRemapper {
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
+      const std::shared_ptr<hm::MatrixRGB>& image,
       vigra::Rect2D outputROI,
       AppBase::ProgressDisplay* progress) = 0;
 
@@ -40,6 +41,7 @@ class HmSingleImageRemapper {
 
  protected:
   HuginBase::Nona::AdvancedOptions m_advancedOptions;
+  std::size_t pass_{0};
 };
 
 /** functor to create a remapped image, loads image from disk */
@@ -67,6 +69,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
+      const std::shared_ptr<hm::MatrixRGB>& image,
       vigra::Rect2D outputROI,
       AppBase::ProgressDisplay* progress);
 
@@ -77,6 +80,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
 
  protected:
   HmRemappedPanoImage<ImageType, AlphaType>* m_remapped;
+  std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
 };
 
 /** remap a set of images, and store the individual remapped files. */
@@ -160,10 +164,11 @@ class HmMultiImageRemapper
               Base::m_pano,
               mod_options_.at(i),
               *it,
+              images_.at(i),
               Base::m_rois[i],
               Base::m_progress);
       try {
-        saveRemappedn (
+        saveRemapped(
             *remapped, *it, Base::m_pano.getNrOfImages(), opts, advOptions);
       } catch (vigra::PreconditionViolation& e) {
         // this can be thrown, if an image
@@ -279,6 +284,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
         const HuginBase::PanoramaData& pano,
         const HuginBase::PanoramaOptions& opts,
         unsigned int imgNr,
+        const std::shared_ptr<hm::MatrixRGB>& image,
         vigra::Rect2D outputROI,
         AppBase::ProgressDisplay* progress) {
   typedef typename ImageType::value_type PixelType;
@@ -298,8 +304,13 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   m_remapped = new HmRemappedPanoImage<ImageType, AlphaType>;
 
   // load image
+  if (imgNr >= this->image_import_infos_.size()) {
+    assert(imgNr == this->image_import_infos_.size());
+    this->image_import_infos_.emplace_back(
+        std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str()));
+  }
 
-  vigra::ImageImportInfo info(img.getFilename().c_str());
+  vigra::ImageImportInfo& info = *this->image_import_infos_.at(imgNr);
 
   int width = info.width();
   int height = info.height();
@@ -311,7 +322,16 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
       width += 8 - r;
   }
 
-  ImageType srcImg(width, height);
+  std::unique_ptr<ImageType> src_img_ptr;
+  if (image) {
+    assert(width == image->cols());
+    assert(height == image->rows());
+    src_img_ptr = image->to_vigra_brgb_image();
+  } else {
+    src_img_ptr = std::make_unique<ImageType>(width, height);
+  }
+  ImageType& srcImg = *src_img_ptr;
+
   m_remapped->m_ICCProfile = info.getICCProfile();
 
   if (info.numExtraBands() > 0) {
@@ -319,19 +339,26 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   }
   // int nb = info.numBands() - info.numExtraBands();
   bool alpha = info.numExtraBands() > 0;
-  std::string type = info.getPixelType();
+  //std::string type = info.getPixelType();
 
   HuginBase::SrcPanoImage src = pano.getSrcImage(imgNr);
 
   // import the image
   progress->setMessage("loading", hugin_utils::stripPath(img.getFilename()));
 
-  if (alpha) {
-    vigra::importImageAlpha(
-        info, vigra::destImage(srcImg), vigra::destImage(srcAlpha));
-  } else {
-    vigra::importImage(info, vigra::destImage(srcImg));
+  if (!image) {
+    if (alpha) {
+      vigra::importImageAlpha(
+          info, vigra::destImage(srcImg), vigra::destImage(srcAlpha));
+    } else {
+      vigra::importImage(info, vigra::destImage(srcImg));
+    }
   }
+  //std::unique_ptr<vigra::MultiArrayView<3, std::uint8_t>> img;
+  //if (image) {
+//    img = image->to_vigra_multi_array_view();
+//  }
+
   // check if the image needs to be scaled to 0 .. 1,
   // this only works for int -> float, since the image
   // has already been loaded into the output container
