@@ -113,8 +113,13 @@ class HmMultiImageRemapper
       const std::string& basename,
       HmSingleImageRemapper<ImageType, AlphaType>& remapper,
       const AdvancedOptions& advOptions) {
+    ++pass_;
     // Skip over direct base class stitch call
-    // Base::Base::stitch(opts, images, basename, remapper);
+    if (pass_ == 1) {
+      // Base::Base::stitch(opts, images, basename, remapper);
+      Base::Base::m_images = images;
+      Base::calcOutputROIS(opts, images);
+    }
     DEBUG_ASSERT(
         opts.outputFormat == PanoramaOptions::TIFF_multilayer ||
         opts.outputFormat == PanoramaOptions::TIFF_m ||
@@ -133,16 +138,24 @@ class HmMultiImageRemapper
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
       // get a remapped image.
-      PanoramaOptions modOptions(opts);
-      if (HuginBase::Nona::GetAdvancedOption(
-              advOptions, "ignoreExposure", false)) {
-        modOptions.outputExposureValue =
-            Base::m_pano.getImage(*it).getExposureValue();
-        modOptions.outputRangeCompression = 0.0;
-      };
+      if (pass_ == 1) {
+        mod_options_.clear();
+        PanoramaOptions modOptions(opts);
+        if (HuginBase::Nona::GetAdvancedOption(
+                advOptions, "ignoreExposure", false)) {
+          modOptions.outputExposureValue =
+              Base::m_pano.getImage(*it).getExposureValue();
+          modOptions.outputRangeCompression = 0.0;
+        };
+        mod_options_.emplace_back(std::move(modOptions));
+      }
       HmRemappedPanoImage<ImageType, AlphaType>* remapped =
           remapper.getRemapped(
-              Base::m_pano, modOptions, *it, Base::m_rois[i], Base::m_progress);
+              Base::m_pano,
+              mod_options_.at(i),
+              *it,
+              Base::m_rois[i],
+              Base::m_progress);
       try {
         saveRemapped(
             *remapped, *it, Base::m_pano.getNrOfImages(), opts, advOptions);
@@ -248,6 +261,8 @@ class HmMultiImageRemapper
   //     std::string m_basename;
  private:
   std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
+  std::vector<PanoramaOptions> mod_options_;
+  std::size_t pass_{0};
 };
 
 template <typename ImageType, typename AlphaType>
