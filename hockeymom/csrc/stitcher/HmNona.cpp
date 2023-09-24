@@ -607,8 +607,9 @@ bool HmNona::load_project(const std::string& project_file) {
     exit(1);
   };
   opts_ = pano_.getOptions();
-  opts_.tiffCompression = "LZW";
-
+  //opts_.tiffCompression = "LZW";
+  opts_.tiffCompression = "NONE";
+  opts_.outputPixelType = "UINT8";
   // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", true);
   // HuginBase::Nona::SetAdvancedOption(adv_options_, "hardSeam", false);
   return true;
@@ -622,9 +623,9 @@ HmNona::process_images(
   auto outputImages = HuginBase::getImagesinROI(pano_, active_images);
   auto pdisp = std::make_unique<AppBase::StreamProgressDisplay>(std::cout);
   // stitch panorama
-  HuginBase::NonaFileOutputStitcher nona_stitcher(
-      pano_, pdisp.get(), opts_, outputImages, "hm_nona_old", adv_options_);
-  nona_stitcher.run();
+  // HuginBase::NonaFileOutputStitcher nona_stitcher(
+  //     pano_, pdisp.get(), opts_, outputImages, "hm_nona_old", adv_options_);
+  // nona_stitcher.run();
 
   // Our version...
   // From Nona stitcher
@@ -643,12 +644,12 @@ HmNona::process_images(
     modOptions2.outputRangeCompression = 0.0;
   };
 
-  // HmFileRemapper<vigra::BRGBImage, vigra::BImage> m;
-  // m.setAdvancedOptions(adv_options_);
-  // HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage> stitcher(pano_, pdisp.get());
-  // stitcher.set_images(image1, image2);
-  // UIntSet img_indexes{0, 1};
-  // stitcher.stitch(opts_, img_indexes, "hm_nona", m, adv_options_);
+  HmFileRemapper<vigra::BRGBImage, vigra::BImage> m;
+  m.setAdvancedOptions(adv_options_);
+  HmMultiImageRemapper<vigra::BRGBImage, vigra::BImage> stitcher(pano_, pdisp.get());
+  stitcher.set_images(image1, image2);
+  UIntSet img_indexes{0, 1};
+  stitcher.stitch(opts_, img_indexes, "hm_nona", m, adv_options_);
   return {nullptr, nullptr};
 }
 
