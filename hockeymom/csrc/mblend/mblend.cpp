@@ -558,7 +558,7 @@ class Blender {
   }
 
   int process_images(
-      std::vector<std::reference_wrapper<enblend::MatrixRGB>> incoming_images) {
+      std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images) {
     if (!incoming_images.empty()) {
       images.clear();
     }
@@ -1509,9 +1509,8 @@ class Blender {
   }
 
   int process_inputs(
-      const std::vector<std::reference_wrapper<enblend::MatrixRGB>>&
-          next_images,
-      std::unique_ptr<enblend::MatrixRGB>* output_image = nullptr) {
+      const std::vector<std::reference_wrapper<hm::MatrixRGB>>& next_images,
+      std::unique_ptr<hm::MatrixRGB>* output_image = nullptr) {
     if (pass++ && !next_images.empty()) {
       for (std::size_t i = 0, n = next_images.size(); i < n; ++i) {
         auto& img = next_images[i];
@@ -2163,7 +2162,7 @@ class Blender {
             die("No output image given");
           }
           auto& img = *output_image_ptr_;
-          *output_image = std::make_unique<enblend::MatrixRGB>(
+          *output_image = std::make_unique<hm::MatrixRGB>(
               img.height, img.width, img.consume_raw_data());
         } break;
       }
@@ -2208,6 +2207,7 @@ class Blender {
   }
 };
 
+namespace hm {
 namespace enblend {
 
 int enblend_main(
@@ -2229,14 +2229,14 @@ int enblend_main(
     argv[i] = new char[args[i].length() + 1];
     std::strcpy(argv[i], args[i].c_str());
   }
-  std::vector<std::reference_wrapper<enblend::MatrixRGB>> next_inputs;
+  std::vector<std::reference_wrapper<hm::MatrixRGB>> next_inputs;
   // Call the main function with the converted arguments
   Blender blender;
   int return_value = blender.multiblend_main(argc, argv);
   return_value = return_value || blender.process_images(next_inputs);
   return_value = return_value ||
       blender.process_inputs(
-          std::vector<std::reference_wrapper<enblend::MatrixRGB>>{}, nullptr);
+          std::vector<std::reference_wrapper<hm::MatrixRGB>>{}, nullptr);
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
     delete[] argv[i];
@@ -2264,7 +2264,7 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
     std::strcpy(argv[i], args[i].c_str());
   }
 
-  std::vector<std::reference_wrapper<enblend::MatrixRGB>> images;
+  std::vector<std::reference_wrapper<hm::MatrixRGB>> images;
   images.push_back(image1);
   images.push_back(image2);
   std::unique_ptr<MatrixRGB> output_image;
@@ -2275,7 +2275,7 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
     result = result || reusable_blender->process_images(images);
     result = result ||
         reusable_blender->process_inputs(
-            std::vector<std::reference_wrapper<enblend::MatrixRGB>>{},
+            std::vector<std::reference_wrapper<hm::MatrixRGB>>{},
             &output_image);
   } else {
     result = result || reusable_blender->process_inputs(images, &output_image);
@@ -2292,3 +2292,4 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
 }
 
 } // namespace enblend
+} // namespace hm

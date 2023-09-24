@@ -1,7 +1,6 @@
 #include "HmStitcher.h"
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 
-#if 1
 #include <hugin_config.h>
 #include <fstream>
 #include <sstream>
@@ -577,6 +576,45 @@ int nona_main(int argc, char* argv[]) {
   return 0;
 }
 
-#endif
 
-namespace hm {}
+namespace hm {
+
+/**
+ *  _    _           _   _
+ * | |  | |         | \ | |
+ * | |__| |_ __ ___ |  \| | ___  _ __   __ _
+ * |  __  | '_ ` _ \| . ` |/ _ \| '_ \ / _` |
+ * | |  | | | | | | | |\  | (_) | | | | (_| |
+ * |_|  |_|_| |_| |_|_| \_|\___/|_| |_|\__,_|
+ *
+ *
+ */
+HmNona::HmNona(std::string project_file)
+    : project_file_(std::move(project_file)) {
+    TIFFSetWarningHandler(0);
+  if (!load_project(project_file_)) {
+    throw std::runtime_error(
+        std::string("Failed to laod project file: ") + project_file_);
+  }
+}
+
+bool HmNona::load_project(const std::string& project_file) {
+  std::cout << "Project file: " << project_file_ << std::endl;
+
+  if (!pano_.ReadPTOFile(
+          project_file, hugin_utils::getPathPrefix(project_file))) {
+    exit(1);
+  };
+  opts_ = pano_.getOptions();
+  return true;
+}
+
+std::pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
+HmNona::process_images(
+    std::shared_ptr<hm::MatrixRGB> image1,
+    std::shared_ptr<hm::MatrixRGB> image2) {
+  return {nullptr, nullptr};
+}
+
+HmNona::~HmNona() = default;
+} // namespace hm
