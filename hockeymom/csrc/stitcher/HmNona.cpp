@@ -618,8 +618,7 @@ bool HmNona::load_project(const std::string& project_file) {
   return true;
 }
 
-std::pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
-HmNona::process_images(
+std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
   ++image_pair_pass_count_;
@@ -642,13 +641,13 @@ HmNona::process_images(
   HmMultiImageRemapper<ImageType, vigra::BImage> stitcher(pano_, pdisp.get());
   stitcher.set_input_images(image1, image2);
   UIntSet img_indexes{0, 1};
-  stitcher.stitch(
+  auto output_images = stitcher.stitch(
       opts_,
       img_indexes,
       std::string("hm_nona-") + std::to_string(image_pair_pass_count_) + "-",
       file_remapper_,
       adv_options_);
-  return {nullptr, nullptr};
+  return output_images;
 }
 
 HmNona::~HmNona() {}

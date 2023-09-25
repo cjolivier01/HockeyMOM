@@ -42,13 +42,21 @@ class HmMultiImageRemapper
     output_images_.resize(images_.size());
   }
 
-  void stitch(
+  std::vector<std::unique_ptr<hm::MatrixRGB>> consume_output_images() {
+    std::size_t sz = output_images_.size ();
+    auto result = std::move(output_images_);
+    output_images_.resize(sz);
+    return result;
+  }
+
+  std::vector<std::unique_ptr<MatrixRGB>> stitch(
       const PanoramaOptions& opts,
       UIntSet& images,
       const std::string& basename,
       HmSingleImageRemapper<ImageType, AlphaType>& remapper,
       const AdvancedOptions& advOptions) {
     ++pass_;
+    std::vector<std::unique_ptr<MatrixRGB>> results;
     // Skip over direct base class stitch call
     if (pass_ == 1) {
       // Base::Base::stitch(opts, images, basename, remapper);
@@ -86,7 +94,8 @@ class HmMultiImageRemapper
         mod_options_.emplace_back(std::move(modOptions));
       }
     }
-
+    // HACK
+    results.resize(images.size());
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
       // get a remapped image.
@@ -106,14 +115,18 @@ class HmMultiImageRemapper
         // is completely out of the pano
         std::cerr << e.what();
       }
+      // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
       remapper.release(remapped);
       i++;
     }
+    results = consume_output_images();
+
     finalizeOutputFile(opts);
     if (Base::m_progress) {
       Base::m_progress->taskFinished();
     }
+    return results;
   }
 
   /** prepare the output file (setup file structures etc.) */
@@ -506,8 +519,16 @@ class HmMultiImageRemapper
         VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
         exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       }
-      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder = std::make_unique<MatrixRGBEncoder>();
-      exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder =
+          std::make_unique<MatrixRGBEncoder>();
+      exportImageAlpha(
+          encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      MatrixRGBEncoder* matric_encoder_ptr =
+          static_cast<MatrixRGBEncoder*>(encoder.get());
+      auto matrix_rgb = matric_encoder_ptr->consume();
+      auto ul = remapped.boundingBox().upperLeft();
+      matrix_rgb->set_xy_pos(ul.x, ul.y);
+      output_images_.at(imgNr) = std::move(matrix_rgb);
     } else {
       vigra::exportImage(srcImageRange(*final_img), exinfo);
     };
@@ -603,7 +624,7 @@ class HmMultiImageRemapper
   //     std::string m_basename;
  private:
   std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
-  std::vector<std::shared_ptr<hm::MatrixRGB>> output_images_;
+  std::vector<std::unique_ptr<hm::MatrixRGB>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
 };

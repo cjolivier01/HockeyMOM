@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace hm {
 
@@ -30,8 +31,8 @@ class HmNona {
     return 0;
   }
   bool load_project(const std::string& project_file);
-  std::pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
-  process_images(
+
+  std::vector<std::unique_ptr<hm::MatrixRGB>> process_images(
       std::shared_ptr<hm::MatrixRGB> image1,
       std::shared_ptr<hm::MatrixRGB> image2);
 

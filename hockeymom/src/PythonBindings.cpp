@@ -112,18 +112,19 @@ PYBIND11_MODULE(_hockeymom, m) {
       "_nona_process_images",
       [](std::shared_ptr<hm::HmNona> nona,
          py::array_t<uint8_t>& image1,
-         py::array_t<uint8_t>& image2) {
+         py::array_t<uint8_t>& image2) -> std::vector<py::array_t<uint8_t>> {
         py::gil_scoped_release release_gil();
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
-        std::
-            pair<std::unique_ptr<hm::MatrixRGB>, std::unique_ptr<hm::MatrixRGB>>
-                result_pair =
-                    nona->process_images(std::move(m1), std::move(m2));
-        // TODO: return something meaningful
-        return true;
+        std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices =
+            nona->process_images(std::move(m1), std::move(m2));
+        std::vector<py::array_t<uint8_t>> results;
+        results.reserve(result_matrices.size());
+        for (auto& m : result_matrices) {
+          results.emplace_back(m->to_py_array());
+        }
+        return results;
       });
-
 }
 
 static std::string get_python_string(PyObject* obj) {
