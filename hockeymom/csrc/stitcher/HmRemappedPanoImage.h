@@ -95,6 +95,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
     vigra_ext::Interpolator interpol,
     AppBase::ProgressDisplay* progress,
     bool singleThreaded) {
+  assert(!singleThreaded);
   using namespace HuginBase;
   using namespace HuginBase::Nona;
   using HuginBase::SrcPanoImage;
