@@ -546,11 +546,14 @@ def pyramid_blending():
     for i in range(len(orig_files_left)):
         img1 = cv2.imread(orig_files_left[i])
         img2 = cv2.imread(orig_files_right[i])
-        for l in range(10):
-            start = time.time()
-            result = core.nona_process_images(nona, img1, img2)
-            duration = time.time() - start
-            print(f"Got results in {duration} seconds")
+
+        start = time.time()
+        result = core.stitch_images(nona, img1, img2)
+        #result = core.nona_process_images(nona, img1, img2)
+        duration = time.time() - start
+        print(f"Got results in {duration} seconds")
+        cv2.imshow('Stitched Image', result)
+        cv2.waitKey(0)
         # cv2.imshow('Nona image left', result[0])
         # cv2.waitKey(0)
         # cv2.imshow('Nona image right', result[1])

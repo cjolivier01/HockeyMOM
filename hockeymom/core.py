@@ -6,7 +6,8 @@ from ._hockeymom import (
     _hello_world,
     _enblend,
     _emblend_images,
-    _nona_process_images
+    _nona_process_images,
+    _stitch_images,
 )
 
 # Classes
@@ -21,6 +22,7 @@ __all__ = [
     "emblend_images",
     "HmNona",
     "nona_process_images",
+    "stitch_images",
 ]
 
 def hello_world():
@@ -41,3 +43,6 @@ def emblend_images(
 
 def nona_process_images(nona: HmNona, image_left: np.array, image_right: np.array):
     return _nona_process_images(nona, image_left, image_right)
+
+def stitch_images(nona: HmNona, image_left: np.array, image_right: np.array):
+    return _stitch_images(nona, image_left, image_right)

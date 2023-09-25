@@ -634,14 +634,17 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
   // From Nona stitcher
 
   // Set up panorama options for the two images beforehand
-  auto pdisp = std::make_unique<AppBase::DummyProgressDisplay>();
+  static auto pdisp = std::make_unique<AppBase::DummyProgressDisplay>();
   if (image_pair_pass_count_ == 1) {
     file_remapper_.setAdvancedOptions(adv_options_);
   }
-  HmMultiImageRemapper<ImageType, vigra::BImage> stitcher(pano_, pdisp.get());
-  stitcher.set_input_images(image1, image2);
+  // TODO: make class member
+  static auto stitcher =
+      std::make_unique<HmMultiImageRemapper<ImageType, vigra::BImage>>(
+          pano_, pdisp.get());
+  stitcher->set_input_images(image1, image2);
   UIntSet img_indexes{0, 1};
-  auto output_images = stitcher.stitch(
+  auto output_images = stitcher->stitch(
       opts_,
       img_indexes,
       std::string("hm_nona-") + std::to_string(image_pair_pass_count_) + "-",

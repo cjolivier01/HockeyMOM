@@ -516,15 +516,15 @@ class HmMultiImageRemapper
 
     if (supportsAlpha) {
       if (save_as_file) {
-        VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
-        exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
+      exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       }
       VIGRA_UNIQUE_PTR<vigra::Encoder> encoder =
-          std::make_unique<MatrixRGBEncoder>();
+      std::make_unique<MatrixRGBEncoder>();
       exportImageAlpha(
-          encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       MatrixRGBEncoder* matric_encoder_ptr =
-          static_cast<MatrixRGBEncoder*>(encoder.get());
+      static_cast<MatrixRGBEncoder*>(encoder.get());
       auto matrix_rgb = matric_encoder_ptr->consume();
       auto ul = remapped.boundingBox().upperLeft();
       matrix_rgb->set_xy_pos(ul.x, ul.y);
