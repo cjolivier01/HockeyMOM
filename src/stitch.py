@@ -542,15 +542,19 @@ def pyramid_blending():
 
     nona = core.HmNona("/mnt/data/Videos/my_project.pto")
 
+
     for i in range(len(orig_files_left)):
         img1 = cv2.imread(orig_files_left[i])
         img2 = cv2.imread(orig_files_right[i])
-        result = core.nona_process_images(nona, img1, img2)
-        print(f"Got results")
-        cv2.imshow('Nona image left', result[0])
-        cv2.waitKey(0)
-        cv2.imshow('Nona image right', result[1])
-        cv2.waitKey(0)
+        for l in range(10):
+            start = time.time()
+            result = core.nona_process_images(nona, img1, img2)
+            duration = time.time() - start
+            print(f"Got results in {duration} seconds")
+        # cv2.imshow('Nona image left', result[0])
+        # cv2.waitKey(0)
+        # cv2.imshow('Nona image right', result[1])
+        # cv2.waitKey(0)
 
     files_left = [
         "/mnt/data/Videos/my_project0000.tif",
