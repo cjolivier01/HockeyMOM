@@ -1,5 +1,6 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/stitcher/HmStitcher.h"
+#include "concurrentqueue/blockingconcurrentqueue.h"
 
 // #include "hugin/src/hugin_base/nona/Stitcher.h"
 
@@ -25,9 +26,9 @@
 // #include "hugin_utils/stl_utils.h"
 // #include "nona/StitcherOptions.h"
 
-#include <tbb/tbb.h>
-#include <tbb/parallel_pipeline.h>
-#include <tbb/global_control.h>
+// #include <tbb/tbb.h>
+// #include <tbb/parallel_pipeline.h>
+// #include <tbb/global_control.h>
 
 namespace hm {
 using namespace HuginBase;

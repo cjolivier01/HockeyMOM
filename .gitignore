@@ -6,6 +6,7 @@
 /h-demo*
 # /models/*.pth
 /models/*.pt
+/.clangd
 /exp
 __pycache__
 /.cache
