@@ -23,9 +23,10 @@ namespace hm {
  *        (in-place)
  */
 struct MatrixRGB {
+ public:
+
   static inline constexpr std::size_t kChannels = 3;
 
- public:
   MatrixRGB() {}
   MatrixRGB(const MatrixRGB&) = delete;
   MatrixRGB(MatrixRGB&& other) = default;
@@ -135,29 +136,33 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   }
 
   virtual std::string getFileType() const {
-    assert(false);
+    return "TIFF";
   }
   virtual unsigned int getOffset() const {
-    assert(false);
+    return MatrixRGB::kChannels;
   }
 
-  virtual void setWidth(unsigned int) {
-    assert(false);
+  virtual void setWidth(unsigned int width) {
+    width_ = width;
   }
-  virtual void setHeight(unsigned int) {
-    assert(false);
+  virtual void setHeight(unsigned int height) {
+    height_ = height;
   }
-  virtual void setNumBands(unsigned int) {
-    assert(false);
+  virtual void setNumBands(unsigned int num_bands) {
+    num_bands_ = num_bands;
   }
-  virtual void setCompressionType(const std::string&, int = -1) {
-    assert(false);
+  virtual void setCompressionType(const std::string& type, int = -1) {
   }
-  virtual void setPixelType(const std::string&) {
-    assert(false);
+  virtual void setPixelType(const std::string& pixel_type) {
+    assert(pixel_type == "UINT8");
   }
   virtual void finalizeSettings() {
-    assert(false);
+    data_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width_ * height_ * MatrixRGB::kChannels);
+    dummy_alpha_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width_ * MatrixRGB::kChannels);
+    scanlines_.resize(3);
+    for (std::size_t i = 0; i < MatrixRGB::kChannels; ++i) {
+      scanlines_.at(i) = data_.get() + i;
+    }
   }
 
   virtual void setPosition(const vigra::Diff2D& pos) {
@@ -175,22 +180,37 @@ struct MatrixRGBEncoder : public vigra::Encoder {
 
   typedef vigra::ArrayVector<unsigned char> ICCProfile;
 
-  virtual void setICCProfile(const ICCProfile& /* data */) {}
+  virtual void setICCProfile(const ICCProfile& data) {
+    icc_profile_ = data;
+  }
 
-  virtual void* currentScanlineOfBand(unsigned int) {
-    assert(false);
+  virtual void* currentScanlineOfBand(unsigned int band) {
+    if (band == MatrixRGB::kChannels) {
+      return dummy_alpha_.get();
+    }
+    return scanlines_[band];
   }
   virtual void nextScanline() {
-    assert(false);
+    for (auto& ptr : scanlines_) {
+      ptr += sizeof(std::uint8_t) * width_;
+    }
   }
 
-  struct TIFFCompressionException {};
+  std::unique_ptr<MatrixRGB> consume() {
+    auto matrix = std::make_unique<MatrixRGB>(height_, width_, data_.release());
+    matrix->set_xy_pos(position_.x, position_.y);
+    return matrix;
+  }
 
  private:
   std::size_t width_{0}, height_{0};
   float x_res_{0}, y_res_{0};
+  int num_bands_{0};
+  ICCProfile icc_profile_;
   vigra::Diff2D position_;
   vigra::Size2D canvas_size_;
+  std::unique_ptr<std::uint8_t[]> data_;
+  std::unique_ptr<std::uint8_t[]> dummy_alpha_;
   std::unique_ptr<MatrixRGB> matrix_rgb_{nullptr};
   std::vector<std::uint8_t*> scanlines_;
 };

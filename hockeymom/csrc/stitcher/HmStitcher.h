@@ -129,6 +129,7 @@ class HmMultiImageRemapper
       class AlphaIterator,
       class AlphaAccessor>
   static void exportImageAlpha(
+      VIGRA_UNIQUE_PTR<vigra::Encoder>& encoder,
       ImageIterator image_upper_left,
       ImageIterator image_lower_right,
       ImageAccessor image_accessor,
@@ -140,12 +141,13 @@ class HmMultiImageRemapper
     using namespace vigra::detail;
     typedef typename AlphaAccessor::value_type AlphaValueType;
 
-    VIGRA_UNIQUE_PTR<Encoder> encoder(vigra::encoder(export_info));
+    if (!encoder) {
+      encoder = vigra::encoder(export_info);
+    }
 
     const std::string pixel_type(export_info.getPixelType());
     const pixel_t type(pixel_t_of_string(pixel_type));
     encoder->setPixelType(pixel_type);
-
     vigra_precondition(
         isBandNumberSupported(
             encoder->getFileType(), image_accessor.size(image_upper_left) + 1U),
@@ -339,6 +341,7 @@ class HmMultiImageRemapper
       class AlphaIterator,
       class AlphaAccessor>
   static inline void exportImageAlpha(
+      VIGRA_UNIQUE_PTR<vigra::Encoder>& encoder,
       ImageIterator image_upper_left,
       ImageIterator image_lower_right,
       ImageAccessor image_accessor,
@@ -350,6 +353,7 @@ class HmMultiImageRemapper
 
     try {
       exportImageAlpha(
+          encoder,
           image_upper_left,
           image_lower_right,
           image_accessor,
@@ -362,6 +366,7 @@ class HmMultiImageRemapper
 
       info.setCompression("");
       exportImageAlpha(
+          encoder,
           image_upper_left,
           image_lower_right,
           image_accessor,
@@ -378,10 +383,12 @@ class HmMultiImageRemapper
       class AlphaIterator,
       class AlphaAccessor>
   static inline void exportImageAlpha(
+      VIGRA_UNIQUE_PTR<vigra::Encoder>& encoder,
       vigra::triple<ImageIterator, ImageIterator, ImageAccessor> image,
       std::pair<AlphaIterator, AlphaAccessor> alpha,
       vigra::ImageExportInfo const& export_info) {
     exportImageAlpha(
+        encoder,
         image.first,
         image.second,
         image.third,
@@ -495,7 +502,12 @@ class HmMultiImageRemapper
     }
 
     if (supportsAlpha) {
-      exportImageAlpha(srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      if (save_as_file) {
+        VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
+        exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+      }
+      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder = std::make_unique<MatrixRGBEncoder>();
+      exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
     } else {
       vigra::exportImage(srcImageRange(*final_img), exinfo);
     };

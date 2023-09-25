@@ -73,7 +73,10 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
 
   ///
   virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) {
-    delete d;
+    // if (d == m_remapped) {
+    //   m_remapped = null;ptr;
+    // }
+    // delete d;
   }
 
  protected:
