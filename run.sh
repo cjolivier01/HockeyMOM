@@ -3,11 +3,12 @@
 #VIDEO="${HOME}"/Downloads/hockey.mov
 #VIDEO="${HOME}"/Downloads/pdp_hockey_game.mp4
 #VIDEO="${HOME}/Downloads/pdp_whole_game.mp4"
-VIDEO="${HOME}/Videos/left.mp4,${HOME}/Videos/right.mp4"
+#VIDEO="${HOME}/Videos/left.mp4,${HOME}/Videos/right.mp4"
 #VIDEO="${HOME}/Videos/clips/ethan_goal.mp4"
 #VIDEO="${HOME}/Videos/olivier2_stitched_hd.mp4"
 #VIDEO="${HOME}/Videos/ethan_jets_first_goal.mp4"
 #VIDEO="${HOME}/Videos/ethan_jets_first_goal.mp4"
+VIDEO=~/Videos/TriValley10u1_9.23.2023.mp4
 
 mkdir -p h-demo-x
 rm -rf h-demo-x/*

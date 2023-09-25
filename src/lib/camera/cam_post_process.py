@@ -85,7 +85,7 @@ class DefaultArguments(argparse.Namespace):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
 
         #self.fixed_edge_rotation_angle = 35.0
         self.fixed_edge_rotation_angle = 45.0
