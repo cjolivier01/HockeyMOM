@@ -26,6 +26,8 @@
 // #include "nona/StitcherOptions.h"
 
 #include <tbb/tbb.h>
+#include <tbb/parallel_pipeline.h>
+#include <tbb/global_control.h>
 
 namespace hm {
 using namespace HuginBase;
@@ -119,13 +121,13 @@ void HmNona::run_pipeline() {
   ProcessingStage processingStage;
   OutputStage outputStage;
 
-  // Create the pipeline
-  tbb::parallel_pipeline(
-      /* Number of tokens */ tbb::task_scheduler_init::default_num_threads(),
-      tbb::make_filter<void, int>(tbb::filter::serial_in_order, inputStage) &
-          tbb::make_filter<int, int>(tbb::filter::parallel, processingStage) &
-          tbb::make_filter<int, void>(
-              tbb::filter::serial_in_order, outputStage));
+  // // Create the pipeline
+  // tbb::parallel_pipeline(
+  //     /* Number of tokens */ 30,
+  //     tbb::make_filter<void, int>(tbb::filter_mode::serial_in_order, std::move(inputStage)) &
+  //         tbb::make_filter<int, int>(tbb::filter_mode::parallel, std::move(processingStage)) &
+  //         tbb::make_filter<int, void>(
+  //             tbb::filter_mode::serial_in_order, std::move(outputStage)));
 }
 
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
