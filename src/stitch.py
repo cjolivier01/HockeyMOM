@@ -325,8 +325,8 @@ def make_transformed_image(input_image, matrix):
 
 def stitch_with_warp():
     # Load the two video files
-    video1 = cv2.VideoCapture("/mnt/data/Videos/left.mp4")
-    video2 = cv2.VideoCapture("/mnt/data/Videos/right.mp4")
+    video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
+    video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
 
     video1.set(cv2.CAP_PROP_POS_FRAMES, 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -529,27 +529,27 @@ def get_image_geo_position(tiff_image_file: str):
 
 
 def pyramid_blending():
-
+    vid_dir = os.path.join(os.environ["HOME"], "Videos")
     orig_files_left = [
-        "/mnt/data/Videos/images/left.png",
-        "/mnt/data/Videos/images/left-45min.png",
+        f"{vid_dir}/images/left.png",
+        f"{vid_dir}/images/left-45min.png",
     ]
 
     orig_files_right = [
-        "/mnt/data/Videos/images/right.png",
-        "/mnt/data/Videos/images/right-45min.png",
+        f"{vid_dir}/images/right.png",
+        f"{vid_dir}/images/right-45min.png",
     ]
 
-    nona = core.HmNona("/mnt/data/Videos/my_project.pto")
+    nona = core.HmNona(f"{vid_dir}/my_project.pto")
 
 
     for i in range(len(orig_files_left)):
         img1 = cv2.imread(orig_files_left[i])
         img2 = cv2.imread(orig_files_right[i])
-        cv2.imshow('Nona image left', img1)
-        cv2.waitKey(0)
-        cv2.imshow('Nona image right', img2)
-        cv2.waitKey(0)
+        # cv2.imshow('Nona image left', img1)
+        # cv2.waitKey(0)
+        # cv2.imshow('Nona image right', img2)
+        # cv2.waitKey(0)
         start = time.time()
         if False:
             result = core.nona_process_images(nona, img1, img2)
@@ -565,33 +565,33 @@ def pyramid_blending():
             cv2.imshow('Stitched Image', result)
             cv2.waitKey(0)
 
-    files_left = [
-        "/mnt/data/Videos/my_project0000.tif",
-        "/mnt/data/Videos/my_project-20000.tif",
-    ]
-    files_right = [
-        "/mnt/data/Videos/my_project0001.tif",
-        "/mnt/data/Videos/my_project-20001.tif",
-    ]
+    # files_left = [
+    #     f"{vid_dir}/my_project0000.tif",
+    #     f"{vid_dir}/my_project-20000.tif",
+    # ]
+    # files_right = [
+    #     f"{vid_dir}/my_project0001.tif",
+    #     f"{vid_dir}/my_project-20001.tif",
+    # ]
 
-    xpos_1, ypos_1 = get_image_geo_position(files_left[0])
-    xpos_2, ypos_2 = get_image_geo_position(files_right[0])
+    # xpos_1, ypos_1 = get_image_geo_position(files_left[0])
+    # xpos_2, ypos_2 = get_image_geo_position(files_right[0])
 
-    for i in range(len(files_left)):
-        A = cv2.imread(files_left[i])
-        B = cv2.imread(files_right[i])
+    # for i in range(len(files_left)):
+    #     A = cv2.imread(files_left[i])
+    #     B = cv2.imread(files_right[i])
 
-        img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
-        # cv2.imshow('Panoramic blended image', img)
-        # cv2.waitKey(0)
+    #     img = core.emblend_images(A, B, [xpos_1, ypos_1], [xpos_2, ypos_2])
+    #     # cv2.imshow('Panoramic blended image', img)
+    #     # cv2.waitKey(0)
 
     #cv2.destroyAllWindows()
 
 def main():
     pyramid_blending()
-    # core.enblend("/mnt/data/Videos/pano-1.png", [
-    #     "/mnt/data/Videos/my_project0000.tif",
-    #     "/mnt/data/Videos/my_project0001.tif",
+    # core.enblend(f"{vid_dir}/pano-1.png", [
+    #     f"{vid_dir}/my_project0000.tif",
+    #     f"{vid_dir}/my_project0001.tif",
     # ])
     # eval(video_number=0)
     # stitch_with_warp()
