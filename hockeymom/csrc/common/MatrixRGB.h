@@ -140,6 +140,7 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   }
   virtual unsigned int getOffset() const {
     return MatrixRGB::kChannels;
+    //return 1;
   }
 
   virtual void setWidth(unsigned int width) {
@@ -157,11 +158,14 @@ struct MatrixRGBEncoder : public vigra::Encoder {
     assert(pixel_type == "UINT8");
   }
   virtual void finalizeSettings() {
-    data_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width_ * height_ * MatrixRGB::kChannels);
+    std::size_t total_image_size = sizeof(std::uint8_t) * width_ * height_ * MatrixRGB::kChannels;
+    data_ = std::make_unique<std::uint8_t[]>(total_image_size);
+    bzero(data_.get(), total_image_size);
     dummy_alpha_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width_ * MatrixRGB::kChannels);
-    scanlines_.resize(3);
+    scanlines_.resize(MatrixRGB::kChannels);
     for (std::size_t i = 0; i < MatrixRGB::kChannels; ++i) {
-      scanlines_.at(i) = data_.get() + i;
+      //scanlines_.at(i) = data_.get() + (sizeof(std::uint8_t) * width_ * height_ * i);
+      scanlines_.at(i) = data_.get() + (sizeof(std::uint8_t) * i);
     }
   }
 
@@ -192,7 +196,7 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   }
   virtual void nextScanline() {
     for (auto& ptr : scanlines_) {
-      ptr += sizeof(std::uint8_t) * width_;
+      ptr += sizeof(std::uint8_t) * width_ * MatrixRGB::kChannels;
     }
   }
 

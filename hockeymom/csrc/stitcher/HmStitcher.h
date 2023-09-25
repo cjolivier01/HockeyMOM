@@ -541,24 +541,16 @@ class HmMultiImageRemapper
       unsigned int nImg,
       const PanoramaOptions& opts,
       const AdvancedOptions& advOptions,
-      bool save_as_file = true) {
-    if (save_as_file) {
-      hmSaveRemapped(
-          remapped,
-          imgNr,
-          nImg,
-          opts,
-          /*save_as_file=*/true,
-          m_basename,
-          HuginBase::Nona::GetAdvancedOption(advOptions, "useBigTIFF", false),
-          Base::m_progress);
-    }
-
-    ImageType* final_img = &remapped.m_image;
-    AlphaType* alpha_img = &remapped.m_mask;
-
-    auto src_img_range = srcImageRange(*final_img);
-    auto src_alpha_image = srcImage(*alpha_img);
+      bool save_as_file = false) {
+    hmSaveRemapped(
+        remapped,
+        imgNr,
+        nImg,
+        opts,
+        save_as_file,
+        m_basename,
+        HuginBase::Nona::GetAdvancedOption(advOptions, "useBigTIFF", false),
+        Base::m_progress);
 
     if (opts.saveCoordImgs) {
       vigra::UInt16Image xImg;
