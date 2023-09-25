@@ -8,6 +8,8 @@
 
 #include <cstdint>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace hm {
@@ -37,12 +39,15 @@ class HmNona {
       std::shared_ptr<hm::MatrixRGB> image2);
 
  private:
+
+  void run_pipeline();
+
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
   HuginBase::Nona::AdvancedOptions adv_options_;
   HuginBase::Panorama pano_;
   HmFileRemapper<ImageType, vigra::BImage> file_remapper_;
   std::size_t image_pair_pass_count_{0};
-};
+  };
 
 } // namespace hm
