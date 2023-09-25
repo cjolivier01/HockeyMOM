@@ -546,6 +546,11 @@ def pyramid_blending():
         img1 = cv2.imread(orig_files_left[i])
         img2 = cv2.imread(orig_files_right[i])
         result = core.nona_process_images(nona, img1, img2)
+        print(f"Got results")
+        cv2.imshow('Nona image left', result[0])
+        cv2.waitKey(0)
+        cv2.imshow('Nona image right', result[1])
+        cv2.waitKey(0)
 
     files_left = [
         "/mnt/data/Videos/my_project0000.tif",
