@@ -21,6 +21,7 @@ dependencies:
   - boost-cpp=1.78.0=h6582d0a_3
   - brotli-bin=1.0.9=h166bdaf_9
   - brunsli=0.1=h9c3ff4c_0
+  - buildifier=6.3.3=ha8f183a_0
   - bzip2=1.0.8=h7b6447c_0
   - c-ares=1.18.1=h7f8727e_0
   - c-blosc2=2.10.2=hb4ffafa_0
@@ -482,7 +483,7 @@ dependencies:
       - timm==0.9.2
       - toml==0.10.2
       - tomli==2.0.1
-      - torchvision==0.8.0
+      - torchvision==0.8.0a0+291f7e2
       - tornado==6.3.2
       - tqdm==4.64.1
       - traitlets==5.9.0
