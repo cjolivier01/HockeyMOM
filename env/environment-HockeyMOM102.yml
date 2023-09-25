@@ -256,6 +256,7 @@ dependencies:
   - svt-av1=1.7.0=h59595ed_0
   - sysroot_linux-64=2.17=h4a8ded7_13
   - tbb=2021.10.0=h00ab1b0_0
+  - tbb-devel=2021.10.0=h00ab1b0_0
   - tk=8.6.12=h1ccaba5_0
   - typing_extensions=4.4.0=py38h06a4308_0
   - vigra=1.11.1=py38he618331_1047
