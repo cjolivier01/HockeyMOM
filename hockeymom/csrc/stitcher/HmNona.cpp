@@ -64,12 +64,13 @@ bool check_cuda_opengl() {
   }
 
   // Create an OpenGL context
-  GLFWwindow* window = glfwCreateWindow(800, 600, "OpenGL Window", NULL, NULL);
+  GLFWwindow* window = glfwCreateWindow(100, 100, "OpenGL Window", NULL, NULL);
   if (!window) {
     fprintf(stderr, "Failed to create GLFW window\n");
     glfwTerminate();
     return -1;
   }
+  glfwHideWindow(window);
 
   // // Make the OpenGL context current
   glfwMakeContextCurrent(window);
