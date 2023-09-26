@@ -9,7 +9,8 @@ motmetrics
 matplotlib
 lap
 openpyxl
-Pillow
+Pillow-simd
+psutil
 tensorboardX
 fvcore
 opencv-python
@@ -17,3 +18,4 @@ opencv-contrib-python
 cameratransform
 tifffile
 scikit-build
+.
