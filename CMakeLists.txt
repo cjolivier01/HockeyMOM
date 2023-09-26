@@ -40,7 +40,7 @@ FIND_PACKAGE(FLANN REQUIRED)
 SET(FLANN_FOUND 1)
 
 add_subdirectory(external/eigen)
-#add_subdirectory(external/opencv)
+add_subdirectory(external/opencv-python/opencv)
 add_subdirectory(external/hugin)
 
 add_subdirectory(hockeymom)
