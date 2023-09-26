@@ -5,8 +5,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/hugin/CMakeMod
 project(hockeymom)
 
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
-#set(CMAKE_CXX_STANDARD 14)
+#set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 14)
 
 # OpenCV config
 SET(BUILD_opencv_apps OFF)
@@ -18,7 +18,6 @@ SET(BUILD_DOCS OFF)
 # SET(PYTHON3_LIMITED_API ON)
 SET(BUILD_OPENEXR ON)
 # Mine
-SET(CMAKE_CXX_STANDARD 17)
 SET(CUDA_NVCC_FLAGS "-Xcompiler ,\"-std c++14\"")
 # SET(CMAKE_C_COMPILER gcc)
 # SET(CMAKE_CXX_COMPILER g++)
@@ -37,10 +36,10 @@ SET(OPENCV_DNN_CUDA 0)
 # SET(WITH_EIGEN 0)
 # SET(HAVE_opencv_python3 ON)
 SET(BUILD_EXAMPLES OFF)
-SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules")
+#SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules")
 #SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/opencv_contrib/modules")
 #MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
-#SET(OPENCV_EXTRA_MODULES_PATH "/mnt/home/colivier-local/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
+SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
 
 find_package(PythonInterp REQUIRED)
 find_package(PythonLibs "${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}" REQUIRED)
