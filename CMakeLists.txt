@@ -37,6 +37,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external)
 # Include hugin sources as include dirs
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
 
+find_package(OpenGL REQUIRED)
+include_directories(${OPENGL_INCLUDE_DIR})
+
 FIND_PACKAGE(FLANN REQUIRED)
 SET(FLANN_FOUND 1)
 

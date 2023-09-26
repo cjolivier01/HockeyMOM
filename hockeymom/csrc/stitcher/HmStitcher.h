@@ -8,6 +8,7 @@
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace hm {
@@ -520,11 +521,11 @@ class HmMultiImageRemapper
       exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       }
       VIGRA_UNIQUE_PTR<vigra::Encoder> encoder =
-      std::make_unique<MatrixEncoderRGBFakeAlpha>();
+      std::make_unique<MatrixEncoderRGBA>();
       exportImageAlpha(
       encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
-      MatrixEncoderRGBFakeAlpha* matric_encoder_ptr =
-      static_cast<MatrixEncoderRGBFakeAlpha*>(encoder.get());
+      MatrixEncoderRGBA* matric_encoder_ptr =
+      static_cast<MatrixEncoderRGBA*>(encoder.get());
       auto matrix_rgb = matric_encoder_ptr->consume();
       auto ul = remapped.boundingBox().upperLeft();
       matrix_rgb->set_xy_pos(ul.x, ul.y);
@@ -671,7 +672,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   if (image) {
     assert(width == image->cols());
     assert(height == image->rows());
-    src_img_ptr = image->to_vigra_brgb_image();
+    src_img_ptr = image->to_vigra_image();
   } else {
     src_img_ptr = std::make_unique<ImageType>(width, height);
   }

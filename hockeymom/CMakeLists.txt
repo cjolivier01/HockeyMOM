@@ -16,7 +16,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 target_include_directories(hm PUBLIC ./include)
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
-
+target_link_libraries(hm PRIVATE OpenGL::OpenGL)
+#target_link_libraries(hm PRIVATE glew)
+target_link_libraries(hm PRIVATE glfw)
 
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)

@@ -43,14 +43,20 @@ namespace {
 // struct StitcherWorker : public Worker{
 //   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
 //   ~StitcherWorker() {
-//     if (thread_.joinable()) {
+//     if (thread_.joinable()) {6
 //       StitcherWorker.join();
 //     }
 //   }
 // };
 
 bool check_cuda_opengl() {
-  assert(false);
+
+  // Request an OpenGL 3.3 core profile context
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+  //assert(false);
   // Initialize GLFW and create an OpenGL context
   if (!glfwInit()) {
     fprintf(stderr, "Failed to initialize GLFW\n");
@@ -65,7 +71,7 @@ bool check_cuda_opengl() {
     return -1;
   }
 
-  // Make the OpenGL context current
+  // // Make the OpenGL context current
   glfwMakeContextCurrent(window);
 
   // Initialize GLEW (or equivalent)
@@ -82,7 +88,8 @@ bool check_cuda_opengl() {
     printf("OpenGL Vendor: %s\n", vendor);
     return true;
   } else {
-    fprintf(stderr, "Unable to retrieve OpenGL vendor string\n");
+    GLenum err = glGetError();
+    fprintf(stderr, "Unable to retrieve OpenGL vendor string: %d\n", err);
     return false;
   }
 }
