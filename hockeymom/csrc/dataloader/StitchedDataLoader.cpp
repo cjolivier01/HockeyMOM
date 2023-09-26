@@ -2,7 +2,7 @@
 
 namespace hm {
 
-StitchingDataLoader::StitchingDataLoader(std::vector<std::string> video_files) {}
+StitchingDataLoader::StitchingDataLoader() {}
 StitchingDataLoader::~StitchingDataLoader() {}
 
 }

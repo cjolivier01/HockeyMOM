@@ -29,8 +29,8 @@ add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 # structured_light superres surface_matching text tracking 
 # video videoio videostab wechat_qrcode xfeatures2d ximgproc xobjdetect xphoto
 
-set(OPENCV_MODULES videoio opencv_imgproc opencv_imgcodecs)
-target_link_libraries(hm PRIVATE ${OPENCV_MODULES})
+# set(OPENCV_MODULES videoio opencv_imgproc opencv_imgcodecs)
+# target_link_libraries(hm PRIVATE ${OPENCV_MODULES})
 
 target_include_directories(hm PUBLIC ./include)
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)

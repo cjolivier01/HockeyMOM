@@ -11,7 +11,7 @@ namespace hm {
 
 class StitchingDataLoader {
  public:
-  StitchingDataLoader(std::vector<std::string> video_files);
+  StitchingDataLoader();
   ~StitchingDataLoader();
  private:
 };
