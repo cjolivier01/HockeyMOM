@@ -50,7 +50,12 @@ namespace {
 // };
 
 bool check_cuda_opengl() {
-
+  static bool attempted = false;
+  static bool attempted_result = false;
+  if (attempted) {
+    return attempted_result;
+  }
+  attempted = true;
   // Request an OpenGL 3.3 core profile context
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
@@ -60,7 +65,7 @@ bool check_cuda_opengl() {
   // Initialize GLFW and create an OpenGL context
   if (!glfwInit()) {
     fprintf(stderr, "Failed to initialize GLFW\n");
-    return -1;
+    return false;
   }
 
   // Create an OpenGL context
@@ -68,7 +73,7 @@ bool check_cuda_opengl() {
   if (!window) {
     fprintf(stderr, "Failed to create GLFW window\n");
     glfwTerminate();
-    return -1;
+    return false;
   }
   glfwHideWindow(window);
 
@@ -80,13 +85,14 @@ bool check_cuda_opengl() {
   if (err != GLEW_OK) {
     fprintf(stderr, "GLEW initialization error: %s\n", glewGetErrorString(err));
     glfwTerminate();
-    return -1;
+    return false;
   }
 
   // Query and print the OpenGL vendor string
   const char* vendor = (const char*)glGetString(GL_VENDOR);
   if (vendor) {
     printf("OpenGL Vendor: %s\n", vendor);
+    attempted_result = true;
     return true;
   } else {
     GLenum err = glGetError();
