@@ -11,6 +11,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 
+#include <cstdint>
 #include <cassert>
 #include <cstddef>
 #include <vector>

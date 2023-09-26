@@ -3,14 +3,11 @@
 namespace hm {
 
 StitchingDataLoader::StitchingDataLoader(
-    std::size_t start_frame_id,
-    std::size_t thread_count)
+    std::size_t start_frame_id, std::size_t remap_thread_count, std::size_t blend_thread_count)
     : next_frame_id_(start_frame_id),
-      thread_count_(thread_count),
-      input_queue_ <
-          std::make_unique<
-              moodycamel::BlockingConcurrentQueue<std::unique_ptr<FrameData>>>(/*capacity=*/kInputQueueCapacity) {
-}
+      remap_thread_count_(remap_thread_count),
+      blend_thread_count_(blend_thread_count),
+      input_queue_(std::make_shared<JobRunnerT::InputQueue>()) {}
 
 StitchingDataLoader::~StitchingDataLoader() {
   shutdown();
