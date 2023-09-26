@@ -1,10 +1,10 @@
 h
 
 # generate project file from images, FOV=108 degrees
-pto_gen -o my_project.pto -f 108 left.png right.png
+pto_gen -o my_project.pto -f 108 images/left.png images/right.png
 
 # find control points
-cpfind --linearmatch my_project.pto -o my_project.pto 
+cpfind --linearmatch my_project.pto -o my_project.pto
 
 # Optimize the project
 autooptimiser -a -m -l -s -o my_project.pto my_project.pto
