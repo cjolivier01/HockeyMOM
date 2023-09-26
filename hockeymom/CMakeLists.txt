@@ -4,6 +4,7 @@ set(
   SOURCES
   csrc/mblend/mblend.cpp
   csrc/stitcher/HmNona.cpp
+  csrc/dataloader/StitchedDataLoader.cpp
   csrc/ImagePostProcess.cpp
 )
 #include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
