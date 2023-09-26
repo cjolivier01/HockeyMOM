@@ -43,7 +43,7 @@ core.hello_world()
 
 RINK_CONFIG = {
     "vallco": {
-        "fixed_edge_scaling_factor": 1.25,
+        "fixed_edge_scaling_factor": 0.8,
     },
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
@@ -131,8 +131,8 @@ class DefaultArguments(argparse.Namespace):
         self.use_cuda = False
 
         # Draw watermark on the image
-        #self.use_watermark = True
-        self.use_watermark = False
+        self.use_watermark = True
+        #self.use_watermark = False
 
 
 def scale_box(box, from_img, to_img):
