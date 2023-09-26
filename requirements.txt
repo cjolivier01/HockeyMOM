@@ -1,3 +1,4 @@
+numpy==1.23.5
 yacs
 opencv-python
 PyYAML
@@ -14,4 +15,5 @@ fvcore
 opencv-python
 opencv-contrib-python
 cameratransform
-
+tifffile
+scikit-build
