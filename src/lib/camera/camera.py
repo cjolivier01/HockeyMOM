@@ -254,6 +254,12 @@ class Clustering:
         pass
 
 
+CAMERA_TYPE_MAX_SPEEDS = {
+    "gopro": 300.0,
+    "zhiwei": 200.0,
+}
+
+
 class HockeyMOM:
     def __init__(
         self,
@@ -294,8 +300,10 @@ class HockeyMOM:
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 200.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
-        self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
-        self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
+        # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
+        # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
+        self._camera_box_max_speed_x = max(image_width / CAMERA_TYPE_MAX_SPEEDS["zhiwei"], 12.0)
+        self._camera_box_max_speed_y = max(image_height / CAMERA_TYPE_MAX_SPEEDS["zhiwei"], 12.0)
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
