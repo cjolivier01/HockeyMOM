@@ -71,15 +71,34 @@ class JobRunner {
   using OutputQueue = SortedQueue<KeyType, INPUT_TYPE>;
 
   JobRunner(
-      std::size_t thread_count,
       std::shared_ptr<InputQueue> input_queue,
       std::function<OUTPUT_TYPE(INPUT_TYPE&&)> worker_fn)
       : input_queue_(std::move(input_queue)),
-        worker_fn_(std::move(worker_fn_)) {
-    start();
-  }
+        worker_fn_(std::move(worker_fn_)) {}
   ~JobRunner() {
     stop();
+  }
+
+  void start(std::size_t thread_count) {
+    stop();
+    threads_.reserve(thread_count);
+    for (std::size_t i = 0; i < thread_count; ++i) {
+      threads_.emplace_back(
+          std::make_unique<std::thread>([this, i] { this->run(i); }));
+    }
+  }
+
+  void stop() {
+    for (std::size_t i = 0, n = threads_.size(); i < n; ++i) {
+      INPUT_TYPE null_input;
+      assert(!null_input);
+      input_queue_->enqueue(
+          std::numeric_limits<KeyType>::max() - i - 1, std::move(null_input));
+    }
+    for (auto& t : threads_) {
+      t->join();
+    }
+    threads_.clear();
   }
 
   const std::shared_ptr<InputQueue>& inputs() {
@@ -92,31 +111,13 @@ class JobRunner {
  private:
   void run(std::size_t thread_id) {
     do {
-      INPUT_TYPE input;
-      input_queue_->wait_dequeue(input);
+      KeyType key{std::numeric_limits<KeyType>::max()};
+      INPUT_TYPE input = input_queue_->dequeue(&key);
       if (!input) {
         break;
       }
-      output_queue_->enqueue(worker_fn_(std::move(input)));
+      output_queue_->enqueue(key, worker_fn_(std::move(input)));
     } while (true);
-  }
-  void start(std::size_t thread_count) {
-    stop();
-    threads_.reserve(thread_count);
-    for (std::size_t i = 0; i < thread_count; ++i) {
-      threads_.emplace_back(std::make_unique<std::thread>(run, this, i));
-    }
-  }
-  void stop() {
-    for (std::size_t i = 0, n = threads_.size(); i < n; ++i) {
-      INPUT_TYPE null_input;
-      assert(!null_input);
-      input_queue_->enqueue(null_input);
-    }
-    for (auto& t : threads_) {
-      t->join();
-    }
-    threads_.clear();
   }
   std::shared_ptr<InputQueue> input_queue_;
   std::shared_ptr<OutputQueue> output_queue_;
@@ -126,10 +127,14 @@ class JobRunner {
 
 class StitchingDataLoader {
   static constexpr std::size_t kInputQueueCapacity = 32;
-  using FRAME_DATA_TYPE = std::shared_ptr<FrameData>;
-  using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
+
  public:
-  StitchingDataLoader(std::size_t start_frame_id, std::size_t remap_thread_count, std::size_t blend_thread_count);
+  using FRAME_DATA_TYPE = std::shared_ptr<FrameData>;
+
+  StitchingDataLoader(
+      std::size_t start_frame_id,
+      std::size_t remap_thread_count,
+      std::size_t blend_thread_count);
   ~StitchingDataLoader();
 
   void add_frame(
@@ -137,12 +142,19 @@ class StitchingDataLoader {
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
  private:
+  using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
+
+  FRAME_DATA_TYPE remap_worker(FRAME_DATA_TYPE&& frame);
+  FRAME_DATA_TYPE blend_worker(FRAME_DATA_TYPE&& frame);
+
   void shutdown();
 
   std::size_t next_frame_id_;
   std::size_t remap_thread_count_;
   std::size_t blend_thread_count_;
   std::shared_ptr<JobRunnerT::InputQueue> input_queue_;
+  JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
+  JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
 };
 
 } // namespace hm
