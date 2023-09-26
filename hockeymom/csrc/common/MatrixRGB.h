@@ -22,16 +22,17 @@ namespace hm {
  * @brief Class to carry python array for RGB data into the blend function
  *        (in-place)
  */
-struct MatrixRGB {
+template<std::size_t CHANNELS>
+struct MatrixImage {
  public:
 
-  static inline constexpr std::size_t kChannels = 3;
+  static inline constexpr std::size_t kChannels = CHANNELS;
 
-  MatrixRGB() {}
-  MatrixRGB(const MatrixRGB&) = delete;
-  MatrixRGB(MatrixRGB&& other) = default;
+  MatrixImage() {}
+  MatrixImage(const MatrixImage&) = delete;
+  MatrixImage(MatrixImage&& other) = default;
 
-  MatrixRGB(
+  MatrixImage(
       py::array_t<uint8_t>& input_image,
       std::size_t xpos,
       std::size_t ypos) {
@@ -55,16 +56,16 @@ struct MatrixRGB {
     m_xpos = xpos;
     m_ypos = ypos;
   }
-  MatrixRGB(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
+  MatrixImage(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
     m_data = new std::uint8_t[rows * cols * kChannels];
     m_own_data = true;
   }
-  MatrixRGB(size_t rows, size_t cols, std::uint8_t* consume_data)
+  MatrixImage(size_t rows, size_t cols, std::uint8_t* consume_data)
       : m_rows(rows), m_cols(cols) {
     m_data = consume_data;
     m_own_data = true;
   }
-  ~MatrixRGB() {
+  ~MatrixImage() {
     if (m_data && m_own_data) {
       delete m_data;
     }
@@ -120,8 +121,13 @@ struct MatrixRGB {
   py::array_t<uint8_t> m_array;
 };
 
-struct MatrixRGBEncoder : public vigra::Encoder {
-  virtual ~MatrixRGBEncoder() = default;
+using MatrixRGB = MatrixImage<3>;
+using MatrixRGBA = MatrixImage<4>;
+
+template<typename MATRIX_IMAGE>
+struct MatrixEncoder : public vigra::Encoder {
+ public:
+  virtual ~MatrixEncoder() = default;
   virtual void init(const std::string&) {}
 
   // initialize with file access mode. For codecs that do not support this
@@ -139,8 +145,7 @@ struct MatrixRGBEncoder : public vigra::Encoder {
     return "TIFF";
   }
   virtual unsigned int getOffset() const {
-    return MatrixRGB::kChannels;
-    //return 1;
+    return MATRIX_IMAGE::kChannels;
   }
 
   virtual void setWidth(unsigned int width) {
@@ -157,18 +162,21 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   virtual void setPixelType(const std::string& pixel_type) {
     assert(pixel_type == "UINT8");
   }
+  constexpr std::size_t width() const {
+    return width_;
+  }
+  constexpr std::size_t height() const {
+    return height_;
+  }
   virtual void finalizeSettings() {
-    std::size_t total_image_size = sizeof(std::uint8_t) * width_ * height_ * MatrixRGB::kChannels;
+    std::size_t total_image_size = sizeof(std::uint8_t) * width() * height() * MATRIX_IMAGE::kChannels;
     data_ = std::make_unique<std::uint8_t[]>(total_image_size);
     bzero(data_.get(), total_image_size);
-    dummy_alpha_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width_ * MatrixRGB::kChannels);
-    scanlines_.resize(MatrixRGB::kChannels);
-    for (std::size_t i = 0; i < MatrixRGB::kChannels; ++i) {
-      //scanlines_.at(i) = data_.get() + (sizeof(std::uint8_t) * width_ * height_ * i);
+    scanlines_.resize(MATRIX_IMAGE::kChannels);
+    for (std::size_t i = 0; i < MATRIX_IMAGE::kChannels; ++i) {
       scanlines_.at(i) = data_.get() + (sizeof(std::uint8_t) * i);
     }
   }
-
   virtual void setPosition(const vigra::Diff2D& pos) {
     position_ = pos;
   }
@@ -189,14 +197,12 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   }
 
   virtual void* currentScanlineOfBand(unsigned int band) {
-    if (band == MatrixRGB::kChannels) {
-      return dummy_alpha_.get();
-    }
     return scanlines_[band];
   }
+
   virtual void nextScanline() {
     for (auto& ptr : scanlines_) {
-      ptr += sizeof(std::uint8_t) * width_ * MatrixRGB::kChannels;
+      ptr += sizeof(std::uint8_t) * width_ * MATRIX_IMAGE::kChannels;
     }
   }
 
@@ -214,9 +220,26 @@ struct MatrixRGBEncoder : public vigra::Encoder {
   vigra::Diff2D position_;
   vigra::Size2D canvas_size_;
   std::unique_ptr<std::uint8_t[]> data_;
-  std::unique_ptr<std::uint8_t[]> dummy_alpha_;
   std::unique_ptr<MatrixRGB> matrix_rgb_{nullptr};
+ protected:
   std::vector<std::uint8_t*> scanlines_;
+};
+
+class MatrixEncoderRGBFakeAlpha : public MatrixEncoder<MatrixRGB> {
+  using Base = MatrixEncoder<MatrixRGB>;
+  public:
+  virtual void finalizeSettings() {
+    Base::finalizeSettings();
+    dummy_alpha_ = std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width());
+  }
+  virtual void* currentScanlineOfBand(unsigned int band) {
+    if (band < MatrixRGB::kChannels) {
+      return scanlines_[band];
+    }
+    return dummy_alpha_.get();
+  }
+ private:
+  std::unique_ptr<std::uint8_t[]> dummy_alpha_;
 };
 
 } // namespace hm

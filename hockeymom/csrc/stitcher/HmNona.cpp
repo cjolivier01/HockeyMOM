@@ -10,6 +10,10 @@
 
 #include <atomic>
 
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <stdio.h>
+
 // #include <algorithm>
 // #include <cctype>
 // #include <string>
@@ -44,6 +48,44 @@ namespace {
 //     }
 //   }
 // };
+
+bool check_cuda_opengl() {
+  assert(false);
+  // Initialize GLFW and create an OpenGL context
+  if (!glfwInit()) {
+    fprintf(stderr, "Failed to initialize GLFW\n");
+    return -1;
+  }
+
+  // Create an OpenGL context
+  GLFWwindow* window = glfwCreateWindow(800, 600, "OpenGL Window", NULL, NULL);
+  if (!window) {
+    fprintf(stderr, "Failed to create GLFW window\n");
+    glfwTerminate();
+    return -1;
+  }
+
+  // Make the OpenGL context current
+  glfwMakeContextCurrent(window);
+
+  // Initialize GLEW (or equivalent)
+  GLenum err = glewInit();
+  if (err != GLEW_OK) {
+    fprintf(stderr, "GLEW initialization error: %s\n", glewGetErrorString(err));
+    glfwTerminate();
+    return -1;
+  }
+
+  // Query and print the OpenGL vendor string
+  const char* vendor = (const char*)glGetString(GL_VENDOR);
+  if (vendor) {
+    printf("OpenGL Vendor: %s\n", vendor);
+    return true;
+  } else {
+    fprintf(stderr, "Unable to retrieve OpenGL vendor string\n");
+    return false;
+  }
+}
 
 class InputStage {
  public:
@@ -109,7 +151,7 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
-  opts_.remapUsingGPU = true;
+  opts_.remapUsingGPU = check_cuda_opengl();
   return true;
 }
 
