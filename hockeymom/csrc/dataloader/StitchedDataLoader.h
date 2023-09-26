@@ -47,6 +47,16 @@ class SortedQueue {
     return value;
   }
 
+  ITEM_TYPE dequeue_key(const KEY_TYPE& key) {
+    std::unique_lock lk(items_mu_);
+    cu_.wait(lk, [this, &key] { return items_.find(key) != items_.end(); });
+    auto iter = items_.find(key);
+    assert(iter != items_.end());
+    auto value = std::move(iter->second);
+    items_.erase(iter);
+    return value;
+  }
+
  private:
   std::mutex items_mu_;
   std::condition_variable cu_;
