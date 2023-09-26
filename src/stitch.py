@@ -554,16 +554,17 @@ def pyramid_blending():
         if False:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
-            cv2.imshow('Nona image left', result[0])
-            cv2.waitKey(0)
-            cv2.imshow('Nona image right', result[1])
-            cv2.waitKey(0)
+            print(f"Got results in {duration} seconds")
+            # cv2.imshow('Nona image left', result[0])
+            # cv2.waitKey(0)
+            # cv2.imshow('Nona image right', result[1])
+            # cv2.waitKey(0)
         else:
             result = core.stitch_images(nona, img1, img2)
             duration = time.time() - start
             print(f"Got results in {duration} seconds")
-            cv2.imshow('Stitched Image', result)
-            cv2.waitKey(0)
+            # cv2.imshow('Stitched Image', result)
+            # cv2.waitKey(0)
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
