@@ -75,4 +75,10 @@ bool check_cuda_opengl() {
   // }
 }
 
+std::size_t get_tick_count_ms() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::high_resolution_clock::now().time_since_epoch())
+      .count();
+}
+
 } // namespace hm

@@ -6,4 +6,6 @@ namespace hm {
 
 bool check_cuda_opengl();
 
+std::size_t get_tick_count_ms();
+
 }  // namespace hm

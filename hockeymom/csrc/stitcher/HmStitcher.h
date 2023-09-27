@@ -107,11 +107,11 @@ class HmMultiImageRemapper
     std::vector<std::size_t> img_indexes{images.begin(), images.end()};
     int img_count = img_indexes.size();
     for (int i = 0; i < img_count; ++i) {
-      thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
-        if (opts.remapUsingGPU) {
-          bool gpu_initialized = check_cuda_opengl();
-          assert(gpu_initialized);
-        }
+      //thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
+        // if (opts.remapUsingGPU) {
+        //   bool gpu_initialized = check_cuda_opengl();
+        //   assert(gpu_initialized);
+        // }
         // get a remapped image.
         std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
             remapper.getRemapped(
@@ -134,7 +134,7 @@ class HmMultiImageRemapper
           std::cerr << e.what();
         }
         gates.at(i)->signal();
-      });
+      //});
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
       // remapper.release(remapped);
