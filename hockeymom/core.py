@@ -40,8 +40,8 @@ def enblend(output_file: str, input_files: List[str]) -> int:
 def emblend_images(
     image_left: np.array,
     image_right: np.array,
-    xy_pos_1: List[int] = [0, 0],
-    xy_pos_2: List[int] = [0, 0],
+    xy_pos_1: List[int] = (0, 0),
+    xy_pos_2: List[int] = (0, 0),
 ) -> np.array:
     return _emblend_images(image_left, xy_pos_1, image_right, xy_pos_2)
 
@@ -55,12 +55,15 @@ def stitch_images(nona: HmNona, image_left: np.array, image_right: np.array):
 
 
 def add_to_stitching_data_loader(
-    frame_id: int, image_left: np.array, image_right: np.array
+    data_loader: StitchingDataLoader,
+    frame_id: int,
+    image_left: np.array,
+    image_right: np.array,
 ) -> int:
-    return _add_to_stitching_data_loader(
-        frame_id,
-    )
+    return _add_to_stitching_data_loader(data_loader, frame_id, image_left, image_right)
 
 
-def get_stitched_frame_from_data_loader(frame_id: int) -> np.array:
-    return _get_stitched_frame_from_data_loader(frame_id)
+def get_stitched_frame_from_data_loader(
+    data_loader: StitchingDataLoader, frame_id: int
+) -> np.array:
+    return _get_stitched_frame_from_data_loader(data_loader, frame_id)
