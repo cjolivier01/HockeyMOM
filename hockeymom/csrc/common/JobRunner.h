@@ -38,7 +38,6 @@ class ManualResetGate {
   std::atomic<bool> is_open_;
 };
 
-
 namespace hm {
 /**
  *   _____            _             _  ____
@@ -62,7 +61,7 @@ class SortedQueue {
     cu_.notify_one();
   }
 
-  ITEM_TYPE dequeue(KEY_TYPE* key_type_ptr = nullptr) {
+  ITEM_TYPE dequeue_smallest_key(KEY_TYPE* key_type_ptr = nullptr) {
     std::unique_lock<std::mutex> lk(items_mu_);
     cu_.wait(lk, [this] { return !items_.empty(); });
     auto iter = items_.begin();
@@ -108,10 +107,11 @@ class JobRunner {
 
   JobRunner(
       std::shared_ptr<InputQueue> input_queue,
-      std::function<OUTPUT_TYPE(std::size_t worker_index, INPUT_TYPE&&)> worker_fn)
+      std::function<OUTPUT_TYPE(std::size_t worker_index, INPUT_TYPE&&)>
+          worker_fn)
       : input_queue_(std::move(input_queue)),
         output_queue_(std::make_shared<OutputQueue>()),
-        worker_fn_(std::move(worker_fn_)) {
+        worker_fn_(std::move(worker_fn)) {
     assert(input_queue_);
   }
   ~JobRunner() {
@@ -141,9 +141,11 @@ class JobRunner {
   }
 
   const std::shared_ptr<InputQueue>& inputs() {
+    assert(input_queue_);
     return input_queue_;
   }
   const std::shared_ptr<OutputQueue>& outputs() {
+    assert(output_queue_);
     return output_queue_;
   }
 
@@ -151,10 +153,11 @@ class JobRunner {
   void run(std::size_t thread_id) {
     do {
       KeyType key{std::numeric_limits<KeyType>::max()};
-      INPUT_TYPE input = input_queue_->dequeue(&key);
+      INPUT_TYPE input = input_queue_->dequeue_smallest_key(&key);
       if (!input) {
         break;
       }
+      assert(output_queue_ != input_queue_);
       output_queue_->enqueue(key, worker_fn_(thread_id, std::move(input)));
     } while (true);
   }

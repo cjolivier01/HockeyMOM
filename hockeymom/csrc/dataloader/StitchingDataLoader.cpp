@@ -28,8 +28,7 @@ StitchingDataLoader::StitchingDataLoader(
               StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
             return this->blend_worker(worker_index, std::move(frame));
           }) {
-  remap_runner_.start(remap_thread_count_);
-  blend_runner_.start(blend_thread_count_);
+  initialize();
 }
 
 StitchingDataLoader::~StitchingDataLoader() {
@@ -45,6 +44,8 @@ void StitchingDataLoader::shutdown() {
 void StitchingDataLoader::initialize() {
   assert(nonas_.empty());
   nonas_.resize(remap_thread_count_);
+  remap_runner_.start(remap_thread_count_);
+  blend_runner_.start(blend_thread_count_);
 }
 
 void StitchingDataLoader::add_frame(
@@ -53,6 +54,7 @@ void StitchingDataLoader::add_frame(
   auto frame_info = std::make_shared<FrameData>();
   frame_info->frame_id = frame_id;
   frame_info->input_images = std::move(images);
+  remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
 std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(

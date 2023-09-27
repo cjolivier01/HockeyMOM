@@ -24,7 +24,7 @@ namespace hm {
  *        (in-place)
  */
 // template <std::size_t CHANNELS>
-struct MatrixImage {
+class __attribute__((visibility("default"))) MatrixImage {
  public:
   static inline constexpr std::size_t kPixelSampleSize = sizeof(std::uint8_t);
 
