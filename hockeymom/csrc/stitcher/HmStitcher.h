@@ -650,13 +650,13 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   // choose image type...
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
 
-  vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
+  //vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
 
-  // if (m_remapped.size() < imgNr) {
-  //   m_remapped.resize(imgNr + 1);
-  // }
-  // m_remapped.at(imgNr) =
-  //     std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
+  if (m_remapped.size() <= imgNr) {
+    m_remapped.resize(imgNr + 1);
+  }
+  m_remapped.at(imgNr) =
+      std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
   // load image
   if (imgNr >= this->image_import_infos_.size()) {
@@ -678,10 +678,12 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   }
 
   std::unique_ptr<ImageType> src_img_ptr;
+  bool has_vigra_image = false;
   if (image) {
     assert(width == image->cols());
     assert(height == image->rows());
     src_img_ptr = image->to_vigra_image();
+    has_vigra_image = true;
   } else {
     src_img_ptr = std::make_unique<ImageType>(width, height);
   }
