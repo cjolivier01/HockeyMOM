@@ -55,6 +55,7 @@ class StitchingDataLoader {
   StitchingDataLoader(
       std::size_t start_frame_id,
       std::string project_file,
+      std::size_t max_queue_size,
       std::size_t remap_thread_count,
       std::size_t blend_thread_count);
   ~StitchingDataLoader();
@@ -79,6 +80,7 @@ class StitchingDataLoader {
 
   void shutdown();
   std::string project_file_;
+  std::size_t max_queue_size_;
   std::size_t next_frame_id_;
   std::size_t remap_thread_count_;
   std::size_t blend_thread_count_;

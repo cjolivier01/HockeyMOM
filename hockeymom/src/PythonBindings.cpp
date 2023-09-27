@@ -57,7 +57,7 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
-      .def(py::init<std::size_t, std::string, std::size_t, std::size_t>());
+      .def(py::init<std::size_t, std::string, std::size_t, std::size_t, std::size_t>());
 
   m.def(
       "_add_to_stitching_data_loader",

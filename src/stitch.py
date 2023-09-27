@@ -596,7 +596,7 @@ def pyramid_blending():
     video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 25)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 15, 15)
 
     feeder_thread = threading.Thread(
         target=run_feeder,
@@ -607,8 +607,9 @@ def pyramid_blending():
     frame_id = start_frame_number
     frame_count = 0
     duration = 0
+    start = None
     while frame_count < max_frames:
-        if skip_timing_frame_count and frame_count == skip_timing_frame_count - 1:
+        if frame_count == skip_timing_frame_count:
             start = time.time()
         # ret1, img1 = video1.read()
         # if not ret1:
@@ -631,7 +632,7 @@ def pyramid_blending():
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 data_loader, frame_id
             )
-            duration = time.time() - start
+            # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
         #   cv2.imshow('Nona image left', stitched_frame)
         #   cv2.waitKey(0)
@@ -651,19 +652,20 @@ def pyramid_blending():
             # cv2.waitKey(0)
         frame_id += 1
         frame_count += 1
-        if frame_step > 1:
-            video1.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                video1.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
-            )
-            video2.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
-            )
-    duration = time.time() - start
-    print(
-        f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
-    )
+        # if frame_step > 1:
+        #     video1.set(
+        #         cv2.CAP_PROP_POS_FRAMES,
+        #         video1.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
+        #     )
+        #     video2.set(
+        #         cv2.CAP_PROP_POS_FRAMES,
+        #         video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
+        #     )
+    if start is not None:
+        duration = time.time() - start
+        print(
+            f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
+        )
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
