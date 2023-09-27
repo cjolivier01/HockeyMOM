@@ -44,7 +44,7 @@ class HmRemappedPanoImage
   //  *  works for arbitrary transforms, with holes and so on,
   //  *  but is very crude and slow (remapps all image pixels...)
   //  *
-  //  *  better transform all images, and get the alpha channel for free!
+  //  *  better transform all images, and get the alpha channel for free!4
   //  *
   //  *  setPanoImage() should be called before.
   //  */
