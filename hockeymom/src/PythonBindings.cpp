@@ -1,5 +1,6 @@
 #include "hm/ImagePostProcess.h"
 
+#include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
@@ -55,7 +56,8 @@ PYBIND11_MODULE(_hockeymom, m) {
              sizeof(float)});
       });
 
-  py::class_<hm::MatrixRGB>(m, "MatrixRGB", py::buffer_protocol())
+  py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
+      m, "MatrixRGB", py::buffer_protocol())
       .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
         return py::buffer_info(
             m.data(), /* Pointer to buffer */
@@ -68,6 +70,10 @@ PYBIND11_MODULE(_hockeymom, m) {
              m.channels() * sizeof(std::uint8_t),
              sizeof(std::uint8_t)});
       });
+
+  py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
+      m, "StitchingDataLoader")
+      .def(py::init<std::size_t, std::size_t, std::size_t>());
 
   auto pyFoo = py::class_<hm::Foo>(m, "Foo");
   pyFoo.def(py::init<>()).def("f", &hm::Foo::f);

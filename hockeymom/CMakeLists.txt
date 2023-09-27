@@ -10,7 +10,7 @@ set(
   SOURCES
   csrc/mblend/mblend.cpp
   csrc/stitcher/HmNona.cpp
-  csrc/dataloader/StitchedDataLoader.cpp
+  csrc/dataloader/StitchingDataLoader.cpp
   csrc/ImagePostProcess.cpp
 )
 add_library(hm SHARED ${SOURCES})

@@ -1,4 +1,4 @@
-#include "hockeymom/csrc/dataloader/StitchedDataLoader.h"
+#include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 
