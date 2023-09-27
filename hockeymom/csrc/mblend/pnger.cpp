@@ -2,6 +2,8 @@
 #include <math.h>
 #define PNGER
 
+namespace hm {
+
 void Output(int level, const char* fmt, ...);
 
 class Pnger {
@@ -135,4 +137,5 @@ void Pnger::Quick(char* filename, uint8_t* data, int width, int height, int pitc
 Pnger::~Pnger() {
 	delete line;
 	if (f) fclose(f);
+}
 }

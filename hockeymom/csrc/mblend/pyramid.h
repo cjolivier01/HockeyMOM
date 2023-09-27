@@ -5,6 +5,8 @@
 #include <immintrin.h>
 #include "threadpool.h"
 
+namespace hm {
+
 class Pyramid {
 public:
 	class Level {
@@ -528,3 +530,4 @@ void Pyramid::Out(T dst_p, int pitch, bool gamma, bool dither, bool clamp, int l
 #undef  CG
 #undef  CD
 #undef CDG
+}

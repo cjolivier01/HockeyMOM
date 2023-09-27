@@ -7,55 +7,21 @@
 #include <iostream>
 
 // namespace with types that lacks pybind counterpart
-namespace forgotten {
+// namespace forgotten {
 
-struct Unbound {};
+// struct Unbound {};
 
-enum Enum { ONE = 1, TWO = 2 };
+// enum Enum { ONE = 1, TWO = 2 };
 
-} // namespace forgotten
+// } // namespace forgotten
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
-class Matrix2DFloat {
- public:
-  Matrix2DFloat(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
-    m_data = new float[rows * cols];
-  }
-  float* data() {
-    return m_data;
-  }
-  size_t rows() const {
-    return m_rows;
-  }
-  size_t cols() const {
-    return m_cols;
-  }
-
- private:
-  size_t m_rows, m_cols;
-  float* m_data;
-};
-
 PYBIND11_MODULE(_hockeymom, m) {
-  std::cout << "Initializing hockymom module" << std::endl;
-
-  py::class_<Matrix2DFloat>(m, "Matrix2DFloat", py::buffer_protocol())
-      .def_buffer([](Matrix2DFloat& m) -> py::buffer_info {
-        return py::buffer_info(
-            m.data(), /* Pointer to buffer */
-            sizeof(float), /* Size of one scalar */
-            py::format_descriptor<float>::format(), /* Python struct-style
-                                                       format descriptor */
-            2, /* Number of dimensions */
-            {m.rows(), m.cols()}, /* Buffer dimensions */
-            {sizeof(float) * m.cols(), /* Strides (in bytes) for each index */
-             sizeof(float)});
-      });
-
+  //std::cout << "Initializing hockymom module" << std::endl;
   py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
       m, "MatrixRGB", py::buffer_protocol())
       .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {

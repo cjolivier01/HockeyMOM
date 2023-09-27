@@ -14,6 +14,8 @@
 #define strcpy_s(a,b) strcpy(a,b)
 #endif
 
+namespace hm {
+
 std::vector<MapAlloc::MapAllocObject*> MapAlloc::objects;
 char MapAlloc::tmpdir[256] = "";
 char MapAlloc::filename[512];
@@ -174,4 +176,5 @@ void* MapAlloc::MapAllocObject::GetPointer() {
 
 bool MapAlloc::MapAllocObject::IsFile() {
 	return !!file;
+}
 }

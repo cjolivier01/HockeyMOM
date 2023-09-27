@@ -1,5 +1,7 @@
 // some defintions for geotiff
 
+namespace hm {
+
 struct GeoTIFFInfo {
 	double XGeoRef, YGeoRef;
 	double XCellRes, YCellRes;
@@ -86,4 +88,5 @@ int geotiff_write(TIFF * tiff, GeoTIFFInfo * info) {
 //  SNPRINTF(nodata,50,"%d",info->nodata);
   TIFFSetField(tiff, TIFFTAG_GDAL_NODATA, nodata);
   return 1;
+}
 }

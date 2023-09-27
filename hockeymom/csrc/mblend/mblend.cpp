@@ -67,6 +67,8 @@ int verbosity = 1;
 #include "threadpool.cpp"
 #include "geotiff.cpp"
 
+namespace hm {
+
 class PyramidWithMasks : public Pyramid {
 public:
   using Pyramid::Pyramid;
@@ -79,6 +81,7 @@ public:
 };
 
 enum class ImageType { MB_NONE, MB_TIFF, MB_JPEG, MB_PNG, MB_MEM };
+}
 
 #include "image.cpp"
 /* clang-format on */
@@ -99,6 +102,8 @@ extern "C" FILE* __cdecl __iob_func(void) {
 
 #define MASKVAL(X) \
   (((X)&0x7fffffffffffffff) | images[(X)&0xffffffff]->mask_state)
+
+namespace hm {
 
 class Blender {
   /***********************************************************************
@@ -2163,7 +2168,10 @@ class Blender {
           }
           auto& img = *output_image_ptr_;
           *output_image = std::make_unique<hm::MatrixRGB>(
-              img.height, img.width, img.num_channels(), img.consume_raw_data());
+              img.height,
+              img.width,
+              img.num_channels(),
+              img.consume_raw_data());
         } break;
       }
 
@@ -2206,6 +2214,7 @@ class Blender {
     return EXIT_SUCCESS;
   }
 };
+} // namespace hm
 
 namespace hm {
 namespace enblend {
@@ -2215,7 +2224,7 @@ int enblend_main(
     std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
-  //args.push_back("--timing");
+  // args.push_back("--timing");
   args.push_back("-o");
   args.push_back(output_image);
   for (const auto& s : input_files) {
@@ -2246,12 +2255,62 @@ int enblend_main(
   return return_value;
 }
 
+EnBlender::EnBlender(std::vector<std::string> args) {
+  if (args.empty()) {
+    args.push_back("python");
+    args.push_back("--no-output");
+  }
+  int argc = args.size();
+  char** argv = new char*[argc];
+
+  for (int i = 0; i < argc; ++i) {
+    argv[i] = new char[args[i].length() + 1];
+    std::strcpy(argv[i], args[i].c_str());
+  }
+
+  blender_ = std::make_unique<Blender>();
+  int result = blender_->multiblend_main(argc, argv);
+  if (result) {
+    throw std::runtime_error("Error initializing blender:");
+  }
+
+  for (int i = 0; i < argc; ++i) {
+    delete[] argv[i];
+  }
+  delete[] argv;
+}
+
+std::unique_ptr<MatrixRGB> EnBlender::blend_images(
+    const std::vector<std::shared_ptr<MatrixRGB>>& images) {
+  std::unique_ptr<MatrixRGB> output_image;
+  int result = EXIT_SUCCESS;
+
+  std::vector<std::reference_wrapper<hm::MatrixRGB>> blend_images;
+  blend_images.reserve(images.size());
+  for (auto& img : images) {
+    blend_images.emplace_back(*img);
+  }
+
+  if (!pass_++) {
+    result = result || blender_->process_images(blend_images);
+    assert(!result);
+    result = result ||
+        blender_->process_inputs(
+            std::vector<std::reference_wrapper<hm::MatrixRGB>>{},
+            &output_image);
+  } else {
+    result = result || blender_->process_inputs(blend_images, &output_image);
+  }
+  assert(result == EXIT_SUCCESS);
+  return output_image;
+}
+
 static std::unique_ptr<Blender> reusable_blender;
 
 std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
   std::vector<std::string> args;
   args.push_back("python");
-  //args.push_back("--timing");
+  // args.push_back("--timing");
   // args.push_back("-o");
   // args.push_back("/home/colivier/Videos/output_image.png");
   args.push_back("--no-output");

@@ -3,6 +3,8 @@
 #include "threadpool.h"
 #include <thread>
 
+namespace hm {
+
 Threadpool* Threadpool::instance;
 
 /**********************************************************************
@@ -119,4 +121,5 @@ void Threadpool::Queue(std::function<void()> function) {
 	std::lock_guard<std::mutex> mlock(main_mutex); // not sure what this is for
 	queue.push_back(std::move(function));
 	main_cond.notify_one(); // changed from notify_all()
+}
 }

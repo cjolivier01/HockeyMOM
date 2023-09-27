@@ -5,6 +5,8 @@
 #include "sse_mathfun.h"
 #endif
 
+namespace hm {
+
 /***********************************************************************
 * Constructor/destructor
 ***********************************************************************/
@@ -1316,3 +1318,4 @@ void Pyramid::Png(const char* filename) {
 	free(temp);
 }
 #endif
+}

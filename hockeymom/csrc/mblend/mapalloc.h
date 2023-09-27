@@ -4,6 +4,7 @@
 #ifdef _WIN32
 #include <Windows.h>
 #endif
+namespace hm {
 
 #define _MAPALLOC_
 
@@ -45,3 +46,4 @@ public:
 	static bool LastFile() { return objects.back()->IsFile(); }
 //	static bool last_mapped;
 };
+}

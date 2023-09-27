@@ -1,3 +1,5 @@
+namespace hm {
+
 int hist_red[256];
 int hist_grn[256];
 int hist_blu[256];
@@ -909,4 +911,5 @@ void Image::MaskPng(int i) {
 	}
 
 	Pnger::Quick(filename, temp, width, height, width, PNG_COLOR_TYPE_GRAY);
+}
 }

@@ -1,5 +1,7 @@
 #include <chrono>
 
+namespace hm {
+
 /***********************************************************************
 * Flexible data class
 ***********************************************************************/
@@ -825,4 +827,5 @@ void SwapV(Pyramid* py) {
 
 void UnswapV(Pyramid* py) {
 	SwapUnswapV(py, true);
+}
 }
