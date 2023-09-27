@@ -542,6 +542,7 @@ def pyramid_blending():
 
     nona = core.HmNona(f"{vid_dir}/my_project.pto")
 
+    data_loader = core.StitchingDataLoader(0, 10, 10)
 
     for i in range(1):
         for i in range(len(orig_files_left)):

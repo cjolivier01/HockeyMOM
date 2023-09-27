@@ -101,7 +101,8 @@ class JobRunner {
       std::shared_ptr<InputQueue> input_queue,
       std::function<OUTPUT_TYPE(INPUT_TYPE&&)> worker_fn)
       : input_queue_(std::move(input_queue)),
-        worker_fn_(std::move(worker_fn_)) {}
+        output_queue_(std::make_shared<OutputQueue>()),
+        worker_fn_(std::move(worker_fn_)) { assert(input_queue_); }
   ~JobRunner() {
     stop();
   }
