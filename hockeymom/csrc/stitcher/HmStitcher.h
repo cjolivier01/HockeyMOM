@@ -95,13 +95,13 @@ class HmMultiImageRemapper
     }
     // HACK
     results.resize(images.size());
-    std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
-        remappers;
-    remappers.reserve(images.size());
+    //std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
+        //remappers;
+    //remappers.reserve(images.size());
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
       // get a remapped image.
-      HmRemappedPanoImage<ImageType, AlphaType>* remapped =
+      std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
           remapper.getRemapped(
               Base::m_pano,
               mod_options_.at(i),
@@ -123,7 +123,7 @@ class HmMultiImageRemapper
       //
       // TODO: Can we reuse this somehow?
       //
-      remappers.emplace_back(std::move(remapped));
+      //remappers.emplace_back(std::move(remapped));
       i++;
     }
     results = consume_output_images();
@@ -628,7 +628,7 @@ class HmMultiImageRemapper
 };
 
 template <typename ImageType, typename AlphaType>
-HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
+std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     ImageType,
     AlphaType>::
     getRemapped(
@@ -755,7 +755,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
       outputROI,
       *m_remapped.at(imgNr),
       progress);
-  return m_remapped.at(imgNr).get();
+  return std::move(m_remapped.at(imgNr));
 }
 
 } // namespace hm

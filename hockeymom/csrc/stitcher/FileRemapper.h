@@ -21,7 +21,7 @@ class HmSingleImageRemapper {
    *
    *  The image ownership is transferred to the caller.
    */
-  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+  virtual std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
@@ -65,7 +65,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       AlphaType& srcAlpha) {}
 
   ///
-  HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+  std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
