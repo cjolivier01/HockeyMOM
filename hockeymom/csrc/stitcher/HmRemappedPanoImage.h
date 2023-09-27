@@ -59,8 +59,8 @@ class HmRemappedPanoImage
   void remapImage(
       vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
       vigra_ext::Interpolator interpol,
-      AppBase::ProgressDisplay* progress,
       Eigen::ThreadPool& gpu_thread_pool,
+      AppBase::ProgressDisplay* progress,
       bool singleThreaded = false);
 
   /** remap a image, with alpha channel */
@@ -99,8 +99,8 @@ template <class ImgIter, class ImgAccessor>
 void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
     vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
     vigra_ext::Interpolator interpol,
-    AppBase::ProgressDisplay* progress,
     Eigen::ThreadPool& gpu_thread_pool,
+    AppBase::ProgressDisplay* progress,
     bool singleThreaded) {
   assert(!singleThreaded);
   using namespace HuginBase;
@@ -357,7 +357,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
     }
   }
 }
-#if 0
+#if 1
 /** remap a single image
  */
 template <

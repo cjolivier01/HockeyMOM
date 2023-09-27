@@ -789,6 +789,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
       opts,
       outputROI,
       *m_remapped.at(imgNr),
+      gpu_thread_pool,
       progress);
   return std::move(m_remapped.at(imgNr));
 }

@@ -122,7 +122,6 @@ bool HmNona::load_project(const std::string& project_file) {
   ManualResetGate gate;
   gpu_thread_pool_->Schedule([&]() {
     opts_.remapUsingGPU = check_cuda_opengl();
-    ManualResetGate gate;
     gate.signal();
   });
   gate.wait();
