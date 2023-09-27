@@ -12,7 +12,8 @@ from ._hockeymom import (
 
 # Classes
 from ._hockeymom import (
-    HmNona
+    HmNona,
+    StitchingDataLoader,
 )
 
 # from ._hockeymom import  _enblend

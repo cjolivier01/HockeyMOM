@@ -7,7 +7,9 @@
 
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace hm {
 /** functor to create a remapped image */
@@ -20,7 +22,7 @@ class HmSingleImageRemapper {
    *
    *  The image ownership is transferred to the caller.
    */
-  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+  virtual std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
@@ -37,7 +39,7 @@ class HmSingleImageRemapper {
   }
 
   ///
-  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
+  //virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
 
  protected:
   std::mutex mu_;
@@ -50,7 +52,7 @@ template <typename ImageType, typename AlphaType>
 class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
  public:
   HmFileRemapper() : HmSingleImageRemapper<ImageType, AlphaType>() {
-    m_remapped = 0;
+    //m_remapped = 0;
   }
 
   virtual ~HmFileRemapper(){};
@@ -66,24 +68,25 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       AlphaType& srcAlpha) {}
 
   ///
-  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
+  std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
       const std::shared_ptr<hm::MatrixRGB>& image,
       vigra::Rect2D outputROI,
-      AppBase::ProgressDisplay* progress);
+      AppBase::ProgressDisplay* progress) override;
 
   ///
-  virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) {
-    // if (d == m_remapped) {
-    //   m_remapped = null;ptr;
-    // }
-    // delete d;
-  }
+  // virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) {
+  //   // if (d == m_remapped) {
+  //   //   m_remapped = null;ptr;
+  //   // }
+  //   // delete d;
+  // }
 
  protected:
-  std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> m_remapped;
+  AlphaType srcAlpha_;
+  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
   std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
 };
 

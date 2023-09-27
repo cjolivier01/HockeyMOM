@@ -1,8 +1,8 @@
 #pragma once
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
-#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
+#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
@@ -17,8 +17,6 @@ namespace hm {
 template <typename ImageType, typename AlphaType>
 class HmMultiImageRemapper
     : public HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType> {
-  // using namespace HuginBase;
-  // using namespace HuginBase::Nona;
  public:
   using Base = HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType>;
   using MultiImageRemapper =
@@ -35,16 +33,16 @@ class HmMultiImageRemapper
       : MultiImageRemapper(pano, progress) {}
 
   void set_input_images(
-      std::shared_ptr<hm::MatrixRGB> image1,
-      std::shared_ptr<hm::MatrixRGB> image2) {
-    images_ = std::vector<std::shared_ptr<hm::MatrixRGB>>{
+      std::shared_ptr<MatrixRGB> image1,
+      std::shared_ptr<MatrixRGB> image2) {
+    images_ = std::vector<std::shared_ptr<MatrixRGB>>{
         std::move(image1), std::move(image2)};
     output_images_.clear();
     output_images_.resize(images_.size());
   }
 
-  std::vector<std::unique_ptr<hm::MatrixRGB>> consume_output_images() {
-    std::size_t sz = output_images_.size ();
+  std::vector<std::unique_ptr<MatrixRGB>> consume_output_images() {
+    std::size_t sz = output_images_.size();
     auto result = std::move(output_images_);
     output_images_.resize(sz);
     return result;
@@ -97,10 +95,13 @@ class HmMultiImageRemapper
     }
     // HACK
     results.resize(images.size());
+    //std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
+        //remappers;
+    //remappers.reserve(images.size());
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
       // get a remapped image.
-      HmRemappedPanoImage<ImageType, AlphaType>* remapped =
+      std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
           remapper.getRemapped(
               Base::m_pano,
               mod_options_.at(i),
@@ -118,7 +119,11 @@ class HmMultiImageRemapper
       }
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
-      remapper.release(remapped);
+      // remapper.release(remapped);
+      //
+      // TODO: Can we reuse this somehow?
+      //
+      //remappers.emplace_back(std::move(remapped));
       i++;
     }
     results = consume_output_images();
@@ -341,8 +346,7 @@ class HmMultiImageRemapper
               identity());
           break;
         default:
-          vigra_fail(
-              "exportImageAlpha<non-scalar>: not reached");
+          vigra_fail("exportImageAlpha<non-scalar>: not reached");
       }
     }
 
@@ -517,15 +521,16 @@ class HmMultiImageRemapper
 
     if (supportsAlpha) {
       if (save_as_file) {
-      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
-      exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+        VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
+        exportImageAlpha(
+            encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       }
       VIGRA_UNIQUE_PTR<vigra::Encoder> encoder =
-      std::make_unique<MatrixEncoderRGBA>();
+          std::make_unique<MatrixEncoderRGBA>();
       exportImageAlpha(
-      encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+          encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       MatrixEncoderRGBA* matric_encoder_ptr =
-      static_cast<MatrixEncoderRGBA*>(encoder.get());
+          static_cast<MatrixEncoderRGBA*>(encoder.get());
       auto matrix_rgb = matric_encoder_ptr->consume();
       auto ul = remapped.boundingBox().upperLeft();
       matrix_rgb->set_xy_pos(ul.x, ul.y);
@@ -616,21 +621,21 @@ class HmMultiImageRemapper
   // protected:
   //     std::string m_basename;
  private:
-  std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
-  std::vector<std::unique_ptr<hm::MatrixRGB>> output_images_;
+  std::vector<std::shared_ptr<MatrixRGB>> images_;
+  std::vector<std::unique_ptr<MatrixRGB>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
 };
 
 template <typename ImageType, typename AlphaType>
-HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
+std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     ImageType,
     AlphaType>::
     getRemapped(
         const HuginBase::PanoramaData& pano,
         const HuginBase::PanoramaOptions& opts,
         unsigned int imgNr,
-        const std::shared_ptr<hm::MatrixRGB>& image,
+        const std::shared_ptr<MatrixRGB>& image,
         vigra::Rect2D outputROI,
         AppBase::ProgressDisplay* progress) {
   typedef typename ImageType::value_type PixelType;
@@ -639,15 +644,19 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   //         typedef typename vigra::BasicImage<RPixelType> RImportImageType;
   typedef typename vigra::BasicImage<float> FlatImgType;
 
-  FlatImgType ffImg;
-  AlphaType srcAlpha;
+  // FlatImgType ffImg;
+  // AlphaType srcAlpha;
 
   // choose image type...
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
 
-  vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
+  //vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
 
-  m_remapped = std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
+  if (m_remapped.size() <= imgNr) {
+    m_remapped.resize(imgNr + 1);
+  }
+  m_remapped.at(imgNr) =
+      std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
   // load image if necessary
   vigra::ImageImportInfo* info_ptr;
@@ -672,19 +681,21 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   }
 
   std::unique_ptr<ImageType> src_img_ptr;
+  bool has_vigra_image = false;
   if (image) {
     assert(width == image->cols());
     assert(height == image->rows());
     src_img_ptr = image->to_vigra_image();
+    has_vigra_image = true;
   } else {
     src_img_ptr = std::make_unique<ImageType>(width, height);
   }
   ImageType& srcImg = *src_img_ptr;
 
-  m_remapped->m_ICCProfile = info.getICCProfile();
+  m_remapped.at(imgNr)->m_ICCProfile = info.getICCProfile();
 
   if (info.numExtraBands() > 0) {
-    srcAlpha.resize(width, height);
+    srcAlpha_.resize(width, height);
   }
   // int nb = info.numBands() - info.numExtraBands();
   bool alpha = info.numExtraBands() > 0;
@@ -698,7 +709,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   if (!image) {
     if (alpha) {
       vigra::importImageAlpha(
-          info, vigra::destImage(srcImg), vigra::destImage(srcAlpha));
+          info, vigra::destImage(srcImg), vigra::destImage(srcAlpha_));
     } else {
       vigra::importImage(info, vigra::destImage(srcImg));
     }
@@ -709,6 +720,7 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
   // has already been loaded into the output container
   double maxv = vigra_ext::getMaxValForPixelType(info.getPixelType());
   if (maxv != vigra_ext::LUTTraits<PixelType>::max()) {
+    assert(false); // colivier: assumign not the case for quick remap
     double scale = ((double)vigra_ext::LUTTraits<PixelType>::max()) / maxv;
     // std::cout << "Scaling input image (pixel type: " << info.getPixelType()
     // << " with: " << scale << std::endl;
@@ -718,8 +730,10 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
         vigra::functor::Arg1() * vigra::functor::Param(scale));
   }
 
+  FlatImgType ffImg;
   // load flatfield, if needed.
   if (img.getVigCorrMode() & HuginBase::SrcPanoImage::VIGCORR_FLATFIELD) {
+    assert(false); // colivier: assumign not the case for quick remap
     // load flatfield image.
     vigra::ImageImportInfo ffInfo(img.getFlatfieldFilename().c_str());
     progress->setMessage(
@@ -732,20 +746,19 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
     ffImg.resize(ffInfo.width(), ffInfo.height());
     vigra::importImage(ffInfo, vigra::destImage(ffImg));
   }
-  m_remapped->setAdvancedOptions(
+  m_remapped.at(imgNr)->setAdvancedOptions(
       HmSingleImageRemapper<ImageType, AlphaType>::m_advancedOptions);
   // remap the image
-
   remapImage(
       srcImg,
-      srcAlpha,
+      srcAlpha_,
       ffImg,
       pano.getSrcImage(imgNr),
       opts,
       outputROI,
-      *m_remapped,
+      *m_remapped.at(imgNr),
       progress);
-  return m_remapped.get();
+  return std::move(m_remapped.at(imgNr));
 }
 
 } // namespace hm

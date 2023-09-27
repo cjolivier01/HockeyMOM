@@ -1942,13 +1942,13 @@ class Blender {
 
         out_time += timer.Read();
       }
-
 /***********************************************************************
  * Write
  ***********************************************************************/
 #define ROWS_PER_STRIP 64
-
-      Output(1, "Writing %s...\n", output_filename);
+      if (output_filename) {
+        Output(1, "Writing %s...\n", output_filename);
+      }
 
       timer.Start();
 
@@ -2163,7 +2163,7 @@ class Blender {
           }
           auto& img = *output_image_ptr_;
           *output_image = std::make_unique<hm::MatrixRGB>(
-              img.height, img.width, img.consume_raw_data());
+              img.height, img.width, img.num_channels(), img.consume_raw_data());
         } break;
       }
 
@@ -2215,7 +2215,7 @@ int enblend_main(
     std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
-  args.push_back("--timing");
+  //args.push_back("--timing");
   args.push_back("-o");
   args.push_back(output_image);
   for (const auto& s : input_files) {
@@ -2251,7 +2251,7 @@ static std::unique_ptr<Blender> reusable_blender;
 std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
   std::vector<std::string> args;
   args.push_back("python");
-  args.push_back("--timing");
+  //args.push_back("--timing");
   // args.push_back("-o");
   // args.push_back("/home/colivier/Videos/output_image.png");
   args.push_back("--no-output");
