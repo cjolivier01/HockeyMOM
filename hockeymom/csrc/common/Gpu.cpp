@@ -38,4 +38,15 @@ std::size_t get_tick_count_ms() {
       .count();
 }
 
+void set_thread_name(const std::string& thread_name, int index) {
+  if (index >= 0) {
+    std::string n = thread_name;
+    n += '-';
+    n += std::to_string(index);
+    pthread_setname_np(pthread_self(), n.c_str());
+  } else {
+    pthread_setname_np(pthread_self(), thread_name.c_str());
+  }
+}
+
 } // namespace hm

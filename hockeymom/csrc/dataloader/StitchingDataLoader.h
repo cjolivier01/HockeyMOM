@@ -2,6 +2,7 @@
 
 #include "hockeymom/csrc/common/JobRunner.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
+#include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <condition_variable>
@@ -85,6 +86,7 @@ class StitchingDataLoader {
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
+  std::vector<std::shared_ptr<enblend::EnBlender>> enblenders_;
 };
 
 } // namespace hm

@@ -2,6 +2,8 @@
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
+#include <unistd.h>
+
 namespace hm {
 
 StitchingDataLoader::StitchingDataLoader(
@@ -44,6 +46,7 @@ void StitchingDataLoader::shutdown() {
 void StitchingDataLoader::initialize() {
   assert(nonas_.empty());
   nonas_.resize(remap_thread_count_);
+  enblenders_.resize(blend_thread_count_);
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
 }
@@ -67,9 +70,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   if (!nonas_.at(worker_index)) {
+    set_thread_name("remapper", worker_index);
     nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
   }
-  auto remapped = nonas_[worker_index]->remap_images(
+  auto nona = nonas_[worker_index];
+  auto remapped = nona->remap_images(
       std::move(frame->input_images.at(0)),
       std::move(frame->input_images.at(1)));
   frame->remapped_images.clear();
@@ -82,8 +87,12 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
-  // TEMP HACK, SEND BACK FIRST IMAGE
-  frame->blended_image = frame->remapped_images.at(0);
+  if (!enblenders_.at(worker_index)) {
+    set_thread_name("blender", worker_index);
+    enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
+  }
+  auto blender = enblenders_[worker_index];
+  frame->blended_image = blender->blend_images(frame->remapped_images);
   return frame;
 }
 
