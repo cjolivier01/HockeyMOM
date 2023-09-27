@@ -806,7 +806,7 @@ class Blender {
         //Output(1, " (saving XOR and seam maps)");
         break;
     }
-    Output(1, "...\n");
+    //Output(1, "...\n");
 
     int min_count;
     int xor_count;

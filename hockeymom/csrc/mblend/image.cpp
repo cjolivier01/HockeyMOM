@@ -342,9 +342,9 @@ void Image::Open() {
 ************************************************************************
 ***********************************************************************/
 void Image::Read(void* data, bool gamma) {
-  if (filename) {
-	  Output(1, "Processing %s...", filename);
-  }
+  // if (filename) {
+	//   Output(1, "Processing %s...", filename);
+  // }
 
 	switch (type) {
 		case ImageType::MB_TIFF: {
@@ -860,7 +860,7 @@ void Image::Read(void* data, bool gamma) {
 //		total_pixels += width * height;
 	}
 
-	Output(1, "\n");
+	//Output(1, "\n");
 }
 
 /***********************************************************************
