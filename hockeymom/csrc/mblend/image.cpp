@@ -334,7 +334,9 @@ void Image::Open() {
 ************************************************************************
 ***********************************************************************/
 void Image::Read(void* data, bool gamma) {
-	Output(1, "Processing %s...", filename);
+  if (filename) {
+	  Output(1, "Processing %s...", filename);
+  }
 
 	switch (type) {
 		case ImageType::MB_TIFF: {
