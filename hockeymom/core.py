@@ -8,6 +8,8 @@ from ._hockeymom import (
     _emblend_images,
     _nona_process_images,
     _stitch_images,
+    _add_to_stitching_data_loader,
+    _get_stitched_frame_from_data_loader,
 )
 
 # Classes
@@ -26,6 +28,7 @@ __all__ = [
     "stitch_images",
 ]
 
+
 def hello_world():
     _hello_world()
 
@@ -42,8 +45,22 @@ def emblend_images(
 ) -> np.array:
     return _emblend_images(image_left, xy_pos_1, image_right, xy_pos_2)
 
+
 def nona_process_images(nona: HmNona, image_left: np.array, image_right: np.array):
     return _nona_process_images(nona, image_left, image_right)
 
+
 def stitch_images(nona: HmNona, image_left: np.array, image_right: np.array):
     return _stitch_images(nona, image_left, image_right)
+
+
+def add_to_stitching_data_loader(
+    frame_id: int, image_left: np.array, image_right: np.array
+) -> int:
+    return _add_to_stitching_data_loader(
+        frame_id,
+    )
+
+
+def get_stitched_frame_from_data_loader(frame_id: int) -> np.array:
+    return _get_stitched_frame_from_data_loader(frame_id)

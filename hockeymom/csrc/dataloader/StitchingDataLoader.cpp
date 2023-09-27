@@ -67,7 +67,13 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
   if (!nonas_.at(worker_index)) {
     nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
   }
-
+  auto remapped = nonas_[worker_index]->remap_images(
+      std::move(frame->input_images.at(0)),
+      std::move(frame->input_images.at(1)));
+  frame->remapped_images.clear();
+  for (auto& r : remapped) {
+    frame->remapped_images.emplace_back(std::move(r));
+  }
   return frame;
 }
 

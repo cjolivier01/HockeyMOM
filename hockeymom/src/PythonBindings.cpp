@@ -75,15 +75,33 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "StitchingDataLoader")
       .def(py::init<std::size_t, std::string, std::size_t, std::size_t>());
 
-  auto pyFoo = py::class_<hm::Foo>(m, "Foo");
-  pyFoo.def(py::init<>()).def("f", &hm::Foo::f);
+  m.def(
+      "_add_to_stitching_data_loader",
+      [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+         std::size_t frame_id,
+         py::array_t<uint8_t>& image1,
+         py::array_t<uint8_t>& image2) {
+        py::gil_scoped_release release_gil;
+        // We expect a three-channel RGB image here
+        assert(image1.ndim() == 3);
+        assert(image2.ndim() == 3);
+        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
+        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
+        return frame_id;
+      });
 
-  py::class_<hm::Foo::Child>(pyFoo, "FooChild")
-      .def(py::init<>())
-      .def("g", &hm::Foo::Child::g);
+  m.def(
+      "_get_stitched_frame_from_data_loader",
+      [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+         std::size_t frame_id) -> py::array_t<std::uint8_t> {
+        py::gil_scoped_release release_gil;
+        auto stitched_image = data_loader->get_stitched_frame(frame_id);
+        return stitched_image->to_py_array();
+      });
 
   m.def("_hello_world", []() {
-    py::gil_scoped_release release_gil();
+    py::gil_scoped_release release_gil;
     std::cout << "Hello, world!" << std::endl;
   });
 
@@ -91,7 +109,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       "_enblend",
       [](std::string output_image,
          std::vector<std::string> input_files) -> int {
-        py::gil_scoped_release release_gil();
+        py::gil_scoped_release release_gil;
         return hm::enblend::enblend_main(
             std::move(output_image), std::move(input_files));
       });
@@ -102,7 +120,7 @@ PYBIND11_MODULE(_hockeymom, m) {
          std::vector<std::size_t> xy_pos_1,
          py::array_t<uint8_t>& image2,
          std::vector<std::size_t> xy_pos_2) {
-        py::gil_scoped_release release_gil();
+        py::gil_scoped_release release_gil;
         hm::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
         hm::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
         // Just blend (no remap)
@@ -119,7 +137,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       [](std::shared_ptr<hm::HmNona> nona,
          py::array_t<uint8_t>& image1,
          py::array_t<uint8_t>& image2) -> std::vector<py::array_t<uint8_t>> {
-        py::gil_scoped_release release_gil();
+        py::gil_scoped_release release_gil;
 
         // We expect a three-channel RGB image here
         assert(image1.ndim() == 3);
@@ -144,7 +162,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       [](std::shared_ptr<hm::HmNona> nona,
          py::array_t<uint8_t>& image1,
          py::array_t<uint8_t>& image2) -> py::array_t<uint8_t> {
-        py::gil_scoped_release release_gil();
+        py::gil_scoped_release release_gil;
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
         // First remap...

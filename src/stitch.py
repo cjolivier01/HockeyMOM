@@ -581,6 +581,8 @@ def pyramid_blending():
         # cv2.waitKey(0)
         start = time.time()
         if True:
+          pass  
+        elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
             print(f"Got results in {duration} seconds")
