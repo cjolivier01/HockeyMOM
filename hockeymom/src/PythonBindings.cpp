@@ -83,9 +83,11 @@ PYBIND11_MODULE(_hockeymom, m) {
       "_get_stitched_frame_from_data_loader",
       [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
          std::size_t frame_id) -> py::array_t<std::uint8_t> {
-        // FreeGIL relgil;
-        py::gil_scoped_release release_gil;
-        auto stitched_image = data_loader->get_stitched_frame(frame_id);
+        std::shared_ptr<hm::MatrixRGB> stitched_image;
+        {
+          py::gil_scoped_release release_gil;
+          stitched_image = data_loader->get_stitched_frame(frame_id);
+        }
         return stitched_image->to_py_array();
       });
 

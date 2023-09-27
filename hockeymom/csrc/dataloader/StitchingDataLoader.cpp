@@ -60,10 +60,10 @@ void StitchingDataLoader::add_frame(
   remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
-std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
+std::unique_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
     std::size_t frame_id) {
   auto final_frame = blend_runner_.outputs()->dequeue_key(frame_id);
-  return final_frame->blended_image;
+  return std::move(final_frame->blended_image);
 }
 
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
