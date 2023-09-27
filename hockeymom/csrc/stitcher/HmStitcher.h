@@ -101,7 +101,7 @@ class HmMultiImageRemapper
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
       // get a remapped image.
-      std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
+      HmRemappedPanoImage<ImageType, AlphaType>* remapped =
           remapper.getRemapped(
               Base::m_pano,
               mod_options_.at(i),
@@ -628,7 +628,7 @@ class HmMultiImageRemapper
 };
 
 template <typename ImageType, typename AlphaType>
-std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
+HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
     ImageType,
     AlphaType>::
     getRemapped(
@@ -644,15 +644,19 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   //         typedef typename vigra::BasicImage<RPixelType> RImportImageType;
   typedef typename vigra::BasicImage<float> FlatImgType;
 
-  //FlatImgType ffImg;
-  //AlphaType srcAlpha;
+  // FlatImgType ffImg;
+  // AlphaType srcAlpha;
 
   // choose image type...
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
 
   vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
 
-  m_remapped = std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
+  // if (m_remapped.size() < imgNr) {
+  //   m_remapped.resize(imgNr + 1);
+  // }
+  // m_remapped.at(imgNr) =
+  //     std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
   // load image
   if (imgNr >= this->image_import_infos_.size()) {
@@ -683,7 +687,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   }
   ImageType& srcImg = *src_img_ptr;
 
-  m_remapped->m_ICCProfile = info.getICCProfile();
+  m_remapped.at(imgNr)->m_ICCProfile = info.getICCProfile();
 
   if (info.numExtraBands() > 0) {
     srcAlpha_.resize(width, height);
@@ -737,7 +741,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     ffImg.resize(ffInfo.width(), ffInfo.height());
     vigra::importImage(ffInfo, vigra::destImage(ffImg));
   }
-  m_remapped->setAdvancedOptions(
+  m_remapped.at(imgNr)->setAdvancedOptions(
       HmSingleImageRemapper<ImageType, AlphaType>::m_advancedOptions);
   // remap the image
   remapImage(
@@ -747,9 +751,9 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
       pano.getSrcImage(imgNr),
       opts,
       outputROI,
-      *m_remapped,
+      *m_remapped.at(imgNr),
       progress);
-  return std::move(m_remapped);
+  return m_remapped.at(imgNr).get();
 }
 
 } // namespace hm

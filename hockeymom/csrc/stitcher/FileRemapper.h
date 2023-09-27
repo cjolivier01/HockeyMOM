@@ -21,7 +21,7 @@ class HmSingleImageRemapper {
    *
    *  The image ownership is transferred to the caller.
    */
-  virtual std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
+  virtual HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
@@ -49,7 +49,7 @@ template <typename ImageType, typename AlphaType>
 class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
  public:
   HmFileRemapper() : HmSingleImageRemapper<ImageType, AlphaType>() {
-    m_remapped = 0;
+    //m_remapped = 0;
   }
 
   virtual ~HmFileRemapper(){};
@@ -65,7 +65,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       AlphaType& srcAlpha) {}
 
   ///
-  std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> getRemapped(
+  HmRemappedPanoImage<ImageType, AlphaType>* getRemapped(
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
@@ -83,7 +83,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
 
  protected:
   AlphaType srcAlpha_;
-  std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> m_remapped;
+  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
   std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
 };
 

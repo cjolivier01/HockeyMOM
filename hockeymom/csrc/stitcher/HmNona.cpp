@@ -57,7 +57,7 @@ bool check_cuda_opengl() {
   attempted = true;
 
   int argc = 2;
-  char* argv[2] = {"python", "-g"};
+  char* argv[2] = {const_cast<char*>("python"), const_cast<char*>("-g")};
   attempted_result = hugin_utils::initGPU(&argc, &argv[0]);
   return attempted_result;
 
