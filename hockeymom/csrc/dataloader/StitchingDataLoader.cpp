@@ -71,6 +71,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   if (!nonas_.at(worker_index)) {
     set_thread_name("remapper", worker_index);
+    assert(worker_index < nonas_.size());
     nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
   }
   auto nona = nonas_[worker_index];
@@ -89,6 +90,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   if (!enblenders_.at(worker_index)) {
     set_thread_name("blender", worker_index);
+    assert(worker_index < enblenders_.size());
     enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
   }
   auto blender = enblenders_[worker_index];

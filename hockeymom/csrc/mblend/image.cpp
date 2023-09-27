@@ -69,9 +69,8 @@ public:
 		own_raw_data = own;
 	}
 
-  std::size_t num_channels() const {
-    assert(!channels.empty());
-    return channels.size();
+  constexpr std::size_t num_channels() const {
+    return spp;
   }
 
 private:

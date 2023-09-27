@@ -2270,8 +2270,9 @@ EnBlender::EnBlender(std::vector<std::string> args) {
 
   blender_ = std::make_unique<Blender>();
   int result = blender_->multiblend_main(argc, argv);
-  if (result) {
-    throw std::runtime_error("Error initializing blender:");
+  if (result != EXIT_SUCCESS) {
+    std::cerr << "Error initializing blender" << std::endl;
+    throw std::runtime_error("Error initializing blender");
   }
 
   for (int i = 0; i < argc; ++i) {

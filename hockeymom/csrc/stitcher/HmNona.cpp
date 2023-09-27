@@ -37,51 +37,6 @@ namespace hm {
 using namespace HuginBase;
 using namespace HuginBase::Nona;
 
-namespace {
-
-// struct StitcherWorker : public Worker{
-//   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
-//   ~StitcherWorker() {
-//     if (thread_.joinable()) {6
-//       StitcherWorker.join();
-//     }
-//   }
-// };
-
-class InputStage {
- public:
-  explicit InputStage(std::vector<int>& input) : input_(input), index_(0) {}
-
-  bool operator()(int& output) {
-    if (index_ < input_.size()) {
-      output = input_[index_++];
-      return true;
-    }
-    return false; // End of stream
-  }
-
- private:
-  std::vector<int>& input_;
-  std::atomic<size_t> index_;
-};
-
-class ProcessingStage {
- public:
-  int operator()(int input) {
-    // Perform some processing on the input
-    return input * input; // Square the input
-  }
-};
-
-class OutputStage {
- public:
-  void operator()(int result) {
-    // Print the processed result
-    std::cout << "Processed Result: " << result << std::endl;
-  }
-};
-} // namespace
-
 /**
  *  _    _           _   _
  * | |  | |         | \ | |
