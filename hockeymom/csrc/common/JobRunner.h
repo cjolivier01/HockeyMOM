@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <condition_variable>
 #include <cstdint>
@@ -10,6 +11,33 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+class ManualResetGate {
+ public:
+  ManualResetGate(bool initiallySet = false) : is_open_(initiallySet) {}
+
+  void wait() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    conditionVariable_.wait(lock, [this] { return is_open_.load(); });
+  }
+
+  void signal() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    is_open_ = true;
+    conditionVariable_.notify_all();
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    is_open_ = false;
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable conditionVariable_;
+  std::atomic<bool> is_open_;
+};
+
 
 namespace hm {
 /**

@@ -1,17 +1,17 @@
 #pragma once
 
 #include "hockeymom/csrc/common/Gpu.h"
-
+#include "hockeymom/csrc/common/JobRunner.h"
 #include "hugin/src/hugin_base/nona/RemappedPanoImage.h"
 #include "hugin/src/hugin_base/nona/Stitcher.h"
+
+#include "unsupported/Eigen/CXX11/ThreadPool"
 
 #include <mutex>
 
 namespace hm {
 
 template <class RemapImage, class AlphaImage>
-// class HmRemappedPanoImage : public vigra_ext::ROIImage<RemapImage,
-// AlphaImage>
 class HmRemappedPanoImage
     : public HuginBase::Nona::RemappedPanoImage<RemapImage, AlphaImage> {
   typedef vigra_ext::ROIImage<RemapImage, AlphaImage> Base;
@@ -60,6 +60,7 @@ class HmRemappedPanoImage
       vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
       vigra_ext::Interpolator interpol,
       AppBase::ProgressDisplay* progress,
+      Eigen::ThreadPool& gpu_thread_pool,
       bool singleThreaded = false);
 
   /** remap a image, with alpha channel */
@@ -99,6 +100,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
     vigra::triple<ImgIter, ImgIter, ImgAccessor> srcImg,
     vigra_ext::Interpolator interpol,
     AppBase::ProgressDisplay* progress,
+    Eigen::ThreadPool& gpu_thread_pool,
     bool singleThreaded) {
   assert(!singleThreaded);
   using namespace HuginBase;
@@ -226,21 +228,27 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
           srcImg, vigra::destImageRange(alpha), lowerCutoff, upperCutoff);
     };
     if (useGPU) {
-      std::unique_lock<std::mutex> lk(gpu_mutex_);
-      auto start = get_tick_count_ms();
-      transformImageAlphaGPU(
-          srcImg,
-          vigra::srcImage(alpha),
-          destImageRange(Base::m_image),
-          destImage(Base::m_mask),
-          Base::boundingBox().upperLeft(),
-          m_transf,
-          invResponse,
-          m_srcImg.horizontalWarpNeeded(),
-          interpol,
-          progress);
-      auto end = get_tick_count_ms();
-      std::cout << "GPU transform took " << (end - start) << " ms" << std::endl;
+      ManualResetGate gate;
+      gpu_thread_pool.Schedule([&]() {
+        check_cuda_opengl();
+        // auto start = get_tick_count_ms();
+        transformImageAlphaGPU(
+            srcImg,
+            vigra::srcImage(alpha),
+            destImageRange(Base::m_image),
+            destImage(Base::m_mask),
+            Base::boundingBox().upperLeft(),
+            m_transf,
+            invResponse,
+            m_srcImg.horizontalWarpNeeded(),
+            interpol,
+            progress);
+        // auto end = get_tick_count_ms();
+        // std::cout << "GPU transform took " << (end - start) << " ms"
+        //           << std::endl;
+        gate.signal();
+      });
+      gate.wait();
       if (Base::boundingBox().right() > m_destImg.getROI().right()) {
         // dest image was enlarged for GPU alignment issue
         // delete the pixels outside
@@ -263,8 +271,8 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
           interpol,
           progress,
           singleThreaded);
-        auto end = get_tick_count_ms();
-        std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
+      auto end = get_tick_count_ms();
+      std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
     }
   } else {
     if (useGPU) {
@@ -278,36 +286,50 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
             alpha.accessor(),
             255);
 
-        std::unique_lock<std::mutex> lk(gpu_mutex_);
-        auto start = get_tick_count_ms();
-        transformImageAlphaGPU(
-            srcImg,
-            vigra::srcImage(alpha),
-            destImageRange(Base::m_image),
-            destImage(Base::m_mask),
-            Base::boundingBox().upperLeft(),
-            m_transf,
-            invResponse,
-            m_srcImg.horizontalWarpNeeded(),
-            interpol,
-            progress);
-        auto end = get_tick_count_ms();
-        std::cout << "GPU transform took " << (end - start) << " ms" << std::endl;
+        ManualResetGate gate;
+        gpu_thread_pool.Schedule([&]() {
+          check_cuda_opengl();
+          // std::unique_lock<std::mutex> lk(gpu_mutex_);
+          // auto start = get_tick_count_ms();
+          transformImageAlphaGPU(
+              srcImg,
+              vigra::srcImage(alpha),
+              destImageRange(Base::m_image),
+              destImage(Base::m_mask),
+              Base::boundingBox().upperLeft(),
+              m_transf,
+              invResponse,
+              m_srcImg.horizontalWarpNeeded(),
+              interpol,
+              progress);
+          // auto end = get_tick_count_ms();
+          // std::cout << "GPU transform took " << (end - start) << " ms" <<
+          // std::endl;
+          gate.signal();
+        });
+        gate.wait();
       } else {
-        std::unique_lock<std::mutex> lk(gpu_mutex_);
-        auto start = get_tick_count_ms();
-        transformImageGPU(
-            srcImg,
-            destImageRange(Base::m_image),
-            destImage(Base::m_mask),
-            Base::boundingBox().upperLeft(),
-            m_transf,
-            invResponse,
-            m_srcImg.horizontalWarpNeeded(),
-            interpol,
-            progress);
-        auto end = get_tick_count_ms();
-        std::cout << "GPU transform took " << (end - start) << " ms" << std::endl;
+        ManualResetGate gate;
+        gpu_thread_pool.Schedule([&]() {
+          check_cuda_opengl();
+          // std::unique_lock<std::mutex> lk(gpu_mutex_);
+          // auto start = get_tick_count_ms();
+          transformImageGPU(
+              srcImg,
+              destImageRange(Base::m_image),
+              destImage(Base::m_mask),
+              Base::boundingBox().upperLeft(),
+              m_transf,
+              invResponse,
+              m_srcImg.horizontalWarpNeeded(),
+              interpol,
+              progress);
+          // auto end = get_tick_count_ms();
+          // std::cout << "GPU transform took " << (end - start) << " ms"
+          //           << std::endl;
+          gate.signal();
+        });
+        gate.wait();
       }
       if (Base::boundingBox().right() > m_destImg.getROI().right()) {
         // dest image was enlarged for GPU alignment issue
@@ -330,12 +352,12 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
           interpol,
           progress,
           singleThreaded);
-        auto end = get_tick_count_ms();
-        std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
+      auto end = get_tick_count_ms();
+      std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
     }
   }
 }
-
+#if 0
 /** remap a single image
  */
 template <
@@ -351,6 +373,7 @@ void remapImage(
     const HuginBase::PanoramaOptions& dest,
     vigra::Rect2D outputROI,
     HmRemappedPanoImage<DestImgType, MaskImgType>& remapped,
+    Eigen::ThreadPool& gpu_thread_pool,
     AppBase::ProgressDisplay* progress) {
 #ifdef DEBUG_REMAP
   {
@@ -379,7 +402,7 @@ void remapImage(
     //     progress);
   } else {
     remapped.remapImage(
-        vigra::srcImageRange(srcImg), dest.interpolator, progress);
+        vigra::srcImageRange(srcImg), dest.interpolator, gpu_thread_pool, progress);
   }
 
 #ifdef DEBUG_REMAP
@@ -393,4 +416,5 @@ void remapImage(
   }
 #endif
 }
+#endif
 } // namespace hm

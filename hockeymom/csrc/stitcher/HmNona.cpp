@@ -112,7 +112,20 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
-  opts_.remapUsingGPU = check_cuda_opengl();
+
+  {
+    std::unique_lock<std::mutex> lk(tp_mu_);
+    if (!gpu_thread_pool_) {
+      gpu_thread_pool_ = std::make_unique<Eigen::ThreadPool>(1);
+    }
+  }
+  ManualResetGate gate;
+  gpu_thread_pool_->Schedule([&]() {
+    opts_.remapUsingGPU = check_cuda_opengl();
+    ManualResetGate gate;
+    gate.signal();
+  });
+  gate.wait();
   pano_.setOptions(opts_);
   return true;
 }
@@ -140,7 +153,8 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
       img_indexes,
       std::string("hm_nona-") + std::to_string(image_pair_pass_count_) + "-",
       file_remapper_,
-      adv_options_);
+      adv_options_,
+      *gpu_thread_pool_);
   return output_images;
 }
 

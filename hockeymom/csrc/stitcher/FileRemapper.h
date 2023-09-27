@@ -15,32 +15,6 @@
 
 namespace hm {
 
-class ManualResetGate {
- public:
-  ManualResetGate(bool initiallySet = false) : isOpen(initiallySet) {}
-
-  void wait() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    conditionVariable_.wait(lock, [this] { return isOpen.load(); });
-  }
-
-  void signal() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    isOpen = true;
-    conditionVariable_.notify_all();
-  }
-
-  void reset() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    isOpen = false;
-  }
-
- private:
-  std::mutex mutex_;
-  std::condition_variable conditionVariable_;
-  std::atomic<bool> isOpen;
-};
-
 inline std::vector<std::unique_ptr<ManualResetGate>> make_gates(
     std::size_t count,
     bool initiallySet = false) {
@@ -72,6 +46,7 @@ class HmSingleImageRemapper {
       unsigned int imgNr,
       const std::shared_ptr<hm::MatrixRGB>& image,
       vigra::Rect2D outputROI,
+      Eigen::ThreadPool& gpu_thread_pool,
       AppBase::ProgressDisplay* progress) = 0;
 
   virtual ~HmSingleImageRemapper() = default;
@@ -117,6 +92,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       unsigned int imgNr,
       const std::shared_ptr<hm::MatrixRGB>& image,
       vigra::Rect2D outputROI,
+      Eigen::ThreadPool& gpu_thread_pool,
       AppBase::ProgressDisplay* progress) override;
 
  protected:

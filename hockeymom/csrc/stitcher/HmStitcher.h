@@ -57,7 +57,8 @@ class HmMultiImageRemapper
       UIntSet& images,
       const std::string& basename,
       HmSingleImageRemapper<ImageType, AlphaType>& remapper,
-      const AdvancedOptions& advOptions) {
+      const AdvancedOptions& advOptions,
+      Eigen::ThreadPool& gpu_thread_pool) {
     ++pass_;
     std::vector<std::unique_ptr<MatrixRGB>> results;
     // Skip over direct base class stitch call
@@ -80,7 +81,7 @@ class HmMultiImageRemapper
     prepareOutputFile(opts, advOptions);
 
     // remap each image and save
-    //int i = 0;
+    // int i = 0;
 
     if (pass_ == 1) {
       mod_options_.clear();
@@ -97,7 +98,7 @@ class HmMultiImageRemapper
         mod_options_.emplace_back(std::move(modOptions));
       }
     }
-    //results.resize(images.size());
+    // results.resize(images.size());
     // std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
     // remappers;
     // remappers.reserve(images.size());
@@ -107,33 +108,35 @@ class HmMultiImageRemapper
     std::vector<std::size_t> img_indexes{images.begin(), images.end()};
     int img_count = img_indexes.size();
     for (int i = 0; i < img_count; ++i) {
-      //thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
-        // if (opts.remapUsingGPU) {
-        //   bool gpu_initialized = check_cuda_opengl();
-        //   assert(gpu_initialized);
-        // }
-        // get a remapped image.
-        std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
-            remapper.getRemapped(
-                Base::m_pano,
-                mod_options_.at(i),
-                img_indexes[i],
-                images_.at(i),
-                Base::m_rois[i],
-                Base::m_progress);
-        try {
-          saveRemapped(
-              *remapped,
+      // thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes,
+      // &opts, &advOptions]() {
+      // if (opts.remapUsingGPU) {
+      //   bool gpu_initialized = check_cuda_opengl();
+      //   assert(gpu_initialized);
+      // }
+      // get a remapped image.
+      std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
+          remapper.getRemapped(
+              Base::m_pano,
+              mod_options_.at(i),
               img_indexes[i],
-              Base::m_pano.getNrOfImages(),
-              opts,
-              advOptions);
-        } catch (vigra::PreconditionViolation& e) {
-          // this can be thrown, if an image
-          // is completely out of the pano
-          std::cerr << e.what();
-        }
-        gates.at(i)->signal();
+              images_.at(i),
+              Base::m_rois[i],
+              gpu_thread_pool,
+              Base::m_progress);
+      try {
+        saveRemapped(
+            *remapped,
+            img_indexes[i],
+            Base::m_pano.getNrOfImages(),
+            opts,
+            advOptions);
+      } catch (vigra::PreconditionViolation& e) {
+        // this can be thrown, if an image
+        // is completely out of the pano
+        std::cerr << e.what();
+      }
+      gates.at(i)->signal();
       //});
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
@@ -647,9 +650,6 @@ class HmMultiImageRemapper
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
 };
 
-
-
-
 template <typename ImageType, typename AlphaType>
 std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     ImageType,
@@ -660,6 +660,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
         unsigned int imgNr,
         const std::shared_ptr<MatrixRGB>& image,
         vigra::Rect2D outputROI,
+        Eigen::ThreadPool& gpu_thread_pool,
         AppBase::ProgressDisplay* progress) {
   typedef typename ImageType::value_type PixelType;
 
@@ -673,8 +674,9 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   // choose image type...
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
 
-  //vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
-  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
+  // vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
+  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
+      m_remapped;
   if (m_remapped.size() <= imgNr) {
     m_remapped.resize(imgNr + 1);
   }

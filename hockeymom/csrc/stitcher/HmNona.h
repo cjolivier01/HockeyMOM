@@ -47,6 +47,8 @@ class HmNona {
   std::size_t image_pair_pass_count_{0};
   std::unique_ptr<AppBase::DummyProgressDisplay> pdisp_;
   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
+  std::mutex tp_mu_;
+  static inline std::unique_ptr<Eigen::ThreadPool> gpu_thread_pool_;
 };
 
 } // namespace hm
