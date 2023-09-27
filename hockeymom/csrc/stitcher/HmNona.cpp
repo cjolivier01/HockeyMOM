@@ -176,24 +176,6 @@ bool HmNona::load_project(const std::string& project_file) {
   return true;
 }
 
-void HmNona::run_pipeline() {
-  // Create an input data vector
-  std::vector<int> inputData{1, 2, 3, 4, 5};
-
-  // Define the pipeline stages
-  InputStage inputStage(inputData);
-  ProcessingStage processingStage;
-  OutputStage outputStage;
-
-  // // Create the pipeline
-  // tbb::parallel_pipeline(
-  //     /* Number of tokens */ 30,
-  //     tbb::make_filter<void, int>(tbb::filter_mode::serial_in_order, std::move(inputStage)) &
-  //         tbb::make_filter<int, int>(tbb::filter_mode::parallel, std::move(processingStage)) &
-  //         tbb::make_filter<int, void>(
-  //             tbb::filter_mode::serial_in_order, std::move(outputStage)));
-}
-
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {

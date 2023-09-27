@@ -29,9 +29,6 @@ class HmNona {
  public:
   HmNona(std::string project_file);
   ~HmNona();
-  std::size_t count() const {
-    return 0;
-  }
   bool load_project(const std::string& project_file);
 
   std::vector<std::unique_ptr<hm::MatrixRGB>> process_images(
@@ -39,8 +36,6 @@ class HmNona {
       std::shared_ptr<hm::MatrixRGB> image2);
 
  private:
-
-  void run_pipeline();
 
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
