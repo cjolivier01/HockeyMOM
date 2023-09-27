@@ -1,26 +1,32 @@
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
-#include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/mblend/mblend.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
 
 namespace hm {
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
+    std::string project_file,
     std::size_t remap_thread_count,
     std::size_t blend_thread_count)
-    : next_frame_id_(start_frame_id),
+    : project_file_(std::move(project_file)),
+      next_frame_id_(start_frame_id),
       remap_thread_count_(remap_thread_count),
       blend_thread_count_(blend_thread_count),
       input_queue_(std::make_shared<JobRunnerT::InputQueue>()),
       remap_runner_(
           input_queue_,
-          [this](StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
-            return this->remap_worker(std::move(frame));
+          [this](
+              std::size_t worker_index,
+              StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
+            return this->remap_worker(worker_index, std::move(frame));
           }),
       blend_runner_(
           remap_runner_.outputs(),
-          [this](StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
-            return this->blend_worker(std::move(frame));
+          [this](
+              std::size_t worker_index,
+              StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
+            return this->blend_worker(worker_index, std::move(frame));
           }) {
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
@@ -33,6 +39,12 @@ StitchingDataLoader::~StitchingDataLoader() {
 void StitchingDataLoader::shutdown() {
   remap_runner_.stop();
   blend_runner_.stop();
+  nonas_.clear();
+}
+
+void StitchingDataLoader::initialize() {
+  assert(nonas_.empty());
+  nonas_.resize(remap_thread_count_);
 }
 
 void StitchingDataLoader::add_frame(
@@ -41,16 +53,29 @@ void StitchingDataLoader::add_frame(
   auto frame_info = std::make_shared<FrameData>();
   frame_info->frame_id = frame_id;
   frame_info->input_images = std::move(images);
-  remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
+}
+
+std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
+    std::size_t frame_id) {
+  auto final_frame = blend_runner_.outputs()->dequeue_key(frame_id);
+  return final_frame->blended_image;
 }
 
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
+    std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
+  if (!nonas_.at(worker_index)) {
+    nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
+  }
+
   return frame;
 }
 
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
+    std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
+  // TEMP HACK, SEND BACK FIRST IMAGE
+  frame->blended_image = frame->remapped_images.at(0);
   return frame;
 }
 

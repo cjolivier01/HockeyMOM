@@ -108,7 +108,7 @@ class JobRunner {
 
   JobRunner(
       std::shared_ptr<InputQueue> input_queue,
-      std::function<OUTPUT_TYPE(INPUT_TYPE&&)> worker_fn)
+      std::function<OUTPUT_TYPE(std::size_t worker_index, INPUT_TYPE&&)> worker_fn)
       : input_queue_(std::move(input_queue)),
         output_queue_(std::make_shared<OutputQueue>()),
         worker_fn_(std::move(worker_fn_)) {
@@ -155,13 +155,13 @@ class JobRunner {
       if (!input) {
         break;
       }
-      output_queue_->enqueue(key, worker_fn_(std::move(input)));
+      output_queue_->enqueue(key, worker_fn_(thread_id, std::move(input)));
     } while (true);
   }
   std::shared_ptr<InputQueue> input_queue_;
   std::shared_ptr<OutputQueue> output_queue_;
   std::vector<std::unique_ptr<std::thread>> threads_;
-  std::function<OUTPUT_TYPE(INPUT_TYPE&&)> worker_fn_;
+  std::function<OUTPUT_TYPE(std::size_t worker_index, INPUT_TYPE&&)> worker_fn_;
 };
 
 } // namespace hm

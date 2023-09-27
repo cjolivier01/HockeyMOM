@@ -94,10 +94,23 @@ class OutputStage {
  */
 HmNona::HmNona(std::string project_file)
     : project_file_(std::move(project_file)) {
+  {
+    std::unique_lock<std::mutex> lk(gpu_thread_pool_mu_);
+    ++nona_count_;
+  }
   TIFFSetWarningHandler(0);
   if (!load_project(project_file_)) {
     throw std::runtime_error(
         std::string("Failed to laod project file: ") + project_file_);
+  }
+}
+
+std::size_t HmNona::nona_count_{0};
+
+HmNona::~HmNona() {
+  std::unique_lock<std::mutex> lk(gpu_thread_pool_mu_);
+  if (!--nona_count_) {
+    gpu_thread_pool_.reset();
   }
 }
 
@@ -114,7 +127,7 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
 
   {
-    std::unique_lock<std::mutex> lk(tp_mu_);
+    std::unique_lock<std::mutex> lk(gpu_thread_pool_mu_);
     if (!gpu_thread_pool_) {
       gpu_thread_pool_ = std::make_unique<Eigen::ThreadPool>(1);
     }
@@ -156,7 +169,5 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
       *gpu_thread_pool_);
   return output_images;
 }
-
-HmNona::~HmNona() = default;
 
 } // namespace hm

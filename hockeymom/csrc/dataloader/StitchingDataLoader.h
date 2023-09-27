@@ -2,6 +2,7 @@
 
 #include "hockeymom/csrc/common/JobRunner.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <condition_variable>
 #include <cstdint>
@@ -29,7 +30,7 @@ struct FrameData {
   std::size_t frame_id{kInvalidFrameId};
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
-  std::vector<std::shared_ptr<MatrixRGB>> blended_images;
+  std::shared_ptr<MatrixRGB> blended_image;
 };
 
 /* clang-format off */
@@ -52,6 +53,7 @@ class StitchingDataLoader {
 
   StitchingDataLoader(
       std::size_t start_frame_id,
+      std::string project_file,
       std::size_t remap_thread_count,
       std::size_t blend_thread_count);
   ~StitchingDataLoader();
@@ -60,20 +62,29 @@ class StitchingDataLoader {
       std::size_t frame_id,
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
+  std::shared_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
+
  private:
+  void initialize();
+
   using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
 
-  FRAME_DATA_TYPE remap_worker(FRAME_DATA_TYPE&& frame);
-  FRAME_DATA_TYPE blend_worker(FRAME_DATA_TYPE&& frame);
+  FRAME_DATA_TYPE remap_worker(
+      std::size_t worker_index,
+      FRAME_DATA_TYPE&& frame);
+  FRAME_DATA_TYPE blend_worker(
+      std::size_t worker_index,
+      FRAME_DATA_TYPE&& frame);
 
   void shutdown();
-
+  std::string project_file_;
   std::size_t next_frame_id_;
   std::size_t remap_thread_count_;
   std::size_t blend_thread_count_;
   std::shared_ptr<JobRunnerT::InputQueue> input_queue_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
+  std::vector<std::shared_ptr<HmNona>> nonas_;
 };
 
 } // namespace hm

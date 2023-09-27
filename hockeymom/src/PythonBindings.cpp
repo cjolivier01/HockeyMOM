@@ -73,7 +73,7 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
-      .def(py::init<std::size_t, std::size_t, std::size_t>());
+      .def(py::init<std::size_t, std::string, std::size_t, std::size_t>());
 
   auto pyFoo = py::class_<hm::Foo>(m, "Foo");
   pyFoo.def(py::init<>()).def("f", &hm::Foo::f);

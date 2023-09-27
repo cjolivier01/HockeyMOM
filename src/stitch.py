@@ -559,7 +559,7 @@ def pyramid_blending():
     video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
-    data_loader = core.StitchingDataLoader(0, 10, 10)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 10)
 
     frame_id = start_frame_number
     frame_count = 0
