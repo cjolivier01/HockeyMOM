@@ -1685,17 +1685,17 @@ class Blender {
       /***********************************************************************
        * Blend
        ***********************************************************************/
-      if (n_images == 1) {
-        if (wrap)
-          Output(1, "Wrapping...\n");
-        else
-          Output(1, "Processing...\n");
-      } else {
-        if (wrap)
-          Output(1, "Blending/wrapping...\n");
-        else
-          Output(1, "Blending...\n");
-      }
+      // if (n_images == 1) {
+      //   if (wrap)
+      //     Output(1, "Wrapping...\n");
+      //   else
+      //     Output(1, "Processing...\n");
+      // } else {
+      //   if (wrap)
+      //     Output(1, "Blending/wrapping...\n");
+      //   else
+      //     Output(1, "Blending...\n");
+      // }
 
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
