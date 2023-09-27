@@ -528,6 +528,10 @@ def get_image_geo_position(tiff_image_file: str):
     return xpos, ypos
 
 
+def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
+    pass
+
+
 def pyramid_blending():
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
     orig_files_left = [
@@ -540,33 +544,61 @@ def pyramid_blending():
         f"{vid_dir}/images/right-45min.png",
     ]
 
-    nona = core.HmNona(f"{vid_dir}/my_project.pto")
+    # PTO Project File
+    pto_project_file = f"{vid_dir}/my_project.pto"
+    build_stitching_project(pto_project_file)
+    nona = core.HmNona(pto_project_file)
+    
+    start_frame_number = 2000
+    frame_step = 1200
+    max_frames = 2
+
+    video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
+    video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
+
+    video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
+    video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
     data_loader = core.StitchingDataLoader(0, 10, 10)
 
-    for i in range(1):
-        for i in range(len(orig_files_left)):
-            img1 = cv2.imread(orig_files_left[i % len(orig_files_left)])
-            img2 = cv2.imread(orig_files_right[i % len(orig_files_left)])
-            # cv2.imshow('Nona image left', img1)
+    frame_id = start_frame_number
+    frame_count = 0
+    while frame_count < max_frames:
+        ret1, img1 = video1.read()
+        if not ret1:
+            break
+        # Read the corresponding frame from the second video
+        ret2, img2 = video2.read()
+        if not ret2:
+            break
+
+        # img1 = cv2.imread(orig_files_left[i % len(orig_files_left)])
+        # img2 = cv2.imread(orig_files_right[i % len(orig_files_left)])
+        # assert img1 is not None and img2 is not None
+        # cv2.imshow('Nona image left', img1)
+        # cv2.waitKey(0)
+        # cv2.imshow('Nona image right', img2)
+        # cv2.waitKey(0)
+        start = time.time()
+        if True:
+            result = core.nona_process_images(nona, img1, img2)
+            duration = time.time() - start
+            print(f"Got results in {duration} seconds")
+            cv2.imshow('Nona image left', result[0])
+            cv2.waitKey(0)
+            cv2.imshow('Nona image right', result[1])
+            cv2.waitKey(0)
+        else:
+            result = core.stitch_images(nona, img1, img2)
+            duration = time.time() - start
+            print(f"Got results in {duration} seconds")
+            # cv2.imshow('Stitched Image', result)
             # cv2.waitKey(0)
-            # cv2.imshow('Nona image right', img2)
-            # cv2.waitKey(0)
-            start = time.time()
-            if True:
-                result = core.nona_process_images(nona, img1, img2)
-                duration = time.time() - start
-                print(f"Got results in {duration} seconds")
-                cv2.imshow('Nona image left', result[0])
-                cv2.waitKey(0)
-                cv2.imshow('Nona image right', result[1])
-                cv2.waitKey(0)
-            else:
-                result = core.stitch_images(nona, img1, img2)
-                duration = time.time() - start
-                print(f"Got results in {duration} seconds")
-                # cv2.imshow('Stitched Image', result)
-                # cv2.waitKey(0)
+        frame_id += 1
+        frame_count += 1
+        if frame_step > 1:
+            video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1)
+            video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1)
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
