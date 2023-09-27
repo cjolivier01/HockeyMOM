@@ -1,4 +1,6 @@
 #include "hockeymom/csrc/dataloader/StitchedDataLoader.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
+#include "hockeymom/csrc/mblend/mblend.h"
 
 namespace hm {
 
@@ -46,6 +48,7 @@ StitchingDataLoader::FRAME_DATA_TYPE remap_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   return frame;
 }
+
 StitchingDataLoader::FRAME_DATA_TYPE blend_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   return frame;

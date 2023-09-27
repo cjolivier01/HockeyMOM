@@ -2,8 +2,6 @@
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
 
-//#include "concurrentqueue/blockingconcurrentqueue.h"
-
 #include <condition_variable>
 #include <cstdint>
 #include <map>
@@ -15,6 +13,15 @@
 
 namespace hm {
 
+/**
+ *  ______                          _____        _
+ * |  ____|                        |  __ \      | |
+ * | |__ _ __  __ _ _ __ ___   ___ | |  | | __ _| |_  __ _
+ * |  __| '__|/ _` | '_ ` _ \ / _ \| |  | |/ _` | __|/ _` |
+ * | |  | |  | (_| | | | | | |  __/| |__| | (_| | |_| (_| |
+ * |_|  |_|   \__,_|_| |_| |_|\___||_____/ \__,_|\__|\__,_|
+ *
+ */
 struct FrameData {
   static constexpr std::size_t kInvalidFrameId =
       std::numeric_limits<std::size_t>::max();
@@ -24,10 +31,20 @@ struct FrameData {
   std::vector<std::shared_ptr<MatrixRGBA>> blended_images;
 };
 
+/**
+ *   _____            _             _  ____
+ *  / ____|          | |           | |/ __ \
+ * | (___   ___  _ __| |_  ___   __| | |  | |_   _  ___  _   _  ___
+ *  \___ \ / _ \| '__| __|/ _ \ / _` | |  | | | | |/ _ \| | | |/ _ \
+ *  ____) | (_) | |  | |_|  __/| (_| | |__| | |_| |  __/| |_| |  __/
+ * |_____/ \___/|_|   \__|\___| \__,_|\___\_\\__,_|\___| \__,_|\___|
+ *
+ */
 template <typename KEY_TYPE, typename ITEM_TYPE>
 class SortedQueue {
  public:
-  SortedQueue();
+  SortedQueue() = default;
+
   void enqueue(const KEY_TYPE& key_type, ITEM_TYPE&& item) {
     std::unique_lock lk(items_mu_);
     if (!items_.emplace(key_type, std::move(item)).second) {
@@ -35,6 +52,7 @@ class SortedQueue {
     }
     cu_.notify_one();
   }
+
   ITEM_TYPE dequeue(KEY_TYPE* key_type_ptr = nullptr) {
     std::unique_lock lk(items_mu_);
     cu_.wait(lk, [this] { return !items_.empty(); });
@@ -63,6 +81,15 @@ class SortedQueue {
   std::map<KEY_TYPE, ITEM_TYPE> items_;
 };
 
+/**
+ *       _       _     _____
+ *      | |     | |   |  __ \
+ *      | | ___ | |__ | |__) |_   _ _ __  _ __   ___  _ __
+ *  _   | |/ _ \| '_ \|  _  /| | | | '_ \| '_ \ / _ \| '__|
+ * | |__| | (_) | |_) | | \ \| |_| | | | | | | |  __/| |
+ *  \____/ \___/|_.__/|_|  \_\\__,_|_| |_|_| |_|\___||_|
+ *
+ */
 template <typename INPUT_TYPE, typename OUTPUT_TYPE>
 class JobRunner {
  public:
@@ -125,6 +152,18 @@ class JobRunner {
   std::function<OUTPUT_TYPE(INPUT_TYPE&&)> worker_fn_;
 };
 
+/* clang-format off */
+/**
+ *   _____ _   _  _        _     _             _____        _         _                      _
+ *  / ____| | (_)| |      | |   (_)           |  __ \      | |       | |                    | |
+ * | (___ | |_ _ | |_  ___| |__  _ _ __   __ _| |  | | __ _| |_  __ _| |      ___   __ _  __| | ___  _ __
+ *  \___ \| __| || __|/ __| '_ \| | '_ \ / _` | |  | |/ _` | __|/ _` | |     / _ \ / _` |/ _` |/ _ \| '__|
+ *  ____) | |_| || |_| (__| | | | | | | | (_| | |__| | (_| | |_| (_| | |____| (_) | (_| | (_| |  __/| |
+ * |_____/ \__|_| \__|\___|_| |_|_|_| |_|\__, |_____/ \__,_|\__|\__,_|______|\___/ \__,_|\__,_|\___||_|
+ *                                        __/ |
+ *                                       |___/
+ */
+/* clang-format on */
 class StitchingDataLoader {
   static constexpr std::size_t kInputQueueCapacity = 32;
 
