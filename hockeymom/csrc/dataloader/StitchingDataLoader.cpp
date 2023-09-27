@@ -69,18 +69,22 @@ std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
-  if (!nonas_.at(worker_index)) {
-    set_thread_name("remapper", worker_index);
-    assert(worker_index < nonas_.size());
-    nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
-  }
-  auto nona = nonas_[worker_index];
-  auto remapped = nona->remap_images(
-      std::move(frame->input_images.at(0)),
-      std::move(frame->input_images.at(1)));
-  frame->remapped_images.clear();
-  for (auto& r : remapped) {
-    frame->remapped_images.emplace_back(std::move(r));
+  try {
+    if (!nonas_.at(worker_index)) {
+      set_thread_name("remapper", worker_index);
+      assert(worker_index < nonas_.size());
+      nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
+    }
+    auto nona = nonas_[worker_index];
+    auto remapped = nona->remap_images(
+        std::move(frame->input_images.at(0)),
+        std::move(frame->input_images.at(1)));
+    frame->remapped_images.clear();
+    for (auto& r : remapped) {
+      frame->remapped_images.emplace_back(std::move(r));
+    }
+  } catch (...) {
+    std::cerr << "Caught exception" << std::endl;
   }
   return frame;
 }
@@ -88,13 +92,17 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
-  if (!enblenders_.at(worker_index)) {
-    set_thread_name("blender", worker_index);
-    assert(worker_index < enblenders_.size());
-    enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
+  try {
+    if (!enblenders_.at(worker_index)) {
+      set_thread_name("blender", worker_index);
+      assert(worker_index < enblenders_.size());
+      enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
+    }
+    auto blender = enblenders_[worker_index];
+    frame->blended_image = blender->blend_images(frame->remapped_images);
+  } catch (...) {
+    std::cerr << "Caught exception" << std::endl;
   }
-  auto blender = enblenders_[worker_index];
-  frame->blended_image = blender->blend_images(frame->remapped_images);
   return frame;
 }
 
