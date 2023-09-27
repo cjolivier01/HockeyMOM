@@ -44,12 +44,12 @@ void StitchingDataLoader::add_frame(
   remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
-StitchingDataLoader::FRAME_DATA_TYPE remap_worker(
+StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   return frame;
 }
 
-StitchingDataLoader::FRAME_DATA_TYPE blend_worker(
+StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   return frame;
 }
