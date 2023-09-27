@@ -1,10 +1,10 @@
 
 # Include certain OpenCV modules
-SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
-include_directories(${BASE_OPENCV_DIR}/modules/core/include)
-include_directories(${BASE_OPENCV_DIR}/modules/videoio/include)
-include_directories(${BASE_OPENCV_DIR}/modules/gapi/include)
-include_directories(${HOCKEYMOM_BINARY_DIR})
+# SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
+# include_directories(${BASE_OPENCV_DIR}/modules/core/include)
+# include_directories(${BASE_OPENCV_DIR}/modules/videoio/include)
+# include_directories(${BASE_OPENCV_DIR}/modules/gapi/include)
+# include_directories(${HOCKEYMOM_BINARY_DIR})
 
 set(
   SOURCES

@@ -6,6 +6,7 @@
 #include "panodata/Panorama.h"
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 namespace hm {
@@ -27,10 +28,11 @@ class HmSingleImageRemapper {
       vigra::Rect2D outputROI,
       AppBase::ProgressDisplay* progress) = 0;
 
-  virtual ~HmSingleImageRemapper(){};
+  virtual ~HmSingleImageRemapper() = default;
 
   void setAdvancedOptions(
       const HuginBase::Nona::AdvancedOptions advancedOptions) {
+    std::unique_lock<std::mutex> lk(mu_);
     m_advancedOptions = advancedOptions;
   }
 
@@ -38,6 +40,7 @@ class HmSingleImageRemapper {
   virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
 
  protected:
+  std::mutex mu_;
   HuginBase::Nona::AdvancedOptions m_advancedOptions;
   std::size_t pass_{0};
 };

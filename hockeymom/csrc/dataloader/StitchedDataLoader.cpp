@@ -7,10 +7,10 @@ StitchingDataLoader::StitchingDataLoader(
     std::size_t thread_count)
     : next_frame_id_(start_frame_id),
       thread_count_(thread_count),
-      input_queue_ <
+      input_queue_(
           std::make_unique<
-              moodycamel::BlockingConcurrentQueue<std::unique_ptr<FrameData>>>(/*capacity=*/kInputQueueCapacity) {
-}
+              moodycamel::BlockingConcurrentQueue<std::unique_ptr<FrameData>>>(
+              /*capacity=*/kInputQueueCapacity)) {}
 
 StitchingDataLoader::~StitchingDataLoader() {
   shutdown();

@@ -649,14 +649,17 @@ HmRemappedPanoImage<ImageType, AlphaType>* HmFileRemapper<
 
   m_remapped = std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
-  // load image
-  if (imgNr >= this->image_import_infos_.size()) {
-    assert(imgNr == this->image_import_infos_.size());
-    this->image_import_infos_.emplace_back(
-        std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str()));
+  // load image if necessary
+  vigra::ImageImportInfo* info_ptr;
+  {
+//    std::unique_lock<std::mutex> lk(mu_);
+    if (imgNr >= this->image_import_infos_.size()) {
+      this->image_import_infos_.resize(imgNr + 1);
+      this->image_import_infos_.at(imgNr) = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
+      info_ptr = this->image_import_infos_.at(imgNr).get();
+    }
   }
-
-  vigra::ImageImportInfo& info = *this->image_import_infos_.at(imgNr);
+  vigra::ImageImportInfo& info = *info_ptr;
 
   int width = info.width();
   int height = info.height();

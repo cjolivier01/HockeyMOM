@@ -41,6 +41,9 @@ SET(BUILD_EXAMPLES OFF)
 #MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
 SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
+
 find_package(PythonInterp REQUIRED)
 find_package(PythonLibs "${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}" REQUIRED)
 if (PYTHONLIBS_FOUND)
@@ -73,6 +76,7 @@ FIND_PACKAGE(FLANN REQUIRED)
 SET(FLANN_FOUND 1)
 
 add_subdirectory(external/eigen)
+add_subdirectory(external/abseil-cpp)
 #add_subdirectory(external/opencv-python/opencv)
 add_subdirectory(external/hugin)
 
