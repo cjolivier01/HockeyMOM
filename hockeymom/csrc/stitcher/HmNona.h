@@ -1,5 +1,6 @@
 #pragma once
 
+#include "hockeymom/csrc/common/Gpu.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
 #include "hockeymom/csrc/stitcher/HmStitcher.h"

@@ -10,6 +10,7 @@ set(
   SOURCES
   csrc/mblend/mblend.cpp
   csrc/stitcher/HmNona.cpp
+  csrc/common/Gpu.cpp
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/ImagePostProcess.cpp
 )

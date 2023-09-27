@@ -130,7 +130,6 @@ class HmMultiImageRemapper
         }
         gates.at(i)->signal();
       //});
-      wait_for_all(gates);
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
       // remapper.release(remapped);
@@ -140,6 +139,7 @@ class HmMultiImageRemapper
       // remappers.emplace_back(std::move(remapped));
       // i++;
     }
+    wait_for_all(gates);
     results = consume_output_images();
 
     finalizeOutputFile(opts);
