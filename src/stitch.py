@@ -267,9 +267,10 @@ def pyramid_blending():
         if write_output_video:
             if out_video is None:
                 fps = video1.get(cv2.CAP_PROP_FPS)
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
                 out_video = cv2.VideoWriter(
-                    filename="stitched_output.avi",
-                    fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+                    filename="stitched_output.mov",
+                    fourcc=fourcc,
                     fps=fps,
                     frameSize=(output_img.shape[1], output_img.shape[1]),
                     isColor=True,
@@ -330,10 +331,10 @@ def pyramid_blending():
             )
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
-            # if frame_count % 10 == 0:
-            #     cv2.imshow('Nona image left', stitched_frame)
-            #     cv2.waitKey(0)
-            _maybe_write_output(stitched_frame)
+            #if frame_count % 10 == 0:
+            cv2.imshow('Stitched', stitched_frame)
+            cv2.waitKey(0)
+            #_maybe_write_output(stitched_frame)
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
