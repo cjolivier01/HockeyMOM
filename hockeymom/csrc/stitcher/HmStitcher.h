@@ -76,7 +76,7 @@ class HmMultiImageRemapper
     prepareOutputFile(opts, advOptions);
 
     // remap each image and save
-    int i = 0;
+    //int i = 0;
 
     if (pass_ == 1) {
       mod_options_.clear();
@@ -98,20 +98,23 @@ class HmMultiImageRemapper
     //std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
         //remappers;
     //remappers.reserve(images.size());
-    for (UIntSet::const_iterator it = images.begin(); it != images.end();
-         ++it) {
+    // for (UIntSet::const_iterator it = images.begin(); it != images.end();
+    //      ++it) {
+    std::vector<std::size_t> img_indexes{images.begin(), images.end()};
+    int img_count = img_indexes.size();
+    for (int i = 0; i < img_count; ++i) {
       // get a remapped image.
       std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
           remapper.getRemapped(
               Base::m_pano,
               mod_options_.at(i),
-              *it,
+              img_indexes[i],
               images_.at(i),
               Base::m_rois[i],
               Base::m_progress);
       try {
         saveRemapped(
-            *remapped, *it, Base::m_pano.getNrOfImages(), opts, advOptions);
+            *remapped, img_indexes[i], Base::m_pano.getNrOfImages(), opts, advOptions);
       } catch (vigra::PreconditionViolation& e) {
         // this can be thrown, if an image
         // is completely out of the pano
@@ -124,7 +127,7 @@ class HmMultiImageRemapper
       // TODO: Can we reuse this somehow?
       //
       //remappers.emplace_back(std::move(remapped));
-      i++;
+      //i++;
     }
     results = consume_output_images();
 
@@ -665,8 +668,8 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     if (imgNr >= this->image_import_infos_.size()) {
       this->image_import_infos_.resize(imgNr + 1);
       this->image_import_infos_.at(imgNr) = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
-      info_ptr = this->image_import_infos_.at(imgNr).get();
     }
+    info_ptr = this->image_import_infos_.at(imgNr).get();
   }
   vigra::ImageImportInfo& info = *info_ptr;
 
