@@ -70,7 +70,7 @@ HmNona::~HmNona() {
 }
 
 bool HmNona::load_project(const std::string& project_file) {
-  std::cout << "Project file: " << project_file_ << std::endl;
+  //std::cout << "Project file: " << project_file_ << std::endl;
 
   if (!pano_.ReadPTOFile(
           project_file, hugin_utils::getPathPrefix(project_file))) {

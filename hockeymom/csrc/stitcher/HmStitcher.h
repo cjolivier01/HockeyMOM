@@ -692,7 +692,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
       this->image_import_infos_.resize(2);
     }
     if (!this->image_import_infos_.at(imgNr)) {
-      std::cout << "Reading file: " << img.getFilename() << std::endl;
+      //std::cout << "Reading file: " << img.getFilename() << std::endl;
       this->image_import_infos_[imgNr] =
           std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
       assert(this->image_import_infos_[imgNr]);

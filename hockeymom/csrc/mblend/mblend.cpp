@@ -775,16 +775,16 @@ class Blender {
     blend_levels += add_levels;
 
     if (n_images == 1) {
-      blend_levels = 0;
-      Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
+       blend_levels = 0;
+    //   Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
     } else {
-      Output(
-          1,
-          "\n%d x %d, %d levels, %d bpp\n\n",
-          width,
-          height,
-          blend_levels,
-          output_bpp);
+    //   Output(
+    //       1,
+    //       "\n%d x %d, %d levels, %d bpp\n\n",
+    //       width,
+    //       height,
+    //       blend_levels,
+    //       output_bpp);
     }
 
     /***********************************************************************
@@ -794,16 +794,16 @@ class Blender {
     ***********************************************************************/
     timer.Start();
 
-    Output(1, "Seaming");
+    //Output(1, "Seaming");
     switch (((!!seamsave_filename) << 1) | !!xor_filename) {
       case 1:
-        Output(1, " (saving XOR map)");
+        //Output(1, " (saving XOR map)");
         break;
       case 2:
-        Output(1, " (saving seam map)");
+        //Output(1, " (saving seam map)");
         break;
       case 3:
-        Output(1, " (saving XOR and seam maps)");
+        //Output(1, " (saving XOR and seam maps)");
         break;
     }
     Output(1, "...\n");
@@ -1543,7 +1543,7 @@ class Blender {
        * Shrink masks
        ***********************************************************************/
       if (pass == 1) {
-        Output(1, "Shrinking masks...\n");
+        //Output(1, "Shrinking masks...\n");
         timer.Start();
 
         for (i = 0; i < n_images; ++i) {

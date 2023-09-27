@@ -552,7 +552,7 @@ def run_feeder(
         ret2, img2 = video2.read()
         if not ret2:
             break
-        #print(f"Pushing frame {current_frame_id}")
+        # print(f"Pushing frame {current_frame_id}")
         core.add_to_stitching_data_loader(data_loader, current_frame_id, img1, img2)
         frame_count += 1
         current_frame_id += 1
@@ -577,9 +577,10 @@ def pyramid_blending():
     nona = core.HmNona(pto_project_file)
 
     start_frame_number = 2000
-    #frame_step = 1200
+    # frame_step = 1200
     frame_step = 1
     max_frames = 100
+    skip_timing_frame_count = 30
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
@@ -606,8 +607,9 @@ def pyramid_blending():
     frame_id = start_frame_number
     frame_count = 0
     duration = 0
-    start = time.time()
     while frame_count < max_frames:
+        if skip_timing_frame_count and frame_count == skip_timing_frame_count - 1:
+            start = time.time()
         # ret1, img1 = video1.read()
         # if not ret1:
         #     break
@@ -623,14 +625,14 @@ def pyramid_blending():
         # cv2.waitKey(0)
         # cv2.imshow('Nona image right', img2)
         # cv2.waitKey(0)
-        #start = time.time()
+        # start = time.time()
         if True:
             # core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 data_loader, frame_id
             )
             duration = time.time() - start
-            #print(f"Got results in {duration} seconds")
+            # print(f"Got results in {duration} seconds")
         #   cv2.imshow('Nona image left', stitched_frame)
         #   cv2.waitKey(0)
         elif True:
@@ -659,7 +661,9 @@ def pyramid_blending():
                 video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
             )
     duration = time.time() - start
-    print(f"{frame_count} frames in {duration} seconds ({frame_count/duration} fps)")
+    print(
+        f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
+    )
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",

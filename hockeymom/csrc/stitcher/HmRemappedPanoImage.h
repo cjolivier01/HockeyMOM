@@ -258,7 +258,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
         Base::m_region = newBoundingBox;
       };
     } else {
-      auto start = get_tick_count_ms();
+      //auto start = get_tick_count_ms();
       transformImageAlpha(
           srcImg,
           vigra::srcImage(alpha),
@@ -271,8 +271,8 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
           interpol,
           progress,
           singleThreaded);
-      auto end = get_tick_count_ms();
-      std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
+      //auto end = get_tick_count_ms();
+      //std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
     }
   } else {
     if (useGPU) {
@@ -340,7 +340,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
         Base::m_region = newBoundingBox;
       };
     } else {
-      auto start = get_tick_count_ms();
+      //auto start = get_tick_count_ms();
       transformImage(
           srcImg,
           destImageRange(Base::m_image),
@@ -352,8 +352,8 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
           interpol,
           progress,
           singleThreaded);
-      auto end = get_tick_count_ms();
-      std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
+      //auto end = get_tick_count_ms();
+      //std::cout << "CPU transform took " << (end - start) << " ms" << std::endl;
     }
   }
 }
