@@ -580,7 +580,7 @@ def pyramid_blending():
         # cv2.imshow('Nona image right', img2)
         # cv2.waitKey(0)
         start = time.time()
-        if True:
+        if False:
           core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
           stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
           cv2.imshow('Nona image left', stitched_frame)
