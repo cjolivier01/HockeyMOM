@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import cv2
+import threading
 
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
@@ -532,6 +533,23 @@ def build_stitching_project(project_file_path: str, skip_if_exists: bool = True)
     pass
 
 
+def run_feeder(video1: cv2.VideoCapture, video2: cv2.VideoCapture, data_loader: core.StitchingDataLoader, current_frame_id: int, max_frames: int):
+    frame_count = 0
+    while frame_count < max_frames:
+        ret1, img1 = video1.read()
+        if not ret1:
+            break
+        # Read the corresponding frame from the second video
+        ret2, img2 = video2.read()
+        if not ret2:
+            break
+        print(f"Pushing frame {current_frame_id}")
+        core.add_to_stitching_data_loader(data_loader, current_frame_id, img1, img2)
+        frame_count += 1
+        current_frame_id += 1
+    
+
+
 def pyramid_blending():
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
     orig_files_left = [
@@ -556,21 +574,28 @@ def pyramid_blending():
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
 
+    total_num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    max_frames = total_num_frames - start_frame_number
+    assert max_frames > 0
+
     video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
     data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 10)
 
+    feeder_thread = threading.Thread(target=run_feeder, args=(video1, video2, data_loader, start_frame_number, max_frames))
+    feeder_thread.start()
+
     frame_id = start_frame_number
     frame_count = 0
     while frame_count < max_frames:
-        ret1, img1 = video1.read()
-        if not ret1:
-            break
-        # Read the corresponding frame from the second video
-        ret2, img2 = video2.read()
-        if not ret2:
-            break
+        # ret1, img1 = video1.read()
+        # if not ret1:
+        #     break
+        # # Read the corresponding frame from the second video
+        # ret2, img2 = video2.read()
+        # if not ret2:
+        #     break
 
         # img1 = cv2.imread(orig_files_left[i % len(orig_files_left)])
         # img2 = cv2.imread(orig_files_right[i % len(orig_files_left)])
@@ -581,7 +606,7 @@ def pyramid_blending():
         # cv2.waitKey(0)
         start = time.time()
         if True:
-          core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
+          #core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
           stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
           duration = time.time() - start
           print(f"Got results in {duration} seconds")
