@@ -37,14 +37,18 @@ class HmSingleImageRemapper {
     std::unique_lock<std::mutex> lk(mu_);
     m_advancedOptions = advancedOptions;
   }
-
+  constexpr const HuginBase::Nona::AdvancedOptions& get_advanced_options()
+      const {
+    return m_advancedOptions;
+  }
   ///
-  //virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
+  // virtual void release(HmRemappedPanoImage<ImageType, AlphaType>* d) = 0;
 
  protected:
+  std::size_t pass_{0};
+ private:
   std::mutex mu_;
   HuginBase::Nona::AdvancedOptions m_advancedOptions;
-  std::size_t pass_{0};
 };
 
 /** functor to create a remapped image, loads image from disk */
@@ -86,7 +90,8 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
 
  protected:
   AlphaType srcAlpha_;
-  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
+  //std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
+  std::mutex image_import_infos_mu_;
   std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
 };
 

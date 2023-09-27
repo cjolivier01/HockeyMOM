@@ -651,7 +651,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
 
   //vigra::Size2D destSize(opts.getWidth(), opts.getHeight());
-
+  std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> m_remapped;
   if (m_remapped.size() <= imgNr) {
     m_remapped.resize(imgNr + 1);
   }
@@ -661,7 +661,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   // load image if necessary
   vigra::ImageImportInfo* info_ptr;
   {
-//    std::unique_lock<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(image_import_infos_mu_);
     if (imgNr >= this->image_import_infos_.size()) {
       this->image_import_infos_.resize(imgNr + 1);
       this->image_import_infos_.at(imgNr) = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
@@ -747,7 +747,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
     vigra::importImage(ffInfo, vigra::destImage(ffImg));
   }
   m_remapped.at(imgNr)->setAdvancedOptions(
-      HmSingleImageRemapper<ImageType, AlphaType>::m_advancedOptions);
+      HmSingleImageRemapper<ImageType, AlphaType>::get_advanced_options());
   // remap the image
   remapImage(
       srcImg,

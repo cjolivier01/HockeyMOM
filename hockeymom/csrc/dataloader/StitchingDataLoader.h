@@ -46,7 +46,7 @@ class SortedQueue {
   SortedQueue() = default;
 
   void enqueue(const KEY_TYPE& key_type, ITEM_TYPE&& item) {
-    std::unique_lock lk(items_mu_);
+    std::unique_lock<std::mutex> lk(items_mu_);
     if (!items_.emplace(key_type, std::move(item)).second) {
       throw std::runtime_error("Duplciate key in sorted queue");
     }
@@ -54,7 +54,7 @@ class SortedQueue {
   }
 
   ITEM_TYPE dequeue(KEY_TYPE* key_type_ptr = nullptr) {
-    std::unique_lock lk(items_mu_);
+    std::unique_lock<std::mutex> lk(items_mu_);
     cu_.wait(lk, [this] { return !items_.empty(); });
     auto iter = items_.begin();
     auto value = std::move(iter->second);
@@ -66,7 +66,7 @@ class SortedQueue {
   }
 
   ITEM_TYPE dequeue_key(const KEY_TYPE& key) {
-    std::unique_lock lk(items_mu_);
+    std::unique_lock<std::mutex> lk(items_mu_);
     cu_.wait(lk, [this, &key] { return items_.find(key) != items_.end(); });
     auto iter = items_.find(key);
     assert(iter != items_.end());
