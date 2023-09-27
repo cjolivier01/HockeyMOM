@@ -342,8 +342,7 @@ void remapImage(
     }
   }
 #endif
-  progress->setMessage(
-      "remapping", hugin_utils::stripPath(src.getFilename()));
+  progress->setMessage("remapping", hugin_utils::stripPath(src.getFilename()));
   // set pano image
   DEBUG_DEBUG("setting src image with size: " << src.getSize());
   remapped.setPanoImage(src, dest, outputROI);

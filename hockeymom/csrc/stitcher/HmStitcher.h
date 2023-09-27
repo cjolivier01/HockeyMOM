@@ -17,8 +17,6 @@ namespace hm {
 template <typename ImageType, typename AlphaType>
 class HmMultiImageRemapper
     : public HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType> {
-  // using namespace HuginBase;
-  // using namespace HuginBase::Nona;
  public:
   using Base = HuginBase::Nona::MultiImageRemapper<ImageType, AlphaType>;
   using MultiImageRemapper =
@@ -646,8 +644,8 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   //         typedef typename vigra::BasicImage<RPixelType> RImportImageType;
   typedef typename vigra::BasicImage<float> FlatImgType;
 
-  FlatImgType ffImg;
-  AlphaType srcAlpha;
+  //FlatImgType ffImg;
+  //AlphaType srcAlpha;
 
   // choose image type...
   const HuginBase::SrcPanoImage& img = pano.getImage(imgNr);
@@ -688,7 +686,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   m_remapped->m_ICCProfile = info.getICCProfile();
 
   if (info.numExtraBands() > 0) {
-    srcAlpha.resize(width, height);
+    srcAlpha_.resize(width, height);
   }
   // int nb = info.numBands() - info.numExtraBands();
   bool alpha = info.numExtraBands() > 0;
@@ -702,7 +700,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   if (!image) {
     if (alpha) {
       vigra::importImageAlpha(
-          info, vigra::destImage(srcImg), vigra::destImage(srcAlpha));
+          info, vigra::destImage(srcImg), vigra::destImage(srcAlpha_));
     } else {
       vigra::importImage(info, vigra::destImage(srcImg));
     }
@@ -713,6 +711,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   // has already been loaded into the output container
   double maxv = vigra_ext::getMaxValForPixelType(info.getPixelType());
   if (maxv != vigra_ext::LUTTraits<PixelType>::max()) {
+    assert(false); // colivier: assumign not the case for quick remap
     double scale = ((double)vigra_ext::LUTTraits<PixelType>::max()) / maxv;
     // std::cout << "Scaling input image (pixel type: " << info.getPixelType()
     // << " with: " << scale << std::endl;
@@ -722,8 +721,10 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
         vigra::functor::Arg1() * vigra::functor::Param(scale));
   }
 
+  FlatImgType ffImg;
   // load flatfield, if needed.
   if (img.getVigCorrMode() & HuginBase::SrcPanoImage::VIGCORR_FLATFIELD) {
+    assert(false); // colivier: assumign not the case for quick remap
     // load flatfield image.
     vigra::ImageImportInfo ffInfo(img.getFlatfieldFilename().c_str());
     progress->setMessage(
@@ -741,7 +742,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   // remap the image
   remapImage(
       srcImg,
-      srcAlpha,
+      srcAlpha_,
       ffImg,
       pano.getSrcImage(imgNr),
       opts,
