@@ -57,13 +57,20 @@ public:
 
   constexpr std::uint8_t *consume_raw_data() {
     own_raw_data = false;
-    return raw_data;
+    std::uint8_t* d = raw_data;
+    raw_data = nullptr;
+    return d;
   }
 
 	void set_raw_data(std::uint8_t *data, bool own = false) {
 		raw_data_write_ptr_ = raw_data = data;
 		own_raw_data = own;
 	}
+
+  std::size_t num_channels() const {
+    assert(!channels.empty());
+    return channels.size();
+  }
 
 private:
 	TIFF* tiff;

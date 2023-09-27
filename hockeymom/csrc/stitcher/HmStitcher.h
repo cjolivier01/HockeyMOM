@@ -35,15 +35,15 @@ class HmMultiImageRemapper
       : MultiImageRemapper(pano, progress) {}
 
   void set_input_images(
-      std::shared_ptr<hm::MatrixRGB> image1,
-      std::shared_ptr<hm::MatrixRGB> image2) {
-    images_ = std::vector<std::shared_ptr<hm::MatrixRGB>>{
+      std::shared_ptr<MatrixRGBA> image1,
+      std::shared_ptr<MatrixRGBA> image2) {
+    images_ = std::vector<std::shared_ptr<MatrixRGBA>>{
         std::move(image1), std::move(image2)};
     output_images_.clear();
     output_images_.resize(images_.size());
   }
 
-  std::vector<std::unique_ptr<hm::MatrixRGB>> consume_output_images() {
+  std::vector<std::unique_ptr<MatrixRGBA>> consume_output_images() {
     std::size_t sz = output_images_.size ();
     auto result = std::move(output_images_);
     output_images_.resize(sz);
@@ -622,8 +622,8 @@ class HmMultiImageRemapper
   // protected:
   //     std::string m_basename;
  private:
-  std::vector<std::shared_ptr<hm::MatrixRGB>> images_;
-  std::vector<std::unique_ptr<hm::MatrixRGB>> output_images_;
+  std::vector<std::shared_ptr<MatrixRGBA>> images_;
+  std::vector<std::unique_ptr<MatrixRGBA>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
 };
@@ -636,7 +636,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
         const HuginBase::PanoramaData& pano,
         const HuginBase::PanoramaOptions& opts,
         unsigned int imgNr,
-        const std::shared_ptr<hm::MatrixRGB>& image,
+        const std::shared_ptr<MatrixRGBA>& image,
         vigra::Rect2D outputROI,
         AppBase::ProgressDisplay* progress) {
   typedef typename ImageType::value_type PixelType;

@@ -2163,7 +2163,7 @@ class Blender {
           }
           auto& img = *output_image_ptr_;
           *output_image = std::make_unique<hm::MatrixRGB>(
-              img.height, img.width, img.consume_raw_data());
+              img.height, img.width, img.num_channels(), img.consume_raw_data());
         } break;
       }
 

@@ -11,13 +11,10 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 
-#include <cstdint>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
-
-//#include <vigra/BRGBImage.hxx>
-//#include <vigra/BRGBAImage.hxx>
 
 namespace py = pybind11;
 
@@ -26,10 +23,9 @@ namespace hm {
  * @brief Class to carry python array for RGB data into the blend function
  *        (in-place)
  */
-template <std::size_t CHANNELS>
+// template <std::size_t CHANNELS>
 struct MatrixImage {
  public:
-  static inline constexpr std::size_t kChannels = CHANNELS;
   static inline constexpr std::size_t kPixelSampleSize = sizeof(std::uint8_t);
 
   MatrixImage() {}
@@ -41,7 +37,7 @@ struct MatrixImage {
       std::size_t xpos,
       std::size_t ypos) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
-    if (input_image.ndim() != kChannels || input_image.shape(2) != kChannels ||
+    if (input_image.ndim() != 3 ||
         !input_image.dtype().is(py::dtype::of<uint8_t>())) {
       throw std::runtime_error("Input must be a 3D uint8 RGB image array");
     }
@@ -55,17 +51,18 @@ struct MatrixImage {
     // Get the dimensions
     m_rows = buf_info.shape[0];
     m_cols = buf_info.shape[1];
+    m_channels = buf_info.shape[2];
     m_own_data = false;
     m_array = input_image;
     m_xpos = xpos;
     m_ypos = ypos;
   }
-  MatrixImage(size_t rows, size_t cols) : m_rows(rows), m_cols(cols) {
-    m_data = new std::uint8_t[rows * cols * kChannels * kPixelSampleSize];
+  MatrixImage(size_t rows, size_t cols, size_t channels) : m_rows(rows), m_cols(cols), m_channels(channels) {
+    m_data = new std::uint8_t[rows * cols * m_channels * kPixelSampleSize];
     m_own_data = true;
   }
-  MatrixImage(size_t rows, size_t cols, std::uint8_t* consume_data)
-      : m_rows(rows), m_cols(cols) {
+  MatrixImage(size_t rows, size_t cols, size_t channels, std::uint8_t* consume_data)
+      : m_rows(rows), m_cols(cols), m_channels(channels) {
     m_data = consume_data;
     m_own_data = true;
   }
@@ -90,8 +87,8 @@ struct MatrixImage {
   constexpr size_t cols() const {
     return m_cols;
   }
-  constexpr size_t channels() const {
-    return kChannels;
+  constexpr size_t channels() {
+    return m_channels;
   }
 
   py::array_t<std::uint8_t> to_py_array() {
@@ -99,9 +96,11 @@ struct MatrixImage {
       return std::move(m_array);
     }
     py::array_t<std::uint8_t> result(
-        {rows(), cols(), channels()},
+        {rows(),
+         cols(),
+         channels() * kPixelSampleSize} /* total buffer size in bytes */,
         {channels() * kPixelSampleSize *
-             cols(), /* Strides (in bytes) for each index */
+             cols() /* Strides (in bytes) for each index */,
          channels() * kPixelSampleSize,
          kPixelSampleSize},
         m_data);
@@ -111,32 +110,32 @@ struct MatrixImage {
   }
 
   std::unique_ptr<vigra::BRGBImage> to_vigra_image() {
-    static_assert(CHANNELS == 3 || CHANNELS == 4);
-    if (CHANNELS == 3) {
+    if (channels() == 3) {
       const vigra::RGBValue<unsigned char>* rgb_data =
           reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
       return std::make_unique<vigra::BRGBImage>(cols(), rows(), rgb_data);
-    } else if (CHANNELS == 4) {
+    } else if (channels() == 4) {
       assert(false);
       const vigra::RGBValue<unsigned char>* rgba_data =
           reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
       return std::make_unique<vigra::BRGBImage>(cols(), rows(), rgba_data);
+    } else {
+      assert(false);
     }
   }
 
  private:
   bool m_own_data{false};
-  size_t m_rows{0}, m_cols{0};
+  size_t m_rows{0}, m_cols{0}, m_channels{0};
   std::uint8_t* m_data;
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
   py::array_t<uint8_t> m_array;
 };
 
-using MatrixRGB = MatrixImage<3>;
-using MatrixRGBA = MatrixImage<4>;
+using MatrixRGB = MatrixImage;
 
-template <typename MATRIX_IMAGE>
+template <std::size_t CHANNELS>
 struct MatrixEncoder : public vigra::Encoder {
  public:
   virtual ~MatrixEncoder() = default;
@@ -158,7 +157,7 @@ struct MatrixEncoder : public vigra::Encoder {
                    // interesting info
   }
   virtual unsigned int getOffset() const {
-    return MATRIX_IMAGE::kChannels;
+    return CHANNELS;
   }
 
   virtual void setWidth(unsigned int width) {
@@ -181,13 +180,13 @@ struct MatrixEncoder : public vigra::Encoder {
     return height_;
   }
   virtual void finalizeSettings() {
+    std::size_t num_channels = CHANNELS;
     std::size_t total_image_size =
-        sizeof(std::uint8_t) * width() * height() * MATRIX_IMAGE::kChannels;
+        MatrixRGB::kPixelSampleSize * width() * height() * num_channels;
     data_ = std::make_unique<std::uint8_t[]>(total_image_size);
-    bzero(data_.get(), total_image_size);
-    scanlines_.resize(MATRIX_IMAGE::kChannels);
-    for (std::size_t i = 0; i < MATRIX_IMAGE::kChannels; ++i) {
-      scanlines_.at(i) = data_.get() + (sizeof(std::uint8_t) * i);
+    scanlines_.resize(CHANNELS);
+    for (std::size_t i = 0; i < CHANNELS; ++i) {
+      scanlines_.at(i) = data_.get() + (MatrixRGB::kPixelSampleSize * i);
     }
   }
   virtual void setPosition(const vigra::Diff2D& pos) {
@@ -196,6 +195,7 @@ struct MatrixEncoder : public vigra::Encoder {
   virtual void setCanvasSize(const vigra::Size2D& size) {
     canvas_size_ = size;
   }
+
   virtual void setXResolution(float xres) {
     x_res_ = xres;
   }
@@ -215,12 +215,11 @@ struct MatrixEncoder : public vigra::Encoder {
 
   virtual void nextScanline() {
     for (auto& ptr : scanlines_) {
-      ptr += sizeof(std::uint8_t) * width_ * MATRIX_IMAGE::kChannels;
+      ptr += sizeof(std::uint8_t) * width_ * CHANNELS;
     }
   }
-
   std::unique_ptr<MatrixRGB> consume() {
-    auto matrix = std::make_unique<MatrixRGB>(height_, width_, data_.release());
+    auto matrix = std::make_unique<MatrixRGB>(height_, width_, CHANNELS, data_.release());
     matrix->set_xy_pos(position_.x, position_.y);
     return matrix;
   }
@@ -239,27 +238,7 @@ struct MatrixEncoder : public vigra::Encoder {
   std::vector<std::uint8_t*> scanlines_;
 };
 
-using MatrixEncoderRGB = MatrixEncoder<MatrixRGB>;
-using MatrixEncoderRGBA = MatrixEncoder<MatrixRGBA>;
-
-class MatrixEncoderRGBFakeAlpha : public MatrixEncoder<MatrixRGB> {
-  using Base = MatrixEncoder<MatrixRGB>;
-
- public:
-  virtual void finalizeSettings() {
-    Base::finalizeSettings();
-    dummy_alpha_ =
-        std::make_unique<std::uint8_t[]>(sizeof(std::uint8_t) * width());
-  }
-  virtual void* currentScanlineOfBand(unsigned int band) {
-    if (band < MatrixRGB::kChannels) {
-      return scanlines_[band];
-    }
-    return dummy_alpha_.get();
-  }
-
- private:
-  std::unique_ptr<std::uint8_t[]> dummy_alpha_;
-};
+using MatrixEncoderRGB = MatrixEncoder<3>;
+using MatrixEncoderRGBA = MatrixEncoder<4>;
 
 } // namespace hm

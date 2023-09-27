@@ -543,28 +543,29 @@ def pyramid_blending():
     nona = core.HmNona(f"{vid_dir}/my_project.pto")
 
 
-    for i in range(len(orig_files_left) * 10):
-        img1 = cv2.imread(orig_files_left[i % len(orig_files_left)])
-        img2 = cv2.imread(orig_files_right[i % len(orig_files_left)])
-        # cv2.imshow('Nona image left', img1)
-        # cv2.waitKey(0)
-        # cv2.imshow('Nona image right', img2)
-        # cv2.waitKey(0)
-        start = time.time()
-        if True:
-            result = core.nona_process_images(nona, img1, img2)
-            duration = time.time() - start
-            print(f"Got results in {duration} seconds")
-            # cv2.imshow('Nona image left', result[0])
+    for i in range(1):
+        for i in range(len(orig_files_left)):
+            img1 = cv2.imread(orig_files_left[i % len(orig_files_left)])
+            img2 = cv2.imread(orig_files_right[i % len(orig_files_left)])
+            # cv2.imshow('Nona image left', img1)
             # cv2.waitKey(0)
-            # cv2.imshow('Nona image right', result[1])
+            # cv2.imshow('Nona image right', img2)
             # cv2.waitKey(0)
-        else:
-            result = core.stitch_images(nona, img1, img2)
-            duration = time.time() - start
-            print(f"Got results in {duration} seconds")
-            # cv2.imshow('Stitched Image', result)
-            # cv2.waitKey(0)
+            start = time.time()
+            if True:
+                result = core.nona_process_images(nona, img1, img2)
+                duration = time.time() - start
+                print(f"Got results in {duration} seconds")
+                cv2.imshow('Nona image left', result[0])
+                cv2.waitKey(0)
+                cv2.imshow('Nona image right', result[1])
+                cv2.waitKey(0)
+            else:
+                result = core.stitch_images(nona, img1, img2)
+                duration = time.time() - start
+                print(f"Got results in {duration} seconds")
+                # cv2.imshow('Stitched Image', result)
+                # cv2.waitKey(0)
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",

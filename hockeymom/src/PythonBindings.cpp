@@ -114,6 +114,10 @@ PYBIND11_MODULE(_hockeymom, m) {
          py::array_t<uint8_t>& image1,
          py::array_t<uint8_t>& image2) -> std::vector<py::array_t<uint8_t>> {
         py::gil_scoped_release release_gil();
+
+        // We expect a three-channel RGB image here
+        assert(image1.ndim() == 3);
+        assert(image2.ndim() == 3);
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
         // Just remap (no blend)
@@ -128,6 +132,7 @@ PYBIND11_MODULE(_hockeymom, m) {
         }
         return results;
       });
+
   m.def(
       "_stitch_images",
       [](std::shared_ptr<hm::HmNona> nona,
