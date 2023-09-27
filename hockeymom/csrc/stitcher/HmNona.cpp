@@ -112,7 +112,7 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
-  opts_.remapUsingGPU = check_cuda_opengl();
+  //opts_.remapUsingGPU = check_cuda_opengl();
   pano_.setOptions(opts_);
   return true;
 }

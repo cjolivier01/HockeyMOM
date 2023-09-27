@@ -551,7 +551,7 @@ def pyramid_blending():
     
     start_frame_number = 2000
     frame_step = 1200
-    max_frames = 2
+    max_frames = 100
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
@@ -584,10 +584,10 @@ def pyramid_blending():
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
             print(f"Got results in {duration} seconds")
-            cv2.imshow('Nona image left', result[0])
-            cv2.waitKey(0)
-            cv2.imshow('Nona image right', result[1])
-            cv2.waitKey(0)
+            # cv2.imshow('Nona image left', result[0])
+            # cv2.waitKey(0)
+            # cv2.imshow('Nona image right', result[1])
+            # cv2.waitKey(0)
         else:
             result = core.stitch_images(nona, img1, img2)
             duration = time.time() - start

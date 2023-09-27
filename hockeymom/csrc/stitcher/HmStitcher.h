@@ -108,7 +108,10 @@ class HmMultiImageRemapper
     int img_count = img_indexes.size();
     for (int i = 0; i < img_count; ++i) {
       thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
-        bool gpu_initialized = check_cuda_opengl();
+        if (opts.remapUsingGPU) {
+          bool gpu_initialized = check_cuda_opengl();
+          assert(gpu_initialized);
+        }
         // get a remapped image.
         std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
             remapper.getRemapped(
@@ -682,11 +685,15 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
   vigra::ImageImportInfo* info_ptr{nullptr};
   {
     std::unique_lock<std::mutex> lk(image_import_infos_mu_);
-    if (imgNr >= this->image_import_infos_.size()) {
-      this->image_import_infos_.resize(imgNr + 1);
+    assert(imgNr < 2);
+    if (this->image_import_infos_.empty()) {
+      this->image_import_infos_.resize(2);
+    }
+    if (!this->image_import_infos_.at(imgNr)) {
       std::cout << "Reading file: " << img.getFilename() << std::endl;
-      assert(!this->image_import_infos_[imgNr]);
-      this->image_import_infos_[imgNr] = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
+      this->image_import_infos_[imgNr] =
+          std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
+      assert(this->image_import_infos_[imgNr]);
     }
     info_ptr = this->image_import_infos_.at(imgNr).get();
     assert(info_ptr);
