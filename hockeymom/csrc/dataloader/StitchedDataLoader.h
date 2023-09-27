@@ -27,8 +27,8 @@ struct FrameData {
       std::numeric_limits<std::size_t>::max();
   std::size_t frame_id{kInvalidFrameId};
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
-  std::vector<std::shared_ptr<MatrixRGBA>> remapped_images;
-  std::vector<std::shared_ptr<MatrixRGBA>> blended_images;
+  std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
+  std::vector<std::shared_ptr<MatrixRGB>> blended_images;
 };
 
 /**

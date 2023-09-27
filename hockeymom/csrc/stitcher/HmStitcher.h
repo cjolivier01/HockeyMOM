@@ -1,8 +1,8 @@
 #pragma once
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
-#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
+#include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
 
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
@@ -35,16 +35,16 @@ class HmMultiImageRemapper
       : MultiImageRemapper(pano, progress) {}
 
   void set_input_images(
-      std::shared_ptr<MatrixRGBA> image1,
-      std::shared_ptr<MatrixRGBA> image2) {
-    images_ = std::vector<std::shared_ptr<MatrixRGBA>>{
+      std::shared_ptr<MatrixRGB> image1,
+      std::shared_ptr<MatrixRGB> image2) {
+    images_ = std::vector<std::shared_ptr<MatrixRGB>>{
         std::move(image1), std::move(image2)};
     output_images_.clear();
     output_images_.resize(images_.size());
   }
 
-  std::vector<std::unique_ptr<MatrixRGBA>> consume_output_images() {
-    std::size_t sz = output_images_.size ();
+  std::vector<std::unique_ptr<MatrixRGB>> consume_output_images() {
+    std::size_t sz = output_images_.size();
     auto result = std::move(output_images_);
     output_images_.resize(sz);
     return result;
@@ -97,7 +97,8 @@ class HmMultiImageRemapper
     }
     // HACK
     results.resize(images.size());
-    std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>> remappers;
+    std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
+        remappers;
     remappers.reserve(images.size());
     for (UIntSet::const_iterator it = images.begin(); it != images.end();
          ++it) {
@@ -120,7 +121,7 @@ class HmMultiImageRemapper
       }
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
-      //remapper.release(remapped);
+      // remapper.release(remapped);
       //
       // TODO: Can we reuse this somehow?
       //
@@ -347,8 +348,7 @@ class HmMultiImageRemapper
               identity());
           break;
         default:
-          vigra_fail(
-              "exportImageAlpha<non-scalar>: not reached");
+          vigra_fail("exportImageAlpha<non-scalar>: not reached");
       }
     }
 
@@ -523,15 +523,16 @@ class HmMultiImageRemapper
 
     if (supportsAlpha) {
       if (save_as_file) {
-      VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
-      exportImageAlpha(encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+        VIGRA_UNIQUE_PTR<vigra::Encoder> encoder{nullptr};
+        exportImageAlpha(
+            encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       }
       VIGRA_UNIQUE_PTR<vigra::Encoder> encoder =
-      std::make_unique<MatrixEncoderRGBA>();
+          std::make_unique<MatrixEncoderRGBA>();
       exportImageAlpha(
-      encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
+          encoder, srcImageRange(*final_img), srcImage(*alpha_img), exinfo);
       MatrixEncoderRGBA* matric_encoder_ptr =
-      static_cast<MatrixEncoderRGBA*>(encoder.get());
+          static_cast<MatrixEncoderRGBA*>(encoder.get());
       auto matrix_rgb = matric_encoder_ptr->consume();
       auto ul = remapped.boundingBox().upperLeft();
       matrix_rgb->set_xy_pos(ul.x, ul.y);
@@ -622,8 +623,8 @@ class HmMultiImageRemapper
   // protected:
   //     std::string m_basename;
  private:
-  std::vector<std::shared_ptr<MatrixRGBA>> images_;
-  std::vector<std::unique_ptr<MatrixRGBA>> output_images_;
+  std::vector<std::shared_ptr<MatrixRGB>> images_;
+  std::vector<std::unique_ptr<MatrixRGB>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
 };
@@ -636,7 +637,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
         const HuginBase::PanoramaData& pano,
         const HuginBase::PanoramaOptions& opts,
         unsigned int imgNr,
-        const std::shared_ptr<MatrixRGBA>& image,
+        const std::shared_ptr<MatrixRGB>& image,
         vigra::Rect2D outputROI,
         AppBase::ProgressDisplay* progress) {
   typedef typename ImageType::value_type PixelType;
