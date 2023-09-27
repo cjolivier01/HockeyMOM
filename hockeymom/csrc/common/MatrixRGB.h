@@ -43,17 +43,19 @@ class __attribute__((visibility("default"))) MatrixImage {
     }
 
     // Access the data and information from the NumPy array
-    py::buffer_info buf_info = input_image.request();
-
+    //py::buffer_info buf_info = input_image.request();
+    py_buffer_info = input_image.request();
     // Get the pointer to the data
-    m_data = static_cast<uint8_t*>(buf_info.ptr);
+    m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
+    //m_data = static_cast<uint8_t*>(buf_info.ptr);
 
     // Get the dimensions
-    m_rows = buf_info.shape[0];
-    m_cols = buf_info.shape[1];
-    m_channels = buf_info.shape[2];
+    m_rows = py_buffer_info.shape[0];
+    m_cols = py_buffer_info.shape[1];
+    m_channels = py_buffer_info.shape[2];
+    //m_own_data = true;
     m_own_data = false;
-    m_array = input_image;
+    //m_array = input_image;
     m_xpos = xpos;
     m_ypos = ypos;
   }
@@ -68,6 +70,7 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
   ~MatrixImage() {
     if (m_data && m_own_data) {
+      assert(!py_buffer_info.ptr);
       delete m_data;
     }
   }
@@ -92,8 +95,13 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
   py::array_t<std::uint8_t> to_py_array() {
-    if (!m_data) {
-      return std::move(m_array);
+    // if (!m_data) {
+    //   assert(false);
+    //   //return std::move(m_array);
+    //   return py::array_t<std::uint8_t>(std::move(py_buffer_info));
+    // }
+    if (py_buffer_info.ptr) {
+      return py::array_t<std::uint8_t>(std::move(py_buffer_info));
     }
     py::array_t<std::uint8_t> result(
         {rows(),
@@ -130,7 +138,8 @@ class __attribute__((visibility("default"))) MatrixImage {
   std::uint8_t* m_data;
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
-  py::array_t<uint8_t> m_array;
+  //py::array_t<uint8_t> m_array;
+  py::buffer_info py_buffer_info;
 };
 
 using MatrixRGB = MatrixImage;

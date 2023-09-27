@@ -41,7 +41,7 @@ class CMakeBuild(build_ext):
             "-DPYTHON_EXECUTABLE=" + sys.executable,
         ]
 
-        default_build_type = "Release"
+        default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
             default_build_type = "Debug"
 

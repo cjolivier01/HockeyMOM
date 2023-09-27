@@ -579,7 +579,7 @@ def pyramid_blending():
     start_frame_number = 2000
     #frame_step = 1200
     frame_step = 1
-    max_frames = 100
+    max_frames = 10
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
