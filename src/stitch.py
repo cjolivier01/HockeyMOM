@@ -19,6 +19,7 @@ import time
 
 from hockeymom import core
 
+
 class Timer(object):
     """A simple timer."""
 
@@ -294,12 +295,14 @@ def expand_image_width(input_image, new_width: int):
 def make_transformed_image(input_image, matrix):
     # Calculate the dimensions of the output image
     height, width = input_image.shape[:2]
-    transformed_corners = np.array([
-        np.dot(matrix, [0, 0, 1]),
-        np.dot(matrix, [width, 0, 1]),
-        np.dot(matrix, [0, height, 1]),
-        np.dot(matrix, [width, height, 1])
-    ])
+    transformed_corners = np.array(
+        [
+            np.dot(matrix, [0, 0, 1]),
+            np.dot(matrix, [width, 0, 1]),
+            np.dot(matrix, [0, height, 1]),
+            np.dot(matrix, [width, height, 1]),
+        ]
+    )
     min_x = int(np.min(transformed_corners[:, 0]))
     max_x = int(np.max(transformed_corners[:, 0]))
     min_y = int(np.min(transformed_corners[:, 1]))
@@ -311,15 +314,15 @@ def make_transformed_image(input_image, matrix):
     output_image = np.zeros((output_height, output_width, 3), dtype=np.uint8)
 
     # Calculate the translation matrix to account for the min_x and min_y values
-    translation_matrix = np.array([[1, 0, -min_x],
-                                    [0, 1, -min_y],
-                                    [0, 0, 1]])
+    translation_matrix = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
 
     # Combine the translation matrix and the original transformation matrix
     combined_matrix = np.dot(translation_matrix, matrix)
 
     # Apply the perspective transformation and place it on the output image
-    output_image = cv2.warpPerspective(input_image, combined_matrix, (output_width, output_height))
+    output_image = cv2.warpPerspective(
+        input_image, combined_matrix, (output_width, output_height)
+    )
     output_image = cv2.resize(output_image, dsize=[3000, 3000])
     return output_image
 
@@ -371,7 +374,7 @@ def stitch_with_warp():
 
         # Create a black mask with the same dimensions as the input image
         left_mask = np.zeros_like(gray1)
-        #left_mask = np.ones_like(gray1)
+        # left_mask = np.ones_like(gray1)
 
         # Fill the ROI region with white
         cv2.rectangle(left_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
@@ -389,7 +392,7 @@ def stitch_with_warp():
 
         # Create a black mask with the same dimensions as the input image
         right_mask = np.zeros_like(gray2)
-        #right_mask = np.ones_like(gray2)
+        # right_mask = np.ones_like(gray2)
 
         # Fill the ROI region with white
         cv2.rectangle(right_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
@@ -443,7 +446,7 @@ def stitch_with_warp():
             flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
         )
 
-        cv2.imshow('Match Image', match_img)
+        cv2.imshow("Match Image", match_img)
         cv2.waitKey(0)
 
         if len(good_matches) >= 4:
@@ -464,8 +467,8 @@ def stitch_with_warp():
             # Use the Homography matrix to warp the images
             # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image2.shape[0]))
 
-            #panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
-            #cv2.imshow("Big image", panoramic_image)
+            # panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
+            # cv2.imshow("Big image", panoramic_image)
 
             # corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
             # corrected_perspective = cv2.warpPerspective(image2, M, (image2.shape[1] * 2, image2.shape[0] * 2))
@@ -498,7 +501,6 @@ def stitch_with_warp():
     output_video.release()
     cv2.destroyAllWindows()
 
-
     # if (!TIFFGetField(tiff, TIFFTAG_XPOSITION, &tiff_xpos)) tiff_xpos = -1;
     # if (!TIFFGetField(tiff, TIFFTAG_YPOSITION, &tiff_ypos)) tiff_ypos = -1;
     # if (!TIFFGetField(tiff, TIFFTAG_XRESOLUTION, &tiff_xres)) tiff_xres = -1;
@@ -506,12 +508,13 @@ def stitch_with_warp():
     # if (tiff_xpos != -1 && tiff_xres > 0) xpos = (int)(tiff_xpos * tiff_xres + 0.5);
     # if (tiff_ypos != -1 && tiff_yres > 0) ypos = (int)(tiff_ypos * tiff_yres + 0.5);
 
+
 def get_tiff_tag_value(tiff_tag):
     if len(tiff_tag.value) == 1:
         return tiff_tag.value
     assert len(tiff_tag.value) == 2
     numerator, denominator = tiff_tag.value
-    return float(numerator)/denominator
+    return float(numerator) / denominator
 
 
 def get_image_geo_position(tiff_image_file: str):
@@ -519,10 +522,10 @@ def get_image_geo_position(tiff_image_file: str):
     with tifffile.TiffFile(tiff_image_file) as tif:
         tags = tif.pages[0].tags
         # Access the TIFFTAG_XPOSITION
-        x_position = get_tiff_tag_value(tags.get('XPosition'))
-        y_position = get_tiff_tag_value(tags.get('YPosition'))
-        x_resolution = get_tiff_tag_value(tags.get('XResolution'))
-        y_resolution = get_tiff_tag_value(tags.get('YResolution'))
+        x_position = get_tiff_tag_value(tags.get("XPosition"))
+        y_position = get_tiff_tag_value(tags.get("YPosition"))
+        x_resolution = get_tiff_tag_value(tags.get("XResolution"))
+        y_resolution = get_tiff_tag_value(tags.get("YResolution"))
         xpos = int(x_position * x_resolution + 0.5)
         ypos = int(y_position * y_resolution + 0.5)
         print(f"x={xpos}, y={ypos}")
@@ -533,7 +536,13 @@ def build_stitching_project(project_file_path: str, skip_if_exists: bool = True)
     pass
 
 
-def run_feeder(video1: cv2.VideoCapture, video2: cv2.VideoCapture, data_loader: core.StitchingDataLoader, current_frame_id: int, max_frames: int):
+def run_feeder(
+    video1: cv2.VideoCapture,
+    video2: cv2.VideoCapture,
+    data_loader: core.StitchingDataLoader,
+    current_frame_id: int,
+    max_frames: int,
+):
     frame_count = 0
     while frame_count < max_frames:
         ret1, img1 = video1.read()
@@ -547,7 +556,7 @@ def run_feeder(video1: cv2.VideoCapture, video2: cv2.VideoCapture, data_loader: 
         core.add_to_stitching_data_loader(data_loader, current_frame_id, img1, img2)
         frame_count += 1
         current_frame_id += 1
-    
+    print("Feeder thread exiting")
 
 
 def pyramid_blending():
@@ -566,16 +575,21 @@ def pyramid_blending():
     pto_project_file = f"{vid_dir}/my_project.pto"
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
-    
+
     start_frame_number = 2000
-    frame_step = 1200
+    #frame_step = 1200
+    frame_step = 1
     max_frames = 100
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
 
-    total_num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    max_frames = total_num_frames - start_frame_number
+    total_num_frames = min(
+        int(video1.get(cv2.CAP_PROP_FRAME_COUNT)),
+        int(video2.get(cv2.CAP_PROP_FRAME_COUNT)),
+    )
+
+    max_frames = min(total_num_frames - start_frame_number, max_frames)
     assert max_frames > 0
 
     video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
@@ -583,7 +597,10 @@ def pyramid_blending():
 
     data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 10)
 
-    feeder_thread = threading.Thread(target=run_feeder, args=(video1, video2, data_loader, start_frame_number, max_frames))
+    feeder_thread = threading.Thread(
+        target=run_feeder,
+        args=(video1, video2, data_loader, start_frame_number, max_frames),
+    )
     feeder_thread.start()
 
     frame_id = start_frame_number
@@ -606,10 +623,12 @@ def pyramid_blending():
         # cv2.waitKey(0)
         start = time.time()
         if True:
-          #core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
-          stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
-          duration = time.time() - start
-          print(f"Got results in {duration} seconds")
+            # core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
+            stitched_frame = core.get_stitched_frame_from_data_loader(
+                data_loader, frame_id
+            )
+            duration = time.time() - start
+            print(f"Got results in {duration} seconds")
         #   cv2.imshow('Nona image left', stitched_frame)
         #   cv2.waitKey(0)
         elif True:
@@ -629,8 +648,14 @@ def pyramid_blending():
         frame_id += 1
         frame_count += 1
         if frame_step > 1:
-            video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1)
-            video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1)
+            video1.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                video1.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
+            )
+            video2.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                video2.get(cv2.CAP_PROP_POS_FRAMES) + frame_step - 1,
+            )
 
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
@@ -652,7 +677,8 @@ def pyramid_blending():
     #     # cv2.imshow('Panoramic blended image', img)
     #     # cv2.waitKey(0)
 
-    #cv2.destroyAllWindows()
+    # cv2.destroyAllWindows()
+
 
 def main():
     pyramid_blending()

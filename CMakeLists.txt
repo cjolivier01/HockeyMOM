@@ -44,6 +44,13 @@ SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/o
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 
+#
+#
+# OPTIMIZATIONS TURNED OFF!!
+#
+#
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+
 find_package(PythonInterp REQUIRED)
 find_package(PythonLibs "${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}" REQUIRED)
 if (PYTHONLIBS_FOUND)
