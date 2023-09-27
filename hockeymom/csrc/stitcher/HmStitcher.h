@@ -1,5 +1,6 @@
 #pragma once
 
+#include "hockeymom/csrc/common/Gpu.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
 #include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
@@ -106,7 +107,8 @@ class HmMultiImageRemapper
     std::vector<std::size_t> img_indexes{images.begin(), images.end()};
     int img_count = img_indexes.size();
     for (int i = 0; i < img_count; ++i) {
-      //thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
+      thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
+        bool gpu_initialized = check_cuda_opengl();
         // get a remapped image.
         std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
             remapper.getRemapped(
@@ -129,7 +131,7 @@ class HmMultiImageRemapper
           std::cerr << e.what();
         }
         gates.at(i)->signal();
-      //});
+      });
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
       // remapper.release(remapped);
@@ -677,14 +679,17 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
       std::make_unique<HmRemappedPanoImage<ImageType, AlphaType>>();
 
   // load image if necessary
-  vigra::ImageImportInfo* info_ptr;
+  vigra::ImageImportInfo* info_ptr{nullptr};
   {
     std::unique_lock<std::mutex> lk(image_import_infos_mu_);
     if (imgNr >= this->image_import_infos_.size()) {
       this->image_import_infos_.resize(imgNr + 1);
-      this->image_import_infos_.at(imgNr) = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
+      std::cout << "Reading file: " << img.getFilename() << std::endl;
+      assert(!this->image_import_infos_[imgNr]);
+      this->image_import_infos_[imgNr] = std::make_unique<vigra::ImageImportInfo>(img.getFilename().c_str());
     }
     info_ptr = this->image_import_infos_.at(imgNr).get();
+    assert(info_ptr);
   }
   vigra::ImageImportInfo& info = *info_ptr;
 
