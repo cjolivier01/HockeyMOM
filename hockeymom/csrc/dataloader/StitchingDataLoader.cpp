@@ -17,7 +17,8 @@ StitchingDataLoader::StitchingDataLoader(
       next_frame_id_(start_frame_id),
       remap_thread_count_(remap_thread_count),
       blend_thread_count_(blend_thread_count),
-      input_queue_(std::make_shared<JobRunnerT::InputQueue>((int(remap_thread_count * 1.5)))),
+      input_queue_(std::make_shared<JobRunnerT::InputQueue>(
+          /*(int(remap_thread_count * 1.5))*/)),
       remap_runner_(
           input_queue_,
           [this](

@@ -51,15 +51,15 @@ namespace hm {
 template <typename KEY_TYPE, typename ITEM_TYPE>
 class SortedQueue {
  public:
-  SortedQueue(std::size_t max_queue_size = 0)
-      : max_queue_size_(max_queue_size) {}
+  SortedQueue(/*std::size_t max_queue_size = 0*/)
+  /*: max_queue_size_(max_queue_size)*/ {}
 
-  void enqueue(const KEY_TYPE& key_type, ITEM_TYPE&& item) {
+  void enqueue(const KEY_TYPE& key, ITEM_TYPE&& item) {
     std::unique_lock<std::mutex> lk(items_mu_);
-    if (max_queue_size_) {
-      cu_.wait(lk, [this] { return items_.size() < max_queue_size_; });
-    }
-    if (!items_.emplace(key_type, std::move(item)).second) {
+    // if (max_queue_size_) {
+    //   cu_max_.wait(lk, [this] { return items_.size() < max_queue_size_; });
+    // }
+    if (!items_.emplace(key, std::move(item)).second) {
       throw std::runtime_error("Duplciate key in sorted queue");
     }
     cu_.notify_one();
@@ -87,14 +87,15 @@ class SortedQueue {
     return value;
   }
 
-  constexpr std::size_t max_queue_size() const {
-    return max_queue_size_;
-  }
+  // constexpr std::size_t max_queue_size() const {
+  //   return max_queue_size_;
+  // }
 
  private:
-  std::size_t max_queue_size_;
+  std::size_t max_queue_size_{0};
   std::mutex items_mu_;
   std::condition_variable cu_;
+  std::condition_variable cu_max_;
   std::map<KEY_TYPE, ITEM_TYPE> items_;
 };
 
@@ -119,8 +120,7 @@ class JobRunner {
       std::function<OUTPUT_TYPE(std::size_t worker_index, INPUT_TYPE&&)>
           worker_fn)
       : input_queue_(std::move(input_queue)),
-        output_queue_(
-            std::make_shared<OutputQueue>(0)),
+        output_queue_(std::make_shared<OutputQueue>()),
         worker_fn_(std::move(worker_fn)) {
     assert(input_queue_);
   }
