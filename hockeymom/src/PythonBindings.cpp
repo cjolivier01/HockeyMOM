@@ -99,13 +99,13 @@ PYBIND11_MODULE(_hockeymom, m) {
         py::gil_scoped_release release_gil();
         hm::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
         hm::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
+        // Just blend (no remap)
         std::unique_ptr<hm::MatrixRGB> result = hm::enblend::enblend(m1, m2);
         return result->to_py_array();
       });
 
   py::class_<hm::HmNona, std::shared_ptr<hm::HmNona>>(m, "HmNona")
       .def(py::init<std::string>())
-      .def("count", &hm::HmNona::count)
       .def("load_project", &hm::HmNona::load_project);
 
   m.def(
@@ -116,8 +116,9 @@ PYBIND11_MODULE(_hockeymom, m) {
         py::gil_scoped_release release_gil();
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        // Just remap (no blend)
         std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices =
-            nona->process_images(std::move(m1), std::move(m2));
+            nona->remap_images(std::move(m1), std::move(m2));
         std::vector<py::array_t<uint8_t>> results;
         results.reserve(result_matrices.size());
         for (auto& m : result_matrices) {
@@ -135,9 +136,12 @@ PYBIND11_MODULE(_hockeymom, m) {
         py::gil_scoped_release release_gil();
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        // First remap...
         std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices =
-            nona->process_images(std::move(m1), std::move(m2));
-        std::unique_ptr<hm::MatrixRGB> result = hm::enblend::enblend(*result_matrices.at(0), *result_matrices.at(1));
+            nona->remap_images(std::move(m1), std::move(m2));
+        // Then blend...
+        std::unique_ptr<hm::MatrixRGB> result = hm::enblend::enblend(
+            *result_matrices.at(0), *result_matrices.at(1));
         return result->to_py_array();
       });
 }

@@ -1,5 +1,4 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
-#include "hockeymom/csrc/stitcher/HmStitcher.h"
 #include "concurrentqueue/blockingconcurrentqueue.h"
 
 // #include "hugin/src/hugin_base/nona/Stitcher.h"
@@ -58,7 +57,7 @@ bool check_cuda_opengl() {
   attempted = true;
 
   int argc = 2;
-  char *argv[2] = {"python", "-g"};
+  char* argv[2] = {"python", "-g"};
   attempted_result = hugin_utils::initGPU(&argc, &argv[0]);
   return attempted_result;
 
@@ -75,8 +74,8 @@ bool check_cuda_opengl() {
   // }
 
   // // Create an OpenGL context
-  // GLFWwindow* window = glfwCreateWindow(100, 100, "OpenGL Window", NULL, NULL);
-  // if (!window) {
+  // GLFWwindow* window = glfwCreateWindow(100, 100, "OpenGL Window", NULL,
+  // NULL); if (!window) {
   //   fprintf(stderr, "Failed to create GLFW window\n");
   //   glfwTerminate();
   //   return false;
@@ -89,9 +88,8 @@ bool check_cuda_opengl() {
   // // Initialize GLEW (or equivalent)
   // GLenum err = glewInit();
   // if (err != GLEW_OK) {
-  //   fprintf(stderr, "GLEW initialization error: %s\n", glewGetErrorString(err));
-  //   glfwTerminate();
-  //   return false;
+  //   fprintf(stderr, "GLEW initialization error: %s\n",
+  //   glewGetErrorString(err)); glfwTerminate(); return false;
   // }
 
   // // Query and print the OpenGL vendor string
@@ -176,22 +174,25 @@ bool HmNona::load_project(const std::string& project_file) {
   return true;
 }
 
-std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
+std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
   ++image_pair_pass_count_;
   // Set up panorama options for the two images beforehand
-  static auto pdisp = std::make_unique<AppBase::DummyProgressDisplay>();
   if (image_pair_pass_count_ == 1) {
     file_remapper_.setAdvancedOptions(adv_options_);
   }
-  // TODO: make class member
-  static auto stitcher =
-      std::make_unique<HmMultiImageRemapper<ImageType, vigra::BImage>>(
-          pano_, pdisp.get());
-  stitcher->set_input_images(image1, image2);
+  if (!pdisp_) {
+    pdisp_ = std::make_unique<AppBase::DummyProgressDisplay>();
+  }
+  if (!stitcher_) {
+    stitcher_ =
+        std::make_unique<HmMultiImageRemapper<ImageType, vigra::BImage>>(
+            pano_, pdisp_.get());
+  }
+  stitcher_->set_input_images(image1, image2);
   UIntSet img_indexes{0, 1};
-  auto output_images = stitcher->stitch(
+  auto output_images = stitcher_->stitch(
       opts_,
       img_indexes,
       std::string("hm_nona-") + std::to_string(image_pair_pass_count_) + "-",
@@ -200,6 +201,6 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::process_images(
   return output_images;
 }
 
-HmNona::~HmNona() {}
+HmNona::~HmNona() = default;
 
 } // namespace hm
