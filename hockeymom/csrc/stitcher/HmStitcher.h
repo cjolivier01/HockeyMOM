@@ -7,6 +7,8 @@
 #include "hugin/src/hugin_base/nona/Stitcher.h"
 #include "hugin/src/hugin_base/nona/StitcherOptions.h"
 
+#include "unsupported/Eigen/CXX11/ThreadPool"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,7 +32,8 @@ class HmMultiImageRemapper
   HmMultiImageRemapper(
       const PanoramaData& pano,
       AppBase::ProgressDisplay* progress)
-      : MultiImageRemapper(pano, progress) {}
+      : MultiImageRemapper(pano, progress),
+        thread_pool_(std::make_unique<Eigen::ThreadPool>(2)) {}
 
   void set_input_images(
       std::shared_ptr<MatrixRGB> image1,
@@ -93,41 +96,49 @@ class HmMultiImageRemapper
         mod_options_.emplace_back(std::move(modOptions));
       }
     }
-    // HACK
-    results.resize(images.size());
-    //std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
-        //remappers;
-    //remappers.reserve(images.size());
+    //results.resize(images.size());
+    // std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
+    // remappers;
+    // remappers.reserve(images.size());
     // for (UIntSet::const_iterator it = images.begin(); it != images.end();
     //      ++it) {
+    auto gates = make_gates(images.size());
     std::vector<std::size_t> img_indexes{images.begin(), images.end()};
     int img_count = img_indexes.size();
     for (int i = 0; i < img_count; ++i) {
-      // get a remapped image.
-      std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
-          remapper.getRemapped(
-              Base::m_pano,
-              mod_options_.at(i),
+      //thread_pool_->Schedule([this, &gates, i, &remapper, &img_indexes, &opts, &advOptions]() {
+        // get a remapped image.
+        std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> remapped =
+            remapper.getRemapped(
+                Base::m_pano,
+                mod_options_.at(i),
+                img_indexes[i],
+                images_.at(i),
+                Base::m_rois[i],
+                Base::m_progress);
+        try {
+          saveRemapped(
+              *remapped,
               img_indexes[i],
-              images_.at(i),
-              Base::m_rois[i],
-              Base::m_progress);
-      try {
-        saveRemapped(
-            *remapped, img_indexes[i], Base::m_pano.getNrOfImages(), opts, advOptions);
-      } catch (vigra::PreconditionViolation& e) {
-        // this can be thrown, if an image
-        // is completely out of the pano
-        std::cerr << e.what();
-      }
+              Base::m_pano.getNrOfImages(),
+              opts,
+              advOptions);
+        } catch (vigra::PreconditionViolation& e) {
+          // this can be thrown, if an image
+          // is completely out of the pano
+          std::cerr << e.what();
+        }
+        gates.at(i)->signal();
+      //});
+      wait_for_all(gates);
       // results.at(i) = std::move(consume_output_images().at(i));
       // free remapped image
       // remapper.release(remapped);
       //
       // TODO: Can we reuse this somehow?
       //
-      //remappers.emplace_back(std::move(remapped));
-      //i++;
+      // remappers.emplace_back(std::move(remapped));
+      // i++;
     }
     results = consume_output_images();
 
@@ -628,7 +639,11 @@ class HmMultiImageRemapper
   std::vector<std::unique_ptr<MatrixRGB>> output_images_;
   std::vector<PanoramaOptions> mod_options_;
   std::size_t pass_{0};
+  std::unique_ptr<Eigen::ThreadPool> thread_pool_;
 };
+
+
+
 
 template <typename ImageType, typename AlphaType>
 std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
