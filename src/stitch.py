@@ -145,121 +145,6 @@ def get_frames_interval(vid_path, start_time, end_time, frame_transform=None):
     return torch.stack(frames, 0)
 
 
-def stitch_images(
-    left_file: str, right_file: str, video_number: int, callback_fn: callable = None
-):
-    scale_down_images = True
-    image_scale_down_value = 2
-    show_image = True
-    skip_frame_count = 0
-    stop_at_frame_count = 0
-    filename_stitched = None
-    filename_with_audio = None
-
-    vidcap_left = cv2.VideoCapture(left_file)
-    vidcap_right = cv2.VideoCapture(right_file)
-
-    fps = vidcap_left.get(cv2.CAP_PROP_FPS)
-    frame_width = int(vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    total_frames_left = int(vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT))
-    total_frames_right = int(vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    # assert total_frames_left == total_frames_right
-    total_frames = min(total_frames_left, total_frames_right)
-
-    print(f"Video FPS={fps}")
-    print(f"Frame count={total_frames}")
-    print(f"Input size: {frame_width} x {frame_height}")
-
-    final_frame_width = frame_width * 2
-    final_frame_height = frame_height
-
-    if scale_down_images:
-        final_frame_width = (frame_width * 2) // int(image_scale_down_value)
-        final_frame_height = frame_height // int(image_scale_down_value)
-    print(f"Stitched output size: {final_frame_width} x {final_frame_height}")
-
-    if callback_fn is None:
-        filename_stitched = f"stitched-output-{video_number}.mov"
-        out = cv2.VideoWriter(
-            filename=filename_stitched,
-            fourcc=cv2.VideoWriter_fourcc(*"XVID"),
-            # fourcc=cv2.VideoWriter_fourcc(*"HEVC"),
-            fps=fps,
-            frameSize=(final_frame_width, final_frame_height),
-            isColor=True,
-        )
-        assert out.isOpened()
-        out.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-        filename_with_audio = f"stitched-output-{video_number}-with-audio.mov"
-    else:
-        out = None
-
-    r1, frame1 = vidcap_left.read()
-    r2, frame2 = vidcap_right.read()
-
-    frame_id = 0
-    timer = Timer()
-    while r1 and r2:
-        # cv2.imwrite("frames/frame%d.png" % count, image)     # save frame as JPEG file
-        timer.tic()
-        r1, frame1 = vidcap_left.read()
-        r2, frame2 = vidcap_right.read()
-
-        if frame_id < skip_frame_count:
-            frame_id += 1
-            continue
-
-        if stop_at_frame_count and frame_id >= stop_at_frame_count:
-            break
-
-        if final_frame_height != frame_height:
-            frame1 = cv2.resize(frame1, (final_frame_width // 2, final_frame_height))
-            frame2 = cv2.resize(frame2, (final_frame_width // 2, final_frame_height))
-
-        if True:
-            combined_frame = stitch_matcher(frame1, frame2)
-            print(f"combined_frame.shape={combined_frame.shape}")
-        else:
-            # Concatenate the frames side-by-side
-            combined_frame = cv2.hconcat([frame1, frame2])
-
-        if show_image:
-            cv2.imshow("Combined Image", combined_frame)
-            cv2.waitKey(0)
-
-        if out is not None:
-            out.write(combined_frame)
-
-        if callback_fn is not None:
-            if not callback_fn(combined_frame, (final_frame_width, final_frame_height)):
-                break
-
-        timer.toc()
-        if frame_id % 20 == 0:
-            print(
-                "Stitching frame {}/{} ({:.2f} fps)".format(
-                    frame_id, total_frames, 1.0 / max(1e-5, timer.average_time)
-                )
-            )
-        frame_id += 1
-        if frame_id >= total_frames:
-            break
-
-    if out is not None:
-        out.release()
-    vidcap_left.release()
-    vidcap_right.release()
-
-    if show_image:
-        cv2.destroyAllWindows()
-
-    if filename_with_audio:
-        copy_audio(left_file, filename_stitched, filename_with_audio)
-
-
 def eval(video_number: int, callback_fn: callable = None):
     input_dir = os.path.join(os.environ["HOME"], "Videos")
     # left_file = os.path.join(input_dir, f"left-{video_number}.mp4")
@@ -292,223 +177,6 @@ def expand_image_width(input_image, new_width: int):
     return output_image
 
 
-def make_transformed_image(input_image, matrix):
-    # Calculate the dimensions of the output image
-    height, width = input_image.shape[:2]
-    transformed_corners = np.array(
-        [
-            np.dot(matrix, [0, 0, 1]),
-            np.dot(matrix, [width, 0, 1]),
-            np.dot(matrix, [0, height, 1]),
-            np.dot(matrix, [width, height, 1]),
-        ]
-    )
-    min_x = int(np.min(transformed_corners[:, 0]))
-    max_x = int(np.max(transformed_corners[:, 0]))
-    min_y = int(np.min(transformed_corners[:, 1]))
-    max_y = int(np.max(transformed_corners[:, 1]))
-    output_width = max_x - min_x
-    output_height = max_y - min_y
-
-    # Create a new output image with the calculated dimensions
-    output_image = np.zeros((output_height, output_width, 3), dtype=np.uint8)
-
-    # Calculate the translation matrix to account for the min_x and min_y values
-    translation_matrix = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
-
-    # Combine the translation matrix and the original transformation matrix
-    combined_matrix = np.dot(translation_matrix, matrix)
-
-    # Apply the perspective transformation and place it on the output image
-    output_image = cv2.warpPerspective(
-        input_image, combined_matrix, (output_width, output_height)
-    )
-    output_image = cv2.resize(output_image, dsize=[3000, 3000])
-    return output_image
-
-
-def stitch_with_warp():
-    # Load the two video files
-    video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
-    video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
-
-    video1.set(cv2.CAP_PROP_POS_FRAMES, 217)
-    video2.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-    # Initialize the video writer to save the stitched video
-    output_video = cv2.VideoWriter(
-        "stitched_video.mp4",
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        30,  # Frames per second
-        (1920, 1080),
-    )  # Width and height of the output video
-
-    # Iterate through the frames of the first video
-    frame_id = 0
-    while True:
-        ret1, image1 = video1.read()
-        if not ret1:
-            break
-
-        # Read the corresponding frame from the second video
-        ret2, image2 = video2.read()
-        if not ret2:
-            break
-
-        # left_start = int(image1.shape[1] - 500)
-        overlap_size = 750
-        # image1 = image1[:,-overlap_size:,:]
-        # image2 = image2[:,:overlap_size,:]
-
-        # Convert images to grayscale
-        gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
-
-        #
-        # Left mask
-        #
-        # Define the coordinates of the ROI (top-left and bottom-right corners)
-        # in (x, y) coordinates (even though image shape is [height, width])
-        roi_start = (image1.shape[1] - overlap_size, 0)  # Example coordinates
-        roi_end = (image1.shape[1] - 1, image1.shape[0] - 1)  # Example coordinates
-
-        # Create a black mask with the same dimensions as the input image
-        left_mask = np.zeros_like(gray1)
-        # left_mask = np.ones_like(gray1)
-
-        # Fill the ROI region with white
-        cv2.rectangle(left_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
-
-        # cv2.imshow('Left Mask', left_mask)
-        # cv2.waitKey(0)
-
-        #
-        # Right mask
-        #
-        # Define the coordinates of the ROI (top-left and bottom-right corners)
-        # in (x, y) coordinates (even though image shape is [height, width])
-        roi_start = (0, 0)  # Example coordinates
-        roi_end = (overlap_size, image1.shape[0] - 1)  # Example coordinates
-
-        # Create a black mask with the same dimensions as the input image
-        right_mask = np.zeros_like(gray2)
-        # right_mask = np.ones_like(gray2)
-
-        # Fill the ROI region with white
-        cv2.rectangle(right_mask, roi_start, roi_end, (255), thickness=cv2.FILLED)
-
-        # cv2.imshow('Right Mask', right_mask)
-        # cv2.waitKey(0)
-
-        # Create SIFT detector object
-        # sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.04)
-        sift = cv2.SIFT_create()
-
-        # Detect key points and compute descriptors
-        # keypoints1, descriptors1 = sift.detectAndCompute(image1, mask=left_mask)
-        # keypoints2, descriptors2 = sift.detectAndCompute(image2, mask=right_mask)
-        keypoints1, descriptors1 = sift.detectAndCompute(gray1, mask=left_mask)
-        keypoints2, descriptors2 = sift.detectAndCompute(gray2, mask=right_mask)
-
-        # Perform feature detection and matching (e.g., using SIFT or ORB)
-        # Here, we'll use simple feature detection for demonstration purposes
-        # detector = cv2.ORB_create()
-        # kp1, des1 = detector.detectAndCompute(frame1, None)
-        # kp2, des2 = detector.detectAndCompute(frame2, None)
-
-        # Match features and find a homography
-        bf = cv2.BFMatcher()
-        matches = bf.knnMatch(descriptors1, descriptors2, k=2)
-
-        # Apply ratio test to find good matches
-        good_matches = []
-
-        for m, n in matches:
-            if m.distance < 0.65 * n.distance:
-                good_matches.append(m)
-            # if m.distance < 0.75 * n.distance:
-            #     good_matches.append(m)
-
-        # Sort matches by their distance
-        good_matches = sorted(good_matches, key=lambda x: x.distance)
-        # good_matches = good_matches[:10]
-
-        N = 6  # Number of keypoints to consider
-
-        # Draw the first 10 matches
-        match_img = cv2.drawMatches(
-            image1,
-            keypoints1,
-            image2,
-            keypoints2,
-            good_matches[:N],
-            None,
-            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        )
-
-        cv2.imshow("Match Image", match_img)
-        cv2.waitKey(0)
-
-        if len(good_matches) >= 4:
-            src_pts = np.float32(
-                [keypoints1[m.queryIdx].pt for m in good_matches]
-            ).reshape(-1, 1, 2)
-            dst_pts = np.float32(
-                [keypoints2[m.trainIdx].pt for m in good_matches]
-            ).reshape(-1, 1, 2)
-
-            matches_mask = np.zeros(len(good_matches), dtype=np.uint8)
-            matches_mask[:N] = 1  # Set the first N matches as inliers
-            # Compute the Homography matrix
-            homography_matrix, mask = cv2.findHomography(
-                src_pts, dst_pts, cv2.RANSAC, 5.0, mask=matches_mask
-            )
-
-            # Use the Homography matrix to warp the images
-            # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image2.shape[0]))
-
-            # panoramic_image = expand_image_width(image1, image1.shape[1] * 2)
-            # cv2.imshow("Big image", panoramic_image)
-
-            # corrected_perspective = cv2.warpPerspective(panoramic_image, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0]))
-            # corrected_perspective = cv2.warpPerspective(image2, M, (image2.shape[1] * 2, image2.shape[0] * 2))
-            # corrected_perspective = cv2.warpPerspective(
-            #     image2, homography_matrix, (panoramic_image.shape[1], panoramic_image.shape[0])
-            # )
-
-            corrected_perspective = make_transformed_image(image1, homography_matrix)
-
-            # Copy the second image onto the warped image
-            # warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
-
-            # cv2.imshow('Warped Image', warped_image)``
-            # cv2.waitKey(0)
-
-            # warped_image = cv2.warpPerspective(image2, M, (image1.shape[1] + image2.shape[1], image1.shape[0]))
-            # warped_image = cv2.warpPerspective(image2, M, (int(image1.shape[1] + image2.shape[1]), int(image1.shape[0] * 2)))
-
-            # # Copy the second image onto the warped image
-            # #warped_image[0:image2.shape[0], 0:image2.shape[1]] = image2
-            cv2.imshow("Warped Image", corrected_perspective)
-            # cv2.imshow('Warped Image', panoramic_image)
-            cv2.waitKey(0)
-
-            frame_id += 1
-
-    # Release video objects and close the output video writer
-    video1.release()
-    video2.release()
-    output_video.release()
-    cv2.destroyAllWindows()
-
-    # if (!TIFFGetField(tiff, TIFFTAG_XPOSITION, &tiff_xpos)) tiff_xpos = -1;
-    # if (!TIFFGetField(tiff, TIFFTAG_YPOSITION, &tiff_ypos)) tiff_ypos = -1;
-    # if (!TIFFGetField(tiff, TIFFTAG_XRESOLUTION, &tiff_xres)) tiff_xres = -1;
-    # if (!TIFFGetField(tiff, TIFFTAG_YRESOLUTION, &tiff_yres)) tiff_yres = -1;
-    # if (tiff_xpos != -1 && tiff_xres > 0) xpos = (int)(tiff_xpos * tiff_xres + 0.5);
-    # if (tiff_ypos != -1 && tiff_yres > 0) ypos = (int)(tiff_ypos * tiff_yres + 0.5);
-
-
 def get_tiff_tag_value(tiff_tag):
     if len(tiff_tag.value) == 1:
         return tiff_tag.value
@@ -535,6 +203,7 @@ def get_image_geo_position(tiff_image_file: str):
 def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
     pass
 
+PROCESSED_COUNT = 0
 
 def run_feeder(
     video1: cv2.VideoCapture,
@@ -545,6 +214,8 @@ def run_feeder(
 ):
     frame_count = 0
     while frame_count < max_frames:
+        while frame_count - PROCESSED_COUNT > 50:
+            time.sleep(0.1)
         ret1, img1 = video1.read()
         if not ret1:
             break
@@ -571,6 +242,8 @@ def pyramid_blending():
         f"{vid_dir}/images/right-45min.png",
     ]
 
+    global PROCESSED_COUNT
+
     # PTO Project File
     pto_project_file = f"{vid_dir}/my_project.pto"
     build_stitching_project(pto_project_file)
@@ -579,11 +252,31 @@ def pyramid_blending():
     start_frame_number = 2000
     # frame_step = 1200
     frame_step = 1
-    max_frames = 100
-    skip_timing_frame_count = 30
+    max_frames = 2000
+    skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
+
+    write_output_video = True
+
+    out_video = None
+
+    def _maybe_write_output(output_img):
+        nonlocal write_output_video, out_video, video1
+        if write_output_video:
+            if out_video is None:
+                fps = video1.get(cv2.CAP_PROP_FPS)
+                out_video = cv2.VideoWriter(
+                    filename="stitched_output.avi",
+                    fourcc=cv2.VideoWriter_fourcc(*"XVID"),
+                    fps=fps,
+                    frameSize=(output_img.shape[1], output_img.shape[1]),
+                    isColor=True,
+                )
+                assert out_video.isOpened()
+                out_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+            out_video.write(output_img)
 
     total_num_frames = min(
         int(video1.get(cv2.CAP_PROP_FRAME_COUNT)),
@@ -611,6 +304,9 @@ def pyramid_blending():
     while frame_count < max_frames:
         if frame_count == skip_timing_frame_count:
             start = time.time()
+        if frame_count and frame_count % 50 == 0:
+            print(f"{frame_count} frames...")
+        PROCESSED_COUNT += 1
         # ret1, img1 = video1.read()
         # if not ret1:
         #     break
@@ -634,8 +330,10 @@ def pyramid_blending():
             )
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
-        #   cv2.imshow('Nona image left', stitched_frame)
-        #   cv2.waitKey(0)
+            # if frame_count % 10 == 0:
+            #     cv2.imshow('Nona image left', stitched_frame)
+            #     cv2.waitKey(0)
+            _maybe_write_output(stitched_frame)
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
@@ -666,7 +364,8 @@ def pyramid_blending():
         print(
             f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
         )
-
+    if out_video is not None:
+        out_video.release()
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
     #     f"{vid_dir}/my_project-20000.tif",
@@ -692,13 +391,6 @@ def pyramid_blending():
 
 def main():
     pyramid_blending()
-    # core.enblend(f"{vid_dir}/pano-1.png", [
-    #     f"{vid_dir}/my_project0000.tif",
-    #     f"{vid_dir}/my_project0001.tif",
-    # ])
-    # eval(video_number=0)
-    # stitch_with_warp()
-    # panoramic_warp()
 
 
 if __name__ == "__main__":
