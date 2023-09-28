@@ -1,25 +1,22 @@
 #pragma once
 
 #include "threadpool.h"
+#include <cassert>
 #include <thread>
 
 namespace hm {
 
-Threadpool* Threadpool::instance;
+Threadpool* Threadpool::instance{nullptr};
 
 /**********************************************************************
 * Constructor (private)
 **********************************************************************/
 Threadpool::Threadpool(int _threads) {
-	n_threads = _threads > 0 ? (std::min)((unsigned int)_threads, std::thread::hardware_concurrency()) : std::thread::hardware_concurrency();
+	n_threads = _threads > 0 ? std::min((unsigned int)_threads, std::thread::hardware_concurrency()) : std::thread::hardware_concurrency();
+  assert(n_threads);
 	threads = new tp_struct[n_threads];
 
 	for (int i = 0; i < n_threads; ++i) {
-#ifdef _WIN32
-		threads[i].handle = CreateThread(NULL, 1, (LPTHREAD_START_ROUTINE)Thread, &threads[i], 0, NULL);
-#else
-		pthread_create(&threads[i].handle, NULL, TP_Thread, &threads[i]);
-#endif
 		threads[i].main_mutex = &main_mutex;
 		threads[i].return_mutex = &return_mutex;
 		threads[i].main_cond = &main_cond;
@@ -28,6 +25,11 @@ Threadpool::Threadpool(int _threads) {
 		threads[i].stop = false;
 		threads[i].queue = &queue;
 		threads[i].i = i;
+#ifdef _WIN32
+		threads[i].handle = CreateThread(NULL, 1, (LPTHREAD_START_ROUTINE)Thread, &threads[i], 0, NULL);
+#else
+		pthread_create(&threads[i].handle, NULL, TP_Thread, &threads[i]);
+#endif
 	}
 }
 
