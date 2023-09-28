@@ -203,6 +203,24 @@ def get_image_geo_position(tiff_image_file: str):
 def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
     pass
 
+def find_roi(image):
+    # Create a mask for fully opaque pixels
+    mask = (image[:, :, 3] == 255)
+
+    # Find the coordinates of fully opaque pixels
+    y, x = np.where(mask)
+
+    # Find the largest ROI by calculating the bounding box
+    x_min = min(x)
+    x_max = max(x)
+    y_min = min(y)
+    y_max = max(y)
+
+    # Calculate the width and height of the largest ROI
+    width = x_max - x_min + 1
+    height = y_max - y_min + 1
+    print(f"Box: ({x_min}, {y_min}) -> ({x_max}, {y_max})")
+
 PROCESSED_COUNT = 0
 
 def run_feeder(
@@ -253,7 +271,7 @@ def pyramid_blending():
     start_frame_number = 0
     # frame_step = 1200
     frame_step = 1
-    max_frames = 2000
+    max_frames = 100
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -267,10 +285,12 @@ def pyramid_blending():
         nonlocal write_output_video, out_video, video1
         if write_output_video:
             if out_video is None:
+                find_roi(output_img)
+                #rgb_image = cv2.cvtColor(rgba_image, cv2.COLOR_RGBA2RGB)
                 dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
                 output_img = cv2.resize(output_img, dsize=dsize)
                 fps = video1.get(cv2.CAP_PROP_FPS)
-                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                #fourcc = cv2.VideoWriter_fourcc(*"XVID")
                 #fourcc = cv2.VideoWriter_fourcc(*"HEVC")
                 out_video = cv2.VideoWriter(
                     filename="stitched_output.avi",
@@ -370,7 +390,6 @@ def pyramid_blending():
             f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
         )
     if out_video is not None:
-        out_video.close()
         out_video.release()
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
