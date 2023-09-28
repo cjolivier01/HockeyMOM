@@ -43,12 +43,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     }
 
     // Access the data and information from the NumPy array
-    //py::buffer_info buf_info = input_image.request();
     auto py_buffer_info = input_image.request();
-    // Get the pointer to the data
-    //m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
-    //m_data = static_cast<uint8_t*>(buf_info.ptr);
-
 
     // Get the dimensions
     m_rows = py_buffer_info.shape[0];
@@ -63,9 +58,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
     input_image.release();
     m_own_data = true;
-    //m_own_data = false;
 #endif
-    //m_array = input_image;
     m_xpos = xpos;
     m_ypos = ypos;
   }
@@ -80,8 +73,7 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
   virtual ~MatrixImage() {
     if (m_data && m_own_data) {
-      //assert(!py_buffer_info.ptr);
-      delete m_data;
+      delete [] m_data;
     }
   }
   std::vector<std::size_t> xy_pos() const {
@@ -105,14 +97,6 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
   py::array_t<std::uint8_t> to_py_array() {
-    // if (!m_data) {
-    //   assert(false);
-    //   //return std::move(m_array);
-    //   return py::array_t<std::uint8_t>(std::move(py_buffer_info));
-    // }
-    //if (py_buffer_info.ptr) {
-      //return py::array_t<std::uint8_t>(std::move(py_buffer_info));
-    //}
     py::array_t<std::uint8_t> result(
         {rows(),
          cols(),
@@ -148,8 +132,6 @@ class __attribute__((visibility("default"))) MatrixImage {
   std::uint8_t* m_data;
   std::size_t m_xpos{0};
   std::size_t m_ypos{0};
-  //py::array_t<uint8_t> m_array;
-  //py::buffer_info py_buffer_info;
 };
 
 using MatrixRGB = MatrixImage;
@@ -202,6 +184,7 @@ struct MatrixEncoder : public vigra::Encoder {
     std::size_t num_channels = CHANNELS;
     std::size_t total_image_size =
         MatrixRGB::kPixelSampleSize * width() * height() * num_channels;
+    assert(total_image_size);
     data_ = std::make_unique<std::uint8_t[]>(total_image_size);
     scanlines_.resize(CHANNELS);
     for (std::size_t i = 0; i < CHANNELS; ++i) {

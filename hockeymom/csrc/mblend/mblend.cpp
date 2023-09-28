@@ -132,7 +132,7 @@ class Blender {
   bool timing = false;
   bool dither = true;
   bool gamma = false;
-  bool all_threads = true;
+  bool all_threads = false;
   int wrap = 0;
 
   TIFF* tiff_file = NULL;
@@ -558,7 +558,8 @@ class Blender {
       }
       images.push_back(std::make_unique<Image>(my_argv[i++]));
     }
-    threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
+    threadpool = Threadpool::GetInstance(
+        all_threads ? 0 : std::thread::hardware_concurrency() / 2);
     return EXIT_SUCCESS;
   }
 
@@ -2259,6 +2260,7 @@ EnBlender::EnBlender(std::vector<std::string> args) {
   if (args.empty()) {
     args.push_back("python");
     args.push_back("--no-output");
+    args.push_back("--all-threads");
   }
   int argc = args.size();
   char** argv = new char*[argc];
