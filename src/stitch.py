@@ -267,13 +267,13 @@ def pyramid_blending():
         nonlocal write_output_video, out_video, video1
         if write_output_video:
             if out_video is None:
-                # dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[1]*2//3)]
-                # output_img = cv2.resize(output_img, dsize=dsize)
+                dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
+                output_img = cv2.resize(output_img, dsize=dsize)
                 fps = video1.get(cv2.CAP_PROP_FPS)
-                #fourcc = cv2.VideoWriter_fourcc(*"XVID")
-                fourcc = cv2.VideoWriter_fourcc(*"HEVC")
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                #fourcc = cv2.VideoWriter_fourcc(*"HEVC")
                 out_video = cv2.VideoWriter(
-                    filename="stitched_output.mp4",
+                    filename="stitched_output.avi",
                     fourcc=fourcc,
                     fps=fps,
                     frameSize=(output_img.shape[1], output_img.shape[1]),
@@ -338,7 +338,7 @@ def pyramid_blending():
             #if frame_count % 10 == 0:
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
-            #_maybe_write_output(stitched_frame)
+            _maybe_write_output(stitched_frame)
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
