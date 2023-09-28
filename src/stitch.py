@@ -283,17 +283,19 @@ def pyramid_blending():
 
     def _maybe_write_output(output_img):
         nonlocal write_output_video, out_video, video1
+        #dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
+        dsize = [int(output_img.shape[1] / 3), int(output_img.shape[0] / 3)]
+        output_img = cv2.resize(output_img, dsize=dsize)
         if write_output_video:
             if out_video is None:
-                find_roi(output_img)
+                #find_roi(output_img)
                 #rgb_image = cv2.cvtColor(rgba_image, cv2.COLOR_RGBA2RGB)
-                dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
-                output_img = cv2.resize(output_img, dsize=dsize)
                 fps = video1.get(cv2.CAP_PROP_FPS)
-                #fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                #fourcc = cv2.VideoWriter_fourcc(*"H264")
                 #fourcc = cv2.VideoWriter_fourcc(*"HEVC")
                 out_video = cv2.VideoWriter(
-                    filename="stitched_output.avi",
+                    filename="stitched_output.mp4",
                     fourcc=fourcc,
                     fps=fps,
                     frameSize=(output_img.shape[1], output_img.shape[1]),
