@@ -8,6 +8,7 @@
 
 set(
   SOURCES
+  csrc/camera/Camera.cpp
   csrc/mblend/mblend.cpp
   csrc/stitcher/HmNona.cpp
   csrc/common/Gpu.cpp
