@@ -17,7 +17,7 @@ void* TP_Thread(void* param);
 
 class Threadpool {
 public:
-	static Threadpool* GetInstance(int threads = 0) { if (!instance) instance = new Threadpool(threads); return instance; }
+	static Threadpool* GetInstance(int threads = 0);
 	void Queue(std::function<void()> function);
 	int GetNThreads() { return n_threads; };
 	void Wait();
@@ -39,13 +39,14 @@ public:
 	};
 
 private:
-	static Threadpool* instance;
+	//static std::unique_ptr<Threadpool> instance;
+  static Threadpool *instance;
 	Threadpool(int _threads = 0); // constructor is private
 	~Threadpool();
 #ifdef _WIN32
 	static DWORD WINAPI Thread(void* param);
 #endif
-	tp_struct* threads;
+	std::vector<tp_struct> threads;
 	std::deque<std::function<void()>> queue;
 	int n_threads;
 	std::mutex main_mutex;

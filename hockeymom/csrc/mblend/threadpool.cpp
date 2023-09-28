@@ -3,19 +3,33 @@
 #include "threadpool.h"
 #include <cassert>
 #include <thread>
-
+#include <iostream>
 namespace hm {
 
+namespace {
+  std::mutex tp_mu;
+}
+
+//std::unique_ptr<Threadpool> Threadpool::instance{nullptr};
 Threadpool* Threadpool::instance{nullptr};
+
+/*static*/
+Threadpool* Threadpool::GetInstance(int threads) {
+  std::unique_lock<std::mutex> lk(tp_mu);
+  if (!instance) {
+//    instance = std::make_unique<Threadpool>(threads);
+    instance = new Threadpool(threads);
+  }
+  return instance;
+}
 
 /**********************************************************************
 * Constructor (private)
 **********************************************************************/
 Threadpool::Threadpool(int _threads) {
 	n_threads = _threads > 0 ? std::min((unsigned int)_threads, std::thread::hardware_concurrency()) : std::thread::hardware_concurrency();
-  assert(n_threads);
-	threads = new tp_struct[n_threads];
-
+	threads.resize(n_threads);
+  //std::cout << "Creating thread pool..." << std::endl;
 	for (int i = 0; i < n_threads; ++i) {
 		threads[i].main_mutex = &main_mutex;
 		threads[i].return_mutex = &return_mutex;
@@ -38,7 +52,7 @@ Threadpool::Threadpool(int _threads) {
 **********************************************************************/
 Threadpool::~Threadpool() {
 	int i;
-
+  //std::cout << "Destroying thread pool..." << std::endl;
 	{
 		std::lock_guard<std::mutex> mlock(main_mutex);
 		for (i = 0; i < n_threads; ++i) {
