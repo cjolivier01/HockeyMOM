@@ -306,7 +306,9 @@ def stitch_videos():
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
 
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 50, 50)
+    print("Creating data loader...")
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 1, 1)
+    print("Data loader created.")
 
     # start_frame_number = 2000
     start_frame_number = 0
@@ -435,7 +437,7 @@ def stitch_videos():
             # if frame_count % 10 == 0:
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
-            _maybe_write_output(stitched_frame)
+            # _maybe_write_output(stitched_frame)
 
             if output_video is not None:
                 output_video.write(stitched_frame)

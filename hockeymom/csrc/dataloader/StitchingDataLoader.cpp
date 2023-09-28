@@ -33,6 +33,7 @@ StitchingDataLoader::StitchingDataLoader(
               StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
             return this->blend_worker(worker_index, std::move(frame));
           }) {
+  assert(false);
   initialize();
 }
 
