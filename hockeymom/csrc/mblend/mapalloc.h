@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
+#include <memory>
+#include <mutex>
 #ifdef _WIN32
 #include <Windows.h>
 #endif
@@ -14,10 +17,10 @@ private:
 	~MapAlloc();
 	class MapAllocObject {
 	public:
-		MapAllocObject(size_t _size, int alignment);
+		MapAllocObject(std::size_t _size, int alignment);
 		~MapAllocObject();
 		void* GetPointer();
-		size_t GetSize() { return size; }
+		std::size_t GetSize() { return size; }
 		bool IsFile();
 
 	private:
@@ -27,23 +30,25 @@ private:
 #else
 		int file = 0;
 #endif
-		void* pointer = NULL;
-		size_t size;
+		void* pointer{nullptr};
+		std::size_t size{0};
 	};
-	static std::vector<MapAllocObject*> objects;
-	static char tmpdir[256];
-	static char filename[512];
+	//static std::vector<MapAllocObject*> objects;
+  static std::unordered_map<void *, std::unique_ptr<MapAllocObject>> object_map;
+	static char tmpdir[8192];
+	//static char filename[8192];
 	static int suffix;
-	static size_t cache_threshold;
-	static size_t total_allocated;
+	static std::size_t cache_threshold;
+	static std::size_t total_allocated;
 
 public:
-	static void* Alloc(size_t size, int alignment = 16);
+
+	static void* Alloc(std::size_t size, int alignment = 16);
 	static void Free(void* p);
-	static size_t GetSize(void* p);
-	static void CacheThreshold(size_t threshold);
+	static std::size_t GetSize(void* p);
+	static void CacheThreshold(std::size_t threshold);
 	static void SetTmpdir(const char* _tmpdir);
-	static bool LastFile() { return objects.back()->IsFile(); }
+	//static bool LastFile();
 //	static bool last_mapped;
 };
 }

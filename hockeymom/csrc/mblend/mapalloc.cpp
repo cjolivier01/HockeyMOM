@@ -16,56 +16,78 @@
 
 namespace hm {
 
-std::vector<MapAlloc::MapAllocObject*> MapAlloc::objects;
-char MapAlloc::tmpdir[256] = "";
-char MapAlloc::filename[512];
+//std::vector<MapAlloc::MapAllocObject*> MapAlloc::objects;
+std::unordered_map<void *, std::unique_ptr<MapAlloc::MapAllocObject>> MapAlloc::object_map;
+char MapAlloc::tmpdir[8192] = {0,};
+//char MapAlloc::filename[8192] = {0,};
 int MapAlloc::suffix = 0;
-size_t MapAlloc::cache_threshold = ~(size_t)0;
-size_t MapAlloc::total_allocated = 0;
+std::size_t MapAlloc::cache_threshold = ~(std::size_t)0;
+std::size_t MapAlloc::total_allocated = 0;
+
+namespace {
+std::mutex mu;
+}
 
 /***********************************************************************
 * MapAlloc
 ***********************************************************************/
-void MapAlloc::CacheThreshold(size_t limit) {
+void MapAlloc::CacheThreshold(std::size_t limit) {
 	cache_threshold = limit;
 }
 
-void* MapAlloc::Alloc(size_t size, int alignment) {
-	MapAllocObject* m = new MapAllocObject(size, alignment);
-	objects.push_back(m);
-	return m->GetPointer();
+void* MapAlloc::Alloc(std::size_t size, int alignment) {
+	auto m = std::make_unique<MapAllocObject>(size, alignment);
+  void *p = m->GetPointer();
+  {
+    std::unique_lock<std::mutex> lk(mu);
+	  //objects.push_back(m);
+    object_map.emplace(m->GetPointer(), std::move(m));
+  }
+	return p;
 }
 
 void MapAlloc::Free(void* p) {
-	for (auto it = objects.begin(); it < objects.end(); ++it) {
-		if ((*it)->GetPointer() == p) {
-			delete (*it);
-			objects.erase(it);
-			break;
-		}
-	}
+  std::unique_lock<std::mutex> lk(mu);
+  object_map.erase(p);
+	// for (auto it = objects.begin(); it < objects.end(); ++it) {
+	// 	if ((*it)->GetPointer() == p) {
+	// 		delete (*it);
+	// 		objects.erase(it);
+	// 		break;
+	// 	}
+	// }
 }
 
-size_t MapAlloc::GetSize(void* p) {
-	for (auto it = objects.begin(); it < objects.end(); ++it) {
-		if ((*it)->GetPointer() == p) {
-			return (*it)->GetSize();
-		}
-	}
+std::size_t MapAlloc::GetSize(void* p) {
+  std::unique_lock<std::mutex> lk(mu);
+  auto found = object_map.find(p);
+  if (found != object_map.end()) {
+    return found->second->GetSize();
+  }
+	// for (auto it = objects.begin(); it < objects.end(); ++it) {
+	// 	if ((*it)->GetPointer() == p) {
+	// 		return (*it)->GetSize();
+	// 	}
+	// }
 
 	return 0;
 }
 
 void MapAlloc::SetTmpdir(const char* _tmpdir) {
+  std::unique_lock<std::mutex> lk(mu);
 	strcpy_s(tmpdir, _tmpdir);
-	size_t l = strlen(tmpdir);
+	std::size_t l = strlen(tmpdir);
 	while (tmpdir[l - 1] == '\\' || tmpdir[l - 1] == '/' && l > 0) tmpdir[--l] = 0;
 }
+
+// bool MapAlloc::LastFile() {
+//   return objects.back()->IsFile();
+// }
 
 /***********************************************************************
 * MapAllocObject
 ***********************************************************************/
-MapAlloc::MapAllocObject::MapAllocObject(size_t _size, int alignment) : size(_size) {
+MapAlloc::MapAllocObject::MapAllocObject(std::size_t _size, int alignment) : size(_size) {
 	if (total_allocated + size < cache_threshold) {
 #ifdef _WIN32
 		pointer = _aligned_malloc(size, alignment);
@@ -78,7 +100,7 @@ MapAlloc::MapAllocObject::MapAllocObject(size_t _size, int alignment) : size(_si
 #ifdef _WIN32
 		if (!tmpdir[0]) {
 			GetTempPath(256, tmpdir);
-			size_t l = strlen(tmpdir);
+			std::size_t l = strlen(tmpdir);
 			while (tmpdir[l - 1] == '\\' || tmpdir[l - 1] == '/' && l > 0) tmpdir[--l] = 0;
 		}
 
@@ -112,15 +134,18 @@ MapAlloc::MapAllocObject::MapAllocObject(size_t _size, int alignment) : size(_si
 			throw(filename);
 		}
 #else
-		if (!tmpdir[0]) {
-			char* td = getenv("TMPDIR");
-			if (td) {
-				strcpy(tmpdir, td);
-			} else {
-				strcpy(tmpdir, "/tmp");
-			}
-		}
-
+    {
+      std::unique_lock<std::mutex> lk(mu);
+      if (!tmpdir[0]) {
+        char* td = getenv("TMPDIR");
+        if (td) {
+          strcpy(tmpdir, td);
+        } else {
+          strcpy(tmpdir, "/tmp");
+        }
+      }
+    }
+    char filename[8192*2] = {0,};
 		sprintf(filename, "%s/.mbXXXXXX", tmpdir);
 		file = mkstemp(filename);
 
@@ -167,6 +192,7 @@ MapAlloc::MapAllocObject::~MapAllocObject() {
 		munmap(pointer, size);
 		close(file);
 	}
+  pointer = nullptr;
 #endif
 }
 
