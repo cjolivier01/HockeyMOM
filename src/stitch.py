@@ -5,6 +5,7 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
+import time
 import cv2
 import threading
 
@@ -14,8 +15,7 @@ import tifffile
 
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
-
-import time
+from lib.tracking_utils.log import logger
 
 from hockeymom import core
 
@@ -306,14 +306,14 @@ def stitch_videos():
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
 
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 25, 25)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 50, 50)
 
     # start_frame_number = 2000
     start_frame_number = 0
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 100
+    max_frames = 20000
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -323,38 +323,53 @@ def stitch_videos():
     video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
     # Process the first frame in order to determine the output size
-    first_stitched_frame = get_next_frame_sync(
-        video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
-    )
-    final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
+    # first_stitched_frame = get_next_frame_sync(
+    #     video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    # )
+    # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
+
     write_output_video = True
     output_video = None
 
-    fps = video1.get(cv2.CAP_PROP_FPS)
-    fourcc = cv2.VideoWriter_fourcc(*"XVID")
-    output_video = cv2.VideoWriter(
-        # filename=self._save_dir + "/../tracking_output.mov",
-        filename="./stitched_output.avi",
-        fourcc=fourcc,
-        fps=fps,
-        frameSize=final_video_size,
-        isColor=True,
-    )
-    assert output_video.isOpened()
-    output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-    output_video.write(first_stitched_frame)
+    # fps = video1.get(cv2.CAP_PROP_FPS)
+    # fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    # output_video = cv2.VideoWriter(
+    #     # filename=self._save_dir + "/../tracking_output.mov",
+    #     filename="./stitched_output.avi",
+    #     fourcc=fourcc,
+    #     fps=fps,
+    #     frameSize=final_video_size,
+    #     isColor=True,
+    # )
+    # assert output_video.isOpened()
+    # output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+    # output_video.write(first_stitched_frame)
 
     # EARLY EXIT
     # output_video.release()
     # exit(0)
 
-    # def _maybe_write_output(output_img):
-    #     nonlocal write_output_video, output_video, video1
-    #     # dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
-    #     dsize = [int(output_img.shape[1] / 3), int(output_img.shape[0] / 3)]
-    #     output_img = cv2.resize(output_img, dsize=dsize)
-    #     if write_output_video and output_video is not None:
-    #         output_video.write(output_img)
+    def _maybe_write_output(output_img):
+        nonlocal write_output_video
+        if write_output_video:
+            nonlocal output_video
+            if output_video is None:
+                nonlocal video1
+                fps = video1.get(cv2.CAP_PROP_FPS)
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                final_video_size = (output_img.shape[1], output_img.shape[0])
+                output_video = cv2.VideoWriter(
+                    filename="./stitched_output.avi",
+                    fourcc=fourcc,
+                    fps=fps,
+                    frameSize=final_video_size,
+                    isColor=True,
+                )
+                assert output_video.isOpened()
+                output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+                output_video.write(output_img)
+
+            output_video.write(output_img)
 
     total_num_frames = min(
         int(video1.get(cv2.CAP_PROP_FRAME_COUNT)),
@@ -369,6 +384,8 @@ def stitch_videos():
         args=(video1, video2, data_loader, start_frame_number, max_frames),
     )
     feeder_thread.start()
+
+    timer = Timer()
 
     frame_count = 0
     duration = 0
@@ -396,18 +413,29 @@ def stitch_videos():
         # cv2.waitKey(0)
         # start = time.time()
         if True:
-            # core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
+            if frame_count > 1:
+                timer.tic()
+
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 data_loader, frame_id
             )
-            assert stitched_frame.shape[0] == final_video_size[1]
-            assert stitched_frame.shape[1] == final_video_size[0]
+
+            if (frame_count + 1) % 20 == 0:
+                timer.toc()
+                logger.info(
+                    "Stitching frame {} ({:.2f} fps)".format(
+                        frame_id, 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+
+            # assert stitched_frame.shape[0] == final_video_size[1]
+            # assert stitched_frame.shape[1] == final_video_size[0]
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
             # if frame_count % 10 == 0:
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
-            #_maybe_write_output(stitched_frame)
+            _maybe_write_output(stitched_frame)
 
             if output_video is not None:
                 output_video.write(stitched_frame)
@@ -426,8 +454,10 @@ def stitch_videos():
             print(f"Got results in {duration} seconds")
             # cv2.imshow('Stitched Image', result)
             # cv2.waitKey(0)
+
         frame_id += 1
         frame_count += 1
+
         # if frame_step > 1:
         #     video1.set(
         #         cv2.CAP_PROP_POS_FRAMES,
