@@ -203,9 +203,10 @@ def get_image_geo_position(tiff_image_file: str):
 def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
     pass
 
+
 def find_roi(image):
     # Create a mask for fully opaque pixels
-    mask = (image[:, :, 3] == 255)
+    mask = image[:, :, 3] == 255
 
     # Find the coordinates of fully opaque pixels
     y, x = np.where(mask)
@@ -221,9 +222,36 @@ def find_roi(image):
     height = y_max - y_min + 1
     print(f"Box: ({x_min}, {y_min}) -> ({x_max}, {y_max})")
 
+
 PROCESSED_COUNT = 0
 
-def run_feeder(
+
+def feed_next_frame(
+    video1: cv2.VideoCapture,
+    video2: cv2.VideoCapture,
+    data_loader: core.StitchingDataLoader,
+    frame_id: int,
+) -> bool:
+    ret1, img1 = video1.read()
+    if not ret1:
+        return False
+    # Read the corresponding frame from the second video
+    ret2, img2 = video2.read()
+    if not ret2:
+        return False
+    # print(f"Pushing frame {current_frame_id}")
+    core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
+    return True
+
+
+def get_next_frame(data_loader: core.StitchingDataLoader, frame_id: int):
+    stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
+    if stitched_frame is None:
+        raise StopIteration
+    return stitched_frame
+
+
+def frame_feeder_worker(
     video1: cv2.VideoCapture,
     video2: cv2.VideoCapture,
     data_loader: core.StitchingDataLoader,
@@ -234,31 +262,42 @@ def run_feeder(
     while frame_count < max_frames:
         while frame_count - PROCESSED_COUNT > 50:
             time.sleep(0.1)
-        ret1, img1 = video1.read()
-        if not ret1:
+        if not feed_next_frame(
+            video1=video1,
+            video2=video2,
+            data_loader=data_loader,
+            frame_id=current_frame_id,
+        ):
             break
-        # Read the corresponding frame from the second video
-        ret2, img2 = video2.read()
-        if not ret2:
-            break
-        # print(f"Pushing frame {current_frame_id}")
-        core.add_to_stitching_data_loader(data_loader, current_frame_id, img1, img2)
         frame_count += 1
         current_frame_id += 1
     print("Feeder thread exiting")
 
 
-def pyramid_blending():
-    vid_dir = os.path.join(os.environ["HOME"], "Videos")
-    orig_files_left = [
-        f"{vid_dir}/images/left.png",
-        f"{vid_dir}/images/left-45min.png",
-    ]
+def get_next_frame_sync(
+    video1: cv2.VideoCapture,
+    video2: cv2.VideoCapture,
+    data_loader: core.StitchingDataLoader,
+    frame_id: int,
+):
+    if not feed_next_frame(
+        video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    ):
+        raise StopIteration
+    return get_next_frame(data_loader, frame_id)
 
-    orig_files_right = [
-        f"{vid_dir}/images/right.png",
-        f"{vid_dir}/images/right-45min.png",
-    ]
+
+def stitch_videos():
+    vid_dir = os.path.join(os.environ["HOME"], "Videos")
+    # orig_files_left = [
+    #     f"{vid_dir}/images/left.png",
+    #     f"{vid_dir}/images/left-45min.png",
+    # ]
+
+    # orig_files_right = [
+    #     f"{vid_dir}/images/right.png",
+    #     f"{vid_dir}/images/right-45min.png",
+    # ]
 
     global PROCESSED_COUNT
 
@@ -267,43 +306,55 @@ def pyramid_blending():
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
 
-    #start_frame_number = 2000
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 25, 25)
+
+    # start_frame_number = 2000
     start_frame_number = 0
     # frame_step = 1200
-    frame_step = 1
+    frame_id = start_frame_number
+    # frame_step = 1
     max_frames = 100
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
 
+    video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
+    video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
+
+    # Process the first frame in order to determine the output size
+    first_stitched_frame = get_next_frame_sync(
+        video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    )
+    final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
     write_output_video = True
+    output_video = None
 
-    out_video = None
+    fps = video1.get(cv2.CAP_PROP_FPS)
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    output_video = cv2.VideoWriter(
+        # filename=self._save_dir + "/../tracking_output.mov",
+        filename="./stitched_output.avi",
+        fourcc=fourcc,
+        fps=fps,
+        frameSize=final_video_size,
+        isColor=True,
+    )
+    assert output_video.isOpened()
+    output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+    output_video.write(first_stitched_frame)
 
-    def _maybe_write_output(output_img):
-        nonlocal write_output_video, out_video, video1
-        #dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
-        dsize = [int(output_img.shape[1] / 3), int(output_img.shape[0] / 3)]
-        output_img = cv2.resize(output_img, dsize=dsize)
-        if write_output_video:
-            if out_video is None:
-                #find_roi(output_img)
-                #rgb_image = cv2.cvtColor(rgba_image, cv2.COLOR_RGBA2RGB)
-                fps = video1.get(cv2.CAP_PROP_FPS)
-                fourcc = cv2.VideoWriter_fourcc(*"XVID")
-                #fourcc = cv2.VideoWriter_fourcc(*"H264")
-                #fourcc = cv2.VideoWriter_fourcc(*"HEVC")
-                out_video = cv2.VideoWriter(
-                    filename="stitched_output.mp4",
-                    fourcc=fourcc,
-                    fps=fps,
-                    frameSize=(output_img.shape[1], output_img.shape[1]),
-                    isColor=True,
-                )
-                assert out_video.isOpened()
-                out_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-            out_video.write(output_img)
+    # EARLY EXIT
+    # output_video.release()
+    # exit(0)
+
+    # def _maybe_write_output(output_img):
+    #     nonlocal write_output_video, output_video, video1
+    #     # dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[0]*2//3)]
+    #     dsize = [int(output_img.shape[1] / 3), int(output_img.shape[0] / 3)]
+    #     output_img = cv2.resize(output_img, dsize=dsize)
+    #     if write_output_video and output_video is not None:
+    #         output_video.write(output_img)
 
     total_num_frames = min(
         int(video1.get(cv2.CAP_PROP_FRAME_COUNT)),
@@ -313,18 +364,12 @@ def pyramid_blending():
     max_frames = min(total_num_frames - start_frame_number, max_frames)
     assert max_frames > 0
 
-    video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
-    video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
-
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 1, 1)
-
     feeder_thread = threading.Thread(
-        target=run_feeder,
+        target=frame_feeder_worker,
         args=(video1, video2, data_loader, start_frame_number, max_frames),
     )
     feeder_thread.start()
 
-    frame_id = start_frame_number
     frame_count = 0
     duration = 0
     start = None
@@ -355,12 +400,18 @@ def pyramid_blending():
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 data_loader, frame_id
             )
+            assert stitched_frame.shape[0] == final_video_size[1]
+            assert stitched_frame.shape[1] == final_video_size[0]
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
-            #if frame_count % 10 == 0:
+            # if frame_count % 10 == 0:
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
-            _maybe_write_output(stitched_frame)
+            #_maybe_write_output(stitched_frame)
+
+            if output_video is not None:
+                output_video.write(stitched_frame)
+
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
@@ -391,8 +442,8 @@ def pyramid_blending():
         print(
             f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
         )
-    if out_video is not None:
-        out_video.release()
+    if output_video is not None:
+        output_video.release()
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",
     #     f"{vid_dir}/my_project-20000.tif",
@@ -417,7 +468,7 @@ def pyramid_blending():
 
 
 def main():
-    pyramid_blending()
+    stitch_videos()
 
 
 if __name__ == "__main__":

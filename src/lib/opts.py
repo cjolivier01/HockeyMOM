@@ -11,6 +11,23 @@ class opts(object):
     def __init__(self):
         self.parser = argparse.ArgumentParser()
 
+        # stitching
+        self.parser.add_argument(
+            "--left-frame-offset",
+            default=0,
+            help="Offset for left video startig point (first supplied video)",
+        )
+        self.parser.add_argument(
+            "--right-frame-offset",
+            default=0,
+            help="Offset for right video startiog point (second supplied video)",
+        )
+        self.parser.add_argument(
+            "--start-frame-offset",
+            default=0,
+            help="General start frame the video reading (after other offsets are applied)",
+        )
+
         # basic experiment setting
         self.parser.add_argument("task", default="mot", help="mot")
         self.parser.add_argument("--dataset", default="jde", help="jde")
