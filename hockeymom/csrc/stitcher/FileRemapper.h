@@ -44,7 +44,7 @@ class HmSingleImageRemapper {
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
-      const std::shared_ptr<hm::MatrixRGB>& image,
+      const std::shared_ptr<hm::MatrixRGB> image,
       vigra::Rect2D outputROI,
       Eigen::ThreadPool& gpu_thread_pool,
       AppBase::ProgressDisplay* progress) = 0;
@@ -90,7 +90,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
       const HuginBase::PanoramaData& pano,
       const HuginBase::PanoramaOptions& opts,
       unsigned int imgNr,
-      const std::shared_ptr<hm::MatrixRGB>& image,
+      const std::shared_ptr<hm::MatrixRGB> image,
       vigra::Rect2D outputROI,
       Eigen::ThreadPool& gpu_thread_pool,
       AppBase::ProgressDisplay* progress) override;

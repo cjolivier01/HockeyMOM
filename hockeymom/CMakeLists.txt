@@ -15,7 +15,10 @@ set(
   csrc/ImagePostProcess.cpp
 )
 add_library(hm SHARED ${SOURCES})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -O3")
+
+#target_link_libraries(hm PRIVATE mblend)
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
@@ -41,7 +44,6 @@ target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
 
-
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
 
@@ -53,3 +55,5 @@ pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
 target_link_libraries(_hockeymom PRIVATE hm)
 set_target_properties(_hockeymom PROPERTIES INSTALL_RPATH "$ORIGIN")
+
+add_subdirectory(csrc)

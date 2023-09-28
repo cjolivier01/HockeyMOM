@@ -88,6 +88,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     }
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;
+    assert(false);
   }
   return frame;
 }
@@ -102,9 +103,12 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
       enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
     }
     auto blender = enblenders_[worker_index];
+    //frame->blended_image = frame->remapped_images[0];
+    // auto blender = enblenders_[worker_index];
     frame->blended_image = blender->blend_images(frame->remapped_images);
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;
+    assert(false);
   }
   return frame;
 }

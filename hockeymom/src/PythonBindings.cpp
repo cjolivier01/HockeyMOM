@@ -73,7 +73,7 @@ PYBIND11_MODULE(_hockeymom, m) {
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
         {
-          py::gil_scoped_release release_gil;
+          //py::gil_scoped_release release_gil;
           data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
         }
         return frame_id;

@@ -133,7 +133,7 @@ class JobRunner {
     threads_.reserve(thread_count);
     for (std::size_t i = 0; i < thread_count; ++i) {
       threads_.emplace_back(
-          std::make_unique<std::thread>([this, i] { this->run(i); }));
+          std::make_unique<std::thread>([this, worker_index=i] { this->run(worker_index); }));
     }
   }
 
@@ -160,7 +160,7 @@ class JobRunner {
   }
 
  private:
-  void run(std::size_t thread_id) {
+  void run(std::size_t worker_index) {
     do {
       KeyType key{std::numeric_limits<KeyType>::max()};
       INPUT_TYPE input = input_queue_->dequeue_smallest_key(&key);
@@ -168,7 +168,7 @@ class JobRunner {
         break;
       }
       assert(output_queue_ != input_queue_);
-      output_queue_->enqueue(key, worker_fn_(thread_id, std::move(input)));
+      output_queue_->enqueue(key, worker_fn_(worker_index, std::move(input)));
     } while (true);
   }
   std::shared_ptr<InputQueue> input_queue_;

@@ -249,10 +249,11 @@ def pyramid_blending():
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
 
-    start_frame_number = 2000
+    #start_frame_number = 2000
+    start_frame_number = 0
     # frame_step = 1200
     frame_step = 1
-    max_frames = 50
+    max_frames = 20
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -266,9 +267,11 @@ def pyramid_blending():
         nonlocal write_output_video, out_video, video1
         if write_output_video:
             if out_video is None:
-                #output_img = output_img[200:,200:.:]
+                # dsize = [int(output_img.shape[1]* 2/3), int(output_img.shape[1]*2//3)]
+                # output_img = cv2.resize(output_img, dsize=dsize)
                 fps = video1.get(cv2.CAP_PROP_FPS)
-                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                #fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                fourcc = cv2.VideoWriter_fourcc(*"HEVC")
                 out_video = cv2.VideoWriter(
                     filename="stitched_output.mp4",
                     fourcc=fourcc,
@@ -291,7 +294,7 @@ def pyramid_blending():
     video1.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 217)
     video2.set(cv2.CAP_PROP_POS_FRAMES, start_frame_number + 0)
 
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 15, 15)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 10, 1, 1)
 
     feeder_thread = threading.Thread(
         target=run_feeder,

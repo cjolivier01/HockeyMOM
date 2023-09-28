@@ -658,7 +658,7 @@ std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>> HmFileRemapper<
         const HuginBase::PanoramaData& pano,
         const HuginBase::PanoramaOptions& opts,
         unsigned int imgNr,
-        const std::shared_ptr<MatrixRGB>& image,
+        const std::shared_ptr<MatrixRGB> image,
         vigra::Rect2D outputROI,
         Eigen::ThreadPool& gpu_thread_pool,
         AppBase::ProgressDisplay* progress) {
