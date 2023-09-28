@@ -46,7 +46,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     //py::buffer_info buf_info = input_image.request();
     auto py_buffer_info = input_image.request();
     // Get the pointer to the data
-    m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
+    //m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
     //m_data = static_cast<uint8_t*>(buf_info.ptr);
 
 
@@ -54,14 +54,16 @@ class __attribute__((visibility("default"))) MatrixImage {
     m_rows = py_buffer_info.shape[0];
     m_cols = py_buffer_info.shape[1];
     m_channels = py_buffer_info.shape[2];
-#if 1
+#if 0
     std::size_t image_bytes = sizeof(std::uint8_t) * m_rows * m_cols * m_channels;
     m_data = new std::uint8_t[image_bytes];
     memcpy(m_data, py_buffer_info.ptr, image_bytes);
     m_own_data = true;
 #else
-    //m_own_data = true;
-    m_own_data = false;
+    m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
+    input_image.release();
+    m_own_data = true;
+    //m_own_data = false;
 #endif
     //m_array = input_image;
     m_xpos = xpos;

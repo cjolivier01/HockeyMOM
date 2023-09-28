@@ -253,7 +253,7 @@ def pyramid_blending():
     start_frame_number = 0
     # frame_step = 1200
     frame_step = 1
-    max_frames = 20
+    max_frames = 2000
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -338,7 +338,7 @@ def pyramid_blending():
             #if frame_count % 10 == 0:
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
-            _maybe_write_output(stitched_frame)
+            #_maybe_write_output(stitched_frame)
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
