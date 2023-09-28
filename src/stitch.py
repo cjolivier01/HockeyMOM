@@ -252,7 +252,7 @@ def pyramid_blending():
     start_frame_number = 2000
     # frame_step = 1200
     frame_step = 1
-    max_frames = 2000
+    max_frames = 50
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -266,10 +266,11 @@ def pyramid_blending():
         nonlocal write_output_video, out_video, video1
         if write_output_video:
             if out_video is None:
+                #output_img = output_img[200:,200:.:]
                 fps = video1.get(cv2.CAP_PROP_FPS)
                 fourcc = cv2.VideoWriter_fourcc(*"XVID")
                 out_video = cv2.VideoWriter(
-                    filename="stitched_output.mov",
+                    filename="stitched_output.mp4",
                     fourcc=fourcc,
                     fps=fps,
                     frameSize=(output_img.shape[1], output_img.shape[1]),
@@ -332,9 +333,9 @@ def pyramid_blending():
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
             #if frame_count % 10 == 0:
-            cv2.imshow('Stitched', stitched_frame)
-            cv2.waitKey(0)
-            #_maybe_write_output(stitched_frame)
+            # cv2.imshow('Stitched', stitched_frame)
+            # cv2.waitKey(0)
+            _maybe_write_output(stitched_frame)
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
@@ -366,6 +367,7 @@ def pyramid_blending():
             f"{frame_count - skip_timing_frame_count} frames in {duration} seconds ({(frame_count - skip_timing_frame_count)/duration} fps)"
         )
     if out_video is not None:
+        out_video.close()
         out_video.release()
     # files_left = [
     #     f"{vid_dir}/my_project0000.tif",

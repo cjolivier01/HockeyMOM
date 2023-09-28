@@ -1,7 +1,9 @@
-h
+#!/bin/bash
+
+rm -f panorama.tif
 
 # generate project file from images, FOV=108 degrees
-pto_gen -o my_project.pto -f 108 images/left.png images/right.png
+pto_gen -o my_project.pto -f 108 images/left-45min.png images/right-45min.png
 
 # find control points
 cpfind --linearmatch my_project.pto -o my_project.pto
