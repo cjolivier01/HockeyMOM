@@ -154,9 +154,9 @@ def frame_feeder_worker(
         ):
             break
 
-        print("Skipping 200 frames...")
-        video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + 200)
-        video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+        # print("Skipping 200 frames...")
+        # video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+        # video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + 200)
 
         frame_count += 1
         current_frame_id += 1
@@ -196,7 +196,7 @@ def stitch_videos():
     nona = core.HmNona(pto_project_file)
 
     print("Creating data loader...")
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 1, 1)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 10, 10)
     print("Data loader created.")
 
     # start_frame_number = 2000
@@ -204,7 +204,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 20
+    max_frames = 200
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -304,6 +304,8 @@ def stitch_videos():
         # start = time.time()
         if True:
             if frame_count > 1:
+                if frame_count == 1:
+                    timer= Timer()
                 timer.tic()
 
             stitched_frame = core.get_stitched_frame_from_data_loader(
@@ -316,9 +318,9 @@ def stitch_videos():
             # duration = time.time() - start
             # print(f"Got results in {duration} seconds")
             # if frame_count % 10 == 0:
-            cv2.imshow('Stitched', stitched_frame)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            # cv2.imshow('Stitched', stitched_frame)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
             _maybe_write_output(stitched_frame)
 
             # if output_video is not None:
