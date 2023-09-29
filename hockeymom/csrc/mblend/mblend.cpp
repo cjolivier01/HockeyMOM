@@ -1689,171 +1689,11 @@ class Blender {
     }
 
     if (output_type != ImageType::MB_NONE) {
-      // /***********************************************************************
-      //  * Shrink masks
-      //  ***********************************************************************/
-      // if (pass == 1) {
-      //   // Output(1, "Shrinking masks...\n");
-      //   timer.Start();
-
-      //   for (i = 0; i < n_images; ++i) {
-      //     threadpool->Queue([&image_state, i, this] {
-      //       ShrinkMasks(image_state.images[i]->masks, blend_levels);
-      //     });
-      //   }
-      //   threadpool->Wait();
-
-      //   shrink_mask_time = timer.Read();
-      // }
-      // /***********************************************************************
-      //  * Create shared input pyramids
-      //  ***********************************************************************/
-      // // wrapping
-      // if (pass == 1) {
-      //   // std::vector<std::shared_ptr<PyramidWithMasks>> wrap_pyramids;
-      //   // int wrap_levels_h = 0;
-      //   // int wrap_levels_v = 0;
-
-      //   wrap_pyramids.clear();
-
-      //   if (wrap & 1) {
-      //     wrap_levels_h = (int)floor(log2((width >> 1) + 4.0f) - 1);
-      //     wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
-      //         width >> 1, height, wrap_levels_h, 0, 0, true));
-      //     wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
-      //         (width + 1) >> 1, height, wrap_levels_h, width >> 1, 0, true));
-      //   }
-
-      //   if (wrap & 2) {
-      //     wrap_levels_v = (int)floor(log2((height >> 1) + 4.0f) - 1);
-      //     wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
-      //         width, height >> 1, wrap_levels_v, 0, 0, true));
-      //     wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
-      //         width, (height + 1) >> 1, wrap_levels_v, 0, height >> 1,
-      //         true));
-      //   }
-
-      //   // masks
-      //   for (auto& py : wrap_pyramids) {
-      //     threadpool->Queue([=] {
-      //       py->masks.push_back(std::make_shared<Flex>(width, height));
-      //       for (int y = 0; y < height; ++y) {
-      //         if (y < py->GetY() || y >= py->GetY() + py->GetHeight()) {
-      //           py->masks[0]->Write32(0x80000000 | width);
-      //         } else {
-      //           if (py->GetX()) {
-      //             py->masks[0]->Write32(0x80000000 | py->GetX());
-      //             py->masks[0]->Write32(0xc0000000 | py->GetWidth());
-      //           } else {
-      //             py->masks[0]->Write32(0xc0000000 | py->GetWidth());
-      //             if (py->GetWidth() != width)
-      //               py->masks[0]->Write32(
-      //                   0x80000000 | (width - py->GetWidth()));
-      //           }
-      //         }
-      //         py->masks[0]->NextLine();
-      //       }
-
-      //       ShrinkMasks(
-      //           py->masks,
-      //           py->GetWidth() == width ? wrap_levels_v : wrap_levels_h);
-      //     });
-      //   }
-
-      //   threadpool->Wait();
-      //   // end wrapping
-
-      //   total_levels =
-      //       std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
-
-      //   for (int i = 0; i < n_images; ++i) {
-      //     image_state.images[i]->pyramid = std::make_shared<Pyramid>(
-      //         image_state.images[i]->width,
-      //         image_state.images[i]->height,
-      //         blend_levels,
-      //         image_state.images[i]->xpos,
-      //         image_state.images[i]->ypos,
-      //         true);
-      //   }
-
-      //   for (int l = total_levels - 1; l >= 0; --l) {
-      //     size_t max_bytes = 0;
-
-      //     if (l < blend_levels) {
-      //       for (auto& image : image_state.images) {
-      //         max_bytes =
-      //             std::max(max_bytes, image->pyramid->GetLevel(l).bytes);
-      //       }
-      //     }
-
-      //     for (auto& py : wrap_pyramids) {
-      //       if (l < py->GetNLevels())
-      //         max_bytes = std::max(max_bytes, py->GetLevel(l).bytes);
-      //     }
-
-      //     float* temp;
-
-      //     try {
-      //       temp = (float*)MapAlloc::Alloc(max_bytes);
-      //     } catch (char* e) {
-      //       printf("%s\n", e);
-      //       exit(EXIT_FAILURE);
-      //     }
-
-      //     if (l < blend_levels) {
-      //       for (auto& image : image_state.images) {
-      //         image->pyramid->GetLevel(l).data = temp;
-      //       }
-      //     }
-
-      //     for (auto& py : wrap_pyramids) {
-      //       if (l < py->GetNLevels())
-      //         py->GetLevel(l).data = temp;
-      //     }
-      //   }
-      // } // end building wrap pyramids
-      // /***********************************************************************
-      //  * Create output pyramid
-      //  ***********************************************************************/
-      // if (pass == 1) {
-      //   // std::unique_ptr<Pyramid> output_pyramid;
-
-      //   output_pyramid =
-      //       std::make_unique<Pyramid>(width, height, total_levels, 0, 0,
-      //       true);
-
-      //   for (int l = total_levels - 1; l >= 0; --l) {
-      //     float* temp;
-
-      //     try {
-      //       temp =
-      //       (float*)MapAlloc::Alloc(output_pyramid->GetLevel(l).bytes);
-      //     } catch (char* e) {
-      //       printf("%s\n", e);
-      //       exit(EXIT_FAILURE);
-      //     }
-
-      //     output_pyramid->GetLevel(l).data = temp;
-      //   }
-      // }
       /***********************************************************************
        * Blend
        ***********************************************************************/
-      // if (n_images == 1) {
-      //   if (wrap)
-      //     Output(1, "Wrapping...\n");
-      //   else
-      //     Output(1, "Processing...\n");
-      // } else {
-      //   if (wrap)
-      //     Output(1, "Blending/wrapping...\n");
-      //   else
-      //     Output(1, "Blending...\n");
-      // }
-      // if (pass == 1) {
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
-          // if (pass == 1) {
           for (i = 0; i < n_images; ++i) {
             timer.Start();
 
@@ -1870,8 +1710,6 @@ class Blender {
                         : (output_bpp == 8 ? 1.0f / 257 : 257));
 
             image_state.images[i]->channels[c].reset();
-            // delete image_state.images[i]->channels[c];
-            // image_state.images[i]->channels[c] = NULL;
 
             copy_time += timer.Read();
 
@@ -1937,7 +1775,6 @@ class Blender {
 
             blend_time += timer.Read();
           }
-          //}
 
           timer.Start();
           output_pyramid->Collapse(blend_levels);
@@ -1958,8 +1795,6 @@ class Blender {
                 gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
                       : (output_bpp == 8 ? 1.0f / 257 : 257));
 
-          // delete image_state.images[0]->channels[c];
-          // image_state.images[0]->channels[c] = NULL;
           image_state.images[0]->channels[c].reset();
 
           copy_time += timer.Read();
