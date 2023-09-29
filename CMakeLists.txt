@@ -44,9 +44,9 @@ SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/o
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1")
 
 #if (HM_BUILD_ASAN)
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fsanitize=address -fno-omit-frame-pointer -UDEBUG")
@@ -91,10 +91,11 @@ include_directories(${OPENGL_INCLUDE_DIR})
 FIND_PACKAGE(FLANN REQUIRED)
 SET(FLANN_FOUND 1)
 
-add_subdirectory(external/eigen)
-add_subdirectory(external/abseil-cpp)
-#add_subdirectory(external/opencv-python/opencv)
-add_subdirectory(external/hugin)
+add_subdirectory(external)
+# add_subdirectory(external/eigen)
+# add_subdirectory(external/abseil-cpp)
+# #add_subdirectory(external/opencv-python/opencv)
+# add_subdirectory(external/hugin)
 
 add_subdirectory(hockeymom)
 

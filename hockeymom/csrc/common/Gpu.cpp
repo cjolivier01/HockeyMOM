@@ -14,7 +14,7 @@ thread_local bool attempted_result = false;
 } // namespace
 
 bool check_cuda_opengl() {
-  return false;
+  //return false;
   if (attempted) {
     return attempted_result;
   }

@@ -130,7 +130,7 @@ void BlenderImageState::init_from_image_state(
   for (std::size_t i = 0, n = incoming_images.size(); i < n; ++i) {
     auto& prev_image = prev_image_state.images.at(i);
     auto new_image =
-        prev_image->clone_with_new_data(incoming_images.at(i).get().data());
+        prev_image->clone_with_new_data(incoming_images.at(i).get().data(), /*own=*/false);
     images.emplace_back(std::make_unique<Image>(std::move(new_image)));
   }
 }
@@ -567,7 +567,7 @@ class Blender {
       die("Error: Wrapping in both directions is not currently supported");
 
     if (i < my_argv.size()) {
-      if (!strcmp(my_argv[i], "--"))
+      if (!strncmp(my_argv[i], "--", 2))
         ++i;
     }
 
@@ -1571,6 +1571,7 @@ class Blender {
   int process_inputs(
       const BlenderImageState& image_state,
       std::unique_ptr<hm::MatrixRGB>* output_image) {
+    ++pass;
     /***********************************************************************
      * No output?
      ***********************************************************************/
@@ -1737,7 +1738,7 @@ class Blender {
       //   else
       //     Output(1, "Blending...\n");
       // }
-
+      //if (pass == 1) {
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
           for (i = 0; i < n_images; ++i) {
@@ -1755,8 +1756,9 @@ class Blender {
                   gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
                         : (output_bpp == 8 ? 1.0f / 257 : 257));
 
-            delete image_state.images[i]->channels[c];
-            image_state.images[i]->channels[c] = NULL;
+            image_state.images[i]->channels[c].reset();
+            //delete image_state.images[i]->channels[c];
+            //image_state.images[i]->channels[c] = NULL;
 
             copy_time += timer.Read();
 
@@ -1841,8 +1843,9 @@ class Blender {
                 gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
                       : (output_bpp == 8 ? 1.0f / 257 : 257));
 
-          delete image_state.images[0]->channels[c];
-          image_state.images[0]->channels[c] = NULL;
+          //delete image_state.images[0]->channels[c];
+          //image_state.images[0]->channels[c] = NULL;
+          image_state.images[0]->channels[c].reset();
 
           copy_time += timer.Read();
         }
@@ -1996,6 +1999,7 @@ class Blender {
 
         out_time += timer.Read();
       }
+      //}
 /***********************************************************************
  * Write
  ***********************************************************************/

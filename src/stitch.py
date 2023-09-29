@@ -119,6 +119,10 @@ def feed_next_frame(
     ret2, img2 = video2.read()
     if not ret2:
         return False
+
+    # img1 = cv2.resize(img1, (img1.shape[1//4, img1.shape[1]//4]))
+    # img2 = cv2.resize(img2, (img2.shape[1//4, img2.shape[1]//4]))
+
     # print(f"Pushing frame {current_frame_id}")
     core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
     return True
@@ -149,6 +153,11 @@ def frame_feeder_worker(
             frame_id=current_frame_id,
         ):
             break
+
+        print("Skipping 200 frames...")
+        video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+        video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+
         frame_count += 1
         current_frame_id += 1
     print("Feeder thread exiting")
@@ -195,7 +204,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 20000
+    max_frames = 20
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -302,6 +311,20 @@ def stitch_videos():
             )
             PROCESSED_COUNT += 1
 
+            # assert stitched_frame.shape[0] == final_video_size[1]
+            # assert stitched_frame.shape[1] == final_video_size[0]
+            # duration = time.time() - start
+            # print(f"Got results in {duration} seconds")
+            # if frame_count % 10 == 0:
+            cv2.imshow('Stitched', stitched_frame)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+            _maybe_write_output(stitched_frame)
+
+            # if output_video is not None:
+            #     output_video.write(stitched_frame)
+
+
             if (frame_count + 1) % 20 == 0:
                 timer.toc()
                 logger.info(
@@ -309,19 +332,6 @@ def stitch_videos():
                         frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
-
-            # assert stitched_frame.shape[0] == final_video_size[1]
-            # assert stitched_frame.shape[1] == final_video_size[0]
-            # duration = time.time() - start
-            # print(f"Got results in {duration} seconds")
-            # if frame_count % 10 == 0:
-            # cv2.imshow('Stitched', stitched_frame)
-            # cv2.waitKey(0)
-            # _maybe_write_output(stitched_frame)
-
-            if output_video is not None:
-                output_video.write(stitched_frame)
-
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start

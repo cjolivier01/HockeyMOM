@@ -24,6 +24,7 @@ public:
   //Image(const Image& clone_from, void* data);
   Image(std::vector<std::size_t> shape, std::size_t num_channels);
 	~Image();
+  Image(const Image& other) = default; // protect channels
   void write_rows(unsigned char **scanlines, std::size_t num_rows);
 	//char* filename{nullptr};
   std::string filename;
@@ -34,7 +35,7 @@ public:
 	int ypos;
 	int xpos_add = 0;
 	int ypos_add = 0;
-	std::vector<Channel*> channels;
+	std::vector<std::shared_ptr<Channel>> channels;
 	std::shared_ptr<Pyramid> pyramid;
 	GeoTIFFInfo geotiff;
 	int tiff_width;
@@ -45,6 +46,8 @@ public:
 	int end_strip;
 	uint16_t bpp;
 	uint16_t spp;
+  std::size_t channel_left{0};
+  std::size_t channel_top{0};
 	void Open();
 	void Read(void* data, bool gamma);
 //	size_t untrimmed_pixels;
@@ -71,15 +74,24 @@ public:
 		own_raw_data = own;
 	}
 
+  std::vector<Channel*> fast_channel_vect() const {
+    std::vector<Channel*> v;
+    v.reserve(channels.size());
+    for (const auto& c : channels) {
+      v.emplace_back(c.get());
+    }
+    return v;
+  }
+
   constexpr std::size_t num_channels() const {
     return spp;
   }
 
-  Image clone_with_new_data(void *new_raw_data);
+  Image clone_with_new_data(void *new_raw_data, bool own);
 
 private:
 
-  void extract_channels(void *data, std::size_t left, std::size_t top);
+  void extract_channels(void *data);
 
 	TIFF* tiff;
 	FILE* file;
@@ -123,11 +135,13 @@ Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
   raw_data_write_ptr_ = raw_data;
 }
 
-Image Image::clone_with_new_data(void *new_raw_data) {
+Image Image::clone_with_new_data(void *new_raw_data, bool own) {
   Image img = *this;
   img.raw_data = img.raw_data_write_ptr_ = (uint8_t*)new_raw_data;
   img.filename.clear();
   img.channels.clear();
+  img.extract_channels(img.raw_data);
+  img.own_raw_data = own;
   return img;
 }
 
@@ -146,7 +160,7 @@ void Image::write_rows(unsigned char **scanlines, std::size_t num_rows) {
 }
 
 Image::~Image() {
-	for (auto it = channels.begin(); it < channels.end(); ++it) delete (*it);
+	//for (auto it = channels.begin(); it < channels.end(); ++it) delete (*it);
 	//for (auto it = masks.begin(); it < masks.end(); ++it) delete (*it);
 	channels.clear();
 	masks.clear();
@@ -787,17 +801,20 @@ void Image::Read(void* data, bool gamma) {
 			tiff_mask->NextLine();
 		}
 	}
-  extract_channels(data, left, top);
+  channel_top = top;
+  channel_left = left;
+  extract_channels(data);
 }
 /***********************************************************************
 * Extract channels
 ***********************************************************************/
-void Image::extract_channels(void *data, std::size_t left, std::size_t top) {
+void Image::extract_channels(void *data) {
 	size_t channel_bytes = ((size_t)width * height) << (bpp >> 4);
-
+  const auto& left = channel_left;
+  const auto& top = channel_top;
 	channels.clear();
 	for (int c = 0; c < 3; ++c) {
-		channels.push_back(new Channel(channel_bytes));
+		channels.push_back(std::make_shared<Channel>(channel_bytes));
 	}
   int x, y;
 	if (spp == 4) {
