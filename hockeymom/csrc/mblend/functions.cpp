@@ -593,7 +593,7 @@ void ReadSeamDT(Flex* flex, int& current_count, std::int64_t& current_step, uint
 }
 
 
-#define SEAM_DT    ReadSeamDT(seam_flex, current_count, current_step, dt_val);
+#define SEAM_DT    ReadSeamDT(seam_flex.get(), current_count, current_step, dt_val);
 #define INPAINT_DT ReadInpaintDT(    dt.get(), current_count, current_step, dt_val);
 
 /***********************************************************************

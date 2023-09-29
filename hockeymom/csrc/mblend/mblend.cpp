@@ -203,7 +203,7 @@ class Blender {
   int wrap_levels_h = 0;
   int wrap_levels_v = 0;
 
-  //std::unique_ptr<Pyramid> output_pyramid;
+  // std::unique_ptr<Pyramid> output_pyramid;
 
  public:
   int multiblend_main(int argc, char* argv[], BlenderImageState& image_state) {
@@ -847,7 +847,7 @@ class Blender {
     bool last_pixel = false;
     bool arbitrary_seam = false;
 
-    Flex* seam_flex = new Flex(width, height);
+    std::unique_ptr<Flex> seam_flex = std::make_unique<Flex>(width, height);
     int max_queue = 0;
 
     int x = 0, y = 0;
@@ -899,7 +899,7 @@ class Blender {
           // is
           // finished
           std::unique_lock<std::mutex> mlock(*flex_mutex_p);
-          flex_cond_p->wait(mlock, [=] {
+          flex_cond_p->wait(mlock, [&seam_flex, y, n_threads, this] {
             return seam_flex->y > (height - 1) - y - n_threads;
           });
         }
@@ -1026,17 +1026,25 @@ class Blender {
         }
 
         if (y) {
-          threadpool->Queue([=] {
-            int p = CompressSeamLine(this_line, comp, width);
-            if (p > width) {
+          threadpool->Queue([this_line,
+                             y,
+                             comp,
+                             h = height,
+                             w = width,
+                             flex_mutex_p,
+                             flex_cond_p,
+                             &seam_flex] {
+            int p = CompressSeamLine(this_line, comp, w);
+            if (p > w) {
               printf("bad p: %d at line %d", p, y);
               exit(0);
             }
 
             {
               std::unique_lock<std::mutex> mlock(*flex_mutex_p);
-              flex_cond_p->wait(
-                  mlock, [=] { return seam_flex->y == (height - 1) - y; });
+              flex_cond_p->wait(mlock, [h, &seam_flex, y] {
+                return seam_flex->y == (h - 1) - y;
+              });
               seam_flex->Copy(comp, p);
               seam_flex->NextLine();
             }
@@ -1845,7 +1853,7 @@ class Blender {
       // if (pass == 1) {
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
-          //if (pass == 1) {
+          // if (pass == 1) {
           for (i = 0; i < n_images; ++i) {
             timer.Start();
 
