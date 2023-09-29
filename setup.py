@@ -9,6 +9,16 @@ from setuptools.command.build_ext import build_ext
 from distutils.version import LooseVersion
 
 
+def run_submodule_setup(submodule_subdir: str):
+    current_dir = os.getcwd()
+    os.chdir(submodule_subdir)
+    try:
+        subprocess_command = [sys.executable, "setup.py", sys.argv[2:]]
+        subprocess.run(subprocess_command)
+    finally:
+        os.chdir(current_dir)
+
+
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=""):
         Extension.__init__(self, name, sources=[])
@@ -96,6 +106,8 @@ class CMakeBuild(build_ext):
             cwd=self.build_temp,
         )
 
+# run_submodule_setup('DCNv2')
+# run_submodule_setup('external/fast_pytorch_kmeans')
 
 setup(
     name="hockeymom",
