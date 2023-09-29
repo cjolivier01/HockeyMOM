@@ -72,11 +72,11 @@ namespace hm {
 class PyramidWithMasks : public Pyramid {
 public:
   using Pyramid::Pyramid;
-  std::vector<Flex *> masks;
+  std::vector<std::shared_ptr<Flex>> masks;
   ~PyramidWithMasks() {
-    for (auto m : masks) {
-      delete m;
-    }
+    // for (auto m : masks) {
+    //   delete m;
+    // }
   }
 };
 
@@ -1050,7 +1050,7 @@ class Blender {
 
     // create top level masks
     for (i = 0; i < n_images; ++i) {
-      images[i]->masks.push_back(new Flex(width, height));
+      images[i]->masks.push_back(std::make_shared<Flex>(width, height));
     }
 
     Pnger* xor_map = xor_filename
@@ -1585,7 +1585,7 @@ class Blender {
         // masks
         for (auto& py : wrap_pyramids) {
           threadpool->Queue([=] {
-            py->masks.push_back(new Flex(width, height));
+            py->masks.push_back(std::make_shared<Flex>(width, height));
             for (int y = 0; y < height; ++y) {
               if (y < py->GetY() || y >= py->GetY() + py->GetHeight()) {
                 py->masks[0]->Write32(0x80000000 | width);
@@ -1616,7 +1616,7 @@ class Blender {
             std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
 
         for (int i = 0; i < n_images; ++i) {
-          images[i]->pyramid = new Pyramid(
+          images[i]->pyramid = std::make_shared<Pyramid>(
               images[i]->width,
               images[i]->height,
               blend_levels,

@@ -21,6 +21,7 @@ class Image {
 public:
 	Image(char* _filename);
 	Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos);
+  //Image(const Image& clone_from, void* data);
   Image(std::vector<std::size_t> shape, std::size_t num_channels);
 	~Image();
   void write_rows(unsigned char **scanlines, std::size_t num_rows);
@@ -33,7 +34,7 @@ public:
 	int xpos_add = 0;
 	int ypos_add = 0;
 	std::vector<Channel*> channels;
-	Pyramid* pyramid = NULL;
+	std::shared_ptr<Pyramid> pyramid;
 	GeoTIFFInfo geotiff;
 	int tiff_width;
 	int tiff_height;
@@ -47,13 +48,13 @@ public:
 	void Read(void* data, bool gamma);
 //	size_t untrimmed_pixels;
 	size_t untrimmed_bytes;
-	Flex* tiff_mask;
+	std::shared_ptr<Flex> tiff_mask;
 	float tiff_xres, tiff_yres;
 	uint64_t mask_state;
 	int mask_count;
 	int mask_limit;
 	bool seam_present;
-	std::vector<Flex*> masks;
+	std::vector<std::shared_ptr<Flex>> masks;
 	void MaskPng(int i);
   int row_stride{0};
 
@@ -73,6 +74,8 @@ public:
     return spp;
   }
 
+  Image clone_with_new_data(void *new_raw_data);
+
 private:
 	TIFF* tiff;
 	FILE* file;
@@ -88,6 +91,11 @@ private:
 
 Image::Image(char* _filename) : filename(_filename) {
 }
+
+// Image::Image(const Image& clone_from, void* data) {
+
+//   set_raw_data(data);
+// }
 
 Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos) {
   type = ImageType::MB_MEM;
@@ -111,6 +119,13 @@ Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
   raw_data_write_ptr_ = raw_data;
 }
 
+Image Image::clone_with_new_data(void *new_raw_data) {
+  Image img = *this;
+  raw_data = raw_data_write_ptr_ = (uint8_t*)new_raw_data;
+  file = nullptr;
+  return img;
+}
+
 void Image::write_rows(unsigned char **scanlines, std::size_t num_rows) {
 	if (scanlines) {
 		for (std::size_t i = 0; i < num_rows; ++i) {
@@ -127,12 +142,12 @@ void Image::write_rows(unsigned char **scanlines, std::size_t num_rows) {
 
 Image::~Image() {
 	for (auto it = channels.begin(); it < channels.end(); ++it) delete (*it);
-	for (auto it = masks.begin(); it < masks.end(); ++it) delete (*it);
+	//for (auto it = masks.begin(); it < masks.end(); ++it) delete (*it);
 	channels.clear();
 	masks.clear();
-  if (pyramid) {
-	  delete pyramid;
-  }
+  // if (pyramid) {
+	//   delete pyramid;
+  // }
   if (own_raw_data && raw_data) {
     delete [] raw_data;
   }
@@ -510,8 +525,8 @@ void Image::Read(void* data, bool gamma) {
 		uint32_t* prev_line = NULL;
 		Threadpool* threadpool = Threadpool::GetInstance();
 
-		tiff_mask = new Flex(width, height);
-		Flex* dt = new Flex(width, height);
+		tiff_mask = std::make_shared<Flex>(width, height);
+		auto dt = std::make_shared<Flex>(width, height);
 		int mc;
 
 		int n_threads = (std::max)(2, threadpool->GetNThreads());
@@ -760,7 +775,7 @@ void Image::Read(void* data, bool gamma) {
 		width = tiff_width;
 		height = tiff_height;
 
-		tiff_mask = new Flex(width, height);
+		tiff_mask = std::make_shared<Flex>(width, height);
 
 		for (y = 0; y < height; ++y) {
 			tiff_mask->Write32(0x80000000 | width);

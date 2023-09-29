@@ -297,7 +297,7 @@ int Squish(uint32_t* in, uint32_t* out, int in_width, int out_width) {
 	return in_p;
 }
 
-void ShrinkMasks(std::vector<Flex*>& masks, int n_levels) {
+void ShrinkMasks(std::vector<std::shared_ptr<Flex>>& masks, int n_levels) {
 	int i;
 	Flex flex_temp(masks[0]->width, masks[0]->height);
 	uint32_t cur;
@@ -314,7 +314,7 @@ void ShrinkMasks(std::vector<Flex*>& masks, int n_levels) {
 		int in_width = masks[l - 1]->width;
 		int out_width = (in_width + 6) >> 1;
 		int out_height = (masks[l - 1]->height + 6) >> 1;
-		masks.push_back(new Flex(out_width, out_height));
+		masks.push_back(std::make_shared<Flex>(out_width, out_height));
 
 		int input_p = 0;
 
@@ -594,7 +594,7 @@ void ReadSeamDT(Flex* flex, int& current_count, std::int64_t& current_step, uint
 
 
 #define SEAM_DT    ReadSeamDT(seam_flex, current_count, current_step, dt_val);
-#define INPAINT_DT ReadInpaintDT(    dt, current_count, current_step, dt_val);
+#define INPAINT_DT ReadInpaintDT(    dt.get(), current_count, current_step, dt_val);
 
 /***********************************************************************
 * Seam line compress
