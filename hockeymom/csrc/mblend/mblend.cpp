@@ -203,7 +203,7 @@ class Blender {
   int wrap_levels_h = 0;
   int wrap_levels_v = 0;
 
-  std::unique_ptr<Pyramid> output_pyramid;
+  //std::unique_ptr<Pyramid> output_pyramid;
 
  public:
   int multiblend_main(int argc, char* argv[], BlenderImageState& image_state) {
@@ -1648,10 +1648,23 @@ class Blender {
           py->GetLevel(l).data = temp;
       }
     }
+  }
+
+  int process_inputs(
+      const BlenderImageState& image_state,
+      std::unique_ptr<hm::MatrixRGB>* output_image) {
+    ++pass;
+    /***********************************************************************
+     * No output?
+     ***********************************************************************/
+    void* output_channels[3] = {NULL, NULL, NULL};
+    int i = 0, x = 0, y = 0;
+    int n_images = image_state.images.size();
+
     /***********************************************************************
      * Create output pyramid
      ***********************************************************************/
-    output_pyramid =
+    auto output_pyramid =
         std::make_unique<Pyramid>(width, height, total_levels, 0, 0, true);
 
     for (int l = total_levels - 1; l >= 0; --l) {
@@ -1666,18 +1679,6 @@ class Blender {
 
       output_pyramid->GetLevel(l).data = temp;
     }
-  }
-
-  int process_inputs(
-      const BlenderImageState& image_state,
-      std::unique_ptr<hm::MatrixRGB>* output_image) {
-    ++pass;
-    /***********************************************************************
-     * No output?
-     ***********************************************************************/
-    void* output_channels[3] = {NULL, NULL, NULL};
-    int i = 0, x = 0, y = 0;
-    int n_images = image_state.images.size();
 
     if (output_type != ImageType::MB_NONE) {
       // /***********************************************************************
@@ -1844,6 +1845,7 @@ class Blender {
       // if (pass == 1) {
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
+          //if (pass == 1) {
           for (i = 0; i < n_images; ++i) {
             timer.Start();
 
@@ -1927,6 +1929,7 @@ class Blender {
 
             blend_time += timer.Read();
           }
+          //}
 
           timer.Start();
           output_pyramid->Collapse(blend_levels);
@@ -1958,6 +1961,7 @@ class Blender {
          * Wrapping
          ***********************************************************************/
         if (wrap) {
+          assert(false); // never do this at the moment
           timer.Start();
 
           int p = 0;
