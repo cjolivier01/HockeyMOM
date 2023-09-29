@@ -74,6 +74,12 @@ public:
 		return out;
 	}
 
+	uint32_t ReadForwards32(int *position) const {
+		const uint32_t out = *((const uint32_t*)&data[*position]);
+		*position += 4;
+		return out;
+	}
+
 	void Copy(uint8_t* src, int len) {
 		memcpy(&data[p], src, len);
 		p += len;
@@ -81,6 +87,10 @@ public:
 
 	void Start() {
 		p = 0;
+	}
+
+	void Start(int *position) const {
+		*position = 0;
 	}
 
 	void End() {
