@@ -517,11 +517,11 @@ void CompositeLine(float* input_p, float* output_p, int i, int x_offset, int in_
 			if (seam_map) memset(&seam_map->line[x - mc], current_i, mc);\
 			for (i = 0; i < n_images; ++i) {\
 				if (i == current_i) {\
-					images[i]->masks[0]->Write32(0xc0000000 | mc);\
+					image_state.images[i]->masks[0]->Write32(0xc0000000 | mc);\
 				} else if (i == prev_i || prev_i == -1) {\
-					images[i]->masks[0]->Write32(0x80000000 | mc);\
+					image_state.images[i]->masks[0]->Write32(0x80000000 | mc);\
 				} else {\
-					images[i]->masks[0]->IncrementLast32(mc);\
+					image_state.images[i]->masks[0]->IncrementLast32(mc);\
 				}\
 			}\
 		}\

@@ -277,7 +277,6 @@ def stitch_videos():
             start = time.time()
         if frame_count and frame_count % 50 == 0:
             print(f"{frame_count} frames...")
-        PROCESSED_COUNT += 1
         # ret1, img1 = video1.read()
         # if not ret1:
         #     break
@@ -301,6 +300,7 @@ def stitch_videos():
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 data_loader, frame_id
             )
+            PROCESSED_COUNT += 1
 
             if (frame_count + 1) % 20 == 0:
                 timer.toc()

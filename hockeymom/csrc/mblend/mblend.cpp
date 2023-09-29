@@ -101,15 +101,20 @@ extern "C" FILE* __cdecl __iob_func(void) {
 #endif
 
 #define MASKVAL(X) \
-  (((X)&0x7fffffffffffffff) | images[(X)&0xffffffff]->mask_state)
+  (((X)&0x7fffffffffffffff) | image_state.images[(X)&0xffffffff]->mask_state)
 
 namespace hm {
 
 class Blender {
+
+  struct ImageState {
+    std::vector<std::unique_ptr<Image>> images;
+  };
+
   /***********************************************************************
    * Variables
    ***********************************************************************/
-  std::vector<std::unique_ptr<Image>> images;
+  //std::vector<std::unique_ptr<Image>> images;
   int fixed_levels = 0;
   int add_levels = 0;
 
@@ -175,7 +180,7 @@ class Blender {
   std::unique_ptr<Pyramid> output_pyramid;
 
  public:
-  int multiblend_main(int argc, char* argv[]) {
+  int multiblend_main(int argc, char* argv[], ImageState& image_state) {
     // This is here because of a weird problem encountered during development
     // with Visual Studio. It should never be triggered.
     if (verbosity != 1) {
@@ -546,17 +551,17 @@ class Blender {
     int x, y, n;
 
     while (i < (int)my_argv.size()) {
-      if (images.size()) {
+      if (image_state.images.size()) {
         n = 0;
         sscanf_s(my_argv[i], "%d,%d%n", &x, &y, &n);
         if (!my_argv[i][n]) {
-          images.back()->xpos_add = x;
-          images.back()->ypos_add = y;
+          image_state.images.back()->xpos_add = x;
+          image_state.images.back()->ypos_add = y;
           i++;
           continue;
         }
       }
-      images.push_back(std::make_unique<Image>(my_argv[i++]));
+      image_state.images.push_back(std::make_unique<Image>(my_argv[i++]));
     }
     threadpool = Threadpool::GetInstance(
         all_threads ? 0 : std::thread::hardware_concurrency() / 2);
@@ -564,20 +569,21 @@ class Blender {
   }
 
   int process_images(
-      std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images) {
+      std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images, ImageState& image_state) /*const*/ {
     if (!incoming_images.empty()) {
-      images.clear();
+      image_state.images.clear();
     }
+    // TODO: do incoming_images -> image_state.images ouside (maybe member func to ImageState)
     for (auto& img : incoming_images) {
       std::size_t size =
           img.get().rows() * img.get().cols() * img.get().channels();
       std::vector<size_t> shape{
           img.get().rows(), img.get().cols(), img.get().channels()};
-      images.push_back(std::make_unique<Image>(
+      image_state.images.push_back(std::make_unique<Image>(
           img.get().data(), size, std::move(shape), img.get().xy_pos()));
     }
 
-    int n_images = (int)images.size();
+    int n_images = (int)image_state.images.size();
 
     if (n_images == 0)
       die("Error: No input files specified");
@@ -653,31 +659,31 @@ class Blender {
     size_t untrimmed_bytes = 0;
 
     for (i = 0; i < n_images; ++i) {
-      images[i]->Open();
-      untrimmed_bytes = std::max(untrimmed_bytes, images[i]->untrimmed_bytes);
+      image_state.images[i]->Open();
+      untrimmed_bytes = std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
     }
 
     /***********************************************************************
      * Check paramters, display warnings
      ***********************************************************************/
     for (i = 1; i < n_images; ++i) {
-      if (images[i]->tiff_xres != images[0]->tiff_xres ||
-          images[i]->tiff_yres != images[0]->tiff_yres) {
+      if (image_state.images[i]->tiff_xres != image_state.images[0]->tiff_xres ||
+          image_state.images[i]->tiff_yres != image_state.images[0]->tiff_yres) {
         Output(
             0,
             "Warning: TIFF resolution mismatch (%f %f/%f %f)\n",
-            images[0]->tiff_xres,
-            images[0]->tiff_yres,
-            images[i]->tiff_xres,
-            images[i]->tiff_yres);
+            image_state.images[0]->tiff_xres,
+            image_state.images[0]->tiff_yres,
+            image_state.images[i]->tiff_xres,
+            image_state.images[i]->tiff_yres);
       }
     }
 
     for (i = 0; i < n_images; ++i) {
-      if (output_bpp == 0 && images[i]->bpp == 16)
+      if (output_bpp == 0 && image_state.images[i]->bpp == 16)
         output_bpp = 16;
-      if (images[i]->bpp != images[0]->bpp) {
-        die("Error: mixture of 8bpp and 16bpp images detected (not currently "
+      if (image_state.images[i]->bpp != image_state.images[0]->bpp) {
+        die("Error: mixture of 8bpp and 16bpp image_state.images detected (not currently "
             "handled)\n");
       }
     }
@@ -699,7 +705,7 @@ class Blender {
      ***********************************************************************/
     for (i = 0; i < n_images; ++i) {
       try {
-        images[i]->Read(untrimmed_data, gamma);
+        image_state.images[i]->Read(untrimmed_data, gamma);
       } catch (char* e) {
         printf("\n\n");
         printf("%s\n", e);
@@ -721,15 +727,15 @@ class Blender {
     height = 0;
 
     for (i = 0; i < n_images; ++i) {
-      min_xpos = std::min(min_xpos, images[i]->xpos);
-      min_ypos = std::min(min_ypos, images[i]->ypos);
+      min_xpos = std::min(min_xpos, image_state.images[i]->xpos);
+      min_ypos = std::min(min_ypos, image_state.images[i]->ypos);
     }
 
     for (i = 0; i < n_images; ++i) {
-      images[i]->xpos -= min_xpos;
-      images[i]->ypos -= min_ypos;
-      width = std::max(width, images[i]->xpos + images[i]->width);
-      height = std::max(height, images[i]->ypos + images[i]->height);
+      image_state.images[i]->xpos -= min_xpos;
+      image_state.images[i]->ypos -= min_ypos;
+      width = std::max(width, image_state.images[i]->xpos + image_state.images[i]->width);
+      height = std::max(height, image_state.images[i]->ypos + image_state.images[i]->height);
     }
 
     images_time = timer.Read();
@@ -745,7 +751,7 @@ class Blender {
         std::vector<int> widths;
         std::vector<int> heights;
 
-        for (auto& image : images) {
+        for (auto& image : image_state.images) {
           widths.push_back(image->width);
           heights.push_back(image->height);
         }
@@ -848,7 +854,7 @@ class Blender {
 
       // set all image masks to bottom right
       for (i = 0; i < n_images; ++i) {
-        images[i]->tiff_mask->End();
+        image_state.images[i]->tiff_mask->End();
       }
 
       for (y = height - 1; y >= 0; --y) {
@@ -858,14 +864,14 @@ class Blender {
 
         // set initial image mask states
         for (i = 0; i < n_images; ++i) {
-          images[i]->mask_state = 0x8000000000000000;
-          if (y >= images[i]->ypos && y < images[i]->ypos + images[i]->height) {
-            images[i]->mask_count =
-                width - (images[i]->xpos + images[i]->width);
-            images[i]->mask_limit = images[i]->xpos;
+          image_state.images[i]->mask_state = 0x8000000000000000;
+          if (y >= image_state.images[i]->ypos && y < image_state.images[i]->ypos + image_state.images[i]->height) {
+            image_state.images[i]->mask_count =
+                width - (image_state.images[i]->xpos + image_state.images[i]->width);
+            image_state.images[i]->mask_limit = image_state.images[i]->xpos;
           } else {
-            images[i]->mask_count = width;
-            images[i]->mask_limit = width;
+            image_state.images[i]->mask_count = width;
+            image_state.images[i]->mask_limit = width;
           }
         }
 
@@ -886,20 +892,20 @@ class Blender {
 
           // update image mask states
           for (i = 0; i < n_images; ++i) {
-            if (!images[i]->mask_count) {
-              if (x >= images[i]->mask_limit) {
-                utemp = images[i]->tiff_mask->ReadBackwards32();
-                images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
-                images[i]->mask_count = utemp & 0x7fffffff;
+            if (!image_state.images[i]->mask_count) {
+              if (x >= image_state.images[i]->mask_limit) {
+                utemp = image_state.images[i]->tiff_mask->ReadBackwards32();
+                image_state.images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
+                image_state.images[i]->mask_count = utemp & 0x7fffffff;
               } else {
-                images[i]->mask_state = 0x8000000000000000;
-                images[i]->mask_count = min_count;
+                image_state.images[i]->mask_state = 0x8000000000000000;
+                image_state.images[i]->mask_count = min_count;
               }
             }
 
-            if (images[i]->mask_count < min_count)
-              min_count = images[i]->mask_count;
-            if (!images[i]->mask_state) { // mask_state is inverted
+            if (image_state.images[i]->mask_count < min_count)
+              min_count = image_state.images[i]->mask_count;
+            if (!image_state.images[i]->mask_state) { // mask_state is inverted
               ++xor_count;
               xor_image = i;
             }
@@ -908,7 +914,7 @@ class Blender {
           stop = x - min_count;
 
           if (xor_count == 1) {
-            images[xor_image]->seam_present = true;
+            image_state.images[xor_image]->seam_present = true;
             while (x > stop)
               this_line[x--] = xor_image;
           } else {
@@ -939,7 +945,7 @@ class Blender {
 
                 if (x == stop) {
                   for (i = 0; i < n_images; ++i) {
-                    images[i]->mask_count -= min_count;
+                    image_state.images[i]->mask_count -= min_count;
                   }
                   continue;
                 }
@@ -996,7 +1002,7 @@ class Blender {
           }
 
           for (i = 0; i < n_images; ++i) {
-            images[i]->mask_count -= min_count;
+            image_state.images[i]->mask_count -= min_count;
           }
         }
 
@@ -1025,11 +1031,11 @@ class Blender {
       threadpool->Wait();
 
       for (i = 0; i < n_images; ++i) {
-        if (!images[i]->seam_present) {
+        if (!image_state.images[i]->seam_present) {
           Output(
               1,
-              "Warning: %s is fully obscured by other images\n",
-              images[i]->filename);
+              "Warning: %s is fully obscured by other image_state.images\n",
+              image_state.images[i]->filename);
         }
       }
 
@@ -1044,13 +1050,13 @@ class Blender {
       delete flex_cond_p;
     } else { // if seamload_filename:
       for (i = 0; i < n_images; ++i) {
-        images[i]->tiff_mask->Start();
+        image_state.images[i]->tiff_mask->Start();
       }
     }
 
     // create top level masks
     for (i = 0; i < n_images; ++i) {
-      images[i]->masks.push_back(std::make_shared<Flex>(width, height));
+      image_state.images[i]->masks.push_back(std::make_shared<Flex>(width, height));
     }
 
     Pnger* xor_map = xor_filename
@@ -1088,13 +1094,13 @@ class Blender {
 
     for (y = 0; y < height; ++y) {
       for (i = 0; i < n_images; ++i) {
-        images[i]->mask_state = 0x8000000000000000;
-        if (y >= images[i]->ypos && y < images[i]->ypos + images[i]->height) {
-          images[i]->mask_count = images[i]->xpos;
-          images[i]->mask_limit = images[i]->xpos + images[i]->width;
+        image_state.images[i]->mask_state = 0x8000000000000000;
+        if (y >= image_state.images[i]->ypos && y < image_state.images[i]->ypos + image_state.images[i]->height) {
+          image_state.images[i]->mask_count = image_state.images[i]->xpos;
+          image_state.images[i]->mask_limit = image_state.images[i]->xpos + image_state.images[i]->width;
         } else {
-          images[i]->mask_count = width;
-          images[i]->mask_limit = width;
+          image_state.images[i]->mask_count = width;
+          image_state.images[i]->mask_limit = width;
         }
       }
 
@@ -1109,20 +1115,20 @@ class Blender {
         xor_count = 0;
 
         for (i = 0; i < n_images; ++i) {
-          if (!images[i]->mask_count) {
-            if (x < images[i]->mask_limit) {
-              utemp = images[i]->tiff_mask->ReadForwards32();
-              images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
-              images[i]->mask_count = utemp & 0x7fffffff;
+          if (!image_state.images[i]->mask_count) {
+            if (x < image_state.images[i]->mask_limit) {
+              utemp = image_state.images[i]->tiff_mask->ReadForwards32();
+              image_state.images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
+              image_state.images[i]->mask_count = utemp & 0x7fffffff;
             } else {
-              images[i]->mask_state = 0x8000000000000000;
-              images[i]->mask_count = min_count;
+              image_state.images[i]->mask_state = 0x8000000000000000;
+              image_state.images[i]->mask_count = min_count;
             }
           }
 
-          if (images[i]->mask_count < min_count)
-            min_count = images[i]->mask_count;
-          if (!images[i]->mask_state) {
+          if (image_state.images[i]->mask_count < min_count)
+            min_count = image_state.images[i]->mask_count;
+          if (!image_state.images[i]->mask_state) {
             ++xor_count;
             xor_image = i;
           }
@@ -1140,21 +1146,21 @@ class Blender {
           if (xor_map)
             memset(&xor_map->line[x], xor_image, min_count);
 
-          size_t p = (y - images[xor_image]->ypos) * images[xor_image]->width +
-              (x - images[xor_image]->xpos);
+          size_t p = (y - image_state.images[xor_image]->ypos) * image_state.images[xor_image]->width +
+              (x - image_state.images[xor_image]->xpos);
 
           int total_count = min_count;
           total_pixels += total_count;
           if (gamma) {
-            switch (images[xor_image]->bpp) {
+            switch (image_state.images[xor_image]->bpp) {
               case 8: {
                 uint16_t v;
                 while (total_count--) {
-                  v = ((uint8_t*)images[xor_image]->channels[0]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]->channels[0]->data)[p];
                   channel_totals[0] += v * v;
-                  v = ((uint8_t*)images[xor_image]->channels[1]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]->channels[1]->data)[p];
                   channel_totals[1] += v * v;
-                  v = ((uint8_t*)images[xor_image]->channels[2]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]->channels[2]->data)[p];
                   channel_totals[2] += v * v;
                   ++p;
                 }
@@ -1162,37 +1168,37 @@ class Blender {
               case 16: {
                 uint32_t v;
                 while (total_count--) {
-                  v = ((uint16_t*)images[xor_image]->channels[0]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]->channels[0]->data)[p];
                   channel_totals[0] += v * v;
-                  v = ((uint16_t*)images[xor_image]->channels[1]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]->channels[1]->data)[p];
                   channel_totals[1] += v * v;
-                  v = ((uint16_t*)images[xor_image]->channels[2]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]->channels[2]->data)[p];
                   channel_totals[2] += v * v;
                   ++p;
                 }
               } break;
             }
           } else {
-            switch (images[xor_image]->bpp) {
+            switch (image_state.images[xor_image]->bpp) {
               case 8: {
                 while (total_count--) {
                   channel_totals[0] +=
-                      ((uint8_t*)images[xor_image]->channels[0]->data)[p];
+                      ((uint8_t*)image_state.images[xor_image]->channels[0]->data)[p];
                   channel_totals[1] +=
-                      ((uint8_t*)images[xor_image]->channels[1]->data)[p];
+                      ((uint8_t*)image_state.images[xor_image]->channels[1]->data)[p];
                   channel_totals[2] +=
-                      ((uint8_t*)images[xor_image]->channels[2]->data)[p];
+                      ((uint8_t*)image_state.images[xor_image]->channels[2]->data)[p];
                   ++p;
                 }
               } break;
               case 16: {
                 while (total_count--) {
                   channel_totals[0] +=
-                      ((uint16_t*)images[xor_image]->channels[0]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]->channels[0]->data)[p];
                   channel_totals[1] +=
-                      ((uint16_t*)images[xor_image]->channels[1]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]->channels[1]->data)[p];
                   channel_totals[2] +=
-                      ((uint16_t*)images[xor_image]->channels[2]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]->channels[2]->data)[p];
                   ++p;
                 }
               } break;
@@ -1230,7 +1236,7 @@ class Blender {
                 if (best & 0x8000000000000000 && xor_count) {
                   arbitrary_seam = true;
                   for (i = 0; i < n_images; ++i) {
-                    if (!images[i]->mask_state) {
+                    if (!image_state.images[i]->mask_state) {
                       best = 0x8000000000000000 | i;
                       if (!reverse)
                         break;
@@ -1261,7 +1267,7 @@ class Blender {
                 if (best & 0x8000000000000000 && xor_count) {
                   arbitrary_seam = true;
                   for (i = 0; i < n_images; ++i) {
-                    if (!images[i]->mask_state) {
+                    if (!image_state.images[i]->mask_state) {
                       best = 0x8000000000000000 | i;
                       if (!reverse)
                         break;
@@ -1275,7 +1281,7 @@ class Blender {
 
                 if (x == stop) {
                   for (i = 0; i < n_images; ++i) {
-                    images[i]->mask_count -= min_count;
+                    image_state.images[i]->mask_count -= min_count;
                   }
                   continue;
                 }
@@ -1317,7 +1323,7 @@ class Blender {
                 if (best & 0x8000000000000000 && xor_count) {
                   arbitrary_seam = true;
                   for (i = 0; i < n_images; ++i) {
-                    if (!images[i]->mask_state) {
+                    if (!image_state.images[i]->mask_state) {
                       best = 0x8000000000000000 | i;
                       if (!reverse)
                         break;
@@ -1348,7 +1354,7 @@ class Blender {
                 if (best & 0x8000000000000000 && xor_count) {
                   arbitrary_seam = true;
                   for (i = 0; i < n_images; ++i) {
-                    if (!images[i]->mask_state) {
+                    if (!image_state.images[i]->mask_state) {
                       best = 0x8000000000000000 | i;
                       if (!reverse)
                         break;
@@ -1369,7 +1375,7 @@ class Blender {
         }
 
         for (i = 0; i < n_images; ++i) {
-          images[i]->mask_count -= min_count;
+          image_state.images[i]->mask_count -= min_count;
         }
       }
 
@@ -1377,7 +1383,7 @@ class Blender {
         RECORD(-1, 0);
 
         for (i = 0; i < n_images; ++i) {
-          images[i]->masks[0]->NextLine();
+          image_state.images[i]->masks[0]->NextLine();
         }
       }
 
@@ -1471,7 +1477,7 @@ class Blender {
         RECORD(-1, 0);
 
         for (i = 0; i < n_images; ++i) {
-          images[i]->masks[0]->NextLine();
+          image_state.images[i]->masks[0]->NextLine();
         }
       }
 
@@ -1482,12 +1488,12 @@ class Blender {
     return EXIT_SUCCESS;
   }
 
-  void reopen_images() {
+  void reopen_images(ImageState& image_state) {
     size_t untrimmed_bytes = 0;
-    int i = 0, n_images = images.size();
+    int i = 0, n_images = image_state.images.size();
     for (i = 0; i < n_images; ++i) {
-      images[i]->Open();
-      untrimmed_bytes = std::max(untrimmed_bytes, images[i]->untrimmed_bytes);
+      image_state.images[i]->Open();
+      untrimmed_bytes = std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
     }
 
     /***********************************************************************
@@ -1500,7 +1506,7 @@ class Blender {
      ***********************************************************************/
     for (i = 0; i < n_images; ++i) {
       try {
-        images[i]->Read(untrimmed_data, gamma);
+        image_state.images[i]->Read(untrimmed_data, gamma);
       } catch (char* e) {
         printf("\n\n");
         printf("%s\n", e);
@@ -1515,21 +1521,16 @@ class Blender {
   }
 
   int process_inputs(
+      const ImageState& new_image_state,  // TODO: the old ones, whgat's important, shpul;d be copyable, inherited by new instead of repalcing old pointers
       const std::vector<std::reference_wrapper<hm::MatrixRGB>>& next_images,
       std::unique_ptr<hm::MatrixRGB>* output_image = nullptr) {
     if (pass++ && !next_images.empty()) {
       for (std::size_t i = 0, n = next_images.size(); i < n; ++i) {
         auto& img = next_images[i];
-        auto& prev_image = images.at(i);
-        // std::size_t size =
-        //     img.get().rows() * img.get().cols() * img.get().channels();
-        // std::vector<size_t> shape{
-        //     img.get().rows(), img.get().cols(), img.get().channels()};
-        // next_images.push_back(std::make_unique<Image>(
-        //     img.get().data(), size, std::move(shape), img.get().xy_pos()));
+        auto& prev_image = image_state.images.at(i);
         prev_image->set_raw_data(img.get().data());
       }
-      // images = std::move(next_images);
+      // image_state.images = std::move(next_images);
       reopen_images();
     }
     /***********************************************************************
@@ -1537,7 +1538,7 @@ class Blender {
      ***********************************************************************/
     void* output_channels[3] = {NULL, NULL, NULL};
     int i = 0, x = 0, y = 0;
-    int n_images = images.size();
+    int n_images = image_state.images.size();
 
     if (output_type != ImageType::MB_NONE) {
       /***********************************************************************
@@ -1549,7 +1550,7 @@ class Blender {
 
         for (i = 0; i < n_images; ++i) {
           threadpool->Queue(
-              [=] { ShrinkMasks(images[i]->masks, blend_levels); });
+              [=] { ShrinkMasks(image_state.images[i]->masks, blend_levels); });
         }
         threadpool->Wait();
 
@@ -1616,12 +1617,12 @@ class Blender {
             std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
 
         for (int i = 0; i < n_images; ++i) {
-          images[i]->pyramid = std::make_shared<Pyramid>(
-              images[i]->width,
-              images[i]->height,
+          image_state.images[i]->pyramid = std::make_shared<Pyramid>(
+              image_state.images[i]->width,
+              image_state.images[i]->height,
               blend_levels,
-              images[i]->xpos,
-              images[i]->ypos,
+              image_state.images[i]->xpos,
+              image_state.images[i]->ypos,
               true);
         }
 
@@ -1629,7 +1630,7 @@ class Blender {
           size_t max_bytes = 0;
 
           if (l < blend_levels) {
-            for (auto& image : images) {
+            for (auto& image : image_state.images) {
               max_bytes =
                   std::max(max_bytes, image->pyramid->GetLevel(l).bytes);
             }
@@ -1650,7 +1651,7 @@ class Blender {
           }
 
           if (l < blend_levels) {
-            for (auto& image : images) {
+            for (auto& image : image_state.images) {
               image->pyramid->GetLevel(l).data = temp;
             }
           }
@@ -1703,29 +1704,29 @@ class Blender {
           for (i = 0; i < n_images; ++i) {
             timer.Start();
 
-            images[i]->pyramid->Copy(
-                (uint8_t*)images[i]->channels[c]->data,
+            image_state.images[i]->pyramid->Copy(
+                (uint8_t*)image_state.images[i]->channels[c]->data,
                 1,
-                images[i]->width,
+                image_state.images[i]->width,
                 gamma,
-                images[i]->bpp);
-            if (output_bpp != images[i]->bpp)
-              images[i]->pyramid->Multiply(
+                image_state.images[i]->bpp);
+            if (output_bpp != image_state.images[i]->bpp)
+              image_state.images[i]->pyramid->Multiply(
                   0,
                   gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
                         : (output_bpp == 8 ? 1.0f / 257 : 257));
 
-            delete images[i]->channels[c];
-            images[i]->channels[c] = NULL;
+            delete image_state.images[i]->channels[c];
+            image_state.images[i]->channels[c] = NULL;
 
             copy_time += timer.Read();
 
             timer.Start();
-            images[i]->pyramid->Shrink();
+            image_state.images[i]->pyramid->Shrink();
             shrink_time += timer.Read();
 
             timer.Start();
-            images[i]->pyramid->Laplace();
+            image_state.images[i]->pyramid->Laplace();
             laplace_time += timer.Read();
 
             // blend into output pyramid...
@@ -1733,7 +1734,7 @@ class Blender {
             timer.Start();
 
             for (int l = 0; l < blend_levels; ++l) {
-              auto in_level = images[i]->pyramid->GetLevel(l);
+              auto in_level = image_state.images[i]->pyramid->GetLevel(l);
               auto out_level = output_pyramid->GetLevel(l);
 
               int x_offset = (in_level.x - out_level.x) >> l;
@@ -1763,8 +1764,8 @@ class Blender {
                         in_level.width,
                         out_level.width,
                         out_level.pitch,
-                        images[i]->masks[l]->data,
-                        images[i]->masks[l]->rows[y]);
+                        image_state.images[i]->masks[l]->data,
+                        image_state.images[i]->masks[l]->rows[y]);
                   }
                 });
               }
@@ -1782,19 +1783,19 @@ class Blender {
           timer.Start();
 
           output_pyramid->Copy(
-              (uint8_t*)images[0]->channels[c]->data,
+              (uint8_t*)image_state.images[0]->channels[c]->data,
               1,
-              images[0]->width,
+              image_state.images[0]->width,
               gamma,
-              images[0]->bpp);
-          if (output_bpp != images[0]->bpp)
+              image_state.images[0]->bpp);
+          if (output_bpp != image_state.images[0]->bpp)
             output_pyramid->Multiply(
                 0,
                 gamma ? (output_bpp == 8 ? 1.0f / 66049 : 66049)
                       : (output_bpp == 8 ? 1.0f / 257 : 257));
 
-          delete images[0]->channels[c];
-          images[0]->channels[c] = NULL;
+          delete image_state.images[0]->channels[c];
+          image_state.images[0]->channels[c] = NULL;
 
           copy_time += timer.Read();
         }
@@ -1908,7 +1909,7 @@ class Blender {
           }
 
           float avg = (float)channel_totals[c] / total_pixels;
-          if (output_bpp != images[0]->bpp) {
+          if (output_bpp != image_state.images[0]->bpp) {
             switch (output_bpp) {
               case 8:
                 avg /= 256;
@@ -1994,26 +1995,26 @@ class Blender {
           }
 
           TIFFSetField(tiff_file, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
-          if (images[0]->tiff_xres != -1) {
-            TIFFSetField(tiff_file, TIFFTAG_XRESOLUTION, images[0]->tiff_xres);
+          if (image_state.images[0]->tiff_xres != -1) {
+            TIFFSetField(tiff_file, TIFFTAG_XRESOLUTION, image_state.images[0]->tiff_xres);
             TIFFSetField(
                 tiff_file,
                 TIFFTAG_XPOSITION,
-                (float)(min_xpos / images[0]->tiff_xres));
+                (float)(min_xpos / image_state.images[0]->tiff_xres));
           }
-          if (images[0]->tiff_yres != -1) {
-            TIFFSetField(tiff_file, TIFFTAG_YRESOLUTION, images[0]->tiff_yres);
+          if (image_state.images[0]->tiff_yres != -1) {
+            TIFFSetField(tiff_file, TIFFTAG_YRESOLUTION, image_state.images[0]->tiff_yres);
             TIFFSetField(
                 tiff_file,
                 TIFFTAG_YPOSITION,
-                (float)(min_ypos / images[0]->tiff_yres));
+                (float)(min_ypos / image_state.images[0]->tiff_yres));
           }
 
-          if (images[0]->geotiff.set) {
+          if (image_state.images[0]->geotiff.set) {
             // if we got a georeferenced input, store the geotags in the output
-            GeoTIFFInfo info(images[0]->geotiff);
-            info.XGeoRef = min_xpos * images[0]->geotiff.XCellRes;
-            info.YGeoRef = -min_ypos * images[0]->geotiff.YCellRes;
+            GeoTIFFInfo info(image_state.images[0]->geotiff);
+            info.XGeoRef = min_xpos * image_state.images[0]->geotiff.XCellRes;
+            info.YGeoRef = -min_ypos * image_state.images[0]->geotiff.YCellRes;
             Output(
                 1,
                 "Output georef: UL: %f %f, pixel size: %f %f\n",
