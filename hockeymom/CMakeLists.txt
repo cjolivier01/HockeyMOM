@@ -13,7 +13,7 @@ set(
   csrc/stitcher/HmNona.cpp
   csrc/common/Gpu.cpp
   csrc/dataloader/StitchingDataLoader.cpp
-  csrc/ImagePostProcess.cpp
+  csrc/postprocess/ImagePostProcess.cpp
 )
 add_library(hm SHARED ${SOURCES})
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
