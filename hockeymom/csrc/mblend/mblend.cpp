@@ -105,16 +105,42 @@ extern "C" FILE* __cdecl __iob_func(void) {
 
 namespace hm {
 
+void BlenderImageState::init_from_images(
+    std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images) {
+  images.clear();
+  images.reserve(incoming_images.size());
+  // TODO: do incoming_images -> image_state.images ouside (maybe member func to
+  // BlenderImageState)
+  for (auto& img : incoming_images) {
+    std::size_t size =
+        img.get().rows() * img.get().cols() * img.get().channels();
+    std::vector<size_t> shape{
+        img.get().rows(), img.get().cols(), img.get().channels()};
+    images.emplace_back(std::make_unique<Image>(
+        img.get().data(), size, std::move(shape), img.get().xy_pos()));
+  }
+}
+
+void BlenderImageState::init_from_image_state(
+    const BlenderImageState& prev_image_state,
+    const std::vector<std::reference_wrapper<hm::MatrixRGB>>& incoming_images) {
+  images.clear();
+  images.reserve(incoming_images.size());
+  assert(prev_image_state.images.size() == incoming_images.size());
+  for (std::size_t i = 0, n = incoming_images.size(); i < n; ++i) {
+    auto& prev_image = prev_image_state.images.at(i);
+    auto new_image =
+        prev_image->clone_with_new_data(incoming_images.at(i).get().data());
+    images.emplace_back(std::make_unique<Image>(std::move(new_image)));
+  }
+}
+
 class Blender {
-
-  struct ImageState {
-    std::vector<std::unique_ptr<Image>> images;
-  };
-
+ private:
   /***********************************************************************
    * Variables
    ***********************************************************************/
-  //std::vector<std::unique_ptr<Image>> images;
+  // std::vector<std::unique_ptr<Image>> images;
   int fixed_levels = 0;
   int add_levels = 0;
 
@@ -124,8 +150,8 @@ class Blender {
   uint64_t total_pixels = 0;
   uint64_t channel_totals[3] = {0};
 
-  std::unique_ptr<Flex> full_mask_ptr_;
-  std::unique_ptr<Flex> xor_mask_ptr_;
+  std::shared_ptr<Flex> full_mask_ptr_;
+  std::shared_ptr<Flex> xor_mask_ptr_;
   int min_xpos = 0x7fffffff;
   int min_ypos = 0x7fffffff;
 
@@ -143,7 +169,7 @@ class Blender {
   TIFF* tiff_file = NULL;
   FILE* jpeg_file = NULL;
   Pnger* png_file = NULL;
-  std::unique_ptr<Image> output_image_ptr_;
+  // std::unique_ptr<Image> output_image_ptr_;
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
@@ -180,7 +206,7 @@ class Blender {
   std::unique_ptr<Pyramid> output_pyramid;
 
  public:
-  int multiblend_main(int argc, char* argv[], ImageState& image_state) {
+  int multiblend_main(int argc, char* argv[], BlenderImageState& image_state) {
     // This is here because of a weird problem encountered during development
     // with Visual Studio. It should never be triggered.
     if (verbosity != 1) {
@@ -568,21 +594,7 @@ class Blender {
     return EXIT_SUCCESS;
   }
 
-  int process_images(
-      std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images, ImageState& image_state) /*const*/ {
-    if (!incoming_images.empty()) {
-      image_state.images.clear();
-    }
-    // TODO: do incoming_images -> image_state.images ouside (maybe member func to ImageState)
-    for (auto& img : incoming_images) {
-      std::size_t size =
-          img.get().rows() * img.get().cols() * img.get().channels();
-      std::vector<size_t> shape{
-          img.get().rows(), img.get().cols(), img.get().channels()};
-      image_state.images.push_back(std::make_unique<Image>(
-          img.get().data(), size, std::move(shape), img.get().xy_pos()));
-    }
-
+  int process_images(BlenderImageState& image_state) /*const*/ {
     int n_images = (int)image_state.images.size();
 
     if (n_images == 0)
@@ -660,15 +672,18 @@ class Blender {
 
     for (i = 0; i < n_images; ++i) {
       image_state.images[i]->Open();
-      untrimmed_bytes = std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
+      untrimmed_bytes =
+          std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
     }
 
     /***********************************************************************
      * Check paramters, display warnings
      ***********************************************************************/
     for (i = 1; i < n_images; ++i) {
-      if (image_state.images[i]->tiff_xres != image_state.images[0]->tiff_xres ||
-          image_state.images[i]->tiff_yres != image_state.images[0]->tiff_yres) {
+      if (image_state.images[i]->tiff_xres !=
+              image_state.images[0]->tiff_xres ||
+          image_state.images[i]->tiff_yres !=
+              image_state.images[0]->tiff_yres) {
         Output(
             0,
             "Warning: TIFF resolution mismatch (%f %f/%f %f)\n",
@@ -734,8 +749,10 @@ class Blender {
     for (i = 0; i < n_images; ++i) {
       image_state.images[i]->xpos -= min_xpos;
       image_state.images[i]->ypos -= min_ypos;
-      width = std::max(width, image_state.images[i]->xpos + image_state.images[i]->width);
-      height = std::max(height, image_state.images[i]->ypos + image_state.images[i]->height);
+      width = std::max(
+          width, image_state.images[i]->xpos + image_state.images[i]->width);
+      height = std::max(
+          height, image_state.images[i]->ypos + image_state.images[i]->height);
     }
 
     images_time = timer.Read();
@@ -782,16 +799,16 @@ class Blender {
     blend_levels += add_levels;
 
     if (n_images == 1) {
-       blend_levels = 0;
-    //   Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
+      blend_levels = 0;
+      //   Output(1, "\n%d x %d, %d bpp\n\n", width, height, output_bpp);
     } else {
-    //   Output(
-    //       1,
-    //       "\n%d x %d, %d levels, %d bpp\n\n",
-    //       width,
-    //       height,
-    //       blend_levels,
-    //       output_bpp);
+      //   Output(
+      //       1,
+      //       "\n%d x %d, %d levels, %d bpp\n\n",
+      //       width,
+      //       height,
+      //       blend_levels,
+      //       output_bpp);
     }
 
     /***********************************************************************
@@ -801,19 +818,19 @@ class Blender {
     ***********************************************************************/
     timer.Start();
 
-    //Output(1, "Seaming");
+    // Output(1, "Seaming");
     switch (((!!seamsave_filename) << 1) | !!xor_filename) {
       case 1:
-        //Output(1, " (saving XOR map)");
+        // Output(1, " (saving XOR map)");
         break;
       case 2:
-        //Output(1, " (saving seam map)");
+        // Output(1, " (saving seam map)");
         break;
       case 3:
-        //Output(1, " (saving XOR and seam maps)");
+        // Output(1, " (saving XOR and seam maps)");
         break;
     }
-    //Output(1, "...\n");
+    // Output(1, "...\n");
 
     int min_count;
     int xor_count;
@@ -865,9 +882,10 @@ class Blender {
         // set initial image mask states
         for (i = 0; i < n_images; ++i) {
           image_state.images[i]->mask_state = 0x8000000000000000;
-          if (y >= image_state.images[i]->ypos && y < image_state.images[i]->ypos + image_state.images[i]->height) {
-            image_state.images[i]->mask_count =
-                width - (image_state.images[i]->xpos + image_state.images[i]->width);
+          if (y >= image_state.images[i]->ypos &&
+              y < image_state.images[i]->ypos + image_state.images[i]->height) {
+            image_state.images[i]->mask_count = width -
+                (image_state.images[i]->xpos + image_state.images[i]->width);
             image_state.images[i]->mask_limit = image_state.images[i]->xpos;
           } else {
             image_state.images[i]->mask_count = width;
@@ -895,7 +913,8 @@ class Blender {
             if (!image_state.images[i]->mask_count) {
               if (x >= image_state.images[i]->mask_limit) {
                 utemp = image_state.images[i]->tiff_mask->ReadBackwards32();
-                image_state.images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
+                image_state.images[i]->mask_state =
+                    ((~utemp) << 32) & 0x8000000000000000;
                 image_state.images[i]->mask_count = utemp & 0x7fffffff;
               } else {
                 image_state.images[i]->mask_state = 0x8000000000000000;
@@ -1056,7 +1075,8 @@ class Blender {
 
     // create top level masks
     for (i = 0; i < n_images; ++i) {
-      image_state.images[i]->masks.push_back(std::make_shared<Flex>(width, height));
+      image_state.images[i]->masks.push_back(
+          std::make_shared<Flex>(width, height));
     }
 
     Pnger* xor_map = xor_filename
@@ -1095,9 +1115,11 @@ class Blender {
     for (y = 0; y < height; ++y) {
       for (i = 0; i < n_images; ++i) {
         image_state.images[i]->mask_state = 0x8000000000000000;
-        if (y >= image_state.images[i]->ypos && y < image_state.images[i]->ypos + image_state.images[i]->height) {
+        if (y >= image_state.images[i]->ypos &&
+            y < image_state.images[i]->ypos + image_state.images[i]->height) {
           image_state.images[i]->mask_count = image_state.images[i]->xpos;
-          image_state.images[i]->mask_limit = image_state.images[i]->xpos + image_state.images[i]->width;
+          image_state.images[i]->mask_limit =
+              image_state.images[i]->xpos + image_state.images[i]->width;
         } else {
           image_state.images[i]->mask_count = width;
           image_state.images[i]->mask_limit = width;
@@ -1118,7 +1140,8 @@ class Blender {
           if (!image_state.images[i]->mask_count) {
             if (x < image_state.images[i]->mask_limit) {
               utemp = image_state.images[i]->tiff_mask->ReadForwards32();
-              image_state.images[i]->mask_state = ((~utemp) << 32) & 0x8000000000000000;
+              image_state.images[i]->mask_state =
+                  ((~utemp) << 32) & 0x8000000000000000;
               image_state.images[i]->mask_count = utemp & 0x7fffffff;
             } else {
               image_state.images[i]->mask_state = 0x8000000000000000;
@@ -1146,7 +1169,8 @@ class Blender {
           if (xor_map)
             memset(&xor_map->line[x], xor_image, min_count);
 
-          size_t p = (y - image_state.images[xor_image]->ypos) * image_state.images[xor_image]->width +
+          size_t p = (y - image_state.images[xor_image]->ypos) *
+                  image_state.images[xor_image]->width +
               (x - image_state.images[xor_image]->xpos);
 
           int total_count = min_count;
@@ -1156,11 +1180,17 @@ class Blender {
               case 8: {
                 uint16_t v;
                 while (total_count--) {
-                  v = ((uint8_t*)image_state.images[xor_image]->channels[0]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]
+                           ->channels[0]
+                           ->data)[p];
                   channel_totals[0] += v * v;
-                  v = ((uint8_t*)image_state.images[xor_image]->channels[1]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]
+                           ->channels[1]
+                           ->data)[p];
                   channel_totals[1] += v * v;
-                  v = ((uint8_t*)image_state.images[xor_image]->channels[2]->data)[p];
+                  v = ((uint8_t*)image_state.images[xor_image]
+                           ->channels[2]
+                           ->data)[p];
                   channel_totals[2] += v * v;
                   ++p;
                 }
@@ -1168,11 +1198,17 @@ class Blender {
               case 16: {
                 uint32_t v;
                 while (total_count--) {
-                  v = ((uint16_t*)image_state.images[xor_image]->channels[0]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]
+                           ->channels[0]
+                           ->data)[p];
                   channel_totals[0] += v * v;
-                  v = ((uint16_t*)image_state.images[xor_image]->channels[1]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]
+                           ->channels[1]
+                           ->data)[p];
                   channel_totals[1] += v * v;
-                  v = ((uint16_t*)image_state.images[xor_image]->channels[2]->data)[p];
+                  v = ((uint16_t*)image_state.images[xor_image]
+                           ->channels[2]
+                           ->data)[p];
                   channel_totals[2] += v * v;
                   ++p;
                 }
@@ -1182,23 +1218,32 @@ class Blender {
             switch (image_state.images[xor_image]->bpp) {
               case 8: {
                 while (total_count--) {
-                  channel_totals[0] +=
-                      ((uint8_t*)image_state.images[xor_image]->channels[0]->data)[p];
-                  channel_totals[1] +=
-                      ((uint8_t*)image_state.images[xor_image]->channels[1]->data)[p];
-                  channel_totals[2] +=
-                      ((uint8_t*)image_state.images[xor_image]->channels[2]->data)[p];
+                  channel_totals[0] += ((uint8_t*)image_state.images[xor_image]
+                                            ->channels[0]
+                                            ->data)[p];
+                  channel_totals[1] += ((uint8_t*)image_state.images[xor_image]
+                                            ->channels[1]
+                                            ->data)[p];
+                  channel_totals[2] += ((uint8_t*)image_state.images[xor_image]
+                                            ->channels[2]
+                                            ->data)[p];
                   ++p;
                 }
               } break;
               case 16: {
                 while (total_count--) {
                   channel_totals[0] +=
-                      ((uint16_t*)image_state.images[xor_image]->channels[0]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]
+                           ->channels[0]
+                           ->data)[p];
                   channel_totals[1] +=
-                      ((uint16_t*)image_state.images[xor_image]->channels[1]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]
+                           ->channels[1]
+                           ->data)[p];
                   channel_totals[2] +=
-                      ((uint16_t*)image_state.images[xor_image]->channels[2]->data)[p];
+                      ((uint16_t*)image_state.images[xor_image]
+                           ->channels[2]
+                           ->data)[p];
                   ++p;
                 }
               } break;
@@ -1407,9 +1452,11 @@ class Blender {
     delete xor_map;
     delete seam_map;
 
-    if (!alpha || output_type == ImageType::MB_JPEG ||
-        output_type == ImageType::MB_MEM /* arbitrarily have no mask */) {
+    if (!alpha || output_type == ImageType::MB_JPEG /*||
+        output_type == ImageType::MB_MEM*/
+        /* arbitrarily have no mask */) {
       no_mask = true;
+      assert(false); // want the mask, yo
     }
 
     /***********************************************************************
@@ -1488,12 +1535,13 @@ class Blender {
     return EXIT_SUCCESS;
   }
 
-  void reopen_images(ImageState& image_state) {
+  void reopen_images(BlenderImageState& image_state) {
     size_t untrimmed_bytes = 0;
     int i = 0, n_images = image_state.images.size();
     for (i = 0; i < n_images; ++i) {
       image_state.images[i]->Open();
-      untrimmed_bytes = std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
+      untrimmed_bytes =
+          std::max(untrimmed_bytes, image_state.images[i]->untrimmed_bytes);
     }
 
     /***********************************************************************
@@ -1521,18 +1569,8 @@ class Blender {
   }
 
   int process_inputs(
-      const ImageState& new_image_state,  // TODO: the old ones, whgat's important, shpul;d be copyable, inherited by new instead of repalcing old pointers
-      const std::vector<std::reference_wrapper<hm::MatrixRGB>>& next_images,
-      std::unique_ptr<hm::MatrixRGB>* output_image = nullptr) {
-    if (pass++ && !next_images.empty()) {
-      for (std::size_t i = 0, n = next_images.size(); i < n; ++i) {
-        auto& img = next_images[i];
-        auto& prev_image = image_state.images.at(i);
-        prev_image->set_raw_data(img.get().data());
-      }
-      // image_state.images = std::move(next_images);
-      reopen_images();
-    }
+      const BlenderImageState& image_state,
+      std::unique_ptr<hm::MatrixRGB>* output_image) {
     /***********************************************************************
      * No output?
      ***********************************************************************/
@@ -1545,12 +1583,13 @@ class Blender {
        * Shrink masks
        ***********************************************************************/
       if (pass == 1) {
-        //Output(1, "Shrinking masks...\n");
+        // Output(1, "Shrinking masks...\n");
         timer.Start();
 
         for (i = 0; i < n_images; ++i) {
-          threadpool->Queue(
-              [=] { ShrinkMasks(image_state.images[i]->masks, blend_levels); });
+          threadpool->Queue([&image_state, i, this] {
+            ShrinkMasks(image_state.images[i]->masks, blend_levels);
+          });
         }
         threadpool->Wait();
 
@@ -1744,7 +1783,15 @@ class Blender {
                 int sy = out_level.bands[b];
                 int ey = out_level.bands[b + 1];
 
-                threadpool->Queue([=] {
+                threadpool->Queue([i,
+                                   l,
+                                   &in_level,
+                                   &out_level,
+                                   &image_state,
+                                   x_offset,
+                                   y_offset,
+                                   sy,
+                                   ey] {
                   for (int y = sy; y < ey; ++y) {
                     int in_line = y - y_offset;
                     if (in_line < 0)
@@ -1978,6 +2025,7 @@ class Blender {
       if (bgr)
         std::swap(oc_p[0], oc_p[2]);
 
+      std::unique_ptr<Image> output_image_ptr{nullptr};
       switch (output_type) {
         case ImageType::MB_TIFF: {
           TIFFSetField(tiff_file, TIFFTAG_IMAGEWIDTH, width);
@@ -1996,14 +2044,20 @@ class Blender {
 
           TIFFSetField(tiff_file, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
           if (image_state.images[0]->tiff_xres != -1) {
-            TIFFSetField(tiff_file, TIFFTAG_XRESOLUTION, image_state.images[0]->tiff_xres);
+            TIFFSetField(
+                tiff_file,
+                TIFFTAG_XRESOLUTION,
+                image_state.images[0]->tiff_xres);
             TIFFSetField(
                 tiff_file,
                 TIFFTAG_XPOSITION,
                 (float)(min_xpos / image_state.images[0]->tiff_xres));
           }
           if (image_state.images[0]->tiff_yres != -1) {
-            TIFFSetField(tiff_file, TIFFTAG_YRESOLUTION, image_state.images[0]->tiff_yres);
+            TIFFSetField(
+                tiff_file,
+                TIFFTAG_YRESOLUTION,
+                image_state.images[0]->tiff_yres);
             TIFFSetField(
                 tiff_file,
                 TIFFTAG_YPOSITION,
@@ -2051,7 +2105,7 @@ class Blender {
               jpeg_quality);
         } break;
         case ImageType::MB_MEM: {
-          output_image_ptr_ = std::make_unique<Image>(
+          output_image_ptr = std::make_unique<Image>(
               std::vector<std::size_t>{(std::size_t)width, (std::size_t)height},
               no_mask ? 3 : 4);
         } break;
@@ -2129,7 +2183,6 @@ class Blender {
             } break;
           }
         }
-
         switch (output_type) {
           case ImageType::MB_TIFF: {
             TIFFWriteEncodedStrip(
@@ -2142,7 +2195,10 @@ class Blender {
             png_file->WriteRows(scanlines, rows);
           } break;
           case ImageType::MB_MEM: {
-            output_image_ptr_->write_rows(scanlines, rows);
+            if (!output_image_ptr) {
+              die("no target image created");
+            }
+            output_image_ptr->write_rows(scanlines, rows);
           } break;
           default:
             die("Bad output type)");
@@ -2162,13 +2218,13 @@ class Blender {
           fclose(jpeg_file);
         } break;
         case ImageType::MB_MEM: {
-          if (!output_image_ptr_) {
+          if (!output_image_ptr) {
             die("no target image created");
           }
           if (!output_image) {
             die("No output image given");
           }
-          auto& img = *output_image_ptr_;
+          auto& img = *output_image_ptr;
           *output_image = std::make_unique<hm::MatrixRGB>(
               img.height,
               img.width,
@@ -2188,7 +2244,6 @@ class Blender {
       printf("Images:   %.3fs\n", images_time);
       printf("Seaming:  %.3fs\n", seam_time);
       if (output_type != ImageType::MB_NONE) {
-        // process_inputs()
         printf("Masks:    %.3fs\n", shrink_mask_time);
         printf("Copy:     %.3fs\n", copy_time);
         printf("Shrink:   %.3fs\n", shrink_time);
@@ -2222,13 +2277,13 @@ namespace hm {
 namespace enblend {
 
 int enblend_main(
-    std::string output_image,
+    std::string output_image_file_name,
     std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
   // args.push_back("--timing");
   args.push_back("-o");
-  args.push_back(output_image);
+  args.push_back(output_image_file_name);
   for (const auto& s : input_files) {
     args.push_back(s);
   }
@@ -2242,12 +2297,12 @@ int enblend_main(
   }
   std::vector<std::reference_wrapper<hm::MatrixRGB>> next_inputs;
   // Call the main function with the converted arguments
+  BlenderImageState image_state;
   Blender blender;
-  int return_value = blender.multiblend_main(argc, argv);
-  return_value = return_value || blender.process_images(next_inputs);
-  return_value = return_value ||
-      blender.process_inputs(
-          std::vector<std::reference_wrapper<hm::MatrixRGB>>{}, nullptr);
+  std::unique_ptr<MatrixRGB> output_image;
+  int return_value = blender.multiblend_main(argc, argv, image_state);
+  return_value = return_value || blender.process_images(image_state);
+  return_value = return_value || blender.process_inputs(image_state, nullptr);
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
     delete[] argv[i];
@@ -2272,7 +2327,7 @@ EnBlender::EnBlender(std::vector<std::string> args) {
   }
 
   blender_ = std::make_unique<Blender>();
-  int result = blender_->multiblend_main(argc, argv);
+  int result = blender_->multiblend_main(argc, argv, image_state_);
   if (result != EXIT_SUCCESS) {
     std::cerr << "Error initializing blender" << std::endl;
     throw std::runtime_error("Error initializing blender");
@@ -2294,24 +2349,38 @@ std::unique_ptr<MatrixRGB> EnBlender::blend_images(
   for (auto& img : images) {
     blend_images.emplace_back(*img);
   }
-
-  if (!pass_++) {
-    result = result || blender_->process_images(blend_images);
-    assert(!result);
-    result = result ||
-        blender_->process_inputs(
-            std::vector<std::reference_wrapper<hm::MatrixRGB>>{},
-            &output_image);
+  bool initial_pass = true;
+  std::unique_ptr<std::unique_lock<std::mutex>> locked =
+      std::make_unique<std::unique_lock<std::mutex>>();
+  BlenderImageState* current_state = nullptr;
+  BlenderImageState new_image_state;
+  if (image_state_.images.empty()) {
+    image_state_.init_from_images(blend_images);
+    current_state = &image_state_;
   } else {
-    result = result || blender_->process_inputs(blend_images, &output_image);
+    new_image_state.init_from_image_state(image_state_, blend_images);
+    current_state = &new_image_state;
+    initial_pass = false;
+    locked.reset();
+  }
+
+  if (initial_pass) {
+    result = result || blender_->process_images(*current_state);
+    assert(!result);
+    result = result || blender_->process_inputs(*current_state, &output_image);
+  } else {
+    result = result || blender_->process_inputs(*current_state, &output_image);
   }
   assert(result == EXIT_SUCCESS);
   return output_image;
 }
 
+static std::mutex reusable_blender_mu;
 static std::unique_ptr<Blender> reusable_blender;
 
 std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
+  std::unique_lock<std::mutex> lk(reusable_blender_mu);
+
   std::vector<std::string> args;
   args.push_back("python");
   // args.push_back("--timing");
@@ -2331,17 +2400,27 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
   images.push_back(image1);
   images.push_back(image2);
   std::unique_ptr<MatrixRGB> output_image;
+
+  BlenderImageState* current_state = nullptr;
+  static BlenderImageState persistent_blender_image_state;
+
   int result = EXIT_SUCCESS;
   if (!reusable_blender) {
     reusable_blender = std::make_unique<Blender>();
-    result = reusable_blender->multiblend_main(argc, argv);
-    result = result || reusable_blender->process_images(images);
+
+    result = reusable_blender->multiblend_main(
+        argc, argv, persistent_blender_image_state);
+    result = result ||
+        reusable_blender->process_images(persistent_blender_image_state);
     result = result ||
         reusable_blender->process_inputs(
-            std::vector<std::reference_wrapper<hm::MatrixRGB>>{},
-            &output_image);
+            persistent_blender_image_state, &output_image);
   } else {
-    result = result || reusable_blender->process_inputs(images, &output_image);
+    BlenderImageState current_image_state;
+    current_image_state.init_from_image_state(
+        persistent_blender_image_state, images);
+    result = result ||
+        reusable_blender->process_inputs(current_image_state, &output_image);
   }
   // Clean up the allocated memory
   for (int i = 0; i < argc; ++i) {
