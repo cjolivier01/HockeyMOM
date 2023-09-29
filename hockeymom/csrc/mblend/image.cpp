@@ -78,6 +78,9 @@ public:
   Image clone_with_new_data(void *new_raw_data);
 
 private:
+
+  void extract_channels(void *data, std::size_t left, std::size_t top);
+
 	TIFF* tiff;
 	FILE* file;
 	struct jpeg_decompress_struct cinfo;
@@ -122,8 +125,9 @@ Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
 
 Image Image::clone_with_new_data(void *new_raw_data) {
   Image img = *this;
-  raw_data = raw_data_write_ptr_ = (uint8_t*)new_raw_data;
-  file = nullptr;
+  img.raw_data = img.raw_data_write_ptr_ = (uint8_t*)new_raw_data;
+  img.filename.clear();
+  img.channels.clear();
   return img;
 }
 
@@ -783,17 +787,19 @@ void Image::Read(void* data, bool gamma) {
 			tiff_mask->NextLine();
 		}
 	}
-
+  extract_channels(data, left, top);
+}
 /***********************************************************************
 * Extract channels
 ***********************************************************************/
+void Image::extract_channels(void *data, std::size_t left, std::size_t top) {
 	size_t channel_bytes = ((size_t)width * height) << (bpp >> 4);
 
 	channels.clear();
 	for (int c = 0; c < 3; ++c) {
 		channels.push_back(new Channel(channel_bytes));
 	}
-
+  int x, y;
 	if (spp == 4) {
 		switch (bpp) {
 			case 8: {
