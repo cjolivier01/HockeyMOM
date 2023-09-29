@@ -19,13 +19,14 @@ public:
 
 class Image {
 public:
-	Image(char* _filename);
+	Image(const std::string& _filename);
 	Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos);
   //Image(const Image& clone_from, void* data);
   Image(std::vector<std::size_t> shape, std::size_t num_channels);
 	~Image();
   void write_rows(unsigned char **scanlines, std::size_t num_rows);
-	char* filename{nullptr};
+	//char* filename{nullptr};
+  std::string filename;
 	ImageType type{ImageType::MB_NONE};
 	int width;
 	int height;
@@ -89,7 +90,7 @@ private:
   std::vector<std::size_t> raw_shape;
 };
 
-Image::Image(char* _filename) : filename(_filename) {
+Image::Image(const std::string& _filename) : filename(_filename) {
 }
 
 // Image::Image(const Image& clone_from, void* data) {
@@ -163,7 +164,7 @@ void Image::Open() {
 	uint16_t compression;
 
   if (type == ImageType::MB_NONE) {
-		char* ext = strrchr(filename, '.');
+		char* ext = strrchr((char*)filename.c_str(), '.');
 		if (!ext) {
 			die("Could not identify file extension: %s", filename);
 		}
@@ -181,7 +182,7 @@ void Image::Open() {
   }
 	switch (type) {
 		case ImageType::MB_TIFF: {
-			tiff = TIFFOpen(filename, "r");
+			tiff = TIFFOpen(filename.c_str(), "r");
 			if (!tiff) die("Could not open %s", filename);
 
 			if (!TIFFGetField(tiff, TIFFTAG_XPOSITION, &tiff_xpos)) tiff_xpos = -1;
@@ -196,7 +197,7 @@ void Image::Open() {
 			TIFFGetField(tiff, TIFFTAG_COMPRESSION, &compression);
 
 			if (bpp != 8 && bpp != 16) {
-				printf("Invalid bpp %d (%s)", bpp, filename);
+				printf("Invalid bpp %d (%s)", bpp, filename.c_str());
 				printf("%d, %d\n", tiff_width, tiff_height);
 				TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bpp);
 				if (bpp != 8 && bpp != 16) die("Invalid bpp %d (%s)", bpp, filename);
@@ -268,7 +269,7 @@ void Image::Open() {
 			if (end_strip == TIFFNumberOfStrips(tiff)) tiff_u_height -= rows_missing;
 		} break;
 		case ImageType::MB_JPEG: {
-			fopen_s(&file, filename, "rb");
+			fopen_s(&file, filename.c_str(), "rb");
 			if (!file) die("Could not open %s", filename);
 
 			cinfo.err = jpeg_std_error(&jerr);
@@ -296,7 +297,7 @@ void Image::Open() {
 			tiff_xres = tiff_yres = 90;
 		} break;
 		case ImageType::MB_PNG: {
-			fopen_s(&file, filename, "rb");
+			fopen_s(&file, filename.c_str(), "rb");
 			if (!file) die("Could not open %s", filename);
 
 			uint8_t sig[8];
