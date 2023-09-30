@@ -2,12 +2,14 @@
 Experiments in stitching
 """
 import os
+import sys
 import torch
 import torch.nn as nn
 import numpy as np
 import time
 import cv2
 import threading
+import multiprocessing
 
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
@@ -85,22 +87,28 @@ def build_stitching_project(project_file_path: str, skip_if_exists: bool = True)
 
 
 def find_roi(image):
-    # Create a mask for fully opaque pixels
-    mask = image[:, :, 3] == 255
+    binary_mask = image[:, :, 3] != 0
 
-    # Find the coordinates of fully opaque pixels
-    y, x = np.where(mask)
+    # This may be inverted!
+    distance_y = np.argmax(binary_mask, axis=0)
+    distance_y = distance_y * (distance_y < image.shape[0] // 2)
+    top = np.max(distance_y)
 
-    # Find the largest ROI by calculating the bounding box
-    x_min = min(x)
-    x_max = max(x)
-    y_min = min(y)
-    y_max = max(y)
+    distance_x = np.argmax(binary_mask, axis=1)
+    distance_x = distance_x * (distance_x < image.shape[1] // 2)
+    left = np.max(distance_x)
 
-    # Calculate the width and height of the largest ROI
-    width = x_max - x_min + 1
-    height = y_max - y_min + 1
-    print(f"Box: ({x_min}, {y_min}) -> ({x_max}, {y_max})")
+    flipped_image_ud = np.flipud(binary_mask)
+    distance_y = np.argmax(flipped_image_ud, axis=0)
+    distance_y = distance_y * (distance_y < image.shape[0] // 2)
+    bottom = image.shape[0] - 1 - np.max(distance_y)
+
+    flipped_image_lr = np.flipud(binary_mask)
+    distance_x = np.argmax(flipped_image_lr, axis=1)
+    distance_x = distance_x * (distance_x < image.shape[1] // 2)
+    right = image.shape[1] - 1 - np.max(distance_x)
+
+    print(f"Box: ({left}, {top}) -> ({right}, {bottom})")
 
 
 PROCESSED_COUNT = 0
@@ -132,6 +140,10 @@ def get_next_frame(data_loader: core.StitchingDataLoader, frame_id: int):
     stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
     if stitched_frame is None:
         raise StopIteration
+    stitched_frame = prepare_frame_for_video(
+        stitched_frame,
+        image_roi=None,
+    )
     return stitched_frame
 
 
@@ -163,6 +175,25 @@ def frame_feeder_worker(
     print("Feeder thread exiting")
 
 
+def start_feeder_thread(
+    video1: cv2.VideoCapture,
+    video2: cv2.VideoCapture,
+    data_loader: core.StitchingDataLoader,
+    start_frame_number: int,
+    max_frames: int,
+):
+    feeder_thread = threading.Thread(
+        target=frame_feeder_worker,
+        args=(video1, video2, data_loader, start_frame_number, max_frames),
+    )
+    feeder_thread.start()
+    return feeder_thread
+
+
+# def stop_feeder_thread(feeder_thread):
+#     feeder_thread.stop = True
+
+
 def get_next_frame_sync(
     video1: cv2.VideoCapture,
     video2: cv2.VideoCapture,
@@ -174,6 +205,52 @@ def get_next_frame_sync(
     ):
         raise StopIteration
     return get_next_frame(data_loader, frame_id)
+
+
+def prepare_frame_for_video(image, image_roi):
+    if not image_roi:
+        if image.shape[2] == 4:
+            image = image[:, :, :3]
+    else:
+        image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+    return image
+
+
+class StitchDataset:
+    def __init__(
+        self,
+        pto_project_file: str,
+        start_frame_id: int,
+        max_input_queue_size: int,
+        remap_thread_count: int,
+        blend_thread_count: int,
+    ):
+        self._pto_project_file = pto_project_file
+        self._start_frame_id = start_frame_id
+        self._max_input_queue_size = max_input_queue_size
+        self._remap_thread_count = remap_thread_count
+        self._blend_thread_count = blend_thread_count
+        self._to_worker_queue = multiprocessing.Queue()
+        self._from_worker_queue = multiprocessing.Queue()
+
+    def _start(self):
+        pass
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return None
+
+
+def create_data_loader(
+    pto_project_file: str,
+    start_frame_id: int,
+    max_input_queue_size: int,
+    remap_thread_count: int,
+    blend_thread_count: int,
+):
+    to_fork_queue
 
 
 def stitch_videos():
@@ -196,7 +273,7 @@ def stitch_videos():
     nona = core.HmNona(pto_project_file)
 
     print("Creating data loader...")
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 10, 10)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 25, 50)
     print("Data loader created.")
 
     # start_frame_number = 2000
@@ -204,7 +281,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 200
+    max_frames = 2000
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -217,6 +294,10 @@ def stitch_videos():
     # first_stitched_frame = get_next_frame_sync(
     #     video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
     # )
+    # image_roi = find_roi(first_stitched_frame)
+    # first_stitched_frame = prepare_frame_for_video(first_stitched_frame, image_roi=image_roi)
+    # #_, first_stitched_frame = video1.read()
+
     # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
 
     write_output_video = True
@@ -225,7 +306,6 @@ def stitch_videos():
     # fps = video1.get(cv2.CAP_PROP_FPS)
     # fourcc = cv2.VideoWriter_fourcc(*"XVID")
     # output_video = cv2.VideoWriter(
-    #     # filename=self._save_dir + "/../tracking_output.mov",
     #     filename="./stitched_output.avi",
     #     fourcc=fourcc,
     #     fps=fps,
@@ -234,7 +314,20 @@ def stitch_videos():
     # )
     # assert output_video.isOpened()
     # output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+
     # output_video.write(first_stitched_frame)
+    # assert output_video.isOpened()
+
+    # for i in range(10):
+    #     print(f"writing frame {i+1}")
+    #     # frame = get_next_frame_sync(
+    #     #     video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    #     # )
+    #     #output_video.write(frame)
+    #     output_video.write(first_stitched_frame)
+    #     assert output_video.isOpened()
+    # output_video.release()
+    # sys.exit(0)
 
     # EARLY EXIT
     # output_video.release()
@@ -258,7 +351,6 @@ def stitch_videos():
                 )
                 assert output_video.isOpened()
                 output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-                output_video.write(output_img)
 
             output_video.write(output_img)
 
@@ -270,11 +362,13 @@ def stitch_videos():
     max_frames = min(total_num_frames - start_frame_number, max_frames)
     assert max_frames > 0
 
-    feeder_thread = threading.Thread(
-        target=frame_feeder_worker,
-        args=(video1, video2, data_loader, start_frame_number, max_frames),
+    feeder_thread = start_feeder_thread(
+        video1=video1,
+        video2=video2,
+        data_loader=data_loader,
+        start_frame_number=start_frame_number,
+        max_frames=max_frames,
     )
-    feeder_thread.start()
 
     timer = Timer()
 
@@ -305,10 +399,10 @@ def stitch_videos():
         if True:
             if frame_count > 1:
                 if frame_count == 1:
-                    timer= Timer()
+                    timer = Timer()
                 timer.tic()
 
-            stitched_frame = core.get_stitched_frame_from_data_loader(
+            stitched_frame = get_next_frame(
                 data_loader, frame_id
             )
             PROCESSED_COUNT += 1
@@ -321,11 +415,10 @@ def stitch_videos():
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
-            _maybe_write_output(stitched_frame)
+            #_maybe_write_output(stitched_frame)
 
             # if output_video is not None:
             #     output_video.write(stitched_frame)
-
 
             if (frame_count + 1) % 20 == 0:
                 timer.toc()
