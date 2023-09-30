@@ -318,7 +318,7 @@ class StitchDataset:
 
             self._output_video.write(output_img)
 
-    def feed_next_frame(
+    def _feed_next_frame(
         self,
     ) -> bool:
         frame_id = self._to_worker_queue.get()
@@ -354,10 +354,13 @@ class StitchDataset:
     ):
         frame_count = 0
         while not max_frames or frame_count < max_frames:
-            if not self.feed_next_frame():
+            if not self._feed_next_frame():
                 break
+            else:
+                self._from_worker_queue.put("ok")
             frame_count += 1
         print("Feeder thread exiting")
+        self._from_worker_queue.put(StopIteration())
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -373,8 +376,11 @@ class StitchDataset:
                 self._to_worker_queue.put(req_frame)
                 self._last_requested_frame = req_frame
 
-    # def stop_feeder_thread(feeder_thread):
-    #     feeder_thread.stop = True
+    def _stop_feeder_thread(self):
+        if self._feeder_thread is not None:
+            self._to_worker_queue.put(None)
+            self._feeder_thread.join()
+            self._feeder_thread = None
 
     def prepare_frame_for_video(self, image, image_roi):
         if not image_roi:
@@ -390,6 +396,11 @@ class StitchDataset:
         return self
 
     def __next__(self):
+        status = self._from_worker_queue.get()
+        if isinstance(status, Exception):
+            raise status
+        else:
+            assert status == "ok"
         stitched_frame = self.get_next_frame(self._current_frame)
         self._current_frame += 1
         self._last_requested_frame += 1
@@ -442,7 +453,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 300
+    max_frames = 100
 
     skip_timing_frame_count = 50
 
@@ -456,10 +467,23 @@ def stitch_videos():
         video_2_offset_frame=0,
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
+        max_frames=max_frames,
     )
 
+    frame_count = 0
+    start = None
     for i, stitched_image in enumerate(data_loader):
-        print(i)
+        print(f"Read frame {i}")
+        frame_count += 1
+        if i == 1:
+            start = time.time()
+
+    if start is not None:
+        duration = time.time() - start
+        print(
+            f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
+        )
+
     sys.exit(0)
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
