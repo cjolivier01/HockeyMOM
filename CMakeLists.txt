@@ -75,7 +75,8 @@ set(HOCKEYMOM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 add_subdirectory(external/pybind11)
 include_directories(SYSTEM external/pybind11/include)
 include_directories(SYSTEM external/eigen)
-include_directories(SYSTEM /home/colivier/.conda/envs/HockeyMOM/include)
+#include_directories(SYSTEM /home/colivier/.conda/envs/HockeyMOM/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/abseil-cpp)
 
 # Very top dir is include dir start for project-wide relative imports
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

@@ -1,4 +1,4 @@
-#include "hm/ImagePostProcess.h"
+#include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 
 #include <iostream>
 

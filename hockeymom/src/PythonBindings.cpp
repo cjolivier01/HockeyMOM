@@ -1,8 +1,11 @@
-#include "hm/ImagePostProcess.h"
-
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
+#include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
+
+#include "absl/debugging/stacktrace.h"
+#include "absl/debugging/symbolize.h"
+#include "absl/debugging/failure_signal_handler.h"
 
 #include <iostream>
 
@@ -36,6 +39,22 @@ class FreeGIL {
  private:
   PyThreadState* tstate_{nullptr};
 };
+
+std::string get_executable_path() {
+  char result[PATH_MAX * 2 + 1];
+  ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
+  std::string path = std::string(result, (count > 0) ? count : 0);
+  return path;
+}
+
+void init_stack_trace() {
+  absl::InitializeSymbolizer(get_executable_path().c_str());
+
+  // Install the failure signal handler. This should capture various failure
+  // signals (like segmentation faults) and print a stack trace.
+  absl::FailureSignalHandlerOptions options;
+  absl::InstallFailureSignalHandler(options);
+}
 } // namespace
 
 PYBIND11_MODULE(_hockeymom, m) {

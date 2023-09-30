@@ -156,8 +156,8 @@ def frame_feeder_worker(
 ):
     frame_count = 0
     while frame_count < max_frames:
-        while frame_count - PROCESSED_COUNT > 50:
-            time.sleep(0.1)
+        while frame_count - PROCESSED_COUNT > 100:
+             time.sleep(0.001)
         if not feed_next_frame(
             video1=video1,
             video2=video2,
@@ -273,7 +273,7 @@ def stitch_videos():
     nona = core.HmNona(pto_project_file)
 
     print("Creating data loader...")
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25, 25, 50)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 25 * 5, 25, 50)
     print("Data loader created.")
 
     # start_frame_number = 2000
@@ -281,7 +281,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 2000
+    max_frames = 20000000
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -415,7 +415,7 @@ def stitch_videos():
             # cv2.imshow('Stitched', stitched_frame)
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
-            #_maybe_write_output(stitched_frame)
+            _maybe_write_output(stitched_frame)
 
             # if output_video is not None:
             #     output_video.write(stitched_frame)
@@ -427,6 +427,7 @@ def stitch_videos():
                         frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
+                timer.clear()
         elif True:
             result = core.nona_process_images(nona, img1, img2)
             duration = time.time() - start
