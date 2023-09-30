@@ -53,7 +53,6 @@ set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
-#target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
 
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
@@ -64,7 +63,8 @@ file(GLOB_RECURSE PYXMOLPP_SOURCES
 )
 pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
-target_link_libraries(_hockeymom PRIVATE hm ${ABSL_LIBRARIES})
+target_link_libraries(_hockeymom PRIVATE hm)
+target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
 set_target_properties(_hockeymom PROPERTIES INSTALL_RPATH "$ORIGIN")
 
 add_subdirectory(csrc)

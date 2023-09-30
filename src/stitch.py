@@ -281,7 +281,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 564356734
+    max_frames = 300
 
     skip_timing_frame_count = 50
 
@@ -301,7 +301,7 @@ def stitch_videos():
 
     # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
 
-    write_output_video = True
+    write_output_video = False
     output_video = None
 
     # fps = video1.get(cv2.CAP_PROP_FPS)
@@ -379,6 +379,7 @@ def stitch_videos():
     while frame_count < max_frames:
         if frame_count == skip_timing_frame_count:
             start = time.time()
+            timer = Timer()
         if frame_count and frame_count % 50 == 0:
             print(f"{frame_count} frames...")
         # ret1, img1 = video1.read()
@@ -399,8 +400,6 @@ def stitch_videos():
         # start = time.time()
         if True:
             if frame_count > 1:
-                if frame_count == 1:
-                    timer = Timer()
                 timer.tic()
 
             stitched_frame = get_next_frame(

@@ -4,10 +4,6 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/camera/CamProps.h"
 
-#include "absl/debugging/stacktrace.h"
-#include "absl/debugging/symbolize.h"
-#include "absl/debugging/failure_signal_handler.h"
-
 #include <iostream>
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
@@ -16,24 +12,26 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 namespace py = pybind11;
 
 namespace {
-std::string get_executable_path() {
-  char result[PATH_MAX * 2 + 1];
-  ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
-  std::string path = std::string(result, (count > 0) ? count : 0);
-  return path;
-}
+// std::string get_executable_path() {
+//   char result[PATH_MAX * 2 + 1];
+//   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
+//   std::string path = std::string(result, (count > 0) ? count : 0);
+//   return path;
+// }
 
-void init_stack_trace() {
-  absl::InitializeSymbolizer(get_executable_path().c_str());
+// void init_stack_trace() {
+//   absl::InitializeSymbolizer(get_executable_path().c_str());
 
-  // Install the failure signal handler. This should capture various failure
-  // signals (like segmentation faults) and print a stack trace.
-  absl::FailureSignalHandlerOptions options;
-  absl::InstallFailureSignalHandler(options);
-}
+//   // Install the failure signal handler. This should capture various failure
+//   // signals (like segmentation faults) and print a stack trace.
+//   //absl::FailureSignalHandlerOptions options;
+//   //absl::InstallFailureSignalHandler(options);
+// }
 } // namespace
 
 PYBIND11_MODULE(_hockeymom, m) {
+  hm::init_stack_trace();
+
   // std::cout << "Initializing hockymom module" << std::endl;
   py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
       m, "MatrixRGB", py::buffer_protocol())

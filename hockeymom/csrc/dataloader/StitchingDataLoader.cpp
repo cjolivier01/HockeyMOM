@@ -6,7 +6,8 @@
 
 namespace hm {
 
-#define FAKE_BLEND
+#define FAKE_REMAP
+//#define FAKE_BLEND
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
@@ -54,7 +55,9 @@ void StitchingDataLoader::initialize() {
   //enblenders_.resize(blend_thread_count_);
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
+#ifndef FAKE_BLEND
   enblender_ = std::make_shared<enblend::EnBlender>();
+#endif
 }
 
 void StitchingDataLoader::add_frame(
@@ -76,6 +79,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
+#ifdef FAKE_REMAP
+    frame->remapped_images.clear();
+    frame->remapped_images.emplace_back(std::move(frame->input_images.at(0))
+    frame->remapped_images.emplace_back(std::move(frame->input_images.at(1))
+#else
     if (!nonas_.at(worker_index)) {
       set_thread_name("remapper", worker_index);
       assert(worker_index < nonas_.size());
@@ -89,6 +97,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     for (auto& r : remapped) {
       frame->remapped_images.emplace_back(std::move(r));
     }
+#endif
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;
     assert(false);
