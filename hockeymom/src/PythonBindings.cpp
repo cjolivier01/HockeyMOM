@@ -9,37 +9,12 @@
 
 #include <iostream>
 
-// namespace with types that lacks pybind counterpart
-// namespace forgotten {
-
-// struct Unbound {};
-
-// enum Enum { ONE = 1, TWO = 2 };
-
-// } // namespace forgotten
-
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
 namespace {
-class FreeGIL {
- public:
-  FreeGIL() {
-    tstate_ = PyEval_SaveThread();
-    assert(tstate_);
-  }
-  ~FreeGIL() {
-    if (tstate_) {
-      PyEval_RestoreThread(tstate_);
-    }
-  }
-
- private:
-  PyThreadState* tstate_{nullptr};
-};
-
 std::string get_executable_path() {
   char result[PATH_MAX * 2 + 1];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
@@ -84,15 +59,12 @@ PYBIND11_MODULE(_hockeymom, m) {
          std::size_t frame_id,
          py::array_t<uint8_t>& image1,
          py::array_t<uint8_t>& image2) {
-        // py::gil_scoped_release release_gil;
-        // FreeGIL relgil;
         // We expect a three-channel RGB image here
         assert(image1.ndim() == 3);
         assert(image2.ndim() == 3);
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
         {
-          //py::gil_scoped_release release_gil;
           data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
         }
         return frame_id;
@@ -211,7 +183,6 @@ extern "C" int __py_bt() {
 
     printf("Python stack trace:\n");
     while (NULL != frame) {
-      // int line = frame->f_lineno;
       /*
        frame->f_lineno will not always return the correct line number
        you need to call PyCode_Addr2Line().
