@@ -74,6 +74,12 @@ def find_roi(image):
     print(f"Box: ({left}, {top}) -> ({right}, {bottom})")
 
 
+class FrameRequest:
+    def __init__(self, frame_id: int, want_alpha: bool = False):
+        self.frame_id = frame_id
+        self.want_alpha = want_alpha
+
+
 class StitchDataset:
     def __init__(
         self,
@@ -164,9 +170,10 @@ class StitchDataset:
     def _feed_next_frame(
         self,
     ) -> bool:
-        frame_id = self._to_worker_queue.get()
-        if frame_id is None:
+        frame_request = self._to_worker_queue.get()
+        if frame_request is None:
             raise StopIteration
+        frame_id = frame_request.frame_id
         frame_id = int(frame_id)
         ret1, img1 = self._video1.read()
         if not ret1:
@@ -175,7 +182,7 @@ class StitchDataset:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        #print(f"Pushing frame {frame_id}")
+        # print(f"Pushing frame {frame_id}")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
@@ -217,7 +224,9 @@ class StitchDataset:
                 not self._max_frames
                 or req_frame < self._start_frame_number + self._max_frames
             ):
-                self._to_worker_queue.put(req_frame)
+                self._to_worker_queue.put(
+                    FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
+                )
                 self._last_requested_frame = req_frame
 
     def _stop_feeder_thread(self):
@@ -248,10 +257,11 @@ class StitchDataset:
         stitched_frame = self.get_next_frame(self._current_frame)
         self._current_frame += 1
         self._last_requested_frame += 1
-        self._to_worker_queue.put(self._last_requested_frame)
+        self._to_worker_queue.put(
+            FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
+        )
         self._maybe_write_output(stitched_frame)
         return stitched_frame
 
     def __len__(self):
         return self._total_num_frames
-

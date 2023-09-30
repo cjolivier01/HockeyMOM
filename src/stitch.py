@@ -18,7 +18,7 @@ import tifffile
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger
-from lib.datasets.dataset.stitching import StitchDataset, build_stitching_project
+from lib.datasets.dataset.stitching import StitchDataset, build_stitching_project, find_roi
 
 from hockeymom import core
 
@@ -68,13 +68,6 @@ def stitch_videos():
     pto_project_file = f"{vid_dir}/my_project.pto"
 
     build_stitching_project(pto_project_file)
-    nona = core.HmNona(pto_project_file)
-
-    print("Creating data loader...")
-    stitching_data_loader_object = core.StitchingDataLoader(
-        0, pto_project_file, 50, 2, 2
-    )
-    print("Data loader created.")
 
     # start_frame_number = 2000
     start_frame_number = 0
@@ -98,6 +91,8 @@ def stitch_videos():
     start = None
     for i, stitched_image in enumerate(data_loader):
         print(f"Read frame {i}")
+        if i == 0:
+            find_roi(stitched_image)
         frame_count += 1
         if i == 1:
             start = time.time()
