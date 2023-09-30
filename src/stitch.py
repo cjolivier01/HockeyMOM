@@ -281,7 +281,8 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 200
+    max_frames = 564356734
+
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -300,7 +301,7 @@ def stitch_videos():
 
     # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
 
-    write_output_video = False
+    write_output_video = True
     output_video = None
 
     # fps = video1.get(cv2.CAP_PROP_FPS)

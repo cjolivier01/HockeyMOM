@@ -30,7 +30,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 
-set(ABSL_LIBRARIES absl::base absl::stacktrace absl::symbolize)
+set(ABSL_LIBRARIES absl::base absl::stacktrace absl::symbolize absl::synchronization)
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
 

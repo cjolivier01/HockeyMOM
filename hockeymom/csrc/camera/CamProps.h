@@ -1,8 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
 namespace hm {
 namespace camera {
-
 struct Box {
   int left{0};
   int top{0};

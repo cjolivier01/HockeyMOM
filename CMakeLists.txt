@@ -45,6 +45,7 @@ SET(BUILD_EXAMPLES OFF)
 SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fPIC")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")

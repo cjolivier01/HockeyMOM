@@ -31,7 +31,7 @@ struct FrameData {
   std::size_t frame_id{kInvalidFrameId};
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
-  std::unique_ptr<MatrixRGB> blended_image;
+  std::shared_ptr<MatrixRGB> blended_image;
 };
 
 /* clang-format off */
@@ -64,7 +64,7 @@ class StitchingDataLoader {
       std::size_t frame_id,
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
-  std::unique_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
+  std::shared_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
 
  private:
   void initialize();
@@ -88,7 +88,8 @@ class StitchingDataLoader {
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
-  std::vector<std::shared_ptr<enblend::EnBlender>> enblenders_;
+  //std::vector<std::shared_ptr<enblend::EnBlender>> enblenders_;
+  std::shared_ptr<enblend::EnBlender> enblender_;
 };
 
 } // namespace hm

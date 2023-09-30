@@ -2,6 +2,7 @@
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
+#include "hockeymom/csrc/camera/CamProps.h"
 
 #include "absl/debugging/stacktrace.h"
 #include "absl/debugging/symbolize.h"
@@ -48,6 +49,30 @@ PYBIND11_MODULE(_hockeymom, m) {
              m.channels() * sizeof(std::uint8_t),
              sizeof(std::uint8_t)});
       });
+
+  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(m, "HMPostprocessConfig")
+       .def(py::init<>())
+       //.def("show_image", &hm::HMPostprocessConfig::show_image)
+       //.def("plot_individual_player_tracking", &hm::HMPostprocessConfig::plot_individual_player_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_cluster_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_camera_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_speed)
+  //   .def(&hm::HMPostprocessConfig::max_in_aspec_ratio)
+  //   .def(&hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
+  //   .def(&hm::HMPostprocessConfig::apply_fixed_edge_scaling)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_scaling_factor)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation_angle)
+  //   .def(&hm::HMPostprocessConfig::sticky_pan)
+  //   .def(&hm::HMPostprocessConfig::plot_sticky_camera)
+  //   .def(&hm::HMPostprocessConfig::skip_frame_count)`
+  //   .def(&hm::HMPostprocessConfig::stop_at_frame0
+  //   .def(&hm::HMPostprocessConfig::scale_to_original_image)
+  //   .def(&hm::HMPostprocessConfig::crop_output_image)
+  //   .def(&hm::HMPostprocessConfig::fake_crop_output_image)
+  //   .def(&hm::HMPostprocessConfig::use_cuda)
+  //   .def(&hm::HMPostprocessConfig::use_watermark)
+  ;
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")

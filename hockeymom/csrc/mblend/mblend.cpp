@@ -2312,13 +2312,13 @@ std::unique_ptr<MatrixRGB> EnBlender::blend_images(
     blend_images.emplace_back(*img);
   }
   bool initial_pass = true;
-  std::unique_ptr<std::unique_lock<std::mutex>> locked =
-      std::make_unique<std::unique_lock<std::mutex>>();
+  auto locked = std::make_unique<absl::MutexLock>(&mu_);
   BlenderImageState* current_state = nullptr;
   BlenderImageState new_image_state;
   if (image_state_.images.empty()) {
     image_state_.init_from_images(blend_images);
     current_state = &image_state_;
+    // Hold the mutex longer on the first pass
   } else {
     new_image_state.init_from_image_state(image_state_, blend_images);
     current_state = &new_image_state;
@@ -2329,6 +2329,7 @@ std::unique_ptr<MatrixRGB> EnBlender::blend_images(
   if (initial_pass) {
     result = result || blender_->process_images(*current_state);
     assert(!result);
+    locked.reset();
     result = result || blender_->process_inputs(*current_state, &output_image);
   } else {
     result = result || blender_->process_inputs(*current_state, &output_image);

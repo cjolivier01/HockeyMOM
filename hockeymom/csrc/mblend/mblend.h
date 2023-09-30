@@ -2,6 +2,8 @@
 
 #include "hockeymom/csrc/common/MatrixRGB.h"
 
+#include "absl/synchronization/mutex.h"
+
 #include <mutex>
 #include <string>
 #include <vector>
@@ -39,7 +41,7 @@ class EnBlender {
       const std::vector<std::shared_ptr<MatrixRGB>>& images);
 
  private:
- std::mutex mu_;
+  absl::Mutex mu_;
   std::shared_ptr<Blender> blender_;
   BlenderImageState image_state_;
   std::size_t pass_{0};
