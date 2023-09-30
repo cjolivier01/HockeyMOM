@@ -52,12 +52,11 @@ def build_stitching_project(project_file_path: str, skip_if_exists: bool = True)
 
 
 def find_roi(image):
-
     w = image.shape[1]
     h = image.shape[0]
 
-    minus_w = int(w/18)
-    minus_h = int(h/15)
+    minus_w = int(w / 18)
+    minus_h = int(h / 15)
     roi = [
         minus_w,
         int(minus_h * 1.5),
@@ -238,20 +237,8 @@ class StitchDataset:
                 image = image[:, :, :3]
         else:
             image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
-            pass
-        # if image.shape[2] == 4:
-        #     image = image[:, :, :3]
-        # tl = image_roi[0:2]
-        # br = image_roi[2:4]
-        # cv2.rectangle(
-        #     image,
-        #     tl,
-        #     br,
-        #     color=(255, 255, 0),
-        #     thickness=6,
-        # )
-        cv2.imshow("online_im", image)
-        cv2.waitKey(1)
+        # cv2.imshow("online_im", image)
+        # cv2.waitKey(1)
         return image
 
     def __iter__(self):
