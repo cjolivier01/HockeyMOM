@@ -17,6 +17,8 @@ import tifffile
 
 from hockeymom import core
 
+from lib.tracking_utils import visualization as vis
+
 # from lib.ffmpeg import copy_audio
 # from lib.ui.mousing import draw_box_with_mouse
 # from lib.tracking_utils.log import logger
@@ -50,28 +52,19 @@ def build_stitching_project(project_file_path: str, skip_if_exists: bool = True)
 
 
 def find_roi(image):
-    binary_mask = image[:, :, 3] != 0
 
-    # This may be inverted!
-    distance_y = np.argmax(binary_mask, axis=0)
-    distance_y = distance_y * (distance_y < image.shape[0] // 2)
-    top = np.max(distance_y)
+    w = image.shape[1]
+    h = image.shape[0]
 
-    distance_x = np.argmax(binary_mask, axis=1)
-    distance_x = distance_x * (distance_x < image.shape[1] // 2)
-    left = np.max(distance_x)
-
-    flipped_image_ud = np.flipud(binary_mask)
-    distance_y = np.argmax(flipped_image_ud, axis=0)
-    distance_y = distance_y * (distance_y < image.shape[0] // 2)
-    bottom = image.shape[0] - 1 - np.max(distance_y)
-
-    flipped_image_lr = np.flipud(binary_mask)
-    distance_x = np.argmax(flipped_image_lr, axis=1)
-    distance_x = distance_x * (distance_x < image.shape[1] // 2)
-    right = image.shape[1] - 1 - np.max(distance_x)
-
-    print(f"Box: ({left}, {top}) -> ({right}, {bottom})")
+    minus_w = int(w/18)
+    minus_h = int(h/15)
+    roi = [
+        minus_w,
+        int(minus_h * 1.5),
+        image.shape[1] - minus_w,
+        image.shape[0] - minus_h,
+    ]
+    return roi
 
 
 class FrameRequest:
@@ -114,6 +107,7 @@ class StitchDataset:
         self._current_frame = start_frame_number
         self._last_requested_frame = None
         self._feeder_thread = None
+        self._image_roi = None
 
     def _open_videos(self):
         self._video1 = cv2.VideoCapture(self._video_file_1)
@@ -192,9 +186,12 @@ class StitchDataset:
         )
         if stitched_frame is None:
             raise StopIteration
+        if self._image_roi is None:
+            self._image_roi = find_roi(stitched_frame)
+
         stitched_frame = self.prepare_frame_for_video(
             stitched_frame,
-            image_roi=None,
+            image_roi=self._image_roi,
         )
         return stitched_frame
 
@@ -241,6 +238,20 @@ class StitchDataset:
                 image = image[:, :, :3]
         else:
             image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+            pass
+        # if image.shape[2] == 4:
+        #     image = image[:, :, :3]
+        # tl = image_roi[0:2]
+        # br = image_roi[2:4]
+        # cv2.rectangle(
+        #     image,
+        #     tl,
+        #     br,
+        #     color=(255, 255, 0),
+        #     thickness=6,
+        # )
+        cv2.imshow("online_im", image)
+        cv2.waitKey(1)
         return image
 
     def __iter__(self):

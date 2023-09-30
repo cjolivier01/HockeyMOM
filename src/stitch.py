@@ -28,7 +28,7 @@ def stitch_videos():
     # start_frame_number = 2000
     start_frame_number = 0
 
-    max_frames = 100
+    max_frames = 50
 
     output_stitched_video_file = "./stitched_output.avi"
 
@@ -47,8 +47,8 @@ def stitch_videos():
     start = None
     for i, stitched_image in enumerate(data_loader):
         print(f"Read frame {i}")
-        if i == 0:
-            find_roi(stitched_image)
+        # if i == 0:
+        #     find_roi(stitched_image)
         frame_count += 1
         if i == 1:
             start = time.time()
