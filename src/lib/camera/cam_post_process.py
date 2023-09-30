@@ -49,19 +49,19 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 0.8,
     },
     "yerba_buena": {
-        "fixed_edge_scaling_factor": 2.0,
+        "fixed_edge_scaling_factor": 1.5,
     }
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 class DefaultArguments(argparse.Namespace):
-    def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING

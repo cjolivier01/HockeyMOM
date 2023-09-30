@@ -238,8 +238,8 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
         path_video_1,
         path_video_2,
         pto_project_file: str,
-        video_1_offset_frame=217,
-        video_2_offset_frame=0,
+        video_1_offset_frame=0,
+        video_2_offset_frame=92,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         clip_original=None,
@@ -247,12 +247,6 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
         output_stitched_video_file: str = None,
         max_frames: int = None,
     ):
-        # self.cap = cv2.VideoCapture(path)
-        # self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
-        # self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        # self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        # self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        # self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.clip_original = clip_original
         self.width = img_size[0]
         self.height = img_size[1]

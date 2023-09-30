@@ -3,7 +3,7 @@ import moviepy.editor as mp
 import numpy as np
 
 
-def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 15):
+def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False):
     # Load the videos
     print("Openning videos...")
     full_video0 = mp.VideoFileClip(file0_path)
@@ -37,25 +37,24 @@ def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 15):
     print(f"Time offset: {time_offset} seconds")
 
     # Synchronize video1 with video0
-    print("Creating new subclip...")
-    if frame_offset:
-        if frame_offset < 0:
-            new_video_num = 2
-            synchronized_video = full_video1.subclip(
-                max(0, -time_offset), full_video1.duration
-            )
-            new_file_name = add_suffix_to_filename(file1_path, "sync")
-        else:
-            new_video_num = 1
-            synchronized_video = full_video0.subclip(
-                max(0, -time_offset), full_video0.duration
-            )
-            new_file_name = add_suffix_to_filename(file0_path, "sync")
+    if create_new_clip:
+        print("Creating new subclip...")
+        if frame_offset:
+            if frame_offset < 0:
+                synchronized_video = full_video1.subclip(
+                    max(0, -time_offset), full_video1.duration
+                )
+                new_file_name = add_suffix_to_filename(file1_path, "sync")
+            else:
+                synchronized_video = full_video0.subclip(
+                    max(0, -time_offset), full_video0.duration
+                )
+                new_file_name = add_suffix_to_filename(file0_path, "sync")
 
-        # Write the synchronized video to a file
-        print("Writing synchronized file...")
-        synchronized_video.write_videofile(new_file_name, codec="libx264")
-        synchronized_video.close()
+            # Write the synchronized video to a file
+            print("Writing synchronized file...")
+            synchronized_video.write_videofile(new_file_name, codec="libx264")
+            synchronized_video.close()
 
     # Close the videos
     video0.close()
@@ -76,8 +75,8 @@ if __name__ == "__main__":
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/left.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/right.mp4",
+        file0_path=f"{os.environ['HOME']}/Videos/sabercats-parts/left-1.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/sabercats-parts/right-1.mp4",
         # file0_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
         # file1_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
     )
