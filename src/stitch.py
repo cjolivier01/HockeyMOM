@@ -273,7 +273,7 @@ def stitch_videos():
     nona = core.HmNona(pto_project_file)
 
     print("Creating data loader...")
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 25 * 5, 25, 50)
+    data_loader = core.StitchingDataLoader(0, pto_project_file, 50, 10, 10)
     print("Data loader created.")
 
     # start_frame_number = 2000
@@ -281,7 +281,7 @@ def stitch_videos():
     # frame_step = 1200
     frame_id = start_frame_number
     # frame_step = 1
-    max_frames = 20000000
+    max_frames = 200
     skip_timing_frame_count = 50
 
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
@@ -300,7 +300,7 @@ def stitch_videos():
 
     # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
 
-    write_output_video = True
+    write_output_video = False
     output_video = None
 
     # fps = video1.get(cv2.CAP_PROP_FPS)
