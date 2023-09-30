@@ -114,143 +114,301 @@ def find_roi(image):
 PROCESSED_COUNT = 0
 
 
-def feed_next_frame(
-    video1: cv2.VideoCapture,
-    video2: cv2.VideoCapture,
-    data_loader: core.StitchingDataLoader,
-    frame_id: int,
-) -> bool:
-    ret1, img1 = video1.read()
-    if not ret1:
-        return False
-    # Read the corresponding frame from the second video
-    ret2, img2 = video2.read()
-    if not ret2:
-        return False
+# def feed_next_frame(
+#     video1: cv2.VideoCapture,
+#     video2: cv2.VideoCapture,
+#     stitching_data_loader_object: core.StitchingDataLoader,
+#     frame_id: int,
+# ) -> bool:
+#     ret1, img1 = video1.read()
+#     if not ret1:
+#         return False
+#     # Read the corresponding frame from the second video
+#     ret2, img2 = video2.read()
+#     if not ret2:
+#         return False
 
-    # img1 = cv2.resize(img1, (img1.shape[1//4, img1.shape[1]//4]))
-    # img2 = cv2.resize(img2, (img2.shape[1//4, img2.shape[1]//4]))
+#     # img1 = cv2.resize(img1, (img1.shape[1//4, img1.shape[1]//4]))
+#     # img2 = cv2.resize(img2, (img2.shape[1//4, img2.shape[1]//4]))
 
-    # print(f"Pushing frame {current_frame_id}")
-    core.add_to_stitching_data_loader(data_loader, frame_id, img1, img2)
-    return True
-
-
-def get_next_frame(data_loader: core.StitchingDataLoader, frame_id: int):
-    stitched_frame = core.get_stitched_frame_from_data_loader(data_loader, frame_id)
-    if stitched_frame is None:
-        raise StopIteration
-    stitched_frame = prepare_frame_for_video(
-        stitched_frame,
-        image_roi=None,
-    )
-    return stitched_frame
+#     # print(f"Pushing frame {current_frame_id}")
+#     core.add_to_stitching_data_loader(
+#         stitching_data_loader_object, frame_id, img1, img2
+#     )
+#     return True
 
 
-def frame_feeder_worker(
-    video1: cv2.VideoCapture,
-    video2: cv2.VideoCapture,
-    data_loader: core.StitchingDataLoader,
-    current_frame_id: int,
-    max_frames: int,
-):
-    frame_count = 0
-    while frame_count < max_frames:
-        while frame_count - PROCESSED_COUNT > 100:
-             time.sleep(0.001)
-        if not feed_next_frame(
-            video1=video1,
-            video2=video2,
-            data_loader=data_loader,
-            frame_id=current_frame_id,
-        ):
-            break
-
-        # print("Skipping 200 frames...")
-        # video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + 200)
-        # video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + 200)
-
-        frame_count += 1
-        current_frame_id += 1
-    print("Feeder thread exiting")
+# def get_next_frame(
+#     stitching_data_loader_object: core.StitchingDataLoader, frame_id: int
+# ):
+#     stitched_frame = core.get_stitched_frame_from_data_loader(
+#         stitching_data_loader_object, frame_id
+#     )
+#     if stitched_frame is None:
+#         raise StopIteration
+#     stitched_frame = prepare_frame_for_video(
+#         stitched_frame,
+#         image_roi=None,
+#     )
+#     return stitched_frame
 
 
-def start_feeder_thread(
-    video1: cv2.VideoCapture,
-    video2: cv2.VideoCapture,
-    data_loader: core.StitchingDataLoader,
-    start_frame_number: int,
-    max_frames: int,
-):
-    feeder_thread = threading.Thread(
-        target=frame_feeder_worker,
-        args=(video1, video2, data_loader, start_frame_number, max_frames),
-    )
-    feeder_thread.start()
-    return feeder_thread
+# def frame_feeder_worker(
+#     video1: cv2.VideoCapture,
+#     video2: cv2.VideoCapture,
+#     stitching_data_loader_object: core.StitchingDataLoader,
+#     current_frame_id: int,
+#     max_frames: int,
+# ):
+#     frame_count = 0
+#     while frame_count < max_frames:
+#         while frame_count - PROCESSED_COUNT > 100:
+#             time.sleep(0.001)
+#         if not feed_next_frame(
+#             video1=video1,
+#             video2=video2,
+#             stitching_data_loader_object=stitching_data_loader_object,
+#             frame_id=current_frame_id,
+#         ):
+#             break
+
+#         # print("Skipping 200 frames...")
+#         # video1.set(cv2.CAP_PROP_POS_FRAMES, video1.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+#         # video2.set(cv2.CAP_PROP_POS_FRAMES, video2.get(cv2.CAP_PROP_POS_FRAMES) + 200)
+
+#         frame_count += 1
+#         current_frame_id += 1
+#     print("Feeder thread exiting")
 
 
-# def stop_feeder_thread(feeder_thread):
-#     feeder_thread.stop = True
+# def start_feeder_thread(
+#     video1: cv2.VideoCapture,
+#     video2: cv2.VideoCapture,
+#     stitching_data_loader_object: core.StitchingDataLoader,
+#     start_frame_number: int,
+#     max_frames: int,
+# ):
+#     feeder_thread = threading.Thread(
+#         target=frame_feeder_worker,
+#         args=(
+#             video1,
+#             video2,
+#             stitching_data_loader_object,
+#             start_frame_number,
+#             max_frames,
+#         ),
+#     )
+#     feeder_thread.start()
+#     return feeder_thread
 
 
-def get_next_frame_sync(
-    video1: cv2.VideoCapture,
-    video2: cv2.VideoCapture,
-    data_loader: core.StitchingDataLoader,
-    frame_id: int,
-):
-    if not feed_next_frame(
-        video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
-    ):
-        raise StopIteration
-    return get_next_frame(data_loader, frame_id)
+# # def stop_feeder_thread(feeder_thread):
+# #     feeder_thread.stop = True
 
 
-def prepare_frame_for_video(image, image_roi):
-    if not image_roi:
-        if image.shape[2] == 4:
-            image = image[:, :, :3]
-    else:
-        image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
-    return image
+# def get_next_frame_sync(
+#     video1: cv2.VideoCapture,
+#     video2: cv2.VideoCapture,
+#     stitching_data_loader_object: core.StitchingDataLoader,
+#     frame_id: int,
+# ):
+#     if not feed_next_frame(
+#         video1=video1,
+#         video2=video2,
+#         stitching_data_loader_object=stitching_data_loader_object,
+#         frame_id=frame_id,
+#     ):
+#         raise StopIteration
+#     return get_next_frame(stitching_data_loader_object, frame_id)
+
+
+# def prepare_frame_for_video(image, image_roi):
+#     if not image_roi:
+#         if image.shape[2] == 4:
+#             image = image[:, :, :3]
+#     else:
+#         image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+#     return image
 
 
 class StitchDataset:
     def __init__(
         self,
-        pto_project_file: str,
-        start_frame_id: int,
-        max_input_queue_size: int,
-        remap_thread_count: int,
-        blend_thread_count: int,
+        video_file_1: str,
+        video_file_2: str,
+        pto_project_file: str = None,
+        video_1_offset_frame: int = None,
+        video_2_offset_frame: int = None,
+        output_stitched_video_file: str = None,
+        start_frame_number: int = 0,
+        max_input_queue_size: int = 50,
+        remap_thread_count: int = 10,
+        blend_thread_count: int = 10,
+        max_frames: int = None,
     ):
+        assert max_input_queue_size > 0
+        self._start_frame_number = start_frame_number
+        self._output_stitched_video_file = output_stitched_video_file
+        self._output_video = None
+        self._video_1_offset_frame = video_1_offset_frame
+        self._video_2_offset_frame = video_2_offset_frame
+        self._video_file_1 = video_file_1
+        self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
-        self._start_frame_id = start_frame_id
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
+        self._max_frames = max_frames
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
+        self._open = False
+        self._current_frame = start_frame_number
+        self._last_requested_frame = None
+        self._feeder_thread = None
 
-    def _start(self):
-        pass
+    def _open_videos(self):
+        self._video1 = cv2.VideoCapture(self._video_file_1)
+        self._video2 = cv2.VideoCapture(self._video_file_2)
+        if self._start_frame_number or self._video_1_offset_frame:
+            self._video1.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_1_offset_frame,
+            )
+        if self._start_frame_number or self._video_2_offset_frame:
+            self._video2.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_2_offset_frame,
+            )
+        self._total_num_frames = min(
+            int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
+            int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
+        )
+        self._stitcher = core.StitchingDataLoader(
+            0,
+            self._pto_project_file,
+            self._max_input_queue_size,
+            self._remap_thread_count,
+            self._blend_thread_count,
+        )
+        self._start_feeder_thread()
+        self._open = True
+
+    def close(self):
+        self._video1.release()
+        self._video2.release()
+        if self._output_video is not None:
+            self._output_video.release()
+        self._open = False
+
+    def _maybe_write_output(self, output_img):
+        if self._output_stitched_video_file:
+            if self._output_video is None:
+                fps = self._video1.get(cv2.CAP_PROP_FPS)
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                final_video_size = (output_img.shape[1], output_img.shape[0])
+                self._output_video = cv2.VideoWriter(
+                    filename=self._output_stitched_video_file,
+                    fourcc=fourcc,
+                    fps=fps,
+                    frameSize=final_video_size,
+                    isColor=True,
+                )
+                assert self._output_video.isOpened()
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+
+            self._output_video.write(output_img)
+
+    def feed_next_frame(
+        self,
+    ) -> bool:
+        frame_id = self._to_worker_queue.get()
+        if frame_id is None:
+            raise StopIteration
+        frame_id = int(frame_id)
+        ret1, img1 = self._video1.read()
+        if not ret1:
+            return False
+        # Read the corresponding frame from the second video
+        ret2, img2 = self._video2.read()
+        if not ret2:
+            return False
+        print(f"Pushing frame {frame_id}")
+        core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+        return True
+
+    def get_next_frame(self, frame_id: int):
+        stitched_frame = core.get_stitched_frame_from_data_loader(
+            self._stitcher, frame_id
+        )
+        if stitched_frame is None:
+            raise StopIteration
+        stitched_frame = self.prepare_frame_for_video(
+            stitched_frame,
+            image_roi=None,
+        )
+        return stitched_frame
+
+    def frame_feeder_worker(
+        self,
+        max_frames: int,
+    ):
+        frame_count = 0
+        while not max_frames or frame_count < max_frames:
+            if not self.feed_next_frame():
+                break
+            frame_count += 1
+        print("Feeder thread exiting")
+
+    def _start_feeder_thread(self):
+        self._feeder_thread = threading.Thread(
+            target=self.frame_feeder_worker,
+            args=(
+                self._max_frames,
+            ),
+        )
+        self._feeder_thread.start()
+        for i in range(self._max_input_queue_size):
+            req_frame = self._current_frame + i
+            if not self._max_frames or req_frame < self._start_frame_number + self._max_frames:
+                self._to_worker_queue.put(req_frame)
+                self._last_requested_frame = req_frame
+
+    # def stop_feeder_thread(feeder_thread):
+    #     feeder_thread.stop = True
+
+    def prepare_frame_for_video(self, image, image_roi):
+        if not image_roi:
+            if image.shape[2] == 4:
+                image = image[:, :, :3]
+        else:
+            image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+        return image
 
     def __iter__(self):
+        if not self._open:
+            self._open_videos()
         return self
 
     def __next__(self):
-        return None
+        stitched_frame = self.get_next_frame(self._current_frame)
+        self._current_frame += 1
+        self._last_requested_frame += 1
+        self._to_worker_queue.put(self._last_requested_frame)
+        self._maybe_write_output(stitched_frame)
+        return stitched_frame
+
+    def __len__(self):
+        return self._total_num_frames
 
 
-def create_data_loader(
-    pto_project_file: str,
-    start_frame_id: int,
-    max_input_queue_size: int,
-    remap_thread_count: int,
-    blend_thread_count: int,
-):
-    to_fork_queue
+# def create_data_loader(
+#     pto_project_file: str,
+#     start_frame_id: int,
+#     max_input_queue_size: int,
+#     remap_thread_count: int,
+#     blend_thread_count: int,
+# ):
+#     to_fork_queue
 
 
 def stitch_videos():
@@ -269,11 +427,14 @@ def stitch_videos():
 
     # PTO Project File
     pto_project_file = f"{vid_dir}/my_project.pto"
+
     build_stitching_project(pto_project_file)
     nona = core.HmNona(pto_project_file)
 
     print("Creating data loader...")
-    data_loader = core.StitchingDataLoader(0, pto_project_file, 50, 10, 10)
+    stitching_data_loader_object = core.StitchingDataLoader(
+        0, pto_project_file, 50, 2, 2
+    )
     print("Data loader created.")
 
     # start_frame_number = 2000
@@ -285,6 +446,22 @@ def stitch_videos():
 
     skip_timing_frame_count = 50
 
+    output_stitched_video_file = "./stitched_output.avi"
+
+    data_loader = StitchDataset(
+        video_file_1=f"{vid_dir}/left.mp4",
+        video_file_2=f"{vid_dir}/right.mp4",
+        pto_project_file=pto_project_file,
+        video_1_offset_frame=217,
+        video_2_offset_frame=0,
+        start_frame_number=start_frame_number,
+        output_stitched_video_file=output_stitched_video_file,
+    )
+
+    for i, stitched_image in enumerate(data_loader):
+        print(i)
+    sys.exit(0)
+
     video1 = cv2.VideoCapture(f"{vid_dir}/left.mp4")
     video2 = cv2.VideoCapture(f"{vid_dir}/right.mp4")
 
@@ -293,7 +470,7 @@ def stitch_videos():
 
     # Process the first frame in order to determine the output size
     # first_stitched_frame = get_next_frame_sync(
-    #     video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    #     video1=video1, video2=video2, stitching_data_loader_object=stitching_data_loader_object, frame_id=frame_id
     # )
     # image_roi = find_roi(first_stitched_frame)
     # first_stitched_frame = prepare_frame_for_video(first_stitched_frame, image_roi=image_roi)
@@ -301,7 +478,6 @@ def stitch_videos():
 
     # final_video_size = (first_stitched_frame.shape[1], first_stitched_frame.shape[0])
 
-    write_output_video = False
     output_video = None
 
     # fps = video1.get(cv2.CAP_PROP_FPS)
@@ -322,7 +498,7 @@ def stitch_videos():
     # for i in range(10):
     #     print(f"writing frame {i+1}")
     #     # frame = get_next_frame_sync(
-    #     #     video1=video1, video2=video2, data_loader=data_loader, frame_id=frame_id
+    #     #     video1=video1, video2=video2, stitching_data_loader_object=stitching_data_loader_object, frame_id=frame_id
     #     # )
     #     #output_video.write(frame)
     #     output_video.write(first_stitched_frame)
@@ -335,8 +511,8 @@ def stitch_videos():
     # exit(0)
 
     def _maybe_write_output(output_img):
-        nonlocal write_output_video
-        if write_output_video:
+        nonlocal output_stitched_video_file
+        if output_stitched_video_file:
             nonlocal output_video
             if output_video is None:
                 nonlocal video1
@@ -366,7 +542,7 @@ def stitch_videos():
     feeder_thread = start_feeder_thread(
         video1=video1,
         video2=video2,
-        data_loader=data_loader,
+        stitching_data_loader_object=stitching_data_loader_object,
         start_frame_number=start_frame_number,
         max_frames=max_frames,
     )
@@ -402,9 +578,7 @@ def stitch_videos():
             if frame_count > 1:
                 timer.tic()
 
-            stitched_frame = get_next_frame(
-                data_loader, frame_id
-            )
+            stitched_frame = get_next_frame(stitching_data_loader_object, frame_id)
             PROCESSED_COUNT += 1
 
             # assert stitched_frame.shape[0] == final_video_size[1]

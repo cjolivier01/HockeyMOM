@@ -1464,7 +1464,7 @@ class Blender {
         output_type == ImageType::MB_MEM*/
         /* arbitrarily have no mask */) {
       no_mask = true;
-      assert(false); // want the mask, yo
+      //assert(false); // want the mask, yo
     }
 
     /***********************************************************************

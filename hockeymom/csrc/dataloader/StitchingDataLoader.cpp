@@ -6,8 +6,8 @@
 
 namespace hm {
 
-#define FAKE_REMAP
-//#define FAKE_BLEND
+// #define FAKE_REMAP
+// #define FAKE_BLEND
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
@@ -81,8 +81,10 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
   try {
 #ifdef FAKE_REMAP
     frame->remapped_images.clear();
-    frame->remapped_images.emplace_back(std::move(frame->input_images.at(0))
-    frame->remapped_images.emplace_back(std::move(frame->input_images.at(1))
+    frame->remapped_images.emplace_back(std::move(frame->input_images.at(0)));
+    frame->remapped_images.emplace_back(std::move(frame->input_images.at(1)));
+    frame->remapped_images.at(0)->set_xy_pos(0, 42);
+    frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
     if (!nonas_.at(worker_index)) {
       set_thread_name("remapper", worker_index);
@@ -109,12 +111,6 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
-    // if (!enblenders_.at(worker_index)) {
-    //   set_thread_name("blender", worker_index);
-    //   assert(worker_index < enblenders_.size());
-    //   enblenders_[worker_index] = std::make_shared<enblend::EnBlender>();
-    // }
-    // auto blender = enblenders_[worker_index];
     auto blender = enblender_;
 #ifdef FAKE_BLEND
     frame->blended_image = frame->remapped_images[0];
