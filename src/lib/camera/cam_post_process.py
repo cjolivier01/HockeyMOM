@@ -53,7 +53,7 @@ RINK_CONFIG = {
     }
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(argparse.Namespace):
     def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
@@ -61,7 +61,7 @@ class DefaultArguments(argparse.Namespace):
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
