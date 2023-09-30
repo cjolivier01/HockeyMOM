@@ -107,6 +107,7 @@ class StitchDataset:
         self._last_requested_frame = None
         self._feeder_thread = None
         self._image_roi = None
+        self._fps = None
 
     def _open_videos(self):
         self._video1 = cv2.VideoCapture(self._video_file_1)
@@ -132,8 +133,13 @@ class StitchDataset:
             self._remap_thread_count,
             self._blend_thread_count,
         )
+        self._fps = self._video1.get(cv2.CAP_PROP_FPS)
         self._start_feeder_thread()
         self._open = True
+
+    @property
+    def fps(self):
+        return self._fps
 
     def close(self):
         self._video1.release()

@@ -21,82 +21,7 @@ from cython_bbox import bbox_overlaps as bbox_ious
 from opts import opts
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
-
-
-def stitch_matcher(image1, image2, crop_black_borders: bool = True):
-    #
-    # Detect keypoints and compute descriptors for both images.
-    # You can use an algorithm like SIFT or ORB for this purpose:
-    #
-
-    # Initialize SIFT detector (you can use other detectors like ORB)
-    sift = cv2.SIFT_create()
-
-    # Detect keypoints and compute descriptors
-    keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
-    keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
-
-    #
-    # Match the keypoints in the two images:
-    #
-
-    # Initialize a Brute-Force Matcher
-    bf = cv2.BFMatcher()
-
-    # Match descriptors
-    matches = bf.knnMatch(descriptors1, descriptors2, k=2)
-
-    # Apply ratio test to find good matches
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
-            good_matches.append(m)
-
-    #
-    # Extract the corresponding keypoints:
-    #
-
-    # Extract corresponding keypoints
-    matched_keypoints1 = [keypoints1[match.queryIdx] for match in good_matches]
-    matched_keypoints2 = [keypoints2[match.trainIdx] for match in good_matches]
-
-    # Convert keypoints to NumPy arrays
-    pts1 = np.float32([kp.pt for kp in matched_keypoints1])
-    pts2 = np.float32([kp.pt for kp in matched_keypoints2])
-
-    #
-    # Find the Homography matrix that relates the two images:
-    #
-
-    # Find the Homography matrix
-    H, _ = cv2.findHomography(pts2, pts1, cv2.RANSAC)
-
-    #
-    # Warp the second image onto the first image:
-    #
-
-    # Warp the second image onto the first image
-    stitched_image = cv2.warpPerspective(
-        image2, H, (image1.shape[1] + image2.shape[1], image1.shape[0])
-    )
-
-    # Copy the first image onto the stitched image
-    stitched_image[0 : image1.shape[0], 0 : image1.shape[1]] = image1
-
-    #
-    # Optionally, you can crop the black borders in the stitched image to obtain a cleaner result:
-    #
-    if crop_black_borders:
-        stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(stitched_image, 1, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(
-            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        max_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(max_contour)
-        stitched_image = stitched_image[y : y + h, x : x + w]
-
-    return stitched_image
+from .stitching import StitchDataset
 
 
 class Images:
@@ -238,7 +163,7 @@ class LoadVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         clip_original=None,
-        #clip_original=(43, 236, 1917, 864),
+        # clip_original=(43, 236, 1917, 864),
     ):
         self.cap = cv2.VideoCapture(path)
         self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
@@ -307,6 +232,108 @@ class LoadVideoWithOrig:  # for inference
         return self.vn  # number of files
 
 
+class LoadAutoStitchedVideoWithOrig:  # for inference
+    def __init__(
+        self,
+        path_video_1,
+        path_video_2,
+        pto_project_file: str,
+        video_1_offset_frame=217,
+        video_2_offset_frame=0,
+        img_size=(1088, 608),
+        process_img_size=(1920, 1080),
+        clip_original=None,
+        start_frame_number: int = 0,
+        output_stitched_video_file: str = None,
+        max_frames: int = None,
+    ):
+        # self.cap = cv2.VideoCapture(path)
+        # self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
+        # self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        # self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.clip_original = clip_original
+        self.width = img_size[0]
+        self.height = img_size[1]
+        self.count = 0
+        self._last_size = None
+
+        self.w, self.h = process_img_size
+        self._data_loader = StitchDataset(
+            video_file_1=path_video_1,
+            video_file_2=path_video_2,
+            pto_project_file=pto_project_file,
+            video_1_offset_frame=video_1_offset_frame,
+            video_2_offset_frame=video_2_offset_frame,
+            start_frame_number=start_frame_number,
+            output_stitched_video_file=output_stitched_video_file,
+            max_frames=max_frames,
+        )
+        self._stitch_ds_iter = None
+        self.vn = None
+        # print("Lenth of the video: {:d} frames".format(self.vn))
+
+    def set_frame_number(self, frame_id: int):
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+
+    def get_size(self, vw, vh, dw, dh):
+        wa, ha = float(dw) / vw, float(dh) / vh
+        a = min(wa, ha)
+        size = int(vw * a), int(vh * a)
+        if self._last_size is not None:
+            assert size == self._last_size
+        else:
+            self._last_size = size
+        return size
+
+    def __iter__(self):
+        if self._stitch_ds_iter is None:
+            self._stitch_ds_iter = iter(self._data_loader)
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        # Read image
+        #res, img0 = self.cap.read()  # BGR
+        img0 = next(self._stitch_ds_iter)
+
+        # if self.count == len(self):
+        #     raise StopIteration
+        if img0 is None:
+            print(f"Error loading frame: {self.count}")
+            raise StopIteration()
+        if self.clip_original:
+            img0 = img0[
+                self.clip_original[1] : self.clip_original[3],
+                self.clip_original[0] : self.clip_original[2],
+                :,
+            ]
+
+        original_img = img0.copy()
+
+        img0 = cv2.resize(img0, (self.w, self.h))
+
+        # Padded resize
+        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+
+        # Normalize RGB
+        img = img[:, :, ::-1].transpose(2, 0, 1)
+        img = np.ascontiguousarray(img, dtype=np.float32)
+        img /= 255.0
+
+        # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
+        return self.count, img, img0, original_img
+
+    @property
+    def fps(self):
+        return self._data_loader.fps
+
+    def __len__(self):
+        return len(self._data_loader)
+
+
 class StitchConfig:
     def __init__(self):
         self.skip_frame_count = 0
@@ -321,7 +348,7 @@ class StitchConfig:
 
 class StitchConfigVallco:
     def __init__(self):
-        #self.skip_frame_count = 2300 + 1400
+        # self.skip_frame_count = 2300 + 1400
         self.skip_frame_count = 0
         self.clip_offset_box = None
         self.left_stitch_clip_x_size = 400
@@ -542,8 +569,8 @@ class LoadStitchedVideoWithOrig:  # for inference
                 w = frame1.shape[1]
                 h = frame1.shape[0]
                 frame1 = frame1[
-                    #clip_y:,
-                    :h - clip_y,
+                    # clip_y:,
+                    : h - clip_y,
                     0 : w - self.left_stitch_clip_x_size,
                     :,
                 ]
@@ -552,7 +579,7 @@ class LoadStitchedVideoWithOrig:  # for inference
                 w = frame2.shape[1]
                 h = frame2.shape[0]
                 frame2 = frame2[
-                    #0 : h - clip_y,
+                    # 0 : h - clip_y,
                     clip_y:,
                     self.right_stitch_clip_x_size :,
                     :,

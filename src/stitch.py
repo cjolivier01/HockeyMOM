@@ -13,7 +13,6 @@ from lib.tracking_utils.log import logger
 from lib.datasets.dataset.stitching import (
     StitchDataset,
     build_stitching_project,
-    find_roi,
 )
 
 
@@ -21,7 +20,7 @@ def stitch_videos():
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
 
     # PTO Project File
-    pto_project_file = f"{vid_dir}/my_project.pto"
+    pto_project_file = f"{os.path.join(os.environ["HOME"], "Videos")}/my_project.pto"
 
     build_stitching_project(pto_project_file)
 

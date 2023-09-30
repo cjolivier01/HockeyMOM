@@ -43,15 +43,22 @@ def demo(opt):
     input_video_files = opt.input_video.split(",")
 
     if len(input_video_files) == 2:
-        dataloader = datasets.LoadStitchedVideoWithOrig(
-            left_file=input_video_files[0],
-            right_file=input_video_files[1],
-            #stitch_config=datasets.StitchConfig_YB_0(),
-            #stitch_config=datasets.StitchConfig(),
-            stitch_config=datasets.StitchConfigVallco(),
+        dataloader = datasets.LoadAutoStitchedVideoWithOrig(
+            path_video_1=input_video_files[0],
+            path_video_2=input_video_files[1],
+            pto_project_file=os.path.join(os.environ['HOME'], 'Videos', 'my_project.pto'),
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
         )
+        # dataloader = datasets.LoadStitchedVideoWithOrig(
+        #     left_file=input_video_files[0],
+        #     right_file=input_video_files[1],
+        #     #stitch_config=datasets.StitchConfig_YB_0(),
+        #     #stitch_config=datasets.StitchConfig(),
+        #     stitch_config=datasets.StitchConfigVallco(),
+        #     img_size=opt.img_size,
+        #     process_img_size=opt.process_img_size,
+        # )
     else:
         assert len(input_video_files) == 1
         dataloader = datasets.LoadVideoWithOrig(
@@ -60,8 +67,8 @@ def demo(opt):
             process_img_size=opt.process_img_size,
         )
     result_filename = os.path.join(result_root, "results.txt")
-    frame_rate = dataloader.frame_rate
-    print(f"Video frame rate: {frame_rate}")
+    #frame_rate = dataloader.frame_rate
+    #print(f"Video frame rate: {frame_rate}")
 
     frame_dir = None if opt.output_format == "text" else osp.join(result_root, "frame")
     eval_seq(
@@ -71,7 +78,7 @@ def demo(opt):
         result_filename,
         save_dir=frame_dir,
         show_image=False,
-        frame_rate=frame_rate,
+        #frame_rate=frame_rate,
         use_cuda=opt.gpus != [-1],
     )
 
