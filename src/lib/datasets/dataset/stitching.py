@@ -1,0 +1,257 @@
+"""
+Experiments in stitching
+"""
+import os
+import sys
+import torch
+import torch.nn as nn
+import numpy as np
+import time
+import cv2
+import threading
+import multiprocessing
+
+from pathlib import Path
+from torch.utils.data import IterableDataset, DataLoader
+import tifffile
+
+from hockeymom import core
+
+# from lib.ffmpeg import copy_audio
+# from lib.ui.mousing import draw_box_with_mouse
+# from lib.tracking_utils.log import logger
+
+
+def get_tiff_tag_value(tiff_tag):
+    if len(tiff_tag.value) == 1:
+        return tiff_tag.value
+    assert len(tiff_tag.value) == 2
+    numerator, denominator = tiff_tag.value
+    return float(numerator) / denominator
+
+
+def get_image_geo_position(tiff_image_file: str):
+    xpos, ypos = 0, 0
+    with tifffile.TiffFile(tiff_image_file) as tif:
+        tags = tif.pages[0].tags
+        # Access the TIFFTAG_XPOSITION
+        x_position = get_tiff_tag_value(tags.get("XPosition"))
+        y_position = get_tiff_tag_value(tags.get("YPosition"))
+        x_resolution = get_tiff_tag_value(tags.get("XResolution"))
+        y_resolution = get_tiff_tag_value(tags.get("YResolution"))
+        xpos = int(x_position * x_resolution + 0.5)
+        ypos = int(y_position * y_resolution + 0.5)
+        print(f"x={xpos}, y={ypos}")
+    return xpos, ypos
+
+
+def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
+    pass
+
+
+def find_roi(image):
+    binary_mask = image[:, :, 3] != 0
+
+    # This may be inverted!
+    distance_y = np.argmax(binary_mask, axis=0)
+    distance_y = distance_y * (distance_y < image.shape[0] // 2)
+    top = np.max(distance_y)
+
+    distance_x = np.argmax(binary_mask, axis=1)
+    distance_x = distance_x * (distance_x < image.shape[1] // 2)
+    left = np.max(distance_x)
+
+    flipped_image_ud = np.flipud(binary_mask)
+    distance_y = np.argmax(flipped_image_ud, axis=0)
+    distance_y = distance_y * (distance_y < image.shape[0] // 2)
+    bottom = image.shape[0] - 1 - np.max(distance_y)
+
+    flipped_image_lr = np.flipud(binary_mask)
+    distance_x = np.argmax(flipped_image_lr, axis=1)
+    distance_x = distance_x * (distance_x < image.shape[1] // 2)
+    right = image.shape[1] - 1 - np.max(distance_x)
+
+    print(f"Box: ({left}, {top}) -> ({right}, {bottom})")
+
+
+class StitchDataset:
+    def __init__(
+        self,
+        video_file_1: str,
+        video_file_2: str,
+        pto_project_file: str = None,
+        video_1_offset_frame: int = None,
+        video_2_offset_frame: int = None,
+        output_stitched_video_file: str = None,
+        start_frame_number: int = 0,
+        max_input_queue_size: int = 50,
+        remap_thread_count: int = 10,
+        blend_thread_count: int = 10,
+        max_frames: int = None,
+    ):
+        assert max_input_queue_size > 0
+        self._start_frame_number = start_frame_number
+        self._output_stitched_video_file = output_stitched_video_file
+        self._output_video = None
+        self._video_1_offset_frame = video_1_offset_frame
+        self._video_2_offset_frame = video_2_offset_frame
+        self._video_file_1 = video_file_1
+        self._video_file_2 = video_file_2
+        self._pto_project_file = pto_project_file
+        self._max_input_queue_size = max_input_queue_size
+        self._remap_thread_count = remap_thread_count
+        self._blend_thread_count = blend_thread_count
+        self._max_frames = max_frames
+        self._to_worker_queue = multiprocessing.Queue()
+        self._from_worker_queue = multiprocessing.Queue()
+        self._open = False
+        self._current_frame = start_frame_number
+        self._last_requested_frame = None
+        self._feeder_thread = None
+
+    def _open_videos(self):
+        self._video1 = cv2.VideoCapture(self._video_file_1)
+        self._video2 = cv2.VideoCapture(self._video_file_2)
+        if self._start_frame_number or self._video_1_offset_frame:
+            self._video1.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_1_offset_frame,
+            )
+        if self._start_frame_number or self._video_2_offset_frame:
+            self._video2.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_2_offset_frame,
+            )
+        self._total_num_frames = min(
+            int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
+            int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
+        )
+        self._stitcher = core.StitchingDataLoader(
+            0,
+            self._pto_project_file,
+            self._max_input_queue_size,
+            self._remap_thread_count,
+            self._blend_thread_count,
+        )
+        self._start_feeder_thread()
+        self._open = True
+
+    def close(self):
+        self._video1.release()
+        self._video2.release()
+        if self._output_video is not None:
+            self._output_video.release()
+        self._open = False
+
+    def _maybe_write_output(self, output_img):
+        if self._output_stitched_video_file:
+            if self._output_video is None:
+                fps = self._video1.get(cv2.CAP_PROP_FPS)
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                final_video_size = (output_img.shape[1], output_img.shape[0])
+                self._output_video = cv2.VideoWriter(
+                    filename=self._output_stitched_video_file,
+                    fourcc=fourcc,
+                    fps=fps,
+                    frameSize=final_video_size,
+                    isColor=True,
+                )
+                assert self._output_video.isOpened()
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+
+            self._output_video.write(output_img)
+
+    def _feed_next_frame(
+        self,
+    ) -> bool:
+        frame_id = self._to_worker_queue.get()
+        if frame_id is None:
+            raise StopIteration
+        frame_id = int(frame_id)
+        ret1, img1 = self._video1.read()
+        if not ret1:
+            return False
+        # Read the corresponding frame from the second video
+        ret2, img2 = self._video2.read()
+        if not ret2:
+            return False
+        #print(f"Pushing frame {frame_id}")
+        core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+        return True
+
+    def get_next_frame(self, frame_id: int):
+        stitched_frame = core.get_stitched_frame_from_data_loader(
+            self._stitcher, frame_id
+        )
+        if stitched_frame is None:
+            raise StopIteration
+        stitched_frame = self.prepare_frame_for_video(
+            stitched_frame,
+            image_roi=None,
+        )
+        return stitched_frame
+
+    def frame_feeder_worker(
+        self,
+        max_frames: int,
+    ):
+        frame_count = 0
+        while not max_frames or frame_count < max_frames:
+            if not self._feed_next_frame():
+                break
+            else:
+                self._from_worker_queue.put("ok")
+            frame_count += 1
+        print("Feeder thread exiting")
+        self._from_worker_queue.put(StopIteration())
+
+    def _start_feeder_thread(self):
+        self._feeder_thread = threading.Thread(
+            target=self.frame_feeder_worker,
+            args=(self._max_frames,),
+        )
+        self._feeder_thread.start()
+        for i in range(self._max_input_queue_size):
+            req_frame = self._current_frame + i
+            if (
+                not self._max_frames
+                or req_frame < self._start_frame_number + self._max_frames
+            ):
+                self._to_worker_queue.put(req_frame)
+                self._last_requested_frame = req_frame
+
+    def _stop_feeder_thread(self):
+        if self._feeder_thread is not None:
+            self._to_worker_queue.put(None)
+            self._feeder_thread.join()
+            self._feeder_thread = None
+
+    def prepare_frame_for_video(self, image, image_roi):
+        if not image_roi:
+            if image.shape[2] == 4:
+                image = image[:, :, :3]
+        else:
+            image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+        return image
+
+    def __iter__(self):
+        if not self._open:
+            self._open_videos()
+        return self
+
+    def __next__(self):
+        status = self._from_worker_queue.get()
+        if isinstance(status, Exception):
+            raise status
+        else:
+            assert status == "ok"
+        stitched_frame = self.get_next_frame(self._current_frame)
+        self._current_frame += 1
+        self._last_requested_frame += 1
+        self._to_worker_queue.put(self._last_requested_frame)
+        self._maybe_write_output(stitched_frame)
+        return stitched_frame
+
+    def __len__(self):
+        return self._total_num_frames
+
