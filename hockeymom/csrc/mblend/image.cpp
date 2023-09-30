@@ -133,6 +133,7 @@ Image::Image(std::vector<std::size_t> shape, std::size_t num_channels) {
   row_stride = sizeof(std::uint8_t) * num_channels * width;
   raw_data = new std::uint8_t[row_stride * height];
   raw_data_write_ptr_ = raw_data;
+  own_raw_data = true;
 }
 
 Image Image::clone_with_new_data(void *new_raw_data, bool own) {

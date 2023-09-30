@@ -1067,8 +1067,10 @@ class Blender {
       }
 
       for (i = 0; i < n_threads; ++i) {
-        if (i >= 2)
+        if (i >= 2) {
           delete[] thread_lines[i];
+          thread_lines[i] = nullptr;
+        }
         delete[] thread_comp_lines[i];
       }
 
