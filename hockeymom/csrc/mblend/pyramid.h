@@ -38,6 +38,7 @@ private:
 	bool lut_gamma = false;
 	int out_max;
 	HmThreadPool threadpool_;
+  std::size_t line_thread_count_{0};
 	void set_lut(int bits, bool gamma);
 	void CopyInterleavedThread_8bit(uint8_t* src_p, int step, int pitch, int sy, int ey);
 	void CopyInterleavedThread_16bit(uint16_t* src_p, int step, int pitch, int sy, int ey);

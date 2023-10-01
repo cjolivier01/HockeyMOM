@@ -7,7 +7,9 @@
 
 namespace hm {
 
-static absl::Mutex debugging_sync_mutex;
+//static absl::Mutex debugging_sync_mutex;
+
+constexpr std::size_t kMaxThreadPyramidLineThreads = 24;
 
 /***********************************************************************
  * Constructor/destructor
@@ -26,6 +28,8 @@ Pyramid::Pyramid(
     : shared(share != NULL),
       no_alloc(_no_alloc),
       threadpool_(HmThreadPool::get_base_thread_pool()) {
+  line_thread_count_ = std::max(2UL, threadpool_.GetNThreads());
+  line_thread_count_ = std::min(line_thread_count_, kMaxThreadPyramidLineThreads);
   float* data;
 
   int n_levels = DefaultNumLevels(width, height);
@@ -97,11 +101,11 @@ Pyramid::Pyramid(
   for (auto level = levels.begin(); level < levels.end(); ++level) {
     level->bands.push_back(0);
     if (level->height >
-        threadpool.GetNThreads() * 4) { // bands should be at least four pixels
+        line_thread_count_ * 4) { // bands should be at least four pixels
                                         // high to be safe for shrink
-      for (int i = 1; i < threadpool.GetNThreads(); ++i) {
+      for (int i = 1; i < line_thread_count_; ++i) {
         int b =
-            ((int)(level->height * i * (1.0 / threadpool.GetNThreads())) &
+            ((int)(level->height * i * (1.0 / line_thread_count_)) &
              ~3); // was &~1 to make all bands even height (not sure of reason);
                   // changed to &~3 for vertical SSE processing (see fastblur)
         level->bands.push_back(b);
@@ -111,16 +115,16 @@ Pyramid::Pyramid(
     level->bands.push_back(level->height);
   }
 
-  lines = new __m128*[threadpool.GetNThreads()];
+  lines = new __m128*[line_thread_count_];
 
-  for (int i = 0; i < threadpool.GetNThreads(); ++i) {
+  for (int i = 0; i < line_thread_count_; ++i) {
     lines[i] =
         (__m128*)_aligned_malloc(levels[0].pitch * sizeof(float), 16); // was 32
   }
 }
 
 Pyramid::~Pyramid() {
-  for (int i = 0; i < threadpool.GetNThreads(); ++i) {
+  for (int i = 0; i < line_thread_count_; ++i) {
     _aligned_free(lines[i]);
   }
   delete lines;
@@ -159,10 +163,11 @@ void Pyramid::set_lut(int bits, bool gamma) {
 }
 
 void Pyramid::Copy(uint8_t* src_p, int step, int pitch, bool gamma, int bits) {
-  absl::MutexLock lkkk(&debugging_sync_mutex);
+  //absl::MutexLock lkkk(&debugging_sync_mutex);
+  HmThreadPool threadpool(threadpool_);
   if (step > 1) {
     set_lut(bits, gamma);
-
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[0].bands.size() - 1; ++t) {
       switch (bits) {
         case 8:
@@ -187,6 +192,7 @@ void Pyramid::Copy(uint8_t* src_p, int step, int pitch, bool gamma, int bits) {
     }
     threadpool.join_all();
   } else {
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[0].bands.size() - 1; ++t) {
       // planar (only slight improvement with MT, but increases CPU usage)
       switch (bits) {
@@ -650,8 +656,8 @@ void Pyramid::Shrink() {
     int height_odd = (levels[l].height & 1) ^ levels[l].y_shift;
     int first_bad_line = levels[l + 1].height - (3 - height_odd);
 
-    absl::MutexLock lkkk(&debugging_sync_mutex);
-
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l + 1].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
         ShrinkThread(
@@ -890,7 +896,8 @@ void Pyramid::LaplaceCollapse(int n_levels, bool Collapse) {
       l = (n_levels - 2) - j;
     else
       l = j;
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
         LaplaceThreadWrapper(
@@ -1153,7 +1160,8 @@ void Pyramid::Add(float add, int _levels) {
 
   for (int l = 0; l < lim; ++l) {
     __m128* data = (__m128*)levels[l].data;
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=]() {
         __m128* data =
@@ -1286,7 +1294,8 @@ void Pyramid::Fuse(
 
     // fuse doesn't see any gains from multithreading; leave this here as
     // reference
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
         FuseThread(
@@ -1438,7 +1447,8 @@ void Pyramid::Blend(Pyramid* b) {
   right++;
 
 void Pyramid::BlurX(float radius, Pyramid* transpose) {
-  absl::MutexLock lkkk(&debugging_sync_mutex);
+  //absl::MutexLock lkkk(&debugging_sync_mutex);
+  HmThreadPool threadpool(threadpool_);
   for (int i = 0; i < (int)levels[0].bands.size() - 1; ++i) {
     threadpool.Schedule([=] {
       BlurXThread(

@@ -5,8 +5,8 @@ import os
 import time
 
 from pathlib import Path
-from torch.utils.data import IterableDataset, DataLoader
 
+from opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger

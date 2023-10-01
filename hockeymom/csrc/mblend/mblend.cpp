@@ -108,8 +108,6 @@ extern "C" FILE* __cdecl __iob_func(void) {
 
 namespace hm {
 
-constexpr int kMaxThreadLineThreads = 6;
-
 void BlenderImageState::init_from_images(
     std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images) {
   images.clear();
@@ -877,7 +875,7 @@ class Blender {
      ***********************************************************************/
     ThreadPool threadpool(ThreadPool::get_base_thread_pool());
     int n_threads = std::max(2, (int)threadpool.GetNThreads());
-    n_threads = std::min(kMaxThreadLineThreads, n_threads);
+    n_threads = std::min((int)kMaxThreadPyramidLineThreads, n_threads);
     uint64_t** thread_lines = new uint64_t*[n_threads];
 
     if (!seamload_filename) {
