@@ -26,6 +26,7 @@ Pyramid::Pyramid(int width, int height, int _levels, int x, int y, bool _no_allo
 	b = 0;
 	req_alignment = 2;
 
+  levels.reserve(n_levels);
 	for (int n = 0; n < n_levels; ++n) {
 		bool x_shift = (x - b)&(req_alignment - 1);
 		bool y_shift = (y - b)&(req_alignment - 1);
@@ -47,11 +48,11 @@ Pyramid::Pyramid(int width, int height, int _levels, int x, int y, bool _no_allo
 			}
 		}
 
-		levels.push_back({ width, height, pitch, pitch >> 2, bytes, data, x, y, x_shift, y_shift, n ? levels[n - 1].x_shift : false, n ? levels[n - 1].m128_pitch : 0 });
+		levels.push_back({ width, height, pitch, pitch >> 2, bytes, data, std::shared_ptr<MapAlloc::MapAllocEntry>{nullptr}, x, y, x_shift, y_shift, n ? levels[n - 1].x_shift : false, n ? levels[n - 1].m128_pitch : 0 });
 
 		x -= (x_shift << n);
 		y -= (y_shift << n);
-	
+
 		x -= req_alignment;
 		y -= req_alignment;
 
@@ -106,7 +107,7 @@ Pyramid::~Pyramid() {
 void Pyramid::set_lut(int bits, bool gamma) {
 	if (lut_bits < bits || lut_gamma != gamma || !lut) {
 		free(lut);
-		lut = (float*)malloc((1 << bits) << 2); 
+		lut = (float*)malloc((1 << bits) << 2);
 		lut_bits = bits;
 		lut_gamma = gamma;
 	}
@@ -651,7 +652,7 @@ void Pyramid::Squeeze(__m128* line, __m128* lo, int m128_pitch_lo, int m128_pitc
 			c = line[hi_x++];
 			if (lo_x == 0) a = _mm_shuffle_ps(b, b, _MM_SHUFFLE(0, 0, 0, 0));
 		}
-		
+
 		// a = EFGH
 		// b = IJKL
 		// c = MNOP

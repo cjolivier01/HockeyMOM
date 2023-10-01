@@ -16,6 +16,7 @@ public:
 		int m128_pitch;
 		size_t bytes;
 		float* data;
+    std::shared_ptr<MapAlloc::MapAllocEntry> data_item;
 		int x;
 		int y;
 		bool x_shift;

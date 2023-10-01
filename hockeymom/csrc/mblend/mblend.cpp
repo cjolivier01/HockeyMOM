@@ -60,10 +60,10 @@ int verbosity = 1;
 
 /* clang-format off */
 #include "pnger.cpp"
+#include "mapalloc.cpp"
 #include "pyramid.cpp"
 #include "functions.cpp"
 
-#include "mapalloc.cpp"
 #include "threadpool.cpp"
 #include "geotiff.cpp"
 
@@ -713,7 +713,8 @@ class Blender {
     /***********************************************************************
      * Allocate working space for reading/trimming/extraction
      ***********************************************************************/
-    void* untrimmed_data = MapAlloc::Alloc(untrimmed_bytes);
+    MapAllocEntryPtr untrimmed_data_entry = MapAlloc::Alloc(untrimmed_bytes);
+    void* untrimmed_data = untrimmed_data_entry->data;
 
     /***********************************************************************
      * Read/trim/extract
@@ -731,7 +732,8 @@ class Blender {
     /***********************************************************************
      * Clean up
      ***********************************************************************/
-    MapAlloc::Free(untrimmed_data);
+    //MapAlloc::Free(untrimmed_data);
+    untrimmed_data_entry.reset();
 
     /***********************************************************************
      * Tighten
@@ -1638,24 +1640,28 @@ class Blender {
           max_bytes = std::max(max_bytes, py->GetLevel(l).bytes);
       }
 
-      float* temp;
+      MapAllocEntryPtr temp_entry;
 
       try {
-        temp = (float*)MapAlloc::Alloc(max_bytes);
+        temp_entry = MapAlloc::Alloc(max_bytes);
       } catch (char* e) {
         printf("%s\n", e);
         exit(EXIT_FAILURE);
       }
-
       if (l < blend_levels) {
         for (auto& image : image_state.images) {
-          image->pyramid->GetLevel(l).data = temp;
+          auto& level = image->pyramid->GetLevel(l);
+          level.data_item = temp_entry;
+          level.data = (float *)temp_entry->data;
         }
       }
 
       for (auto& py : wrap_pyramids) {
-        if (l < py->GetNLevels())
-          py->GetLevel(l).data = temp;
+        if (l < py->GetNLevels()) {
+          auto& level = py->GetLevel(l);
+          level.data_item = temp_entry;
+          level.data = (float*)temp_entry->data;
+        }
       }
     }
   }
@@ -1667,6 +1673,7 @@ class Blender {
     /***********************************************************************
      * No output?
      ***********************************************************************/
+    MapAllocEntryPtr output_channel_items[3];
     void* output_channels[3] = {NULL, NULL, NULL};
     int i = 0, x = 0, y = 0;
     int n_images = image_state.images.size();
@@ -1678,16 +1685,16 @@ class Blender {
         std::make_unique<Pyramid>(width, height, total_levels, 0, 0, true);
 
     for (int l = total_levels - 1; l >= 0; --l) {
-      float* temp;
-
+      MapAllocEntryPtr temp_entry;
+      auto& level = output_pyramid->GetLevel(l);
       try {
-        temp = (float*)MapAlloc::Alloc(output_pyramid->GetLevel(l).bytes);
+        temp_entry = MapAlloc::Alloc(level.bytes);
       } catch (char* e) {
         printf("%s\n", e);
         exit(EXIT_FAILURE);
       }
-
-      output_pyramid->GetLevel(l).data = temp;
+      level.data_item = temp_entry;
+      level.data = (float *)temp_entry->data;
     }
 
     if (output_type != ImageType::MB_NONE) {
@@ -1933,8 +1940,8 @@ class Blender {
         //timer.Start();
 
         try {
-          output_channels[c] =
-              MapAlloc::Alloc(((size_t)width * height) << (output_bpp >> 4));
+          output_channel_items[c] = MapAlloc::Alloc(((size_t)width * height) << (output_bpp >> 4));
+          output_channels[c] = output_channel_items[c]->data;
         } catch (char* e) {
           printf("%s\n", e);
           exit(EXIT_FAILURE);

@@ -7,11 +7,14 @@ int hist_blu[256];
 class Channel {
 public:
 	Channel(size_t _bytes) : bytes(_bytes) {
-		data = MapAlloc::Alloc(bytes);
+    alloc_entry = MapAlloc::Alloc(bytes);
+		data = alloc_entry->data;
 	};
 	~Channel() {
-		MapAlloc::Free(data);
+		//MapAlloc::Free(data);
+    alloc_entry.reset();
 	};
+  MapAllocEntryPtr alloc_entry;
 	void* data;
 	size_t bytes;
 	FILE* file = NULL;

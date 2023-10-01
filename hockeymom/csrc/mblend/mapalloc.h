@@ -12,7 +12,6 @@ namespace hm {
 #define _MAPALLOC_
 
 class MapAlloc {
-private:
 	MapAlloc();
 	~MapAlloc();
 	class MapAllocObject {
@@ -34,7 +33,7 @@ private:
 		std::size_t size{0};
 	};
 	//static std::vector<MapAllocObject*> objects;
-  static std::unordered_map<void *, std::unique_ptr<MapAllocObject>> object_map;
+  static std::unordered_map<const void *, std::unique_ptr<MapAllocObject>> object_map;
 	static char tmpdir[8192];
 	//static char filename[8192];
 	static int suffix;
@@ -43,12 +42,26 @@ private:
 
 public:
 
-	static void* Alloc(std::size_t size, int alignment = 16);
-	static void Free(void* p);
-	static std::size_t GetSize(void* p);
+  struct MapAllocEntry {
+    void *data{nullptr};
+    ~MapAllocEntry() {
+      if (data) {
+        MapAlloc::Free(data);
+      }
+    }
+  };
+
+	static std::shared_ptr<MapAllocEntry> Alloc(std::size_t size, int alignment = 16);
+	static std::size_t GetSize(const void *p);
 	static void CacheThreshold(std::size_t threshold);
 	static void SetTmpdir(const char* _tmpdir);
 	//static bool LastFile();
 //	static bool last_mapped;
+private:
+	static void Free(void* p);
 };
+
+using MapAllocEntry = MapAlloc::MapAllocEntry;
+using MapAllocEntryPtr = std::shared_ptr<MapAllocEntry>;
+
 }

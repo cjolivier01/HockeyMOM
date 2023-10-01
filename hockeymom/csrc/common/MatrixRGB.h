@@ -97,6 +97,11 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
   py::array_t<std::uint8_t> to_py_array() {
+
+    auto capsule = py::capsule(m_data, [](void* data) {
+        delete[] reinterpret_cast<std::uint8_t*>(data);
+    });
+
     py::array_t<std::uint8_t> result(
         {rows(),
          cols(),
@@ -105,9 +110,9 @@ class __attribute__((visibility("default"))) MatrixImage {
              cols() /* Strides (in bytes) for each index */,
          channels() * kPixelSampleSize,
          kPixelSampleSize},
-        m_data);
+        m_data, std::move(capsule));
+    m_own_data = false;
     m_data = nullptr;
-
     return result;
   }
 

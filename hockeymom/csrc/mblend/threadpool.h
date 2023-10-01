@@ -1,5 +1,6 @@
-#ifndef B8F5C13F_132C_4C0A_9D3D_F90B0E9801A0
-#define B8F5C13F_132C_4C0A_9D3D_F90B0E9801A0
+#pragma once
+
+#include "unsupported/Eigen/CXX11/ThreadPool"
 
 #include <mutex>
 #include <condition_variable>
@@ -56,4 +57,3 @@ private:
 };
 
 }
-#endif /* B8F5C13F_132C_4C0A_9D3D_F90B0E9801A0 */

@@ -20,14 +20,14 @@ def stitch_videos():
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
 
     # PTO Project File
-    pto_project_file = f"{os.path.join(os.environ["HOME"], "Videos")}/my_project.pto"
+    pto_project_file = os.path.join(os.environ["HOME"], "Videos", "my_project.pto")
 
     build_stitching_project(pto_project_file)
 
     # start_frame_number = 2000
     start_frame_number = 0
 
-    max_frames = 50
+    max_frames = 10
 
     output_stitched_video_file = "./stitched_output.avi"
 
@@ -37,6 +37,8 @@ def stitch_videos():
         pto_project_file=pto_project_file,
         video_1_offset_frame=217,
         video_2_offset_frame=0,
+        # remap_thread_count=1,
+        # blend_thread_count=1,
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,

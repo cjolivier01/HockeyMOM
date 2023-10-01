@@ -12,7 +12,7 @@ namespace {
 std::mutex tp_mu;
 }
 
-// std::unique_ptr<Threadpool> Threadpool::instance{nullptr};
+//std::unique_ptr<Threadpool> Threadpool::instance{nullptr};
 Threadpool* Threadpool::instance{nullptr};
 
 /*static*/

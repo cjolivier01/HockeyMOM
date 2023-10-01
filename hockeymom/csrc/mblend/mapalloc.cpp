@@ -17,7 +17,7 @@
 namespace hm {
 
 //std::vector<MapAlloc::MapAllocObject*> MapAlloc::objects;
-std::unordered_map<void *, std::unique_ptr<MapAlloc::MapAllocObject>> MapAlloc::object_map;
+std::unordered_map<const void *, std::unique_ptr<MapAlloc::MapAllocObject>> MapAlloc::object_map;
 char MapAlloc::tmpdir[8192] = {0,};
 //char MapAlloc::filename[8192] = {0,};
 int MapAlloc::suffix = 0;
@@ -35,7 +35,7 @@ void MapAlloc::CacheThreshold(std::size_t limit) {
 	cache_threshold = limit;
 }
 
-void* MapAlloc::Alloc(std::size_t size, int alignment) {
+std::shared_ptr<MapAlloc::MapAllocEntry> MapAlloc::Alloc(std::size_t size, int alignment) {
 	auto m = std::make_unique<MapAllocObject>(size, alignment);
   void *p = m->GetPointer();
   {
@@ -43,7 +43,9 @@ void* MapAlloc::Alloc(std::size_t size, int alignment) {
 	  //objects.push_back(m);
     object_map.emplace(m->GetPointer(), std::move(m));
   }
-	return p;
+  auto entry = std::make_shared<MapAllocEntry>();
+  entry->data = p;
+	return entry;
 }
 
 void MapAlloc::Free(void* p) {
@@ -58,7 +60,7 @@ void MapAlloc::Free(void* p) {
 	// }
 }
 
-std::size_t MapAlloc::GetSize(void* p) {
+std::size_t MapAlloc::GetSize(const void* p) {
   std::unique_lock<std::mutex> lk(mu);
   auto found = object_map.find(p);
   if (found != object_map.end()) {
