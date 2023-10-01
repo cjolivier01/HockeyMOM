@@ -24,7 +24,6 @@ class Image {
 public:
 	Image(const std::string& _filename);
 	Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos);
-  //Image(const Image& clone_from, void* data);
   Image(std::vector<std::size_t> shape, std::size_t num_channels);
 	~Image();
   Image(const Image& other) = default; // protect channels
@@ -111,11 +110,6 @@ private:
 Image::Image(const std::string& _filename) : filename(_filename) {
 }
 
-// Image::Image(const Image& clone_from, void* data) {
-
-//   set_raw_data(data);
-// }
-
 Image::Image(void* data, std::size_t size, std::vector<std::size_t> shape, const std::vector<std::size_t>& xy_pos) {
   type = ImageType::MB_MEM;
   raw_data = reinterpret_cast<std::uint8_t*>(data);
@@ -144,6 +138,7 @@ Image Image::clone_with_new_data(void *new_raw_data, bool own) {
   img.raw_data = img.raw_data_write_ptr_ = (uint8_t*)new_raw_data;
   img.filename.clear();
   img.channels.clear();
+  img.pyramid.reset();
   img.extract_channels(img.raw_data);
   img.own_raw_data = own;
   return img;

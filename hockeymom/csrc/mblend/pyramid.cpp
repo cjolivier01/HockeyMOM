@@ -7,7 +7,7 @@
 
 namespace hm {
 
-static absl::Mutex debugging_sync_mutex;
+//static absl::Mutex debugging_sync_mutex;
 
 constexpr std::size_t kMaxThreadPyramidLineThreads = 24;
 
@@ -163,7 +163,7 @@ void Pyramid::set_lut(int bits, bool gamma) {
 }
 
 void Pyramid::Copy(uint8_t* src_p, int step, int pitch, bool gamma, int bits) {
-  absl::MutexLock lkkk(&debugging_sync_mutex);
+  //absl::MutexLock lkkk(&debugging_sync_mutex);
   HmThreadPool threadpool(threadpool_);
   if (step > 1) {
     set_lut(bits, gamma);
@@ -656,7 +656,7 @@ void Pyramid::Shrink() {
     int height_odd = (levels[l].height & 1) ^ levels[l].y_shift;
     int first_bad_line = levels[l + 1].height - (3 - height_odd);
 
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l + 1].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -896,7 +896,7 @@ void Pyramid::LaplaceCollapse(int n_levels, bool Collapse) {
       l = (n_levels - 2) - j;
     else
       l = j;
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -1160,7 +1160,7 @@ void Pyramid::Add(float add, int _levels) {
 
   for (int l = 0; l < lim; ++l) {
     __m128* data = (__m128*)levels[l].data;
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=]() {
@@ -1294,7 +1294,7 @@ void Pyramid::Fuse(
 
     // fuse doesn't see any gains from multithreading; leave this here as
     // reference
-    absl::MutexLock lkkk(&debugging_sync_mutex);
+    //absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -1447,7 +1447,7 @@ void Pyramid::Blend(Pyramid* b) {
   right++;
 
 void Pyramid::BlurX(float radius, Pyramid* transpose) {
-  absl::MutexLock lkkk(&debugging_sync_mutex);
+  //absl::MutexLock lkkk(&debugging_sync_mutex);
   HmThreadPool threadpool(threadpool_);
   for (int i = 0; i < (int)levels[0].bands.size() - 1; ++i) {
     threadpool.Schedule([=] {

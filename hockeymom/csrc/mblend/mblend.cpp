@@ -1590,7 +1590,6 @@ class Blender {
      ***********************************************************************/
     // wrapping
     wrap_pyramids.clear();
-
     if (wrap & 1) {
       wrap_levels_h = (int)floor(log2((width >> 1) + 4.0f) - 1);
       wrap_pyramids.push_back(std::make_shared<PyramidWithMasks>(
@@ -1637,7 +1636,61 @@ class Blender {
 
     total_levels = std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
 
+    // for (int i = 0; i < n_images; ++i) {
+    //   image_state.images[i]->pyramid = std::make_shared<Pyramid>(
+    //       image_state.images[i]->width,
+    //       image_state.images[i]->height,
+    //       blend_levels,
+    //       image_state.images[i]->xpos,
+    //       image_state.images[i]->ypos,
+    //       true);
+    // }
+
+    // for (int l = total_levels - 1; l >= 0; --l) {
+    //   size_t max_bytes = 0;
+
+    //   if (l < blend_levels) {
+    //     for (auto& image : image_state.images) {
+    //       max_bytes = std::max(max_bytes, image->pyramid->GetLevel(l).bytes);
+    //     }
+    //   }
+
+    //   for (auto& py : wrap_pyramids) {
+    //     if (l < py->GetNLevels())
+    //       max_bytes = std::max(max_bytes, py->GetLevel(l).bytes);
+    //   }
+
+    //   MapAllocEntryPtr temp_entry;
+
+    //   try {
+    //     temp_entry = MapAlloc::Alloc(max_bytes);
+    //   } catch (char* e) {
+    //     printf("%s\n", e);
+    //     exit(EXIT_FAILURE);
+    //   }
+    //   if (l < blend_levels) {
+    //     for (auto& image : image_state.images) {
+    //       auto& level = image->pyramid->GetLevel(l);
+    //       level.data_item = temp_entry;
+    //       level.data = (float*)temp_entry->data;
+    //     }
+    //   }
+
+    //   for (auto& py : wrap_pyramids) {
+    //     if (l < py->GetNLevels()) {
+    //       auto& level = py->GetLevel(l);
+    //       level.data_item = temp_entry;
+    //       level.data = (float*)temp_entry->data;
+    //     }
+    //   }
+    // }
+  }
+
+  void setup_image_pyramids(const BlenderImageState& image_state) const {
+    std::size_t n_images = image_state.images.size();
+    assert(n_images);
     for (int i = 0; i < n_images; ++i) {
+      assert(!image_state.images[i]->pyramid);
       image_state.images[i]->pyramid = std::make_shared<Pyramid>(
           image_state.images[i]->width,
           image_state.images[i]->height,
@@ -1690,6 +1743,9 @@ class Blender {
   int process_inputs(
       const BlenderImageState& image_state,
       std::unique_ptr<hm::MatrixRGB>* output_image) const {
+
+    setup_image_pyramids(image_state);
+
     ThreadPool threadpool(ThreadPool::get_base_thread_pool());
 
     //++pass;
