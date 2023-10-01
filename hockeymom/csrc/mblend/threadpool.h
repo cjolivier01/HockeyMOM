@@ -125,7 +125,7 @@ class HmThreadPool {
    *
    * @return constexpr std::size_t The current thread ID
    */
-  // std::size_t CurrentThreadId() const;
+  //std::size_t CurrentThreadId() const;
 
   /**
    * @brief Get the Current Thread Id object from the thread_local ID that we
@@ -134,7 +134,7 @@ class HmThreadPool {
    *
    * @return std::size_t The current Thread Id
    */
-  // static std::size_t GetCurrentThreadLocalId();
+  //static std::size_t GetCurrentThreadLocalId();
 
   /**
    * @brief Operators for pointer access ( -> ) in order to behave more like an
@@ -186,11 +186,13 @@ class HmThreadPool {
   bool final_join_called_ ABSL_GUARDED_BY(schedule_mutex_){false};
 
   // Thread-local stored pool thread id (not the same as the OS's thread id)
-  // static std::size_t thread_local current_thread_pool_thread_id_ /*NOLINT*/;
+  //static std::size_t thread_local current_thread_pool_thread_id_ /*NOLINT*/;
 
   static std::atomic<std::size_t> next_job_id_;
 };
 
 using ThreadPool = HmThreadPool;
+
+
 
 } // namespace hm
