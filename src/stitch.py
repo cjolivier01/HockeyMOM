@@ -30,14 +30,6 @@ def stitch_videos(
         seconds=15,
     )
 
-    left_frame_offset = -91
-
-    lfo = int(left_frame_offset if left_frame_offset > 0 else 0)
-    rfo = int(-left_frame_offset if left_frame_offset < 0 else 0)
-
-    # lfo = 0
-    # rfo = 91
-
     base_frame_offset = 800
 
     left_image_file, right_image_file = extract_frames(
