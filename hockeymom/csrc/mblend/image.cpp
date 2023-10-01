@@ -546,13 +546,15 @@ void Image::Read(void* data, bool gamma) {
 		uint32_t a, b, c, d;
 		uint32_t* this_line = NULL;
 		uint32_t* prev_line = NULL;
-		Threadpool* threadpool = Threadpool::GetInstance();
+		HmThreadPool threadpool(ThreadPool::get_base_thread_pool());
 
 		tiff_mask = std::make_shared<Flex>(width, height);
 		auto dt = std::make_shared<Flex>(width, height);
 		int mc;
 
-		int n_threads = (std::max)(2, threadpool->GetNThreads());
+		//int n_threads = std::max(2, threadpool.GetNThreads());
+    int n_threads = std::max(2, (int)threadpool.GetNThreads());
+    n_threads = std::min(6, n_threads);
 
 		uint32_t** thread_lines = new uint32_t * [n_threads];
 		uint32_t** thread_comp_lines = new uint32_t * [n_threads];
@@ -682,7 +684,7 @@ void Image::Read(void* data, bool gamma) {
 			if (bpp == 8) bitmap32 += tiff_width; else bitmap64 += tiff_width;
 
 			if (y < height - 1) {
-				threadpool->Queue([=] {
+				threadpool.Schedule([=] {
 					int p = CompressDTLine(this_line, (uint8_t*)comp, width);
 					{
 						std::unique_lock<std::mutex> mlock(*flex_mutex_p);
@@ -698,7 +700,7 @@ void Image::Read(void* data, bool gamma) {
 			prev_line = this_line;
 		}
 
-		threadpool->Wait();
+		threadpool.join_all();
 
 		// backward
 		int current_count = 0;

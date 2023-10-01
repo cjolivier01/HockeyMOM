@@ -47,8 +47,32 @@ def get_image_geo_position(tiff_image_file: str):
     return xpos, ypos
 
 
-def build_stitching_project(project_file_path: str, skip_if_exists: bool = True):
-    pass
+def build_stitching_project(project_file_path: str, skip_if_exists: bool = True, fov: int = 108,):
+    pto_path = Path(project_file_path)
+    dir_name = pto_path.parent
+    curr_dir = os.getcwd()
+    try:
+        os.chdir(dir_name)
+        left_image_file = "left.png"
+        right_image_file = "right.png"
+        cmd = [
+            "pto_gen", "-o", project_file_path, "-f", str(fov), left_image_file, right_image_file,
+        ]
+        cmd = [
+            "cpfind", "--linearmatch", project_file_path, "-o", project_file_path,
+        ]
+        cmd = [
+            "autooptimiser", "-a", "-m", "-l", "-s", "-o", project_file_path,
+        ]
+        cmd = [
+            "nona", "-m", "TIFF_m", "-o", "my_project", "my_project.pto",
+        ]
+        cmd = [
+            "enblend", "-o", "panorama.tif", "my_project*.tif",
+        ]
+    finally:
+        os.chdir(curr_dir)
+    return True
 
 
 def find_roi(image):

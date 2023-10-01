@@ -24,7 +24,10 @@
 #include <algorithm>
 #include <cassert>
 #include <memory>
+#include <thread>
 #include <vector>
+
+#include <Eigen/CXX11/ThreadPool>
 
 #ifdef __APPLE__
 #define memalign(a, b) malloc((b))
@@ -104,6 +107,8 @@ extern "C" FILE* __cdecl __iob_func(void) {
   (((X)&0x7fffffffffffffff) | image_state.images[(X)&0xffffffff]->mask_state)
 
 namespace hm {
+
+constexpr int kMaxThreadLineThreads = 6;
 
 void BlenderImageState::init_from_images(
     std::vector<std::reference_wrapper<hm::MatrixRGB>> incoming_images) {
@@ -196,7 +201,7 @@ class Blender {
   Timer timer_all, timer;
 
   int blend_levels = 0;
-  Threadpool* threadpool = nullptr;
+  // ThreadPool* threadpool = nullptr;
   int total_levels = 0;
 
   std::vector<std::shared_ptr<PyramidWithMasks>> wrap_pyramids;
@@ -205,7 +210,18 @@ class Blender {
 
   // std::unique_ptr<Pyramid> output_pyramid;
 
+  static absl::Mutex thread_pool_mu_;
+  static std::unique_ptr<Eigen::ThreadPool> thread_pool_;
+  static std::size_t instance_count_;
+
  public:
+  Blender();
+  ~Blender();
+
+  static Eigen::ThreadPool* gtp() {
+    return thread_pool_.get();
+  }
+
   int multiblend_main(int argc, char* argv[], BlenderImageState& image_state) {
     // This is here because of a weird problem encountered during development
     // with Visual Studio. It should never be triggered.
@@ -335,6 +351,8 @@ class Blender {
         }
       }
     }
+
+    ThreadPool threadpool(ThreadPool::get_base_thread_pool());
 
     // if ((int)my_argv.size() < 3 && !output_image && incoming_images.empty())
     //   die("Error: Not enough arguments (try -h for help)");
@@ -589,8 +607,8 @@ class Blender {
       }
       image_state.images.push_back(std::make_unique<Image>(my_argv[i++]));
     }
-    threadpool = Threadpool::GetInstance(
-        all_threads ? 0 : std::thread::hardware_concurrency() / 2);
+    // threadpool = ThreadPool::GetInstance(
+    //     all_threads ? 0 : std::thread::hardware_concurrency() / 2);
     return EXIT_SUCCESS;
   }
 
@@ -621,7 +639,7 @@ class Blender {
     // http://horman.net/mblend/\n"); Output(1,
     // "----------------------------------------------------------------------------\n");
 
-    // Threadpool *threadpool = Threadpool::GetInstance(all_threads ? 2 : 0);
+    // ThreadPool *threadpool = ThreadPool::GetInstance(all_threads ? 2 : 0);
 
     /***********************************************************************
     ************************************************************************
@@ -857,7 +875,9 @@ class Blender {
     /***********************************************************************
      * Backward distance transform
      ***********************************************************************/
-    int n_threads = std::max(2, threadpool->GetNThreads());
+    ThreadPool threadpool(ThreadPool::get_base_thread_pool());
+    int n_threads = std::max(2, (int)threadpool.GetNThreads());
+    n_threads = std::min(kMaxThreadLineThreads, n_threads);
     uint64_t** thread_lines = new uint64_t*[n_threads];
 
     if (!seamload_filename) {
@@ -1028,14 +1048,14 @@ class Blender {
         }
 
         if (y) {
-          threadpool->Queue([this_line,
-                             y,
-                             comp,
-                             h = height,
-                             w = width,
-                             flex_mutex_p,
-                             flex_cond_p,
-                             &seam_flex] {
+          threadpool.Schedule([this_line,
+                               y,
+                               comp,
+                               h = height,
+                               w = width,
+                               flex_mutex_p,
+                               flex_cond_p,
+                               &seam_flex] {
             int p = CompressSeamLine(this_line, comp, w);
             if (p > w) {
               printf("bad p: %d at line %d", p, y);
@@ -1057,7 +1077,7 @@ class Blender {
         prev_line = this_line;
       } // end of row loop
 
-      threadpool->Wait();
+      threadpool.join_all();
 
       for (i = 0; i < n_images; ++i) {
         if (!image_state.images[i]->seam_present) {
@@ -1555,13 +1575,16 @@ class Blender {
      ***********************************************************************/
     // Output(1, "Shrinking masks...\n");
     // timer.Start();
+
+    ThreadPool threadpool(ThreadPool::get_base_thread_pool());
+
     const std::size_t n_images = image_state.images.size();
     for (std::size_t i = 0; i < n_images; ++i) {
-      threadpool->Queue([&image_state, i, this] {
+      threadpool.Schedule([&image_state, i, this] {
         ShrinkMasks(image_state.images[i]->masks, blend_levels);
       });
     }
-    threadpool->Wait();
+    threadpool.join_all();
 
     // shrink_mask_time = timer.Read();
     /***********************************************************************
@@ -1588,7 +1611,7 @@ class Blender {
 
     // masks
     for (auto& py : wrap_pyramids) {
-      threadpool->Queue([=] {
+      threadpool.Schedule([=] {
         py->masks.push_back(std::make_shared<Flex>(width, height));
         for (int y = 0; y < height; ++y) {
           if (y < py->GetY() || y >= py->GetY() + py->GetHeight()) {
@@ -1611,7 +1634,7 @@ class Blender {
       });
     }
 
-    threadpool->Wait();
+    threadpool.join_all();
     // end wrapping
 
     total_levels = std::max({blend_levels, wrap_levels_h, wrap_levels_v, 1});
@@ -1669,6 +1692,8 @@ class Blender {
   int process_inputs(
       const BlenderImageState& image_state,
       std::unique_ptr<hm::MatrixRGB>* output_image) const {
+    ThreadPool threadpool(ThreadPool::get_base_thread_pool());
+
     //++pass;
     /***********************************************************************
      * No output?
@@ -1745,15 +1770,15 @@ class Blender {
                 int sy = out_level.bands[b];
                 int ey = out_level.bands[b + 1];
 
-                threadpool->Queue([i,
-                                   l,
-                                   &in_level,
-                                   &out_level,
-                                   &image_state,
-                                   x_offset,
-                                   y_offset,
-                                   sy,
-                                   ey] {
+                threadpool.Schedule([i,
+                                     l,
+                                     &in_level,
+                                     &out_level,
+                                     &image_state,
+                                     x_offset,
+                                     y_offset,
+                                     sy,
+                                     ey] {
                   for (int y = sy; y < ey; ++y) {
                     int in_line = y - y_offset;
                     if (in_line < 0)
@@ -1779,7 +1804,7 @@ class Blender {
                 });
               }
 
-              threadpool->Wait();
+              threadpool.join_all();
             }
 
             // blend_time += timer.Read();
@@ -1848,7 +1873,7 @@ class Blender {
                     int sy = out_level.bands[b];
                     int ey = out_level.bands[b + 1];
 
-                    threadpool->Queue([=] {
+                    threadpool.Schedule([=] {
                       for (int y = sy; y < ey; ++y) {
                         int in_line = y - y_offset;
                         if (in_line < 0)
@@ -1874,7 +1899,7 @@ class Blender {
                     });
                   }
 
-                  threadpool->Wait();
+                  threadpool.join_all();
                 }
                 ++p;
               }
@@ -2246,9 +2271,31 @@ class Blender {
     return EXIT_SUCCESS;
   }
 };
-} // namespace hm
 
-namespace hm {
+// Thread pool replacement
+absl::Mutex Blender::thread_pool_mu_;
+std::unique_ptr<Eigen::ThreadPool> Blender::thread_pool_;
+std::size_t Blender::instance_count_{0};
+
+Blender::Blender() {
+  absl::MutexLock lk(&thread_pool_mu_);
+  if (!instance_count_++) {
+    thread_pool_ = std::make_unique<Eigen::ThreadPool>(
+        std::thread::hardware_concurrency() / 2);
+  }
+}
+
+Blender::~Blender() {
+  absl::MutexLock lk(&thread_pool_mu_);
+  if (!--instance_count_) {
+    thread_pool_.reset();
+  }
+}
+
+Eigen::ThreadPool* HmThreadPool::get_base_thread_pool() {
+  return Blender::gtp();
+}
+
 namespace enblend {
 
 int enblend_main(
