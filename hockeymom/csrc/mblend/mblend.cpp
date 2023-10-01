@@ -168,8 +168,8 @@ class Blender {
 
   TIFF* tiff_file = NULL;
   FILE* jpeg_file = NULL;
-  //Pnger* png_file = NULL;
-  // std::unique_ptr<Image> output_image_ptr_;
+  // Pnger* png_file = NULL;
+  //  std::unique_ptr<Image> output_image_ptr_;
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
@@ -191,7 +191,7 @@ class Blender {
   double out_time = 0;
   double write_time = 0;
 
-  //std::size_t pass = 0;
+  // std::size_t pass = 0;
 
   Timer timer_all, timer;
 
@@ -663,7 +663,7 @@ class Blender {
     * Process images
     ************************************************************************
     ***********************************************************************/
-    //timer.Start();
+    // timer.Start();
 
     /***********************************************************************
      * Open images to get prelimary info
@@ -732,7 +732,7 @@ class Blender {
     /***********************************************************************
      * Clean up
      ***********************************************************************/
-    //MapAlloc::Free(untrimmed_data);
+    // MapAlloc::Free(untrimmed_data);
     untrimmed_data_entry.reset();
 
     /***********************************************************************
@@ -757,7 +757,7 @@ class Blender {
           height, image_state.images[i]->ypos + image_state.images[i]->height);
     }
 
-    //images_time = timer.Read();
+    // images_time = timer.Read();
 
     /***********************************************************************
      * Determine number of levels
@@ -818,7 +818,7 @@ class Blender {
     * Seaming
     ************************************************************************
     ***********************************************************************/
-    //timer.Start();
+    // timer.Start();
 
     // Output(1, "Seaming");
     switch (((!!seamsave_filename) << 1) | !!xor_filename) {
@@ -1468,7 +1468,7 @@ class Blender {
         output_type == ImageType::MB_MEM*/
         /* arbitrarily have no mask */) {
       no_mask = true;
-      //assert(false); // want the mask, yo
+      // assert(false); // want the mask, yo
     }
 
     /***********************************************************************
@@ -1543,8 +1543,8 @@ class Blender {
       free(png_line);
     }
 
-    //seam_time = timer.Read();
-    // Do another stage of persistent processing
+    // seam_time = timer.Read();
+    //  Do another stage of persistent processing
     more_image_processing(image_state);
     return EXIT_SUCCESS;
   }
@@ -1554,7 +1554,7 @@ class Blender {
      * Shrink masks
      ***********************************************************************/
     // Output(1, "Shrinking masks...\n");
-    //timer.Start();
+    // timer.Start();
     const std::size_t n_images = image_state.images.size();
     for (std::size_t i = 0; i < n_images; ++i) {
       threadpool->Queue([&image_state, i, this] {
@@ -1563,7 +1563,7 @@ class Blender {
     }
     threadpool->Wait();
 
-    //shrink_mask_time = timer.Read();
+    // shrink_mask_time = timer.Read();
     /***********************************************************************
      * Create shared input pyramids
      ***********************************************************************/
@@ -1652,7 +1652,7 @@ class Blender {
         for (auto& image : image_state.images) {
           auto& level = image->pyramid->GetLevel(l);
           level.data_item = temp_entry;
-          level.data = (float *)temp_entry->data;
+          level.data = (float*)temp_entry->data;
         }
       }
 
@@ -1694,7 +1694,7 @@ class Blender {
         exit(EXIT_FAILURE);
       }
       level.data_item = temp_entry;
-      level.data = (float *)temp_entry->data;
+      level.data = (float*)temp_entry->data;
     }
 
     if (output_type != ImageType::MB_NONE) {
@@ -1704,7 +1704,7 @@ class Blender {
       for (int c = 0; c < 3; ++c) {
         if (n_images > 1) {
           for (i = 0; i < n_images; ++i) {
-            //timer.Start();
+            // timer.Start();
 
             image_state.images[i]->pyramid->Copy(
                 (uint8_t*)image_state.images[i]->channels[c]->data,
@@ -1720,19 +1720,19 @@ class Blender {
 
             image_state.images[i]->channels[c].reset();
 
-            //copy_time += timer.Read();
+            // copy_time += timer.Read();
 
-            //timer.Start();
+            // timer.Start();
             image_state.images[i]->pyramid->Shrink();
-            //shrink_time += timer.Read();
+            // shrink_time += timer.Read();
 
-            //timer.Start();
+            // timer.Start();
             image_state.images[i]->pyramid->Laplace();
-            //laplace_time += timer.Read();
+            // laplace_time += timer.Read();
 
             // blend into output pyramid...
 
-            //timer.Start();
+            // timer.Start();
 
             for (int l = 0; l < blend_levels; ++l) {
               auto in_level = image_state.images[i]->pyramid->GetLevel(l);
@@ -1782,15 +1782,15 @@ class Blender {
               threadpool->Wait();
             }
 
-            //blend_time += timer.Read();
+            // blend_time += timer.Read();
           }
 
-          //timer.Start();
+          // timer.Start();
           output_pyramid->Collapse(blend_levels);
-          //collapse_time += timer.Read();
+          // collapse_time += timer.Read();
         } else {
           assert(false); // why do we care about only one image?
-          //timer.Start();
+          // timer.Start();
 
           output_pyramid->Copy(
               (uint8_t*)image_state.images[0]->channels[c]->data,
@@ -1806,7 +1806,7 @@ class Blender {
 
           image_state.images[0]->channels[c].reset();
 
-          //copy_time += timer.Read();
+          // copy_time += timer.Read();
         }
 
         /***********************************************************************
@@ -1814,7 +1814,7 @@ class Blender {
          ***********************************************************************/
         if (wrap) {
           assert(false); // never do this at the moment
-          //timer.Start();
+          // timer.Start();
 
           int p = 0;
 
@@ -1889,7 +1889,7 @@ class Blender {
             } // if (wrap & w)
           } // w loop
 
-          //wrap_time += timer.Read();
+          // wrap_time += timer.Read();
         }
 
         /***********************************************************************
@@ -1937,10 +1937,11 @@ class Blender {
         /***********************************************************************
          * Output
          ***********************************************************************/
-        //timer.Start();
+        // timer.Start();
 
         try {
-          output_channel_items[c] = MapAlloc::Alloc(((size_t)width * height) << (output_bpp >> 4));
+          output_channel_items[c] =
+              MapAlloc::Alloc(((size_t)width * height) << (output_bpp >> 4));
           output_channels[c] = output_channel_items[c]->data;
         } catch (char* e) {
           printf("%s\n", e);
@@ -1958,7 +1959,7 @@ class Blender {
             break;
         }
 
-        //out_time += timer.Read();
+        // out_time += timer.Read();
       }
       //}
 /***********************************************************************
@@ -1969,7 +1970,7 @@ class Blender {
         Output(1, "Writing %s...\n", output_filename);
       }
 
-      //timer.Start();
+      // timer.Start();
 
       struct jpeg_compress_struct cinfo;
       struct jpeg_error_mgr jerr;
@@ -1983,8 +1984,11 @@ class Blender {
 
       int n_strips = (int)((height + ROWS_PER_STRIP - 1) / ROWS_PER_STRIP);
       int remaining = height;
-      void* strip =
-          malloc((ROWS_PER_STRIP * (std::int64_t)width) * bytes_per_pixel);
+      auto strip_alloc = std::make_unique<std::uint8_t[]>(
+          (ROWS_PER_STRIP * (std::int64_t)width) * bytes_per_pixel);
+      // void* strip =
+      // malloc((ROWS_PER_STRIP * (std::int64_t)width) * bytes_per_pixel);
+      void* strip = strip_alloc.get();
       void* oc_p[3] = {
           output_channels[0], output_channels[1], output_channels[2]};
       if (bgr)
@@ -2201,10 +2205,10 @@ class Blender {
         } break;
       }
       if (scanlines) {
-        delete [] scanlines;
+        delete[] scanlines;
         scanlines = nullptr;
       }
-      //write_time = timer.Read();
+      // write_time = timer.Read();
     }
 
     /***********************************************************************
