@@ -6,7 +6,7 @@ import time
 
 from pathlib import Path
 
-from opts import opts
+from lib.opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger
@@ -20,7 +20,7 @@ def stitch_videos():
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
 
     # PTO Project File
-    pto_project_file = os.path.join(os.environ["HOME"], "Videos", "my_project.pto")
+    pto_project_file = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts", "my_project.pto")
 
     build_stitching_project(pto_project_file)
 
@@ -32,10 +32,10 @@ def stitch_videos():
     output_stitched_video_file = "./stitched_output.avi"
 
     data_loader = StitchDataset(
-        video_file_1=f"{vid_dir}/left.mp4",
-        video_file_2=f"{vid_dir}/right.mp4",
+        video_file_1=f"{vid_dir}/left-1.mp4",
+        video_file_2=f"{vid_dir}/right-1.mp4",
         pto_project_file=pto_project_file,
-        video_1_offset_frame=217,
+        video_1_offset_frame=91,
         video_2_offset_frame=0,
         # remap_thread_count=1,
         # blend_thread_count=1,
