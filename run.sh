@@ -22,4 +22,4 @@ PYTHONPATH="$(pwd)/build:$(pwd)/hockeymom" \
   --output-root=./h-demo-x \
   --load_model=./trained_models/fairmot/crowdhuman_dla34.pth \
   --conf_thres=0.5 \
-  --min-box-area=80
+  --min-box-area=35

@@ -181,7 +181,7 @@ class StitchDataset:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        # print(f"Pushing frame {frame_id}")
+
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 

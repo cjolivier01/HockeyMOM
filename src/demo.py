@@ -28,7 +28,10 @@ def demo(opt):
 
     # opt.img_size = (4096, 1024)
 
-    opt.img_size = (4096 // 2, 1024 // 2)
+    #opt.img_size = (4096 // 2, 1024 // 2)
+
+    opt.img_size = (4096 // 4, 1024 // 4)
+
     # opt.img_size = (4096, 1800)
     # opt.img_size = (1088, 608)
     # opt.img_size = (1088*2, 608*2)
