@@ -18,6 +18,7 @@ import tifffile
 from hockeymom import core
 
 from lib.tracking_utils import visualization as vis
+from lib.ffmpeg import extract_frame_image
 
 # from lib.ffmpeg import copy_audio
 # from lib.ui.mousing import draw_box_with_mouse
@@ -47,9 +48,41 @@ def get_image_geo_position(tiff_image_file: str):
     return xpos, ypos
 
 
+def extract_frames(
+    dir_name: str, video_left: str, left_frame_number: int, video_right: str, right_frame_number: int = 10
+):
+    file_name_without_extension, _ = os.path.splitext(video_left)
+    left_output_image_file = os.path.join(
+        dir_name, file_name_without_extension + ".png"
+    )
+
+    file_name_without_extension, _ = os.path.splitext(video_right)
+    right_output_image_file = os.path.join(
+        dir_name, file_name_without_extension + ".png"
+    )
+
+    extract_frame_image(
+        os.path.join(dir_name, video_left),
+        frame_number=left_frame_number,
+        dest_image=left_output_image_file,
+    )
+    extract_frame_image(
+        os.path.join(dir_name, video_right),
+        frame_number=right_frame_number,
+        dest_image=right_output_image_file,
+    )
+
+    return left_output_image_file, right_output_image_file
+
+
 def build_stitching_project(project_file_path: str, skip_if_exists: bool = True, fov: int = 108,):
+
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
+
+    if not os.path.exists(project_file_path):
+        print("No project file")
+
     curr_dir = os.getcwd()
     try:
         os.chdir(dir_name)

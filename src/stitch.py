@@ -10,17 +10,21 @@ from lib.opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger
+from lib.stitch_synchronize import synchronize_by_audio
 from lib.datasets.dataset.stitching import (
     StitchDataset,
     build_stitching_project,
+    extract_frames,
 )
 
 
-def stitch_videos():
+def stitch_videos(dir_name: str):
     vid_dir = os.path.join(os.environ["HOME"], "Videos")
 
     # PTO Project File
-    pto_project_file = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts", "my_project.pto")
+    pto_project_file = os.path.join(
+        os.environ["HOME"], "Videos", "sabercats-parts", "my_project.pto"
+    )
 
     build_stitching_project(pto_project_file)
 
@@ -62,7 +66,22 @@ def stitch_videos():
 
 
 def main():
-    stitch_videos()
+    dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
+    video_left = "left-1-small.avi"
+    video_right = "right-1-small.avi"
+
+    left_frame_offset = synchronize_by_audio(
+        file0_path=os.path.join(dir_name, video_left),
+        file1_path=os.path.join(dir_name, video_right),
+        seconds=15,
+    )
+
+    if left_frame_offset < 0:
+        extract_frames(dir_name, video_left, -left_frame_offset, video_right, 0)
+    else:
+        extract_frames(dir_name, video_left, 0, video_right, left_frame_number)
+
+    stitch_videos(dir_name)
 
 
 if __name__ == "__main__":
