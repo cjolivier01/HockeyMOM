@@ -2214,23 +2214,23 @@ class Blender {
     /***********************************************************************
      * Timing
      ***********************************************************************/
-    // if (timing) {
-    //   printf("\n");
-    //   printf("Images:   %.3fs\n", images_time);
-    //   printf("Seaming:  %.3fs\n", seam_time);
-    //   if (output_type != ImageType::MB_NONE) {
-    //     printf("Masks:    %.3fs\n", shrink_mask_time);
-    //     printf("Copy:     %.3fs\n", copy_time);
-    //     printf("Shrink:   %.3fs\n", shrink_time);
-    //     printf("Laplace:  %.3fs\n", laplace_time);
-    //     printf("Blend:    %.3fs\n", blend_time);
-    //     printf("Collapse: %.3fs\n", collapse_time);
-    //     if (wrap)
-    //       printf("Wrapping: %.3fs\n", wrap_time);
-    //     printf("Output:   %.3fs\n", out_time);
-    //     printf("Write:    %.3fs\n", write_time);
-    //   }
-    // }
+    if (timing) {
+      printf("\n");
+      printf("Images:   %.3fs\n", images_time);
+      printf("Seaming:  %.3fs\n", seam_time);
+      if (output_type != ImageType::MB_NONE) {
+        printf("Masks:    %.3fs\n", shrink_mask_time);
+        printf("Copy:     %.3fs\n", copy_time);
+        printf("Shrink:   %.3fs\n", shrink_time);
+        printf("Laplace:  %.3fs\n", laplace_time);
+        printf("Blend:    %.3fs\n", blend_time);
+        printf("Collapse: %.3fs\n", collapse_time);
+        if (wrap)
+          printf("Wrapping: %.3fs\n", wrap_time);
+        printf("Output:   %.3fs\n", out_time);
+        printf("Write:    %.3fs\n", write_time);
+      }
+    }
 
     /***********************************************************************
      * Clean up
@@ -2359,9 +2359,6 @@ std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
 
   std::vector<std::string> args;
   args.push_back("python");
-  // args.push_back("--timing");
-  // args.push_back("-o");
-  // args.push_back("/home/colivier/Videos/output_image.png");
   args.push_back("--no-output");
 
   int argc = args.size();
