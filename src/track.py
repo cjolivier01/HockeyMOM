@@ -110,6 +110,7 @@ def eval_seq(
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
+    dataset_timer = Timer()
     timer = Timer()
 
     args = DefaultArguments()
@@ -125,6 +126,16 @@ def eval_seq(
     results = []
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
+        if i:
+            dataset_timer.toc()
+
+        if frame_id % 20 == 0:
+            logger.info(
+                "Dataset frame {} ({:.2f} fps)".format(
+                    frame_id, 1.0 / max(1e-5, dataset_timer.average_time)
+                )
+            )
+
         if args.scale_to_original_image and image_scale_array is None:
             image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
 
@@ -216,6 +227,9 @@ def eval_seq(
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break
+
+        # Last thing, tic the dataset timer before we wrap around and next the iter
+        dataset_timer.tic()
 
     if postprocessor is not None:
         postprocessor.stop()
