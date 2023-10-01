@@ -61,7 +61,11 @@ def synchronize_by_audio(file0_path: str, file1_path: str, seconds: int = 15, cr
     video1.close()
     full_video0.close()
     full_video1.close()
-    return frame_offset
+
+    lfo = int(frame_offset if frame_offset > 0 else 0)
+    rfo = int(-frame_offset if frame_offset < 0 else 0)
+
+    return lfo, rfo
 
 
 def add_suffix_to_filename(filename, suffix):

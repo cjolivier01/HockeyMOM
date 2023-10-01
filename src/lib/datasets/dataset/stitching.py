@@ -98,11 +98,11 @@ def build_stitching_project(project_file_path: str, image_files=List[str], skip_
         cmd_str = " ".join(cmd)
         os.system(cmd_str)
         cmd = [
-            "cpfind", "--linearmatch", project_file_path, "-o", project_file_path,
-        ] + " ".joint(image_files)
+            "cpfind", "--linearmatch", project_file_path, "-o", project_file_path
+        ]
         os.system(" ".join(cmd))
         cmd = [
-            "autooptimiser", "-a", "-m", "-l", "-s", "-o", project_file_path,
+            "autooptimiser", "-a", "-m", "-l", "-s", "-o", project_file_path, project_file_path
         ]
         os.system(" ".join(cmd))
         cmd = [
