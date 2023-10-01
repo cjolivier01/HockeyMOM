@@ -18,7 +18,7 @@ from lib.datasets.dataset.stitching import (
 )
 
 
-def stitch_videos(
+def setup_stitching_project(
     dir_name: str,
     video_left: str = "left.mp4",
     video_right: str = "right.mp4",
@@ -49,6 +49,45 @@ def stitch_videos(
 
     build_stitching_project(
         pto_project_file, image_files=[left_image_file, right_image_file]
+    )
+    return pto_project_file, lfo, rfo
+
+
+def stitch_videos(
+    dir_name: str,
+    video_left: str = "left.mp4",
+    video_right: str = "right.mp4",
+    project_file_name: str = "my_project.pto",
+):
+    # lfo, rfo = synchronize_by_audio(
+    #     file0_path=os.path.join(dir_name, video_left),
+    #     file1_path=os.path.join(dir_name, video_right),
+    #     seconds=15,
+    # )
+
+    # base_frame_offset = 800
+
+    # left_image_file, right_image_file = extract_frames(
+    #     dir_name,
+    #     video_left,
+    #     base_frame_offset + lfo,
+    #     video_right,
+    #     base_frame_offset + rfo,
+    # )
+
+    # # HACK
+    # # left_image_file = os.path.join(dir_name, "left-1-small.png")
+    # # right_image_file = os.path.join(dir_name, "right-1-small.png")
+
+    # # PTO Project File
+    # pto_project_file = os.path.join(dir_name, project_file_name)
+
+    # build_stitching_project(
+    #     pto_project_file, image_files=[left_image_file, right_image_file]
+    # )
+
+    pto_project_file, lfo, rfo = setup_stitching_project(
+        dir_name, video_left, video_right, project_file_name
     )
 
     # start_frame_number = 2000
