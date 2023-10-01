@@ -7,7 +7,7 @@
 
 namespace hm {
 
-//static absl::Mutex debugging_sync_mutex;
+static absl::Mutex debugging_sync_mutex;
 
 constexpr std::size_t kMaxThreadPyramidLineThreads = 24;
 
@@ -163,7 +163,7 @@ void Pyramid::set_lut(int bits, bool gamma) {
 }
 
 void Pyramid::Copy(uint8_t* src_p, int step, int pitch, bool gamma, int bits) {
-  //absl::MutexLock lkkk(&debugging_sync_mutex);
+  absl::MutexLock lkkk(&debugging_sync_mutex);
   HmThreadPool threadpool(threadpool_);
   if (step > 1) {
     set_lut(bits, gamma);
@@ -516,124 +516,124 @@ void Pyramid::CopyPlanarThread_32bit(
 /***********************************************************************
  * subsample
  ***********************************************************************/
-void Pyramid::Subsample(int sub_w, int sub_h, Pyramid* source) {
-  int x, y;
-  int p = 0;
-  __m128* in = (__m128*)source->levels[0].data;
-  __m128* out = (__m128*)levels[0].data;
-  __m128** temp_lines = source->lines;
-  __m128* line = temp_lines[0];
-  int m128_pitch_in = source->levels[0].m128_pitch;
-  int m128_pitch_out = levels[0].m128_pitch;
-  int mid_pitch = sub_w == 2 ? ((m128_pitch_in >> 1) + 1) & ~1 : m128_pitch_in;
-  __m128 three = _mm_set_ps1(3);
-  __m128 four = _mm_set_ps1(4);
-  __m128 mul = _mm_set_ps1(
-      (sub_h ? 1.0f / 8 : 1.0f) * (sub_w == 2 ? 1.0f / 64 : 1.0f / 8));
+// void Pyramid::Subsample(int sub_w, int sub_h, Pyramid* source) {
+//   int x, y;
+//   int p = 0;
+//   __m128* in = (__m128*)source->levels[0].data;
+//   __m128* out = (__m128*)levels[0].data;
+//   __m128** temp_lines = source->lines;
+//   __m128* line = temp_lines[0];
+//   int m128_pitch_in = source->levels[0].m128_pitch;
+//   int m128_pitch_out = levels[0].m128_pitch;
+//   int mid_pitch = sub_w == 2 ? ((m128_pitch_in >> 1) + 1) & ~1 : m128_pitch_in;
+//   __m128 three = _mm_set_ps1(3);
+//   __m128 four = _mm_set_ps1(4);
+//   __m128 mul = _mm_set_ps1(
+//       (sub_h ? 1.0f / 8 : 1.0f) * (sub_w == 2 ? 1.0f / 64 : 1.0f / 8));
 
-  for (y = 0; y < levels[0].height; ++y) {
-    if (sub_h) {
-      if (y == 0) {
-        for (x = 0; x < m128_pitch_in; ++x) {
-          _mm_store_ps(
-              (float*)&temp_lines[0][x],
-              _mm_add_ps(
-                  _mm_mul_ps(_mm_load_ps((float*)&in[x]), four),
-                  _mm_add_ps(
-                      _mm_mul_ps(
-                          _mm_load_ps((float*)&in[x + m128_pitch_in]), three),
-                      _mm_load_ps((float*)&in[x + (m128_pitch_in << 1)]))));
-        }
-      } else if (y == levels[0].height - 1) {
-        for (x = 0; x < m128_pitch_in; ++x) {
-          _mm_store_ps(
-              (float*)&temp_lines[0][x],
-              _mm_add_ps(
-                  _mm_mul_ps(_mm_load_ps((float*)&in[x + m128_pitch_in]), four),
-                  _mm_add_ps(
-                      _mm_mul_ps(_mm_load_ps((float*)&in[x]), three),
-                      _mm_load_ps((float*)&in[x - m128_pitch_in]))));
-        }
-      } else {
-        for (x = 0; x < m128_pitch_in; ++x) {
-          _mm_store_ps(
-              (float*)&temp_lines[0][x],
-              _mm_add_ps(
-                  _mm_add_ps(
-                      _mm_load_ps((float*)&in[x - m128_pitch_in]),
-                      _mm_load_ps((float*)&in[x + (m128_pitch_in << 1)])),
-                  _mm_mul_ps(
-                      _mm_add_ps(
-                          _mm_load_ps((float*)&in[x]),
-                          _mm_load_ps((float*)&in[x + m128_pitch_in])),
-                      three)));
-        }
-      }
-      in += m128_pitch_in << 1;
-    } else {
-      line = (__m128*)in;
-      in += m128_pitch_in;
-    }
-    switch (sub_w) {
-      case 2:
-        Subsample_Squeeze(line, line, m128_pitch_in, mid_pitch, NULL);
-      case 1:
-        Subsample_Squeeze(line, out, mid_pitch, m128_pitch_out, &mul);
-    }
-    out += m128_pitch_out;
-  }
-}
+//   for (y = 0; y < levels[0].height; ++y) {
+//     if (sub_h) {
+//       if (y == 0) {
+//         for (x = 0; x < m128_pitch_in; ++x) {
+//           _mm_store_ps(
+//               (float*)&temp_lines[0][x],
+//               _mm_add_ps(
+//                   _mm_mul_ps(_mm_load_ps((float*)&in[x]), four),
+//                   _mm_add_ps(
+//                       _mm_mul_ps(
+//                           _mm_load_ps((float*)&in[x + m128_pitch_in]), three),
+//                       _mm_load_ps((float*)&in[x + (m128_pitch_in << 1)]))));
+//         }
+//       } else if (y == levels[0].height - 1) {
+//         for (x = 0; x < m128_pitch_in; ++x) {
+//           _mm_store_ps(
+//               (float*)&temp_lines[0][x],
+//               _mm_add_ps(
+//                   _mm_mul_ps(_mm_load_ps((float*)&in[x + m128_pitch_in]), four),
+//                   _mm_add_ps(
+//                       _mm_mul_ps(_mm_load_ps((float*)&in[x]), three),
+//                       _mm_load_ps((float*)&in[x - m128_pitch_in]))));
+//         }
+//       } else {
+//         for (x = 0; x < m128_pitch_in; ++x) {
+//           _mm_store_ps(
+//               (float*)&temp_lines[0][x],
+//               _mm_add_ps(
+//                   _mm_add_ps(
+//                       _mm_load_ps((float*)&in[x - m128_pitch_in]),
+//                       _mm_load_ps((float*)&in[x + (m128_pitch_in << 1)])),
+//                   _mm_mul_ps(
+//                       _mm_add_ps(
+//                           _mm_load_ps((float*)&in[x]),
+//                           _mm_load_ps((float*)&in[x + m128_pitch_in])),
+//                       three)));
+//         }
+//       }
+//       in += m128_pitch_in << 1;
+//     } else {
+//       line = (__m128*)in;
+//       in += m128_pitch_in;
+//     }
+//     switch (sub_w) {
+//       case 2:
+//         Subsample_Squeeze(line, line, m128_pitch_in, mid_pitch, NULL);
+//       case 1:
+//         Subsample_Squeeze(line, out, mid_pitch, m128_pitch_out, &mul);
+//     }
+//     out += m128_pitch_out;
+//   }
+// }
 
-void Pyramid::Subsample_Squeeze(
-    __m128* in,
-    __m128* Out,
-    int m128_pitch_in,
-    int m128_pitch_out,
-    __m128* mul) {
-  int read = 0;
+// void Pyramid::Subsample_Squeeze(
+//     __m128* in,
+//     __m128* Out,
+//     int m128_pitch_in,
+//     int m128_pitch_out,
+//     __m128* mul) {
+//   int read = 0;
 
-  int x;
-  __m128 a, b, c, d, e, f;
-  __m128 three = _mm_set_ps1(3);
+//   int x;
+//   __m128 a, b, c, d, e, f;
+//   __m128 three = _mm_set_ps1(3);
 
-  b = _mm_load_ps((float*)&in[read++]);
-  a = _mm_shuffle_ps(b, b, _MM_SHUFFLE(0, 0, 0, 0));
-  c = _mm_load_ps((float*)&in[read++]);
-  d = _mm_load_ps((float*)&in[read++]);
+//   b = _mm_load_ps((float*)&in[read++]);
+//   a = _mm_shuffle_ps(b, b, _MM_SHUFFLE(0, 0, 0, 0));
+//   c = _mm_load_ps((float*)&in[read++]);
+//   d = _mm_load_ps((float*)&in[read++]);
 
-  for (x = 0; x < m128_pitch_out; ++x) {
-    e = _mm_shuffle_ps(a, c, _MM_SHUFFLE(0, 0, 3, 3));
-    f = _mm_shuffle_ps(b, d, _MM_SHUFFLE(0, 0, 3, 3));
-    e = _mm_blend_ps(b, e, 9);
-    f = _mm_blend_ps(c, f, 9);
-    e = _mm_shuffle_ps(e, e, _MM_SHUFFLE(3, 1, 2, 0));
-    f = _mm_shuffle_ps(f, f, _MM_SHUFFLE(3, 1, 2, 0));
-    e = _mm_hadd_ps(e, f);
+//   for (x = 0; x < m128_pitch_out; ++x) {
+//     e = _mm_shuffle_ps(a, c, _MM_SHUFFLE(0, 0, 3, 3));
+//     f = _mm_shuffle_ps(b, d, _MM_SHUFFLE(0, 0, 3, 3));
+//     e = _mm_blend_ps(b, e, 9);
+//     f = _mm_blend_ps(c, f, 9);
+//     e = _mm_shuffle_ps(e, e, _MM_SHUFFLE(3, 1, 2, 0));
+//     f = _mm_shuffle_ps(f, f, _MM_SHUFFLE(3, 1, 2, 0));
+//     e = _mm_hadd_ps(e, f);
 
-    f = _mm_hadd_ps(b, c);
-    if (mul) {
-      _mm_store_ps(
-          (float*)&Out[x],
-          _mm_mul_ps(_mm_add_ps(e, _mm_mul_ps(f, three)), *mul));
-    } else {
-      _mm_store_ps((float*)&Out[x], _mm_add_ps(e, _mm_mul_ps(f, three)));
-    }
-    a = c;
-    b = d;
-    if (read < m128_pitch_in - 1) {
-      c = _mm_load_ps((float*)&in[read++]);
-      d = _mm_load_ps((float*)&in[read++]);
-    } else {
-      if (read < m128_pitch_in) {
-        c = _mm_load_ps((float*)&in[read++]);
-        d = _mm_shuffle_ps(c, c, _MM_SHUFFLE(3, 3, 3, 3));
-      } else {
-        c = _mm_shuffle_ps(b, b, _MM_SHUFFLE(3, 3, 3, 3));
-        d = c;
-      }
-    }
-  }
-}
+//     f = _mm_hadd_ps(b, c);
+//     if (mul) {
+//       _mm_store_ps(
+//           (float*)&Out[x],
+//           _mm_mul_ps(_mm_add_ps(e, _mm_mul_ps(f, three)), *mul));
+//     } else {
+//       _mm_store_ps((float*)&Out[x], _mm_add_ps(e, _mm_mul_ps(f, three)));
+//     }
+//     a = c;
+//     b = d;
+//     if (read < m128_pitch_in - 1) {
+//       c = _mm_load_ps((float*)&in[read++]);
+//       d = _mm_load_ps((float*)&in[read++]);
+//     } else {
+//       if (read < m128_pitch_in) {
+//         c = _mm_load_ps((float*)&in[read++]);
+//         d = _mm_shuffle_ps(c, c, _MM_SHUFFLE(3, 3, 3, 3));
+//       } else {
+//         c = _mm_shuffle_ps(b, b, _MM_SHUFFLE(3, 3, 3, 3));
+//         d = c;
+//       }
+//     }
+//   }
+// }
 
 /***********************************************************************
  * shrink (gaussian)
@@ -656,7 +656,7 @@ void Pyramid::Shrink() {
     int height_odd = (levels[l].height & 1) ^ levels[l].y_shift;
     int first_bad_line = levels[l + 1].height - (3 - height_odd);
 
-    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l + 1].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -896,7 +896,7 @@ void Pyramid::LaplaceCollapse(int n_levels, bool Collapse) {
       l = (n_levels - 2) - j;
     else
       l = j;
-    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -1160,7 +1160,7 @@ void Pyramid::Add(float add, int _levels) {
 
   for (int l = 0; l < lim; ++l) {
     __m128* data = (__m128*)levels[l].data;
-    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=]() {
@@ -1294,7 +1294,7 @@ void Pyramid::Fuse(
 
     // fuse doesn't see any gains from multithreading; leave this here as
     // reference
-    //absl::MutexLock lkkk(&debugging_sync_mutex);
+    absl::MutexLock lkkk(&debugging_sync_mutex);
     HmThreadPool threadpool(threadpool_);
     for (int t = 0; t < (int)levels[l].bands.size() - 1; ++t) {
       threadpool.Schedule([=] {
@@ -1447,7 +1447,7 @@ void Pyramid::Blend(Pyramid* b) {
   right++;
 
 void Pyramid::BlurX(float radius, Pyramid* transpose) {
-  //absl::MutexLock lkkk(&debugging_sync_mutex);
+  absl::MutexLock lkkk(&debugging_sync_mutex);
   HmThreadPool threadpool(threadpool_);
   for (int i = 0; i < (int)levels[0].bands.size() - 1; ++i) {
     threadpool.Schedule([=] {

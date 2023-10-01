@@ -45,7 +45,7 @@ private:
 	void CopyPlanarThread_8bit(uint8_t* src_p, int pitch, bool gamma, int sy, int ey);
 	void CopyPlanarThread_16bit(uint16_t* src_p, int pitch, bool gamma, int sy, int ey);
 	void CopyPlanarThread_32bit(__m128* src_p, int pitch, bool gamma, int sy, int ey);
-	void Subsample_Squeeze(__m128* in, __m128* Out, int m128_pitch_in, int m128_pitch_out, __m128* mul);
+	//void Subsample_Squeeze(__m128* in, __m128* Out, int m128_pitch_in, int m128_pitch_out, __m128* mul);
 	void ShrinkThread(__m128* line, __m128* hi, __m128* lo, int m128_pitch_hi, int m128_pitch_lo, int first_bad_line, int height_odd, int sy, int ey, const bool x_shift, const bool y_shift);
 
 	void Squeeze(__m128* line, __m128* lo, int m128_pitch_lo, int m128_pitch_hi, __m128 final_mul, bool x_shift); // was __forceinline
@@ -83,7 +83,7 @@ public:
 	~Pyramid();
 	static int DefaultNumLevels(int width, int height) { return 8; /* (int)ceil(log2(max(width, height))); */ };
 	void Copy(uint8_t* src_p, int step, int pitch, bool gamma, int bits);
-	void Subsample(int sub_w, int sub_h, Pyramid* source);
+	//void Subsample(int sub_w, int sub_h, Pyramid* source);
 	void Shrink();
 	void Laplace() { LaplaceCollapse((int)levels.size(), false); };
 	void Collapse() { LaplaceCollapse((int)levels.size(), true); };
