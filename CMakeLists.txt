@@ -76,6 +76,9 @@ if (PYTHONLIBS_FOUND)
     message("Using default python version: " ${PYTHONLIBS_VERSION_STRING})
 endif(PYTHONLIBS_FOUND)
 
+# Find required protobuf package
+find_package(Protobuf REQUIRED)
+
 set(HAS_UNINSTALL_TARGET 1)
 
 set(HOCKEYMOM_TOP_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})

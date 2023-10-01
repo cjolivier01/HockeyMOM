@@ -15,7 +15,20 @@ set(
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
 )
-add_library(hm SHARED ${SOURCES})
+
+# set(
+#   PROTO_FILES
+#   csrc/mblend/mblend.proto
+# )
+
+# Generate protobuf files
+#protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+
+# Make sure generated files are visible to compiler
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+
+add_library(hm SHARED ${SOURCES} ${PROTO_SRCS})
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wpedantic")
