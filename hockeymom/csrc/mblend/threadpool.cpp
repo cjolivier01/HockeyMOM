@@ -4,8 +4,8 @@
 
 #include <cassert>
 #include <iostream>
-#include <thread>
 #include <limits>
+#include <thread>
 #include "threadpool.h"
 
 namespace hm {
@@ -85,8 +85,9 @@ void HmThreadPool::join_all(bool allow_reuse) {
   absl::MutexLock lk(&schedule_mutex_);
   absl::MutexLock lk_inner(&mu_);
   mu_.Await(absl::Condition(
-      +[](HmThreadPool* this_ptr) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
-           this_ptr->mu_) { return this_ptr->active_job_ids_.empty(); },
+      +[](HmThreadPool* this_ptr) ABSL_EXCLUSIVE_LOCKS_REQUIRED(this_ptr->mu_) {
+        return this_ptr->active_job_ids_.empty();
+      },
       this));
   if (!allow_reuse) {
     final_join_called_ = true;
@@ -126,9 +127,9 @@ std::size_t HmThreadPool::Schedule(std::function<void()>&& thread_fn) {
   thread_pool_->Schedule([this, new_id, fn = std::move(thread_fn)]() {
     // Save the thread-local ID and set the new one from the pool's thread id
     // function
-    //auto save_thread_id = current_thread_pool_thread_id_;
-    //current_thread_pool_thread_id_ = CurrentThreadId();
-    //set_thread_name("tg_pool_job", new_id);
+    // auto save_thread_id = current_thread_pool_thread_id_;
+    // current_thread_pool_thread_id_ = CurrentThreadId();
+    // set_thread_name("tg_pool_job", new_id);
     try {
       fn();
     } catch (...) {
@@ -143,17 +144,16 @@ std::size_t HmThreadPool::Schedule(std::function<void()>&& thread_fn) {
       absl::MutexLock lk(&mu_);
       active_job_ids_.erase(new_id);
       // restore the thread_local current thread id var
-      //current_thread_pool_thread_id_ = save_thread_id;
+      // current_thread_pool_thread_id_ = save_thread_id;
       throw;
     }
     absl::MutexLock lk(&mu_);
     active_job_ids_.erase(new_id);
     // restore the thread_local current thread id var
-    //current_thread_pool_thread_id_ = save_thread_id;
+    // current_thread_pool_thread_id_ = save_thread_id;
   });
   return new_id;
 }
-
 
 // namespace {
 // std::mutex tp_mu;
