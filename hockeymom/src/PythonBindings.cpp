@@ -74,7 +74,49 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
-      .def(py::init<std::size_t, std::string, std::size_t, std::size_t, std::size_t>());
+      .def(py::init<
+           std::size_t,
+           std::string,
+           std::size_t,
+           std::size_t,
+           std::size_t>());
+
+  using SortedRGBImageQueue =
+      hm::SortedQueue<std::size_t, std::unique_ptr<hm::MatrixRGB>>;
+
+  py::class_<SortedRGBImageQueue, std::shared_ptr<SortedRGBImageQueue>>(
+      m, "SortedRGBImageQueue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             std::size_t key,
+             py::array_t<std::uint8_t>& array) {
+            auto matrix = std::make_unique<hm::MatrixRGB>(array, 0, 0);
+            py::gil_scoped_release release;
+            sq->enqueue(key, std::move(matrix));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq, std::size_t key) {
+            std::unique_ptr<hm::MatrixRGB> matrix;
+            {
+              py::gil_scoped_release release;
+              matrix = sq->dequeue_key(key);
+            }
+            return matrix->to_py_array();
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq) {
+            std::size_t key = ~0;
+            std::unique_ptr<hm::MatrixRGB> matrix;
+            {
+              py::gil_scoped_release release;
+              matrix = sq->dequeue_smallest_key(&key);
+            }
+            return std::make_tuple(key, matrix->to_py_array());
+          });
 
   m.def(
       "_add_to_stitching_data_loader",
