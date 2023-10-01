@@ -37,7 +37,7 @@ private:
 	int lut_bits = 0;
 	bool lut_gamma = false;
 	int out_max;
-	HmThreadPool threadpool;
+	HmThreadPool threadpool_;
 	void set_lut(int bits, bool gamma);
 	void CopyInterleavedThread_8bit(uint8_t* src_p, int step, int pitch, int sy, int ey);
 	void CopyInterleavedThread_16bit(uint16_t* src_p, int step, int pitch, int sy, int ey);
@@ -462,18 +462,18 @@ void Pyramid::Out(T dst_p, int pitch, bool gamma, bool dither, bool clamp, int l
 	typedef typename std::conditional<sizeof(*dst_p) == 1, uint8_t*, uint16_t*>::type Type; // used to avoid generating a float* version of OutInterleaved which would cause warnings
 
 	int s = (gamma ? 1 : 0) | (dither && bytes != 4 ? 2 : 0) | (clamp ? 4 : 0);
-
+  HmThreadPool threadpool(threadpool_);
 	if (step) { // interleaved
 		for (int b = 0; b < eb; ++b) {
 			switch (s) {
-				case 0: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 1: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 2: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 3: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 4: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 5: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 6: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
-				case 7: threadpool->Schedule([=] { OutInterleaved((Type)dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 0: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 1: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 2: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 3: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 4: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 5: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 6: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
+				case 7: threadpool.Schedule([=] { OutInterleaved((Type)dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma, step, offset); }); break;
 			}
 		}
 	} else { // planar
@@ -481,45 +481,45 @@ void Pyramid::Out(T dst_p, int pitch, bool gamma, bool dither, bool clamp, int l
 			case 1: {
 				for (int b = 0; b < eb; ++b) {
 					switch (s) {
-						case 0: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 1: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 2: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 3: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 4: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 5: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 6: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 7: threadpool->Schedule([=] { OutPlanar8(dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 0: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 1: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 2: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 3: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 4: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 5: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 6: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 7: threadpool.Schedule([=] { OutPlanar8(dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
 					}
 				}
 			} break;
 			case 2: {
 				for (int b = 0; b < eb; ++b) {
 					switch (s) {
-						case 0: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 1: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 2: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 3: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 4: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 5: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 6: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 7: threadpool->Schedule([=] { OutPlanar16(dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 0: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 1: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 2: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(D), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 3: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(DG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 4: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 5: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 6: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(CD), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 7: threadpool.Schedule([=] { OutPlanar16(dst_p, PLL(CDG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
 					}
 				}
 			} break;
 			case 4: {
 				for (int b = 0; b < eb; ++b) {
 					switch (s) {
-						case 0: threadpool->Schedule([=] { OutPlanar32(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 1: threadpool->Schedule([=] { OutPlanar32(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 4: threadpool->Schedule([=] { OutPlanar32(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
-						case 5: threadpool->Schedule([=] { OutPlanar32(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 0: threadpool.Schedule([=] { OutPlanar32(dst_p, PLL(N), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 1: threadpool.Schedule([=] { OutPlanar32(dst_p, PLL(G), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 4: threadpool.Schedule([=] { OutPlanar32(dst_p, PLL(C), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
+						case 5: threadpool.Schedule([=] { OutPlanar32(dst_p, PLL(CG), pitch, levels[level].bands[b], levels[level].bands[b + 1], level, chroma); }); break;
 					}
 				}
 			} break;
 		}
 	}
 
-	threadpool->join_all();
+	threadpool.join_all();
 }
 
 #undef PLL
