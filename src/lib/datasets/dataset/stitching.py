@@ -11,6 +11,8 @@ import cv2
 import threading
 import multiprocessing
 
+from typing import List
+
 from pathlib import Path
 from torch.utils.data import IterableDataset, DataLoader
 import tifffile
@@ -75,34 +77,42 @@ def extract_frames(
     return left_output_image_file, right_output_image_file
 
 
-def build_stitching_project(project_file_path: str, skip_if_exists: bool = True, fov: int = 108,):
+def build_stitching_project(project_file_path: str, image_files=List[str], skip_if_exists: bool = True, fov: int = 108,):
 
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
 
-    if not os.path.exists(project_file_path):
-        print("No project file")
+    assert len(image_files) == 2
+    left_image_file = image_files[0]
+    right_image_file = image_files[1]
+
+    # if not os.path.exists(project_file_path):
+    #     print("No project file")
 
     curr_dir = os.getcwd()
     try:
         os.chdir(dir_name)
-        left_image_file = "left.png"
-        right_image_file = "right.png"
         cmd = [
             "pto_gen", "-o", project_file_path, "-f", str(fov), left_image_file, right_image_file,
         ]
+        cmd_str = " ".join(cmd)
+        os.system(cmd_str)
         cmd = [
             "cpfind", "--linearmatch", project_file_path, "-o", project_file_path,
-        ]
+        ] + " ".joint(image_files)
+        os.system(" ".join(cmd))
         cmd = [
             "autooptimiser", "-a", "-m", "-l", "-s", "-o", project_file_path,
         ]
+        os.system(" ".join(cmd))
         cmd = [
-            "nona", "-m", "TIFF_m", "-o", "my_project", "my_project.pto",
+            "nona", "-m", "TIFF_m", "-o", os.path.join(dir_name, "my_project"), project_file_path,
         ]
+        os.system(" ".join(cmd))
         cmd = [
-            "enblend", "-o", "panorama.tif", "my_project*.tif",
+            "enblend", "-o", os.path.join(dir_name, "panorama.tif"), os.path.join(dir_name, "my_project*.tif"),
         ]
+        os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True

@@ -18,15 +18,34 @@ from lib.datasets.dataset.stitching import (
 )
 
 
-def stitch_videos(dir_name: str):
-    vid_dir = os.path.join(os.environ["HOME"], "Videos")
+def stitch_videos(
+    dir_name: str,
+    video_left: str = "left.mp4",
+    video_right: str = "right.mp4",
+    project_file_name: str = "my_project.pto",
+):
+    left_frame_offset = synchronize_by_audio(
+        file0_path=os.path.join(dir_name, video_left),
+        file1_path=os.path.join(dir_name, video_right),
+        seconds=15,
+    )
+    left_frame_offset = int(left_frame_offset)
+
+    if left_frame_offset < 0:
+        left_image_file, right_image_file = extract_frames(dir_name, video_left, -left_frame_offset, video_right, 0)
+    else:
+        left_image_file, right_image_file = extract_frames(dir_name, video_left, 0, video_right, left_frame_number)
+
+
+    # HACK
+    # left_frame_offset = -91
+    # left_image_file = os.path.join(dir_name, "left-1-small.png")
+    # right_image_file = os.path.join(dir_name, "right-1-small.png")
 
     # PTO Project File
-    pto_project_file = os.path.join(
-        os.environ["HOME"], "Videos", "sabercats-parts", "my_project.pto"
-    )
+    pto_project_file = os.path.join(dir_name, project_file_name)
 
-    build_stitching_project(pto_project_file)
+    build_stitching_project(pto_project_file, image_files=[left_image_file, right_image_file])
 
     # start_frame_number = 2000
     start_frame_number = 0
@@ -39,8 +58,8 @@ def stitch_videos(dir_name: str):
         video_file_1=f"{vid_dir}/left-1.mp4",
         video_file_2=f"{vid_dir}/right-1.mp4",
         pto_project_file=pto_project_file,
-        video_1_offset_frame=91,
-        video_2_offset_frame=0,
+        video_1_offset_frame=-left_frame_offset if left_frame_offset < 0 else 0,
+        video_2_offset_frame=left_frame_offset if left_frame_offset > 0 else 0,
         # remap_thread_count=1,
         # blend_thread_count=1,
         start_frame_number=start_frame_number,
@@ -70,18 +89,7 @@ def main():
     video_left = "left-1-small.avi"
     video_right = "right-1-small.avi"
 
-    left_frame_offset = synchronize_by_audio(
-        file0_path=os.path.join(dir_name, video_left),
-        file1_path=os.path.join(dir_name, video_right),
-        seconds=15,
-    )
-
-    if left_frame_offset < 0:
-        extract_frames(dir_name, video_left, -left_frame_offset, video_right, 0)
-    else:
-        extract_frames(dir_name, video_left, 0, video_right, left_frame_number)
-
-    stitch_videos(dir_name)
+    stitch_videos(dir_name, video_left, video_right)
 
 
 if __name__ == "__main__":
