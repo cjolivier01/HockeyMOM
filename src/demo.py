@@ -49,7 +49,7 @@ def demo(opt):
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
             path_video_2=input_video_files[1],
-            pto_project_file=os.path.join(os.environ['HOME'], 'Videos', 'sabercats-parts', 'my_project.pto'),
+            #pto_project_file=os.path.join(os.environ['HOME'], 'Videos', 'sabercats-parts', 'my_project.pto'),
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
         )

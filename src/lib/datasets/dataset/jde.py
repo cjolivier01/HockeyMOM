@@ -237,7 +237,7 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
         self,
         path_video_1,
         path_video_2,
-        pto_project_file: str,
+        pto_project_file: str = None,
         video_1_offset_frame=0,
         video_2_offset_frame=92,
         img_size=(1088, 608),

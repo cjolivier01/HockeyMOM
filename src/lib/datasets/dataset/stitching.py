@@ -21,11 +21,7 @@ from hockeymom import core
 
 from lib.tracking_utils import visualization as vis
 from lib.ffmpeg import extract_frame_image
-
-# from lib.ffmpeg import copy_audio
-# from lib.ui.mousing import draw_box_with_mouse
-# from lib.tracking_utils.log import logger
-
+from lib.stitch_synchronize import synchronize_by_audio
 
 def get_tiff_tag_value(tiff_tag):
     if len(tiff_tag.value) == 1:
@@ -51,7 +47,11 @@ def get_image_geo_position(tiff_image_file: str):
 
 
 def extract_frames(
-    dir_name: str, video_left: str, left_frame_number: int, video_right: str, right_frame_number: int = 10
+    dir_name: str,
+    video_left: str,
+    left_frame_number: int,
+    video_right: str,
+    right_frame_number: int = 10,
 ):
     file_name_without_extension, _ = os.path.splitext(video_left)
     left_output_image_file = os.path.join(
@@ -77,8 +77,12 @@ def extract_frames(
     return left_output_image_file, right_output_image_file
 
 
-def build_stitching_project(project_file_path: str, image_files=List[str], skip_if_exists: bool = True, fov: int = 108,):
-
+def build_stitching_project(
+    project_file_path: str,
+    image_files=List[str],
+    skip_if_exists: bool = True,
+    fov: int = 108,
+):
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
 
@@ -86,36 +90,93 @@ def build_stitching_project(project_file_path: str, image_files=List[str], skip_
     left_image_file = image_files[0]
     right_image_file = image_files[1]
 
-    # if not os.path.exists(project_file_path):
-    #     print("No project file")
-
     curr_dir = os.getcwd()
     try:
         os.chdir(dir_name)
         cmd = [
-            "pto_gen", "-o", project_file_path, "-f", str(fov), left_image_file, right_image_file,
+            "pto_gen",
+            "-o",
+            project_file_path,
+            "-f",
+            str(fov),
+            left_image_file,
+            right_image_file,
         ]
         cmd_str = " ".join(cmd)
         os.system(cmd_str)
+        cmd = ["cpfind", "--linearmatch", project_file_path, "-o", project_file_path]
+        os.system(" ".join(cmd))
         cmd = [
-            "cpfind", "--linearmatch", project_file_path, "-o", project_file_path
+            "autooptimiser",
+            "-a",
+            "-m",
+            "-l",
+            "-s",
+            "-o",
+            project_file_path,
+            project_file_path,
         ]
         os.system(" ".join(cmd))
         cmd = [
-            "autooptimiser", "-a", "-m", "-l", "-s", "-o", project_file_path, project_file_path
+            "nona",
+            "-m",
+            "TIFF_m",
+            "-o",
+            os.path.join(dir_name, "my_project"),
+            project_file_path,
         ]
         os.system(" ".join(cmd))
         cmd = [
-            "nona", "-m", "TIFF_m", "-o", os.path.join(dir_name, "my_project"), project_file_path,
-        ]
-        os.system(" ".join(cmd))
-        cmd = [
-            "enblend", "-o", os.path.join(dir_name, "panorama.tif"), os.path.join(dir_name, "my_project*.tif"),
+            "enblend",
+            "-o",
+            os.path.join(dir_name, "panorama.tif"),
+            os.path.join(dir_name, "my_project*.tif"),
         ]
         os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
+
+
+def configure_video_stitching(
+    dir_name: str,
+    video_left: str = "left.mp4",
+    video_right: str = "right.mp4",
+    project_file_name: str = "my_project.pto",
+    base_frame_offset: int = 800,
+    audio_sync_seconds: int = 15,
+):
+    lfo, rfo = synchronize_by_audio(
+        file0_path=os.path.join(dir_name, video_left),
+        file1_path=os.path.join(dir_name, video_right),
+        seconds=audio_sync_seconds,
+    )
+
+    left_image_file, right_image_file = extract_frames(
+        dir_name,
+        video_left,
+        base_frame_offset + lfo,
+        video_right,
+        base_frame_offset + rfo,
+    )
+
+    # PTO Project File
+    pto_project_file = os.path.join(dir_name, project_file_name)
+
+    build_stitching_project(
+        pto_project_file, image_files=[left_image_file, right_image_file]
+    )
+
+    pto_project_file, lfo, rfo = setup_stitching_project(
+        dir_name, video_left, video_right, project_file_name
+    )
+    return pto_project_file, lfo, rfo
+
+
+def get_dir_name(path):
+    if os.path.isdir(path):
+        return path
+    return Path(path).parent
 
 
 def find_roi(image):
@@ -153,6 +214,7 @@ class StitchDataset:
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
+        auto_configure: bool = True,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -175,8 +237,21 @@ class StitchDataset:
         self._feeder_thread = None
         self._image_roi = None
         self._fps = None
+        self._auto_configure = auto_configure
+
+    def configure_stitching(self):
+        if not self._pto_project_file:
+            dir_name = get_dir_name(self._video_file_1)
+            self._pto_project_file, lfo, rfo = configure_video_stitching(
+                dir_name, self._video_file_1, self._video_file_2
+            )
+            self._video_1_offset_frame = lfo
+            self._video_2_offset_frame = rfo
 
     def _open_videos(self):
+        if self._auto_configure:
+            self.configure_stitching()
+
         self._video1 = cv2.VideoCapture(self._video_file_1)
         self._video2 = cv2.VideoCapture(self._video_file_2)
         if self._start_frame_number or self._video_1_offset_frame:

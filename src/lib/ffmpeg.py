@@ -15,6 +15,7 @@ def convert_to_h265(source_video: str, dest_video: str):
     print(cmd_str)
     os.system(cmd_str)
 
+
 def extract_frame_image(source_video: str, frame_number: int, dest_image: str):
     print(f"Extracting frame {frame_number} from {source_video}...")
     cmd_str = f'ffmpeg -y -i {source_video} -vf "select=eq(n\,{frame_number})" -vframes 1 {dest_image}'
