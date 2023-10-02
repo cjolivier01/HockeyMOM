@@ -2,8 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from numba import njit
-
 import _init_paths
 import math
 import time
@@ -112,6 +110,7 @@ def eval_seq(
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
+    dataset_timer = Timer()
     timer = Timer()
 
     args = DefaultArguments()
@@ -122,10 +121,20 @@ def eval_seq(
     hockey_mom = None
     postprocessor = None
     image_scale_array = None
+    first_frame_id = 0
 
     results = []
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
+        if i:
+            dataset_timer.toc()
+
+        if frame_id % 20 == 0:
+            logger.info(
+                "Dataset frame {} ({:.2f} fps)".format(
+                    frame_id, 1.0 / max(1e-5, dataset_timer.average_time)
+                )
+            )
 
         if args.scale_to_original_image and image_scale_array is None:
             image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
@@ -135,29 +144,33 @@ def eval_seq(
                 hockey_mom = HockeyMOM(
                     image_width=original_img.shape[1],
                     image_height=original_img.shape[0],
-                    scale_width=0,
-                    scale_height=0,
                 )
             else:
                 hockey_mom = HockeyMOM(
                     image_width=img.shape[2],
                     image_height=img.shape[1],
-                    scale_width=0,
-                    scale_height=0,
                 )
 
         if postprocessor is None:
             postprocessor = FramePostProcessor(
                 hockey_mom,
-                frame_id,
-                data_type,
-                save_dir,
-                result_filename,
-                show_image,
-                opt,
+                start_frame_id=frame_id,
+                data_type=data_type,
+                fps=dataloader.fps,
+                save_dir=save_dir,
+                result_filename=result_filename,
+                show_image=show_image,
+                opt=opt,
                 args=args,
             )
+            # maybe seek to frame
+            first_frame_id = postprocessor.get_first_frame_id()
             postprocessor.start()
+            if first_frame_id and hasattr(dataloader, "set_frame_number"):
+                dataloader.set_frame_number(first_frame_id)
+                postprocessor._frame_id = first_frame_id
+                print(f"Starting at frame: {first_frame_id}")
+                continue
 
         frame_id = i
         if frame_id > 0 and frame_id <= args.skip_frame_count:
@@ -214,6 +227,9 @@ def eval_seq(
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break
+
+        # Last thing, tic the dataset timer before we wrap around and next the iter
+        dataset_timer.tic()
 
     if postprocessor is not None:
         postprocessor.stop()

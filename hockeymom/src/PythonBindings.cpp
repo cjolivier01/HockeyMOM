@@ -1,166 +1,239 @@
-#include "hm/ImagePostProcess.h"
-#include "hm/sublibA/add.h"
-#include "hm/sublibA/ConsoleColors.h"
-#include "hm/NestedClasses.h"
-#include "hm/Inheritance.h"
-
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-#include <pybind11/eigen.h>
-#include <pybind11/stl.h>
-#include <pybind11/stl_bind.h>
+#include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
+#include "hockeymom/csrc/mblend/mblend.h"
+#include "hockeymom/csrc/postprocess/ImagePostProcess.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
+#include "hockeymom/csrc/camera/CamProps.h"
 
 #include <iostream>
-
-// namespace with types that lacks pybind counterpart
-namespace forgotten {
-
-struct Unbound {};
-
-enum Enum{
-    ONE=1,
-    TWO=2
-};
-
-}
-
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(_hockeymom, m)
-{
-  std::cout << "Initializing hockymom module" << std::endl;
-  auto pyFoo = py::class_<hm::Foo>(m,"Foo");
-  pyFoo
-    .def(py::init<>())
-    .def("f",&hm::Foo::f);
+namespace {
+// std::string get_executable_path() {
+//   char result[PATH_MAX * 2 + 1];
+//   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
+//   std::string path = std::string(result, (count > 0) ? count : 0);
+//   return path;
+// }
 
-  py::class_<hm::Foo::Child> (pyFoo, "FooChild")
-    .def(py::init<>())
-    .def("g",&hm::Foo::Child::g);
+// void init_stack_trace() {
+//   absl::InitializeSymbolizer(get_executable_path().c_str());
 
-  auto sublibA = m.def_submodule("sublibA");
-  sublibA.def("add", hm::sublibA::add);
+//   // Install the failure signal handler. This should capture various failure
+//   // signals (like segmentation faults) and print a stack trace.
+//   //absl::FailureSignalHandlerOptions options;
+//   //absl::InstallFailureSignalHandler(options);
+// }
+} // namespace
 
-  py::enum_<hm::sublibA::ConsoleForegroundColor> (sublibA, "ConsoleForegroundColor")
-    .value("Green", hm::sublibA::ConsoleForegroundColor::Green)
-    .value("Yellow", hm::sublibA::ConsoleForegroundColor::Yellow)
-    .value("Blue", hm::sublibA::ConsoleForegroundColor::Blue)
-    .value("Magenta", hm::sublibA::ConsoleForegroundColor::Magenta)
-    .export_values();
+PYBIND11_MODULE(_hockeymom, m) {
+  hm::init_stack_trace();
 
-  py::enum_<hm::sublibA::ConsoleBackgroundColor> (sublibA, "ConsoleBackgroundColor")
-    .value("Green", hm::sublibA::Green)
-    .value("Yellow", hm::sublibA::Yellow)
-    .value("Blue", hm::sublibA::Blue)
-    .value("Magenta", hm::sublibA::Magenta)
-    .export_values();
+  // std::cout << "Initializing hockymom module" << std::endl;
+  py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
+      m, "MatrixRGB", py::buffer_protocol())
+      .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
+        return py::buffer_info(
+            m.data(), /* Pointer to buffer */
+            sizeof(std::uint8_t), /* Size of one scalar */
+            py::format_descriptor<std::uint8_t>::
+                format(), /* Python struct-style format descriptor */
+            3, /* Number of dimensions */
+            {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
+            {m.channels() * sizeof(std::uint8_t) * m.cols(),
+             m.channels() * sizeof(std::uint8_t),
+             sizeof(std::uint8_t)});
+      });
 
-  sublibA.def("accept_defaulted_enum",
-      [](const hm::sublibA::ConsoleForegroundColor& color){},
-      py::arg("color") = hm::sublibA::ConsoleForegroundColor::Blue
-  );
+  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(m, "HMPostprocessConfig")
+       .def(py::init<>())
+       //.def("show_image", &hm::HMPostprocessConfig::show_image)
+       //.def("plot_individual_player_tracking", &hm::HMPostprocessConfig::plot_individual_player_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_cluster_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_camera_tracking)
+  //   .def(&hm::HMPostprocessConfig::plot_speed)
+  //   .def(&hm::HMPostprocessConfig::max_in_aspec_ratio)
+  //   .def(&hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
+  //   .def(&hm::HMPostprocessConfig::apply_fixed_edge_scaling)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_scaling_factor)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation)
+  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation_angle)
+  //   .def(&hm::HMPostprocessConfig::sticky_pan)
+  //   .def(&hm::HMPostprocessConfig::plot_sticky_camera)
+  //   .def(&hm::HMPostprocessConfig::skip_frame_count)`
+  //   .def(&hm::HMPostprocessConfig::stop_at_frame0
+  //   .def(&hm::HMPostprocessConfig::scale_to_original_image)
+  //   .def(&hm::HMPostprocessConfig::crop_output_image)
+  //   .def(&hm::HMPostprocessConfig::fake_crop_output_image)
+  //   .def(&hm::HMPostprocessConfig::use_cuda)
+  //   .def(&hm::HMPostprocessConfig::use_watermark)
+  ;
+
+  py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
+      m, "StitchingDataLoader")
+      .def(py::init<
+           std::size_t,
+           std::string,
+           std::size_t,
+           std::size_t,
+           std::size_t>());
+
+  using SortedRGBImageQueue =
+      hm::SortedQueue<std::size_t, std::unique_ptr<hm::MatrixRGB>>;
+
+  py::class_<SortedRGBImageQueue, std::shared_ptr<SortedRGBImageQueue>>(
+      m, "SortedRGBImageQueue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             std::size_t key,
+             py::array_t<std::uint8_t>& array) {
+            auto matrix = std::make_unique<hm::MatrixRGB>(array, 0, 0);
+            py::gil_scoped_release release;
+            sq->enqueue(key, std::move(matrix));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq, std::size_t key) {
+            std::unique_ptr<hm::MatrixRGB> matrix;
+            {
+              py::gil_scoped_release release;
+              matrix = sq->dequeue_key(key);
+            }
+            return matrix->to_py_array();
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq) {
+            std::size_t key = ~0;
+            std::unique_ptr<hm::MatrixRGB> matrix;
+            {
+              py::gil_scoped_release release;
+              matrix = sq->dequeue_smallest_key(&key);
+            }
+            return std::make_tuple(key, matrix->to_py_array());
+          });
+
+  m.def(
+      "_add_to_stitching_data_loader",
+      [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+         std::size_t frame_id,
+         py::array_t<uint8_t>& image1,
+         py::array_t<uint8_t>& image2) {
+        // We expect a three-channel RGB image here
+        assert(image1.ndim() == 3);
+        assert(image2.ndim() == 3);
+        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
+        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        {
+          data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
+        }
+        return frame_id;
+      });
+
+  m.def(
+      "_get_stitched_frame_from_data_loader",
+      [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+         std::size_t frame_id) -> py::array_t<std::uint8_t> {
+        std::shared_ptr<hm::MatrixRGB> stitched_image;
+        {
+          py::gil_scoped_release release_gil;
+          stitched_image = data_loader->get_stitched_frame(frame_id);
+        }
+        return stitched_image->to_py_array();
+      });
 
   m.def("_hello_world", []() {
+    py::gil_scoped_release release_gil;
     std::cout << "Hello, world!" << std::endl;
   });
 
-  auto pyOuter = py::class_<hm::Outer> (m, "Outer");
-  auto pyInner = py::class_<hm::Outer::Inner> (pyOuter, "Inner");
+  m.def(
+      "_enblend",
+      [](std::string output_image,
+         std::vector<std::string> input_files) -> int {
+        py::gil_scoped_release release_gil;
+        return hm::enblend::enblend_main(
+            std::move(output_image), std::move(input_files));
+      });
 
-  py::enum_<hm::Outer::Inner::NestedEnum> (pyInner, "NestedEnum")
-    .value("ONE", hm::Outer::Inner::NestedEnum::ONE)
-    .value("TWO", hm::Outer::Inner::NestedEnum::TWO)
-    ;
+  m.def(
+      "_emblend_images",
+      [](py::array_t<uint8_t>& image1,
+         std::vector<std::size_t> xy_pos_1,
+         py::array_t<uint8_t>& image2,
+         std::vector<std::size_t> xy_pos_2) {
+        hm::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
+        hm::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
+        std::unique_ptr<hm::MatrixRGB> result;
+        {
+          py::gil_scoped_release release_gil;
+          // Just blend (no remap)
+          result = hm::enblend::enblend(m1, m2);
+        }
+        return result->to_py_array();
+      });
 
-  py::class_<hm::Base> pyBase(m, "Base");
+  py::class_<hm::HmNona, std::shared_ptr<hm::HmNona>>(m, "HmNona")
+      .def(py::init<std::string>())
+      .def("load_project", &hm::HmNona::load_project);
 
-  pyBase
-    .def_readwrite("name", &hm::Base::name);
+  m.def(
+      "_nona_process_images",
+      [](std::shared_ptr<hm::HmNona> nona,
+         py::array_t<uint8_t>& image1,
+         py::array_t<uint8_t>& image2) -> std::vector<py::array_t<uint8_t>> {
+        // We expect a three-channel RGB image here
+        assert(image1.ndim() == 3);
+        assert(image2.ndim() == 3);
+        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
+        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        // Just remap (no blend)
+        std::vector<py::array_t<uint8_t>> results;
+        std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices;
+        {
+          py::gil_scoped_release release_gil;
+          result_matrices = nona->remap_images(std::move(m1), std::move(m2));
+        }
+        results.reserve(result_matrices.size());
+        for (auto& m : result_matrices) {
+          if (m) {
+            results.emplace_back(m->to_py_array());
+          }
+        }
+        return results;
+      });
 
-  py::class_<hm::Base::Inner>(pyBase, "Inner");
-
-  // py::class_<hm::Derived, hm::Base> (m, "Derived")
-  //   .def_readwrite("count", &hm::Derived::count);
-
-  pyInner
-    .def_readwrite("value", &hm::Outer::Inner::value );
-
-  pyOuter
-    .def_readwrite("inner", &hm::Outer::inner)
-    .def_property_readonly_static("linalg", [](py::object){ return py::module::import("numpy.linalg"); });
-
-  py::register_exception<hm::CppException>(m, "CppException");
-
-  m.attr("foovar") = hm::Foo();
-
-  py::list foolist;
-  foolist.append(hm::Foo());
-  foolist.append(hm::Foo());
-
-  m.attr("foolist") = foolist;
-  m.attr("none") = py::none();
-  {
-      py::list li;
-      li.append(py::none{});
-      li.append(2);
-      li.append(py::dict{});
-      m.attr("list_with_none") = li;
-  }
-
-
-  auto numeric = m.def_submodule("numeric");
-  numeric.def("get_ndarray_int", []{ return py::array_t<int>{}; });
-  numeric.def("get_ndarray_float64", []{ return py::array_t<double>{}; });
-  numeric.def("accept_ndarray_int", [](py::array_t<int>){});
-  numeric.def("accept_ndarray_float64", [](py::array_t<double>){});
-
-
-  auto eigen = m.def_submodule("eigen");
-  eigen.def("get_matrix_int", []{ return Eigen::Matrix3i{}; });
-  eigen.def("get_vector_float64", []{ return Eigen::Vector3d{}; });
-  eigen.def("accept_matrix_int", [](Eigen::Matrix3i){});
-  eigen.def("accept_vector_float64", [](Eigen::Vector3d){});
-
-  auto opaque_types = m.def_submodule("opaque_types");
-
-  py::bind_vector<std::vector<std::pair<std::string, double>>>(opaque_types, "VectorPairStringDouble");
-  py::bind_map<std::map<std::string, std::complex<double>>>(opaque_types, "MapStringComplex");
-
-  opaque_types.def("get_complex_map", []{return std::map<std::string, std::complex<double>>{}; });
-  opaque_types.def("get_vector_of_pairs", []{return std::vector<std::pair<std::string, double>>{}; });
-
-  auto copy_types = m.def_submodule("copy_types");
-  copy_types.def("get_complex_map", []{return std::map<int, std::complex<double>>{}; });
-  copy_types.def("get_vector_of_pairs", []{return std::vector<std::pair<int, double>>{}; });
-
-  // This submodule will have C++ signatures in python docstrings to emulate poorly written pybind11-bindings
-  auto invalid_signatures = m.def_submodule("invalid_signatures");
-  invalid_signatures.def("get_unbound_type", []{return forgotten::Unbound{}; });
-  invalid_signatures.def("accept_unbound_type", [](std::pair<forgotten::Unbound, int>){ return 0;});
-  invalid_signatures.def("accept_unbound_enum", [](forgotten::Enum){ return 0;});
-
-  py::class_<forgotten::Unbound>(invalid_signatures, "Unbound");
-  py::class_<forgotten::Enum>(invalid_signatures, "Enum");
-  invalid_signatures.def("accept_unbound_type_defaulted", [](forgotten::Unbound){ return 0;}, py::arg("x")=forgotten::Unbound{});
-  invalid_signatures.def("accept_unbound_enum_defaulted", [](forgotten::Enum){ return 0;}, py::arg("x")=forgotten::Enum::ONE);
-
-  auto issues = m.def_submodule("issues");
-  issues.def("issue_51", [](int*, int*){}, R"docstring(
-
-    Use-case:
-        issue_51(os.get_handle_inheritable, os.set_handle_inheritable))docstring");
-
+  m.def(
+      "_stitch_images",
+      [](std::shared_ptr<hm::HmNona> nona,
+         py::array_t<uint8_t>& image1,
+         py::array_t<uint8_t>& image2) -> py::array_t<uint8_t> {
+        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
+        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        // First remap...
+        std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices;
+        std::unique_ptr<hm::MatrixRGB> result;
+        {
+          py::gil_scoped_release release_gil;
+          result_matrices = nona->remap_images(std::move(m1), std::move(m2));
+          // Then blend...
+          result = hm::enblend::enblend(
+              *result_matrices.at(0), *result_matrices.at(1));
+        }
+        return result->to_py_array();
+      });
 }
 
-static std::string get_python_string(PyObject *obj) {
+static std::string get_python_string(PyObject* obj) {
   std::string str;
-  PyObject *temp_bytes = PyUnicode_AsEncodedString(obj, "UTF-8", "strict");
+  PyObject* temp_bytes = PyUnicode_AsEncodedString(obj, "UTF-8", "strict");
   if (temp_bytes != NULL) {
-    const char *s = PyBytes_AS_STRING(temp_bytes);
+    const char* s = PyBytes_AS_STRING(temp_bytes);
     str = s;
     Py_DECREF(temp_bytes);
   }
@@ -169,19 +242,18 @@ static std::string get_python_string(PyObject *obj) {
 
 extern "C" int __py_bt() {
   int count = 0;
-  PyThreadState *tstate = PyThreadState_GET();
+  PyThreadState* tstate = PyThreadState_GET();
   if (NULL != tstate && NULL != tstate->frame) {
-    PyFrameObject *frame = tstate->frame;
+    PyFrameObject* frame = tstate->frame;
 
     printf("Python stack trace:\n");
     while (NULL != frame) {
-      // int line = frame->f_lineno;
       /*
        frame->f_lineno will not always return the correct line number
        you need to call PyCode_Addr2Line().
       */
       int line = PyCode_Addr2Line(frame->f_code, frame->f_lasti);
-      PyObject *temp_bytes = PyUnicode_AsEncodedString(
+      PyObject* temp_bytes = PyUnicode_AsEncodedString(
           frame->f_code->co_filename, "UTF-8", "strict");
       if (temp_bytes != NULL) {
         auto filename = get_python_string(frame->f_code->co_filename);

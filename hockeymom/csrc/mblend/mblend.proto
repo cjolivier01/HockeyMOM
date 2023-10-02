@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package hm.mblend.proto;
+
+message BlenderState {
+    string name = 1;
+}
+
+

@@ -1,10 +1,20 @@
 .idea
 *.pyc
+/*.log
+/*.tif
 /demos
-/h-demo
+/h-demo*
 # /models/*.pth
 /models/*.pt
+/.clangd
 /exp
 __pycache__
 /.cache
 /build
+/*.mov
+/*.aac
+pybind11_project_example.egg-info
+compile_commands.json
+/output_image.png
+hockeymom.egg-info
+stitched_output.avi
