@@ -132,7 +132,14 @@ def main():
     # video_left = "left-1-small.avi"
     # video_right = "right-1-small.avi"
 
-    stitch_videos(dir_name, video_left, video_right)
+    #lfo, rfo = stitch_videos(dir_name, video_left, video_right)
+
+    # lfo, rfo = 0, 91
+    # if lfo < 0:
+    #     copy_audio(
+    #         video_left, output_video_path, output_video_with_audio_path
+    #     )
+
 
 
 if __name__ == "__main__":
