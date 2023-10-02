@@ -3,7 +3,7 @@ Experiments in stitching
 """
 import os
 import time
-
+import cv2
 from pathlib import Path
 
 from lib.opts import opts
@@ -15,42 +15,43 @@ from lib.datasets.dataset.stitching import (
     StitchDataset,
     build_stitching_project,
     extract_frames,
+    configure_video_stitching,
 )
 
 
-def configure_video_stitching(
-    dir_name: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
-    project_file_name: str = "my_project.pto",
-)
-    lfo, rfo = synchronize_by_audio(
-        file0_path=os.path.join(dir_name, video_left),
-        file1_path=os.path.join(dir_name, video_right),
-        seconds=15,
-    )
+# def configure_video_stitching(
+#     dir_name: str,
+#     video_left: str = "left.mp4",
+#     video_right: str = "right.mp4",
+#     project_file_name: str = "my_project.pto",
+# )
+#     lfo, rfo = synchronize_by_audio(
+#         file0_path=os.path.join(dir_name, video_left),
+#         file1_path=os.path.join(dir_name, video_right),
+#         seconds=15,
+#     )
 
-    base_frame_offset = 800
+#     base_frame_offset = 800
 
-    left_image_file, right_image_file = extract_frames(
-        dir_name,
-        video_left,
-        base_frame_offset + lfo,
-        video_right,
-        base_frame_offset + rfo,
-    )
+#     left_image_file, right_image_file = extract_frames(
+#         dir_name,
+#         video_left,
+#         base_frame_offset + lfo,
+#         video_right,
+#         base_frame_offset + rfo,
+#     )
 
-    # PTO Project File
-    pto_project_file = os.path.join(dir_name, project_file_name)
+#     # PTO Project File
+#     pto_project_file = os.path.join(dir_name, project_file_name)
 
-    build_stitching_project(
-        pto_project_file, image_files=[left_image_file, right_image_file]
-    )
+#     build_stitching_project(
+#         pto_project_file, image_files=[left_image_file, right_image_file]
+#     )
 
-    pto_project_file, lfo, rfo = setup_stitching_project(
-        dir_name, video_left, video_right, project_file_name
-    )
-    return lfo, rfo
+#     pto_project_file, lfo, rfo = setup_stitching_project(
+#         dir_name, video_left, video_right, project_file_name
+#     )
+#     return lfo, rfo
 
 
 
@@ -87,7 +88,7 @@ def stitch_videos(
     #     pto_project_file, image_files=[left_image_file, right_image_file]
     # )
 
-    pto_project_file, lfo, rfo = setup_stitching_project(
+    pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name, video_left, video_right, project_file_name
     )
 
@@ -124,6 +125,12 @@ def stitch_videos(
         print(
             f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
         )
+
+
+def stitch_images(img1_path: str, img2_path:str):
+    img1 = cv2.imread(img1_path)
+    img2 = cv2.imread(img2_path)
+
 
 
 def main():
