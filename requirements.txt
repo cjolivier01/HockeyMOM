@@ -1,5 +1,6 @@
 numpy==1.23.5
 yacs
+moviepy
 opencv-python
 PyYAML
 cython-bbox
@@ -18,4 +19,6 @@ opencv-contrib-python
 cameratransform
 tifffile
 scikit-build
-.
+scikit-learn
+./external/fast_pytorch_kmeans
+

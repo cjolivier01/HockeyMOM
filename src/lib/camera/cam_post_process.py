@@ -57,6 +57,7 @@ BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
+        super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 
@@ -110,7 +111,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Useful for debugging a
         # particular section of video and being able to reach
         # that portiuon of the video more quickly
-        self.stop_at_frame = None
+        self.stop_at_frame = 0
         # self.stop_at_frame = 30*30
 
         # Make the image the same relative dimensions as the initial image,
