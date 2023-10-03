@@ -1,8 +1,8 @@
+#include "hockeymom/csrc/camera/CamProps.h"
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
-#include "hockeymom/csrc/camera/CamProps.h"
 
 #include <iostream>
 
@@ -48,30 +48,57 @@ PYBIND11_MODULE(_hockeymom, m) {
              sizeof(std::uint8_t)});
       });
 
-  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(m, "HMPostprocessConfig")
-       .def(py::init<>())
-       .def("to_string", &hm::HMPostprocessConfig::to_string)
-       .def_readwrite("show_image", &hm::HMPostprocessConfig::show_image)
-       .def_readwrite("plot_individual_player_tracking", &hm::HMPostprocessConfig::plot_individual_player_tracking)
-       .def_readwrite("plot_cluster_tracking", &hm::HMPostprocessConfig::plot_cluster_tracking)
-       .def_readwrite("plot_camera_tracking", &hm::HMPostprocessConfig::plot_camera_tracking)
-       .def_readwrite("plot_speed", &hm::HMPostprocessConfig::plot_speed)
-       .def_readwrite("max_in_aspec_ratio", &hm::HMPostprocessConfig::max_in_aspec_ratio)
-       .def_readwrite("no_max_in_aspec_ratio_at_edges", &hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
-       .def_readwrite("apply_fixed_edge_scaling", &hm::HMPostprocessConfig::apply_fixed_edge_scaling)
-       .def_readwrite("fixed_edge_scaling_factor", &hm::HMPostprocessConfig::fixed_edge_scaling_factor)
-       .def_readwrite("fixed_edge_rotation", &hm::HMPostprocessConfig::fixed_edge_rotation)
-       .def_readwrite("fixed_edge_rotation_angle", &hm::HMPostprocessConfig::fixed_edge_rotation_angle)
-       .def_readwrite("sticky_pan", &hm::HMPostprocessConfig::sticky_pan)
-       .def_readwrite("plot_sticky_camera", &hm::HMPostprocessConfig::plot_sticky_camera)
-       .def_readwrite("skip_frame_count", &hm::HMPostprocessConfig::skip_frame_count)
-       .def_readwrite("stop_at_frame", &hm::HMPostprocessConfig::stop_at_frame)
-       .def_readwrite("scale_to_original_image", &hm::HMPostprocessConfig::scale_to_original_image)
-       .def_readwrite("crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
-       .def_readwrite("fake_crop_output_image", &hm::HMPostprocessConfig::fake_crop_output_image)
-       .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
-       .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark)
-  ;
+  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(
+      m, "HMPostprocessConfig")
+      .def(py::init<>())
+      .def("to_string", &hm::HMPostprocessConfig::to_string)
+      .def_readwrite("show_image", &hm::HMPostprocessConfig::show_image)
+      .def_readwrite(
+          "plot_individual_player_tracking",
+          &hm::HMPostprocessConfig::plot_individual_player_tracking)
+      .def_readwrite(
+          "plot_cluster_tracking",
+          &hm::HMPostprocessConfig::plot_cluster_tracking)
+      .def_readwrite(
+          "plot_camera_tracking",
+          &hm::HMPostprocessConfig::plot_camera_tracking)
+      .def_readwrite("plot_speed", &hm::HMPostprocessConfig::plot_speed)
+      .def_readwrite(
+          "max_in_aspec_ratio", &hm::HMPostprocessConfig::max_in_aspec_ratio)
+      .def_readwrite(
+          "no_max_in_aspec_ratio_at_edges",
+          &hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
+      .def_readwrite(
+          "apply_fixed_edge_scaling",
+          &hm::HMPostprocessConfig::apply_fixed_edge_scaling)
+      .def_readwrite(
+          "fixed_edge_scaling_factor",
+          &hm::HMPostprocessConfig::fixed_edge_scaling_factor)
+      .def_readwrite(
+          "fixed_edge_rotation", &hm::HMPostprocessConfig::fixed_edge_rotation)
+      .def_readwrite(
+          "fixed_edge_rotation_angle",
+          &hm::HMPostprocessConfig::fixed_edge_rotation_angle)
+      .def_readwrite("sticky_pan", &hm::HMPostprocessConfig::sticky_pan)
+      .def_readwrite(
+          "plot_sticky_camera", &hm::HMPostprocessConfig::plot_sticky_camera)
+      .def_readwrite(
+          "skip_frame_count", &hm::HMPostprocessConfig::skip_frame_count)
+      .def_readwrite("stop_at_frame", &hm::HMPostprocessConfig::stop_at_frame)
+      .def_readwrite(
+          "scale_to_original_image",
+          &hm::HMPostprocessConfig::scale_to_original_image)
+      .def_readwrite(
+          "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
+      .def_readwrite(
+          "fake_crop_output_image",
+          &hm::HMPostprocessConfig::fake_crop_output_image)
+      .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
+      .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);
+
+  py::class_<hm::ImagePostProcessor, std::shared_ptr<hm::ImagePostProcessor>>(
+      m, "ImagePostProcessor")
+      .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>>());
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
@@ -130,9 +157,7 @@ PYBIND11_MODULE(_hockeymom, m) {
         assert(image2.ndim() == 3);
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
-        {
-          data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
-        }
+        { data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)}); }
         return frame_id;
       });
 

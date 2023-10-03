@@ -11,4 +11,8 @@ std::string HMPostprocessConfig::to_string() const {
   return ss.str();
 }
 
+ImagePostProcessor::ImagePostProcessor(
+    std::shared_ptr<HMPostprocessConfig> config)
+    : config_(std::move(config)) {}
+
 } // namespace hm

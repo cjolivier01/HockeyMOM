@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace hm {
@@ -102,12 +103,12 @@ struct HMPostprocessConfig {
   std::string to_string() const;
 };
 
-
 class ImagePostProcessor {
-  public:
-    ImagePostProcessor();
+ public:
+  ImagePostProcessor(std::shared_ptr<HMPostprocessConfig> config);
+
+ private:
+  std::shared_ptr<HMPostprocessConfig> config_;
 };
-
-
 
 } // namespace hm
