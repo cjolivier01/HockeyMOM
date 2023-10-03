@@ -82,10 +82,15 @@ def build_stitching_project(
     project_file_path: str,
     image_files=List[str],
     skip_if_exists: bool = True,
+    test_blend: bool = True,
     fov: int = 108,
 ):
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
+
+    if skip_if_exists and os.path.exists(project_file_path):
+        print(f"Project file already exists (skipping project creatio9n): {project_file_path}")
+        return True
 
     assert len(image_files) == 2
     left_image_file = image_files[0]
@@ -118,22 +123,23 @@ def build_stitching_project(
             project_file_path,
         ]
         os.system(" ".join(cmd))
-        cmd = [
-            "nona",
-            "-m",
-            "TIFF_m",
-            "-o",
-            os.path.join(dir_name, "my_project"),
-            project_file_path,
-        ]
-        os.system(" ".join(cmd))
-        cmd = [
-            "enblend",
-            "-o",
-            os.path.join(dir_name, "panorama.tif"),
-            os.path.join(dir_name, "my_project*.tif"),
-        ]
-        os.system(" ".join(cmd))
+        if test_blend:
+            cmd = [
+                "nona",
+                "-m",
+                "TIFF_m",
+                "-o",
+                project_file_path,
+                project_file_path,
+            ]
+            os.system(" ".join(cmd))
+            cmd = [
+                "enblend",
+                "-o",
+                os.path.join(dir_name, "panorama.tif"),
+                os.path.join(dir_name, "my_project*.tif"),
+            ]
+            os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
