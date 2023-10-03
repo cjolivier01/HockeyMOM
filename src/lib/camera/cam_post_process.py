@@ -55,7 +55,7 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = False
 
-class DefaultArguments(argparse.Namespace):
+class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING

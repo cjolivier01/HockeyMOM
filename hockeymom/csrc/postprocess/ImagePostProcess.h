@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-
+#include <string>
 
 namespace hm {
 
@@ -98,6 +98,8 @@ struct HMPostprocessConfig {
   // Draw watermark on the image
   bool use_watermark = true;
   // bool use_watermark = false;
+
+  std::string to_string() const;
 };
 
 

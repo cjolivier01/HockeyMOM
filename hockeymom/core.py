@@ -14,6 +14,7 @@ from ._hockeymom import (
 
 # Classes
 from ._hockeymom import (
+    HMPostprocessConfig,
     HmNona,
     StitchingDataLoader,
 )
