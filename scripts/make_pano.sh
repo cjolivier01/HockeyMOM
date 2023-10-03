@@ -15,4 +15,5 @@ autooptimiser -a -m -l -s -o my_project.pto my_project.pto
 nona -m TIFF_m -o my_project my_project.pto
 
 # Blend the images to create the panorama
-enblend -o panorama.tif my_project*.tif
+#enblend -o panorama.tif my_project*.tif
+/mnt/data/src/multiblend/src/multiblend -o panorama.tif my_project*.tif
