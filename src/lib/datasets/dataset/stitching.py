@@ -129,7 +129,7 @@ def build_stitching_project(
                 "-m",
                 "TIFF_m",
                 "-o",
-                project_file_path,
+                "nona_" + project_file_path,
                 project_file_path,
             ]
             os.system(" ".join(cmd))
