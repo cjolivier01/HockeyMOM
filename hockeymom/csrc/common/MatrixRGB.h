@@ -35,7 +35,8 @@ class __attribute__((visibility("default"))) MatrixImage {
   MatrixImage(
       py::array_t<uint8_t>& input_image,
       std::size_t xpos,
-      std::size_t ypos) {
+      std::size_t ypos,
+      bool copy_data = false) {
     // Check if the input is a 3D array with dtype uint8 (RGB image)
     if (input_image.ndim() != 3 ||
         !input_image.dtype().is(py::dtype::of<uint8_t>())) {
@@ -49,31 +50,37 @@ class __attribute__((visibility("default"))) MatrixImage {
     m_rows = py_buffer_info.shape[0];
     m_cols = py_buffer_info.shape[1];
     m_channels = py_buffer_info.shape[2];
-#if 0
-    std::size_t image_bytes = sizeof(std::uint8_t) * m_rows * m_cols * m_channels;
-    m_data = new std::uint8_t[image_bytes];
-    memcpy(m_data, py_buffer_info.ptr, image_bytes);
-    m_own_data = true;
-#else
-    m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
-    input_image.release();
-    m_own_data = true;
-#endif
+    if (copy_data) {
+      std::size_t image_bytes =
+          sizeof(std::uint8_t) * m_rows * m_cols * m_channels;
+      m_data = new std::uint8_t[image_bytes];
+      memcpy(m_data, py_buffer_info.ptr, image_bytes);
+      m_own_data = true;
+    } else {
+      m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
+      input_image.release();
+      m_own_data = true;
+    }
     m_xpos = xpos;
     m_ypos = ypos;
   }
-  MatrixImage(size_t rows, size_t cols, size_t channels) : m_rows(rows), m_cols(cols), m_channels(channels) {
+  MatrixImage(size_t rows, size_t cols, size_t channels)
+      : m_rows(rows), m_cols(cols), m_channels(channels) {
     m_data = new std::uint8_t[rows * cols * m_channels * kPixelSampleSize];
     m_own_data = true;
   }
-  MatrixImage(size_t rows, size_t cols, size_t channels, std::uint8_t* consume_data)
+  MatrixImage(
+      size_t rows,
+      size_t cols,
+      size_t channels,
+      std::uint8_t* consume_data)
       : m_rows(rows), m_cols(cols), m_channels(channels) {
     m_data = consume_data;
     m_own_data = true;
   }
   virtual ~MatrixImage() {
     if (m_data && m_own_data) {
-      delete [] m_data;
+      delete[] m_data;
     }
   }
   std::vector<std::size_t> xy_pos() const {
@@ -97,11 +104,11 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
   py::array_t<std::uint8_t> to_py_array() {
-
     auto capsule = py::capsule(m_data, [](void* data) {
-        delete[] reinterpret_cast<std::uint8_t*>(data);
+      assert(data);
+      delete[] reinterpret_cast<std::uint8_t*>(data);
     });
-
+    assert(m_data && m_own_data);
     py::array_t<std::uint8_t> result(
         {rows(),
          cols(),
@@ -110,7 +117,8 @@ class __attribute__((visibility("default"))) MatrixImage {
              cols() /* Strides (in bytes) for each index */,
          channels() * kPixelSampleSize,
          kPixelSampleSize},
-        m_data, std::move(capsule));
+        m_data,
+        std::move(capsule));
     m_own_data = false;
     m_data = nullptr;
     return result;
@@ -226,7 +234,8 @@ struct MatrixEncoder : public vigra::Encoder {
     }
   }
   std::unique_ptr<MatrixRGB> consume() {
-    auto matrix = std::make_unique<MatrixRGB>(height_, width_, CHANNELS, data_.release());
+    auto matrix =
+        std::make_unique<MatrixRGB>(height_, width_, CHANNELS, data_.release());
     matrix->set_xy_pos(position_.x, position_.y);
     return matrix;
   }

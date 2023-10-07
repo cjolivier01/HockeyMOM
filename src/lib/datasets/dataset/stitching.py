@@ -240,6 +240,7 @@ class StitchDataset:
         self._stitching_workers = {}
         # Temporary until we get the middle-man
         self._current_worker = 0
+        self._ordering_queue = core.SortedRGBImageQueue()
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -315,6 +316,9 @@ class StitchDataset:
             image_roi=self._image_roi,
         )
         return stitched_frame
+        # copy_data = True
+        # self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
+        # return self._ordering_queue.dequeue_key(self._current_frame)
 
     @staticmethod
     def prepare_frame_for_video(
@@ -349,6 +353,9 @@ class StitchDataset:
         else:
             assert status == "ok"
         stitched_frame = self._get_next_frame(self._current_frame)
+        # self._get_next_frame(self._current_frame)
+        # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+
         self._current_frame += 1
         self._maybe_write_output(stitched_frame)
         return stitched_frame

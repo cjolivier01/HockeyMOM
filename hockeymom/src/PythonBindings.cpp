@@ -119,8 +119,10 @@ PYBIND11_MODULE(_hockeymom, m) {
           "enqueue",
           [](const std::shared_ptr<SortedRGBImageQueue>& sq,
              std::size_t key,
-             py::array_t<std::uint8_t>& array) {
-            auto matrix = std::make_unique<hm::MatrixRGB>(array, 0, 0);
+             py::array_t<std::uint8_t>& array,
+             bool copy_data) {
+            auto matrix =
+                std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
             py::gil_scoped_release release;
             sq->enqueue(key, std::move(matrix));
           })
@@ -266,7 +268,7 @@ static std::string get_python_string(PyObject* obj) {
   return str;
 }
 
-extern "C" int __py_bt() {
+extern "C" __attribute__((visibility("default"))) int __py_bt() {
   int count = 0;
   PyThreadState* tstate = PyThreadState_GET();
   if (NULL != tstate && NULL != tstate->frame) {

@@ -17,6 +17,7 @@ from ._hockeymom import (
     HMPostprocessConfig,
     HmNona,
     StitchingDataLoader,
+    SortedRGBImageQueue,
 )
 
 # from ._hockeymom import  _enblend
