@@ -175,7 +175,9 @@ class __attribute__((visibility("default"))) MatrixImage {
 
   std::unique_ptr<vigra::BRGBImage> to_vigra_image() {
     // assert(base_image_size() == n_bytes());
-    assert(channels() == storage_channel_count());  // we dont handle stride-hidden alpha channel
+    assert(
+        channels() ==
+        storage_channel_count()); // we dont handle stride-hidden alpha channel
     if (channels() == 3) {
       const vigra::RGBValue<unsigned char>* rgb_data =
           reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
