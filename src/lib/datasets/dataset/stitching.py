@@ -48,6 +48,7 @@ class StitchDataset:
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
+        frame_step_count: int = 1,
     ):
         assert max_input_queue_size > 0
         assert num_workers > 0
@@ -72,8 +73,9 @@ class StitchDataset:
         self._image_roi = None
         self._fps = None
         self._auto_configure = auto_configure
+        self._frame_step_count = frame_step_count
         self._num_workers = num_workers
-        self._worker_number = -1
+        self._worker_number = 0
         if self._num_workers > 1:
             self._ordering_queue = core.SortedRGBImageQueue()
         else:
@@ -93,6 +95,18 @@ class StitchDataset:
             )
             self._video_1_offset_frame = lfo
             self._video_2_offset_frame = rfo
+
+    def _fork_worker(self, worker_number: int):
+        if os.fork():
+            return
+        assert not self._open
+        self._worker_number = worker_number
+        self._start_frame_number += worker_number
+        self._frame_step_count *= self._num_workers
+        self._open()
+        self.frame_feeder_worker(
+            max_frames=self._max_frames / self._num_workers, worker_number=worker_number
+        )
 
     def _open_videos(self):
         if self._auto_configure:
@@ -208,7 +222,7 @@ class StitchDataset:
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
             target=self.frame_feeder_worker,
-            args=(self._max_frames, 0),
+            args=(self._max_frames, self._worker_number),
         )
         self._feeder_thread.start()
         for i in range(self._max_input_queue_size):
@@ -217,14 +231,14 @@ class StitchDataset:
                 not self._max_frames
                 or req_frame < self._start_frame_number + self._max_frames
             ):
-                self._to_worker_queues[0].put(
+                self._to_worker_queues[self._worker_number].put(
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
 
     def _stop_feeder_thread(self):
         if self._feeder_thread is not None:
-            self._to_worker_queue.put(None)
+            self._to_worker_queues[self._worker_number].put(None)
             self._feeder_thread.join()
             self._feeder_thread = None
 
