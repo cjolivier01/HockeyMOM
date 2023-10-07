@@ -114,6 +114,10 @@ class StitchDataset:
             int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
             int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
         )
+        self._fps = self._video1.get(cv2.CAP_PROP_FPS)
+        self._open = True
+
+    def _create_dataloader(self):
         self._stitcher = core.StitchingDataLoader(
             0,
             self._pto_project_file,
@@ -121,9 +125,6 @@ class StitchDataset:
             self._remap_thread_count,
             self._blend_thread_count,
         )
-        self._fps = self._video1.get(cv2.CAP_PROP_FPS)
-        self._start_feeder_thread()
-        self._open = True
 
     @property
     def fps(self):
@@ -240,6 +241,8 @@ class StitchDataset:
     def __iter__(self):
         if not self._open:
             self._open_videos()
+            self._create_dataloader()
+            self._start_feeder_thread()
         return self
 
     def __next__(self):
