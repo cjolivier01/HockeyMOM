@@ -237,7 +237,7 @@ class StitchDataset:
         self._auto_configure = auto_configure
         self._stitching_worker = None
 
-    def create_stitching_worker(self):
+    def create_stitching_worker(self, start_frame_number: int, frame_stride_count: int):
         stitching_worker = StitchingWorker(
             video_file_1=self._video_file_1,
             video_file_2=self._video_file_2,
@@ -246,7 +246,7 @@ class StitchDataset:
             pto_project_file=self._pto_project_file,
             video_1_offset_frame=self._video_1_offset_frame,
             video_2_offset_frame=self._video_2_offset_frame,
-            start_frame_number=self._start_frame_number,
+            start_frame_number=start_frame_number,
             max_input_queue_size=self._max_input_queue_size,
             remap_thread_count=self._remap_thread_count,
             blend_thread_count=self._blend_thread_count,
@@ -323,7 +323,9 @@ class StitchDataset:
         if self._stitching_worker is None:
             self.initialize()
             # Opena nd close to validate existance as well as get some stats, such as fps
-            self._stitching_worker = self.create_stitching_worker()
+            self._stitching_worker = self.create_stitching_worker(
+                start_frame_number=self._start_frame_number, frame_stride_count=1
+            )
             self._fps = self._stitching_worker.fps
         return self
 
