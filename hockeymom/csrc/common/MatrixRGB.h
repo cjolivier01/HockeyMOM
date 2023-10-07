@@ -47,26 +47,33 @@ class __attribute__((visibility("default"))) MatrixImage {
     auto py_buffer_info = input_image.request();
 
     // Get the dimensions
-    m_rows = py_buffer_info.shape[0];
-    m_cols = py_buffer_info.shape[1];
-    m_channels = py_buffer_info.shape[2];
-    if (copy_data) {
+    rows_ = py_buffer_info.shape[0];
+    cols_ = py_buffer_info.shape[1];
+    channels_ = py_buffer_info.shape[2];
+    assert(!py_buffer_info.readonly); // ever read-only?
+    if (copy_data || py_buffer_info.readonly) {
       std::size_t image_bytes =
-          sizeof(std::uint8_t) * m_rows * m_cols * m_channels;
-      m_data = new std::uint8_t[image_bytes];
-      memcpy(m_data, py_buffer_info.ptr, image_bytes);
+          sizeof(std::uint8_t) * rows_ * cols_ * channels_;
+      data_ = new std::uint8_t[image_bytes];
+      memcpy(data_, py_buffer_info.ptr, image_bytes);
       m_own_data = true;
     } else {
-      m_data = static_cast<uint8_t*>(py_buffer_info.ptr);
+      data_ = static_cast<uint8_t*>(py_buffer_info.ptr);
       input_image.release();
       m_own_data = true;
     }
-    m_xpos = xpos;
-    m_ypos = ypos;
+    strides_ = {py_buffer_info.strides.begin(), py_buffer_info.strides.end()};
+    x_pos_ = xpos;
+    y_pos_ = ypos;
   }
   MatrixImage(size_t rows, size_t cols, size_t channels)
-      : m_rows(rows), m_cols(cols), m_channels(channels) {
-    m_data = new std::uint8_t[rows * cols * m_channels * kPixelSampleSize];
+      : rows_(rows), cols_(cols), channels_(channels) {
+    data_ = new std::uint8_t[rows * cols * channels_ * kPixelSampleSize];
+    strides_ = {
+        channels_ * kPixelSampleSize *
+            cols_ /* Strides (in bytes) for each index */,
+        channels_ * kPixelSampleSize,
+        kPixelSampleSize};
     m_own_data = true;
   }
   MatrixImage(
@@ -74,41 +81,73 @@ class __attribute__((visibility("default"))) MatrixImage {
       size_t cols,
       size_t channels,
       std::uint8_t* consume_data)
-      : m_rows(rows), m_cols(cols), m_channels(channels) {
-    m_data = consume_data;
+      : rows_(rows), cols_(cols), channels_(channels) {
+    data_ = consume_data;
     m_own_data = true;
+    strides_ = {
+        channels_ * kPixelSampleSize *
+            cols_ /* Strides (in bytes) for each index */,
+        channels_ * kPixelSampleSize,
+        kPixelSampleSize};
   }
   virtual ~MatrixImage() {
-    if (m_data && m_own_data) {
-      delete[] m_data;
+    if (data_ && m_own_data) {
+      delete[] data_;
     }
   }
   std::vector<std::size_t> xy_pos() const {
-    return {m_xpos, m_ypos};
+    return {x_pos_, y_pos_};
   }
   void set_xy_pos(std::size_t xpos, std::size_t ypos) {
-    m_xpos = xpos;
-    m_ypos = ypos;
+    x_pos_ = xpos;
+    y_pos_ = ypos;
   }
   constexpr std::uint8_t* data() {
-    return m_data;
+    return data_;
   }
   constexpr size_t rows() const {
-    return m_rows;
+    return rows_;
   }
   constexpr size_t cols() const {
-    return m_cols;
+    return cols_;
   }
   constexpr size_t channels() {
-    return m_channels;
+    return channels_;
   }
 
+  std::size_t storage_channel_count() const {
+    return strides_.empty() ? channels_ : std::max(channels_, strides_.at(1));
+  }
+
+  std::size_t n_bytes() const {
+    // strides may be 4 in the channel
+    assert(strides_.empty() || strides_.size() == 3);
+    std::size_t num_channels = storage_channel_count();
+    return rows_ * cols_ * num_channels;
+    // assert(!strides_.empty());
+    // std::size_t n = kPixelSampleSize;
+    // for (const auto i : strides_) {
+    //   n *= i;
+    // }
+    // // It may be skipping the alpha channel, but it at least needs to be the
+    // // size of the base image
+    // std::size_t bis = base_image_size();
+    // assert(n >= bis);
+    // return n;
+  }
+
+  // constexpr std::size_t base_image_size() const {
+  //   return rows_ * cols_ * channels_ * kPixelSampleSize;
+  // }
+
   py::array_t<std::uint8_t> to_py_array() {
-    auto capsule = py::capsule(m_data, [](void* data) {
+    auto capsule = py::capsule(data_, [](void* data) {
       assert(data);
       delete[] reinterpret_cast<std::uint8_t*>(data);
     });
-    assert(m_data && m_own_data);
+    assert(data_ && m_own_data);
+    assert(!strides_.empty());
+
     py::array_t<std::uint8_t> result(
         {rows(),
          cols(),
@@ -117,14 +156,23 @@ class __attribute__((visibility("default"))) MatrixImage {
              cols() /* Strides (in bytes) for each index */,
          channels() * kPixelSampleSize,
          kPixelSampleSize},
-        m_data,
+        data_,
         std::move(capsule));
+
+    // py::array_t<std::uint8_t> result(
+    //     {rows(),
+    //      cols(),
+    //      channels() * kPixelSampleSize} /* total buffer size in bytes */,
+    //     std::vector<long>{strides_.begin(), strides_.end()},
+    //     data_,
+    //     std::move(capsule));
     m_own_data = false;
-    m_data = nullptr;
+    data_ = nullptr;
     return result;
   }
 
   std::unique_ptr<vigra::BRGBImage> to_vigra_image() {
+    // assert(base_image_size() == n_bytes());
     if (channels() == 3) {
       const vigra::RGBValue<unsigned char>* rgb_data =
           reinterpret_cast<vigra::RGBValue<unsigned char>*>(data());
@@ -139,12 +187,17 @@ class __attribute__((visibility("default"))) MatrixImage {
     }
   }
 
+  constexpr const std::vector<std::size_t>& strides() const {
+    return strides_;
+  }
+
  private:
   bool m_own_data{false};
-  size_t m_rows{0}, m_cols{0}, m_channels{0};
-  std::uint8_t* m_data;
-  std::size_t m_xpos{0};
-  std::size_t m_ypos{0};
+  size_t rows_{0}, cols_{0}, channels_{0};
+  std::vector<std::size_t> strides_;
+  std::uint8_t* data_;
+  std::size_t x_pos_{0};
+  std::size_t y_pos_{0};
 };
 
 using MatrixRGB = MatrixImage;

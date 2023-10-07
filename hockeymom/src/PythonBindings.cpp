@@ -116,19 +116,36 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "SortedRGBImageQueue")
       .def(py::init<>())
       .def(
+          "identity",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             py::array_t<std::uint8_t>& array,
+             bool copy_data) -> py::array_t<std::uint8_t> {
+            auto matrix =
+                std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
+            {
+              // Unlock the GIL in order to let python muck with the input array
+              // if it wants to
+              py::gil_scoped_release release;
+            }
+            return matrix->to_py_array();
+          })
+      .def(
           "enqueue",
           [](const std::shared_ptr<SortedRGBImageQueue>& sq,
              std::size_t key,
              py::array_t<std::uint8_t>& array,
-             bool copy_data) {
+             bool copy_data) -> void {
             auto matrix =
                 std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
-            py::gil_scoped_release release;
-            sq->enqueue(key, std::move(matrix));
+            {
+              py::gil_scoped_release release;
+              sq->enqueue(key, std::move(matrix));
+            }
           })
       .def(
           "dequeue_key",
-          [](const std::shared_ptr<SortedRGBImageQueue>& sq, std::size_t key) {
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             std::size_t key) -> py::array_t<std::uint8_t> {
             std::unique_ptr<hm::MatrixRGB> matrix;
             {
               py::gil_scoped_release release;
