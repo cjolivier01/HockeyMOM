@@ -311,14 +311,20 @@ class StitchDataset:
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
 
+
+        copy_data = False
+        self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
+        stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+
+        #stitched_frame = self._ordering_queue.identity(stitched_frame, True)
+
+        # Code doesn't handle strides channbels efficiently
         stitched_frame = self.prepare_frame_for_video(
             stitched_frame,
             image_roi=self._image_roi,
         )
+
         return stitched_frame
-        # copy_data = True
-        # self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
-        # return self._ordering_queue.dequeue_key(self._current_frame)
 
     @staticmethod
     def prepare_frame_for_video(

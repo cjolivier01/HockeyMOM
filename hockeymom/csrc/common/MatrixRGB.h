@@ -53,9 +53,11 @@ class __attribute__((visibility("default"))) MatrixImage {
     strides_ = {py_buffer_info.strides.begin(), py_buffer_info.strides.end()};
     x_pos_ = xpos;
     y_pos_ = ypos;
-
-    assert(!py_buffer_info.readonly); // ever read-only?
-    if (copy_data || py_buffer_info.readonly) {
+    // need to fiogure out how to get the proper byte size
+    assert(storage_channel_count() == channels());
+    // Is it ever read-only?
+    assert(!py_buffer_info.readonly);
+    if (false && (copy_data || py_buffer_info.readonly)) {
       std::size_t image_bytes =
           sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
       std::cout << "image_bytes=" << image_bytes << std::endl;
@@ -68,6 +70,7 @@ class __attribute__((visibility("default"))) MatrixImage {
       m_own_data = true;
     }
   }
+
   MatrixImage(size_t rows, size_t cols, size_t channels)
       : rows_(rows), cols_(cols), channels_(channels) {
     data_ = new std::uint8_t[rows * cols * channels_ * kPixelSampleSize];
@@ -78,6 +81,7 @@ class __attribute__((visibility("default"))) MatrixImage {
         kPixelSampleSize};
     m_own_data = true;
   }
+
   MatrixImage(
       size_t rows,
       size_t cols,
@@ -121,27 +125,6 @@ class __attribute__((visibility("default"))) MatrixImage {
     return strides_.empty() ? channels_ : std::max(channels_, strides_.at(1));
   }
 
-  std::size_t n_bytes() const {
-    // strides may be 4 in the channel
-    assert(strides_.empty() || strides_.size() == 3);
-    std::size_t num_channels = storage_channel_count();
-    return rows_ * cols_ * num_channels;
-    // assert(!strides_.empty());
-    // std::size_t n = kPixelSampleSize;
-    // for (const auto i : strides_) {
-    //   n *= i;
-    // }
-    // // It may be skipping the alpha channel, but it at least needs to be the
-    // // size of the base image
-    // std::size_t bis = base_image_size();
-    // assert(n >= bis);
-    // return n;
-  }
-
-  // constexpr std::size_t base_image_size() const {
-  //   return rows_ * cols_ * channels_ * kPixelSampleSize;
-  // }
-
   py::array_t<std::uint8_t> to_py_array() {
     auto capsule = py::capsule(data_, [](void* data) {
       assert(data);
@@ -149,17 +132,6 @@ class __attribute__((visibility("default"))) MatrixImage {
     });
     assert(data_ && m_own_data);
     assert(!strides_.empty());
-
-    // py::array_t<std::uint8_t> result(
-    //     {rows(),
-    //      cols(),
-    //      channels() * kPixelSampleSize} /* total buffer size in bytes */,
-    //     {channels() * kPixelSampleSize *
-    //          cols() /* Strides (in bytes) for each index */,
-    //      channels() * kPixelSampleSize,
-    //      kPixelSampleSize},
-    //     data_,
-    //     std::move(capsule));
 
     py::array_t<std::uint8_t> result(
         {rows(),
@@ -174,7 +146,6 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
   std::unique_ptr<vigra::BRGBImage> to_vigra_image() {
-    // assert(base_image_size() == n_bytes());
     assert(
         channels() ==
         storage_channel_count()); // we dont handle stride-hidden alpha channel
