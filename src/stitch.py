@@ -10,12 +10,16 @@ from lib.opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger
-from lib.stitch_synchronize import synchronize_by_audio
+#from lib.tiff import print_geotiff_info
+from lib.stitch_synchronize import (
+    # synchronize_by_audio,
+    # build_stitching_project,
+    # extract_frames,
+    configure_video_stitching
+)
+
 from lib.datasets.dataset.stitching import (
     StitchDataset,
-    build_stitching_project,
-    extract_frames,
-    configure_video_stitching,
 )
 
 
@@ -191,10 +195,10 @@ def stitch_images(img1_path: str, img2_path: str):
 
 
 def main():
-    stitch_images(
-        "/mnt/data/Videos/vacaville/my_project0000.tif",
-        "/mnt/data/Videos/vacaville/my_project0001.tif",
-    )
+    # stitch_images(
+    #     "/mnt/data/Videos/vacaville/my_project0000.tif",
+    #     "/mnt/data/Videos/vacaville/my_project0001.tif",
+    # )
 
     # dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
     # video_left = "left-1.mp4"
@@ -209,6 +213,7 @@ def main():
     #     copy_audio(
     #         video_left, output_video_path, output_video_with_audio_path
     #     )
+    pass
 
 
 if __name__ == "__main__":

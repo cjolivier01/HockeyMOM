@@ -2,11 +2,11 @@
 Experiments in stitching
 """
 import os
-import sys
-import torch
-import torch.nn as nn
-import numpy as np
-import time
+#import sys
+#import torch
+#import torch.nn as nn
+#import numpy as np
+#import time
 import cv2
 import threading
 import multiprocessing
@@ -14,188 +14,192 @@ import multiprocessing
 from typing import List
 
 from pathlib import Path
-from torch.utils.data import IterableDataset, DataLoader
-import tifffile
+#from torch.utils.data import IterableDataset, DataLoader
+#import tifffile
 
 from hockeymom import core
 
 from lib.tracking_utils import visualization as vis
 from lib.ffmpeg import extract_frame_image
-from lib.stitch_synchronize import synchronize_by_audio
+from lib.stitch_synchronize import (
+    configure_video_stitching,
+)
 
 
-def get_tiff_tag_value(tiff_tag):
-    if len(tiff_tag.value) == 1:
-        return tiff_tag.value
-    assert len(tiff_tag.value) == 2
-    numerator, denominator = tiff_tag.value
-    return float(numerator) / denominator
+# def get_tiff_tag_value(tiff_tag):
+#     if len(tiff_tag.value) == 1:
+#         return tiff_tag.value
+#     assert len(tiff_tag.value) == 2
+#     numerator, denominator = tiff_tag.value
+#     return float(numerator) / denominator
 
 
-def get_image_geo_position(tiff_image_file: str):
-    xpos, ypos = 0, 0
-    with tifffile.TiffFile(tiff_image_file) as tif:
-        tags = tif.pages[0].tags
-        # Access the TIFFTAG_XPOSITION
-        x_position = get_tiff_tag_value(tags.get("XPosition"))
-        y_position = get_tiff_tag_value(tags.get("YPosition"))
-        x_resolution = get_tiff_tag_value(tags.get("XResolution"))
-        y_resolution = get_tiff_tag_value(tags.get("YResolution"))
-        xpos = int(x_position * x_resolution + 0.5)
-        ypos = int(y_position * y_resolution + 0.5)
-        print(f"x={xpos}, y={ypos}")
-    return xpos, ypos
+# def get_image_geo_position(tiff_image_file: str):
+#     xpos, ypos = 0, 0
+#     with tifffile.TiffFile(tiff_image_file) as tif:
+#         tags = tif.pages[0].tags
+#         # Access the TIFFTAG_XPOSITION
+#         x_position = get_tiff_tag_value(tags.get("XPosition"))
+#         y_position = get_tiff_tag_value(tags.get("YPosition"))
+#         x_resolution = get_tiff_tag_value(tags.get("XResolution"))
+#         y_resolution = get_tiff_tag_value(tags.get("YResolution"))
+#         xpos = int(x_position * x_resolution + 0.5)
+#         ypos = int(y_position * y_resolution + 0.5)
+#         print(f"x={xpos}, y={ypos}")
+#     return xpos, ypos
 
 
-def extract_frames(
-    dir_name: str,
-    video_left: str,
-    left_frame_number: int,
-    video_right: str,
-    right_frame_number: int = 10,
-):
-    file_name_without_extension, _ = os.path.splitext(video_left)
-    left_output_image_file = os.path.join(
-        dir_name, file_name_without_extension + ".png"
-    )
+# def extract_frames(
+#     dir_name: str,
+#     video_left: str,
+#     left_frame_number: int,
+#     video_right: str,
+#     right_frame_number: int = 10,
+# ):
+#     file_name_without_extension, _ = os.path.splitext(video_left)
+#     left_output_image_file = os.path.join(
+#         dir_name, file_name_without_extension + ".png"
+#     )
 
-    file_name_without_extension, _ = os.path.splitext(video_right)
-    right_output_image_file = os.path.join(
-        dir_name, file_name_without_extension + ".png"
-    )
+#     file_name_without_extension, _ = os.path.splitext(video_right)
+#     right_output_image_file = os.path.join(
+#         dir_name, file_name_without_extension + ".png"
+#     )
 
-    extract_frame_image(
-        os.path.join(dir_name, video_left),
-        frame_number=left_frame_number,
-        dest_image=left_output_image_file,
-    )
-    extract_frame_image(
-        os.path.join(dir_name, video_right),
-        frame_number=right_frame_number,
-        dest_image=right_output_image_file,
-    )
+#     extract_frame_image(
+#         os.path.join(dir_name, video_left),
+#         frame_number=left_frame_number,
+#         dest_image=left_output_image_file,
+#     )
+#     extract_frame_image(
+#         os.path.join(dir_name, video_right),
+#         frame_number=right_frame_number,
+#         dest_image=right_output_image_file,
+#     )
 
-    return left_output_image_file, right_output_image_file
-
-
-def build_stitching_project(
-    project_file_path: str,
-    image_files=List[str],
-    skip_if_exists: bool = True,
-    test_blend: bool = True,
-    fov: int = 108,
-):
-    pto_path = Path(project_file_path)
-    dir_name = pto_path.parent
-
-    if skip_if_exists and os.path.exists(project_file_path):
-        print(f"Project file already exists (skipping project creatio9n): {project_file_path}")
-        return True
-
-    assert len(image_files) == 2
-    left_image_file = image_files[0]
-    right_image_file = image_files[1]
-
-    curr_dir = os.getcwd()
-    try:
-        os.chdir(dir_name)
-        cmd = [
-            "pto_gen",
-            "-o",
-            project_file_path,
-            "-f",
-            str(fov),
-            left_image_file,
-            right_image_file,
-        ]
-        cmd_str = " ".join(cmd)
-        os.system(cmd_str)
-        cmd = ["cpfind", "--linearmatch", project_file_path, "-o", project_file_path]
-        os.system(" ".join(cmd))
-        cmd = [
-            "autooptimiser",
-            "-a",
-            "-m",
-            "-l",
-            "-s",
-            "-o",
-            project_file_path,
-            project_file_path,
-        ]
-        os.system(" ".join(cmd))
-        if test_blend:
-            cmd = [
-                "nona",
-                "-m",
-                "TIFF_m",
-                "-o",
-                "nona_" + project_file_path,
-                project_file_path,
-            ]
-            os.system(" ".join(cmd))
-            cmd = [
-                "enblend",
-                "-o",
-                os.path.join(dir_name, "panorama.tif"),
-                os.path.join(dir_name, "my_project*.tif"),
-            ]
-            os.system(" ".join(cmd))
-    finally:
-        os.chdir(curr_dir)
-    return True
+#     return left_output_image_file, right_output_image_file
 
 
-def configure_video_stitching(
-    dir_name: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
-    project_file_name: str = "my_project.pto",
-    base_frame_offset: int = 800,
-    audio_sync_seconds: int = 15,
-):
-    lfo, rfo = synchronize_by_audio(
-        file0_path=os.path.join(dir_name, video_left),
-        file1_path=os.path.join(dir_name, video_right),
-        seconds=audio_sync_seconds,
-    )
+# def build_stitching_project(
+#     project_file_path: str,
+#     image_files=List[str],
+#     skip_if_exists: bool = True,
+#     test_blend: bool = True,
+#     fov: int = 108,
+# ):
+#     pto_path = Path(project_file_path)
+#     dir_name = pto_path.parent
 
-    left_image_file, right_image_file = extract_frames(
-        dir_name,
-        video_left,
-        base_frame_offset + lfo,
-        video_right,
-        base_frame_offset + rfo,
-    )
+#     if skip_if_exists and os.path.exists(project_file_path):
+#         print(f"Project file already exists (skipping project creatio9n): {project_file_path}")
+#         return True
 
-    # PTO Project File
-    pto_project_file = os.path.join(dir_name, project_file_name)
+#     assert len(image_files) == 2
+#     left_image_file = image_files[0]
+#     right_image_file = image_files[1]
 
-    build_stitching_project(
-        pto_project_file, image_files=[left_image_file, right_image_file]
-    )
+#     curr_dir = os.getcwd()
+#     try:
+#         os.chdir(dir_name)
+#         cmd = [
+#             "pto_gen",
+#             "-o",
+#             project_file_path,
+#             "-f",
+#             str(fov),
+#             left_image_file,
+#             right_image_file,
+#         ]
+#         cmd_str = " ".join(cmd)
+#         os.system(cmd_str)
+#         cmd = ["cpfind", "--linearmatch", project_file_path, "-o", project_file_path]
+#         os.system(" ".join(cmd))
+#         cmd = [
+#             "autooptimiser",
+#             "-a",
+#             "-m",
+#             "-l",
+#             "-s",
+#             "-o",
+#             project_file_path,
+#             project_file_path,
+#         ]
+#         os.system(" ".join(cmd))
+#         if test_blend:
+#             cmd = [
+#                 "nona",
+#                 "-m",
+#                 "TIFF_m",
+#                 "-o",
+#                 "nona_" + project_file_path,
+#                 project_file_path,
+#             ]
+#             os.system(" ".join(cmd))
+#             cmd = [
+#                 "enblend",
+#                 "-o",
+#                 os.path.join(dir_name, "panorama.tif"),
+#                 os.path.join(dir_name, "my_project*.tif"),
+#             ]
+#             os.system(" ".join(cmd))
+#     finally:
+#         os.chdir(curr_dir)
+#     return True
 
-    return pto_project_file, lfo, rfo
+
+# def configure_video_stitching(
+#     dir_name: str,
+#     video_left: str = "left.mp4",
+#     video_right: str = "right.mp4",
+#     project_file_name: str = "my_project.pto",
+#     base_frame_offset: int = 800,
+#     audio_sync_seconds: int = 15,
+# ):
+#     lfo, rfo = synchronize_by_audio(
+#         file0_path=os.path.join(dir_name, video_left),
+#         file1_path=os.path.join(dir_name, video_right),
+#         seconds=audio_sync_seconds,
+#     )
+
+#     left_image_file, right_image_file = extract_frames(
+#         dir_name,
+#         video_left,
+#         base_frame_offset + lfo,
+#         video_right,
+#         base_frame_offset + rfo,
+#     )
+
+#     # PTO Project File
+#     pto_project_file = os.path.join(dir_name, project_file_name)
+
+#     build_stitching_project(
+#         pto_project_file, image_files=[left_image_file, right_image_file]
+#     )
+
+#     return pto_project_file, lfo, rfo
+
+
+
+
+# def find_sitched_roi(image):
+#     w = image.shape[1]
+#     h = image.shape[0]
+
+#     minus_w = int(w / 18)
+#     minus_h = int(h / 15)
+#     roi = [
+#         minus_w,
+#         int(minus_h * 1.5),
+#         image.shape[1] - minus_w,
+#         image.shape[0] - minus_h,
+#     ]
+#     return roi
 
 
 def get_dir_name(path):
     if os.path.isdir(path):
         return path
     return Path(path).parent
-
-
-def find_roi(image):
-    w = image.shape[1]
-    h = image.shape[0]
-
-    minus_w = int(w / 18)
-    minus_h = int(h / 15)
-    roi = [
-        minus_w,
-        int(minus_h * 1.5),
-        image.shape[1] - minus_w,
-        image.shape[0] - minus_h,
-    ]
-    return roi
 
 
 class FrameRequest:
@@ -338,7 +342,7 @@ class StitchDataset:
         if stitched_frame is None:
             raise StopIteration
         if self._image_roi is None:
-            self._image_roi = find_roi(stitched_frame)
+            self._image_roi = find_sitched_roi(stitched_frame)
 
         stitched_frame = self.prepare_frame_for_video(
             stitched_frame,

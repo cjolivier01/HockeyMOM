@@ -33,6 +33,7 @@ from tracking_utils import visualization as vis
 from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 from tracking_utils.evaluation import Evaluator
+from tracking_utils.io import write_results, read_results
 import datasets.dataset.jde as datasets
 
 from tracking_utils.utils import mkdir_if_missing
@@ -41,28 +42,28 @@ from opts import opts
 from camera.camera import HockeyMOM
 from camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
 
-def write_results(filename, results, data_type):
-    if data_type == "mot":
-        save_format = "{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n"
-    elif data_type == "kitti":
-        save_format = "{frame} {id} pedestrian 0 0 -10 {x1} {y1} {x2} {y2} -10 -10 -10 -1000 -1000 -1000 -10\n"
-    else:
-        raise ValueError(data_type)
+# def write_results(filename, results, data_type):
+#     if data_type == "mot":
+#         save_format = "{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n"
+#     elif data_type == "kitti":
+#         save_format = "{frame} {id} pedestrian 0 0 -10 {x1} {y1} {x2} {y2} -10 -10 -10 -1000 -1000 -1000 -10\n"
+#     else:
+#         raise ValueError(data_type)
 
-    with open(filename, "w") as f:
-        for frame_id, tlwhs, track_ids in results:
-            if data_type == "kitti":
-                frame_id -= 1
-            for tlwh, track_id in zip(tlwhs, track_ids):
-                if track_id < 0:
-                    continue
-                x1, y1, w, h = tlwh
-                x2, y2 = x1 + w, y1 + h
-                line = save_format.format(
-                    frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h
-                )
-                f.write(line)
-    logger.info("save results to {}".format(filename))
+#     with open(filename, "w") as f:
+#         for frame_id, tlwhs, track_ids in results:
+#             if data_type == "kitti":
+#                 frame_id -= 1
+#             for tlwh, track_id in zip(tlwhs, track_ids):
+#                 if track_id < 0:
+#                     continue
+#                 x1, y1, w, h = tlwh
+#                 x2, y2 = x1 + w, y1 + h
+#                 line = save_format.format(
+#                     frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h
+#                 )
+#                 f.write(line)
+#     logger.info("save results to {}".format(filename))
 
 
 def write_results_score(filename, results, data_type):

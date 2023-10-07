@@ -4,7 +4,7 @@ import math
 import cv2
 from typing import List, Tuple
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 
 
