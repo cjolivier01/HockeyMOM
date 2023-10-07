@@ -37,13 +37,14 @@ class __attribute__((visibility("default"))) MatrixImage {
       std::size_t xpos,
       std::size_t ypos,
       bool copy_data = false) {
+    // Access the data and information from the NumPy array
+    std::size_t ndims = input_image.ndim();
+    auto dtype = input_image.dtype();
     // Check if the input is a 3D array with dtype uint8 (RGB image)
-    if (input_image.ndim() != 3 ||
-        !input_image.dtype().is(py::dtype::of<uint8_t>())) {
+    if (ndims != 3 || !dtype.is(py::dtype::of<uint8_t>())) {
       throw std::runtime_error("Input must be a 3D uint8 RGB image array");
     }
 
-    // Access the data and information from the NumPy array
     auto py_buffer_info = input_image.request();
 
     // Get the dimensions

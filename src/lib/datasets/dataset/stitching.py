@@ -47,8 +47,8 @@ class StitchingWorker:
         self,
         video_file_1: str,
         video_file_2: str,
-        to_worker_queue: multiprocessing.Queue,
-        from_worker_queue: multiprocessing.Queue,
+        # to_worker_queue: multiprocessing.Queue,
+        # from_worker_queue: multiprocessing.Queue,
         pto_project_file: str = None,
         video_1_offset_frame: int = None,
         video_2_offset_frame: int = None,
@@ -71,8 +71,12 @@ class StitchingWorker:
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._max_frames = max_frames
-        self._to_worker_queue = to_worker_queue
-        self._from_worker_queue = from_worker_queue
+        self._to_worker_queue = multiprocessing.Queue()
+        self._from_worker_queue = multiprocessing.Queue()
+        # self._to_worker_queue = to_worker_queue
+        # self._from_worker_queue = from_worker_queue
+        self._image_request_queue = multiprocessing.Queue()
+        self._image_response_queue = multiprocessing.Queue()
         self._frame_stride_count = frame_stride_count
         self._open = False
         self._last_requested_frame = None
@@ -80,6 +84,20 @@ class StitchingWorker:
         self._image_roi = None
         self._fps = None
         self._open_videos()
+
+    def put(self, item):
+        self._to_worker_queue.put(item)
+
+    def get(self):
+        self._from_worker_queue.get()
+
+    def request_image(self, frame_id: int):
+        self._image_request_queue.put(frame_id)
+
+    def receive_image(self, frame_id):
+        fid, image = self._image_response_queue.get()
+        assert fid == frame_id
+        return image
 
     def _open_videos(self):
         self._video1 = cv2.VideoCapture(self._video_file_1)
@@ -114,6 +132,7 @@ class StitchingWorker:
         return self._fps
 
     def close(self):
+        self._stop_child_threads()
         self._video1.release()
         self._video2.release()
         if self._output_video is not None:
@@ -126,6 +145,7 @@ class StitchingWorker:
         frame_request = self._to_worker_queue.get()
         if frame_request is None:
             raise StopIteration
+        self._last_requested_frame += self._frame_stride_count
         frame_id = frame_request.frame_id
         frame_id = int(frame_id)
         ret1, img1 = self._video1.read()
@@ -147,6 +167,18 @@ class StitchingWorker:
             raise StopIteration
         return stitched_frame
 
+    def external_get_frame(self, frame_id: int):
+        self.request_image(frame_id=frame_id)
+        return self.receive_image(frame_id=frame_id)
+
+    def _image_getter_worker(self):
+        while True:
+            frame_id = self._image_request_queue.get()
+            if frame_id is None:
+                break
+            stitched_image = self._get_next_frame(frame_id=frame_id)
+            self._image_response_queue.put((frame_id, stitched_image))
+
     def _frame_feeder_worker(
         self,
         max_frames: int,
@@ -167,6 +199,13 @@ class StitchingWorker:
             args=(self._max_frames,),
         )
         self._feeder_thread.start()
+
+        self._image_getter_thread = threading.Thread(
+            target=self._image_getter_worker,
+            args=(),
+        )
+        self._image_getter_thread.start()
+
         for i in range(self._max_input_queue_size):
             req_frame = self._start_frame_number + (i * self._frame_stride_count)
             if (
@@ -178,11 +217,15 @@ class StitchingWorker:
                 )
                 self._last_requested_frame = req_frame
 
-    def _stop_feeder_thread(self):
+    def _stop_child_threads(self):
         if self._feeder_thread is not None:
             self._to_worker_queue.put(None)
             self._feeder_thread.join()
             self._feeder_thread = None
+        if self._image_getter_thread is not None:
+            self._image_request_queue.put(None)
+            self._image_getter_thread.join()
+            self._image_getter_thread = None
 
     def request_next_frame(self):
         self._last_requested_frame += self._frame_stride_count
@@ -230,8 +273,10 @@ class StitchDataset:
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._max_frames = max_frames
-        self._to_worker_queue = multiprocessing.Queue()
-        self._from_worker_queue = multiprocessing.Queue()
+        # self._to_worker_queue = multiprocessing.Queue()
+        # self._from_worker_queue = multiprocessing.Queue()
+        self._to_coordinator_queue = multiprocessing.Queue()
+        self._from_coordinator_queue = multiprocessing.Queue()
         self._current_frame = start_frame_number
         self._image_roi = None
         self._fps = None
@@ -241,6 +286,7 @@ class StitchDataset:
         # Temporary until we get the middle-man
         self._current_worker = 0
         self._ordering_queue = core.SortedRGBImageQueue()
+        self._coordinator_thread = None
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -249,8 +295,8 @@ class StitchDataset:
         stitching_worker = StitchingWorker(
             video_file_1=self._video_file_1,
             video_file_2=self._video_file_2,
-            to_worker_queue=self._to_worker_queue,
-            from_worker_queue=self._from_worker_queue,
+            # to_worker_queue=self._to_worker_queue,
+            # from_worker_queue=self._from_worker_queue,
             pto_project_file=self._pto_project_file,
             video_1_offset_frame=self._video_1_offset_frame,
             video_2_offset_frame=self._video_2_offset_frame,
@@ -282,6 +328,7 @@ class StitchDataset:
     def close(self):
         for stitching_worker in self._stitching_workers.values():
             stitching_worker.close()
+        self._stop_coordinator_thread()
         self._stitching_workers.clear()
 
     def _maybe_write_output(self, output_img):
@@ -303,18 +350,43 @@ class StitchDataset:
             self._output_video.write(output_img)
 
     def _prepare_next_frame(self, frame_id: int):
-        stitched_frame = self._stitching_workers[self._current_worker]._get_next_frame(
-            frame_id
-        )
-        self._stitching_workers[self._current_worker].request_next_frame()
+        stitching_worker = self._stitching_workers[self._current_worker]
+        # stitched_frame = stitching_worker._get_next_frame(
+        #     frame_id
+        # )
+        stitching_worker.request_image(frame_id=frame_id)
+        stitched_frame = stitching_worker.receive_image(frame_id=frame_id)
+
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
 
-        copy_data = False
+        copy_data = True
+        print(f"Localling enqueing frame {frame_id}")
+        #stitched_frame = stitched_frame.copy()
         self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
 
-        return stitched_frame
+        # return stitched_frame
+
+    def _start_coordinator_thread(self):
+        assert self._coordinator_thread is None
+        self._coordinator_thread = threading.Thread(
+            target=self._coordinator_thread_worker,
+            args=(self._max_frames,),
+        )
+
+    def _stop_coordinator_thread(self):
+        if self._coordinator_thread is not None:
+            self._to_coordinator_queue.put("stop")
+            self._coordinator_thread.join()
+            self._coordinator_thread = None
+
+    def _coordinator_thread_worker(self):
+        while True:
+            command = self._to_coordinator_queue.get()
+            if command == "stop":
+                break
+        self._from_coordinator_queue.put(StopIteration())
 
     @staticmethod
     def prepare_frame_for_video(
@@ -340,10 +412,12 @@ class StitchDataset:
                     frame_stride_count=self._num_workers,
                 )
             self._fps = self._stitching_workers[0].fps
+            self._start_coordinator_thread()
+            self._prepare_next_frame(self._current_frame)
         return self
 
     def __next__(self):
-        status = self._from_worker_queue.get()
+        status = self._from_coordinator_queue.get()
         if isinstance(status, Exception):
             raise status
         else:
