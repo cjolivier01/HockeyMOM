@@ -3,10 +3,12 @@ import moviepy.editor as mp
 import numpy as np
 
 import os
+
 # import sys
 # import torch
 # import torch.nn as nn
 import numpy as np
+
 # import time
 # import cv2
 # import threading
@@ -225,31 +227,34 @@ def configure_video_stitching(
     video_left: str = "left.mp4",
     video_right: str = "right.mp4",
     project_file_name: str = "my_project.pto",
+    left_frame_offset: int = None,
+    right_frame_offset: int = None,
     base_frame_offset: int = 800,
     audio_sync_seconds: int = 15,
 ):
-    lfo, rfo = synchronize_by_audio(
-        file0_path=os.path.join(dir_name, video_left),
-        file1_path=os.path.join(dir_name, video_right),
-        seconds=audio_sync_seconds,
-    )
-
-    left_image_file, right_image_file = extract_frames(
-        dir_name,
-        video_left,
-        base_frame_offset + lfo,
-        video_right,
-        base_frame_offset + rfo,
-    )
+    if left_frame_offset is None or right_frame_offset is None:
+        left_frame_offset, right_frame_offset = synchronize_by_audio(
+            file0_path=os.path.join(dir_name, video_left),
+            file1_path=os.path.join(dir_name, video_right),
+            seconds=audio_sync_seconds,
+        )
 
     # PTO Project File
     pto_project_file = os.path.join(dir_name, project_file_name)
+    if not os.path.exists(pto_project_file):
+        left_image_file, right_image_file = extract_frames(
+            dir_name,
+            video_left,
+            base_frame_offset + left_frame_offset,
+            video_right,
+            base_frame_offset + right_frame_offset,
+        )
 
-    build_stitching_project(
-        pto_project_file, image_files=[left_image_file, right_image_file]
-    )
+        build_stitching_project(
+            pto_project_file, image_files=[left_image_file, right_image_file]
+        )
 
-    return pto_project_file, lfo, rfo
+    return pto_project_file, left_frame_offset, right_frame_offset
 
 
 def find_sitched_roi(image):

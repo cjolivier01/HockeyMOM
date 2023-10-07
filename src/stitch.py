@@ -10,12 +10,13 @@ from lib.opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
 from lib.tracking_utils.log import logger
-#from lib.tiff import print_geotiff_info
+
+# from lib.tiff import print_geotiff_info
 from lib.stitch_synchronize import (
     # synchronize_by_audio,
     # build_stitching_project,
     # extract_frames,
-    configure_video_stitching
+    configure_video_stitching,
 )
 
 from lib.datasets.dataset.stitching import (
@@ -62,37 +63,17 @@ def stitch_videos(
     dir_name: str,
     video_left: str = "left.mp4",
     video_right: str = "right.mp4",
+    lfo: int = None,
+    rfo: int = None,
     project_file_name: str = "my_project.pto",
 ):
-    # lfo, rfo = synchronize_by_audio(
-    #     file0_path=os.path.join(dir_name, video_left),
-    #     file1_path=os.path.join(dir_name, video_right),
-    #     seconds=15,
-    # )
-
-    # base_frame_offset = 800
-
-    # left_image_file, right_image_file = extract_frames(
-    #     dir_name,
-    #     video_left,
-    #     base_frame_offset + lfo,
-    #     video_right,
-    #     base_frame_offset + rfo,
-    # )
-
-    # # HACK
-    # # left_image_file = os.path.join(dir_name, "left-1-small.png")
-    # # right_image_file = os.path.join(dir_name, "right-1-small.png")
-
-    # # PTO Project File
-    # pto_project_file = os.path.join(dir_name, project_file_name)
-
-    # build_stitching_project(
-    #     pto_project_file, image_files=[left_image_file, right_image_file]
-    # )
-
     pto_project_file, lfo, rfo = configure_video_stitching(
-        dir_name, video_left, video_right, project_file_name
+        dir_name,
+        video_left,
+        video_right,
+        project_file_name,
+        lfo,
+        rfo,
     )
 
     # start_frame_number = 2000
@@ -117,8 +98,6 @@ def stitch_videos(
     start = None
     for i, stitched_image in enumerate(data_loader):
         print(f"Read frame {i}")
-        # if i == 0:
-        #     find_roi(stitched_image)
         frame_count += 1
         if i == 1:
             start = time.time()
@@ -128,10 +107,10 @@ def stitch_videos(
         print(
             f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
         )
+    return lfo, rfo
 
 
 def pyramid_blending(img1, img2, mask, num_levels=6):
-
     # Generate Gaussian pyramids for img1, img2 and mask
     gp_img1 = [img1.copy()]
     gp_img2 = [img2.copy()]
@@ -183,13 +162,13 @@ def stitch_images(img1_path: str, img2_path: str):
     # Create a mask
     mask = np.zeros_like(img1)
     # Assuming that the left part of img1 and the right part of img2 should be retained, and the overlap should be in the center
-    mask[:, :img1.shape[1]//2, :] = 1
+    mask[:, : img1.shape[1] // 2, :] = 1
 
     # Perform pyramid blending
     blended = pyramid_blending(img1, img2, mask)
 
     # Display the result
-    cv2.imshow('Blended Image', blended)
+    cv2.imshow("Blended Image", blended)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -200,13 +179,20 @@ def main():
     #     "/mnt/data/Videos/vacaville/my_project0001.tif",
     # )
 
-    # dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
-    # video_left = "left-1.mp4"
-    # video_right = "right-1.mp4"
+    dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
+    video_left = "left-1.mp4"
+    video_right = "right-1.mp4"
     # video_left = "left-1-small.avi"
     # video_right = "right-1-small.avi"
-
-    # lfo, rfo = stitch_videos(dir_name, video_left, video_right)
+    lfo = 0
+    rfo = 216
+    lfo, rfo = stitch_videos(
+        dir_name,
+        video_left,
+        video_right,
+        lfo=lfo,
+        rfo=rfo,
+    )
 
     # lfo, rfo = 0, 91
     # if lfo < 0:
