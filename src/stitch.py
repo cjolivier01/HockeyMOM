@@ -72,12 +72,12 @@ def stitch_videos(
         video_left,
         video_right,
         project_file_name,
-        lfo,
-        rfo,
+        left_frame_offset=lfo,
+        right_frame_offset=rfo,
     )
 
-    # start_frame_number = 2000
-    start_frame_number = 0
+    start_frame_number = 200
+    #start_frame_number = 0
 
     max_frames = 100
 
@@ -185,7 +185,7 @@ def main():
     # video_left = "left-1-small.avi"
     # video_right = "right-1-small.avi"
     lfo = 0
-    rfo = 216
+    rfo = 92
     lfo, rfo = stitch_videos(
         dir_name,
         video_left,
