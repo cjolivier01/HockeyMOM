@@ -48,7 +48,7 @@ class StitchDataset:
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
-        frame_step_count: int = 1,
+        frame_step_count: int = 2,
     ):
         assert max_input_queue_size > 0
         assert num_workers > 0
@@ -187,6 +187,15 @@ class StitchDataset:
             return False
 
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+
+        # Maybe skip over some frames
+        if self._frame_step_count > 1:
+            # it is much faster to simply read the frames and discard them
+            # than to try to set the frame explicitly
+            for _ in range(self._frame_step_count - 1):
+                self._video1.read()
+                self._video2.read()
+
         return True
 
     def get_next_frame(self, frame_id: int):
