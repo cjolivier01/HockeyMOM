@@ -47,7 +47,7 @@ class StitchingWorker:
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
-        frame_step_count: int = 1,
+        frame_stride_count: int = 1,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -63,7 +63,7 @@ class StitchingWorker:
         self._max_frames = max_frames
         self._to_worker_queue = to_worker_queue
         self._from_worker_queue = from_worker_queue
-        self._frame_step_count = frame_step_count
+        self._frame_stride_count = frame_stride_count
         self._open = False
         self._last_requested_frame = None
         self._feeder_thread = None
@@ -158,7 +158,7 @@ class StitchingWorker:
         )
         self._feeder_thread.start()
         for i in range(self._max_input_queue_size):
-            req_frame = self._start_frame_number + i
+            req_frame = self._start_frame_number + (i * self._frame_stride_count)
             if (
                 not self._max_frames
                 or req_frame < self._start_frame_number + self._max_frames
@@ -167,9 +167,6 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        # self._from_worker_queue.put(
-        #     ("last_requested_frame", self._last_requested_frame)
-        # )
 
     def _stop_feeder_thread(self):
         if self._feeder_thread is not None:
@@ -178,7 +175,7 @@ class StitchingWorker:
             self._feeder_thread = None
 
     def request_next_frame(self):
-        self._last_requested_frame += self._frame_step_count
+        self._last_requested_frame += self._frame_stride_count
         self._to_worker_queue.put(
             FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
         )
@@ -215,10 +212,7 @@ class StitchDataset:
         self._max_frames = max_frames
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
-        self._open = False
         self._current_frame = start_frame_number
-        # self._last_requested_frame = None
-        self._feeder_thread = None
         self._image_roi = None
         self._fps = None
         self._auto_configure = auto_configure
@@ -312,8 +306,6 @@ class StitchDataset:
             # Opena nd close to validate existance as well as get some stats, such as fps
             self._stitching_worker = self.create_stitching_worker()
             self._fps = self._stitching_worker.fps
-            # descr, self._last_requested_frame = self._from_worker_queue.get()
-            # assert descr == "last_requested_frame"
         return self
 
     def __next__(self):
@@ -325,10 +317,6 @@ class StitchDataset:
         stitched_frame = self._get_next_frame(self._current_frame)
         self._current_frame += 1
         self._stitching_worker.request_next_frame()
-        # self._last_requested_frame += 1
-        # self._to_worker_queue.put(
-        #     FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
-        # )
         self._maybe_write_output(stitched_frame)
         return stitched_frame
 
