@@ -215,6 +215,7 @@ class StitchDataset:
         blend_thread_count: int = 10,
         max_frames: int = None,
         auto_configure: bool = True,
+        num_workers: int = 1,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -235,7 +236,13 @@ class StitchDataset:
         self._image_roi = None
         self._fps = None
         self._auto_configure = auto_configure
-        self._stitching_worker = None
+        self._num_workers = num_workers
+        self._stitching_workers = {}
+        # Temporary until we get the middle-man
+        self._current_worker = 0
+
+    def stitching_worker(self, worker_number: int):
+        return self._stitching_workers[worker_number]
 
     def create_stitching_worker(self, start_frame_number: int, frame_stride_count: int):
         stitching_worker = StitchingWorker(
@@ -272,9 +279,9 @@ class StitchDataset:
         return self._fps
 
     def close(self):
-        if self._stitching_worker is not None:
-            self._stitching_worker.close()
-            self._stitching_worker = None
+        for stitching_worker in self._stitching_workers.values():
+            stitching_worker.close()
+        self._stitching_workers.clear()
 
     def _maybe_write_output(self, output_img):
         if self._output_stitched_video_file:
@@ -295,7 +302,11 @@ class StitchDataset:
             self._output_video.write(output_img)
 
     def _get_next_frame(self, frame_id: int):
-        stitched_frame = self._stitching_worker._get_next_frame(frame_id)
+        stitched_frame = self._stitching_workers[self._current_worker]._get_next_frame(
+            frame_id
+        )
+        self._stitching_workers[self._current_worker].request_next_frame()
+        self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
 
@@ -320,13 +331,15 @@ class StitchDataset:
         return image
 
     def __iter__(self):
-        if self._stitching_worker is None:
+        if not self._stitching_workers:
             self.initialize()
             # Opena nd close to validate existance as well as get some stats, such as fps
-            self._stitching_worker = self.create_stitching_worker(
-                start_frame_number=self._start_frame_number, frame_stride_count=1
-            )
-            self._fps = self._stitching_worker.fps
+            for worker_number in range(self._num_workers):
+                self._stitching_workers[worker_number] = self.create_stitching_worker(
+                    start_frame_number=self._start_frame_number + worker_number,
+                    frame_stride_count=self._num_workers,
+                )
+            self._fps = self._stitching_workers[0].fps
         return self
 
     def __next__(self):
@@ -337,7 +350,6 @@ class StitchDataset:
             assert status == "ok"
         stitched_frame = self._get_next_frame(self._current_frame)
         self._current_frame += 1
-        self._stitching_worker.request_next_frame()
         self._maybe_write_output(stitched_frame)
         return stitched_frame
 
