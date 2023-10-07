@@ -32,25 +32,24 @@ class FrameRequest:
         self.want_alpha = want_alpha
 
 
-class StitchDataset:
+class StitchingWorker:
     def __init__(
         self,
         video_file_1: str,
         video_file_2: str,
+        to_worker_queue: multiprocessing.Queue,
+        from_worker_queue: multiprocessing.Queue,
         pto_project_file: str = None,
         video_1_offset_frame: int = None,
         video_2_offset_frame: int = None,
-        output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 50,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
-        auto_configure: bool = True,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
-        self._output_stitched_video_file = output_stitched_video_file
         self._output_video = None
         self._video_1_offset_frame = video_1_offset_frame
         self._video_2_offset_frame = video_2_offset_frame
@@ -61,29 +60,16 @@ class StitchDataset:
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._max_frames = max_frames
-        self._to_worker_queue = multiprocessing.Queue()
-        self._from_worker_queue = multiprocessing.Queue()
+        self._to_worker_queue = to_worker_queue
+        self._from_worker_queue = from_worker_queue
         self._open = False
-        self._current_frame = start_frame_number
         self._last_requested_frame = None
         self._feeder_thread = None
         self._image_roi = None
         self._fps = None
-        self._auto_configure = auto_configure
-
-    def configure_stitching(self):
-        if not self._pto_project_file:
-            dir_name = _get_dir_name(self._video_file_1)
-            self._pto_project_file, lfo, rfo = configure_video_stitching(
-                dir_name, self._video_file_1, self._video_file_2
-            )
-            self._video_1_offset_frame = lfo
-            self._video_2_offset_frame = rfo
+        self._open_videos()
 
     def _open_videos(self):
-        if self._auto_configure:
-            self.configure_stitching()
-
         self._video1 = cv2.VideoCapture(self._video_file_1)
         self._video2 = cv2.VideoCapture(self._video_file_2)
         if self._start_frame_number or self._video_1_offset_frame:
@@ -122,24 +108,6 @@ class StitchDataset:
             self._output_video.release()
         self._open = False
 
-    def _maybe_write_output(self, output_img):
-        if self._output_stitched_video_file:
-            if self._output_video is None:
-                fps = self._video1.get(cv2.CAP_PROP_FPS)
-                fourcc = cv2.VideoWriter_fourcc(*"XVID")
-                final_video_size = (output_img.shape[1], output_img.shape[0])
-                self._output_video = cv2.VideoWriter(
-                    filename=self._output_stitched_video_file,
-                    fourcc=fourcc,
-                    fps=fps,
-                    frameSize=final_video_size,
-                    isColor=True,
-                )
-                assert self._output_video.isOpened()
-                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-
-            self._output_video.write(output_img)
-
     def _feed_next_frame(
         self,
     ) -> bool:
@@ -165,13 +133,13 @@ class StitchDataset:
         )
         if stitched_frame is None:
             raise StopIteration
-        if self._image_roi is None:
-            self._image_roi = find_sitched_roi(stitched_frame)
+        # if self._image_roi is None:
+        #     self._image_roi = find_sitched_roi(stitched_frame)
 
-        stitched_frame = self.prepare_frame_for_video(
-            stitched_frame,
-            image_roi=self._image_roi,
-        )
+        # stitched_frame = self.prepare_frame_for_video(
+        #     stitched_frame,
+        #     image_roi=self._image_roi,
+        # )
         return stitched_frame
 
     def frame_feeder_worker(
@@ -195,7 +163,7 @@ class StitchDataset:
         )
         self._feeder_thread.start()
         for i in range(self._max_input_queue_size):
-            req_frame = self._current_frame + i
+            req_frame = self._start_frame_number + i
             if (
                 not self._max_frames
                 or req_frame < self._start_frame_number + self._max_frames
@@ -204,12 +172,230 @@ class StitchDataset:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
+        self._from_worker_queue.put(("last_requested_frame", self._last_requested_frame))
 
     def _stop_feeder_thread(self):
         if self._feeder_thread is not None:
             self._to_worker_queue.put(None)
             self._feeder_thread.join()
             self._feeder_thread = None
+
+
+class StitchDataset:
+    def __init__(
+        self,
+        video_file_1: str,
+        video_file_2: str,
+        pto_project_file: str = None,
+        video_1_offset_frame: int = None,
+        video_2_offset_frame: int = None,
+        output_stitched_video_file: str = None,
+        start_frame_number: int = 0,
+        max_input_queue_size: int = 50,
+        remap_thread_count: int = 10,
+        blend_thread_count: int = 10,
+        max_frames: int = None,
+        auto_configure: bool = True,
+    ):
+        assert max_input_queue_size > 0
+        self._start_frame_number = start_frame_number
+        self._output_stitched_video_file = output_stitched_video_file
+        self._output_video = None
+        self._video_1_offset_frame = video_1_offset_frame
+        self._video_2_offset_frame = video_2_offset_frame
+        self._video_file_1 = video_file_1
+        self._video_file_2 = video_file_2
+        self._pto_project_file = pto_project_file
+        self._max_input_queue_size = max_input_queue_size
+        self._remap_thread_count = remap_thread_count
+        self._blend_thread_count = blend_thread_count
+        self._max_frames = max_frames
+        self._to_worker_queue = multiprocessing.Queue()
+        self._from_worker_queue = multiprocessing.Queue()
+        self._open = False
+        self._current_frame = start_frame_number
+        self._last_requested_frame = None
+        self._feeder_thread = None
+        self._image_roi = None
+        self._fps = None
+        self._auto_configure = auto_configure
+        self._stitching_worker = None
+
+    def create_stitching_worker(self):
+        stitching_worker = StitchingWorker(
+            video_file_1=self._video_file_1,
+            video_file_2=self._video_file_2,
+            to_worker_queue=self._to_worker_queue,
+            from_worker_queue=self._from_worker_queue,
+            pto_project_file=self._pto_project_file,
+            video_1_offset_frame=self._video_1_offset_frame,
+            video_2_offset_frame=self._video_2_offset_frame,
+            start_frame_number=self._start_frame_number,
+            max_input_queue_size=self._max_input_queue_size,
+            remap_thread_count=self._remap_thread_count,
+            blend_thread_count=self._blend_thread_count,
+            max_frames=self._max_frames,
+        )
+        return stitching_worker
+
+    def configure_stitching(self):
+        if not self._pto_project_file:
+            dir_name = _get_dir_name(self._video_file_1)
+            self._pto_project_file, lfo, rfo = configure_video_stitching(
+                dir_name, self._video_file_1, self._video_file_2
+            )
+            self._video_1_offset_frame = lfo
+            self._video_2_offset_frame = rfo
+
+    def initialize(self):
+        if self._auto_configure:
+            self.configure_stitching()
+
+    # def _open_videos(self):
+    #     if self._auto_configure:
+    #         self.configure_stitching()
+
+    #     self._video1 = cv2.VideoCapture(self._video_file_1)
+    #     self._video2 = cv2.VideoCapture(self._video_file_2)
+    #     if self._start_frame_number or self._video_1_offset_frame:
+    #         self._video1.set(
+    #             cv2.CAP_PROP_POS_FRAMES,
+    #             self._start_frame_number + self._video_1_offset_frame,
+    #         )
+    #     if self._start_frame_number or self._video_2_offset_frame:
+    #         self._video2.set(
+    #             cv2.CAP_PROP_POS_FRAMES,
+    #             self._start_frame_number + self._video_2_offset_frame,
+    #         )
+    #     self._total_num_frames = min(
+    #         int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
+    #         int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
+    #     )
+    #     self._stitcher = core.StitchingDataLoader(
+    #         0,
+    #         self._pto_project_file,
+    #         self._max_input_queue_size,
+    #         self._remap_thread_count,
+    #         self._blend_thread_count,
+    #     )
+    #     self._fps = self._video1.get(cv2.CAP_PROP_FPS)
+    #     self._start_feeder_thread()
+    #     self._open = True
+
+    # def close(self):
+    #     self._video1.release()
+    #     self._video2.release()
+    #     if self._output_video is not None:
+    #         self._output_video.release()
+    #     self._open = False
+
+    @property
+    def fps(self):
+        return self._fps
+
+    def close(self):
+        if self._stitching_worker is not None:
+            self._stitching_worker.close()
+
+    def _maybe_write_output(self, output_img):
+        if self._output_stitched_video_file:
+            if self._output_video is None:
+                fps = self.fps
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                final_video_size = (output_img.shape[1], output_img.shape[0])
+                self._output_video = cv2.VideoWriter(
+                    filename=self._output_stitched_video_file,
+                    fourcc=fourcc,
+                    fps=fps,
+                    frameSize=final_video_size,
+                    isColor=True,
+                )
+                assert self._output_video.isOpened()
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+
+            self._output_video.write(output_img)
+
+    # def _feed_next_frame(
+    #     self,
+    # ) -> bool:
+    #     frame_request = self._to_worker_queue.get()
+    #     if frame_request is None:
+    #         raise StopIteration
+    #     frame_id = frame_request.frame_id
+    #     frame_id = int(frame_id)
+    #     ret1, img1 = self._video1.read()
+    #     if not ret1:
+    #         return False
+    #     # Read the corresponding frame from the second video
+    #     ret2, img2 = self._video2.read()
+    #     if not ret2:
+    #         return False
+
+    #     core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+    #     return True
+
+    # def get_next_frame(self, frame_id: int):
+    #     stitched_frame = core.get_stitched_frame_from_data_loader(
+    #         self._stitcher, frame_id
+    #     )
+    #     if stitched_frame is None:
+    #         raise StopIteration
+    #     if self._image_roi is None:
+    #         self._image_roi = find_sitched_roi(stitched_frame)
+
+    #     stitched_frame = self.prepare_frame_for_video(
+    #         stitched_frame,
+    #         image_roi=self._image_roi,
+    #     )
+    #     return stitched_frame
+
+    # def frame_feeder_worker(
+    #     self,
+    #     max_frames: int,
+    # ):
+    #     frame_count = 0
+    #     while not max_frames or frame_count < max_frames:
+    #         if not self._feed_next_frame():
+    #             break
+    #         else:
+    #             self._from_worker_queue.put("ok")
+    #         frame_count += 1
+    #     print("Feeder thread exiting")
+    #     self._from_worker_queue.put(StopIteration())
+
+    # def _start_feeder_thread(self):
+    #     self._feeder_thread = threading.Thread(
+    #         target=self.frame_feeder_worker,
+    #         args=(self._max_frames,),
+    #     )
+    #     self._feeder_thread.start()
+    #     for i in range(self._max_input_queue_size):
+    #         req_frame = self._current_frame + i
+    #         if (
+    #             not self._max_frames
+    #             or req_frame < self._start_frame_number + self._max_frames
+    #         ):
+    #             self._to_worker_queue.put(
+    #                 FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
+    #             )
+    #             self._last_requested_frame = req_frame
+
+    # def _stop_feeder_thread(self):
+    #     if self._feeder_thread is not None:
+    #         self._to_worker_queue.put(None)
+    #         self._feeder_thread.join()
+    #         self._feeder_thread = None
+
+    def get_next_frame(self, frame_id: int):
+        stitched_frame = self._stitching_worker.get_next_frame(frame_id)
+        if self._image_roi is None:
+            self._image_roi = find_sitched_roi(stitched_frame)
+
+        stitched_frame = self.prepare_frame_for_video(
+            stitched_frame,
+            image_roi=self._image_roi,
+        )
+        return stitched_frame
 
     def prepare_frame_for_video(self, image, image_roi):
         if not image_roi:
@@ -222,8 +408,13 @@ class StitchDataset:
         return image
 
     def __iter__(self):
-        if not self._open:
-            self._open_videos()
+        if self._stitching_worker is None:
+            self.initialize()
+            # Opena nd close to validate existance as well as get some stats, such as fps
+            self._stitching_worker = self.create_stitching_worker()
+            self._fps = self._stitching_worker.fps
+            descr, self._last_requested_frame = self._from_worker_queue.get()
+            assert descr == "last_requested_frame"
         return self
 
     def __next__(self):
