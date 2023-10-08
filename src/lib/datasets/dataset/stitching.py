@@ -31,6 +31,12 @@ class FrameRequest:
         self.frame_id = frame_id
         self.want_alpha = want_alpha
 
+_VERBOSE = True
+
+def INFO(*args, **kwargs):
+    if not _VERBOSE:
+        return
+    print(*args, **kwargs)
 
 ##
 #   _____ _   _  _        _     _           __          __         _
@@ -65,7 +71,7 @@ class StitchingWorker:
         self._video_file_1 = video_file_1
         self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
-        self._max_input_queue_size = max_input_queue_size
+        self._max_input_queue_size = min(max_input_queue_size, max_frames)
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._max_frames = max_frames
@@ -87,16 +93,16 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        #print(f"StitchingWorker.request_image {frame_id}")
+        #INFO(f"StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
-        #print(f"ASK StitchingWorker.receive_image {frame_id}")
+        #INFO(f"ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
         fid, image = result
-        #print(f"GOT StitchingWorker.receive_image {fid}")
+        #INFO(f"GOT StitchingWorker.receive_image {fid}")
         assert fid == frame_id
         return image
 
@@ -142,7 +148,6 @@ class StitchingWorker:
         frame_request = self._to_worker_queue.get()
         if frame_request is None:
             raise StopIteration()
-        self._last_requested_frame += self._frame_stride_count
         frame_id = frame_request.frame_id
         frame_id = int(frame_id)
         ret1, img1 = self._video1.read()
@@ -152,16 +157,16 @@ class StitchingWorker:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        #print(f"Adding frame {frame_id} to stitch data loader")
+        #INFO(f"Adding frame {frame_id} to stitch data loader")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
     def _get_next_frame(self, frame_id: int):
-        #print(f"Asking for frame {frame_id} from stitch data loader")
+        #INFO(f"Asking for frame {frame_id} from stitch data loader")
         stitched_frame = core.get_stitched_frame_from_data_loader(
             self._stitcher, frame_id
         )
-        #print(f"Got frame {frame_id} from stitch data loader")
+        #INFO(f"Got frame {frame_id} from stitch data loader")
         if stitched_frame is None:
             raise StopIteration()
         return stitched_frame
@@ -188,7 +193,7 @@ class StitchingWorker:
             else:
                 self._from_worker_queue.put("ok")
             frame_count += 1
-        print("Feeder thread exiting")
+        INFO("Feeder thread exiting")
         self._from_worker_queue.put(StopIteration())
 
     def _start_feeder_thread(self):
@@ -204,6 +209,9 @@ class StitchingWorker:
         )
         self._image_getter_thread.start()
 
+        # self._last_requested_frame = self._start_frame_number
+        # self.request_next_frame()
+
         for i in range(self._max_input_queue_size):
             req_frame = self._start_frame_number + (i * self._frame_stride_count)
             if (
@@ -214,6 +222,7 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
+        #INFO(f"self._last_requested_frame={self._last_requested_frame}")
 
     def _stop_child_threads(self):
         if self._feeder_thread is not None:
@@ -232,9 +241,13 @@ class StitchingWorker:
             or req_frame < self._start_frame_number + self._max_frames
         ):
             self._last_requested_frame += self._frame_stride_count
+            #INFO(f"request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
             self._to_worker_queue.put(
                 FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
             )
+        else:
+            #INFO("request next frame {req_frame} would be too many")
+            pass
 
 
 ##
@@ -357,7 +370,7 @@ class StitchDataset:
             self._output_video.write(output_img)
 
     def _prepare_next_frame(self, frame_id: int):
-        #print(f"_prepare_next_frame( {frame_id} )")
+        #INFO(f"_prepare_next_frame( {frame_id} )")
         stitching_worker = self._stitching_workers[self._current_worker]
         stitching_worker.request_image(frame_id=frame_id)
         stitched_frame = stitching_worker.receive_image(frame_id=frame_id)
@@ -366,7 +379,7 @@ class StitchDataset:
             self._image_roi = find_sitched_roi(stitched_frame)
 
         copy_data = True
-        #print(f"Localling enqueing frame {frame_id}")
+        #INFO(f"Localling enqueing frame {frame_id}")
         stitched_frame = stitched_frame.copy()
         self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
 
@@ -378,7 +391,7 @@ class StitchDataset:
         )
         self._coordinator_thread.start()
         for i in range(min(self._max_input_queue_size, self._max_frames)):
-            #print(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
+            #INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
 
@@ -431,14 +444,15 @@ class StitchDataset:
         return self
 
     def get_next_frame(self):
-        status = self._stitching_workers[self._current_get_next_frame_worker].get()
+        stitching_worker = self._stitching_workers[self._current_get_next_frame_worker]
+        status = stitching_worker.get()
         if isinstance(status, Exception):
             raise status
 
         assert status == "ok"
-        #print(f"Trying to locally dequeue frame id: {self._current_frame}")
+        #INFO(f"Trying to locally dequeue frame id: {self._current_frame}")
         stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        #print(f"Locally dequeued frame id: {self._current_frame}")
+        #INFO(f"Locally dequeued frame id: {self._current_frame}")
         self._current_get_next_frame_worker = (
             self._current_get_next_frame_worker + 1
         ) % self._num_workers
@@ -449,16 +463,18 @@ class StitchDataset:
         ):
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
+            stitching_worker.request_next_frame()
         else:
-            print(
-                f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
-            )
+            # INFO(
+            #     f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
+            # )
+            pass
         return stitched_frame
 
     def __next__(self):
-        print(f"BEGIN next() self._from_coordinator_queue.get()")
+        #INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        print(f"END next() self._from_coordinator_queue.get()")
+        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
         if isinstance(status, Exception):
             raise status
         else:
