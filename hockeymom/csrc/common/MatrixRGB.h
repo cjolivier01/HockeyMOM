@@ -41,7 +41,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     std::size_t ndims = input_image.ndim();
     auto dtype = input_image.dtype();
     // Check if the input is a 3D array with dtype uint8 (RGB image)
-    if (ndims != 3 || !dtype.is(py::dtype::of<uint8_t>())) {
+    if (ndims != 3 /*|| !dtype.is(py::dtype::of<uint8_t>())*/) {
       throw std::runtime_error("Input must be a 3D uint8 RGB image array");
     }
 

@@ -29,10 +29,10 @@ namespace {
 // }
 } // namespace
 
-void __stop_here() {
-  // debugger is annoying sometimes
-  std::cout << "__stop_here()" << std::endl;
-}
+// void __stop_here() {
+//   // debugger is annoying sometimes
+//   std::cout << "__stop_here()" << std::endl;
+// }
 
 PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
@@ -140,7 +140,7 @@ PYBIND11_MODULE(_hockeymom, m) {
              std::size_t key,
              py::array_t<std::uint8_t> array,
              bool copy_data) -> void {
-            __stop_here();
+            //__stop_here();
             auto matrix =
                 std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
             {
