@@ -140,7 +140,7 @@ class StitchingWorker:
                     )
                 )
                 self._shutdown_barrier.wait()
-                print("Stitching worker shutting down")
+                print(f"{self.rp_str()} Stitching worker shutting down")
             else:
                 ack, worker_info = self._from_worker_queue.get()
                 assert ack == "openned"
@@ -154,16 +154,16 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        # INFO(f"StitchingWorker.request_image {frame_id}")
+        INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
-        # INFO(f"ASK StitchingWorker.receive_image {frame_id}")
+        # INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
         fid, image = result
-        # INFO(f"GOT StitchingWorker.receive_image {fid}")
+        # INFO(f"{self.rp_str()} GOT StitchingWorker.receive_image {fid}")
         assert fid == frame_id
         return image
 
@@ -225,16 +225,16 @@ class StitchingWorker:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        # INFO(f"Adding frame {frame_id} to stitch data loader")
+        INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
     def _get_next_frame(self, frame_id: int):
-        # INFO(f"Asking for frame {frame_id} from stitch data loader")
+        #INFO(f"{self.rp_str()} Asking for frame {frame_id} from stitch data loader")
         stitched_frame = core.get_stitched_frame_from_data_loader(
             self._stitcher, frame_id
         )
-        # INFO(f"Got frame {frame_id} from stitch data loader")
+        # INFO(f"{self.rp_str()} Got frame {frame_id} from stitch data loader")
         if stitched_frame is None:
             raise StopIteration()
         return stitched_frame
@@ -261,7 +261,7 @@ class StitchingWorker:
             else:
                 self._from_worker_queue.put("ok")
             frame_count += 1
-        INFO("Feeder thread exiting")
+        INFO(f"{self.rp_str()} Feeder thread exiting")
         self._from_worker_queue.put(StopIteration())
 
     def _prime_frame_request_queue(self):
@@ -275,7 +275,7 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        INFO(f"self._last_requested_frame={self._last_requested_frame}")
+        INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -310,7 +310,7 @@ class StitchingWorker:
             or req_frame < self._start_frame_number + self._max_frames
         ):
             self._last_requested_frame += self._frame_stride_count
-            # INFO(f"request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
+            # INFO(f"{self.rp_str()} request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
             self._to_worker_queue.put(
                 FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
             )
@@ -461,7 +461,7 @@ class StitchDataset:
             self._image_roi = find_sitched_roi(stitched_frame)
 
         copy_data = True
-        # INFO(f"Localling enqueing frame {frame_id}")
+        INFO(f"Localling enqueing frame {frame_id}")
         stitched_frame = stitched_frame.copy()
         self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
 
