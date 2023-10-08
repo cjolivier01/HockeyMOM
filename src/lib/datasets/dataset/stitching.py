@@ -456,7 +456,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
+        print(f"BEGIN next() self._from_coordinator_queue.get()")
         status = self._from_coordinator_queue.get()
+        print(f"END next() self._from_coordinator_queue.get()")
         if isinstance(status, Exception):
             raise status
         else:
