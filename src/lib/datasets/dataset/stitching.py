@@ -154,7 +154,7 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
+        #INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
@@ -225,12 +225,12 @@ class StitchingWorker:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
+        #INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
     def _get_next_frame(self, frame_id: int):
-        #INFO(f"{self.rp_str()} Asking for frame {frame_id} from stitch data loader")
+        # INFO(f"{self.rp_str()} Asking for frame {frame_id} from stitch data loader")
         stitched_frame = core.get_stitched_frame_from_data_loader(
             self._stitcher, frame_id
         )
@@ -267,15 +267,14 @@ class StitchingWorker:
     def _prime_frame_request_queue(self):
         for i in range(self._max_input_queue_size):
             req_frame = self._start_frame_number + (i * self._frame_stride_count)
-            if (
-                not self._max_frames
-                or req_frame < self._start_frame_number + self._max_frames
+            if not self._max_frames or req_frame < self._start_frame_number + (
+                self._max_frames * self._frame_stride_count
             ):
                 self._to_worker_queue.put(
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
+        #INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -307,7 +306,7 @@ class StitchingWorker:
         req_frame = self._last_requested_frame + self._frame_stride_count
         if (
             not self._max_frames
-            or req_frame < self._start_frame_number + self._max_frames
+            or req_frame < self._start_frame_number + (self._max_frames * self._frame_stride_count)
         ):
             self._last_requested_frame += self._frame_stride_count
             # INFO(f"{self.rp_str()} request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
@@ -461,7 +460,7 @@ class StitchDataset:
             self._image_roi = find_sitched_roi(stitched_frame)
 
         copy_data = True
-        INFO(f"Localling enqueing frame {frame_id}")
+        #INFO(f"Locally enqueing frame {frame_id}")
         stitched_frame = stitched_frame.copy()
         self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
 
@@ -521,7 +520,9 @@ class StitchDataset:
                 if max_for_worker is not None:
                     max_for_worker = distribute_items_detailed(
                         self._max_frames, self._num_workers
-                    )[worker_number]  # TODO: call just once
+                    )[
+                        worker_number
+                    ]  # TODO: call just once
                 self._stitching_workers[worker_number] = self.create_stitching_worker(
                     rank=worker_number,
                     start_frame_number=self._start_frame_number + worker_number,
@@ -561,9 +562,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        # INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        #INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
+        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
             raise status
