@@ -261,7 +261,7 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        #INFO(f"self._last_requested_frame={self._last_requested_frame}")
+        INFO(f"self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -382,6 +382,7 @@ class StitchDataset:
             remap_thread_count=self._remap_thread_count,
             blend_thread_count=self._blend_thread_count,
             max_frames=self._max_frames,
+            frame_stride_count=frame_stride_count,
         )
         return stitching_worker
 
