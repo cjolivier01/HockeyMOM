@@ -53,7 +53,7 @@ class StitchingWorker:
         video_1_offset_frame: int = None,
         video_2_offset_frame: int = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 50,
+        max_input_queue_size: int = 5,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
@@ -233,10 +233,15 @@ class StitchingWorker:
             self._image_getter_thread = None
 
     def request_next_frame(self):
-        self._last_requested_frame += self._frame_stride_count
-        self._to_worker_queue.put(
-            FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
-        )
+        req_frame = self._last_requested_frame + self._frame_stride_count
+        if (
+            not self._max_frames
+            or req_frame < self._start_frame_number + self._max_frames
+        ):
+            self._last_requested_frame += self._frame_stride_count
+            self._to_worker_queue.put(
+                FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
+            )
 
 
 ##
@@ -373,7 +378,7 @@ class StitchDataset:
             args=(),
         )
         self._coordinator_thread.start()
-        for i in range(self._max_input_queue_size):
+        for i in range(min(self._max_input_queue_size, self._max_frames)):
             print(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
@@ -386,13 +391,15 @@ class StitchDataset:
 
     def _coordinator_thread_worker(self):
         try:
-            while True:
+            frame_count = 0
+            while frame_count < self._max_frames:
                 command = self._to_coordinator_queue.get()
                 if isinstance(command, str) and command == "stop":
                     break
                 frame_id = int(command)
                 self._prepare_next_frame(frame_id)
                 self._from_coordinator_queue.put("ok")
+                frame_count += 1
             self._from_coordinator_queue.put(StopIteration())
         except Exception as ex:
             self._from_coordinator_queue.put(ex)
@@ -445,7 +452,9 @@ class StitchDataset:
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
         else:
-            print(f"Next frame {self._next_requested_frame} would be above the max allowed frame")
+            print(
+                f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
+            )
         return stitched_frame
 
     def __next__(self):
