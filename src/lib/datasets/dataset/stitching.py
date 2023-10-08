@@ -420,7 +420,7 @@ class StitchDataset:
     def __iter__(self):
         if not self._stitching_workers:
             self.initialize()
-            # Opena nd close to validate existance as well as get some stats, such as fps
+            # Openend close to validate existance as well as get some stats, such as fps
             for worker_number in range(self._num_workers):
                 self._stitching_workers[worker_number] = self.create_stitching_worker(
                     start_frame_number=self._start_frame_number + worker_number,
@@ -428,7 +428,6 @@ class StitchDataset:
                 )
                 self._stitching_workers[worker_number].start()
             self._start_coordinator_thread()
-            # self._prepare_next_frame(self._current_frame)
         return self
 
     def get_next_frame(self):
