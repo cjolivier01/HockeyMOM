@@ -47,13 +47,11 @@ class StitchingWorker:
         self,
         video_file_1: str,
         video_file_2: str,
-        # to_worker_queue: multiprocessing.Queue,
-        # from_worker_queue: multiprocessing.Queue,
         pto_project_file: str = None,
         video_1_offset_frame: int = None,
         video_2_offset_frame: int = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 5,
+        max_input_queue_size: int = 10,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
@@ -82,9 +80,6 @@ class StitchingWorker:
         self._image_roi = None
         self._fps = None
         self._open_videos()
-
-    # def put(self, item):
-    #     self._to_worker_queue.put(item)
 
     def get(self):
         return self._from_worker_queue.get()
