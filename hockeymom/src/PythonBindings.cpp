@@ -114,6 +114,42 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t,
            std::size_t>());
 
+  using SortedPyArrayUin8Queue =
+      hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
+
+  py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
+      m, "SortedPyArrayUin8Queue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
+             std::size_t key,
+             py::array_t<std::uint8_t> array) -> void {
+            sq->enqueue(key, std::move(array));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
+             std::size_t key) -> py::array_t<std::uint8_t> {
+            py::array_t<std::uint8_t> result;
+            {
+              py::gil_scoped_release release;
+              result = sq->dequeue_key(key);
+            }
+            return result;
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq) {
+            std::size_t key = ~0;
+            py::array_t<std::uint8_t> result;
+            {
+              py::gil_scoped_release release;
+              result = sq->dequeue_smallest_key(&key);
+            }
+            return std::make_tuple(key, std::move(result));
+          });
+
   using SortedRGBImageQueue =
       hm::SortedQueue<std::size_t, std::unique_ptr<hm::MatrixRGB>>;
 

@@ -370,7 +370,8 @@ class StitchDataset:
         # Temporary until we get the middle-man
         self._current_worker = 0
         self._current_get_next_frame_worker = 0
-        self._ordering_queue = core.SortedRGBImageQueue()
+        #self._ordering_queue = core.SortedRGBImageQueue()
+        self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
     def __delete__(self):
@@ -459,10 +460,11 @@ class StitchDataset:
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
 
-        copy_data = True
+        #copy_data = True
         #INFO(f"Locally enqueing frame {frame_id}")
-        stitched_frame = stitched_frame.copy()
-        self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
+        #stitched_frame = stitched_frame.copy()
+        #self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
+        self._ordering_queue.enqueue(frame_id, stitched_frame)
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None

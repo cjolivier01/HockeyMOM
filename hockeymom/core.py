@@ -18,6 +18,7 @@ from ._hockeymom import (
     HmNona,
     StitchingDataLoader,
     SortedRGBImageQueue,
+    SortedPyArrayUin8Queue,
 )
 
 # from ._hockeymom import  _enblend

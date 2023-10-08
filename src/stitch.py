@@ -90,9 +90,9 @@ def stitch_videos(
         video_1_offset_frame=lfo,
         video_2_offset_frame=rfo,
         start_frame_number=start_frame_number,
-        output_stitched_video_file=output_stitched_video_file,
+        #output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=1,
+        num_workers=4,
     )
 
     frame_count = 0
@@ -102,6 +102,7 @@ def stitch_videos(
             print(f"Read frame {start_frame_number + i}")
         frame_count += 1
         if i == 1:
+            #draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
             start = time.time()
 
     if start is not None:

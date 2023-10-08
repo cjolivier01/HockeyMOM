@@ -26,7 +26,7 @@ from lib.ffmpeg import extract_frame_image
 
 
 def synchronize_by_audio(
-    file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False
+    file0_path: str, file1_path: str, seconds: int = 45, create_new_clip: bool = False
 ):
     # Load the videos
     print("Openning videos...")
