@@ -397,7 +397,7 @@ class StitchDataset:
                     break
                 frame_id = int(command)
                 self._prepare_next_frame(frame_id)
-                self._from_coordinator_queue.put("ok")
+                self._from_coordinator_queue.put(("ok", frame_id))
                 frame_count += 1
             self._from_coordinator_queue.put(StopIteration())
         except Exception as ex:
@@ -462,8 +462,9 @@ class StitchDataset:
         if isinstance(status, Exception):
             raise status
         else:
+            status, frame_id = status
             assert status == "ok"
-
+            assert frame_id == self._current_frame
         stitched_frame = self.get_next_frame()
 
         # Code doesn't handle strides channbels efficiently
