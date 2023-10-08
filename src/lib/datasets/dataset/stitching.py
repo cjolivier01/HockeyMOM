@@ -79,6 +79,8 @@ class StitchingWorker:
         self._feeder_thread = None
         self._image_roi = None
         self._fps = None
+
+    def start(self):
         self._open_videos()
 
     def get(self):
@@ -125,10 +127,6 @@ class StitchingWorker:
         self._fps = self._video1.get(cv2.CAP_PROP_FPS)
         self._start_feeder_thread()
         self._open = True
-
-    @property
-    def fps(self):
-        return self._fps
 
     def close(self):
         self._stop_child_threads()
@@ -326,6 +324,12 @@ class StitchDataset:
 
     @property
     def fps(self):
+        if self._fps is None:
+            video1 = cv2.VideoCapture(self._video_file_1)
+            if not video1.isOpened():
+                raise AssertionError(f"Could not open video file: {self._video_file_1}")
+            self._fps = video1.get(cv2.CAP_PROP_FPS)
+            video1.release()
         return self._fps
 
     def close(self):
@@ -422,7 +426,7 @@ class StitchDataset:
                     start_frame_number=self._start_frame_number + worker_number,
                     frame_stride_count=self._num_workers,
                 )
-            self._fps = self._stitching_workers[0].fps
+                self._stitching_workers[worker_number].start()
             self._start_coordinator_thread()
             # self._prepare_next_frame(self._current_frame)
         return self
