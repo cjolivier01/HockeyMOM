@@ -529,7 +529,7 @@ class StitchDataset:
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
                 )
-                self._stitching_workers[worker_number].start(fork=False)
+                self._stitching_workers[worker_number].start(fork=True)
             self._start_coordinator_thread()
         return self
 
