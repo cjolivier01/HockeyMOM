@@ -438,7 +438,7 @@ class StitchDataset:
         )
         self._coordinator_thread.start()
         for i in range(min(self._max_input_queue_size, self._max_frames)):
-            INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
+            #INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
 
