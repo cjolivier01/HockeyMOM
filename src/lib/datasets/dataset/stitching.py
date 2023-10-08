@@ -34,7 +34,13 @@ class FrameRequest:
 
 
 class WorkerInfoReturned:
-    def __init__(self, total_num_frames: int, last_requested_frame: int):
+    def __init__(
+        self,
+        total_num_frames: int,
+        last_requested_frame: int,
+        process_id: int = os.getpid(),
+    ):
+        self.process_id = process_id
         self.total_num_frames = total_num_frames
         self.last_requested_frame = last_requested_frame
 
@@ -97,6 +103,7 @@ class StitchingWorker:
         self._feeder_thread = None
         self._image_roi = None
         self._forked = False
+        self._closing = False
 
     def rp_str(self):
         """Worker rank prefix string."""
@@ -105,6 +112,7 @@ class StitchingWorker:
     def start(self, fork: bool):
         if fork:
             self._forked = True
+            self._shutdown_barrier = multiprocessing.Barrier(2)
             if not os.fork():
                 self._open_videos()
                 self._from_worker_queue.put(
@@ -116,10 +124,8 @@ class StitchingWorker:
                         ),
                     )
                 )
-                while True:
-                    # TODO: way to exit
-                    time.sleep(1)
-                    print("Forked worker sleeping...")
+                self._shutdown_barrier.wait()
+                print("Stitching worker shutting down")
             else:
                 ack, worker_info = self._from_worker_queue.get()
                 assert ack == "openned"
@@ -177,13 +183,19 @@ class StitchingWorker:
         self._prime_frame_request_queue()
         self._open = True
 
-    def close(self):
-        self._stop_child_threads()
-        self._video1.release()
-        self._video2.release()
-        if self._output_video is not None:
-            self._output_video.release()
-        self._open = False
+    def close(self, in_process: bool = False):
+        if self._forked and not in_process:
+            self._to_worker_queue.put(None)
+            self._image_request_queue.put(None)
+        else:
+            self._stop_child_threads()
+            self._video1.release()
+            self._video2.release()
+            if self._output_video is not None:
+                self._output_video.release()
+            self._open = False
+        if self._shutdown_barrier is not None:
+            self._shutdown_barrier.wait()
 
     def _feed_next_frame(
         self,
@@ -267,7 +279,6 @@ class StitchingWorker:
 
         # self._last_requested_frame = self._start_frame_number
         # self.request_next_frame()
-
     def _stop_child_threads(self):
         if self._feeder_thread is not None:
             self._to_worker_queue.put(None)
@@ -335,6 +346,8 @@ class StitchDataset:
         self._max_frames = max_frames
         self._to_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
+        self._from_coordinator_queue = multiprocessing.Queue()
+        self._shutdown_barrier = None
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._image_roi = None
@@ -347,6 +360,10 @@ class StitchDataset:
         self._current_get_next_frame_worker = 0
         self._ordering_queue = core.SortedRGBImageQueue()
         self._coordinator_thread = None
+
+    def __delete__(self):
+        for worker in self._stitching_workers.values():
+            worker.close()
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -438,7 +455,7 @@ class StitchDataset:
         )
         self._coordinator_thread.start()
         for i in range(min(self._max_input_queue_size, self._max_frames)):
-            #INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
+            # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
 
@@ -498,9 +515,9 @@ class StitchDataset:
             raise status
 
         assert status == "ok"
-        #INFO(f"Trying to locally dequeue frame id: {self._current_frame}")
+        # INFO(f"Trying to locally dequeue frame id: {self._current_frame}")
         stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        #INFO(f"Locally dequeued frame id: {self._current_frame}")
+        # INFO(f"Locally dequeued frame id: {self._current_frame}")
         self._current_get_next_frame_worker = (
             self._current_get_next_frame_worker + 1
         ) % self._num_workers
@@ -520,10 +537,11 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        #INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        # INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
+        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
         if isinstance(status, Exception):
+            self.close()
             raise status
         else:
             status, frame_id = status
