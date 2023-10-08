@@ -45,6 +45,20 @@ class WorkerInfoReturned:
         self.last_requested_frame = last_requested_frame
 
 
+def distribute_items_detailed(total_item_count, worker_count):
+    base_items_per_worker = total_item_count // worker_count
+    remainder = total_item_count % worker_count
+
+    distribution = []
+    for i in range(worker_count):
+        if i < remainder:
+            distribution.append(base_items_per_worker + 1)
+        else:
+            distribution.append(base_items_per_worker)
+
+    return distribution
+
+
 _VERBOSE = True
 
 
@@ -368,7 +382,11 @@ class StitchDataset:
         return self._stitching_workers[worker_number]
 
     def create_stitching_worker(
-        self, rank: int, start_frame_number: int, frame_stride_count: int
+        self,
+        rank: int,
+        start_frame_number: int,
+        frame_stride_count: int,
+        max_frames: int,
     ):
         stitching_worker = StitchingWorker(
             rank=rank,
@@ -381,7 +399,7 @@ class StitchDataset:
             max_input_queue_size=self._max_input_queue_size,
             remap_thread_count=self._remap_thread_count,
             blend_thread_count=self._blend_thread_count,
-            max_frames=self._max_frames,
+            max_frames=max_frames,
             frame_stride_count=frame_stride_count,
         )
         return stitching_worker
@@ -499,10 +517,16 @@ class StitchDataset:
             self.initialize()
             # Openend close to validate existance as well as get some stats, such as fps
             for worker_number in range(self._num_workers):
+                max_for_worker = self._max_frames
+                if max_for_worker is not None:
+                    max_for_worker = distribute_items_detailed(
+                        self._max_frames, self._num_workers
+                    )[worker_number]  # TODO: call just once
                 self._stitching_workers[worker_number] = self.create_stitching_worker(
                     rank=worker_number,
                     start_frame_number=self._start_frame_number + worker_number,
                     frame_stride_count=self._num_workers,
+                    max_frames=max_for_worker,
                 )
                 self._stitching_workers[worker_number].start(fork=False)
             self._start_coordinator_thread()
@@ -537,9 +561,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        #INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        # INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
+        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
         if isinstance(status, Exception):
             self.close()
             raise status
