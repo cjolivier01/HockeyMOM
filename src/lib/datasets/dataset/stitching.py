@@ -97,6 +97,7 @@ class StitchingWorker:
         self._from_worker_queue = multiprocessing.Queue()
         self._image_request_queue = multiprocessing.Queue()
         self._image_response_queue = multiprocessing.Queue()
+        self._shutdown_barrier = None
         self._frame_stride_count = frame_stride_count
         self._open = False
         self._last_requested_frame = None
@@ -177,8 +178,6 @@ class StitchingWorker:
             self._remap_thread_count,
             self._blend_thread_count,
         )
-        if not self._forked:
-            self._prime_frame_request_queue()
         self._start_feeder_thread()
         self._prime_frame_request_queue()
         self._open = True
@@ -262,7 +261,7 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        INFO(f"self._last_requested_frame={self._last_requested_frame}")
+        #INFO(f"self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -279,6 +278,7 @@ class StitchingWorker:
 
         # self._last_requested_frame = self._start_frame_number
         # self.request_next_frame()
+
     def _stop_child_threads(self):
         if self._feeder_thread is not None:
             self._to_worker_queue.put(None)
@@ -347,7 +347,6 @@ class StitchDataset:
         self._to_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
-        self._shutdown_barrier = None
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._image_roi = None
@@ -504,7 +503,7 @@ class StitchDataset:
                     start_frame_number=self._start_frame_number + worker_number,
                     frame_stride_count=self._num_workers,
                 )
-                self._stitching_workers[worker_number].start(fork=True)
+                self._stitching_workers[worker_number].start(fork=False)
             self._start_coordinator_thread()
         return self
 
@@ -537,9 +536,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        # INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        #INFO(f"BEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
+        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})")
         if isinstance(status, Exception):
             self.close()
             raise status

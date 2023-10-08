@@ -79,7 +79,7 @@ def stitch_videos(
     start_frame_number = 200
     # start_frame_number = 0
 
-    max_frames = 51
+    max_frames = 52
 
     output_stitched_video_file = "./stitched_output.avi"
 
@@ -92,12 +92,14 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
+        num_workers=1,
     )
 
     frame_count = 0
     start = None
     for i, stitched_image in enumerate(data_loader):
-        print(f"Read frame {start_frame_number + i}")
+        if True or i % 10 == 0:
+            print(f"Read frame {start_frame_number + i}")
         frame_count += 1
         if i == 1:
             start = time.time()
