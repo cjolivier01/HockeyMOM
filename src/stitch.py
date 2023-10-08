@@ -79,7 +79,7 @@ def stitch_videos(
     start_frame_number = 200
     # start_frame_number = 0
 
-    max_frames = 52
+    max_frames = 4
 
     output_stitched_video_file = "./stitched_output.avi"
 
