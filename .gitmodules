@@ -41,3 +41,6 @@
 [submodule "external/abseil-cpp"]
 	path = external/abseil-cpp
 	url = https://github.com/abseil/abseil-cpp
+[submodule "models/SVHNClassifier"]
+	path = models/SVHNClassifier
+	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
