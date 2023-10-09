@@ -58,15 +58,17 @@ ImagePostProcessor::ImagePostProcessor(
     std::string config_file)
     : postprocess_config_(std::move(postprocess_config)) {
   if (!config_file.empty()) {
-    try {
-      std::vector<std::string> config_files = absl::StrSplit(config_file, ',');
-      for (const auto& yaml_file_path : config_files) {
+    std::vector<std::string> config_files = absl::StrSplit(config_file, ',');
+    for (const auto& yaml_file_path : config_files) {
+      try {
         YAML::Node yaml_file_node = YAML::LoadFile(yaml_file_path);
-        config_file_ = merge_yaml_nodes(config_file_, yaml_file_node);
+        config_ = merge_yaml_nodes(config_, yaml_file_node);
+      } catch (const YAML::Exception& e) {
+        std::stringstream ss;
+        ss << "Error parsing YAML file: \"" << yaml_file_path
+           << "\": " << e.what() << std::endl;
+        throw std::runtime_error(ss.str());
       }
-    } catch (const YAML::Exception& e) {
-      std::cerr << "Error parsing YAML file: \"" << yaml_file_path
-                << "\": " << e.what() << std::endl;
     }
   }
 }

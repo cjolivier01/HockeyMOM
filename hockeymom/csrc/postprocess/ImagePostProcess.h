@@ -113,7 +113,7 @@ class ImagePostProcessor {
 
  private:
   std::shared_ptr<HMPostprocessConfig> postprocess_config_;
-  YAML::Node conifg_file_;
+  YAML::Node config_;
 };
 
 } // namespace hm
