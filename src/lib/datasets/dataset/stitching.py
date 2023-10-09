@@ -375,11 +375,9 @@ class StitchDataset:
         # Temporary until we get the middle-man
         self._current_worker = 0
         self._current_get_next_frame_worker = 0
-        # self._ordering_queue = core.SortedRGBImageQueue()
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
-        #self._image_roi = [403, 500, 3700, 1200]
         self._image_roi = [403, 200, 3900, 1200]
 
     def __delete__(self):
@@ -471,11 +469,7 @@ class StitchDataset:
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
-
-        # copy_data = True
         # INFO(f"Locally enqueing frame {frame_id}")
-        # stitched_frame = stitched_frame.copy()
-        # self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
         self._ordering_queue.enqueue(frame_id, stitched_frame)
 
     def _start_coordinator_thread(self):
@@ -543,7 +537,7 @@ class StitchDataset:
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
                 )
-                self._stitching_workers[worker_number].start(fork=True)
+                self._stitching_workers[worker_number].start(fork=False)
             self._start_coordinator_thread()
         return self
 
