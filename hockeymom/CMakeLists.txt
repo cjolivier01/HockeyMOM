@@ -47,7 +47,17 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
 
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 
-set(ABSL_LIBRARIES absl::base absl::stacktrace absl::symbolize absl::synchronization)
+set(
+  ABSL_LIBRARIES
+  absl::base
+  absl::flags
+  absl::stacktrace
+  absl::symbolize
+  absl::synchronization
+  absl::str_format
+  absl::time
+  absl::strings
+)
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
 target_link_libraries(hm PRIVATE yaml-cpp)

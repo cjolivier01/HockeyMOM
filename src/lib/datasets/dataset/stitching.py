@@ -61,7 +61,8 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 _VERBOSE = True
 
-_LARGE_NUMBER_OF_FRAMES = 99999999999999999999999999999999
+# Some arbitrarily huge number of frames
+_LARGE_NUMBER_OF_FRAMES = 1e128
 
 
 def INFO(*args, **kwargs):
@@ -360,7 +361,7 @@ class StitchDataset:
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._max_frames = (
-            max_frames if max_frames is not None else 99999999999999999999999999
+            max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         )
         self._to_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
@@ -378,7 +379,7 @@ class StitchDataset:
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
-        self._image_roi = [403, 200, 3900, 1200]
+        #self._image_roi = [403, 200, 3900, 1200]
 
     def __delete__(self):
         for worker in self._stitching_workers.values():
