@@ -103,7 +103,7 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::ImagePostProcessor, std::shared_ptr<hm::ImagePostProcessor>>(
       m, "ImagePostProcessor")
-      .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>>());
+      .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>, std::string>());
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")

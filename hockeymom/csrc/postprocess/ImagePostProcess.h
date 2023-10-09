@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include <yaml-cpp/yaml.h>
+
 namespace hm {
 
 /*
@@ -105,10 +107,13 @@ struct HMPostprocessConfig {
 
 class ImagePostProcessor {
  public:
-  ImagePostProcessor(std::shared_ptr<HMPostprocessConfig> config);
+  ImagePostProcessor(
+      std::shared_ptr<HMPostprocessConfig> postprocess_config,
+      std::string config_file);
 
  private:
-  std::shared_ptr<HMPostprocessConfig> config_;
+  std::shared_ptr<HMPostprocessConfig> postprocess_config_;
+  YAML::Node conifg_file_;
 };
 
 } // namespace hm

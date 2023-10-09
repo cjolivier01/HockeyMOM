@@ -1,4 +1,7 @@
 
+# Find the yaml-cpp package
+find_package(yaml-cpp REQUIRED)
+
 # Include certain OpenCV modules
 # SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
 # include_directories(${BASE_OPENCV_DIR}/modules/core/include)
@@ -47,6 +50,7 @@ add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 set(ABSL_LIBRARIES absl::base absl::stacktrace absl::symbolize absl::synchronization)
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
+target_link_libraries(hm PRIVATE yaml-cpp)
 
 # alphamat aruco bgsegm bioinspired calib3d ccalib core cudaarithm cudabgsegm
 # cudacodec cudafeatures2d cudafilters cudaimgproc cudalegacy cudaobjdetect cudaoptflow
