@@ -61,6 +61,8 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 _VERBOSE = True
 
+_LARGE_NUMBER_OF_FRAMES = 99999999999999999999999999999999
+
 
 def INFO(*args, **kwargs):
     if not _VERBOSE:
@@ -103,10 +105,12 @@ class StitchingWorker:
         self._video_file_1 = video_file_1
         self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
-        self._max_input_queue_size = min(max_input_queue_size, max_frames)
+        self._max_frames = (
+            max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
+        )
+        self._max_input_queue_size = min(max_input_queue_size, self._max_frames)
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
-        self._max_frames = max_frames
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
         self._image_request_queue = multiprocessing.Queue()
@@ -154,7 +158,7 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        #INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
+        # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
@@ -225,7 +229,7 @@ class StitchingWorker:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        #INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
+        # INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
@@ -241,7 +245,7 @@ class StitchingWorker:
 
     def _image_getter_worker(self):
         frame_count = 0
-        while frame_count < self._max_frames:
+        while self._max_frames is None or frame_count < self._max_frames:
             frame_id = self._image_request_queue.get()
             if frame_id is None:
                 break
@@ -274,7 +278,7 @@ class StitchingWorker:
                     FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
                 )
                 self._last_requested_frame = req_frame
-        #INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
+        # INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -304,9 +308,8 @@ class StitchingWorker:
 
     def request_next_frame(self):
         req_frame = self._last_requested_frame + self._frame_stride_count
-        if (
-            not self._max_frames
-            or req_frame < self._start_frame_number + (self._max_frames * self._frame_stride_count)
+        if not self._max_frames or req_frame < self._start_frame_number + (
+            self._max_frames * self._frame_stride_count
         ):
             self._last_requested_frame += self._frame_stride_count
             # INFO(f"{self.rp_str()} request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
@@ -356,7 +359,9 @@ class StitchDataset:
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
-        self._max_frames = max_frames
+        self._max_frames = (
+            max_frames if max_frames is not None else 99999999999999999999999999
+        )
         self._to_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
@@ -370,9 +375,11 @@ class StitchDataset:
         # Temporary until we get the middle-man
         self._current_worker = 0
         self._current_get_next_frame_worker = 0
-        #self._ordering_queue = core.SortedRGBImageQueue()
+        # self._ordering_queue = core.SortedRGBImageQueue()
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
+
+        self._image_roi = [403, 500, 3700, 1200]
 
     def __delete__(self):
         for worker in self._stitching_workers.values():
@@ -408,7 +415,11 @@ class StitchDataset:
         if not self._pto_project_file:
             dir_name = _get_dir_name(self._video_file_1)
             self._pto_project_file, lfo, rfo = configure_video_stitching(
-                dir_name, self._video_file_1, self._video_file_2
+                dir_name,
+                self._video_file_1,
+                self._video_file_2,
+                left_frame_offset=self._video_1_offset_frame,
+                right_frame_offset=self._video_2_offset_frame,
             )
             self._video_1_offset_frame = lfo
             self._video_2_offset_frame = rfo
@@ -460,10 +471,10 @@ class StitchDataset:
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
 
-        #copy_data = True
-        #INFO(f"Locally enqueing frame {frame_id}")
-        #stitched_frame = stitched_frame.copy()
-        #self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
+        # copy_data = True
+        # INFO(f"Locally enqueing frame {frame_id}")
+        # stitched_frame = stitched_frame.copy()
+        # self._ordering_queue.enqueue(frame_id, stitched_frame, copy_data)
         self._ordering_queue.enqueue(frame_id, stitched_frame)
 
     def _start_coordinator_thread(self):
@@ -564,9 +575,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        #INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         status = self._from_coordinator_queue.get()
-        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
+        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
             raise status

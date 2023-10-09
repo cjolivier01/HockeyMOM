@@ -46,10 +46,18 @@ def demo(opt):
     input_video_files = opt.input_video.split(",")
 
     if len(input_video_files) == 2:
+        video_1_offset_frame = None
+        video_2_offset_frame = None
+
+        video_1_offset_frame = 13
+        video_2_offset_frame = 0
+
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
             path_video_2=input_video_files[1],
             #pto_project_file=os.path.join(os.environ['HOME'], 'Videos', 'sabercats-parts', 'my_project.pto'),
+            video_1_offset_frame=video_1_offset_frame,
+            video_2_offset_frame=video_2_offset_frame,
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
         )

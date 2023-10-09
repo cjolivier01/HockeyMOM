@@ -6,7 +6,7 @@ rm -f panorama.tif
 pto_gen -o my_project.pto -f 108 left.png right.png
 
 # find control points
-cpfind --linearmatch my_project.pto -o my_project.pto
+cpfind --linearmatch --celeste my_project.pto -o my_project.pto
 
 # Optimize the project
 autooptimiser -a -m -l -s -o my_project.pto my_project.pto

@@ -26,7 +26,7 @@ from lib.ffmpeg import extract_frame_image
 
 
 def synchronize_by_audio(
-    file0_path: str, file1_path: str, seconds: int = 45, create_new_clip: bool = False
+    file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False
 ):
     # Load the videos
     print("Openning videos...")
@@ -127,7 +127,7 @@ def extract_frames(
     video_left: str,
     left_frame_number: int,
     video_right: str,
-    right_frame_number: int = 10,
+    right_frame_number: int,
 ):
     file_name_without_extension, _ = os.path.splitext(video_left)
     left_output_image_file = os.path.join(

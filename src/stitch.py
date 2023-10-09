@@ -90,9 +90,9 @@ def stitch_videos(
         video_1_offset_frame=lfo,
         video_2_offset_frame=rfo,
         start_frame_number=start_frame_number,
-        #output_stitched_video_file=output_stitched_video_file,
+        output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=4,
+        num_workers=1,
     )
 
     frame_count = 0
@@ -182,13 +182,16 @@ def main():
     #     "/mnt/data/Videos/vacaville/my_project0001.tif",
     # )
 
-    dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
-    video_left = "left-1.mp4"
-    video_right = "right-1.mp4"
+    #dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
+    dir_name = os.path.join(os.environ["HOME"], "Videos", "stockton")
+    video_left = "left.mp4"
+    video_right = "right.mp4"
     # video_left = "left-1-small.avi"
     # video_right = "right-1-small.avi"
-    lfo = 0
-    rfo = 92
+    # lfo = 0
+    # rfo = 92
+    lfo = 13
+    rfo = 0
     lfo, rfo = stitch_videos(
         dir_name,
         video_left,
