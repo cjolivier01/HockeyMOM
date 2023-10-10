@@ -48,6 +48,9 @@ RINK_CONFIG = {
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
     },
+    "stockton": {
+        "fixed_edge_scaling_factor": 0.8,
+    },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
     }
@@ -56,7 +59,7 @@ RINK_CONFIG = {
 BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "yerba_buena", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "stockton", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
@@ -285,7 +288,6 @@ class FramePostProcessor:
         if self._output_video is None:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
-                # filename=self._save_dir + "/../tracking_output.mov",
                 filename=self._save_dir + "/../tracking_output.avi",
                 fourcc=fourcc,
                 fps=self._fps,
