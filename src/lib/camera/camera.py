@@ -26,7 +26,7 @@ def create_camera(
     sensor_size_mm: Tuple[float, float] = (6.17, 4.55),
 ) -> ct.Camera:
     """
-    Create a camera object witht he given parameters/position.
+    Create a camera object with the given parameters/position.
     """
     # initialize the camera
     cam = ct.Camera(
