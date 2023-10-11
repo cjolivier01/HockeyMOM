@@ -275,9 +275,9 @@ class HockeyMOM:
         self._clamp_box = self._video_frame.box()
         self._online_tlwhs_history = list()
         self._max_history = max_history
-        self._speed_history = speed_history
+        #self._speed_history = speed_history
         self._online_ids = set()
-        self._id_to_speed_map = dict()
+        #self._id_to_speed_map = dict()
         self._id_to_tlwhs_history_map = dict()
 
         self._kmeans_objects = dict()
@@ -296,8 +296,8 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_type = "zhiwei"
-        #self._camera_type = "gopro"
+        #self._camera_type = "zhiwei"
+        self._camera_type = "gopro"
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)

@@ -49,7 +49,7 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 0.8,
     },
     "stockton": {
-        "fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_scaling_factor": 0.6,
     },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
@@ -891,7 +891,8 @@ class FramePostProcessor:
                         gaussian_factor = hockey_mom.get_gaussian_y_from_image_x_position(center(last_sticky_temporal_box)[0])
                     else:
                         gaussian_factor = 1
-                    gaussian_mult = 10
+                    #gaussian_mult = 10
+                    gaussian_mult = 6
                     gaussian_add = gaussian_factor * gaussian_mult
                     #print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
                     sticky_size = hockey_mom._camera_box_max_speed_x * (6 + gaussian_add)

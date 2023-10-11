@@ -5,19 +5,40 @@
 #include <unordered_map>
 #include <unordered_set>
 
+//#include <opencv2/opencv.hpp>
+
 namespace hm {
 namespace camera {
+
+struct Point {
+  float x{0};
+  float y{0};
+};
+
 struct Box {
-  int left{0};
-  int top{0};
-  int right{0};
-  int bottom{0};
+  float left{0};
+  float top{0};
+  float right{0};
+  float bottom{0};
 };
 
 struct Tlwh : public Box {
 };
 
 using TlwhHistory = std::list<Tlwh>;
+
+struct Venue {
+
+};
+
+struct Camera {
+  std::string name;
+  float elevation_m{3.0};
+  float tilt_degrees{45.0};
+  float roll_degrees{0.0};
+  float focal_length{6.2};
+
+};
 
 struct CameraProperties {
   Box   video_frame;

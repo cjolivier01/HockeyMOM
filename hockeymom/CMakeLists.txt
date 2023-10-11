@@ -2,6 +2,8 @@
 # Find the yaml-cpp package
 find_package(yaml-cpp REQUIRED)
 
+#find_package(OpenCV REQUIRED)
+
 # Include certain OpenCV modules
 # SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
 # include_directories(${BASE_OPENCV_DIR}/modules/core/include)

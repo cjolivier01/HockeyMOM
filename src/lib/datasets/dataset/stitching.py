@@ -379,7 +379,7 @@ class StitchDataset:
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
-        #self._image_roi = [403, 200, 3900, 1200]
+        self._image_roi = [403, 200, 3900, 1200]
 
     def __delete__(self):
         for worker in self._stitching_workers.values():

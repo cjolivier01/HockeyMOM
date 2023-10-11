@@ -26,11 +26,15 @@ def demo(opt):
 
     logger.info("Starting tracking...")
 
-    # opt.img_size = (4096, 1024)
+    opt.img_size = (4096, 1024)
+
+    #opt.img_size = (4096 * 3 // 2, 1024 * 3 // 2)
 
     #opt.img_size = (4096 // 2, 1024 // 2)
 
-    opt.img_size = (4096 // 4, 1024 // 4)
+    #opt.img_size = (4096 // 2, 1024 // 2)
+
+    #opt.img_size = (4096 // 4, 1024 // 4)
 
     # opt.img_size = (4096, 1800)
     # opt.img_size = (1088, 608)
