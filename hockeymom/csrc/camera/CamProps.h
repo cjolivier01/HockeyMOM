@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <list>
+#include <unordered_map>
 
 namespace hm {
 namespace camera {
@@ -11,11 +13,30 @@ struct Box {
   int bottom{0};
 };
 
-struct CameraProperties {};
+struct Tlwh : public Box {
+};
 
-struct CameraBehavior {};
+using std::list<Tlwh> TlwhHistory;
 
-struct CameraState {};
+struct CameraProperties {
+  Box   video_frame;
+  Box   clamp_box;
+};
+
+struct CameraBehavior {
+  std::size_t max_history{26};
+};
+
+struct PlayerState {
+
+};
+
+struct CameraState {
+  std::unordered_map<std::size_t, PlayerState> online_id_to_player_map;
+
+  std::unordered_set<std::size_t> online_ids;
+  std::unordered_map<std::size_t, TlwhHistory> online_tlwhs_history;
+};
 
 } // namespace camera
 } // namespace hm
