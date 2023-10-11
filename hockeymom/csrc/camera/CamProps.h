@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <list>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace hm {
 namespace camera {
@@ -16,7 +17,7 @@ struct Box {
 struct Tlwh : public Box {
 };
 
-using std::list<Tlwh> TlwhHistory;
+using TlwhHistory = std::list<Tlwh>;
 
 struct CameraProperties {
   Box   video_frame;
