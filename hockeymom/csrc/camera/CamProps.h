@@ -29,7 +29,7 @@ struct Tlwh : public Box {
 
 struct TlwhHistory {
   std::size_t id;
-  std::size_t video_
+  //std::size_t video_
 };
 
 struct Venue {
