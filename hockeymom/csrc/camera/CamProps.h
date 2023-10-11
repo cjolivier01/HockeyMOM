@@ -25,7 +25,12 @@ struct Box {
 struct Tlwh : public Box {
 };
 
-using TlwhHistory = std::list<Tlwh>;
+//using TlwhHistory = std::list<Tlwh>;
+
+struct TlwhHistory {
+  std::size_t id;
+  std::size_t video_
+};
 
 struct Venue {
 

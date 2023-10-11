@@ -148,7 +148,7 @@ class VideoFrame(object):
 class TlwhHistory(object):
     def __init__(self, id: int, video_frame: VideoFrame, max_history_length: int = 25):
         self.id_ = id
-        self._video_frame = video_frame
+        #self._video_frame = video_frame
         self._max_history_length = max_history_length
         self._image_position_history = list()
         self._spatial_position_history = list()
@@ -769,7 +769,6 @@ class HockeyMOM:
         the_box: torch.Tensor,
         desired_aspect_ratio: float,
         max_in_aspec_ratio: bool,
-        no_max_in_aspec_ratio_at_edges: bool,
         verbose: bool = False,
         extra_validation: bool = True,
     ):
@@ -814,19 +813,6 @@ class HockeyMOM:
             if new_w_1 > self._video_frame.width:
                 new_w_1 = self._video_frame.width
                 new_h_1 = new_w_1 / desired_aspect_ratio
-            # if new_h_1 > self._video_frame.height:
-            #     new_w = new_w_2
-            #     new_h = new_h_2
-            # elif new_w_2 > self._video_frame.width:
-            #     new_w = new_w_2
-            #     new_h = new_h_2
-            # # Box with the largest area wins
-            # elif new_w_1 * new_h_1 > new_w_2 * new_h_2:
-            #     new_w = new_w_1
-            #     new_h = new_h_1
-            # else:
-            #     new_w = new_w_2
-            #     new_h = new_h_2
             new_w = new_w_1
             new_h = new_h_1
         else:
@@ -837,19 +823,6 @@ class HockeyMOM:
                 self._video_frame.height,
                 maximum=True,
             )
-
-        # Within some reasonable epsilon, clamp to allowed width and height
-        # so as not to set off assertions for trivial mathematical
-        # variance
-
-        # def _epsilon_clamp_down(value, max_value):
-        #     nonlocal self
-        #     diff = value - max_value
-        #     if diff > 0 and diff < self._epsilon:
-        #         value = max_value
-
-        # new_w = _epsilon_clamp_down(new_w, self._video_frame.width)
-        # new_h = _epsilon_clamp_down(new_h, self._video_frame.height)
 
         w_diff = new_w - self._video_frame.width
         if w_diff > 0 and w_diff < self._epsilon:
@@ -881,7 +854,7 @@ class HockeyMOM:
             assert ww <= (self._video_frame.width + self._epsilon)
             assert hh <= (self._video_frame.height + self._epsilon)
 
-        # assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
+        assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
         return new_box
 
