@@ -44,3 +44,6 @@
 [submodule "models/SVHNClassifier"]
 	path = models/SVHNClassifier
 	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
+[submodule "models/layers/CvT"]
+	path = models/layers/CvT
+	url = ssh://git@github.com/cjolivier01/CvT
