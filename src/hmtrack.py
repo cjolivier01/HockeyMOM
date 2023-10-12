@@ -54,12 +54,71 @@ def get_tracker(tracker_name: str, opt, frame_rate: int):
     return None
 
 
+class HmPostProcessor:
+    def __init__(self, opt, args, fps: int, save_dir: str, data_type: str = "mot"):
+        self._opt = opt
+        self._args = args
+        self._data_type = data_type
+        self._postprocessor = None
+        self._fps = fps
+        self._save_dir = save_dir
+        self._hockey_mom = None
+
+    @property
+    def data_type(self):
+        return self._data_type
+
+    def online_callback(
+        self,
+        frame_id,
+        online_tlwhs,
+        online_ids,
+        info_imgs,
+        img,
+        original_img,
+        online_scores=None,
+    ):
+        if self._postprocessor is None:
+            self.on_first_image(frame_id, info_imgs, img, original_img)
+        self._postprocessor.send(online_tlwhs, online_ids, img, original_img)
+
+    def on_first_image(self, frame_id, info_imgs, img, original_img):
+        if self._hockey_mom is None:
+            if self._args.scale_to_original_image:
+                self._hockey_mom = HockeyMOM(
+                    image_width=original_img.shape[1],
+                    image_height=original_img.shape[0],
+                )
+            else:
+                self._hockey_mom = HockeyMOM(
+                    image_width=img.shape[1],
+                    image_height=img.shape[0],
+                )
+
+        if self._postprocessor is None:
+            self._postprocessor = FramePostProcessor(
+                self._hockey_mom,
+                start_frame_id=frame_id,
+                data_type=self._data_type,
+                fps=self._fps,
+                save_dir=self._save_dir,
+                opt=self._opt,
+                args=self._args,
+            )
+            self._postprocessor.start()
+
+    def stop(self):
+        if self._postprocessor is not None:
+            self._postprocessor.stop()
+
+
 def track_sequence(
     opt,
+    args,
     dataloader,
-    data_type,
     tracker_name: str,
     result_filename,
+    postprocessor: HmPostProcessor,
     output_video_path: str = None,
     save_dir=None,
     use_cuda=True,
@@ -70,28 +129,35 @@ def track_sequence(
     dataset_timer = Timer()
     timer = Timer()
 
-    args = DefaultArguments()
+    # args = DefaultArguments()
 
-    do_postprocessing = True
+    # do_postprocessing = True
     incremental_results = False
     args.stop_at_frame = 1000
 
-    show_image = args.show_image
+    # show_image = args.show_image
 
     frame_id = 0
-    hockey_mom = None
-    postprocessor = None
+    # hockey_mom = None
+    # postprocessor = None
     image_scale_array = None
-    first_frame_id = 0
+    # first_frame_id = 0
 
     if result_filename:
-        results = read_results(result_filename, data_type)
+        results = read_results(result_filename, postprocessor.data_type)
 
     using_precomputed_results = len(results) != 0
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
         if i:
             dataset_timer.toc()
+
+        info_imgs = [
+            np.array([img0.shape[0]], dtype=np.int),
+            np.array([img0.shape[1]], dtype=np.int),
+            np.array([frame_id], dtype=np.int),
+            np.array([], dtype=np.int),
+        ]
 
         if frame_id % 20 == 0:
             logger.info(
@@ -102,39 +168,6 @@ def track_sequence(
 
         if args.scale_to_original_image and image_scale_array is None:
             image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
-
-        if hockey_mom is None:
-            if args.scale_to_original_image:
-                hockey_mom = HockeyMOM(
-                    image_width=original_img.shape[1],
-                    image_height=original_img.shape[0],
-                )
-            else:
-                hockey_mom = HockeyMOM(
-                    image_width=img.shape[2],
-                    image_height=img.shape[1],
-                )
-
-        if do_postprocessing and postprocessor is None:
-            postprocessor = FramePostProcessor(
-                hockey_mom,
-                start_frame_id=frame_id,
-                data_type=data_type,
-                fps=dataloader.fps,
-                save_dir=save_dir,
-                result_filename=result_filename,
-                show_image=show_image,
-                opt=opt,
-                args=args,
-            )
-            # maybe seek to frame
-            first_frame_id = postprocessor.get_first_frame_id()
-            postprocessor.start()
-            if first_frame_id and hasattr(dataloader, "set_frame_number"):
-                dataloader.set_frame_number(first_frame_id)
-                postprocessor._frame_id = first_frame_id
-                print(f"Starting at frame: {first_frame_id}")
-                continue
 
         frame_id = i
         if frame_id > 0 and frame_id <= args.skip_frame_count:
@@ -194,14 +227,24 @@ def track_sequence(
             # results.append((frame_id + 1, online_tlwhs, online_ids))
             results[frame_id + 1] = (online_tlwhs, online_ids)
 
+            if postprocessor is not None:
+                postprocessor.online_callback(
+                    frame_id=frame_id,
+                    online_tlwhs=online_tlwhs,
+                    online_ids=online_ids,
+                    info_imgs=info_imgs,
+                    img=img0,
+                    original_img=original_img,
+                )
+
             # save results
             if incremental_results and result_filename and (i + 1) % 25 == 0:
                 results.append((frame_id + 1, online_tlwhs, online_ids))
 
         timer.toc()
 
-        if postprocessor is not None:
-            postprocessor.send(online_tlwhs, online_ids, img0, original_img)
+        # if postprocessor is not None:
+        #     postprocessor.send(online_tlwhs, online_ids, img0, original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break

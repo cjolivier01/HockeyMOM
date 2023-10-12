@@ -12,9 +12,14 @@ from opts import opts
 from tracking_utils.utils import mkdir_if_missing
 from tracking_utils.log import logger
 import datasets.dataset.jde as datasets
-#from track import eval_seq
+
+# from track import eval_seq
 from lib.ffmpeg import copy_audio
-from hmtrack import track_sequence
+from hmtrack import track_sequence, HmPostProcessor
+
+from camera.cam_post_process import (
+    DefaultArguments,
+)
 
 logger.setLevel(logging.INFO)
 
@@ -92,10 +97,21 @@ def infer_main(opt):
 
     output_video_path = osp.join(result_root, "tracking_output.avi")
 
+    args = DefaultArguments()
+
+    postprocessor = HmPostProcessor(
+        opt=opt,
+        args=args,
+        fps=dataloader.fps,
+        save_dir=result_root,
+        data_type="mot",
+    )
+
     track_sequence(
         opt=opt,
+        args=args,
         dataloader=dataloader,
-        data_type="mot",
+        postprocessor=postprocessor,
         tracker_name="jde",
         result_filename=result_filename,
         output_video_path=output_video_path,

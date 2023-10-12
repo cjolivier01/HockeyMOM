@@ -75,7 +75,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True and BASIC_DEBUGGING
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -179,8 +179,6 @@ class FramePostProcessor:
         data_type,
         fps: float,
         save_dir,
-        result_filename,
-        show_image,
         opt,
         args: argparse.Namespace,
         use_fork: bool = False,
@@ -192,8 +190,6 @@ class FramePostProcessor:
         self._imgproc_queue = Queue()
         self._data_type = data_type
         self._save_dir = save_dir
-        self._result_filename = result_filename
-        self._show_image = show_image
         self._fps = fps
         self._opt = opt
         self._thread = None
@@ -247,8 +243,7 @@ class FramePostProcessor:
         return self.postprocess_frame(
             self._hockey_mom,
             self._save_dir,
-            self._result_filename,
-            self._show_image,
+            self._args.show_image,
             self._opt,
         )
 
@@ -274,10 +269,10 @@ class FramePostProcessor:
             time.sleep(0.001)
         self._queue.put((online_tlwhs.copy(), online_ids.copy(), image, original_img))
 
-    def postprocess_frame(self, hockey_mom, save_dir, result_filename, show_image, opt):
+    def postprocess_frame(self, hockey_mom, save_dir, show_image, opt):
         try:
             self._postprocess_frame_impl(
-                hockey_mom, save_dir, result_filename, show_image, opt
+                hockey_mom, save_dir, show_image, opt
             )
         except Exception as ex:
             print(ex)
@@ -464,7 +459,7 @@ class FramePostProcessor:
             timer.toc()
 
     def _postprocess_frame_impl(
-        self, hockey_mom, save_dir, result_filename, show_image, opt
+        self, hockey_mom, save_dir, show_image, opt
     ):
         last_temporal_box = None
         last_sticky_temporal_box = None
