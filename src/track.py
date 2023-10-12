@@ -171,8 +171,6 @@ def eval_seq(
                 data_type=data_type,
                 fps=dataloader.fps,
                 save_dir=save_dir,
-                result_filename=result_filename,
-                show_image=show_image,
                 opt=opt,
                 args=args,
             )

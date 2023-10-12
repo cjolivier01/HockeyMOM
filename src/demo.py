@@ -94,7 +94,6 @@ def demo(opt):
         "mot",
         result_filename,
         save_dir=frame_dir,
-        show_image=False,
         use_cuda=opt.gpus != [-1],
     )
 
