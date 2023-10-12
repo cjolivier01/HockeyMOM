@@ -141,8 +141,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_cuda = False
 
         # Draw watermark on the image
-        self.use_watermark = True
-        # self.use_watermark = False
+        #self.use_watermark = True
+        self.use_watermark = False
 
 
 def scale_box(box, from_img, to_img):
@@ -262,10 +262,10 @@ class FramePostProcessor:
             if self._child_pid:
                 os.waitpid(self._child_pid)
 
-    def send(self, online_tlwhs, online_ids, image, original_img):
+    def send(self, online_tlwhs, online_ids, info_imgs, image, original_img):
         while self._queue.qsize() > 10:
             time.sleep(0.001)
-        self._queue.put((online_tlwhs.copy(), online_ids.copy(), image, original_img))
+        self._queue.put((online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img))
 
     def postprocess_frame(self, hockey_mom, show_image, opt):
         try:
@@ -439,7 +439,7 @@ class FramePostProcessor:
                     cv2.waitKey(1)
 
             if plot_interias:
-                vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
+                vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
             if self._save_dir is not None:
                 if self._output_video is not None:
@@ -495,8 +495,9 @@ class FramePostProcessor:
 
             online_tlwhs = online_targets_and_img[0]
             online_ids = online_targets_and_img[1]
-            img0 = online_targets_and_img[2]
-            original_img = online_targets_and_img[3]
+            info_imgs = online_targets_and_img[2]
+            img0 = online_targets_and_img[3]
+            original_img = online_targets_and_img[4]
 
             if remove_largest:
                 largest_index = -1

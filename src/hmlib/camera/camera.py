@@ -151,7 +151,7 @@ class TlwhHistory(object):
         #self._video_frame = video_frame
         self._max_history_length = max_history_length
         self._image_position_history = list()
-        self._spatial_position_history = list()
+        #self._spatial_position_history = list()
         self._spatial_distance_sum = 0.0
         self._current_spatial_speed = 0.0
         self._current_spatial_x_speed = 0.0
@@ -164,45 +164,45 @@ class TlwhHistory(object):
     def id(self):
         return self.id_
 
-    def append(self, image_position: np.array, spatial_position: np.array):
-        current_historty_length = len(self._spatial_position_history)
+    def append(self, image_position: np.array, spatial_position: np.array = None):
+        current_historty_length = len(self._image_position_history)
         if current_historty_length >= self._max_history_length - 1:
             # trunk-ignore(bandit/B101)
             assert current_historty_length == self._max_history_length - 1
             # dist = np.linalg.norm()
-            removing_spatial_point = self._spatial_position_history[0]
+            #removing_spatial_point = self._spatial_position_history[0]
             removing_image_point = self._image_position_history[0]
-            self._spatial_position_history = self._spatial_position_history[1:]
+            #self._spatial_position_history = self._spatial_position_history[1:]
             self._image_position_history = self._image_position_history[1:]
-            old_spatial_distance = np.linalg.norm(
-                removing_spatial_point - self._spatial_position_history[0]
-            )
-            self._spatial_distance_sum -= old_spatial_distance
+            #old_spatial_distance = np.linalg.norm(
+                #removing_spatial_point - self._spatial_position_history[0]
+            #)
+            #self._spatial_distance_sum -= old_spatial_distance
             old_image_distance = np.linalg.norm(
                 removing_image_point - self._image_position_history[0]
             )
             self._image_distance_sum -= old_image_distance
         if len(self._image_position_history) > 0:
-            new_spatial_distance = np.linalg.norm(
-                spatial_position - self._spatial_position_history[-1]
-            )
-            self._spatial_distance_sum += new_spatial_distance
+            #new_spatial_distance = np.linalg.norm(
+                #spatial_position - self._spatial_position_history[-1]
+            #)
+            #self._spatial_distance_sum += new_spatial_distance
             new_image_distance = np.linalg.norm(
                 image_position - self._image_position_history[-1]
             )
             self._image_distance_sum += new_image_distance
-        self._spatial_position_history.append(spatial_position)
+        #self._spatial_position_history.append(spatial_position)
         self._image_position_history.append(image_position)
-        if len(self._spatial_position_history) > 1:
-            self._current_spatial_speed = (
-                self._spatial_speed_multiplier
-                * self._spatial_distance_sum
-                / (len(self._spatial_position_history) - 1)
-            )
+        if len(self._image_position_history) > 1:
+            # self._current_spatial_speed = (
+            #     self._spatial_speed_multiplier
+            #     * self._spatial_distance_sum
+            #     / (len(self._spatial_position_history) - 1)
+            # )
             self._current_image_speed = self._image_distance_sum / (
                 len(self._image_position_history) - 1
             )
-            if len(self._spatial_position_history) >= X_SPEED_HISTORY_LENGTH:
+            if len(self._image_position_history) >= X_SPEED_HISTORY_LENGTH:
                 self._current_image_x_speed = (
                     self._image_position_history[-1][0]
                     - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
@@ -237,7 +237,7 @@ class TlwhHistory(object):
     def __len__(self):
         length = len(self._image_position_history)
         # trunk-ignore(bandit/B101)
-        assert length == len(self._spatial_position_history)
+        #assert length == len(self._spatial_position_history)
         return length
 
     @property
@@ -296,8 +296,8 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        #self._camera_type = "zhiwei"
-        self._camera_type = "gopro"
+        self._camera_type = "zhiwei"
+        #self._camera_type = "gopro"
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
@@ -339,14 +339,14 @@ class HockeyMOM:
         self._camera_box_max_size_change_velocity_y = 2
 
         # Create the camera transofrmer
-        self._camera = create_camera(
-            elevation_m=3,
-            tilt_degrees=45,
-            roll_degrees=5,  # <-- looks correct for Vallco left penalty box glass
-            focal_length=12,
-            sensor_size_mm=(73, 4.55),
-            image_size_px=(image_width, image_height),
-        )
+        # self._camera = create_camera(
+        #     elevation_m=3,
+        #     tilt_degrees=45,
+        #     roll_degrees=5,  # <-- looks correct for Vallco left penalty box glass
+        #     focal_length=12,
+        #     sensor_size_mm=(73, 4.55),
+        #     image_size_px=(image_width, image_height),
+        # )
         self.setup_gaussian(length=image_width)
 
     def get_gaussian_y_from_image_x_position(self, image_x_position: float, wide: bool = False):
@@ -429,23 +429,23 @@ class HockeyMOM:
             [TlwhHistory.center_point(twls) for twls in online_tlws]
         )
         # Result will be 3D with all Z axis as zeroes, so just trim that dim
-        if len(self._online_image_center_points):
-            self._online_spatial = self._camera.spaceFromImage(
-                self._online_image_center_points
-            )
-        else:
-            self._online_spatial = np.array([])
+        # if len(self._online_image_center_points):
+        #     self._online_spatial = self._camera.spaceFromImage(
+        #         self._online_image_center_points
+        #     )
+        # else:
+        #     self._online_spatial = np.array([])
 
         # Add to history
         prev_dict = self._id_to_tlwhs_history_map
         self._id_to_tlwhs_history_map = dict()
         # self._id_to_speed_map = dict()
         # trunk-ignore(ruff/B905)
-        for id, image_pos, spatial_pos in zip(
-            self._online_ids, self._online_tlws, self._online_spatial
+        for id, image_pos in zip(
+            self._online_ids, self._online_tlws
         ):
             hist = prev_dict.get(id, TlwhHistory(id=id, video_frame=self._video_frame))
-            hist.append(image_position=image_pos, spatial_position=spatial_pos)
+            hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id] = hist
 
     def reset_clusters(self):
@@ -532,9 +532,9 @@ class HockeyMOM:
     def video(self):
         return self._video_frame
 
-    @property
-    def camera(self):
-        return self._camera
+    # @property
+    # def camera(self):
+    #     return self._camera
 
     @property
     def clamp_box(self):
