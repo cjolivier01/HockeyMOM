@@ -164,11 +164,10 @@ def make_scale_array(from_img, to_img):
 
 
 class ImageProcData:
-    def __init__(self, frame_id: int, img, current_box, save_dir: str):
+    def __init__(self, frame_id: int, img, current_box):
         self.frame_id = frame_id
         self.img = img
         self.current_box = current_box.copy()
-        self.save_dir = save_dir
 
 
 class FramePostProcessor:
@@ -242,7 +241,6 @@ class FramePostProcessor:
             self.crop_output_image = True
         return self.postprocess_frame(
             self._hockey_mom,
-            self._save_dir,
             self._args.show_image,
             self._opt,
         )
@@ -269,11 +267,9 @@ class FramePostProcessor:
             time.sleep(0.001)
         self._queue.put((online_tlwhs.copy(), online_ids.copy(), image, original_img))
 
-    def postprocess_frame(self, hockey_mom, save_dir, show_image, opt):
+    def postprocess_frame(self, hockey_mom, show_image, opt):
         try:
-            self._postprocess_frame_impl(
-                hockey_mom, save_dir, show_image, opt
-            )
+            self._postprocess_frame_impl(hockey_mom, show_image, opt)
         except Exception as ex:
             print(ex)
             traceback.print_exc()
@@ -289,7 +285,7 @@ class FramePostProcessor:
         if self._output_video is None:
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
-                filename=self._save_dir + "/../tracking_output.avi",
+                filename=os.path.join(self._save_dir, "tracking_output.avi"),
                 fourcc=fourcc,
                 fps=self._fps,
                 frameSize=(self.final_frame_width, self.final_frame_height),
@@ -445,22 +441,20 @@ class FramePostProcessor:
             if plot_interias:
                 vis.plot_kmeans_intertias(hockey_mom=hockey_mom)
 
-            if imgproc_data.save_dir is not None:
+            if self._save_dir is not None:
                 if self._output_video is not None:
                     self._output_video.write(online_im)
                 else:
                     cv2.imwrite(
                         os.path.join(
-                            imgproc_data.save_dir,
+                            self._save_dir,
                             "{:05d}.png".format(imgproc_data.frame_id),
                         ),
                         online_im,
                     )
             timer.toc()
 
-    def _postprocess_frame_impl(
-        self, hockey_mom, save_dir, show_image, opt
-    ):
+    def _postprocess_frame_impl(self, hockey_mom, show_image, opt):
         last_temporal_box = None
         last_sticky_temporal_box = None
         last_dx_shrink_size = 0
@@ -524,7 +518,7 @@ class FramePostProcessor:
             hockey_mom.calculate_clusters(n_clusters=2)
             hockey_mom.calculate_clusters(n_clusters=3)
 
-            if show_image or save_dir is not None:
+            if show_image or self._save_dir is not None:
                 if self._args.scale_to_original_image:
                     online_im = original_img
                 else:
@@ -1089,7 +1083,6 @@ class FramePostProcessor:
                 frame_id=self._frame_id,
                 img=online_im,
                 current_box=current_box,
-                save_dir=save_dir,
             )
             timer.toc()
             # Only let it get ahead around 25 frames so as not to use too much
