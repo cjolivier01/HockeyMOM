@@ -98,21 +98,14 @@ def write_results_score(filename, results, data_type):
     logger.info("save results to {}".format(filename))
 
 
-def get_last_result_frame(results, default_frame_id: int):
-    if not results:
-        return default_frame_id
-    return results[-1][0]
-
-
 def eval_seq(
     opt,
     dataloader,
     data_type,
-    result_filename,
+    result_filename: str,
     save_dir=None,
-    show_image=False,
-    frame_rate=30,
-    use_cuda=True,
+    frame_rate: int=30,
+    use_cuda: bool=True,
 ):
     if save_dir:
         mkdir_if_missing(save_dir)
@@ -136,10 +129,8 @@ def eval_seq(
 
     if result_filename:
         results = read_results(result_filename, data_type)
-    
+
     using_precomputed_results = len(results) != 0
-    
-    #last_result_frame = get_last_result_frame(results, frame_id)
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
         if i:
@@ -353,7 +344,6 @@ def main(
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
     opt = opts().init()
 
     if not opt.val_mot16:

@@ -20,7 +20,7 @@ rm -rf h-demo-x/*
 
 PYTHONPATH="$(pwd)/build:$(pwd)/hockeymom" \
   python \
-  ./src/demo.py \
+  ./src/infer_full.py \
   mot \
   --input-video "${VIDEO}" \
   --output-root=./h-demo-x \
