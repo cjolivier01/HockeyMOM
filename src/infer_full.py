@@ -11,13 +11,13 @@ import os.path as osp
 from hmlib.opts import opts
 from hmlib.tracking_utils.utils import mkdir_if_missing
 from hmlib.tracking_utils.log import logger
-import datasets.dataset.jde as datasets
+import hmlib.datasets.dataset.jde as datasets
 
 # from track import eval_seq
-from lib.ffmpeg import copy_audio
+from hmlib.ffmpeg import copy_audio
 from hmtrack import track_sequence, HmPostProcessor
 
-from camera.cam_post_process import (
+from hmlib.camera.cam_post_process import (
     DefaultArguments,
 )
 
