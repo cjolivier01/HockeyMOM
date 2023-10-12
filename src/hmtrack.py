@@ -66,7 +66,6 @@ def track_sequence(
 ):
     if save_dir:
         mkdir_if_missing(save_dir)
-    # tracker = JDETracker(opt, frame_rate=frame_rate)
     tracker = get_tracker(tracker_name, opt=opt, frame_rate=dataloader.fps)
     dataset_timer = Timer()
     timer = Timer()
