@@ -21,8 +21,8 @@ import tifffile
 
 from hockeymom import core
 
-from lib.tracking_utils import visualization as vis
-from lib.ffmpeg import extract_frame_image
+from hmlib.tracking_utils import visualization as vis
+from hmlib.ffmpeg import extract_frame_image
 
 
 def synchronize_by_audio(

@@ -9,7 +9,7 @@ import numpy as np
 from lib.opts import opts
 from lib.ffmpeg import copy_audio
 from lib.ui.mousing import draw_box_with_mouse
-from lib.tracking_utils.log import logger
+from hmlib.tracking_utils.log import logger
 
 # from lib.tiff import print_geotiff_info
 from lib.stitch_synchronize import (

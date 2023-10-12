@@ -13,9 +13,9 @@ from pathlib import Path
 
 from hockeymom import core
 
-from lib.tracking_utils import visualization as vis
-from lib.ffmpeg import extract_frame_image
-from lib.stitch_synchronize import (
+from hmlib.tracking_utils import visualization as vis
+from hmlib.ffmpeg import extract_frame_image
+from hmlib.stitch_synchronize import (
     configure_video_stitching,
     find_sitched_roi,
 )

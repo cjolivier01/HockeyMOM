@@ -8,9 +8,9 @@ import logging
 import os
 import math
 import os.path as osp
-from opts import opts
-from tracking_utils.utils import mkdir_if_missing
-from tracking_utils.log import logger
+from hmlib.opts import opts
+from hmlib.tracking_utils.utils import mkdir_if_missing
+from hmlib.tracking_utils.log import logger
 import datasets.dataset.jde as datasets
 
 # from track import eval_seq

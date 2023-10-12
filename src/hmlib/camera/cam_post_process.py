@@ -17,10 +17,10 @@ import torchvision as tv
 from threading import Thread
 from multiprocessing import Queue
 
-from tracking_utils import visualization as vis
-from tracking_utils.log import logger
-from tracking_utils.timer import Timer
-from tracker.multitracker import torch_device
+from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
+from hmlib.tracker.multitracker import torch_device
 
 from .camera import (
     aspect_ratio,

@@ -2,22 +2,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import _init_paths
-import math
-import time
-import copy
+# import _init_paths
+# import math
+# import time
+# import copy
 import os
 import os.path as osp
-import cv2
+# import cv2
 import logging
-import argparse
+# import argparse
 import motmetrics as mm
 import numpy as np
 import torch
-import traceback
-import typing
-import multiprocessing
-import matplotlib.pyplot as plt
+# import traceback
+# import typing
+# import multiprocessing
+# import matplotlib.pyplot as plt
 # from sklearn.cluster import KMeans
 # from kmeans_pytorch import kmeans
 
@@ -28,19 +28,19 @@ from multiprocessing import Queue
 
 from typing import Dict, List
 
-from tracker.multitracker import JDETracker, torch_device
-from tracking_utils import visualization as vis
-from tracking_utils.log import logger
-from tracking_utils.timer import Timer
-from tracking_utils.evaluation import Evaluator
-from tracking_utils.io import write_results, read_results, append_results
-import datasets.dataset.jde as datasets
+from hmlib.tracker.multitracker import JDETracker, torch_device
+from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.evaluation import Evaluator
+from hmlib.tracking_utils.io import write_results, read_results, append_results
+import hmlib.datasets.dataset.jde as datasets
 
-from tracking_utils.utils import mkdir_if_missing
-from opts import opts
+from hmlib.tracking_utils.utils import mkdir_if_missing
+from hmlib.opts import opts
 
-from camera.camera import HockeyMOM
-from camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
+from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
 
 # def write_results(filename, results, data_type):
 #     if data_type == "mot":

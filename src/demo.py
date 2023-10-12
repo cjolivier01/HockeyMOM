@@ -8,12 +8,12 @@ import logging
 import os
 import math
 import os.path as osp
-from opts import opts
-from tracking_utils.utils import mkdir_if_missing
-from tracking_utils.log import logger
-import datasets.dataset.jde as datasets
+from hmlib.opts import opts
+from hmlib.tracking_utils.utils import mkdir_if_missing
+from hmlib.tracking_utils.log import logger
+import hmlib.datasets.dataset.jde as datasets
 from track import eval_seq
-from lib.ffmpeg import copy_audio
+from hmlib.ffmpeg import copy_audio
 
 logger.setLevel(logging.INFO)
 

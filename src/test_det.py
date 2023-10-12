@@ -17,7 +17,7 @@ from torchvision.transforms import transforms as T
 from models.model import create_model, load_model
 from datasets.dataset.jde import DetDataset, collate_fn
 from utils.utils import xywh2xyxy, ap_per_class, bbox_iou
-from opts import opts
+from hmlib.opts import opts
 from models.decode import mot_decode
 from utils.post_process import ctdet_post_process
 
