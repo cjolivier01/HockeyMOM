@@ -36,5 +36,17 @@ def print_geotiff_info(file_path):
 
 
 if __name__ == "__main__":
+
+    # Upper Left  (    0.0,    0.0)
+    # Lower Left  (    0.0, 1559.0)
+    # Upper Right ( 2595.0,    0.0)
+    # Lower Right ( 2595.0, 1559.0)
+    # Center      ( 1297.5,  779.5)
     print_geotiff_info("/mnt/data/Videos/vacaville/my_project0000.tif")
+
+    # Upper Left  (    0.0,    0.0)
+    # Lower Left  (    0.0, 1628.0)
+    # Upper Right ( 2569.0,    0.0)
+    # Lower Right ( 2569.0, 1628.0)
+    # Center      ( 1284.5,  814.0)
     print_geotiff_info("/mnt/data/Videos/vacaville/my_project0001.tif")

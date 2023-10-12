@@ -1,4 +1,9 @@
 
+# Find the yaml-cpp package
+find_package(yaml-cpp REQUIRED)
+
+#find_package(OpenCV REQUIRED)
+
 # Include certain OpenCV modules
 # SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
 # include_directories(${BASE_OPENCV_DIR}/modules/core/include)
@@ -30,7 +35,8 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(hm SHARED ${SOURCES} ${PROTO_SRCS})
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wpedantic")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
@@ -43,9 +49,20 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math
 
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 
-set(ABSL_LIBRARIES absl::base absl::stacktrace absl::symbolize absl::synchronization)
+set(
+  ABSL_LIBRARIES
+  absl::base
+  absl::flags
+  absl::stacktrace
+  absl::symbolize
+  absl::synchronization
+  absl::str_format
+  absl::time
+  absl::strings
+)
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
+target_link_libraries(hm PRIVATE yaml-cpp)
 
 # alphamat aruco bgsegm bioinspired calib3d ccalib core cudaarithm cudabgsegm
 # cudacodec cudafeatures2d cudafilters cudaimgproc cudalegacy cudaobjdetect cudaoptflow

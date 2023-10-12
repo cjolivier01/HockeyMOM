@@ -1,8 +1,8 @@
+#include "hockeymom/csrc/camera/CamProps.h"
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
-#include "hockeymom/csrc/camera/CamProps.h"
 
 #include <iostream>
 
@@ -29,6 +29,11 @@ namespace {
 // }
 } // namespace
 
+// void __stop_here() {
+//   // debugger is annoying sometimes
+//   std::cout << "__stop_here()" << std::endl;
+// }
+
 PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
 
@@ -48,29 +53,57 @@ PYBIND11_MODULE(_hockeymom, m) {
              sizeof(std::uint8_t)});
       });
 
-  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(m, "HMPostprocessConfig")
-       .def(py::init<>())
-       //.def("show_image", &hm::HMPostprocessConfig::show_image)
-       //.def("plot_individual_player_tracking", &hm::HMPostprocessConfig::plot_individual_player_tracking)
-  //   .def(&hm::HMPostprocessConfig::plot_cluster_tracking)
-  //   .def(&hm::HMPostprocessConfig::plot_camera_tracking)
-  //   .def(&hm::HMPostprocessConfig::plot_speed)
-  //   .def(&hm::HMPostprocessConfig::max_in_aspec_ratio)
-  //   .def(&hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
-  //   .def(&hm::HMPostprocessConfig::apply_fixed_edge_scaling)
-  //   .def(&hm::HMPostprocessConfig::fixed_edge_scaling_factor)
-  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation)
-  //   .def(&hm::HMPostprocessConfig::fixed_edge_rotation_angle)
-  //   .def(&hm::HMPostprocessConfig::sticky_pan)
-  //   .def(&hm::HMPostprocessConfig::plot_sticky_camera)
-  //   .def(&hm::HMPostprocessConfig::skip_frame_count)`
-  //   .def(&hm::HMPostprocessConfig::stop_at_frame0
-  //   .def(&hm::HMPostprocessConfig::scale_to_original_image)
-  //   .def(&hm::HMPostprocessConfig::crop_output_image)
-  //   .def(&hm::HMPostprocessConfig::fake_crop_output_image)
-  //   .def(&hm::HMPostprocessConfig::use_cuda)
-  //   .def(&hm::HMPostprocessConfig::use_watermark)
-  ;
+  py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(
+      m, "HMPostprocessConfig")
+      .def(py::init<>())
+      .def("to_string", &hm::HMPostprocessConfig::to_string)
+      .def_readwrite("show_image", &hm::HMPostprocessConfig::show_image)
+      .def_readwrite(
+          "plot_individual_player_tracking",
+          &hm::HMPostprocessConfig::plot_individual_player_tracking)
+      .def_readwrite(
+          "plot_cluster_tracking",
+          &hm::HMPostprocessConfig::plot_cluster_tracking)
+      .def_readwrite(
+          "plot_camera_tracking",
+          &hm::HMPostprocessConfig::plot_camera_tracking)
+      .def_readwrite("plot_speed", &hm::HMPostprocessConfig::plot_speed)
+      .def_readwrite(
+          "max_in_aspec_ratio", &hm::HMPostprocessConfig::max_in_aspec_ratio)
+      .def_readwrite(
+          "no_max_in_aspec_ratio_at_edges",
+          &hm::HMPostprocessConfig::no_max_in_aspec_ratio_at_edges)
+      .def_readwrite(
+          "apply_fixed_edge_scaling",
+          &hm::HMPostprocessConfig::apply_fixed_edge_scaling)
+      .def_readwrite(
+          "fixed_edge_scaling_factor",
+          &hm::HMPostprocessConfig::fixed_edge_scaling_factor)
+      .def_readwrite(
+          "fixed_edge_rotation", &hm::HMPostprocessConfig::fixed_edge_rotation)
+      .def_readwrite(
+          "fixed_edge_rotation_angle",
+          &hm::HMPostprocessConfig::fixed_edge_rotation_angle)
+      .def_readwrite("sticky_pan", &hm::HMPostprocessConfig::sticky_pan)
+      .def_readwrite(
+          "plot_sticky_camera", &hm::HMPostprocessConfig::plot_sticky_camera)
+      .def_readwrite(
+          "skip_frame_count", &hm::HMPostprocessConfig::skip_frame_count)
+      .def_readwrite("stop_at_frame", &hm::HMPostprocessConfig::stop_at_frame)
+      .def_readwrite(
+          "scale_to_original_image",
+          &hm::HMPostprocessConfig::scale_to_original_image)
+      .def_readwrite(
+          "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
+      .def_readwrite(
+          "fake_crop_output_image",
+          &hm::HMPostprocessConfig::fake_crop_output_image)
+      .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
+      .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);
+
+  py::class_<hm::ImagePostProcessor, std::shared_ptr<hm::ImagePostProcessor>>(
+      m, "ImagePostProcessor")
+      .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>, std::string>());
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
@@ -81,6 +114,42 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t,
            std::size_t>());
 
+  using SortedPyArrayUin8Queue =
+      hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
+
+  py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
+      m, "SortedPyArrayUin8Queue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
+             std::size_t key,
+             py::array_t<std::uint8_t> array) -> void {
+            sq->enqueue(key, std::move(array));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
+             std::size_t key) -> py::array_t<std::uint8_t> {
+            py::array_t<std::uint8_t> result;
+            {
+              py::gil_scoped_release release;
+              result = sq->dequeue_key(key);
+            }
+            return result;
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq) {
+            std::size_t key = ~0;
+            py::array_t<std::uint8_t> result;
+            {
+              py::gil_scoped_release release;
+              result = sq->dequeue_smallest_key(&key);
+            }
+            return std::make_tuple(key, std::move(result));
+          });
+
   using SortedRGBImageQueue =
       hm::SortedQueue<std::size_t, std::unique_ptr<hm::MatrixRGB>>;
 
@@ -88,17 +157,37 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "SortedRGBImageQueue")
       .def(py::init<>())
       .def(
+          "identity",
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             py::array_t<std::uint8_t>& array,
+             bool copy_data) -> py::array_t<std::uint8_t> {
+            auto matrix =
+                std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
+            {
+              // Unlock the GIL in order to let python muck with the input array
+              // if it wants to
+              py::gil_scoped_release release;
+            }
+            return matrix->to_py_array();
+          })
+      .def(
           "enqueue",
           [](const std::shared_ptr<SortedRGBImageQueue>& sq,
              std::size_t key,
-             py::array_t<std::uint8_t>& array) {
-            auto matrix = std::make_unique<hm::MatrixRGB>(array, 0, 0);
-            py::gil_scoped_release release;
-            sq->enqueue(key, std::move(matrix));
+             py::array_t<std::uint8_t> array,
+             bool copy_data) -> void {
+            //__stop_here();
+            auto matrix =
+                std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
+            {
+              py::gil_scoped_release release;
+              sq->enqueue(key, std::move(matrix));
+            }
           })
       .def(
           "dequeue_key",
-          [](const std::shared_ptr<SortedRGBImageQueue>& sq, std::size_t key) {
+          [](const std::shared_ptr<SortedRGBImageQueue>& sq,
+             std::size_t key) -> py::array_t<std::uint8_t> {
             std::unique_ptr<hm::MatrixRGB> matrix;
             {
               py::gil_scoped_release release;
@@ -129,9 +218,7 @@ PYBIND11_MODULE(_hockeymom, m) {
         assert(image2.ndim() == 3);
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
-        {
-          data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
-        }
+        { data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)}); }
         return frame_id;
       });
 
@@ -240,7 +327,7 @@ static std::string get_python_string(PyObject* obj) {
   return str;
 }
 
-extern "C" int __py_bt() {
+extern "C" __attribute__((visibility("default"))) int __py_bt() {
   int count = 0;
   PyThreadState* tstate = PyThreadState_GET();
   if (NULL != tstate && NULL != tstate->frame) {

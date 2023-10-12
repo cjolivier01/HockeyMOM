@@ -5,7 +5,6 @@ import os
 import os.path as osp
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -418,7 +417,7 @@ def strip_optimizer_from_checkpoint(filename='weights/best.pt'):
 def plot_results():
     # Plot YOLO training results file 'results.txt'
     # import os; os.system('wget https://storage.googleapis.com/ultralytics/yolov3/results_v1.txt')
-
+    import matplotlib.pyplot as plt
     plt.figure(figsize=(14, 7))
     s = ['X + Y', 'Width + Height', 'Confidence', 'Classification', 'Total Loss', 'mAP', 'Recall', 'Precision']
     files = sorted(glob.glob('results*.txt'))

@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
+#include <string>
 
+#include <yaml-cpp/yaml.h>
 
 namespace hm {
 
@@ -98,14 +101,19 @@ struct HMPostprocessConfig {
   // Draw watermark on the image
   bool use_watermark = true;
   // bool use_watermark = false;
-};
 
+  std::string to_string() const;
+};
 
 class ImagePostProcessor {
-  public:
-    ImagePostProcessor();
+ public:
+  ImagePostProcessor(
+      std::shared_ptr<HMPostprocessConfig> postprocess_config,
+      std::string config_file);
+
+ private:
+  std::shared_ptr<HMPostprocessConfig> postprocess_config_;
+  YAML::Node config_;
 };
-
-
 
 } // namespace hm

@@ -33,6 +33,7 @@ from tracking_utils import visualization as vis
 from tracking_utils.log import logger
 from tracking_utils.timer import Timer
 from tracking_utils.evaluation import Evaluator
+from tracking_utils.io import write_results, read_results, append_results
 import datasets.dataset.jde as datasets
 
 from tracking_utils.utils import mkdir_if_missing
@@ -41,28 +42,28 @@ from opts import opts
 from camera.camera import HockeyMOM
 from camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
 
-def write_results(filename, results, data_type):
-    if data_type == "mot":
-        save_format = "{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n"
-    elif data_type == "kitti":
-        save_format = "{frame} {id} pedestrian 0 0 -10 {x1} {y1} {x2} {y2} -10 -10 -10 -1000 -1000 -1000 -10\n"
-    else:
-        raise ValueError(data_type)
+# def write_results(filename, results, data_type):
+#     if data_type == "mot":
+#         save_format = "{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n"
+#     elif data_type == "kitti":
+#         save_format = "{frame} {id} pedestrian 0 0 -10 {x1} {y1} {x2} {y2} -10 -10 -10 -1000 -1000 -1000 -10\n"
+#     else:
+#         raise ValueError(data_type)
 
-    with open(filename, "w") as f:
-        for frame_id, tlwhs, track_ids in results:
-            if data_type == "kitti":
-                frame_id -= 1
-            for tlwh, track_id in zip(tlwhs, track_ids):
-                if track_id < 0:
-                    continue
-                x1, y1, w, h = tlwh
-                x2, y2 = x1 + w, y1 + h
-                line = save_format.format(
-                    frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h
-                )
-                f.write(line)
-    logger.info("save results to {}".format(filename))
+#     with open(filename, "w") as f:
+#         for frame_id, tlwhs, track_ids in results:
+#             if data_type == "kitti":
+#                 frame_id -= 1
+#             for tlwh, track_id in zip(tlwhs, track_ids):
+#                 if track_id < 0:
+#                     continue
+#                 x1, y1, w, h = tlwh
+#                 x2, y2 = x1 + w, y1 + h
+#                 line = save_format.format(
+#                     frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h
+#                 )
+#                 f.write(line)
+#     logger.info("save results to {}".format(filename))
 
 
 def write_results_score(filename, results, data_type):
@@ -97,6 +98,12 @@ def write_results_score(filename, results, data_type):
     logger.info("save results to {}".format(filename))
 
 
+def get_last_result_frame(results, default_frame_id: int):
+    if not results:
+        return default_frame_id
+    return results[-1][0]
+
+
 def eval_seq(
     opt,
     dataloader,
@@ -115,6 +122,10 @@ def eval_seq(
 
     args = DefaultArguments()
 
+    do_postprocessing = True
+    incremental_results = False
+    args.stop_at_frame  = 1000
+
     show_image = args.show_image
 
     frame_id = 0
@@ -123,7 +134,12 @@ def eval_seq(
     image_scale_array = None
     first_frame_id = 0
 
-    results = []
+    if result_filename:
+        results = read_results(result_filename, data_type)
+    
+    using_precomputed_results = len(results) != 0
+    
+    #last_result_frame = get_last_result_frame(results, frame_id)
 
     for i, (_, img, img0, original_img) in enumerate(dataloader):
         if i:
@@ -151,7 +167,7 @@ def eval_seq(
                     image_height=img.shape[1],
                 )
 
-        if postprocessor is None:
+        if do_postprocessing and postprocessor is None:
             postprocessor = FramePostProcessor(
                 hockey_mom,
                 start_frame_id=frame_id,
@@ -194,36 +210,50 @@ def eval_seq(
         else:
             blob = torch.from_numpy(img).unsqueeze(0)
 
-        online_targets = tracker.update(blob, img0)
-
         online_tlwhs = []
         online_ids = []
-        # online_scores = []
 
-        # TODO: move this back to model portion so we can reuse results.txt
-        for _, t in enumerate(online_targets):
-            tlwh = t.tlwh
-            tid = t.track_id
-            vertical = tlwh[2] / tlwh[3] > 1.6
-            if vertical:
-                print("VERTICAL!")
-                vertical = False
-            if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
-                if args.scale_to_original_image:
-                    tlwh *= image_scale_array
+        if using_precomputed_results:
+            assert frame_id + 1 in results
+            frame_results = results[frame_id + 1]
+            for tlwh, target_id, score in frame_results:
+                online_ids.append(target_id)
                 online_tlwhs.append(tlwh)
-                online_ids.append(tid)
-                # online_scores.append(t.score)
-            else:
-                print(
-                    f"Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})"
-                )
-        # save results
-        results.append((frame_id + 1, online_tlwhs, online_ids))
+        else:
+            online_targets = tracker.update(blob, img0)
+
+            # online_scores = []
+
+            # TODO: move this back to model portion so we can reuse results.txt
+            for _, t in enumerate(online_targets):
+                tlwh = t.tlwh
+                tid = t.track_id
+                vertical = tlwh[2] / tlwh[3] > 1.6
+                if vertical:
+                    print("VERTICAL!")
+                    vertical = False
+                if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
+                    if args.scale_to_original_image:
+                        tlwh *= image_scale_array
+                    online_tlwhs.append(tlwh)
+                    online_ids.append(tid)
+                    # online_scores.append(t.score)
+                else:
+                    print(
+                        f"Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})"
+                    )
+            # save results
+            #results.append((frame_id + 1, online_tlwhs, online_ids))
+            results[frame_id + 1] = (online_tlwhs, online_ids)
+
+            # save results
+            if incremental_results and result_filename and (i + 1) % 25 == 0:
+                results.append((frame_id + 1, online_tlwhs, online_ids))
 
         timer.toc()
 
-        postprocessor.send(online_tlwhs, online_ids, img0, original_img)
+        if postprocessor is not None:
+            postprocessor.send(online_tlwhs, online_ids, img0, original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break
@@ -235,8 +265,11 @@ def eval_seq(
         postprocessor.stop()
 
     # save results
-    write_results(result_filename, results, data_type)
-    # write_results_score(result_filename, results, data_type)
+    if result_filename:
+        if incremental_results:
+            append_results(result_filename, results, data_type)
+        else:
+            write_results(result_filename, results, data_type)
 
     return frame_id, timer.average_time, timer.calls
 

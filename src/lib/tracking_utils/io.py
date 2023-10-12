@@ -23,13 +23,52 @@ def write_results(filename, results_dict: Dict, data_type: str):
         for frame_id, frame_data in results_dict.items():
             if data_type == 'kitti':
                 frame_id -= 1
-            for tlwh, track_id in frame_data:
+            tlwhs = frame_data[0]
+            track_ids = frame_data[1]
+            assert len(tlwhs) == len(track_ids)
+            for i in range(len(tlwhs)):
+                tlwh = tlwhs[i]
+                track_id = track_ids[i]
                 if track_id < 0:
                     continue
                 x1, y1, w, h = tlwh
                 x2, y2 = x1 + w, y1 + h
                 line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0)
                 f.write(line)
+    logger.info('Save results to {}'.format(filename))
+
+
+def append_results(filename, results_dict: Dict, data_type: str):
+    if not filename:
+        return
+    path = os.path.dirname(filename)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    if data_type in ('mot', 'mcmot', 'lab'):
+        save_format = '{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n'
+    elif data_type == 'kitti':
+        save_format = '{frame} {id} pedestrian -1 -1 -10 {x1} {y1} {x2} {y2} -1 -1 -1 -1000 -1000 -1000 -10 {score}\n'
+    else:
+        raise ValueError(data_type)
+
+    with open(filename, 'a') as f:
+        for frame_id, frame_data in results_dict.items():
+            if data_type == 'kitti':
+                frame_id -= 1
+            tlwhs = frame_data[0]
+            track_ids = frame_data[1]
+            assert len(tlwhs) == len(track_ids)
+            for i in range(len(tlwhs)):
+                tlwh = tlwhs[i]
+                track_id = track_ids[i]
+                if track_id < 0:
+                    continue
+                x1, y1, w, h = tlwh
+                x2, y2 = x1 + w, y1 + h
+                line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0)
+                f.write(line)
+    results_dict.clear()
     logger.info('Save results to {}'.format(filename))
 
 

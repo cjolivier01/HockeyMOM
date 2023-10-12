@@ -14,8 +14,12 @@ from ._hockeymom import (
 
 # Classes
 from ._hockeymom import (
+    HMPostprocessConfig,
+    ImagePostProcessor,
     HmNona,
     StitchingDataLoader,
+    SortedRGBImageQueue,
+    SortedPyArrayUin8Queue,
 )
 
 # from ._hockeymom import  _enblend

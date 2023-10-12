@@ -52,7 +52,6 @@ void StitchingDataLoader::shutdown() {
 void StitchingDataLoader::initialize() {
   assert(nonas_.empty());
   nonas_.resize(remap_thread_count_);
-  //enblenders_.resize(blend_thread_count_);
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
 #ifndef FAKE_BLEND
@@ -115,7 +114,6 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
 #ifdef FAKE_BLEND
     frame->blended_image = frame->remapped_images[0];
 #else
-    // auto blender = enblenders_[worker_index];
     frame->blended_image = blender->blend_images(frame->remapped_images);
 #endif
   } catch (...) {

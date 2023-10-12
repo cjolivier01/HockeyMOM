@@ -6,6 +6,7 @@ import _init_paths
 
 import logging
 import os
+import math
 import os.path as osp
 from opts import opts
 from tracking_utils.utils import mkdir_if_missing
@@ -20,17 +21,34 @@ ORIGINAL_IMAGE_SIZE = (1088, 608)
 ORIGINAL_PROCESS_IMAGE_SIZE = (1920, 1080)
 
 
+def next_power_of_2(n):
+    if n <= 0:
+        raise ValueError("Input should be a positive integer")
+
+    # Check if n is already a power of two
+    if (n & (n - 1)) == 0:
+        return n
+
+    # Find the next power of 2
+    power = math.ceil(math.log2(n))
+    return 2**power
+
+
 def demo(opt):
     result_root = opt.output_root if opt.output_root != "" else "."
     mkdir_if_missing(result_root)
 
     logger.info("Starting tracking...")
 
-    # opt.img_size = (4096, 1024)
+    opt.img_size = (4096, 1024)
 
-    #opt.img_size = (4096 // 2, 1024 // 2)
+    # opt.img_size = (4096 * 3 // 2, 1024 * 3 // 2)
 
-    opt.img_size = (4096 // 4, 1024 // 4)
+    # opt.img_size = (4096 // 2, 1024 // 2)
+
+    # opt.img_size = (4096 // 2, 1024 // 2)
+
+    # opt.img_size = (4096 // 4, 1024 // 4)
 
     # opt.img_size = (4096, 1800)
     # opt.img_size = (1088, 608)
@@ -46,22 +64,20 @@ def demo(opt):
     input_video_files = opt.input_video.split(",")
 
     if len(input_video_files) == 2:
+        video_1_offset_frame = None
+        video_2_offset_frame = None
+
+        video_1_offset_frame = 13
+        video_2_offset_frame = 0
+
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
             path_video_2=input_video_files[1],
-            #pto_project_file=os.path.join(os.environ['HOME'], 'Videos', 'sabercats-parts', 'my_project.pto'),
+            video_1_offset_frame=video_1_offset_frame,
+            video_2_offset_frame=video_2_offset_frame,
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
         )
-        # dataloader = datasets.LoadStitchedVideoWithOrig(
-        #     left_file=input_video_files[0],
-        #     right_file=input_video_files[1],
-        #     #stitch_config=datasets.StitchConfig_YB_0(),
-        #     #stitch_config=datasets.StitchConfig(),
-        #     stitch_config=datasets.StitchConfigVallco(),
-        #     img_size=opt.img_size,
-        #     process_img_size=opt.process_img_size,
-        # )
     else:
         assert len(input_video_files) == 1
         dataloader = datasets.LoadVideoWithOrig(
@@ -70,8 +86,6 @@ def demo(opt):
             process_img_size=opt.process_img_size,
         )
     result_filename = os.path.join(result_root, "results.txt")
-    #frame_rate = dataloader.frame_rate
-    #print(f"Video frame rate: {frame_rate}")
 
     frame_dir = None if opt.output_format == "text" else osp.join(result_root, "frame")
     eval_seq(
@@ -81,7 +95,6 @@ def demo(opt):
         result_filename,
         save_dir=frame_dir,
         show_image=False,
-        #frame_rate=frame_rate,
         use_cuda=opt.gpus != [-1],
     )
 
@@ -104,8 +117,6 @@ def demo(opt):
 
 
 if __name__ == "__main__":
-    # if 'CUDA_VISIBLE_DEVICES' not in os.environ:
-    #     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     opt = opts().init()
     opt.output_format = "live_video"
     demo(opt)
