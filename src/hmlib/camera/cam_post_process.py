@@ -890,12 +890,14 @@ class FramePostProcessor:
                                     center_dx_shift = 0
                         cb_center[0] += center_dx_shift
                         h = w / self._final_aspect_ratio
+                        h -= 1
+                        w -= 1
                         current_box = np.array(
                             (
-                                cb_center[0] - (w / 2.0) + 0.5,
-                                cb_center[1] - (h / 2.0) + 0.5,
-                                cb_center[0] + (w / 2.0) - 0.5,
-                                cb_center[1] + (h / 2.0) - 0.5,
+                                cb_center[0] - (w / 2.0),
+                                cb_center[1] - (h / 2.0),
+                                cb_center[0] + (w / 2.0),
+                                cb_center[1] + (h / 2.0),
                             ),
                             dtype=np.float32,
                         )

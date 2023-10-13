@@ -920,7 +920,7 @@ class HockeyMOM:
             new_box[2] += width_reduction / 2
         return self.shift_box_to_edge(new_box)
 
-    def shift_box_to_edge(self, box, strict: bool = False):
+    def shift_box_to_edge(self, box, strict: bool = True):
         """
         If a box is off the edge of the image, translate
         the box to be flush with the edge instead.
