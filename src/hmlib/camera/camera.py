@@ -160,12 +160,12 @@ class TlwhHistory(object):
         self._image_position_history = list()
         # self._spatial_position_history = list()
         self._spatial_distance_sum = 0.0
-        self._current_spatial_speed = 0.0
+        #self._current_spatial_speed = 0.0
         self._current_spatial_x_speed = 0.0
         self._image_distance_sum = 0.0
         self._current_image_speed = 0.0
         self._current_image_x_speed = 0.0
-        self._spatial_speed_multiplier = 100.0
+        #self._spatial_speed_multiplier = 100.0
 
     @property
     def id(self):
@@ -219,7 +219,7 @@ class TlwhHistory(object):
             else:
                 self._current_image_x_speed = 0.0
         else:
-            self._current_spatial_speed = 0.0
+            #self._current_spatial_speed = 0.0
             self._current_image_speed = 0.0
             self._current_image_x_speed = 0.0
 
@@ -247,9 +247,9 @@ class TlwhHistory(object):
         # assert length == len(self._spatial_position_history)
         return length
 
-    @property
-    def spatial_speed(self):
-        return self._current_spatial_speed
+    # @property
+    # def spatial_speed(self):
+    #     return self._current_spatial_speed
 
     @property
     def image_speed(self):
@@ -573,8 +573,8 @@ class HockeyMOM:
             max_fast_items=max_fast_items,
         )
 
-    def get_spatial_speed(self, id: int):
-        return self._id_to_tlwhs_history_map[id].spatial_speed
+    # def get_spatial_speed(self, id: int):
+    #     return self._id_to_tlwhs_history_map[id].spatial_speed
 
     def get_image_speed(self, id: int):
         return self._id_to_tlwhs_history_map[id].image_speed
@@ -593,7 +593,8 @@ class HockeyMOM:
     ) -> List[int]:
         # Sort by speed
         keys = list(id_to_pos_history.keys())
-        speeds = [hist.spatial_speed for hist in id_to_pos_history.values()]
+        #speeds = [hist.spatial_speed for hist in id_to_pos_history.values()]
+        speeds = [hist.image_speed for hist in id_to_pos_history.values()]
         sorted_value_index = np.argsort(speeds)
         sorted_ids = reversed([keys[i] for i in sorted_value_index])
         sorted_speeds = reversed([speeds[i] for i in sorted_value_index])
@@ -920,7 +921,7 @@ class HockeyMOM:
             new_box[2] += width_reduction / 2
         return self.shift_box_to_edge(new_box)
 
-    def shift_box_to_edge(self, box, strict: bool = True):
+    def shift_box_to_edge(self, box, strict: bool = False):
         """
         If a box is off the edge of the image, translate
         the box to be flush with the edge instead.

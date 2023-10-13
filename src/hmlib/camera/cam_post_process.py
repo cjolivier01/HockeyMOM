@@ -146,6 +146,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.use_watermark = True
         self.use_watermark = False
 
+        self.remove_largest = False
+
 
 def scale_box(box, from_img, to_img):
     from_sz = (from_img.shape[1], from_img.shape[0])
@@ -466,8 +468,6 @@ class FramePostProcessor:
         # tv_resizer = None
         timer = Timer()
 
-        remove_largest = True
-
         if self._args.crop_output_image and not self._args.fake_crop_output_image:
             self.final_frame_height = int(hockey_mom.video.height)
             self.final_frame_width = int(
@@ -501,7 +501,7 @@ class FramePostProcessor:
             img0 = online_targets_and_img[3]
             original_img = online_targets_and_img[4]
 
-            if remove_largest:
+            if self._args.remove_largest:
                 largest_index = -1
                 largest_height = -1
 
@@ -540,9 +540,9 @@ class FramePostProcessor:
                 #             ids=fast_ids
                 #         )
 
-                these_online_speeds = []
-                for id in online_ids:
-                    these_online_speeds.append(hockey_mom.get_spatial_speed(id))
+                # these_online_speeds = []
+                # for id in online_ids:
+                #     these_online_speeds.append(hockey_mom.get_spatial_speed(id))
 
                 fast_ids_set = None
                 if self._args.plot_individual_player_tracking:
@@ -576,7 +576,7 @@ class FramePostProcessor:
                         online_ids,
                         frame_id=self._frame_id,
                         fps=1.0 / timer.average_time if timer.average_time else 1000.0,
-                        speeds=these_online_speeds,
+                        speeds=[],
                         line_thickness=1 if not fast_ids_set else 4,
                     )
 
