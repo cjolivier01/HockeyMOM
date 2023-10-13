@@ -68,6 +68,11 @@ def to_rgb_non_planar(image):
     return image
 
 
+def scale_tlwhs(tlwhs: List, scale: float):
+
+    return tlwhs
+
+
 class HmPostProcessor:
     def __init__(self, opt, args, fps: int, save_dir: str, data_type: str = "mot"):
         self._opt = opt
@@ -108,10 +113,10 @@ class HmPostProcessor:
         )
 
     def on_first_image(self, frame_id, info_imgs, img, original_img):
-        if self._args.scale_to_original_image and self._image_scale_array is None:
-            self._image_scale_array = make_scale_array(
-                from_img=img, to_img=original_img
-            )
+        # if self._args.scale_to_original_image and self._image_scale_array is None:
+        #     self._image_scale_array = make_scale_array(
+        #         from_img=img, to_img=original_img
+        #     )
 
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:

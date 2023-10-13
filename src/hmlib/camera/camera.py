@@ -72,7 +72,7 @@ def clamp_value(low, val, high):
 
 
 def make_box_at_center(center_point, w: float, h: float):
-    return np.array(
+    box = np.array(
         (
             center_point[0] - (float(w) / 2.0) + 0.5,
             center_point[1] - (float(h) / 2.0) + 0.5,
@@ -81,6 +81,9 @@ def make_box_at_center(center_point, w: float, h: float):
         ),
         dtype=np.float32,
     )
+    # assert np.isclose(width(box), w)
+    # assert np.isclose(height(box), h)
+    return box
 
 
 def translate_box(box, dx, dy):
@@ -103,13 +106,6 @@ def center_x_distance(box1, box2) -> float:
     if box1 is None or box2 is None:
         return 0.0
     return abs(center(box1)[0] - center(box2)[0])
-
-
-# def scale(box, scale_width, scale_height):
-#     w = width(box) * scale_width
-#     h = height(box) * scale_height
-#     c = center(box)
-#     return np.array((c[0] - w / 2.0, c[1] - h / 2.0, c[0] + w / 2.0, c[1] + h / 2.0))
 
 
 def aspect_ratio(box):

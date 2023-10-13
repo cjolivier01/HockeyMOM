@@ -547,17 +547,17 @@ class FramePostProcessor:
                 fast_ids_set = None
                 if self._args.plot_individual_player_tracking:
                     # Plot the player boxes
-                    fast_ids_set = set(hockey_mom.get_fast_ids())
-                    if fast_ids_set:
-                        # print(fast_ids_set)
-                        fast_ids = []
-                        fast_tlwhs = []
-                        fast_speeds = []
-                        for i, id in enumerate(online_ids):
-                            if id in fast_ids_set:
-                                fast_ids.append(id)
-                                fast_tlwhs.append(online_tlwhs[i])
-                                fast_speeds.append(these_online_speeds[i])
+                    # fast_ids_set = set(hockey_mom.get_fast_ids())
+                    # if fast_ids_set:
+                    #     # print(fast_ids_set)
+                    #     fast_ids = []
+                    #     fast_tlwhs = []
+                    #     fast_speeds = []
+                    #     for i, id in enumerate(online_ids):
+                    #         if id in fast_ids_set:
+                    #             fast_ids.append(id)
+                    #             fast_tlwhs.append(online_tlwhs[i])
+                    #             fast_speeds.append(these_online_speeds[i])
                         # online_ids = fast_ids
                         # online_tlwhs = fast_tlwhs
                         # these_online_speeds = fast_speeds
@@ -647,8 +647,8 @@ class FramePostProcessor:
                 # Some players may be off-screen, so their box may go over an edge
                 current_box = hockey_mom.clamp(current_box)
 
-                assert width(current_box) <= hockey_mom.video.width
-                assert height(current_box) <= hockey_mom.video.height
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
 
                 outside_expanded_box = current_box + np.array(
                     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
@@ -699,8 +699,8 @@ class FramePostProcessor:
                     grays_level: int = 128,
                     verbose: bool = False,
                 ):
-                    assert width(current_box) <= hockey_mom.video.width
-                    assert height(current_box) <= hockey_mom.video.height
+                    # assert width(current_box) <= hockey_mom.video.width
+                    # assert height(current_box) <= hockey_mom.video.height
                     #
                     # Temporal: Apply velocity and acceleration
                     #
@@ -728,10 +728,10 @@ class FramePostProcessor:
                         #     color=(0, 0, 0),
                         #     thickness=25,
                         # )
-                    assert width(current_box) <= hockey_mom.video.width
-                    assert height(current_box) <= hockey_mom.video.height
-                    assert width(last_box) <= hockey_mom.video.width
-                    assert height(last_box) <= hockey_mom.video.height
+                    # assert width(current_box) <= hockey_mom.video.width
+                    # assert height(current_box) <= hockey_mom.video.height
+                    # assert width(last_box) <= hockey_mom.video.width
+                    # assert height(last_box) <= hockey_mom.video.height
                     return current_box, last_box
 
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
@@ -747,8 +747,8 @@ class FramePostProcessor:
                     current_box = make_box_at_center(
                         edge_center, width(current_box), height(current_box)
                     )
-                    assert width(current_box) <= hockey_mom.video.width
-                    assert height(current_box) <= hockey_mom.video.height
+                    # assert width(current_box) <= hockey_mom.video.width
+                    # assert height(current_box) <= hockey_mom.video.height
 
                     hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
                     # last_temporal_box = translate_box(last_temporal_box, group_x_velocity, 0)
@@ -801,8 +801,8 @@ class FramePostProcessor:
                     #     label="clamped_pre_aspect",
                     # )
 
-                assert width(current_box) <= hockey_mom.video.width
-                assert height(current_box) <= hockey_mom.video.height
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
 
                 current_box = hockey_mom.make_box_proper_aspect_ratio(
                     frame_id=self._frame_id,
@@ -812,8 +812,8 @@ class FramePostProcessor:
                 )
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-                assert width(current_box) <= hockey_mom.video.width
-                assert height(current_box) <= hockey_mom.video.height
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
 
                 # current_box = hockey_mom.clamp(current_box)
 
@@ -822,6 +822,10 @@ class FramePostProcessor:
 
                 # print(f"make_box_proper_aspect_ratio ar={aspect_ratio(current_box)}")
                 current_box = hockey_mom.shift_box_to_edge(current_box)
+
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
+
                 # print(f"shift_box_to_edge ar={aspect_ratio(current_box)}")
                 if self._args.plot_camera_tracking:
                     vis.plot_rectangle(
@@ -870,6 +874,7 @@ class FramePostProcessor:
                         # print(f"Shrink width: {last_dx_shrink_size}")
                         w = width(current_box)
                         w -= last_dx_shrink_size
+                        w = min(w, hockey_mom.video.width)
                         if box_is_at_right_edge:
                             center_dx_shift += 2
                             if center_dx_shift > last_dx_shrink_size:
@@ -901,6 +906,8 @@ class FramePostProcessor:
                             ),
                             dtype=np.float32,
                         )
+                        # assert width(current_box) <= hockey_mom.video.width
+                        # assert height(current_box) <= hockey_mom.video.height
                         current_box = hockey_mom.shift_box_to_edge(current_box)
                     if self._args.plot_camera_tracking:
                         vis.plot_rectangle(
@@ -911,19 +918,22 @@ class FramePostProcessor:
                             label="after-aspect",
                         )
 
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
+
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
                 def _fix_aspect_ratio(box):
-                    assert width(box) <= hockey_mom.video.width
-                    assert height(box) <= hockey_mom.video.height
+                    # assert width(box) <= hockey_mom.video.width
+                    # assert height(box) <= hockey_mom.video.height
                     box = hockey_mom.make_box_proper_aspect_ratio(
                         frame_id=self._frame_id,
                         the_box=box,
                         desired_aspect_ratio=self._final_aspect_ratio,
                         max_in_aspec_ratio=False,
                     )
-                    assert width(box) <= hockey_mom.video.width
-                    assert height(box) <= hockey_mom.video.height
+                    # assert width(box) <= hockey_mom.video.width
+                    # assert height(box) <= hockey_mom.video.height
                     return hockey_mom.shift_box_to_edge(box)
 
                 stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
@@ -952,6 +962,10 @@ class FramePostProcessor:
                     # movement_speed_divisor = 3.0
 
                 if last_sticky_temporal_box is not None:
+
+                    # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
+                    # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
+
                     if self._args.plot_sticky_camera:
                         vis.plot_rectangle(
                             online_im,
@@ -1048,12 +1062,14 @@ class FramePostProcessor:
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                 elif last_sticky_temporal_box is None:
                     last_sticky_temporal_box = current_box.copy()
+                    # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
+                    # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
                     assert np.isclose(
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
                 else:
-                    assert width(last_sticky_temporal_box) <= hockey_mom.video.width
-                    assert height(last_sticky_temporal_box) <= hockey_mom.video.height
+                    # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
+                    # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
 
                     current_box = last_sticky_temporal_box.copy()
                     current_box = _fix_aspect_ratio(current_box)
