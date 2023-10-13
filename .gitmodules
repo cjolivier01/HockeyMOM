@@ -24,7 +24,7 @@
 	path = models/mixsort
 	url = ssh://git@github.com/cjolivier01/MixSort
 [submodule "models/yolox"]
-	path = models/yolox
+	path = models/yolox_original
 	url = ssh://git@github.com/cjolivier01/YOLOX
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
