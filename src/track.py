@@ -248,7 +248,7 @@ def eval_seq(
         timer.toc()
 
         if postprocessor is not None:
-            postprocessor.send(online_tlwhs, online_ids, img0, original_img)
+            postprocessor.send(online_tlwhs, online_ids, info_imgs=None, image=img0, original_img=original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break

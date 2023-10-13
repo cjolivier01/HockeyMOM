@@ -19,7 +19,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from hmtrack import HmPostProcessor
-from lib.camera.cam_post_process import DefaultArguments
+from hmlib.camera.cam_post_process import DefaultArguments
 
 
 def make_parser():

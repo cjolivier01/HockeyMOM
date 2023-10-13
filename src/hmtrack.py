@@ -55,6 +55,18 @@ def get_tracker(tracker_name: str, opt, frame_rate: int):
     return None
 
 
+def to_rgb_non_planar(image):
+    if isinstance(image, torch.Tensor):
+        if (
+            len(image.shape) == 4
+            and image.shape[0] == 1
+            and image.shape[1] == 3
+            and image.shape[-1] > 1
+        ):
+            # Assuming it is planar
+            image = torch.squeeze(image, dim=0).permute(1, 2, 0)
+    return image
+
 class HmPostProcessor:
     def __init__(self, opt, args, fps: int, save_dir: str, data_type: str = "mot"):
         self._opt = opt
@@ -69,6 +81,7 @@ class HmPostProcessor:
     def data_type(self):
         return self._data_type
 
+
     def online_callback(
         self,
         frame_id,
@@ -81,16 +94,19 @@ class HmPostProcessor:
     ):
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, original_img)
-        self._postprocessor.send(online_tlwhs, online_ids, img, original_img)
+        img = to_rgb_non_planar(img).cpu()
+        original_img = to_rgb_non_planar(original_img)
+        self._postprocessor.send(online_tlwhs, online_ids, info_imgs, img, original_img)
 
     def on_first_image(self, frame_id, info_imgs, img, original_img):
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:
                 self._hockey_mom = HockeyMOM(
-                    image_width=original_img.shape[1],
-                    image_height=original_img.shape[0],
+                    image_width=info_imgs[1],
+                    image_height=info_imgs[0],
                 )
             else:
+                assert False
                 self._hockey_mom = HockeyMOM(
                     image_width=img.shape[1],
                     image_height=img.shape[0],
@@ -245,7 +261,7 @@ def track_sequence(
         timer.toc()
 
         # if postprocessor is not None:
-        #     postprocessor.send(online_tlwhs, online_ids, img0, original_img)
+        #     postprocessor.send(online_tlwhs, online_ids, info_imgs, img0, original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break

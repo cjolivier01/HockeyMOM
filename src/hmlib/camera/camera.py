@@ -17,6 +17,12 @@ import torch
 X_SPEED_HISTORY_LENGTH = 5
 
 
+def _as_scalar(tensor):
+    if isinstance(tensor, torch.Tensor):
+        return tensor.item()
+    return tensor
+
+
 def create_camera(
     elevation_m: float,
     image_size_px=(3264, 2448),
@@ -126,10 +132,10 @@ def is_equal(f1, f2):
 
 class VideoFrame(object):
     def __init__(self, image_width: int, image_height: int):
-        self._image_width = image_width
-        self._image_height = image_height
-        self._vertical_center = image_height / 2
-        self._horizontal_center = image_width / 2
+        self._image_width = _as_scalar(image_width)
+        self._image_height = _as_scalar(image_height)
+        self._vertical_center = self._image_height / 2
+        self._horizontal_center = self._image_width / 2
 
     def box(self):
         return np.array(
@@ -759,7 +765,8 @@ class HockeyMOM:
     def scale(cls, w, h, x, y, maximum=True):
         nw = y * w / h
         nh = x * h / w
-        if maximum ^ (nw >= x):
+        if int(maximum) ^ int(_as_scalar(nw >= x)):
+        #if torch.pow(int(maximum), torch.Tensor(nw >= x)):
             return nw or 1, y
         return x, nh or 1
 
