@@ -747,6 +747,9 @@ class FramePostProcessor:
                     current_box = make_box_at_center(
                         edge_center, width(current_box), height(current_box)
                     )
+                    assert width(current_box) <= hockey_mom.video.width
+                    assert height(current_box) <= hockey_mom.video.height
+
                     hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
                     # last_temporal_box = translate_box(last_temporal_box, group_x_velocity, 0)
                     # hockey_mom.add_x_velocity(group_x_velocity)
@@ -809,8 +812,8 @@ class FramePostProcessor:
                 )
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-                # assert width(current_box) <= hockey_mom.video.width
-                # assert height(current_box) <= hockey_mom.video.height
+                assert width(current_box) <= hockey_mom.video.width
+                assert height(current_box) <= hockey_mom.video.height
 
                 # current_box = hockey_mom.clamp(current_box)
 
@@ -1023,6 +1026,8 @@ class FramePostProcessor:
                         scale_speed=1.0,
                         verbose=True,
                     )
+
+
                     # xx1 = center(current_box)[0]
                     # print(f'A final temporal x change: {xx1 - xx0}')
                     current_box = _fix_aspect_ratio(current_box)
@@ -1045,6 +1050,9 @@ class FramePostProcessor:
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
                 else:
+                    assert width(last_sticky_temporal_box) <= hockey_mom.video.width
+                    assert height(last_sticky_temporal_box) <= hockey_mom.video.height
+
                     current_box = last_sticky_temporal_box.copy()
                     current_box = _fix_aspect_ratio(current_box)
                     assert np.isclose(

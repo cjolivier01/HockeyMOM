@@ -104,6 +104,7 @@ def center_x_distance(box1, box2) -> float:
         return 0.0
     return abs(center(box1)[0] - center(box2)[0])
 
+
 # def scale(box, scale_width, scale_height):
 #     w = width(box) * scale_width
 #     h = height(box) * scale_height
@@ -154,10 +155,10 @@ class VideoFrame(object):
 class TlwhHistory(object):
     def __init__(self, id: int, video_frame: VideoFrame, max_history_length: int = 25):
         self.id_ = id
-        #self._video_frame = video_frame
+        # self._video_frame = video_frame
         self._max_history_length = max_history_length
         self._image_position_history = list()
-        #self._spatial_position_history = list()
+        # self._spatial_position_history = list()
         self._spatial_distance_sum = 0.0
         self._current_spatial_speed = 0.0
         self._current_spatial_x_speed = 0.0
@@ -176,28 +177,28 @@ class TlwhHistory(object):
             # trunk-ignore(bandit/B101)
             assert current_historty_length == self._max_history_length - 1
             # dist = np.linalg.norm()
-            #removing_spatial_point = self._spatial_position_history[0]
+            # removing_spatial_point = self._spatial_position_history[0]
             removing_image_point = self._image_position_history[0]
-            #self._spatial_position_history = self._spatial_position_history[1:]
+            # self._spatial_position_history = self._spatial_position_history[1:]
             self._image_position_history = self._image_position_history[1:]
-            #old_spatial_distance = np.linalg.norm(
-                #removing_spatial_point - self._spatial_position_history[0]
-            #)
-            #self._spatial_distance_sum -= old_spatial_distance
+            # old_spatial_distance = np.linalg.norm(
+            # removing_spatial_point - self._spatial_position_history[0]
+            # )
+            # self._spatial_distance_sum -= old_spatial_distance
             old_image_distance = np.linalg.norm(
                 removing_image_point - self._image_position_history[0]
             )
             self._image_distance_sum -= old_image_distance
         if len(self._image_position_history) > 0:
-            #new_spatial_distance = np.linalg.norm(
-                #spatial_position - self._spatial_position_history[-1]
-            #)
-            #self._spatial_distance_sum += new_spatial_distance
+            # new_spatial_distance = np.linalg.norm(
+            # spatial_position - self._spatial_position_history[-1]
+            # )
+            # self._spatial_distance_sum += new_spatial_distance
             new_image_distance = np.linalg.norm(
                 image_position - self._image_position_history[-1]
             )
             self._image_distance_sum += new_image_distance
-        #self._spatial_position_history.append(spatial_position)
+        # self._spatial_position_history.append(spatial_position)
         self._image_position_history.append(image_position)
         if len(self._image_position_history) > 1:
             # self._current_spatial_speed = (
@@ -243,7 +244,7 @@ class TlwhHistory(object):
     def __len__(self):
         length = len(self._image_position_history)
         # trunk-ignore(bandit/B101)
-        #assert length == len(self._spatial_position_history)
+        # assert length == len(self._spatial_position_history)
         return length
 
     @property
@@ -281,9 +282,9 @@ class HockeyMOM:
         self._clamp_box = self._video_frame.box()
         self._online_tlwhs_history = list()
         self._max_history = max_history
-        #self._speed_history = speed_history
+        # self._speed_history = speed_history
         self._online_ids = set()
-        #self._id_to_speed_map = dict()
+        # self._id_to_speed_map = dict()
         self._id_to_tlwhs_history_map = dict()
 
         self._kmeans_objects = dict()
@@ -303,7 +304,7 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_y = False
 
         self._camera_type = "zhiwei"
-        #self._camera_type = "gopro"
+        # self._camera_type = "gopro"
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
@@ -311,8 +312,12 @@ class HockeyMOM:
         # self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
-        self._camera_box_max_speed_x = max(image_width / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
-        self._camera_box_max_speed_y = max(image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
+        self._camera_box_max_speed_x = max(
+            image_width / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0
+        )
+        self._camera_box_max_speed_y = max(
+            image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0
+        )
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
@@ -355,17 +360,23 @@ class HockeyMOM:
         # )
         self.setup_gaussian(length=image_width)
 
-    def get_gaussian_y_from_image_x_position(self, image_x_position: float, wide: bool = False):
+    def get_gaussian_y_from_image_x_position(
+        self, image_x_position: float, wide: bool = False
+    ):
         if not wide:
             return self.gaussian_y[int(image_x_position)]
         return self.gaussian_wide[int(image_x_position)]
 
     def setup_gaussian(self, length: int):
         # Thinner gaussian
-        std_dev = float(length)/8.0
+        std_dev = float(length) / 8.0
         mean = 1.0
-        x = np.linspace(-length/2, length/2, length + 1)
-        self.gaussian_y = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(x - mean)**2 / (2 * std_dev**2)) * 1000
+        x = np.linspace(-length / 2, length / 2, length + 1)
+        self.gaussian_y = (
+            (1 / (std_dev * np.sqrt(2 * np.pi)))
+            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
+            * 1000
+        )
 
         # Whiten the data
         min = np.min(self.gaussian_y)
@@ -375,7 +386,11 @@ class HockeyMOM:
 
         # Wide gaussian
         std_dev = float(length)
-        self.gaussian_wide = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-(x - mean)**2 / (2 * std_dev**2)) * 1000
+        self.gaussian_wide = (
+            (1 / (std_dev * np.sqrt(2 * np.pi)))
+            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
+            * 1000
+        )
 
         # Whiten the data
         min = np.min(self.gaussian_wide)
@@ -390,13 +405,14 @@ class HockeyMOM:
             # Plot the Gaussian curve
             # plt.plot(x, self.gaussian_y)
             plt.plot(x, np.ones_like(self.gaussian_wide) - self.gaussian_wide)
-            plt.title('Gaussian Curve')
-            plt.xlabel('X')
-            plt.ylabel('Y')
+            plt.title("Gaussian Curve")
+            plt.xlabel("X")
+            plt.ylabel("Y")
             # Show the plot
             plt.show()
             print("Plotted")
             import time
+
             time.sleep(1000)
 
     def get_speed(self):
@@ -447,9 +463,7 @@ class HockeyMOM:
         self._id_to_tlwhs_history_map = dict()
         # self._id_to_speed_map = dict()
         # trunk-ignore(ruff/B905)
-        for id, image_pos in zip(
-            self._online_ids, self._online_tlws
-        ):
+        for id, image_pos in zip(self._online_ids, self._online_tlws):
             hist = prev_dict.get(id, TlwhHistory(id=id, video_frame=self._video_frame))
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id] = hist
@@ -655,7 +669,9 @@ class HockeyMOM:
         return box
 
     def clamp(self, box):
-        return self._clamp(box, self._video_frame.box())
+        return self._clamp(
+            box, np.array([0, 0, self._video_frame.width - 1, self._video_frame.height - 1], dtype=np.float32)
+        )
 
     @staticmethod
     def _tlwh_to_tlbr(box):
@@ -766,7 +782,7 @@ class HockeyMOM:
         nw = y * w / h
         nh = x * h / w
         if int(maximum) ^ int(_as_scalar(nw >= x)):
-        #if torch.pow(int(maximum), torch.Tensor(nw >= x)):
+            # if torch.pow(int(maximum), torch.Tensor(nw >= x)):
             return nw or 1, y
         return x, nh or 1
 
@@ -952,7 +968,7 @@ class HockeyMOM:
     ):
         dx = proposed_point[0] - last_point[0]
         dy = proposed_point[1] - last_point[1]
-        #print(f"want: dx={dx}, dy={dy}")
+        # print(f"want: dx={dx}, dy={dy}")
 
         acceleration_dx = dx - self._current_camera_box_speed_x
         acceleration_dy = dy - self._current_camera_box_speed_y
