@@ -132,8 +132,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = True and not BASIC_DEBUGGING
-        #self.crop_output_image = False
+        #self.crop_output_image = True and not BASIC_DEBUGGING
+        self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -644,15 +644,15 @@ class FramePostProcessor:
                 if current_box is None:
                     current_box = hockey_mom._video_frame.box()
 
-                outside_expanded_box = current_box + np.array(
-                    [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
-                )
-
                 # Some players may be off-screen, so their box may go over an edge
                 current_box = hockey_mom.clamp(current_box)
 
-                assert width(current_box) < hockey_mom.video.width
-                assert height(current_box) < hockey_mom.video.height
+                assert width(current_box) <= hockey_mom.video.width
+                assert height(current_box) <= hockey_mom.video.height
+
+                outside_expanded_box = current_box + np.array(
+                    [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
+                )
 
                 # if self._args.plot_camera_tracking:
                 #     vis.plot_rectangle(
@@ -699,8 +699,8 @@ class FramePostProcessor:
                     grays_level: int = 128,
                     verbose: bool = False,
                 ):
-                    assert width(current_box) < hockey_mom.video.width
-                    assert height(current_box) < hockey_mom.video.height
+                    assert width(current_box) <= hockey_mom.video.width
+                    assert height(current_box) <= hockey_mom.video.height
                     #
                     # Temporal: Apply velocity and acceleration
                     #
@@ -728,10 +728,10 @@ class FramePostProcessor:
                         #     color=(0, 0, 0),
                         #     thickness=25,
                         # )
-                    assert width(current_box) < hockey_mom.video.width
-                    assert height(current_box) < hockey_mom.video.height
-                    assert width(last_box) < hockey_mom.video.width
-                    assert height(last_box) < hockey_mom.video.height
+                    assert width(current_box) <= hockey_mom.video.width
+                    assert height(current_box) <= hockey_mom.video.height
+                    assert width(last_box) <= hockey_mom.video.width
+                    assert height(last_box) <= hockey_mom.video.height
                     return current_box, last_box
 
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
@@ -798,6 +798,9 @@ class FramePostProcessor:
                     #     label="clamped_pre_aspect",
                     # )
 
+                assert width(current_box) <= hockey_mom.video.width
+                assert height(current_box) <= hockey_mom.video.height
+
                 current_box = hockey_mom.make_box_proper_aspect_ratio(
                     frame_id=self._frame_id,
                     the_box=current_box,
@@ -805,6 +808,9 @@ class FramePostProcessor:
                     max_in_aspec_ratio=self._args.max_in_aspec_ratio,
                 )
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+
+                # assert width(current_box) <= hockey_mom.video.width
+                # assert height(current_box) <= hockey_mom.video.height
 
                 # current_box = hockey_mom.clamp(current_box)
 
@@ -903,12 +909,16 @@ class FramePostProcessor:
                 assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
                 def _fix_aspect_ratio(box):
+                    assert width(box) <= hockey_mom.video.width
+                    assert height(box) <= hockey_mom.video.height
                     box = hockey_mom.make_box_proper_aspect_ratio(
                         frame_id=self._frame_id,
                         the_box=box,
                         desired_aspect_ratio=self._final_aspect_ratio,
                         max_in_aspec_ratio=False,
                     )
+                    assert width(box) <= hockey_mom.video.width
+                    assert height(box) <= hockey_mom.video.height
                     return hockey_mom.shift_box_to_edge(box)
 
                 stuck = hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
