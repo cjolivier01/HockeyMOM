@@ -67,6 +67,7 @@ def to_rgb_non_planar(image):
             image = torch.squeeze(image, dim=0).permute(1, 2, 0)
     return image
 
+
 class HmPostProcessor:
     def __init__(self, opt, args, fps: int, save_dir: str, data_type: str = "mot"):
         self._opt = opt
@@ -76,11 +77,11 @@ class HmPostProcessor:
         self._fps = fps
         self._save_dir = save_dir
         self._hockey_mom = None
+        self._image_scale_array = None
 
     @property
     def data_type(self):
         return self._data_type
-
 
     def online_callback(
         self,
@@ -92,21 +93,34 @@ class HmPostProcessor:
         original_img,
         online_scores=None,
     ):
-        if self._postprocessor is None:
-            self.on_first_image(frame_id, info_imgs, img, original_img)
         img = to_rgb_non_planar(img).cpu()
         original_img = to_rgb_non_planar(original_img)
-        self._postprocessor.send(online_tlwhs, online_ids, info_imgs, img, original_img)
+        if self._postprocessor is None:
+            self.on_first_image(frame_id, info_imgs, img, original_img)
+        # if self._image_scale_array is not None:
+        #     online_tlwhs = [tlwh * self._image_scale_array for tlwh in online_tlwhs]
+        self._postprocessor.send(
+            online_tlwhs,
+            online_ids,
+            info_imgs,
+            img,
+            original_img,
+        )
 
     def on_first_image(self, frame_id, info_imgs, img, original_img):
+        if self._args.scale_to_original_image and self._image_scale_array is None:
+            self._image_scale_array = make_scale_array(
+                from_img=img, to_img=original_img
+            )
+
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:
                 self._hockey_mom = HockeyMOM(
-                    image_width=info_imgs[1],
-                    image_height=info_imgs[0],
+                    image_width=original_img.shape[1],
+                    image_height=original_img.shape[0],
                 )
             else:
-                assert False
+                assert not isinstance(img, torch.Tensor) or img.dtype == torch.uint8
                 self._hockey_mom = HockeyMOM(
                     image_width=img.shape[1],
                     image_height=img.shape[0],

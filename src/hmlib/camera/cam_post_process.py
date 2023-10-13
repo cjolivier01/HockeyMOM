@@ -65,17 +65,18 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "stockton", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        #self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -128,10 +129,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
+        #self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -231,9 +233,9 @@ class FramePostProcessor:
                 self.device = torch.device(torch_device())
                 self._start()
         else:
-            self._thread = Thread(target=self._start)
+            self._thread = Thread(target=self._start, name="CamPostProc")
             self._thread.start()
-            self._imgproc_thread = Thread(target=self._start_final_image_processing)
+            self._imgproc_thread = Thread(target=self._start_final_image_processing, name="FinalImgProc")
             self._imgproc_thread.start()
 
     def _start(self):
@@ -646,6 +648,12 @@ class FramePostProcessor:
                     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
                 )
 
+                # Some players may be off-screen, so their box may go over an edge
+                current_box = hockey_mom.clamp(current_box)
+
+                assert width(current_box) < hockey_mom.video.width
+                assert height(current_box) < hockey_mom.video.height
+
                 # if self._args.plot_camera_tracking:
                 #     vis.plot_rectangle(
                 #         online_im,
@@ -691,6 +699,8 @@ class FramePostProcessor:
                     grays_level: int = 128,
                     verbose: bool = False,
                 ):
+                    assert width(current_box) < hockey_mom.video.width
+                    assert height(current_box) < hockey_mom.video.height
                     #
                     # Temporal: Apply velocity and acceleration
                     #
@@ -718,6 +728,10 @@ class FramePostProcessor:
                         #     color=(0, 0, 0),
                         #     thickness=25,
                         # )
+                    assert width(current_box) < hockey_mom.video.width
+                    assert height(current_box) < hockey_mom.video.height
+                    assert width(last_box) < hockey_mom.video.width
+                    assert height(last_box) < hockey_mom.video.height
                     return current_box, last_box
 
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
