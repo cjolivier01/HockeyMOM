@@ -31,7 +31,7 @@ import traceback
 
 from hmtrack import HmPostProcessor
 from hmlib.camera.cam_post_process import DefaultArguments
-import hmlib.datasets.dataset.jde as datasets
+import hmlib.datasets as datasets
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX Eval")
@@ -275,10 +275,10 @@ def main(exp, args, num_gpu):
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
-                    process_img_size=exp.test_size,
                     mot_eval_mode=True,
                     return_origin_img=True,
-                    data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    #data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     json_file="train.json",
                     name='infer',
                     preproc=ValTransform(
