@@ -47,3 +47,6 @@
 [submodule "models/layers/CvT"]
 	path = models/layers/CvT
 	url = ssh://git@github.com/cjolivier01/CvT
+[submodule "external/MOTChallengeEvalKit"]
+	path = external/MOTChallengeEvalKit
+	url = ssh://git@github.com/cjolivier01/MOTChallengeEvalKit
