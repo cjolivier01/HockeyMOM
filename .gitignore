@@ -2,6 +2,7 @@
 *.pyc
 /*.log
 /*.tif
+/vid
 /demos
 /h-demo*
 # /models/*.pth
