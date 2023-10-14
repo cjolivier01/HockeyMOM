@@ -820,29 +820,38 @@ class HockeyMOM:
         assert w <= self._video_frame.width
         assert h <= self._video_frame.height
 
-        new_w_1 = w
-        new_h_1 = w / desired_aspect_ratio
-
-        new_w_2 = h * desired_aspect_ratio
-        new_h_2 = h
-
-        if not max_in_aspec_ratio:
-            if new_h_1 > self._video_frame.height:
-                new_h_1 = self._video_frame.height
-                new_w_1 = new_h_1 * desired_aspect_ratio
-            if new_w_1 > self._video_frame.width:
-                new_w_1 = self._video_frame.width
-                new_h_1 = new_w_1 / desired_aspect_ratio
-            new_w = new_w_1
-            new_h = new_h_1
+        if True:
+            if w / h > desired_aspect_ratio:
+                # Constrain by height
+                new_h = h
+                new_w = new_h * desired_aspect_ratio
+            else:
+                # Constrain by width
+                new_w = w
+                new_h = new_w / desired_aspect_ratio
         else:
-            new_w, new_h = self.scale(
-                new_w_1,
-                new_h_1,
-                (self._video_frame.height * desired_aspect_ratio),
-                self._video_frame.height,
-                maximum=True,
-            )
+            new_w_1 = w
+            new_h_1 = w / desired_aspect_ratio
+
+            new_w_2 = h * desired_aspect_ratio
+            new_h_2 = h
+            if not max_in_aspec_ratio:
+                if new_h_1 > self._video_frame.height:
+                    new_h_1 = self._video_frame.height
+                    new_w_1 = new_h_1 * desired_aspect_ratio
+                if new_w_1 > self._video_frame.width:
+                    new_w_1 = self._video_frame.width
+                    new_h_1 = new_w_1 / desired_aspect_ratio
+                new_w = new_w_1
+                new_h = new_h_1
+            else:
+                new_w, new_h = self.scale(
+                    new_w_1,
+                    new_h_1,
+                    (self._video_frame.height * desired_aspect_ratio),
+                    self._video_frame.height,
+                    maximum=True,
+                )
 
         w_diff = new_w - self._video_frame.width
         if w_diff > 0 and w_diff < self._epsilon:
