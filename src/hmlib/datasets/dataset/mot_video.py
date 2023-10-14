@@ -131,20 +131,27 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 [self._path],
             ]
 
-        img0 = cv2.resize(img0, (self.process_width, self.process_height))
+        img0 = cv2.resize(img0, (self.process_height, self.process_width))
 
         # Padded resize
         # img, _, _, _ = letterbox(img0, height=self.process_height, width=self.process_width)
         img = img0
 
-        # Normalize RGB
-        img = img[:, :, ::-1].transpose(2, 0, 1)
-        img = np.ascontiguousarray(img, dtype=np.float32)
+        if self._mot_eval_mode:
+            img = torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)).permute(
+                2, 0, 1
+            )
+            img = img.unsqueeze(0)
+        else:
+            # Normalize RGB
+            img = img[:, :, ::-1].transpose(2, 0, 1)
+        # img = np.ascontiguousarray(img, dtype=np.float32)
+        # img = torch.from_numpy(img)
         img /= 255.0
 
         if self._mot_eval_mode:
             # Make the image planar RGB
-            img = torch.from_numpy(img).permute(0, 2, 1).unsqueeze(0)
+            # img = torch.from_numpy(img).permute(0, 2, 1).unsqueeze(0)
             # print(original_img.shape)
             original_img = torch.from_numpy(original_img).permute(2, 0, 1)
             original_img = original_img.unsqueeze(0)

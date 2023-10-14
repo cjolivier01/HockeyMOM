@@ -132,6 +132,9 @@ def make_parser():
         "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
     )
     parser.add_argument(
+        "--track_thresh_low", type=float, default=0.1, help="tracking confidence threshold lower bound"
+    )
+    parser.add_argument(
         "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
     )
     parser.add_argument(
@@ -250,8 +253,6 @@ def main(exp, args, num_gpu):
         if args.input_video:
             input_video_files = args.input_video.split(",")
 
-            #mot_dl = exp.get_data_loader(args.batch_size, is_distributed, no_aug=False, return_origin_img=True, data_loader_type=data_loader_type)
-
             from yolox.data import ValTransform
 
             if len(input_video_files) == 2:
@@ -277,10 +278,11 @@ def main(exp, args, num_gpu):
                     img_size=exp.test_size,
                     mot_eval_mode=True,
                     return_origin_img=True,
-                    #data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
-                    data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
-                    json_file="train.json",
-                    name='infer',
+                    data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    #data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
+                    #json_file="train.json",
+                    json_file="val.json",
+                    name='val',
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
                         std=(0.229, 0.224, 0.225),
@@ -383,6 +385,15 @@ def main(exp, args, num_gpu):
             exp.test_size,
             results_folder,
         )
+        # *_, summary = evaluator.evaluate_byte(
+        #     model,
+        #     is_distributed,
+        #     args.fp16,
+        #     trt_file,
+        #     decoder,
+        #     exp.test_size,
+        #     results_folder,
+        # )
         logger.info("\n" + summary)
 
         logger.info("Completed")
