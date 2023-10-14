@@ -153,7 +153,12 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             # Make the image planar RGB
             # img = torch.from_numpy(img).permute(0, 2, 1).unsqueeze(0)
             # print(original_img.shape)
-            original_img = torch.from_numpy(original_img).permute(2, 0, 1)
+            # original_img = torch.from_numpy(np.ascontiguousarray(original_img)).permute(
+            #     2, 0, 1
+            # )
+            original_img = torch.from_numpy(original_img).permute(
+                2, 0, 1
+            )
             original_img = original_img.unsqueeze(0)
             # print(original_img.shape)
             # for cur_iter, (origin_imgs, imgs, _, info_imgs, ids) in enumerate(

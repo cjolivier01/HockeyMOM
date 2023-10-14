@@ -276,6 +276,8 @@ def main(exp, args, num_gpu):
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
+                    #img_size=(1024, 4096),
+                    #img_size=(800, 2048),
                     mot_eval_mode=True,
                     return_origin_img=True,
                     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
