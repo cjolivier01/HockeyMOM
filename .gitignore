@@ -2,11 +2,7 @@
 *.pyc
 /*.log
 /*.tif
-/vid
-/demos
 /h-demo*
-# /models/*.pth
-/models/*.pt
 /.clangd
 /exp
 __pycache__
