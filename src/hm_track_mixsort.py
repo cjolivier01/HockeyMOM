@@ -4,11 +4,20 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 import sys, os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../MixViT'))
+import cv2
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../MixViT"))
 from yolox.core import launch
 from yolox.exp import get_exp
-from yolox.utils import configure_nccl, fuse_model, get_local_rank, get_model_info, setup_logger
+from yolox.utils import (
+    configure_nccl,
+    fuse_model,
+    get_local_rank,
+    get_model_info,
+    setup_logger,
+)
 from yolox.evaluators import MOTEvaluator
+from yolox.data import get_yolox_datadir
 
 import argparse
 import random
@@ -17,10 +26,12 @@ import glob
 import motmetrics as mm
 from collections import OrderedDict
 from pathlib import Path
+from typing import List, Tuple
+import traceback
 
 from hmtrack import HmPostProcessor
 from hmlib.camera.cam_post_process import DefaultArguments
-
+import hmlib.datasets.dataset.jde as datasets
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX Eval")
@@ -53,7 +64,7 @@ def make_parser():
     parser.add_argument(
         "-f",
         "--exp_file",
-        default='exps/example/mot/yolox_x_sports_mix.py',
+        default="exps/example/mot/yolox_x_sports_mix.py",
         type=str,
         help="pls input your expriment description file",
     )
@@ -70,6 +81,12 @@ def make_parser():
         default=False,
         action="store_true",
         help="Fuse conv and bn for testing.",
+    )
+    parser.add_argument(
+        "--infer",
+        default=False,
+        action="store_true",
+        help="Run inference instead of validation",
     )
     parser.add_argument(
         "--trt",
@@ -99,25 +116,54 @@ def make_parser():
         nargs=argparse.REMAINDER,
     )
     # det args
-    parser.add_argument("-c", "--ckpt", default='pretrained/yolox_x_sportsmix_ch.pth.tar', type=str, help="ckpt for eval")
+    parser.add_argument(
+        "-c",
+        "--ckpt",
+        default="pretrained/yolox_x_sportsmix_ch.pth.tar",
+        type=str,
+        help="ckpt for eval",
+    )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument("--seed", default=None, type=int, help="eval seed")
     # tracking args
-    parser.add_argument("--track_thresh", type=float, default=0.6, help="tracking confidence threshold")
-    parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
-    parser.add_argument("--match_thresh", type=float, default=0.9, help="matching threshold for tracking")
-    parser.add_argument("--iou_thresh",type=float,default=0.3)
-    parser.add_argument("--min-box-area", type=float, default=100, help='filter out tiny boxes')
-    parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
+    parser.add_argument(
+        "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
+    )
+    parser.add_argument(
+        "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
+    )
+    parser.add_argument(
+        "--match_thresh",
+        type=float,
+        default=0.9,
+        help="matching threshold for tracking",
+    )
+    parser.add_argument("--iou_thresh", type=float, default=0.3)
+    parser.add_argument(
+        "--min-box-area", type=float, default=100, help="filter out tiny boxes"
+    )
+    parser.add_argument(
+        "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
+    )
     # mixformer args
-    parser.add_argument("--script",type=str,default='mixformer_deit')
-    parser.add_argument("--config",type=str,default='track')
-    parser.add_argument("--alpha",type=float,default=0.6,help='fuse parameter')
-    parser.add_argument("--radius",type=int,default=0,help='radius for computing similarity')
-
-    parser.add_argument("--iou_only",dest="iou_only",default=False, action="store_true",help='only use iou for similarity')
+    parser.add_argument("--script", type=str, default="mixformer_deit")
+    parser.add_argument("--config", type=str, default="track")
+    parser.add_argument("--alpha", type=float, default=0.6, help="fuse parameter")
+    parser.add_argument(
+        "--radius", type=int, default=0, help="radius for computing similarity"
+    )
+    parser.add_argument(
+        "--input_video", type=str, default=None, help="Input video file(s)"
+    )
+    parser.add_argument(
+        "--iou_only",
+        dest="iou_only",
+        default=False,
+        action="store_true",
+        help="only use iou for similarity",
+    )
     return parser
 
 
@@ -126,119 +172,224 @@ def compare_dataframes(gts, ts):
     names = []
     for k, tsacc in ts.items():
         if k in gts:
-            logger.info('Comparing {}...'.format(k))
-            accs.append(mm.utils.compare_to_groundtruth(gts[k], tsacc, 'iou', distth=0.5))
+            logger.info("Comparing {}...".format(k))
+            accs.append(
+                mm.utils.compare_to_groundtruth(gts[k], tsacc, "iou", distth=0.5)
+            )
             names.append(k)
         else:
-            logger.warning('No ground truth for {}, skipping.'.format(k))
+            logger.warning("No ground truth for {}, skipping.".format(k))
 
     return accs, names
 
 
-#@logger.catch
+# def get_video_w_h_fps(video_file_name: str) -> Tuple[int, int, float]:
+#     vid = cv2.VideoCapture(video_file_name)
+#     assert vid.isOpenned()
+
+#     # Get width and height of the video
+#     width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+#     height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+#     # Get frames per second (FPS) of the video
+#     fps = video.get(cv2.CAP_PROP_FPS)
+
+#     # Release the video capture object
+#     video.release()
+
+# @logger.catch
 def main(exp, args, num_gpu):
-    if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn(
-            "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
+    try:
+        if args.seed is not None:
+            random.seed(args.seed)
+            torch.manual_seed(args.seed)
+            cudnn.deterministic = True
+            warnings.warn(
+                "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
+            )
+
+        is_distributed = num_gpu > 1
+
+        # set environment variables for distributed training
+        cudnn.benchmark = True
+
+        rank = args.local_rank
+        # rank = get_local_rank()
+
+        file_name = os.path.join(exp.output_dir, args.experiment_name)
+
+        if rank == 0:
+            os.makedirs(file_name, exist_ok=True)
+
+        results_folder = os.path.join(file_name, "track_results")
+        os.makedirs(results_folder, exist_ok=True)
+
+        setup_logger(file_name, distributed_rank=rank, filename="val_log.txt", mode="a")
+        logger.info("Args: {}".format(args))
+
+        if args.conf is not None:
+            exp.test_conf = args.conf
+        if args.nms is not None:
+            exp.nmsthre = args.nms
+        if args.tsize is not None:
+            exp.test_size = (args.tsize, args.tsize)
+
+        model = exp.get_model()
+        logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
+        # logger.info("Model Structure:\n{}".format(str(model)))
+
+        postprocessor = HmPostProcessor(
+            opt=args,
+            args=DefaultArguments(),
+            fps=30,
+            save_dir=results_folder,
+            data_type="mot",
         )
 
-    is_distributed = num_gpu > 1
+        dataloader = None
+        if args.input_video:
+            input_video_files = args.input_video.split(",")
 
-    # set environment variables for distributed training
-    cudnn.benchmark = True
+            #mot_dl = exp.get_data_loader(args.batch_size, is_distributed, no_aug=False, return_origin_img=True, data_loader_type=data_loader_type)
 
-    rank = args.local_rank
-    # rank = get_local_rank()
+            from yolox.data import ValTransform
 
-    file_name = os.path.join(exp.output_dir, args.experiment_name)
+            if len(input_video_files) == 2:
+                video_1_offset_frame = None
+                video_2_offset_frame = None
 
-    if rank == 0:
-        os.makedirs(file_name, exist_ok=True)
+                video_1_offset_frame = 13
+                video_2_offset_frame = 0
 
-    results_folder = os.path.join(file_name, "track_results")
-    os.makedirs(results_folder, exist_ok=True)
+                dataloader = datasets.LoadAutoStitchedVideoWithOrig(
+                    path_video_1=input_video_files[0],
+                    path_video_2=input_video_files[1],
+                    video_1_offset_frame=video_1_offset_frame,
+                    video_2_offset_frame=video_2_offset_frame,
+                    img_size=exp.test_size,
+                    process_img_size=exp.test_size,
+                    num_classes=exp.num_classes,
+                )
+            else:
+                assert len(input_video_files) == 1
+                dataloader = datasets.MOTLoadVideoWithOrig(
+                    path=input_video_files[0],
+                    img_size=exp.test_size,
+                    process_img_size=exp.test_size,
+                    mot_eval_mode=True,
+                    return_origin_img=True,
+                    data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    json_file="train.json",
+                    name='infer',
+                    preproc=ValTransform(
+                        rgb_means=(0.485, 0.456, 0.406),
+                        std=(0.229, 0.224, 0.225),
+                    ),
+                )
 
-    setup_logger(file_name, distributed_rank=rank, filename="val_log.txt", mode="a")
-    logger.info("Args: {}".format(args))
 
-    if args.conf is not None:
-        exp.test_conf = args.conf
-    if args.nms is not None:
-        exp.nmsthre = args.nms
-    if args.tsize is not None:
-        exp.test_size = (args.tsize, args.tsize)
+            #from yolox.data import MOTDataset, ValTransform
 
-    model = exp.get_model()
-    logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
-    #logger.info("Model Structure:\n{}".format(str(model)))
+            # valdataset = MOTDataset(
+            #     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+            #     json_file=self.val_ann,
+            #     img_size=self.test_size,
+            #     name='val', # change to train when running on training set
+            #     preproc=ValTransform(
+            #         rgb_means=(0.485, 0.456, 0.406),
+            #         std=(0.229, 0.224, 0.225),
+            #     ),
+            #     return_origin_img=return_origin_img,
+            # )
 
-    postprocessor = HmPostProcessor(
-        opt=args,
-        args=DefaultArguments(),
-        fps=30,
-        save_dir=results_folder,
-        data_type="mot",
-    )
+            # if is_distributed:
+            #     #batch_size = batch_size // world_size
+            #     # sampler = torch.utils.data.distributed.DistributedSampler(
+            #     #     dataloader, shuffle=False
+            #     # )
+            #     assert False
+            # else:
+            #     sampler = torch.utils.data.SequentialSampler(dataloader)
 
-    val_loader = exp.get_eval_loader(args.batch_size, is_distributed, args.test, return_origin_img=True)
-    evaluator = MOTEvaluator(
-        args=args,
-        dataloader=val_loader,
-        img_size=exp.test_size,
-        confthre=exp.test_conf,
-        nmsthre=exp.nmsthre,
-        num_classes=exp.num_classes,
-        online_callback=postprocessor.online_callback,
+            # dataloader_kwargs = {
+            #     "num_workers": 1, # self.data_num_workers,
+            #     "pin_memory": True,
+            #     "sampler": sampler,
+            # }
+            # dataloader_kwargs["batch_size"] = args.batch_size
+            # dataloader = torch.utils.data.DataLoader(dataloader, **dataloader_kwargs)
+
+
+        if dataloader is None:
+            dataloader = exp.get_eval_loader(
+                args.batch_size, is_distributed, args.test, return_origin_img=True
+            )
+
+        evaluator = MOTEvaluator(
+            args=args,
+            dataloader=dataloader,
+            img_size=exp.test_size,
+            confthre=exp.test_conf,
+            nmsthre=exp.nmsthre,
+            num_classes=exp.num_classes,
+            online_callback=postprocessor.online_callback,
         )
 
-    torch.cuda.set_device(rank)
-    model.cuda(rank)
-    model.eval()
+        torch.cuda.set_device(rank)
+        model.cuda(rank)
+        model.eval()
 
-    if not args.speed and not args.trt:
-        if args.ckpt is None:
-            ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
+        if not args.speed and not args.trt:
+            if args.ckpt is None:
+                ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
+            else:
+                ckpt_file = args.ckpt
+            logger.info("loading checkpoint")
+            loc = "cuda:{}".format(rank)
+            ckpt = torch.load(ckpt_file, map_location=loc)
+            # load the model state dict
+            model.load_state_dict(ckpt["model"])
+            # torch.jit.load()
+            logger.info("loaded checkpoint done.")
+
+        if is_distributed:
+            model = DDP(model, device_ids=[rank])
+
+        if args.fuse:
+            logger.info("\tFusing model...")
+            model = fuse_model(model)
+
+        if args.trt:
+            assert (
+                not args.fuse and not is_distributed and args.batch_size == 1
+            ), "TensorRT model is not support model fusing and distributed inferencing!"
+            trt_file = os.path.join(file_name, "model_trt.pth")
+            assert os.path.exists(
+                trt_file
+            ), "TensorRT model is not found!\n Run tools/trt.py first!"
+            model.head.decode_in_inference = False
+            decoder = model.head.decode_outputs
         else:
-            ckpt_file = args.ckpt
-        logger.info("loading checkpoint")
-        loc = "cuda:{}".format(rank)
-        ckpt = torch.load(ckpt_file, map_location=loc)
-        # load the model state dict
-        model.load_state_dict(ckpt["model"])
-        # torch.jit.load()
-        logger.info("loaded checkpoint done.")
+            trt_file = None
+            decoder = None
 
-    if is_distributed:
-        model = DDP(model, device_ids=[rank])
+        # start evaluate
+        *_, summary = evaluator.evaluate_mixsort(
+            model,
+            is_distributed,
+            args.fp16,
+            trt_file,
+            decoder,
+            exp.test_size,
+            results_folder,
+        )
+        logger.info("\n" + summary)
 
-    if args.fuse:
-        logger.info("\tFusing model...")
-        model = fuse_model(model)
-
-    if args.trt:
-        assert (
-            not args.fuse and not is_distributed and args.batch_size == 1
-        ), "TensorRT model is not support model fusing and distributed inferencing!"
-        trt_file = os.path.join(file_name, "model_trt.pth")
-        assert os.path.exists(
-            trt_file
-        ), "TensorRT model is not found!\n Run tools/trt.py first!"
-        model.head.decode_in_inference = False
-        decoder = model.head.decode_outputs
-    else:
-        trt_file = None
-        decoder = None
-
-    # start evaluate
-    *_, summary = evaluator.evaluate_mixsort(
-        model, is_distributed, args.fp16, trt_file, decoder, exp.test_size, results_folder
-    )
-    logger.info("\n" + summary)
-
-    logger.info('Completed')
+        logger.info("Completed")
+    except Exception as ex:
+        print(ex)
+        traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
@@ -261,4 +412,3 @@ if __name__ == "__main__":
         dist_url=args.dist_url,
         args=(exp, args, num_gpu),
     )
-

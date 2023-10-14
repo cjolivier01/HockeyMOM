@@ -98,8 +98,9 @@ class HmPostProcessor:
         original_img,
         online_scores=None,
     ):
-        img = to_rgb_non_planar(img).cpu()
-        original_img = to_rgb_non_planar(original_img)
+        if isinstance(img, torch.Tensor):
+            img = to_rgb_non_planar(img).cpu()
+            original_img = to_rgb_non_planar(original_img)
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, original_img)
         # if self._image_scale_array is not None:

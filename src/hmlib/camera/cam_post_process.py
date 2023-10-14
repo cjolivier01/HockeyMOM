@@ -10,6 +10,9 @@ import cv2
 import argparse
 import numpy as np
 import traceback
+import errno
+
+from pathlib import Path
 
 import torch
 import torchvision as tv
@@ -192,7 +195,6 @@ class FramePostProcessor:
         self._queue = Queue()
         self._imgproc_queue = Queue()
         self._data_type = data_type
-        self._save_dir = save_dir
         self._fps = fps
         self._opt = opt
         self._thread = None
@@ -200,6 +202,11 @@ class FramePostProcessor:
         self._use_fork = use_fork
         self._final_aspect_ratio = 16.0 / 9.0
         self._output_video = None
+
+        self._save_dir = save_dir
+        # results_dir = Path(save_dir)
+        # results_dir.mkdir(parents=True, exist_ok=True)
+
         self.watermark = cv2.imread(
             os.path.realpath(
                 os.path.join(
@@ -287,9 +294,12 @@ class FramePostProcessor:
         skip_frames_before_show = 0
         timer = Timer()
         if self._output_video is None:
+            results_dir = Path(self._save_dir)
+            results_dir.mkdir(parents=True, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
                 filename=os.path.join(self._save_dir, "tracking_output.avi"),
+                #filename=os.path.join("h-demo", "tracking_output.avi"),
                 fourcc=fourcc,
                 fps=self._fps,
                 frameSize=(self.final_frame_width, self.final_frame_height),
