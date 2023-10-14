@@ -294,12 +294,11 @@ class FramePostProcessor:
         skip_frames_before_show = 0
         timer = Timer()
         if self._output_video is None:
-            results_dir = Path(self._save_dir)
-            results_dir.mkdir(parents=True, exist_ok=True)
+            # results_dir = Path(self._save_dir)
+            # results_dir.mkdir(parents=True, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self._output_video = cv2.VideoWriter(
                 filename=os.path.join(self._save_dir, "tracking_output.avi"),
-                #filename=os.path.join("h-demo", "tracking_output.avi"),
                 fourcc=fourcc,
                 fps=self._fps,
                 frameSize=(self.final_frame_width, self.final_frame_height),
