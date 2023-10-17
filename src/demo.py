@@ -40,7 +40,7 @@ def demo(opt):
 
     logger.info("Starting tracking...")
 
-    opt.img_size = (4096, 1024)
+    # opt.img_size = (4096, 1024)
 
     # opt.img_size = (4096 * 3 // 2, 1024 * 3 // 2)
 
@@ -48,7 +48,7 @@ def demo(opt):
 
     # opt.img_size = (4096 // 2, 1024 // 2)
 
-    # opt.img_size = (4096 // 4, 1024 // 4)
+    opt.img_size = (4096 // 4, 1024 // 4)
 
     # opt.img_size = (4096, 1800)
     # opt.img_size = (1088, 608)
@@ -67,9 +67,8 @@ def demo(opt):
         video_1_offset_frame = None
         video_2_offset_frame = None
 
-        video_1_offset_frame = 13
+        video_1_offset_frame = 3
         video_2_offset_frame = 0
-
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
             path_video_2=input_video_files[1],
@@ -94,7 +93,6 @@ def demo(opt):
         "mot",
         result_filename,
         save_dir=frame_dir,
-        show_image=False,
         use_cuda=opt.gpus != [-1],
     )
 

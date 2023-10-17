@@ -60,6 +60,9 @@ RINK_CONFIG = {
     "stockton": {
         "fixed_edge_scaling_factor": 0.6,
     },
+    "roseville": {
+        "fixed_edge_scaling_factor": 0.8,
+    },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
     },
@@ -69,13 +72,13 @@ BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "stockton", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "roseville", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = False or BASIC_DEBUGGING
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING

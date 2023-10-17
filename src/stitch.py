@@ -183,15 +183,15 @@ def main():
     # )
 
     #dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
-    dir_name = os.path.join(os.environ["HOME"], "Videos", "stockton")
+    dir_name = os.path.join(os.environ["HOME"], "Videos", "roseville")
     video_left = "left.mp4"
     video_right = "right.mp4"
     # video_left = "left-1-small.avi"
     # video_right = "right-1-small.avi"
     # lfo = 0
     # rfo = 92
-    lfo = 13
-    rfo = 0
+    lfo = None
+    rfo = None
     lfo, rfo = stitch_videos(
         dir_name,
         video_left,

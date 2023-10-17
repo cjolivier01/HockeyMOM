@@ -68,7 +68,7 @@ def infer_main(opt):
         video_1_offset_frame = None
         video_2_offset_frame = None
 
-        video_1_offset_frame = 13
+        video_1_offset_frame = 3
         video_2_offset_frame = 0
 
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(

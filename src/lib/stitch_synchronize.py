@@ -214,12 +214,18 @@ def build_stitching_project(
                 "enblend",
                 "-o",
                 os.path.join(dir_name, "panorama.tif"),
-                os.path.join(dir_name, "my_project*.tif"),
+                os.path.join(dir_name, f"{pto_path.name}*.tif"),
             ]
             os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
+
+
+def _add_suffix(file_path: str, suffix: str):
+    root, ext = os.path.splitext(file_path)
+    new_filepath = f"{root}{suffix}{ext}"
+    return new_filepath
 
 
 def configure_video_stitching(
@@ -233,6 +239,7 @@ def configure_video_stitching(
     audio_sync_seconds: int = 15,
 ):
     if left_frame_offset is None or right_frame_offset is None:
+        print("Syncronizing...")
         left_frame_offset, right_frame_offset = synchronize_by_audio(
             file0_path=os.path.join(dir_name, video_left),
             file1_path=os.path.join(dir_name, video_right),
@@ -242,6 +249,12 @@ def configure_video_stitching(
     # PTO Project File
     pto_project_file = os.path.join(dir_name, project_file_name)
     if not os.path.exists(pto_project_file):
+        # Try to use a frame during the second video (if it exists)
+        extract_path_1 = _add_suffix(video_left, "-1")
+        extract_path_2 = _add_suffix(video_right, "-1")
+        if not os.path.exists(extract_path_1) or not os.path.exists(extract_path_2):
+            extract_path_1 = video_left
+            extract_path_2 = video_right
         left_image_file, right_image_file = extract_frames(
             dir_name,
             video_left,
