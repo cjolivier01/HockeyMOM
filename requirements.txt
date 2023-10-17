@@ -20,6 +20,6 @@ cameratransform
 tifffile
 scikit-build
 scikit-learn
-./DCNv2
+#./DCNv2
 ./external/fast_pytorch_kmeans
 

@@ -11,8 +11,9 @@
 #VIDEO="${HOME}/Videos/TriValley10u1_9.23.2023.mp4"
 #VIDEO="${HOME}/Videos/sabercats-parts/left-1.mp4,${HOME}/Videos/sabercats-parts/right-1.mp4"
 #VIDEO="${HOME}/Videos/vacaville/left.mp4,${HOME}/Videos/vacaville/right.mp4"
-VIDEO="${HOME}/Videos/stockton/left.mp4,${HOME}/Videos/stockton/right.mp4"
+#VIDEO="${HOME}/Videos/stockton/left.mp4,${HOME}/Videos/stockton/right.mp4"
 #VIDEO="${HOME}/Videos/stockton/Stockton10.8.23.mp4"
+VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
 
 
 mkdir -p h-demo-x
