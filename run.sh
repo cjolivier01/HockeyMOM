@@ -19,7 +19,7 @@ VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
 mkdir -p h-demo-x
 rm -rf h-demo-x/*
 
-PYTHONPATH="$(pwd)/build:$(pwd)/hockeymom" \
+PYTHONPATH="$(pwd)/build:$(pwd)/hockeymom:$(pwd)/models/mixsort" \
   python \
   ./src/infer_full.py \
   mot \

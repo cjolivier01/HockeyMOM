@@ -68,7 +68,6 @@ def to_rgb_non_planar(image):
 
 
 def scale_tlwhs(tlwhs: List, scale: float):
-
     return tlwhs
 
 
@@ -156,8 +155,9 @@ def track_sequence(
     result_filename,
     postprocessor: HmPostProcessor,
     output_video_path: str = None,
-    save_dir=None,
-    use_cuda=True,
+    save_dir: str = None,
+    use_cuda: bool = True,
+    data_type: str = "mot",
 ):
     if save_dir:
         mkdir_if_missing(save_dir)
@@ -169,7 +169,7 @@ def track_sequence(
 
     # do_postprocessing = True
     incremental_results = False
-    args.stop_at_frame = 1000
+    #args.stop_at_frame = 1000
 
     # show_image = args.show_image
 

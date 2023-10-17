@@ -75,10 +75,10 @@ class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "stockton", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        #self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
         self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
@@ -132,10 +132,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        # self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        #self.crop_output_image = True and not BASIC_DEBUGGING
+        # self.crop_output_image = True and not BASIC_DEBUGGING
         self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
@@ -146,10 +146,13 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_cuda = False
 
         # Draw watermark on the image
-        #self.use_watermark = True
+        # self.use_watermark = True
         self.use_watermark = False
 
         self.remove_largest = False
+
+        # self.detection_inclusion_box = [None, None, None, None]
+        self.detection_inclusion_box = [None, 140, None, None]
 
 
 def scale_box(box, from_img, to_img):
@@ -168,6 +171,29 @@ def make_scale_array(from_img, to_img):
     w_scale = to_sz[0] / from_sz[0]
     h_scale = to_sz[1] / from_sz[1]
     return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+
+
+def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
+    # self.detection_inclusion_box
+    if not inclusion_box:
+        return online_tlwhs, online_ids
+    filtered_online_tlwh = []
+    filtered_online_ids = []
+    for i in range(len(online_tlwhs)):
+        tlwh = online_tlwhs[i]
+        center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
+        if inclusion_box[0] and center[0] < inclusion_box[0]:
+            continue
+        elif inclusion_box[2] and center[0] > inclusion_box[2]:
+            continue
+        elif inclusion_box[1] and center[1] < inclusion_box[1]:
+            continue
+        elif inclusion_box[3] and center[1] > inclusion_box[3]:
+            continue
+        filtered_online_tlwh.append(tlwh)
+        filtered_online_ids.append(online_ids[i])
+
+    return filtered_online_tlwh, filtered_online_ids
 
 
 class ImageProcData:
@@ -244,7 +270,9 @@ class FramePostProcessor:
         else:
             self._thread = Thread(target=self._start, name="CamPostProc")
             self._thread.start()
-            self._imgproc_thread = Thread(target=self._start_final_image_processing, name="FinalImgProc")
+            self._imgproc_thread = Thread(
+                target=self._start_final_image_processing, name="FinalImgProc"
+            )
             self._imgproc_thread.start()
 
     def _start(self):
@@ -276,7 +304,9 @@ class FramePostProcessor:
     def send(self, online_tlwhs, online_ids, info_imgs, image, original_img):
         while self._queue.qsize() > 10:
             time.sleep(0.001)
-        self._queue.put((online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img))
+        self._queue.put(
+            (online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
+        )
 
     def postprocess_frame(self, hockey_mom, show_image, opt):
         try:
@@ -506,6 +536,12 @@ class FramePostProcessor:
 
             online_tlwhs = online_targets_and_img[0]
             online_ids = online_targets_and_img[1]
+
+            # Exclude detections outside of an optional bounding box
+            online_tlwhs, online_ids = prune_by_inclusion_box(
+                online_tlwhs, online_ids, self._args.detection_inclusion_box
+            )
+
             info_imgs = online_targets_and_img[2]
             img0 = online_targets_and_img[3]
             original_img = online_targets_and_img[4]
@@ -567,17 +603,17 @@ class FramePostProcessor:
                     #             fast_ids.append(id)
                     #             fast_tlwhs.append(online_tlwhs[i])
                     #             fast_speeds.append(these_online_speeds[i])
-                        # online_ids = fast_ids
-                        # online_tlwhs = fast_tlwhs
-                        # these_online_speeds = fast_speeds
-                        # online_im = vis.plot_tracking(
-                        #     online_im,
-                        #     fast_tlwhs,
-                        #     fast_ids,
-                        #     frame_id=self._frame_id,
-                        #     fps=1.0 / timer.average_time if timer.average_time else 1000.0,
-                        #     speeds=fast_speeds,
-                        # )
+                    # online_ids = fast_ids
+                    # online_tlwhs = fast_tlwhs
+                    # these_online_speeds = fast_speeds
+                    # online_im = vis.plot_tracking(
+                    #     online_im,
+                    #     fast_tlwhs,
+                    #     fast_ids,
+                    #     frame_id=self._frame_id,
+                    #     fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                    #     speeds=fast_speeds,
+                    # )
 
                     online_im = vis.plot_tracking(
                         online_im,
@@ -971,7 +1007,6 @@ class FramePostProcessor:
                     # movement_speed_divisor = 3.0
 
                 if last_sticky_temporal_box is not None:
-
                     # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
                     # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
 
@@ -1051,7 +1086,6 @@ class FramePostProcessor:
                         scale_speed=1.0,
                         verbose=True,
                     )
-
 
                     # xx1 = center(current_box)[0]
                     # print(f'A final temporal x change: {xx1 - xx0}')

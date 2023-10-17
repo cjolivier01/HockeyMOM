@@ -5,6 +5,8 @@ def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False)
     # Global variables to store the starting and ending coordinates of the box
     start_x, start_y, end_x, end_y = -1, -1, -1, -1
     drawing = False
+    if isinstance(original_image, str):
+        original_image = cv2.imread(original_image)
     image = original_image.copy()
     # Mouse callback function
     def draw_box(event, x, y, flags, param):
@@ -48,3 +50,7 @@ def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False)
     # Return the box
     print(start_x, start_y, end_x, end_y)
     return start_x, start_y, end_x, end_y
+
+
+if __name__ == "__main__":
+    draw_box_with_mouse("/mnt/home/colivier-local/Videos/roseville/output_frame.png")

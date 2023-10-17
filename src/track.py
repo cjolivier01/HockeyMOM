@@ -125,8 +125,6 @@ def eval_seq(
     incremental_results = False
     args.stop_at_frame  = 1000
 
-    show_image = args.show_image
-
     frame_id = 0
     hockey_mom = None
     postprocessor = None

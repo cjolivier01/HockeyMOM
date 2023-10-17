@@ -25,6 +25,42 @@ from hmlib.utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_del
 from .stitching import StitchDataset
 
 
+def warp_rectilinear_to_cylindrical(img, focal_length):
+    """
+    Warps a rectilinear panoramic image to cylindrical panoramic.
+    
+    :param img: A PyTorch tensor of shape (C, H, W).
+    :param focal_length: Focal length, which affects the degree of warping.
+    :return: Warped image as a PyTorch tensor.
+    """
+    C, H, W = img.shape
+    x = torch.linspace(-W // 2, W // 2, steps=W)  # [-W/2, W/2]
+    y = torch.linspace(-H // 2, H // 2, steps=H)  # [-H/2, H/2]
+    x_grid, y_grid = torch.meshgrid(x, y)
+
+    # Convert to cylindrical coordinates
+    theta = torch.atan2(x_grid, focal_length)
+    h = y_grid / torch.sqrt(x_grid**2 + focal_length**2)
+    
+    # Map to source coordinates
+    u = focal_length * theta + W // 2
+    v = focal_length * h + H // 2
+
+    # Clip out-of-bounds coordinates
+    u = torch.clamp(u, 0, W-1)
+    v = torch.clamp(v, 0, H-1)
+    
+    # Sample from the source image
+    cylindrical_img = torch.nn.functional.grid_sample(
+        img.unsqueeze(0), 
+        torch.stack([u, v], dim=-1).unsqueeze(0), 
+        mode='bilinear', 
+        padding_mode='border',
+        align_corners=True
+    ).squeeze(0)
+
+    return cylindrical_img
+
 class Images:
     def __init__(self, img, img0, original_img):
         self.img = img
@@ -214,6 +250,22 @@ class LoadVideoWithOrig:  # for inference
                 :,
             ]
 
+        if False: # Warp to cylindrical
+            timg = torch.from_numpy(img0)
+            timg = timg.to(torch.float32)
+            timg = timg.permute(2, 0, 1)
+            timg /= 255.0
+            timg = warp_rectilinear_to_cylindrical(timg, torch.tensor(24.4, dtype=torch.float32))
+            timg *= 255.0
+            timg = timg.permute(0, 2, 1)
+            timg = torch.clip(timg, min=0, max=255)
+            timg = timg.to(torch.uint8)
+            timg = timg.permute(1, 2, 0)
+            timg = timg.numpy()
+
+            cv2.imshow("img0", timg)
+            cv2.waitKey(1)
+        
         original_img = img0.copy()
 
         img0 = cv2.resize(img0, (self.w, self.h))
@@ -327,369 +379,6 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
 
     def __len__(self):
         return len(self._data_loader)
-
-
-class StitchConfig:
-    def __init__(self):
-        self.skip_frame_count = 0
-        self.clip_offset_box = None
-        self.left_stitch_clip_x_size = 0
-        self.left_stitch_clip_y_size = 0
-        self.left_start_frame_number = 0
-        self.right_stitch_clip_x_size = 0
-        self.right_stitch_clip_y_size = 0
-        self.right_start_frame_number = 0
-
-
-class StitchConfigVallco:
-    def __init__(self):
-        # self.skip_frame_count = 2300 + 1400
-        self.skip_frame_count = 0
-        self.clip_offset_box = None
-        self.left_stitch_clip_x_size = 400
-        self.left_stitch_clip_y_size = 0
-        self.left_start_frame_number = 217
-        self.right_stitch_clip_x_size = 275
-        self.right_stitch_clip_y_size = 70
-        self.right_start_frame_number = 0
-
-
-class StitchConfig_YB_0(StitchConfig):
-    def __init__(self):
-        super().__init__()
-        self.skip_frame_count = 0
-        self.clip_offset_box = [0, 750, 0, 0]
-        self.left_stitch_clip_x_size = 555
-        self.left_stitch_clip_y_size = 38
-        # self.left_start_frame_number = 21
-        self.left_start_frame_number = 0
-        self.right_stitch_clip_x_size = 556
-        self.right_stitch_clip_y_size = 0
-        # self.right_start_frame_number= 112
-        self.right_start_frame_number = 0
-
-
-class LoadStitchedVideoWithOrig:  # for inference
-    def __init__(
-        self,
-        left_file: str,
-        right_file: str,
-        stitch_config,
-        scale_down_images: bool = True,
-        img_size=(1088, 608),
-        process_img_size=(1920, 1080),
-    ):
-        self.left_file = left_file
-        self.right_file = right_file
-        self.vidcap_left = None
-        self.vidcap_right = None
-
-        self.processing_queue = None
-        self.main_queue = None
-        self.processing_thread = None
-
-        self.next_img = None
-        self.next_im0 = None
-        self.next_original_img = None
-        self.scale_down_images = scale_down_images
-
-        self.w, self.h = process_img_size
-
-        self.width = img_size[0]
-        self.height = img_size[1]
-        self.count = 0
-        self._last_size = None
-
-        self.skip_frame_count = stitch_config.skip_frame_count
-        self.clip_offset_box = stitch_config.clip_offset_box
-        self.left_stitch_clip_x_size = stitch_config.left_stitch_clip_x_size
-        self.left_stitch_clip_y_size = stitch_config.left_stitch_clip_y_size
-        self.left_start_frame_number = stitch_config.left_start_frame_number
-        self.right_stitch_clip_x_size = stitch_config.right_stitch_clip_x_size
-        self.right_stitch_clip_y_size = stitch_config.right_stitch_clip_y_size
-        self.right_start_frame_number = stitch_config.right_start_frame_number
-
-        self.init(is_creator_process=True)
-
-    def init(self, is_creator_process):
-        self.vidcap_left = cv2.VideoCapture(self.left_file)
-        self.vidcap_right = cv2.VideoCapture(self.right_file)
-
-        if self.left_start_frame_number or self.skip_frame_count:
-            self.vidcap_left.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                self.skip_frame_count + self.left_start_frame_number,
-            )
-
-        if self.right_start_frame_number or self.skip_frame_count:
-            self.vidcap_right.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                self.skip_frame_count + self.right_start_frame_number,
-            )
-
-        self.fps = self.vidcap_left.get(cv2.CAP_PROP_FPS)
-        self.frame_width = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.frame_height = int(self.vidcap_left.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        self.total_frames_left = int(
-            self.vidcap_left.get(cv2.CAP_PROP_FRAME_COUNT)
-            - self.left_start_frame_number
-        )
-        self.total_frames_right = int(
-            self.vidcap_right.get(cv2.CAP_PROP_FRAME_COUNT)
-            - self.right_start_frame_number
-        )
-
-        # assert self.total_frames_left == self.total_frames_right
-        self.total_frames = min(self.total_frames_left, self.total_frames_right)
-
-        print(f"Video FPS={self.fps}")
-        print(f"Frame count={self.total_frames}")
-        print(f"Input size: {self.frame_width} x {self.frame_height}")
-        print("Lenth of the video: {:d} frames".format(self.total_frames))
-
-        self.frame_rate_left = int(round(self.vidcap_left.get(cv2.CAP_PROP_FPS)))
-        self.frame_rate_right = int(round(self.vidcap_right.get(cv2.CAP_PROP_FPS)))
-        assert self.frame_rate_left == self.frame_rate_right
-        self.frame_rate = self.frame_rate_left
-
-        # self.final_frame_width = self.frame_width * 2
-        # self.final_frame_height = self.frame_height
-
-        # if self.scale_down_images:
-        #     self.final_frame_width = (self.frame_width * 2) // 2
-        #     self.final_frame_height = self.frame_height // 2
-
-        # self.vw = self.final_frame_width
-        # self.vh = self.final_frame_height
-
-        if is_creator_process:
-            self.vidcap_left.release()
-            self.vidcap_right.release()
-            self.vidcap_left = None
-            self.vidcap_right = None
-
-    def processing_thread_main(self):
-        while True:
-            msg = self.processing_queue.get()
-            if msg is None:
-                return
-            if msg == "next":
-                try:
-                    self.process_next_frame()
-                    # self.main_queue.put("ready")
-                except StopIteration as ex:
-                    self.main_queue.put(None)
-                    raise
-            else:
-                print(f"Unknown message: {msg}")
-
-    def stop(self):
-        if self.processing_queue is not None:
-            self.processing_queue.put(None)
-            if self.processing_thread is not None:
-                self.processing_thread.join()
-                self.processing_thread = None
-        self.processing_queue = None
-        self.main_queue = None
-
-    def start(self):
-        self.stop()
-        self.processing_queue = multiprocessing.Queue()
-        self.main_queue = multiprocessing.Queue()
-        # self.processing_thread = threading.Thread(target=self.processing_thread)
-        if not os.fork():
-            self.init(is_creator_process=False)
-            self.processing_thread_main()
-            os._exit(0)
-        else:
-            self.processing_queue.put("next")
-        # self.processing_thread.start()
-
-    def set_frame_number(self, frame_id: int):
-        current_frame_left = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
-        current_frame_right = self.vidcap_left.get(cv2.CAP_PROP_POS_FRAMES)
-        if current_frame_left == current_frame_right:
-            self.vidcap_left.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-            self.vidcap_right.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-        elif current_frame_left < current_frame_right:
-            self.vidcap_left.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-            self.vidcap_right.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                frame_id + (current_frame_right - current_frame_left),
-            )
-        else:
-            self.vidcap_left.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                frame_id + (current_frame_left - current_frame_right),
-            )
-            self.vidcap_right.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-
-    def get_size(self, vw, vh, dw, dh):
-        wa, ha = float(dw) / vw, float(dh) / vh
-        a = min(wa, ha)
-        size = int(vw * a), int(vh * a)
-        if self._last_size is not None:
-            assert size == self._last_size
-        else:
-            self._last_size = size
-        return size
-
-    def __iter__(self):
-        self.count = -1
-        self.start()
-        return self
-
-    def process_next_frame(self):
-        # Read images (BGR)
-        r1, frame1 = self.vidcap_left.read()
-        r2, frame2 = self.vidcap_right.read()
-        if not r1 or not r2:
-            print(f"Could not load frame: {self.count}")
-            self.stop()
-            raise StopIteration()
-
-        if frame1 is None or frame2 is None:
-            print(f"Error loading frame: {self.count}")
-            self.stop()
-            raise StopIteration()
-        assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
-        assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
-
-        if False:
-            img0 = stitch_matcher(frame1, frame2)
-        else:
-            clip_y = (self.left_stitch_clip_y_size + self.right_stitch_clip_y_size) // 2
-            if self.left_stitch_clip_x_size or clip_y:
-                w = frame1.shape[1]
-                h = frame1.shape[0]
-                frame1 = frame1[
-                    # clip_y:,
-                    : h - clip_y,
-                    0 : w - self.left_stitch_clip_x_size,
-                    :,
-                ]
-
-            if self.right_stitch_clip_x_size or clip_y:
-                w = frame2.shape[1]
-                h = frame2.shape[0]
-                frame2 = frame2[
-                    # 0 : h - clip_y,
-                    clip_y:,
-                    self.right_stitch_clip_x_size :,
-                    :,
-                ]
-
-        # Concatenate the frames side-by-side
-        img0 = cv2.hconcat([frame1, frame2])
-
-        # Cut in half after stitching
-        if self.scale_down_images:
-            new_w = img0.shape[1] // 2
-            new_h = img0.shape[0] // 2
-            # new_w = (frame1.shape[1] + frame2.shape[1]) // 2
-            # new_h = (frame1.shape[0] + frame2.shape[0]) // 2
-            img0 = cv2.resize(img0, (new_w, new_h))
-
-        # self.vw = new_w
-        # self.vh = new_h
-
-        if self.clip_offset_box is not None:
-            ch = img0.shape[0]
-            cw = img0.shape[1]
-            img0 = img0[
-                self.clip_offset_box[1] : ch - self.clip_offset_box[3],
-                self.clip_offset_box[0] : cw - self.clip_offset_box[2],
-                :,
-            ]
-
-        original_img = img0.copy()
-
-        img0 = cv2.resize(img0, (self.w, self.h))
-
-        # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
-
-        # Normalize RGB
-        img = img[:, :, ::-1].transpose(2, 0, 1)
-        img = np.ascontiguousarray(img, dtype=np.float32)
-        img /= 255.0
-
-        self.next_img = img
-        self.next_im0 = img0
-        self.next_original_img = original_img
-        self.images = Images(img, img0, original_img)
-        self.main_queue.put(self.images)
-
-    def __next__(self):
-        self.count += 1
-        if self.count == len(self):
-            self.stop()
-            raise StopIteration
-
-        process_msg = self.main_queue.get()
-        if process_msg is None:
-            raise StopIteration
-        else:
-            img = process_msg.img
-            img0 = process_msg.img0
-            original_img = process_msg.original_img
-            # img = self.next_img
-            # img0 = self.next_img0
-            # original_img = self.next_original_img
-            self.processing_queue.put("next")
-            return self.count, img, img0, original_img
-
-        # self.process_next_frame()
-
-        # # Read images (BGR)
-        # r1, frame1 = self.vidcap_left.read()
-        # r2, frame2 = self.vidcap_right.read()
-        # if not r1 or not r2:
-        #     print(f"Could not load frame: {self.count}")
-        #     self.stop()
-        #     raise StopIteration()
-
-        # if frame1 is None or frame2 is None:
-        #     print(f"Error loading frame: {self.count}")
-        #     self.stop()
-        #     raise StopIteration()
-        # assert frame1 is not None, "Failed to load frame {:d}".format(self.count)
-        # assert frame2 is not None, "Failed to load frame {:d}".format(self.count)
-
-        # if self.final_frame_height != self.frame_height:
-        #     frame1 = cv2.resize(
-        #         frame1, (self.final_frame_width // 2, self.final_frame_height)
-        #     )
-        #     frame2 = cv2.resize(
-        #         frame2, (self.final_frame_width // 2, self.final_frame_height)
-        #     )
-
-        # # Concatenate the frames side-by-side
-        # img0 = cv2.hconcat([frame1, frame2])
-
-        # if self.clip_box is not None:
-        #     img0 = img0[
-        #         self.clip_box[0] : self.clip_box[1], self.clip_box[2] : self.clip_box[3]
-        #     ]
-
-        # original_img = img0.copy()
-
-        # img0 = cv2.resize(img0, (self.w, self.h))
-
-        # # Padded resize
-        # img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
-
-        # # Normalize RGB
-        # img = img[:, :, ::-1].transpose(2, 0, 1)
-        # img = np.ascontiguousarray(img, dtype=np.float32)
-        # img /= 255.0
-
-        # # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        # return self.count, img, img0, original_img
-
-    def __len__(self):
-        return self.total_frames  # number of frames
 
 
 class LoadImagesAndLabels:  # for training
