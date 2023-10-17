@@ -67,8 +67,8 @@ def demo(opt):
         video_1_offset_frame = None
         video_2_offset_frame = None
 
-        video_1_offset_frame = 13
-        video_2_offset_frame = 0
+        # video_1_offset_frame = 13
+        # video_2_offset_frame = 0
 
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
