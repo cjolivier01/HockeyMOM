@@ -184,6 +184,7 @@ class StitchingWorker:
                     1.0 / max(1e-5, self._receive_timer.average_time),
                 )
             )
+            self._receive_timer = Timer()
         self._receive_count += 1
         return image
 
