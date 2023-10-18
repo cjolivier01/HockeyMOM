@@ -13,8 +13,8 @@ from pathlib import Path
 
 from hockeymom import core
 
-from hmlib.tracking_utils import visualization as vis
-from hmlib.ffmpeg import extract_frame_image
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
 from hmlib.stitch_synchronize import (
     configure_video_stitching,
     find_sitched_roi,
@@ -125,6 +125,9 @@ class StitchingWorker:
         self._forked = False
         self._closing = False
 
+        self._receive_timer = Timer()
+        self._receive_count = 0
+
     def rp_str(self):
         """Worker rank prefix string."""
         return "WR[" + str(self._rank) + "] "
@@ -159,17 +162,28 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
+        #INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
-        # INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
+        self._receive_timer.tic()
+        #INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
         fid, image = result
-        # INFO(f"{self.rp_str()} GOT StitchingWorker.receive_image {fid}")
+        #INFO(f"{self.rp_str()} GOT StitchingWorker.receive_image {fid}")
         assert fid == frame_id
+        self._receive_timer.toc()
+        if self._receive_count and (self._receive_count % 20) == 0:
+            logger.info(
+                "Stitching worker {} frame {} ({:.2f} fps)".format(
+                    self._rank,
+                    frame_id,
+                    1.0 / max(1e-5, self._receive_timer.average_time),
+                )
+            )
+        self._receive_count += 1
         return image
 
     def _open_videos(self):

@@ -194,13 +194,14 @@ class MOTLoadDatasetVideoWithOrig(MOTDataset):  # for inference
             preproc=preproc,
             return_origin_img=return_origin_img,
         )
-        self._path = path
-        self.cap = cv2.VideoCapture(path)
+        # self._path = path
+        # self.cap = cv2.VideoCapture(path)
+        self._dataset = dataset
         self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
-        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        # self.vw = self._dataset.vw
+        # self.vh = self._dataset.vh
+        # self.vn = self._dataset.vn
+        self.fps = dataset.fps
         self.clip_original = clip_original
         self.process_height = img_size[0]
         self.process_width = img_size[1]
@@ -232,6 +233,7 @@ class MOTLoadDatasetVideoWithOrig(MOTDataset):  # for inference
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
 
     def get_size(self, vw, vh, dw, dh):
+        assert False  # does this get called?
         wa, ha = float(dw) / vw, float(dh) / vh
         a = min(wa, ha)
         size = int(vw * a), int(vh * a)
