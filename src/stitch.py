@@ -21,6 +21,24 @@ from hmlib.datasets.dataset.stitching import (
     StitchDataset,
 )
 
+
+def make_parser():
+    parser = argparse.ArgumentParser("YOLOX train parser")
+    parser.add_argument("-expn", "--experiment-name", type=str, default=None)
+    parser.add_argument("-n", "--name", type=str, default=None, help="model name")
+
+    parser.add_argument(
+        "-d", "--devices", default=None, type=int, help="device for training"
+    )
+    parser.add_argument(
+        "--video_dir",
+        default=None,
+        type=int,
+        help="Video directory to find 'left.mp4' and 'right.mp4'",
+    )
+    return parser
+
+
 def stitch_videos(
     dir_name: str,
     video_left: str = "left.mp4",
@@ -28,6 +46,9 @@ def stitch_videos(
     lfo: int = None,
     rfo: int = None,
     project_file_name: str = "my_project.pto",
+    start_frame_number:int = 0,
+    max_frames: int = None,
+    output_stitched_video_file: str = "./stitched_output.avi",
 ):
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
@@ -37,13 +58,6 @@ def stitch_videos(
         left_frame_offset=lfo,
         right_frame_offset=rfo,
     )
-
-    start_frame_number = 200
-    # start_frame_number = 0
-
-    max_frames = 300
-
-    output_stitched_video_file = "./stitched_output.avi"
 
     data_loader = StitchDataset(
         video_file_1=f"{dir_name}/{video_left}",
@@ -64,7 +78,7 @@ def stitch_videos(
             print(f"Read frame {start_frame_number + i}")
         frame_count += 1
         if i == 1:
-            #draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
+            # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
             start = time.time()
 
     if start is not None:
@@ -75,38 +89,24 @@ def stitch_videos(
     return lfo, rfo
 
 
-def main():
-    # stitch_images(
-    #     "/mnt/data/Videos/vacaville/my_project0000.tif",
-    #     "/mnt/data/Videos/vacaville/my_project0001.tif",
-    # )
-
-    #dir_name = os.path.join(os.environ["HOME"], "Videos", "sabercats-parts")
-    dir_name = os.path.join(os.environ["HOME"], "Videos", "stockton")
+def main(args):
+    if args.video_dir is None:
+        args.video_dir = os.path.join(os.environ["HOME"], "Videos", "stockton")
     video_left = "left.mp4"
     video_right = "right.mp4"
-    # video_left = "left-1-small.avi"
-    # video_right = "right-1-small.avi"
-    # lfo = 0
-    # rfo = 92
-    lfo = 13
-    rfo = 0
+    # lfo = 13
+    # rfo = 0
     lfo, rfo = stitch_videos(
-        dir_name,
+        args.video_dir,
         video_left,
         video_right,
         lfo=lfo,
         rfo=rfo,
     )
 
-    # lfo, rfo = 0, 91
-    # if lfo < 0:
-    #     copy_audio(
-    #         video_left, output_video_path, output_video_with_audio_path
-    #     )
-    pass
-
 
 if __name__ == "__main__":
-    main()
+    args = make_parser().parse_args()
+
+    main(args)
     print("Done.")
