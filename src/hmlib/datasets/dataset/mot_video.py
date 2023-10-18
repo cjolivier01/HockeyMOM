@@ -43,6 +43,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         name: str = "train",
         preproc=None,
         return_origin_img=False,
+        batch_size: int = 1,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -67,13 +68,19 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
         self._mot_eval_mode = mot_eval_mode
+        self._batch_size = batch_size
         self._timer = None
 
+        assert self._batch_size == 1 and "Only batch size of one supported atm"
         print("Lenth of the video: {:d} frames".format(self.vn))
 
     @property
     def dataset(self):
         return self
+
+    @property
+    def batch_size(self):
+        return self._batch_size
 
     @property
     def letterbox_dw_dh(self):
