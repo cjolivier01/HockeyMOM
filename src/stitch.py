@@ -4,20 +4,21 @@ Experiments in stitching
 import os
 import time
 from pathlib import Path
-from hmlib.opts import opts
-from hmlib.ffmpeg import copy_audio
-from hmlib.ui.mousing import draw_box_with_mouse
+import numpy as np
+from hlib.opts import opts
+from hlib.ffmpeg import copy_audio
+from hlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 
 # from lib.tiff import print_geotiff_info
-from hmlib.stitch_synchronize import (
+from hlib.stitch_synchronize import (
     # synchronize_by_audio,
     # build_stitching_project,
     # extract_frames,
     configure_video_stitching,
 )
 
-from hmlib.datasets.dataset.stitching import (
+from hlib.datasets.dataset.stitching import (
     StitchDataset,
 )
 
