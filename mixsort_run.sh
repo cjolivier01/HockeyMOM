@@ -2,6 +2,7 @@
 
 EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
 PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_sports_train.pth"
+#PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
 
 PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
