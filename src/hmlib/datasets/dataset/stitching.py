@@ -162,17 +162,17 @@ class StitchingWorker:
         return self._from_worker_queue.get()
 
     def request_image(self, frame_id: int):
-        #INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
+        # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
         self._image_request_queue.put(frame_id)
 
     def receive_image(self, frame_id):
         self._receive_timer.tic()
-        #INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
+        # INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
         fid, image = result
-        #INFO(f"{self.rp_str()} GOT StitchingWorker.receive_image {fid}")
+        # INFO(f"{self.rp_str()} GOT StitchingWorker.receive_image {fid}")
         assert fid == frame_id
         self._receive_timer.toc()
         if self._receive_count and (self._receive_count % 20) == 0:
@@ -379,7 +379,6 @@ class StitchDataset:
         )
         self._to_coordinator_queue = multiprocessing.Queue()
         self._from_coordinator_queue = multiprocessing.Queue()
-        self._from_coordinator_queue = multiprocessing.Queue()
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._image_roi = None
@@ -389,11 +388,20 @@ class StitchDataset:
         self._stitching_workers = {}
         # Temporary until we get the middle-man
         self._current_worker = 0
+        self._current_request_frame_worker = 0
         self._current_get_next_frame_worker = 0
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
-        self._image_roi = [403, 200, 3900, 1200]
+        self._next_frame_timer = Timer()
+        self._next_frame_counter = 0
+
+        self._next_timer = Timer()
+
+        self._prepare_next_frame_timer = Timer()
+
+        # self._image_roi = [403, 200, 3900, 1200]
+        self._image_roi = None
 
     def __delete__(self):
         for worker in self._stitching_workers.values():
@@ -476,16 +484,35 @@ class StitchDataset:
 
             self._output_video.write(output_img)
 
+    def request_next_frame(self, frame_id: int):
+        stitching_worker = self._stitching_workers[self._current_request_frame_worker]
+        stitching_worker.request_image(frame_id=frame_id)
+        self._current_request_frame_worker = (
+            self._current_request_frame_worker + 1
+        ) % len(self._stitching_workers)
+
     def _prepare_next_frame(self, frame_id: int):
         # INFO(f"_prepare_next_frame( {frame_id} )")
+        self._prepare_next_frame_timer.tic()
+        self.request_next_frame(frame_id=frame_id)
+        # stitching_worker = self._stitching_workers[self._current_worker]
+        # stitching_worker.request_image(frame_id=frame_id)
         stitching_worker = self._stitching_workers[self._current_worker]
-        stitching_worker.request_image(frame_id=frame_id)
         stitched_frame = stitching_worker.receive_image(frame_id=frame_id)
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         if self._image_roi is None:
             self._image_roi = find_sitched_roi(stitched_frame)
         # INFO(f"Locally enqueing frame {frame_id}")
         self._ordering_queue.enqueue(frame_id, stitched_frame)
+        self._prepare_next_frame_timer.toc()
+        if frame_id % 20 == 0:
+            logger.info(
+                "_prepare_next_frame frame {} ({:.2f} fps)".format(
+                    frame_id,
+                    1.0 / max(1e-5, self._prepare_next_frame_timer.average_time),
+                )
+            )
+            self._prepare_next_frame_timer = Timer()
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
@@ -557,6 +584,8 @@ class StitchDataset:
         return self
 
     def get_next_frame(self):
+        self._next_frame_timer.tic()
+
         stitching_worker = self._stitching_workers[self._current_get_next_frame_worker]
         status = stitching_worker.get()
         if isinstance(status, Exception):
@@ -564,7 +593,9 @@ class StitchDataset:
 
         assert status == "ok"
         # INFO(f"Trying to locally dequeue frame id: {self._current_frame}")
+
         stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+
         # INFO(f"Locally dequeued frame id: {self._current_frame}")
         self._current_get_next_frame_worker = (
             self._current_get_next_frame_worker + 1
@@ -582,6 +613,18 @@ class StitchDataset:
             #     f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
             # )
             pass
+
+        self._next_frame_timer.toc()
+        if self._next_frame_counter and self._next_frame_counter % 20 == 0:
+            logger.info(
+                "get_next_frame dequeue frame {} ({:.2f} fps)".format(
+                    self._current_frame,
+                    1.0 / max(1e-5, self._next_frame_timer.average_time),
+                )
+            )
+            self._next_frame_timer = Timer()
+        self._next_frame_counter += 1
+
         return stitched_frame
 
     def __next__(self):
@@ -595,6 +638,8 @@ class StitchDataset:
             status, frame_id = status
             assert status == "ok"
             assert frame_id == self._current_frame
+
+        self._next_timer.tic()
         stitched_frame = self.get_next_frame()
 
         # Code doesn't handle strides channbels efficiently
@@ -604,7 +649,16 @@ class StitchDataset:
         )
 
         self._current_frame += 1
-        self._maybe_write_output(stitched_frame)
+        # self._maybe_write_output(stitched_frame)
+        self._next_timer.toc()
+        if self._current_frame > 1 and (self._current_frame - 1) % 20 == 0:
+            logger.info(
+                "__next__ dequeue frame {} ({:.2f} fps)".format(
+                    self._current_frame - 1,
+                    1.0 / max(1e-5, self._next_timer.average_time),
+                )
+            )
+            self._next_timer = Timer()
         return stitched_frame
 
     def __len__(self):
