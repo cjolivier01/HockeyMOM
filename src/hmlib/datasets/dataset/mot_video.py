@@ -137,8 +137,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         if self.width_t is None:
             self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
             self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
-            # self.width_t = torch.tensor([original_img.shape[1]], dtype=torch.int64)
-            # self.height_t = torch.tensor([original_img.shape[0]], dtype=torch.int64)
 
         if self._mot_eval_mode:
             imgs_info = [
@@ -150,15 +148,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             ]
 
 
-        # img0 = cv2.resize(img0, (self.process_height, self.process_width))
-
-        # cv2.imshow("letterbox", img)
-        # cv2.waitKey(1)
-
-        # Padded resize
-        # img, _, _, _ = letterbox(img0, height=self.process_height, width=self.process_width)
-        # img = img0
-
         if self._mot_eval_mode:
             img = torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)).permute(
                 2, 0, 1
@@ -167,8 +156,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         else:
             # Normalize RGB
             img = img[:, :, ::-1].transpose(2, 0, 1)
-        # img = np.ascontiguousarray(img, dtype=np.float32)
-        # img = torch.from_numpy(img)
         img /= 255.0
 
         if self._mot_eval_mode:
