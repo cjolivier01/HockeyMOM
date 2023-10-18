@@ -159,6 +159,148 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         img /= 255.0
 
         if self._mot_eval_mode:
+            original_img = torch.from_numpy(np.ascontiguousarray(original_img.transpose(2, 0, 1)))
+            original_img = original_img.unsqueeze(0)
+            ids = torch.tensor(imgs_info[2]).unsqueeze(0)
+            self._timer.toc()
+            return original_img, img, inscribed_image, imgs_info, ids
+        else:
+            self._timer.toc()
+            return self.count, img, img0, original_img
+
+    def __len__(self):
+        return self.vn  # number of files
+
+
+class MOTLoadDatasetVideoWithOrig(MOTDataset):  # for inference
+    def __init__(
+        self,
+        dataset,
+        img_size,
+        clip_original=None,
+        mot_eval_mode: bool = False,
+        video_id: int = 1,
+        data_dir=None,
+        json_file: str = "train_half.json",
+        name: str = "train",
+        preproc=None,
+        return_origin_img=False,
+        batch_size: int = 1,
+    ):
+        super().__init__(
+            data_dir=data_dir,
+            json_file=json_file,
+            name=name,
+            preproc=preproc,
+            return_origin_img=return_origin_img,
+        )
+        self._path = path
+        self.cap = cv2.VideoCapture(path)
+        self.frame_rate = int(round(self.cap.get(cv2.CAP_PROP_FPS)))
+        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.clip_original = clip_original
+        self.process_height = img_size[0]
+        self.process_width = img_size[1]
+        self.width_t = None
+        self.height_t = None
+        self.count = torch.tensor([0], dtype=torch.int32)
+        self.video_id = torch.tensor([video_id], dtype=torch.int32)
+        self._last_size = None
+        self._mot_eval_mode = mot_eval_mode
+        self._batch_size = batch_size
+        self._timer = None
+
+        assert self._batch_size == 1 and "Only batch size of one supported atm"
+        print("Lenth of the video: {:d} frames".format(self.vn))
+
+    @property
+    def dataset(self):
+        return self
+
+    @property
+    def batch_size(self):
+        return self._batch_size
+
+    @property
+    def letterbox_dw_dh(self):
+        return self.letterbox_dw, self.letterbox_dh
+
+    def set_frame_number(self, frame_id: int):
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+
+    def get_size(self, vw, vh, dw, dh):
+        wa, ha = float(dw) / vw, float(dh) / vh
+        a = min(wa, ha)
+        size = int(vw * a), int(vh * a)
+        if self._last_size is not None:
+            assert size == self._last_size
+        else:
+            self._last_size = size
+        return size
+
+    def __iter__(self):
+        self.count = torch.tensor([-1], dtype=torch.int32)
+        self._timer = Timer()
+        return self
+
+    def __next__(self):
+        if self.count and self.count % 20 == 0:
+            logger.info(
+                "Dataset delivery frame {} ({:.2f} fps)".format(
+                    self.count + 1, 1.0 / max(1e-5, self._timer.average_time)
+                )
+            )
+        self._timer.tic()
+        self.count += 1
+        if self.count.item() == len(self):
+            raise StopIteration
+        # Read image
+        res, img0 = self.cap.read()  # BGR
+        if img0 is None:
+            print(f"Error loading frame: {self.count}")
+            raise StopIteration()
+
+        if self.clip_original:
+            img0 = img0[
+                self.clip_original[1] : self.clip_original[3],
+                self.clip_original[0] : self.clip_original[2],
+                :,
+            ]
+
+        original_img = img0.copy()
+
+        img, inscribed_image, self.letterbox_ratio, self.letterbox_dw, self.letterbox_dh = letterbox(
+            img0, self.process_height, self.process_width
+        )
+
+        if self.width_t is None:
+            self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
+            self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
+
+        if self._mot_eval_mode:
+            imgs_info = [
+                self.height_t,
+                self.width_t,
+                self.count + 1,
+                self.video_id,
+                [self._path],
+            ]
+
+
+        if self._mot_eval_mode:
+            img = torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)).permute(
+                2, 0, 1
+            )
+            img = img.unsqueeze(0)
+        else:
+            # Normalize RGB
+            img = img[:, :, ::-1].transpose(2, 0, 1)
+        img /= 255.0
+
+        if self._mot_eval_mode:
             # Make the image planar RGB
             # img = torch.from_numpy(img).permute(0, 2, 1).unsqueeze(0)
             # print(original_img.shape)

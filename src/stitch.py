@@ -11,6 +11,7 @@ from hmlib.opts import opts
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
 
 from hmlib.stitch_synchronize import (
     configure_video_stitching,
@@ -82,18 +83,28 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=1,
+        num_workers=10,
     )
 
     frame_count = 0
     start = None
+
+    dataset_timer = Timer()
     for i, stitched_image in enumerate(data_loader):
-        if i % 10 == 0:
-            print(f"Read frame {start_frame_number + i}/{total_frames}")
+        if i > 1:
+            dataset_timer.toc()
+        if i % 20 == 0:
+            logger.info(
+                "Dataset frame {} ({:.2f} fps)".format(
+                    i, 1.0 / max(1e-5, dataset_timer.average_time)
+                )
+            )
+
         frame_count += 1
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
             start = time.time()
+        dataset_timer.tic()
 
     if start is not None:
         duration = time.time() - start
