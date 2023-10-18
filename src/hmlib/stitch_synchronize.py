@@ -273,12 +273,9 @@ def find_sitched_roi(image):
 
 
 if __name__ == "__main__":
-    # video_number = 0
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
         file0_path=f"{os.environ['HOME']}/Videos/sabercats-parts/left-1.mp4",
         file1_path=f"{os.environ['HOME']}/Videos/sabercats-parts/right-1.mp4",
-        # file0_path=f"{os.environ['HOME']}/Videos/left-{video_number}.mp4",
-        # file1_path=f"{os.environ['HOME']}/Videos/right-{video_number}.mp4",
     )
