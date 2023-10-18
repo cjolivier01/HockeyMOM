@@ -163,6 +163,8 @@ def build_stitching_project(
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
 
+    skip_if_exists = False
+
     if skip_if_exists and os.path.exists(project_file_path):
         print(
             f"Project file already exists (skipping project creatio9n): {project_file_path}"
@@ -206,7 +208,7 @@ def build_stitching_project(
                 "-m",
                 "TIFF_m",
                 "-o",
-                "nona_" + project_file_path,
+                project_file_path,
                 project_file_path,
             ]
             os.system(" ".join(cmd))
