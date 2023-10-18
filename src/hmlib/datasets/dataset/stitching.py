@@ -322,7 +322,7 @@ class StitchingWorker:
             self._image_getter_thread.join()
             self._image_getter_thread = None
 
-    def request_next_frame(self):
+    def worker_request_next_frame(self):
         req_frame = self._last_requested_frame + self._frame_stride_count
         if not self._max_frames or req_frame < self._start_frame_number + (
             self._max_frames * self._frame_stride_count
@@ -491,6 +491,7 @@ class StitchDataset:
             print("oops")
         assert frame_id == self._next_requested_frame
         stitching_worker = self._stitching_workers[self._current_request_frame_worker]
+        stitching_worker.worker_request_next_frame()
         stitching_worker.request_image(frame_id=frame_id)
         self._current_request_frame_worker = (
             self._current_request_frame_worker + 1
@@ -616,7 +617,7 @@ class StitchDataset:
             or self._next_requested_frame < self._start_frame_number + self._max_frames
         ):
             self._to_coordinator_queue.put(self._next_requested_frame)
-            stitching_worker.request_next_frame()
+            #stitching_worker.worker_request_next_frame()
             self.request_next_frame(frame_id=self._next_requested_frame)
             self._next_requested_frame += 1
         else:
