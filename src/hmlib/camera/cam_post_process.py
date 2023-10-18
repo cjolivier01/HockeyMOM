@@ -63,23 +63,25 @@ RINK_CONFIG = {
     "stockton": {
         "fixed_edge_scaling_factor": 0.6,
     },
+    "roseville_2": {
+        "fixed_edge_scaling_factor": 1.2,
+    },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
     },
 }
 
-BASIC_DEBUGGING = True
-
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "stockton", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = False
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -132,11 +134,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        # self.crop_output_image = True and not BASIC_DEBUGGING
-        self.crop_output_image = False
+        self.crop_output_image = True and not BASIC_DEBUGGING
+        #self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -146,13 +148,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_cuda = False
 
         # Draw watermark on the image
-        # self.use_watermark = True
-        self.use_watermark = False
+        self.use_watermark = True
+        #self.use_watermark = False
 
         self.remove_largest = False
 
+        self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
-        self.detection_inclusion_box = [None, 140, None, None]
+        # self.detection_inclusion_box = [None, 140, None, None]
 
 
 def scale_box(box, from_img, to_img):
@@ -166,11 +169,10 @@ def scale_box(box, from_img, to_img):
 
 
 def make_scale_array(from_img, to_img):
-    from_sz = (from_img.shape[1], from_img.shape[0])
-    to_sz = (to_img.shape[1], to_img.shape[0])
-    w_scale = to_sz[0] / from_sz[0]
-    h_scale = to_sz[1] / from_sz[1]
-    return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+    from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
+    to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
+    #return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+    return from_sz / to_sz
 
 
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
@@ -568,7 +570,10 @@ class FramePostProcessor:
 
             if show_image or self._save_dir is not None:
                 if self._args.scale_to_original_image:
+                    if isinstance(original_img, torch.Tensor):
+                        original_img = original_img.numpy()
                     online_im = original_img
+                    del original_img
                 else:
                     online_im = img0
 

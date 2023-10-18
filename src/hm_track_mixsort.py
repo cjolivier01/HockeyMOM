@@ -244,7 +244,7 @@ def main(exp, args, num_gpu):
         postprocessor = HmPostProcessor(
             opt=args,
             args=DefaultArguments(),
-            fps=30,
+            fps=20,
             save_dir=results_folder,
             data_type="mot",
         )
@@ -253,25 +253,36 @@ def main(exp, args, num_gpu):
         if args.input_video:
             input_video_files = args.input_video.split(",")
 
-            from yolox.data import ValTransform
-
             if len(input_video_files) == 2:
                 video_1_offset_frame = None
                 video_2_offset_frame = None
 
-                video_1_offset_frame = 13
+                video_1_offset_frame = 3
                 video_2_offset_frame = 0
 
-                dataloader = datasets.LoadAutoStitchedVideoWithOrig(
-                    path_video_1=input_video_files[0],
-                    path_video_2=input_video_files[1],
-                    video_1_offset_frame=video_1_offset_frame,
-                    video_2_offset_frame=video_2_offset_frame,
-                    img_size=exp.test_size,
-                    process_img_size=exp.test_size,
-                    num_classes=exp.num_classes,
+                dataloader = datasets.dataset.stitching.StitchDataset(
+                    video_file_1=f"{dir_name}/{video_left}",
+                    video_file_2=f"{dir_name}/{video_right}",
+                    pto_project_file=pto_project_file,
+                    video_1_offset_frame=lfo,
+                    video_2_offset_frame=rfo,
+                    start_frame_number=start_frame_number,
+                    output_stitched_video_file=output_stitched_video_file,
+                    max_frames=max_frames,
+                    num_workers=1,
                 )
+
+                # dataloader = datasets.StitchDataset(
+                #     path_video_1=input_video_files[0],
+                #     path_video_2=input_video_files[1],
+                #     video_1_offset_frame=video_1_offset_frame,
+                #     video_2_offset_frame=video_2_offset_frame,
+                #     img_size=exp.test_size,
+                #     process_img_size=exp.test_size,
+                #     num_classes=exp.num_classes,
+                # )
             else:
+                from yolox.data import ValTransform
                 assert len(input_video_files) == 1
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=input_video_files[0],

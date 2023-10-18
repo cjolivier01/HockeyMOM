@@ -23,6 +23,7 @@ from hmlib.opts import opts
 from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from hmlib.utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
 from hmlib.tracking_utils.timer import Timer
+from hmlib.datasets.dataset.jde import letterbox
 from hmlib.tracking_utils.log import logger
 from .stitching import StitchDataset
 
@@ -58,8 +59,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.clip_original = clip_original
-        self.process_width = img_size[0]
-        self.process_height = img_size[1]
+        self.process_height = img_size[0]
+        self.process_width = img_size[1]
         self.width_t = None
         self.height_t = None
         self.count = torch.tensor([0], dtype=torch.int32)
@@ -73,6 +74,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     @property
     def dataset(self):
         return self
+
+    @property
+    def letterbox_dw_dh(self):
+        return self.letterbox_dw, self.letterbox_dh
 
     def set_frame_number(self, frame_id: int):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
@@ -118,9 +123,15 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
         original_img = img0.copy()
 
+        img, inscribed_image, self.letterbox_ratio, self.letterbox_dw, self.letterbox_dh = letterbox(
+            img0, self.process_height, self.process_width
+        )
+
         if self.width_t is None:
-            self.width_t = torch.tensor([original_img.shape[1]], dtype=torch.int64)
-            self.height_t = torch.tensor([original_img.shape[0]], dtype=torch.int64)
+            self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
+            self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
+            # self.width_t = torch.tensor([original_img.shape[1]], dtype=torch.int64)
+            # self.height_t = torch.tensor([original_img.shape[0]], dtype=torch.int64)
 
         if self._mot_eval_mode:
             imgs_info = [
@@ -131,11 +142,15 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 [self._path],
             ]
 
-        img0 = cv2.resize(img0, (self.process_height, self.process_width))
+
+        # img0 = cv2.resize(img0, (self.process_height, self.process_width))
+
+        # cv2.imshow("letterbox", img)
+        # cv2.waitKey(1)
 
         # Padded resize
         # img, _, _, _ = letterbox(img0, height=self.process_height, width=self.process_width)
-        img = img0
+        # img = img0
 
         if self._mot_eval_mode:
             img = torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)).permute(
@@ -156,19 +171,17 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             # original_img = torch.from_numpy(np.ascontiguousarray(original_img)).permute(
             #     2, 0, 1
             # )
-            original_img = torch.from_numpy(original_img).permute(
-                2, 0, 1
-            )
+            original_img = torch.from_numpy(np.ascontiguousarray(original_img.transpose(2, 0, 1)))
             original_img = original_img.unsqueeze(0)
             # print(original_img.shape)
             # for cur_iter, (origin_imgs, imgs, _, info_imgs, ids) in enumerate(
             ids = torch.tensor(imgs_info[2]).unsqueeze(0)
             self._timer.toc()
-            return original_img, img, None, imgs_info, ids
+            return original_img, img, inscribed_image, imgs_info, ids
         else:
             self._timer.toc()
             # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-            return self.count, img, None, original_img
+            return self.count, img, img0, original_img
 
     def __len__(self):
         return self.vn  # number of files

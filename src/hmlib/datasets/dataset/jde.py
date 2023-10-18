@@ -28,7 +28,7 @@ from .stitching import StitchDataset
 def warp_rectilinear_to_cylindrical(img, focal_length):
     """
     Warps a rectilinear panoramic image to cylindrical panoramic.
-    
+
     :param img: A PyTorch tensor of shape (C, H, W).
     :param focal_length: Focal length, which affects the degree of warping.
     :return: Warped image as a PyTorch tensor.
@@ -41,7 +41,7 @@ def warp_rectilinear_to_cylindrical(img, focal_length):
     # Convert to cylindrical coordinates
     theta = torch.atan2(x_grid, focal_length)
     h = y_grid / torch.sqrt(x_grid**2 + focal_length**2)
-    
+
     # Map to source coordinates
     u = focal_length * theta + W // 2
     v = focal_length * h + H // 2
@@ -49,12 +49,12 @@ def warp_rectilinear_to_cylindrical(img, focal_length):
     # Clip out-of-bounds coordinates
     u = torch.clamp(u, 0, W-1)
     v = torch.clamp(v, 0, H-1)
-    
+
     # Sample from the source image
     cylindrical_img = torch.nn.functional.grid_sample(
-        img.unsqueeze(0), 
-        torch.stack([u, v], dim=-1).unsqueeze(0), 
-        mode='bilinear', 
+        img.unsqueeze(0),
+        torch.stack([u, v], dim=-1).unsqueeze(0),
+        mode='bilinear',
         padding_mode='border',
         align_corners=True
     ).squeeze(0)
@@ -265,7 +265,7 @@ class LoadVideoWithOrig:  # for inference
 
             cv2.imshow("img0", timg)
             cv2.waitKey(1)
-        
+
         original_img = img0.copy()
 
         img0 = cv2.resize(img0, (self.w, self.h))
@@ -497,10 +497,7 @@ class LoadImagesAndLabels:  # for training
         return self.nF  # number of batches
 
 
-def letterbox(
-    img, height=608, width=1088, color=(127.5, 127.5, 127.5)
-):  # resize a rectangular image to a padded rectangular
-    shape = img.shape[:2]  # shape = [height, width]
+def calculate_letterbox(shape: List[int], height: int, width: int):
     ratio = min(float(height) / shape[0], float(width) / shape[1])
     new_shape = (
         round(shape[1] * ratio),
@@ -508,13 +505,21 @@ def letterbox(
     )  # new_shape = [width, height]
     dw = (width - new_shape[0]) / 2  # width padding
     dh = (height - new_shape[1]) / 2  # height padding
+    return new_shape, ratio, dw, dh
+
+
+def letterbox(
+    img, height=608, width=1088, color=(127.5, 127.5, 127.5)
+):
+    new_shape, ratio, dw, dh = calculate_letterbox(shape=img.shape[:2], height=height, width=width)
+
     top, bottom = round(dh - 0.1), round(dh + 0.1)
     left, right = round(dw - 0.1), round(dw + 0.1)
-    img = cv2.resize(img, new_shape, interpolation=cv2.INTER_AREA)  # resized, no border
-    img = cv2.copyMakeBorder(
-        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+    resized_img = cv2.resize(img, new_shape, interpolation=cv2.INTER_AREA)  # resized, no border
+    letterbox_img = cv2.copyMakeBorder(
+        resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
     )  # padded rectangular
-    return img, ratio, dw, dh
+    return letterbox_img, resized_img, ratio, dw, dh
 
 
 def random_affine(

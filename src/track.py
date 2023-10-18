@@ -40,7 +40,7 @@ from hmlib.tracking_utils.utils import mkdir_if_missing
 from hmlib.opts import opts
 
 from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
+from hmlib.camera.cam_post_process import FramePostProcessor, DefaultArguments #, make_scale_array
 
 # def write_results(filename, results, data_type):
 #     if data_type == "mot":
