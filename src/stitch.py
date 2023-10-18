@@ -83,7 +83,7 @@ def stitch_videos(
         #start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=2,
+        num_workers=1,
     )
 
     frame_count = 0
