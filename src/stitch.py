@@ -83,7 +83,7 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=4,
+        num_workers=1,
     )
 
     frame_count = 0
@@ -120,8 +120,8 @@ def main(args):
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", "stockton")
     video_left = "left.mp4"
     video_right = "right.mp4"
-    args.lfo = 0
-    args.rfo = 92
+    args.lfo = 3
+    args.rfo = 0
     lfo, rfo = stitch_videos(
         args.video_dir,
         video_left,

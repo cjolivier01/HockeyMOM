@@ -669,7 +669,7 @@ class StitchDataset:
         )
 
         self._current_frame += 1
-        # self._maybe_write_output(stitched_frame)
+        self._maybe_write_output(stitched_frame)
         self._next_timer.toc()
         if self._current_frame > 1 and (self._current_frame - 1) % 20 == 0:
             logger.info(
