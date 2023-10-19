@@ -129,6 +129,8 @@ class StitchingWorker:
         self._receive_timer = Timer()
         self._receive_count = 0
 
+        self._next_frame_timer = Timer()
+
     def rp_str(self):
         """Worker rank prefix string."""
         return "WR[" + str(self._rank) + "] "
@@ -594,7 +596,7 @@ class StitchDataset:
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
                 )
-                self._stitching_workers[worker_number].start(fork=False)
+                self._stitching_workers[worker_number].start(fork=True)
             self._start_coordinator_thread()
         return self
 
@@ -643,10 +645,10 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        self._next_timer.tic()
         #INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         #print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         status = self._from_coordinator_queue.get()
+        self._next_timer.tic()
         # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
