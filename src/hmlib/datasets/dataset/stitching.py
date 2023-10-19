@@ -524,15 +524,16 @@ class StitchDataset:
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
-        self._coordinator_thread = threading.Thread(
-            target=self._coordinator_thread_worker,
-            args=(),
-        )
         for i in range(min(self._max_input_queue_size, self._max_frames)):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self.request_next_frame(self._next_requested_frame)
+            self._from_coordinator_queue.put(("ok", self._next_requested_frame))
             self._next_requested_frame += 1
+        self._coordinator_thread = threading.Thread(
+            target=self._coordinator_thread_worker,
+            args=(self._next_requested_frame,),
+        )
         self._coordinator_thread.start()
         print("Cached request queue")
 
@@ -542,7 +543,7 @@ class StitchDataset:
             self._coordinator_thread.join()
             self._coordinator_thread = None
 
-    def _coordinator_thread_worker(self):
+    def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
             frame_count = 0
             while frame_count < self._max_frames:
@@ -551,8 +552,10 @@ class StitchDataset:
                     break
                 frame_id = int(command)
                 self._prepare_next_frame(frame_id)
-                self._from_coordinator_queue.put(("ok", frame_id))
+                #self._from_coordinator_queue.put(("ok", frame_id))
+                self._from_coordinator_queue.put(("ok", next_requested_frame))
                 frame_count += 1
+                next_requested_frame += 1
             self._from_coordinator_queue.put(StopIteration())
         except Exception as ex:
             print(ex)
@@ -618,13 +621,12 @@ class StitchDataset:
             or self._next_requested_frame < self._start_frame_number + self._max_frames
         ):
             self._to_coordinator_queue.put(self._next_requested_frame)
-            #stitching_worker.worker_request_next_frame()
             self.request_next_frame(frame_id=self._next_requested_frame)
             self._next_requested_frame += 1
         else:
-            # INFO(
-            #     f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
-            # )
+            INFO(
+                f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
+            )
             pass
 
         self._next_frame_timer.toc()
@@ -641,7 +643,9 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        self._next_timer.tic()
+        #INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        #print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         status = self._from_coordinator_queue.get()
         # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
@@ -650,9 +654,10 @@ class StitchDataset:
         else:
             status, frame_id = status
             assert status == "ok"
+            print(f"self._from_coordinator_queue.get() = {frame_id}, self._current_frame = {self._current_frame} ")
             assert frame_id == self._current_frame
 
-        self._next_timer.tic()
+        #self._next_timer.tic()
         stitched_frame = self.get_next_frame()
 
         # Code doesn't handle strides channbels efficiently

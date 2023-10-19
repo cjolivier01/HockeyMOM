@@ -83,7 +83,7 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=1,
+        num_workers=4,
     )
 
     frame_count = 0
@@ -99,6 +99,7 @@ def stitch_videos(
                     i, 1.0 / max(1e-5, dataset_timer.average_time)
                 )
             )
+            dataset_timer = Timer()
 
         frame_count += 1
         if i == 1:
