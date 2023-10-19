@@ -654,7 +654,7 @@ class StitchDataset:
         else:
             status, frame_id = status
             assert status == "ok"
-            print(f"self._from_coordinator_queue.get() = {frame_id}, self._current_frame = {self._current_frame} ")
+            #print(f"self._from_coordinator_queue.get() = {frame_id}, self._current_frame = {self._current_frame} ")
             assert frame_id == self._current_frame
 
         #self._next_timer.tic()
