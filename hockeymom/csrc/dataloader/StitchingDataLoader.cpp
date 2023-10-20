@@ -124,3 +124,4 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
 }
 
 } // namespace hm
+
