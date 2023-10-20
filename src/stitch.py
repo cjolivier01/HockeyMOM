@@ -34,6 +34,9 @@ def make_parser():
         "--lfo", "--left_frame_offset", default=None, type=int, help="Left frame offset"
     )
     parser.add_argument(
+        "--num_workers", default=1, type=int, help="Number of stitching workers"
+    )
+    parser.add_argument(
         "--rfo",
         "--right_frame_offset",
         default=None,

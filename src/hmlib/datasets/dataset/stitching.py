@@ -395,6 +395,7 @@ class StitchDataset:
         self._current_request_frame_worker = 0
         self._current_get_next_frame_worker = 0
         self._ordering_queue = core.SortedPyArrayUin8Queue()
+        #self._ordering_queue = core.SortedRGBImageQueue()
         self._coordinator_thread = None
 
         self._next_frame_timer = Timer()
@@ -514,6 +515,7 @@ class StitchDataset:
             self._image_roi = find_sitched_roi(stitched_frame)
         # INFO(f"Locally enqueing frame {frame_id}")
         self._ordering_queue.enqueue(frame_id, stitched_frame)
+        #self._ordering_queue.enqueue(frame_id, stitched_frame, True)
         self._prepare_next_frame_timer.toc()
         if frame_id % 20 == 0:
             logger.info(
@@ -596,7 +598,7 @@ class StitchDataset:
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
                 )
-                self._stitching_workers[worker_number].start(fork=True)
+                self._stitching_workers[worker_number].start(fork=False)
             self._start_coordinator_thread()
         return self
 
