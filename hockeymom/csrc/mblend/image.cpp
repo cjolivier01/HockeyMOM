@@ -269,8 +269,8 @@ void Image::Open() {
 				if (first_strip) TIFFReadScanline(tiff, buf, 0); else TIFFReadScanline(tiff, buf, tiff_u_height - 1);
 				bool trans;
 				switch (bpp) {
-					case 8: trans = !(((uint32_t*)buf)[0] && 0xff000000); break;
-					case 16: trans = !(((uint64_t*)buf)[0] && 0xffff000000000000); break;
+					case 8: trans = !(((uint32_t*)buf)[0] & 0xff000000); break;
+					case 16: trans = !(((uint64_t*)buf)[0] & 0xffff000000000000); break;
 				}
 				if (!trans) {
 					first_strip = 0;
@@ -360,6 +360,9 @@ void Image::Open() {
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
     } break;
+    case ImageType::MB_NONE: {
+      assert(false);
+    } break;
 	}
 
 	xpos += xpos_add;
@@ -416,6 +419,9 @@ void Image::Read(void* data, bool gamma) {
         this_data += inc;
 			}
 		} break;
+    case ImageType::MB_NONE: {
+      assert(false);
+    } break;
 	}
 
 /***********************************************************************
