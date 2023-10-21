@@ -131,6 +131,7 @@ def main(args):
         video_right,
         lfo=args.lfo,
         rfo=args.rfo,
+        max_frames=100,
     )
 
 

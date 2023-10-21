@@ -670,6 +670,9 @@ class Blender {
         // if (!jpeg_file)
         //   die("Error: Could not open output file");
       } break;
+      case ImageType::MB_NONE: {
+        assert(false);
+      } break;
     }
 
     int i = 0;
@@ -1530,7 +1533,7 @@ class Blender {
           NULL,
           NULL);
 
-      if (png_width != width || png_height != png_height)
+      if (png_width != width || png_height != height)
         die("Error: Seam PNG dimensions don't match workspace");
       if (png_depth != 8 || png_colour != PNG_COLOR_TYPE_PALETTE)
         die("Error: Incorrect seam PNG format");
@@ -1743,7 +1746,6 @@ class Blender {
   int process_inputs(
       const BlenderImageState& image_state,
       std::unique_ptr<hm::MatrixRGB>* output_image) const {
-
     setup_image_pyramids(image_state);
 
     ThreadPool threadpool(ThreadPool::get_base_thread_pool());
@@ -2159,6 +2161,9 @@ class Blender {
               std::vector<std::size_t>{(std::size_t)width, (std::size_t)height},
               no_mask ? 3 : 4);
         } break;
+        case ImageType::MB_NONE: {
+          assert(false);
+        } break;
       }
 
       if (output_type == ImageType::MB_PNG ||
@@ -2251,6 +2256,7 @@ class Blender {
             }
             output_image_ptr->write_rows(scanlines, rows);
           } break;
+          case ImageType::MB_NONE:
           default:
             die("Bad output type)");
             break;
@@ -2281,6 +2287,9 @@ class Blender {
               img.width,
               img.num_channels(),
               img.consume_raw_data());
+        } break;
+        case ImageType::MB_NONE: {
+          assert(false);
         } break;
       }
       if (scanlines) {

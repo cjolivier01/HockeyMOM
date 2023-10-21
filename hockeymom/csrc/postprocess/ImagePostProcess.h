@@ -51,7 +51,7 @@ struct HMPostprocessConfig {
   // Zooming is fixed based upon the horizonal position's distance from center
   bool apply_fixed_edge_scaling = true;
 
-  bool fixed_edge_scaling_factor =
+  float fixed_edge_scaling_factor =
       0.8; // RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
   bool fixed_edge_rotation = false;

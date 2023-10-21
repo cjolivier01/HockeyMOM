@@ -127,7 +127,7 @@ Pyramid::~Pyramid() {
   for (int i = 0; i < line_thread_count_; ++i) {
     _aligned_free(lines[i]);
   }
-  delete lines;
+  delete [] lines;
 
   if (!shared && !no_alloc) {
     for (auto it = levels.begin(); it < levels.end(); ++it) {
@@ -135,8 +135,9 @@ Pyramid::~Pyramid() {
     }
   }
   levels.clear();
-
-  free(lut);
+  if (lut) {
+    free(lut);
+  }
 }
 
 /***********************************************************************
@@ -144,7 +145,9 @@ Pyramid::~Pyramid() {
  ***********************************************************************/
 void Pyramid::set_lut(int bits, bool gamma) {
   if (lut_bits < bits || lut_gamma != gamma || !lut) {
-    free(lut);
+    if (lut) {
+      free(lut);
+    }
     lut = (float*)malloc((1 << bits) << 2);
     lut_bits = bits;
     lut_gamma = gamma;

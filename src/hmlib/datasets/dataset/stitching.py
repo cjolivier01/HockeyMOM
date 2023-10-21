@@ -248,8 +248,14 @@ class StitchingWorker:
         ret2, img2 = self._video2.read()
         if not ret2:
             return False
-        # INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
+        #INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
+        # For some reason, hold onto a ref to the images while we push
+        # them down into the data loader, or else there will be a segfault eventually
+        self._img1 = img1
+        self._img2 = img2
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+        self._img1 = None
+        self._img2 = None
         return True
 
     def _get_next_frame(self, frame_id: int):

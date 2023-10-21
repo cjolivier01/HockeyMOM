@@ -33,7 +33,7 @@ private:
 	__m128** lines;
 	bool shared;
 	bool no_alloc;
-	float* lut = NULL;
+	float* lut{nullptr};
 	int lut_bits = 0;
 	bool lut_gamma = false;
 	int out_max;
