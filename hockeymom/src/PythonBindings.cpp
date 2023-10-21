@@ -38,20 +38,20 @@ PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
 
   // std::cout << "Initializing hockymom module" << std::endl;
-  py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
-      m, "MatrixRGB", py::buffer_protocol())
-      .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
-        return py::buffer_info(
-            m.data(), /* Pointer to buffer */
-            sizeof(std::uint8_t), /* Size of one scalar */
-            py::format_descriptor<std::uint8_t>::
-                format(), /* Python struct-style format descriptor */
-            3, /* Number of dimensions */
-            {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
-            {m.channels() * sizeof(std::uint8_t) * m.cols(),
-             m.channels() * sizeof(std::uint8_t),
-             sizeof(std::uint8_t)});
-      });
+  // py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
+  //     m, "MatrixRGB", py::buffer_protocol())
+  //     .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
+  //       return py::buffer_info(
+  //           m.data(), /* Pointer to buffer */
+  //           sizeof(std::uint8_t), /* Size of one scalar */
+  //           py::format_descriptor<std::uint8_t>::
+  //               format(), /* Python struct-style format descriptor */
+  //           3, /* Number of dimensions */
+  //           {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
+  //           {m.channels() * sizeof(std::uint8_t) * m.cols(),
+  //            m.channels() * sizeof(std::uint8_t),
+  //            sizeof(std::uint8_t)});
+  //     });
 
   py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(
       m, "HMPostprocessConfig")
@@ -110,6 +110,9 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(py::init<
            std::size_t,
            std::string,
+           std::string,
+           std::string,
+           bool,
            std::size_t,
            std::size_t,
            std::size_t>());

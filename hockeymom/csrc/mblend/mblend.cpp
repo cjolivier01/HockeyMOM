@@ -212,6 +212,13 @@ class Blender {
   static std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   static std::size_t instance_count_;
 
+  /**
+   * @brief State data to reproduce a particular blend context
+   */
+  struct BlenderState {
+
+  };
+
  public:
   Blender();
   ~Blender();
@@ -2288,6 +2295,7 @@ class Blender {
               img.num_channels(),
               img.consume_raw_data());
         } break;
+        case ImageType::MB_PNG:
         case ImageType::MB_NONE: {
           assert(false);
         } break;
