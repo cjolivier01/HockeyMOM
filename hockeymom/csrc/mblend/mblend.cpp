@@ -1082,7 +1082,7 @@ class Blender {
           Output(
               1,
               "Warning: %s is fully obscured by other image_state.images\n",
-              image_state.images[i]->filename);
+              image_state.images[i]->filename.c_str());
         }
       }
 
