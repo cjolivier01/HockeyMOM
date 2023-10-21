@@ -166,10 +166,10 @@ class StitchingWorker:
     # def get(self):
     #     return self._from_worker_queue.get()
 
-    #def request_image(self):
-        # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
-        # self._image_request_queue.put(frame_id)
-        #self._image_request_queue.put("next")
+    # def request_image(self):
+    # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
+    # self._image_request_queue.put(frame_id)
+    # self._image_request_queue.put("next")
 
     def receive_image(self, frame_id):
         self._receive_timer.tic()
@@ -245,8 +245,8 @@ class StitchingWorker:
             self._shutdown_barrier.wait()
 
     def _feed_next_frame(self, frame_id: int) -> bool:
-        #frame_request = self._to_worker_queue.get()
-        #assert frame_request == "next"
+        # frame_request = self._to_worker_queue.get()
+        # assert frame_request == "next"
         # if frame_request is None:
         # raise StopIteration()
         # frame_id = frame_request.frame_id
@@ -262,9 +262,9 @@ class StitchingWorker:
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
         while self._image_response_queue.qsize() >= self._max_input_queue_size:
-            #print("Too many images in the outgoing queue")
+            # print("Too many images in the outgoing queue")
             time.sleep(0.01)
-        #print(f"Adding frame {frame_id} images to stitcher")
+        # print(f"Adding frame {frame_id} images to stitcher")
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         return True
 
@@ -297,9 +297,9 @@ class StitchingWorker:
                         1.0 / max(1e-5, pull_timer.average_time),
                     )
                 )
-                #pull_timer = Timer()
+                # pull_timer = Timer()
 
-            #print(f"Pulled stitched frame {frame_id} from stitcher")
+            # print(f"Pulled stitched frame {frame_id} from stitcher")
             if stitched_frame is None:
                 break
             self._image_response_queue.put((frame_id, stitched_frame))
@@ -324,7 +324,7 @@ class StitchingWorker:
                 pass
             # frame_count += 1
         INFO(f"{self.rp_str()} Feeder thread exiting")
-        #self._from_worker_queue.put(StopIteration())
+        # self._from_worker_queue.put(StopIteration())
 
     # def _prime_frame_request_queue(self):
     #     for i in range(self._max_input_queue_size):
@@ -468,6 +468,7 @@ class StitchDataset:
         start_frame_number: int,
         frame_stride_count: int,
         max_frames: int,
+        max_input_queue_size: int,
     ):
         stitching_worker = StitchingWorker(
             rank=rank,
@@ -477,7 +478,7 @@ class StitchDataset:
             video_1_offset_frame=self._video_1_offset_frame,
             video_2_offset_frame=self._video_2_offset_frame,
             start_frame_number=start_frame_number,
-            max_input_queue_size=self._max_input_queue_size,
+            max_input_queue_size=max_input_queue_size,
             remap_thread_count=self._remap_thread_count,
             blend_thread_count=self._blend_thread_count,
             max_frames=max_frames,
@@ -542,21 +543,21 @@ class StitchDataset:
                     isColor=True,
                 )
                 assert self._output_video.isOpened()
-                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+                self._output_video.set(cv2.CAP_PROP_BITRATE, self.bitrate)
 
             self._output_video.write(output_img)
 
-    #def request_next_frame(self, frame_id: int):
-        # print(f"Dataset request_next_frame( {frame_id} )")
-        #if frame_id != self._next_requested_frame:
-            #print("oops")
-        #assert frame_id == self._next_requested_frame
-        #stitching_worker = self._stitching_workers[self._current_request_frame_worker]
-        # stitching_worker.worker_request_next_frame()
-        #stitching_worker.request_image(frame_id=frame_id)
-        #self._current_request_frame_worker = (
-            #self._current_request_frame_worker + 1
-        #) % len(self._stitching_workers)
+    # def request_next_frame(self, frame_id: int):
+    # print(f"Dataset request_next_frame( {frame_id} )")
+    # if frame_id != self._next_requested_frame:
+    # print("oops")
+    # assert frame_id == self._next_requested_frame
+    # stitching_worker = self._stitching_workers[self._current_request_frame_worker]
+    # stitching_worker.worker_request_next_frame()
+    # stitching_worker.request_image(frame_id=frame_id)
+    # self._current_request_frame_worker = (
+    # self._current_request_frame_worker + 1
+    # ) % len(self._stitching_workers)
 
     def _prepare_next_frame(self, frame_id: int):
         # INFO(f"_prepare_next_frame( {frame_id} )")
@@ -588,7 +589,7 @@ class StitchDataset:
         for i in range(min(self._max_input_queue_size, self._max_frames)):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
-            #self.request_next_frame(self._next_requested_frame)
+            # self.request_next_frame(self._next_requested_frame)
             self._from_coordinator_queue.put(("ok", self._next_requested_frame))
             self._next_requested_frame += 1
         self._coordinator_thread = threading.Thread(
@@ -654,8 +655,11 @@ class StitchDataset:
                     start_frame_number=self._start_frame_number + worker_number,
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
+                    max_input_queue_size=int(
+                        self._max_input_queue_size / self._num_workers + 1
+                    ),
                 )
-                self._stitching_workers[worker_number].start(fork=False)
+                self._stitching_workers[worker_number].start(fork=True)
             self._start_coordinator_thread()
         return self
 
@@ -682,7 +686,7 @@ class StitchDataset:
             or self._next_requested_frame < self._start_frame_number + self._max_frames
         ):
             self._to_coordinator_queue.put(self._next_requested_frame)
-            #self.request_next_frame(frame_id=self._next_requested_frame)
+            # self.request_next_frame(frame_id=self._next_requested_frame)
             self._next_requested_frame += 1
         else:
             INFO(
