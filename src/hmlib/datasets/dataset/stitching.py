@@ -575,14 +575,14 @@ class StitchDataset:
         self._ordering_queue.enqueue(frame_id, stitched_frame)
         # self._ordering_queue.enqueue(frame_id, stitched_frame, True)
         self._prepare_next_frame_timer.toc()
-        if frame_id % 20 == 0:
-            logger.info(
-                "_prepare_next_frame frame {} ({:.2f} fps)".format(
-                    frame_id,
-                    1.0 / max(1e-5, self._prepare_next_frame_timer.average_time),
-                )
-            )
-            self._prepare_next_frame_timer = Timer()
+        # if frame_id % 20 == 0:
+        #     logger.info(
+        #         "_prepare_next_frame frame {} ({:.2f} fps)".format(
+        #             frame_id,
+        #             1.0 / max(1e-5, self._prepare_next_frame_timer.average_time),
+        #         )
+        #     )
+        #     self._prepare_next_frame_timer = Timer()
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
@@ -659,7 +659,7 @@ class StitchDataset:
                         self._max_input_queue_size / self._num_workers + 1
                     ),
                 )
-                self._stitching_workers[worker_number].start(fork=True)
+                self._stitching_workers[worker_number].start(fork=False)
             self._start_coordinator_thread()
         return self
 
@@ -695,14 +695,14 @@ class StitchDataset:
             pass
 
         self._next_frame_timer.toc()
-        if self._next_frame_counter and self._next_frame_counter % 20 == 0:
-            logger.info(
-                "get_next_frame dequeue frame {} ({:.2f} fps)".format(
-                    self._current_frame,
-                    1.0 / max(1e-5, self._next_frame_timer.average_time),
-                )
-            )
-            self._next_frame_timer = Timer()
+        # if self._next_frame_counter and self._next_frame_counter % 20 == 0:
+        #     logger.info(
+        #         "get_next_frame dequeue frame {} ({:.2f} fps)".format(
+        #             self._current_frame,
+        #             1.0 / max(1e-5, self._next_frame_timer.average_time),
+        #         )
+        #     )
+        #     self._next_frame_timer = Timer()
         self._next_frame_counter += 1
 
         return stitched_frame

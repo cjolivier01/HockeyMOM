@@ -58,7 +58,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     assert(storage_channel_count() == channels());
     // Is it ever read-only?
     assert(!py_buffer_info.readonly);
-    if (true /*(copy_data || py_buffer_info.readonly)*/) {
+    if ((copy_data || py_buffer_info.readonly)) {
       std::size_t image_bytes =
           sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
       //std::cout << "image_bytes=" << image_bytes << std::endl;
