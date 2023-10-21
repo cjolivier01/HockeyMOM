@@ -67,7 +67,7 @@ class CMakeBuild(build_ext):
         cmake_args += ["-DCMAKE_C_COMPILER=clang"]
         cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
 
-        cmake_args += ["-DHM_BUILD_ASAN=1"]
+        #cmake_args += ["-DHM_BUILD_ASAN=1"]
 
         if platform.system() == "Windows":
             cmake_args += [

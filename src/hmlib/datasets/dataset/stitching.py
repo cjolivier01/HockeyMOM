@@ -97,6 +97,7 @@ class StitchingWorker:
         blend_thread_count: int = 10,
         max_frames: int = None,
         frame_stride_count: int = 1,
+        save_seams_and_masks: bool = True,
     ):
         assert max_input_queue_size > 0
         self._rank = rank
@@ -125,6 +126,7 @@ class StitchingWorker:
         self._image_roi = None
         self._forked = False
         self._closing = False
+        self._save_seams_and_masks = save_seams_and_masks
 
         self._receive_timer = Timer()
         self._receive_count = 0
@@ -211,6 +213,9 @@ class StitchingWorker:
         self._stitcher = core.StitchingDataLoader(
             0,
             self._pto_project_file,
+            os.path.splitext(self._pto_project_file)[0] + ".seam.png",
+            os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png",
+            self._save_seams_and_masks,
             self._max_input_queue_size,
             self._remap_thread_count,
             self._blend_thread_count,
@@ -251,11 +256,7 @@ class StitchingWorker:
         #INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
-        self._img1 = img1
-        self._img2 = img2
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
-        self._img1 = None
-        self._img2 = None
         return True
 
     def _get_next_frame(self, frame_id: int):
