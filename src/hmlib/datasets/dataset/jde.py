@@ -286,6 +286,9 @@ class LoadVideoWithOrig:  # for inference
 
 
 class LoadAutoStitchedVideoWithOrig:  # for inference
+    """
+    Not used
+    """
     def __init__(
         self,
         path_video_1,

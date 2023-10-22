@@ -71,7 +71,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -133,8 +133,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        #self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -499,6 +499,13 @@ class FramePostProcessor:
                     )
             timer.toc()
 
+    def prepare_online_image(online_im) -> np.array:
+        if isinstance(online_im, torch.Tensor):
+            online_im = online_im.numpy()
+        if not online_im.flags['C_CONTIGUOUS']:
+            online_im = online_im.ascontiguousarray(online_im)
+        return online_im
+
     def _postprocess_frame_impl(self, hockey_mom, show_image, opt):
         last_temporal_box = None
         last_sticky_temporal_box = None
@@ -576,6 +583,8 @@ class FramePostProcessor:
                     del original_img
                 else:
                     online_im = img0
+                    if isinstance(online_im, torch.Tensor):
+                        online_im = online_im.numpy()
 
                 # fast_bounding_box = None
 

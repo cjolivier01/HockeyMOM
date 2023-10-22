@@ -81,6 +81,9 @@ class HmPostProcessor:
         self._save_dir = save_dir
         self._hockey_mom = None
         self._image_scale_array = None
+        self.dw = 0
+        self.dh = 0
+        self._scale_inscribed_to_original = 1
 
     @property
     def data_type(self):
@@ -102,7 +105,8 @@ class HmPostProcessor:
             original_img = to_rgb_non_planar(original_img)
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
-        if self._args.scale_to_original_image or True:
+        #if self._args.scale_to_original_image or True:
+        if self._args.scale_to_original_image:
             scaled_online_tlwhs = []
             for tlwh in online_tlwhs:
                 tlwh[0] -= self.dw
