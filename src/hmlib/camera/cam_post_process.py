@@ -71,7 +71,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -81,7 +81,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -103,8 +103,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_rotation = False
 
-        # self.fixed_edge_rotation_angle = 35.0
-        self.fixed_edge_rotation_angle = 45.0
+        self.fixed_edge_rotation_angle = 35.0
+        #self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
@@ -137,8 +137,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = True and not BASIC_DEBUGGING
-        #self.crop_output_image = False
+        #self.crop_output_image = True and not BASIC_DEBUGGING
+        self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -203,6 +203,13 @@ class ImageProcData:
         self.frame_id = frame_id
         self.img = img
         self.current_box = current_box.copy()
+
+
+class Detection:
+    def __init__(self, track_id, tlwh, history):
+        self.track_id = track_id
+        self.tlwh = tlwh
+        self.history = history
 
 
 class FramePostProcessor:
@@ -303,12 +310,22 @@ class FramePostProcessor:
             if self._child_pid:
                 os.waitpid(self._child_pid)
 
-    def send(self, online_tlwhs, online_ids, info_imgs, image, original_img):
+    def send(self, online_tlwhs, online_ids, detections, info_imgs, image, original_img):
         while self._queue.qsize() > 10:
             time.sleep(0.001)
-        self._queue.put(
-            (online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
-        )
+        try:
+            dets = [
+                Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
+                for d in detections
+            ]
+            self._queue.put(
+                (online_tlwhs.copy(), online_ids.copy(), dets, info_imgs, image, original_img)
+                #(online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
+            )
+        except Exception as ex:
+            print(ex)
+            traceback.print_exc()
+            raise
 
     def postprocess_frame(self, hockey_mom, show_image, opt):
         try:
@@ -545,15 +562,16 @@ class FramePostProcessor:
 
             online_tlwhs = online_targets_and_img[0]
             online_ids = online_targets_and_img[1]
+            detections = online_targets_and_img[2]
 
             # Exclude detections outside of an optional bounding box
             online_tlwhs, online_ids = prune_by_inclusion_box(
                 online_tlwhs, online_ids, self._args.detection_inclusion_box
             )
 
-            info_imgs = online_targets_and_img[2]
-            img0 = online_targets_and_img[3]
-            original_img = online_targets_and_img[4]
+            info_imgs = online_targets_and_img[3]
+            img0 = online_targets_and_img[4]
+            original_img = online_targets_and_img[5]
 
             if self._args.remove_largest:
                 largest_index = -1
@@ -586,48 +604,37 @@ class FramePostProcessor:
                     if isinstance(online_im, torch.Tensor):
                         online_im = online_im.numpy()
 
-                # fast_bounding_box = None
-
-                # if self._frame_id == 0:
-                #     fast_ids = []
-                #     fast_online_tlwhs = []
-                # else:
-                #     fast_ids = hockey_mom.get_fast_ids()
-                #     if fast_ids:
-                #         fast_online_tlwhs = [hockey_mom.get_tlwh(id) for id in fast_ids]
-                #         fast_bounding_box = hockey_mom.get_current_bounding_box(
-                #             ids=fast_ids
-                #         )
-
-                # these_online_speeds = []
-                # for id in online_ids:
-                #     these_online_speeds.append(hockey_mom.get_spatial_speed(id))
-
                 fast_ids_set = None
                 if self._args.plot_individual_player_tracking:
-                    # Plot the player boxes
-                    # fast_ids_set = set(hockey_mom.get_fast_ids())
-                    # if fast_ids_set:
-                    #     # print(fast_ids_set)
-                    #     fast_ids = []
-                    #     fast_tlwhs = []
-                    #     fast_speeds = []
-                    #     for i, id in enumerate(online_ids):
-                    #         if id in fast_ids_set:
-                    #             fast_ids.append(id)
-                    #             fast_tlwhs.append(online_tlwhs[i])
-                    #             fast_speeds.append(these_online_speeds[i])
-                    # online_ids = fast_ids
-                    # online_tlwhs = fast_tlwhs
-                    # these_online_speeds = fast_speeds
-                    # online_im = vis.plot_tracking(
-                    #     online_im,
-                    #     fast_tlwhs,
-                    #     fast_ids,
-                    #     frame_id=self._frame_id,
-                    #     fps=1.0 / timer.average_time if timer.average_time else 1000.0,
-                    #     speeds=fast_speeds,
-                    # )
+                    online_id_set = set(online_ids)
+                    offline_ids = []
+                    offline_tlwhs = []
+                    skipped_count = 0
+                    for det in detections:
+                        if det.track_id not in online_id_set:
+                            tlwh = det.tlwh
+                            vertical = tlwh[2] / tlwh[3] > 1.6
+                            if tlwh[2] * tlwh[3] > self._opt.min_box_area and not vertical:
+                                offline_ids.append(det.track_id)
+                                offline_tlwhs.append(det.tlwh)
+                            else:
+                                skipped_count += 1
+                    if skipped_count:
+                        print(f"Skipped {skipped_count} detections")
+
+                    if offline_ids:
+                        online_im = vis.plot_tracking(
+                            online_im,
+                            offline_tlwhs,
+                            offline_ids,
+                            frame_id=self._frame_id,
+                            fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                            speeds=[],
+                            line_thickness=1,
+                            box_color=(255, 128, 255),
+                            ignore_frame_id=True,
+                            print_track_id=False,
+                        )
 
                     online_im = vis.plot_tracking(
                         online_im,
@@ -636,7 +643,7 @@ class FramePostProcessor:
                         frame_id=self._frame_id,
                         fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=[],
-                        line_thickness=1 if not fast_ids_set else 4,
+                        line_thickness=2 if not fast_ids_set else 4,
                     )
 
                 # Examine as 2 clusters

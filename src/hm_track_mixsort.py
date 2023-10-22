@@ -266,32 +266,23 @@ def main(exp, args, num_gpu):
                     pto_project_file=pto_project_file,
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
-                    start_frame_number=start_frame_number,
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=max_frames,
                     num_workers=1,
                 )
-
-                # dataloader = datasets.StitchDataset(
-                #     path_video_1=input_video_files[0],
-                #     path_video_2=input_video_files[1],
-                #     video_1_offset_frame=video_1_offset_frame,
-                #     video_2_offset_frame=video_2_offset_frame,
-                #     img_size=exp.test_size,
-                #     process_img_size=exp.test_size,
-                #     num_classes=exp.num_classes,
-                # )
             else:
+
+                start_frame_number = 0
+
                 from yolox.data import ValTransform
                 assert len(input_video_files) == 1
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
-                    #img_size=(1024, 4096),
-                    #img_size=(800, 2048),
                     mot_eval_mode=True,
                     return_origin_img=True,
                     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    start_frame_number=start_frame_number,
                     #data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     #json_file="train.json",
                     json_file="val.json",
@@ -301,7 +292,6 @@ def main(exp, args, num_gpu):
                         std=(0.229, 0.224, 0.225),
                     ),
                 )
-
 
             #from yolox.data import MOTDataset, ValTransform
 

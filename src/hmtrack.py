@@ -94,6 +94,7 @@ class HmPostProcessor:
         frame_id,
         online_tlwhs,
         online_ids,
+        detections,
         info_imgs,
         img,
         inscribed_image,
@@ -125,6 +126,7 @@ class HmPostProcessor:
         self._postprocessor.send(
             online_tlwhs,
             online_ids,
+            detections,
             info_imgs,
             img,
             original_img,
