@@ -51,6 +51,9 @@ namespace hm {
 template <typename KEY_TYPE, typename ITEM_TYPE>
 class SortedQueue {
  public:
+  using key_type = KEY_TYPE;
+  using value_type = ITEM_TYPE;
+
   SortedQueue(/*std::size_t max_queue_size = 0*/)
   /*: max_queue_size_(max_queue_size)*/ {}
 

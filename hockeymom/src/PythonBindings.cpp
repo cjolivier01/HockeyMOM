@@ -118,7 +118,7 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t>());
 
   using SortedPyArrayUin8Queue =
-      hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
+  hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
 
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
@@ -129,7 +129,7 @@ PYBIND11_MODULE(_hockeymom, m) {
              std::size_t key,
              py::array_t<std::uint8_t> array) -> void {
             sq->enqueue(key, std::move(array));
-          })
+                      })
       .def(
           "dequeue_key",
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
@@ -321,4 +321,3 @@ PYBIND11_MODULE(_hockeymom, m) {
         return result->to_py_array();
       });
 }
-
