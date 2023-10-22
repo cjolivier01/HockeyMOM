@@ -169,14 +169,6 @@ class StitchingWorker:
         else:
             self._open_videos()
 
-    # def get(self):
-    #     return self._from_worker_queue.get()
-
-    # def request_image(self):
-    # INFO(f"{self.rp_str()} StitchingWorker.request_image {frame_id}")
-    # self._image_request_queue.put(frame_id)
-    # self._image_request_queue.put("next")
-
     def receive_image(self, frame_id):
         self._receive_timer.tic()
         # INFO(f"{self.rp_str()} ASK StitchingWorker.receive_image {frame_id}")
@@ -251,12 +243,6 @@ class StitchingWorker:
             self._shutdown_barrier.wait()
 
     def _feed_next_frame(self, frame_id: int) -> bool:
-        # frame_request = self._to_worker_queue.get()
-        # assert frame_request == "next"
-        # if frame_request is None:
-        # raise StopIteration()
-        # frame_id = frame_request.frame_id
-        # frame_id = int(frame_id)
         ret1, img1 = self._video1.read()
         if not ret1:
             return False
@@ -276,16 +262,6 @@ class StitchingWorker:
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
         self._in_queue += 1
         return True
-
-    # def _get_next_frame(self, frame_id: int):
-    #     # INFO(f"{self.rp_str()} Asking for frame {frame_id} from stitch data loader")
-    #     stitched_frame = core.get_stitched_frame_from_data_loader(
-    #         self._stitcher, frame_id
-    #     )
-    #     # INFO(f"{self.rp_str()} Got frame {frame_id} from stitch data loader")
-    #     if stitched_frame is None:
-    #         raise StopIteration()
-    #     return stitched_frame
 
     def _image_getter_worker(self):
         pull_timer = Timer()
@@ -308,9 +284,6 @@ class StitchingWorker:
                         1.0 / max(1e-5, pull_timer.average_time),
                     )
                 )
-                # pull_timer = Timer()
-
-            # print(f"Pulled stitched frame {frame_id} from stitcher")
             if stitched_frame is None:
                 break
             self._image_response_queue.put((frame_id, stitched_frame))
@@ -321,34 +294,15 @@ class StitchingWorker:
         self,
         max_frames: int,
     ):
-        # frame_id = self._start_frame_number
         for frame_id in range(
             self._start_frame_number, self._end_frame, self._frame_stride_count
         ):
-            # frame_count = 0
-            # while not max_frames or frame_count < max_frames:
             if not self._feed_next_frame(frame_id=frame_id):
                 assert False
                 break
             else:
-                # self._from_worker_queue.put("ok")
                 pass
-            # frame_count += 1
         INFO(f"{self.rp_str()} Feeder thread exiting")
-        # self._from_worker_queue.put(StopIteration())
-
-    # def _prime_frame_request_queue(self):
-    #     for i in range(self._max_input_queue_size):
-    #         req_frame = self._start_frame_number + (i * self._frame_stride_count)
-    #         if not self._max_frames or req_frame < self._start_frame_number + (
-    #             self._max_frames * self._frame_stride_count
-    #         ):
-    #             self._to_worker_queue.put(
-    #                 "next"
-    #                 #FrameRequest(frame_id=req_frame, want_alpha=(i == 0))
-    #             )
-    #             self._last_requested_frame = req_frame
-    # INFO(f"{self.rp_str()} self._last_requested_frame={self._last_requested_frame}")
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
@@ -363,9 +317,6 @@ class StitchingWorker:
         )
         self._image_getter_thread.start()
 
-        # self._last_requested_frame = self._start_frame_number
-        # self.request_next_frame()
-
     def _stop_child_threads(self):
         if self._feeder_thread is not None:
             self._to_worker_queue.put(None)
@@ -376,25 +327,30 @@ class StitchingWorker:
             self._image_getter_thread.join()
             self._image_getter_thread = None
 
-    # def worker_request_next_frame(self):
-    #     req_frame = self._last_requested_frame + self._frame_stride_count
-    #     if not self._max_frames or req_frame < self._start_frame_number + (
-    #         self._max_frames * self._frame_stride_count
-    #     ):
-    #         self._last_requested_frame += self._frame_stride_count
-    #         # INFO(f"{self.rp_str()} request_next_frame(): self._to_worker_queue( {self._last_requested_frame} )")
-    #         self._to_worker_queue.put(
-    #             #FrameRequest(frame_id=self._last_requested_frame, want_alpha=False)
-    #             "next"
-    #         )
-    #     else:
-    #         # INFO("request next frame {req_frame} would be too many")
-    #         pass
 
+class StitchingWorkersIterator:
+    def __init__(self,
+                 stitching_workers: List[StitchingWorker],
+                start_frame_number: int = 0,
+                max_frames: int = _LARGE_NUMBER_OF_FRAMES,
+            ):
+        assert stitching_workers
+        self._stitching_workers = stitching_workers
+        self._worker_index = 0
+        self._max_frames = max_frames
+        self._current_frame = start_frame_number
+        self._last_frame = start_frame_number + self._max_frames
 
-class StitchingWorkerWrapper:
-    def __init__(self):
-        pass
+    def __next__(self):
+        if self._current_frame += self._last_frame:
+            raise StopIteration()
+        stitching_worker = self._stitching_workers[self._worker_index]
+        image = stitching_worker.receive_image(self._current_frame)
+        if image is None:
+            raise StopIteration()
+        self._worker_index = (self._worker_index + 1) % len(self._stitching_workers)
+        self._current_frame += 1
+        return image
 
 
 ##
