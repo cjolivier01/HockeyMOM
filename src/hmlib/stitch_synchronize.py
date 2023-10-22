@@ -259,6 +259,32 @@ def configure_video_stitching(
     return pto_project_file, left_frame_offset, right_frame_offset
 
 
+def create_stitched_image(
+    left_image: np.array,
+    right_image: np.array,
+    project_file_path: str,
+    save_seams: bool = True,
+) -> np.array:
+    """
+    Stitch a single image using a Hugin project file
+    """
+    stitcher = core.StitchingDataLoader(
+        0,
+        self._pto_project_file,
+        os.path.splitext(self._pto_project_file)[0] + ".seam.png" if save_seams else "",
+        os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
+        if save_seams
+        else "",
+        save_seams,
+        1,
+        1,
+        1,
+    )
+    core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
+    stitched_frame = core.get_stitched_frame_from_data_loader(stitcher, 0)
+    return stitched_frame
+
+
 def find_sitched_roi(image):
     w = image.shape[1]
     h = image.shape[0]
