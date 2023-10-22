@@ -8,6 +8,7 @@ import time
 import traceback
 import multiprocessing
 import numpy as np
+import queue
 from typing import List
 
 from pathlib import Path
@@ -71,6 +72,9 @@ def INFO(*args, **kwargs):
         return
     print(*args, **kwargs)
 
+#QueueType = QueueType
+QueueType = queue.Queue
+
 
 ##
 #   _____ _   _  _        _     _           __          __         _
@@ -100,6 +104,7 @@ class StitchingWorker:
         save_seams_and_masks: bool = True,
     ):
         assert max_input_queue_size > 0
+
         self._rank = rank
         self._start_frame_number = start_frame_number
         self._output_video = None
@@ -114,10 +119,10 @@ class StitchingWorker:
         self._max_input_queue_size = min(max_input_queue_size, self._max_frames)
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
-        self._to_worker_queue = multiprocessing.Queue()
-        self._from_worker_queue = multiprocessing.Queue()
-        self._image_request_queue = multiprocessing.Queue()
-        self._image_response_queue = multiprocessing.Queue()
+        self._to_worker_queue = QueueType()
+        self._from_worker_queue = QueueType()
+        self._image_request_queue = QueueType()
+        self._image_response_queue = QueueType()
         self._shutdown_barrier = None
         self._frame_stride_count = frame_stride_count
         self._open = False
@@ -127,6 +132,7 @@ class StitchingWorker:
         self._forked = False
         self._closing = False
         self._save_seams_and_masks = save_seams_and_masks
+        self._in_queue = 0
 
         self._receive_timer = Timer()
         self._receive_count = 0
@@ -261,11 +267,14 @@ class StitchingWorker:
         # INFO(f"{self.rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
-        while self._image_response_queue.qsize() >= self._max_input_queue_size:
+        while self._in_queue >= self._max_input_queue_size:
             # print("Too many images in the outgoing queue")
             time.sleep(0.01)
         # print(f"Adding frame {frame_id} images to stitcher")
+        assert img1 is not None
+        assert img2 is not None
         core.add_to_stitching_data_loader(self._stitcher, frame_id, img1, img2)
+        self._in_queue += 1
         return True
 
     # def _get_next_frame(self, frame_id: int):
@@ -288,6 +297,8 @@ class StitchingWorker:
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 self._stitcher, frame_id
             )
+            self._in_queue -= 1
+            assert self._in_queue > 0
             pull_timer.toc()
 
             if count % 20 == 0:
@@ -427,8 +438,8 @@ class StitchDataset:
         self._max_frames = (
             max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         )
-        self._to_coordinator_queue = multiprocessing.Queue()
-        self._from_coordinator_queue = multiprocessing.Queue()
+        self._to_coordinator_queue = QueueType()
+        self._from_coordinator_queue = QueueType()
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._image_roi = None
@@ -569,8 +580,8 @@ class StitchDataset:
         stitching_worker = self._stitching_workers[self._current_worker]
         stitched_frame = stitching_worker.receive_image(frame_id=frame_id)
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
-        if self._image_roi is None:
-            self._image_roi = find_sitched_roi(stitched_frame)
+        # if self._image_roi is None:
+        #     self._image_roi = find_sitched_roi(stitched_frame)
         # INFO(f"Locally enqueing frame {frame_id}")
         self._ordering_queue.enqueue(frame_id, stitched_frame)
         # self._ordering_queue.enqueue(frame_id, stitched_frame, True)
@@ -734,14 +745,14 @@ class StitchDataset:
         self._current_frame += 1
         self._maybe_write_output(stitched_frame)
         self._next_timer.toc()
-        if self._current_frame > 1 and (self._current_frame - 1) % 20 == 0:
-            logger.info(
-                "__next__ dequeue frame {} ({:.2f} fps)".format(
-                    self._current_frame - 1,
-                    1.0 / max(1e-5, self._next_timer.average_time),
-                )
-            )
-            self._next_timer = Timer()
+        # if self._current_frame > 1 and (self._current_frame - 1) % 20 == 0:
+        #     logger.info(
+        #         "__next__ dequeue frame {} ({:.2f} fps)".format(
+        #             self._current_frame - 1,
+        #             1.0 / max(1e-5, self._next_timer.average_time),
+        #         )
+        #     )
+        #     self._next_timer = Timer()
         return stitched_frame
 
     def __len__(self):
