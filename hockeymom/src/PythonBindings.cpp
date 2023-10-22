@@ -11,29 +11,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
-namespace {
-// std::string get_executable_path() {
-//   char result[PATH_MAX * 2 + 1];
-//   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
-//   std::string path = std::string(result, (count > 0) ? count : 0);
-//   return path;
-// }
-
-// void init_stack_trace() {
-//   absl::InitializeSymbolizer(get_executable_path().c_str());
-
-//   // Install the failure signal handler. This should capture various failure
-//   // signals (like segmentation faults) and print a stack trace.
-//   //absl::FailureSignalHandlerOptions options;
-//   //absl::InstallFailureSignalHandler(options);
-// }
-} // namespace
-
-// void __stop_here() {
-//   // debugger is annoying sometimes
-//   std::cout << "__stop_here()" << std::endl;
-// }
-
 PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
 
@@ -118,7 +95,7 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t>());
 
   using SortedPyArrayUin8Queue =
-  hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
+  hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
 
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
@@ -128,29 +105,31 @@ PYBIND11_MODULE(_hockeymom, m) {
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
              std::size_t key,
              py::array_t<std::uint8_t> array) -> void {
-            sq->enqueue(key, std::move(array));
-                      })
+            sq->enqueue(
+                key,
+                std::make_unique<py::array_t<std::uint8_t>>(std::move(array)));
+          })
       .def(
           "dequeue_key",
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
              std::size_t key) -> py::array_t<std::uint8_t> {
-            py::array_t<std::uint8_t> result;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
             {
               py::gil_scoped_release release;
               result = sq->dequeue_key(key);
             }
-            return result;
+            return std::move(*result);
           })
       .def(
           "dequeue_smallest_key",
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq) {
             std::size_t key = ~0;
-            py::array_t<std::uint8_t> result;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
             {
               py::gil_scoped_release release;
               result = sq->dequeue_smallest_key(&key);
             }
-            return std::make_tuple(key, std::move(result));
+            return std::make_tuple(key, std::move(*result));
           });
 
   using SortedRGBImageQueue =
@@ -179,7 +158,6 @@ PYBIND11_MODULE(_hockeymom, m) {
              std::size_t key,
              py::array_t<std::uint8_t> array,
              bool copy_data) -> void {
-            //__stop_here();
             auto matrix =
                 std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
             {
