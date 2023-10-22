@@ -72,7 +72,8 @@ def INFO(*args, **kwargs):
         return
     print(*args, **kwargs)
 
-#QueueType = QueueType
+
+# QueueType = QueueType
 QueueType = queue.Queue
 
 
@@ -329,11 +330,12 @@ class StitchingWorker:
 
 
 class StitchingWorkersIterator:
-    def __init__(self,
-                 stitching_workers: List[StitchingWorker],
-                start_frame_number: int = 0,
-                max_frames: int = _LARGE_NUMBER_OF_FRAMES,
-            ):
+    def __init__(
+        self,
+        stitching_workers: List[StitchingWorker],
+        start_frame_number: int = 0,
+        max_frames: int = _LARGE_NUMBER_OF_FRAMES,
+    ):
         assert stitching_workers
         self._stitching_workers = stitching_workers
         self._worker_index = 0
@@ -342,7 +344,7 @@ class StitchingWorkersIterator:
         self._last_frame = start_frame_number + self._max_frames
 
     def __next__(self):
-        if self._current_frame += self._last_frame:
+        if self._current_frame >= self._last_frame:
             raise StopIteration()
         stitching_worker = self._stitching_workers[self._worker_index]
         image = stitching_worker.receive_image(self._current_frame)
