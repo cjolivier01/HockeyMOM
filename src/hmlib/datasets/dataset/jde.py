@@ -103,8 +103,9 @@ class LoadImages:  # for inference
 
         assert img0 is not None, "Failed to load " + img_path
 
-        # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        # Padded resize\
+        # letterbox_img, resized_img, ratio, dw, dh
+        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
         img = img[:, :, ::-1].transpose(2, 0, 1)
@@ -123,7 +124,7 @@ class LoadImages:  # for inference
         assert img0 is not None, "Failed to load " + img_path
 
         # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
         img = img[:, :, ::-1].transpose(2, 0, 1)
@@ -179,7 +180,7 @@ class LoadVideo:  # for inference
         img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
         img = img[:, :, ::-1].transpose(2, 0, 1)
@@ -271,7 +272,7 @@ class LoadVideoWithOrig:  # for inference
         img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
         img = img[:, :, ::-1].transpose(2, 0, 1)
@@ -366,7 +367,7 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
         img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
-        img, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
         img = img[:, :, ::-1].transpose(2, 0, 1)

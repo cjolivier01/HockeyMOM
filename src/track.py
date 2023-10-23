@@ -40,7 +40,7 @@ from hmlib.tracking_utils.utils import mkdir_if_missing
 from hmlib.opts import opts
 
 from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.cam_post_process import FramePostProcessor, DefaultArguments #, make_scale_array
+from hmlib.camera.cam_post_process import FramePostProcessor, DefaultArguments, make_scale_array
 
 # def write_results(filename, results, data_type):
 #     if data_type == "mot":
@@ -149,6 +149,7 @@ def eval_seq(
 
         if args.scale_to_original_image and image_scale_array is None:
             image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
+            image_scale_array = torch.cat([image_scale_array, image_scale_array]).numpy()
 
         if hockey_mom is None:
             if args.scale_to_original_image:
@@ -246,7 +247,7 @@ def eval_seq(
         timer.toc()
 
         if postprocessor is not None:
-            postprocessor.send(online_tlwhs, online_ids, info_imgs=None, image=img0, original_img=original_img)
+            postprocessor.send(online_tlwhs, online_ids, detections=[], info_imgs=None, image=img0, original_img=original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break

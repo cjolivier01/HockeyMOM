@@ -143,7 +143,7 @@ class StitchingWorker:
         """Worker rank prefix string."""
         return "WR[" + str(self._rank) + "] "
 
-    def _prepare_image(img):
+    def _prepare_image(self, img):
         if not img.flags["C_CONTIGUOUS"]:
             img = online_im.ascontiguousarray(img)
         return img

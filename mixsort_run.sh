@@ -6,9 +6,11 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #
 # Models
 #
-PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_sports_train.pth"
+#PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_sports_train.pth"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
+PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
+#PRETRAINED_MODEL="models/mixsort/pretrained/my_ch.pth"
 
 #
 # Videos

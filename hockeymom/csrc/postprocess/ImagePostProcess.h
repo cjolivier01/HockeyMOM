@@ -31,6 +31,9 @@ struct HMPostprocessConfig {
   // Draw individual player boxes, tracking ids, speed and history trails
   bool plot_individual_player_tracking = false;
 
+  // Draw all detection boxes (even if not tracking the detection)
+  bool plot_all_detections = false;
+
   // Draw intermediate boxes which are used to compute the final camera box
   bool plot_cluster_tracking = false || BASIC_DEBUGGING;
 
