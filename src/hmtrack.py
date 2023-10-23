@@ -340,7 +340,7 @@ def track_sequence(
                     detections=[],
                     info_imgs=info_imgs,
                     img=img0,
-                    inscribed_image=img,  # is this correct?
+                    inscribed_image=img,
                     original_img=original_img,
                 )
 

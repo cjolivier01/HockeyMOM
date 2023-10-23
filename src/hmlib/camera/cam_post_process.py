@@ -71,20 +71,21 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        self.show_image = False or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        #self.plot_individual_player_tracking = True and BASIC_DEBUGGING
         self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
-        self.plot_all_detections = False
+        #self.plot_all_detections = False
+        self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -97,7 +98,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
+        #self.max_in_aspec_ratio = True
 
         # Zooming is fixed based upon the horizonal position's distance from center
         self.apply_fixed_edge_scaling = True
@@ -140,7 +141,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        # self.crop_output_image = True and not BASIC_DEBUGGING
+        #self.crop_output_image = True and not BASIC_DEBUGGING
         self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
