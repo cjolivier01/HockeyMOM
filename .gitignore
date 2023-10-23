@@ -2,6 +2,8 @@
 *.pyc
 /*.log
 /*.tif
+/*.avi
+/*.mp4
 /h-demo*
 /.clangd
 /exp
