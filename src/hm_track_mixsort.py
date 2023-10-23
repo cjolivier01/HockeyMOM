@@ -244,7 +244,7 @@ def main(exp, args, num_gpu):
         postprocessor = HmPostProcessor(
             opt=args,
             args=DefaultArguments(),
-            fps=20,
+            fps=30,
             save_dir=results_folder,
             data_type="mot",
         )

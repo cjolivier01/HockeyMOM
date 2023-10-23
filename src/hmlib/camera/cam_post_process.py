@@ -77,7 +77,7 @@ class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = True or BASIC_DEBUGGING
 
         # Draw individual player boxes, tracking ids, speed and history trails
         # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -134,7 +134,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         #self.scale_to_original_image = True
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
 
         # Crop the final image to the camera window (possibly zoomed)
         #self.crop_output_image = True and not BASIC_DEBUGGING
