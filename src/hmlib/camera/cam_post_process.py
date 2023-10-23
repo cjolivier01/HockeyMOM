@@ -84,8 +84,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
-        #self.plot_all_detections = False
-        self.plot_all_detections = True
+        self.plot_all_detections = False
+        #self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -137,7 +137,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        # self.scale_to_original_image = True
+        #self.scale_to_original_image = True
         self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)

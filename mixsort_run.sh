@@ -9,8 +9,10 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_sports_train.pth"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
-PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-#PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+#PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
+PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+
+MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
 #
 # Videos
@@ -33,8 +35,9 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -c="${PRETRAINED_MODEL}" \
   -b=1 -d=1 \
   --infer \
-  --track_thresh=0.001 \
-  --track_thresh_low=0.0001 \
+  --track_thresh=0.09 \
+  --track_thresh_low=0.01 \
   --min-box-area=35 \
   --config=track \
+  --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}"

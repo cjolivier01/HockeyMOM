@@ -108,7 +108,11 @@ SET(FLANN_FOUND 1)
 add_subdirectory(external)
 # add_subdirectory(external/eigen)
 # add_subdirectory(external/abseil-cpp)
-# #add_subdirectory(external/opencv-python/opencv)
+
+# set(OPENCV_EXTRA_MODULES_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules)
+# set(BUILD_SHARED_LIBS OFF)
+# add_subdirectory(external/opencv-python/opencv)
+
 # add_subdirectory(external/hugin)
 
 add_subdirectory(hockeymom)
