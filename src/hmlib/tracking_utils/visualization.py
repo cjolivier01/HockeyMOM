@@ -152,11 +152,14 @@ def plot_tracking(
     box_color: Tuple[int, int, int] = None,
     show_frame_heading: bool = False,
     line_thickness: int = 1,
+    ignore_frame_id: bool = False,
+    print_track_id: bool = True,
 ):
-    global last_frame_id
-    # don't call this more than once per frame
-    assert frame_id > last_frame_id
-    last_frame_id = frame_id
+    if not ignore_frame_id:
+        global last_frame_id
+        # don't call this more than once per frame
+        assert frame_id > last_frame_id
+        last_frame_id = frame_id
     assert len(tlwhs) == len(obj_ids)
     if speeds:
         assert len(speeds) == len(obj_ids)
@@ -187,22 +190,23 @@ def plot_tracking(
         x1, y1, w, h = tlwh
         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
         obj_id = int(obj_ids[i])
-        id_text = "{}".format(int(obj_id))
-        if ids2 is not None:
-            id_text = id_text + ", {}".format(int(ids2[i]))
         color = box_color if box_color is not None else get_color(abs(obj_id))
         cv2.rectangle(
             im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness
         )
-        cv2.putText(
-            im,
-            id_text,
-            (intbox[0], intbox[1] + text_offset),
-            cv2.FONT_HERSHEY_PLAIN,
-            text_scale,
-            (0, 0, 255),
-            thickness=text_thickness,
-        )
+        if print_track_id:
+            id_text = "{}".format(int(obj_id))
+            if ids2 is not None:
+                id_text = id_text + ", {}".format(int(ids2[i]))
+            cv2.putText(
+                im,
+                id_text,
+                (intbox[0], intbox[1] + text_offset),
+                cv2.FONT_HERSHEY_PLAIN,
+                text_scale,
+                (0, 0, 255),
+                thickness=text_thickness,
+            )
         if speeds:
             speed = speeds[i]
             if not np.isnan(speed):

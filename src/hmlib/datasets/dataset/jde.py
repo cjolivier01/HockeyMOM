@@ -512,7 +512,7 @@ def calculate_letterbox(shape: List[int], height: int, width: int):
 
 
 def letterbox(
-    img, height=608, width=1088, color=(127.5, 127.5, 127.5)
+    img, height, width, color=(127.5, 127.5, 127.5)
 ):
     new_shape, ratio, dw, dh = calculate_letterbox(shape=img.shape[:2], height=height, width=width)
 
