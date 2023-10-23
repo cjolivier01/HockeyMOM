@@ -71,7 +71,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -107,7 +107,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_rotation = False
 
         self.fixed_edge_rotation_angle = 35.0
-        #self.fixed_edge_rotation_angle = 45.0
+        # self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
@@ -136,11 +136,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        #self.scale_to_original_image = True
-        self.scale_to_original_image = True
+        # self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        #self.crop_output_image = True and not BASIC_DEBUGGING
+        # self.crop_output_image = True and not BASIC_DEBUGGING
         self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
@@ -152,7 +152,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw watermark on the image
         self.use_watermark = True
-        #self.use_watermark = False
+        # self.use_watermark = False
 
         self.remove_largest = False
 
@@ -174,7 +174,7 @@ def scale_box(box, from_img, to_img):
 def make_scale_array(from_img, to_img):
     from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
     to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
-    #return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+    # return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
     return from_sz / to_sz
 
 
@@ -313,7 +313,9 @@ class FramePostProcessor:
             if self._child_pid:
                 os.waitpid(self._child_pid)
 
-    def send(self, online_tlwhs, online_ids, detections, info_imgs, image, original_img):
+    def send(
+        self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
+    ):
         while self._queue.qsize() > 10:
             time.sleep(0.001)
         try:
@@ -322,8 +324,15 @@ class FramePostProcessor:
                 for d in detections
             ]
             self._queue.put(
-                (online_tlwhs.copy(), online_ids.copy(), dets, info_imgs, image, original_img)
-                #(online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
+                (
+                    online_tlwhs.copy(),
+                    online_ids.copy(),
+                    dets,
+                    info_imgs,
+                    image,
+                    original_img,
+                )
+                # (online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
             )
         except Exception as ex:
             print(ex)
@@ -522,7 +531,7 @@ class FramePostProcessor:
     def prepare_online_image(online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
-        if not online_im.flags['C_CONTIGUOUS']:
+        if not online_im.flags["C_CONTIGUOUS"]:
             online_im = online_im.ascontiguousarray(online_im)
         return online_im
 
@@ -608,7 +617,8 @@ class FramePostProcessor:
                         online_im = online_im.numpy()
 
                 fast_ids_set = None
-                if self._args.plot_individual_player_tracking:
+
+                if self._args.plot_all_detections:
                     online_id_set = set(online_ids)
                     offline_ids = []
                     offline_tlwhs = []
@@ -617,7 +627,10 @@ class FramePostProcessor:
                         if det.track_id not in online_id_set:
                             tlwh = det.tlwh
                             vertical = tlwh[2] / tlwh[3] > 1.6
-                            if tlwh[2] * tlwh[3] > self._opt.min_box_area and not vertical:
+                            if (
+                                tlwh[2] * tlwh[3] > self._opt.min_box_area
+                                and not vertical
+                            ):
                                 offline_ids.append(det.track_id)
                                 offline_tlwhs.append(det.tlwh)
                             else:
@@ -631,7 +644,9 @@ class FramePostProcessor:
                             offline_tlwhs,
                             offline_ids,
                             frame_id=self._frame_id,
-                            fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                            fps=1.0 / timer.average_time
+                            if timer.average_time
+                            else 1000.0,
                             speeds=[],
                             line_thickness=1,
                             box_color=(255, 128, 255),
@@ -639,6 +654,7 @@ class FramePostProcessor:
                             print_track_id=False,
                         )
 
+                if self._args.plot_individual_player_tracking:
                     online_im = vis.plot_tracking(
                         online_im,
                         online_tlwhs,

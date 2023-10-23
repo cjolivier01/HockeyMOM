@@ -221,15 +221,15 @@ class LoadVideoWithOrig:  # for inference
     def set_frame_number(self, frame_id: int):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
 
-    def get_size(self, vw, vh, dw, dh):
-        wa, ha = float(dw) / vw, float(dh) / vh
-        a = min(wa, ha)
-        size = int(vw * a), int(vh * a)
-        if self._last_size is not None:
-            assert size == self._last_size
-        else:
-            self._last_size = size
-        return size
+    # def get_size(self, vw, vh, dw, dh):
+    #     wa, ha = float(dw) / vw, float(dh) / vh
+    #     a = min(wa, ha)
+    #     size = int(vw * a), int(vh * a)
+    #     if self._last_size is not None:
+    #         assert size == self._last_size
+    #     else:
+    #         self._last_size = size
+    #     return size
 
     def __iter__(self):
         self.count = -1
@@ -269,18 +269,19 @@ class LoadVideoWithOrig:  # for inference
 
         original_img = img0.copy()
 
-        img0 = cv2.resize(img0, (self.w, self.h))
+        # Ok, this will distort the image and then letterbox does nothing
+        # img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
-        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        letterbox_image, inscribed_image, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
         # Normalize RGB
-        img = img[:, :, ::-1].transpose(2, 0, 1)
-        img = np.ascontiguousarray(img, dtype=np.float32)
-        img /= 255.0
+        letterbox_image = letterbox_image[:, :, ::-1].transpose(2, 0, 1)
+        letterbox_image = np.ascontiguousarray(letterbox_image, dtype=np.float32)
+        letterbox_image /= 255.0
 
         # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return self.count, img, img0, original_img
+        return self.count, letterbox_image, inscribed_image, original_img
 
     def __len__(self):
         return self.vn  # number of files

@@ -8,7 +8,7 @@ from __future__ import print_function
 # import copy
 # import os
 # import os.path as osp
-# import cv2
+import cv2
 # import logging
 # import argparse
 # import motmetrics as mm
@@ -110,7 +110,7 @@ class HmPostProcessor:
             original_img = to_rgb_non_planar(original_img)
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
-        #if self._args.scale_to_original_image or True:
+        # if self._args.scale_to_original_image or True:
         if self._args.scale_to_original_image:
             scaled_online_tlwhs = []
             for tlwh in online_tlwhs:
@@ -146,7 +146,6 @@ class HmPostProcessor:
             )
         self._timer.tic()
 
-
     def on_first_image(self, frame_id, info_imgs, img, inscribed_image, original_img):
         _, _, self.dw, self.dh = datasets.calculate_letterbox(
             shape=inscribed_image.shape, height=img.shape[0], width=img.shape[1]
@@ -157,21 +156,27 @@ class HmPostProcessor:
                 to_img=inscribed_image,
             )
             self._scale_processed_to_inscribed = torch.cat(
-                (self._scale_processed_to_inscribed, self._scale_processed_to_inscribed), dim=0
+                (
+                    self._scale_processed_to_inscribed,
+                    self._scale_processed_to_inscribed,
+                ),
+                dim=0,
             ).numpy()
             self._scale_original_to_processed = make_scale_array(
                 from_img=original_img,
                 to_img=img,
             )
             self._scale_original_to_processed = torch.cat(
-                (self._scale_original_to_processed, self._scale_original_to_processed), dim=0
+                (self._scale_original_to_processed, self._scale_original_to_processed),
+                dim=0,
             ).numpy()
             self._scale_inscribed_to_original = make_scale_array(
                 from_img=inscribed_image,
                 to_img=original_img,
             )
             self._scale_inscribed_to_original = torch.cat(
-                (self._scale_inscribed_to_original, self._scale_inscribed_to_original), dim=0
+                (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
+                dim=0,
             ).numpy()
 
             self._image_scale_array = make_scale_array(
@@ -256,8 +261,11 @@ def track_sequence(
                 )
             )
 
-        if args.scale_to_original_image and image_scale_array is None:
-            image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
+        # if args.scale_to_original_image and image_scale_array is None:
+        #     image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
+        #     image_scale_array = torch.cat(
+        #         [image_scale_array, image_scale_array]
+        #     ).numpy()
 
         frame_id = i
         if frame_id > 0 and frame_id <= args.skip_frame_count:
@@ -304,8 +312,8 @@ def track_sequence(
                     print("VERTICAL!")
                     vertical = False
                 if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
-                    if args.scale_to_original_image:
-                        tlwh *= image_scale_array
+                    # if args.scale_to_original_image:
+                    #     tlwh *= image_scale_array
                     online_tlwhs.append(tlwh)
                     online_ids.append(tid)
                     # online_scores.append(t.score)
@@ -318,12 +326,21 @@ def track_sequence(
             results[frame_id + 1] = (online_tlwhs, online_ids)
 
             if postprocessor is not None:
+
+                # cv2.imshow("img0", img0)
+                # #cv2.imshow("img", img)
+                # #cv2.imshow("img", original_img)
+                # cv2.waitKey(1)
+                # continue
+
                 postprocessor.online_callback(
                     frame_id=frame_id,
                     online_tlwhs=online_tlwhs,
                     online_ids=online_ids,
+                    detections=[],
                     info_imgs=info_imgs,
                     img=img0,
+                    inscribed_image=img,  # is this correct?
                     original_img=original_img,
                 )
 
@@ -334,7 +351,7 @@ def track_sequence(
         timer.toc()
 
         # if postprocessor is not None:
-        #     postprocessor.send(online_tlwhs, online_ids, info_imgs, img0, original_img)
+        #     postprocessor.send(online_tlwhs, online_ids, info_imgs, letterbox_img, original_img)
 
         if args.stop_at_frame and frame_id >= args.stop_at_frame:
             break
