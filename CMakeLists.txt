@@ -7,6 +7,21 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/external/hugin/CMakeMod
 
 project(hockeymom)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(BUILD_RELEASE_FLAGS "-g -O3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BUILD_RELEASE_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${BUILD_RELEASE_FLAGS}")
+elseif(CMAKE_BUILD_TYPE STREQUAL "ReleaseWithDebugInfo")
+    message(STATUS "Building in ReleaseWithDebugInfo mode.")
+    set(BUILD_PROFILE_FLAGS "-fno-omit-frame-pointer -g -O1")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BUILD_PROFILE_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${BUILD_PROFILE_FLAGS}")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(BUILD_DEBUG_FLAGS "-fno-omit-frame-pointer -O0 -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BUILD_DEBUG_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${BUILD_DEBUG_FLAGS}")
+endif()
+
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD 14)

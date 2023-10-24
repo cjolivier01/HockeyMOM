@@ -10,7 +10,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
 #PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+PRETRAINED_MODEL="pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
@@ -19,8 +20,9 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 #VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
 VIDEO="/mnt/data/Videos/roseville/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/CHI_VS_TOR/003.mp4"
 #VIDEO="/mnt/data/Videos/roseville/clips/at10mins_small.mp4"
-#VIDEO="/mnt/data/Videos/roseville/clips/at10mins.mp4"
+#VIDEO="${HOME}/Videos/roseville/clips/at10mins.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 

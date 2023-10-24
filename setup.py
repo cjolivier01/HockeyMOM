@@ -54,6 +54,8 @@ class CMakeBuild(build_ext):
         default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
             default_build_type = "Debug"
+        elif int(os.environ.get("PROFILE", "0")) > 0:
+            default_build_type = "ReleaseWithDebugInfo"
         elif int(os.environ.get("RELEASE", "0")) > 0:
             default_build_type = "Release"
 
