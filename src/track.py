@@ -113,6 +113,7 @@ def eval_seq(
     frame_rate: int=30,
     use_cuda: bool=True,
 ):
+    assert False and "Use infer_full.py instead of demo.py"
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)

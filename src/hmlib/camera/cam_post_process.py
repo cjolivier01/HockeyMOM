@@ -71,20 +71,22 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = True or BASIC_DEBUGGING
+        #self.show_image = False or BASIC_DEBUGGING
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        # self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        #self.plot_individual_player_tracking = True and BASIC_DEBUGGING
         self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
+        #self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -97,17 +99,17 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.fixed_edge_rotation = False
 
         self.fixed_edge_rotation_angle = 35.0
-        #self.fixed_edge_rotation_angle = 45.0
+        # self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
@@ -136,12 +138,12 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        #self.scale_to_original_image = True
         self.scale_to_original_image = True
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        #self.crop_output_image = True and not BASIC_DEBUGGING
-        self.crop_output_image = False
+        self.crop_output_image = True and not BASIC_DEBUGGING
+        #self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -152,7 +154,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw watermark on the image
         self.use_watermark = True
-        #self.use_watermark = False
+        # self.use_watermark = False
 
         self.remove_largest = False
 
@@ -174,7 +176,7 @@ def scale_box(box, from_img, to_img):
 def make_scale_array(from_img, to_img):
     from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
     to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
-    #return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
+    # return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
     return from_sz / to_sz
 
 
@@ -313,7 +315,9 @@ class FramePostProcessor:
             if self._child_pid:
                 os.waitpid(self._child_pid)
 
-    def send(self, online_tlwhs, online_ids, detections, info_imgs, image, original_img):
+    def send(
+        self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
+    ):
         while self._queue.qsize() > 10:
             time.sleep(0.001)
         try:
@@ -322,8 +326,15 @@ class FramePostProcessor:
                 for d in detections
             ]
             self._queue.put(
-                (online_tlwhs.copy(), online_ids.copy(), dets, info_imgs, image, original_img)
-                #(online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
+                (
+                    online_tlwhs.copy(),
+                    online_ids.copy(),
+                    dets,
+                    info_imgs,
+                    image,
+                    original_img,
+                )
+                # (online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
             )
         except Exception as ex:
             print(ex)
@@ -425,8 +436,17 @@ class FramePostProcessor:
                 # Sanity check clip dimensions
                 # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
+                    print(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}")
+                    #assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
+                    y1 = min(y1, online_im.shape[0])
+                    y2 = min(y2, online_im.shape[0])
+                if x1 >= online_im.shape[1] or x2 >= online_im.shape[1]:
+                    print(f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}")
+                    #assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                    x1 = min(x1, online_im.shape[1])
+                    x2 = min(x2, online_im.shape[1])
+
                 # hh = y2 - y1
                 # ww = x2 - x1
                 # assert hh < self.final_frame_height
@@ -522,7 +542,7 @@ class FramePostProcessor:
     def prepare_online_image(online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
-        if not online_im.flags['C_CONTIGUOUS']:
+        if not online_im.flags["C_CONTIGUOUS"]:
             online_im = online_im.ascontiguousarray(online_im)
         return online_im
 
@@ -608,7 +628,8 @@ class FramePostProcessor:
                         online_im = online_im.numpy()
 
                 fast_ids_set = None
-                if self._args.plot_individual_player_tracking:
+
+                if self._args.plot_all_detections:
                     online_id_set = set(online_ids)
                     offline_ids = []
                     offline_tlwhs = []
@@ -617,7 +638,10 @@ class FramePostProcessor:
                         if det.track_id not in online_id_set:
                             tlwh = det.tlwh
                             vertical = tlwh[2] / tlwh[3] > 1.6
-                            if tlwh[2] * tlwh[3] > self._opt.min_box_area and not vertical:
+                            if (
+                                tlwh[2] * tlwh[3] > self._opt.min_box_area
+                                and not vertical
+                            ):
                                 offline_ids.append(det.track_id)
                                 offline_tlwhs.append(det.tlwh)
                             else:
@@ -631,7 +655,9 @@ class FramePostProcessor:
                             offline_tlwhs,
                             offline_ids,
                             frame_id=self._frame_id,
-                            fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                            fps=1.0 / timer.average_time
+                            if timer.average_time
+                            else 1000.0,
                             speeds=[],
                             line_thickness=1,
                             box_color=(255, 128, 255),
@@ -639,6 +665,7 @@ class FramePostProcessor:
                             print_track_id=False,
                         )
 
+                if self._args.plot_individual_player_tracking:
                     online_im = vis.plot_tracking(
                         online_im,
                         online_tlwhs,
