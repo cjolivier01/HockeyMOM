@@ -1,4 +1,5 @@
 import os
+
 # from loguru import logger
 
 # import time
@@ -14,14 +15,16 @@ import os
 # import random
 # import warnings
 
+
 def _print_slurm_environment():
-    if 'SLURM_PROCID' in os.environ and int(os.environ['SLURM_PROCID']) == 0:
+    if "SLURM_PROCID" in os.environ and int(os.environ["SLURM_PROCID"]) == 0:
         for key, val in os.environ.items():
             if key.startswith("SLURM_"):
                 print(f"{key}={val}")
 
-#_print_slurm_environment()
-#exit(0)
+
+# _print_slurm_environment()
+# exit(0)
 
 node_lists = [
     "clip-g1-[01-03]",
@@ -49,25 +52,26 @@ def set_slurm_env_variables(node_list, tasks_per_node):
     - tasks_per_node (int): Number of tasks per node
     """
     # Setting SLURM_JOB_NODELIST and SLURM_TASKS_PER_NODE
-    os.environ['SLURM_JOB_NODELIST'] = ','.join(node_list)
-    os.environ['SLURM_TASKS_PER_NODE'] = str(tasks_per_node)
+    os.environ["SLURM_JOB_NODELIST"] = ",".join(node_list)
+    os.environ["SLURM_TASKS_PER_NODE"] = str(tasks_per_node)
 
     # Setting SLURM_JOB_NUM_NODES
-    os.environ['SLURM_JOB_NUM_NODES'] = str(len(node_list))
+    os.environ["SLURM_JOB_NUM_NODES"] = str(len(node_list))
 
     # Setting SLURM_NNODES to be the same as SLURM_JOB_NUM_NODES (for some scripts)
-    os.environ['SLURM_NNODES'] = os.environ['SLURM_JOB_NUM_NODES']
+    os.environ["SLURM_NNODES"] = os.environ["SLURM_JOB_NUM_NODES"]
 
     # Setting SLURM_NTASKS as total number of tasks
-    os.environ['SLURM_NTASKS'] = str(len(node_list) * tasks_per_node)
+    os.environ["SLURM_NTASKS"] = str(len(node_list) * tasks_per_node)
 
     # Mock other possible Slurm environment variables as needed...
+
 
 def add_string_numbers(a: str, b: str) -> str:
     # Step 2: Make the strings of equal length by prefixing zeros
     max_len = max(len(a), len(b))
-    a = a.rjust(max_len, '0')
-    b = b.rjust(max_len, '0')
+    a = a.rjust(max_len, "0")
+    b = b.rjust(max_len, "0")
 
     result = []
     carry = 0
@@ -83,7 +87,7 @@ def add_string_numbers(a: str, b: str) -> str:
         result.append(str(carry))
 
     # Combine the result and reverse to get the proper order
-    return ''.join(result[::-1])
+    return "".join(result[::-1])
 
 
 def slurm_parse_int(s):
@@ -100,6 +104,7 @@ def string_range(a, b):
         next_num = add_string_numbers(next_num, "1")
         results.append(next_num)
     return results
+
 
 def slurm_parse_brackets(s):
     # parse a "bracket" expression (including closing ']')
@@ -147,7 +152,8 @@ def slurm_parse_list(s):
 #     print(s)
 #     print(slurm_parse_list(s))
 
-def get_first_hostname(nodelist):
+
+def _get_first_hostname(nodelist):
     nodelist = slurm_parse_list(os.environ.get("SLURM_STEP_NODELIST", ""))
     if not nodelist:
         return None
@@ -166,10 +172,16 @@ def get_dist_url(hostname, port=29500, protocol="tcp"):
 
 
 def get_default_dist_url():
+    if "MASTER_ADDR" in os.environ:
+        assert "MASTER_PORT" in os.environ
+        return get_dist_url(
+            os.environ["MASTER_ADDR"], port=int(os.environ["MASTER_PORT"])
+        )
+
     nodelist = os.environ.get("SLURM_JOB_NODELIST", None)
     if not nodelist:
         return None
-    master = get_first_hostname(nodelist)
+    master = _get_first_hostname(nodelist)
     if master:
         return get_dist_url(master)
     return None
@@ -177,7 +189,7 @@ def get_default_dist_url():
 
 def get_local_rank():
     lr = int(os.environ.get("SLURM_LOCALID", "0"))
-    #os.environ["LOCAL_RANK"] = str(lr)
+    # os.environ["LOCAL_RANK"] = str(lr)
     return lr
 
 
@@ -186,6 +198,7 @@ def get_machine_rank():
 
 
 def get_num_machines():
+    
     num_machines = int(os.environ.get("SLURM_NNODES", "1"))
-    #os.environ["WORLD_SIZE"] = str(num_machines)
+    # os.environ["WORLD_SIZE"] = str(num_machines)
     return num_machines
