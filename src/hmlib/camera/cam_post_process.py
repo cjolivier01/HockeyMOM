@@ -71,13 +71,14 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        #self.show_image = False or BASIC_DEBUGGING
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         #self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -98,10 +99,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        #self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
@@ -137,12 +138,12 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        #self.scale_to_original_image = True
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        #self.crop_output_image = True and not BASIC_DEBUGGING
-        self.crop_output_image = False
+        self.crop_output_image = True and not BASIC_DEBUGGING
+        #self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -435,8 +436,17 @@ class FramePostProcessor:
                 # Sanity check clip dimensions
                 # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
+                    print(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}")
+                    #assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
+                    y1 = min(y1, online_im.shape[0])
+                    y2 = min(y2, online_im.shape[0])
+                if x1 >= online_im.shape[1] or x2 >= online_im.shape[1]:
+                    print(f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}")
+                    #assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                    x1 = min(x1, online_im.shape[1])
+                    x2 = min(x2, online_im.shape[1])
+
                 # hh = y2 - y1
                 # ww = x2 - x1
                 # assert hh < self.final_frame_height
