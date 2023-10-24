@@ -429,8 +429,6 @@ class StitchDataset:
         self._stitching_workers = {}
         # Temporary until we get the middle-man
         self._current_worker = 0
-        self._current_request_frame_worker = 0
-        self._current_get_next_frame_worker = 0
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
 
@@ -625,20 +623,14 @@ class StitchDataset:
     def get_next_frame(self):
         self._next_frame_timer.tic()
 
-        stitching_worker = self._stitching_workers[self._current_get_next_frame_worker]
         stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
 
         # INFO(f"Locally dequeued frame id: {self._current_frame}")
-        self._current_get_next_frame_worker = (
-            self._current_get_next_frame_worker + 1
-        ) % self._num_workers
-
         if (
             not self._max_frames
             or self._next_requested_frame < self._start_frame_number + self._max_frames
         ):
             self._to_coordinator_queue.put(self._next_requested_frame)
-            # self.request_next_frame(frame_id=self._next_requested_frame)
             self._next_requested_frame += 1
         else:
             INFO(
