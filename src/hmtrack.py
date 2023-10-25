@@ -102,6 +102,7 @@ class HmPostProcessor:
         if isinstance(img, torch.Tensor):
             img = to_rgb_non_planar(img).cpu()
             original_img = to_rgb_non_planar(original_img)
+            inscribed_image = to_rgb_non_planar(inscribed_image)
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
         if self._args.scale_to_original_image:
@@ -155,14 +156,14 @@ class HmPostProcessor:
                 ),
                 dim=0,
             ).numpy()
-            self._scale_original_to_processed = make_scale_array(
-                from_img=original_img,
-                to_img=img,
-            )
-            self._scale_original_to_processed = torch.cat(
-                (self._scale_original_to_processed, self._scale_original_to_processed),
-                dim=0,
-            ).numpy()
+            # self._scale_original_to_processed = make_scale_array(
+            #     from_img=original_img,
+            #     to_img=img,
+            # )
+            # self._scale_original_to_processed = torch.cat(
+            #     (self._scale_original_to_processed, self._scale_original_to_processed),
+            #     dim=0,
+            # ).numpy()
             self._scale_inscribed_to_original = make_scale_array(
                 from_img=inscribed_image,
                 to_img=original_img,
