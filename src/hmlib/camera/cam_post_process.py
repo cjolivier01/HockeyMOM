@@ -78,7 +78,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        self.show_image = False
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         #self.plot_individual_player_tracking = True and BASIC_DEBUGGING

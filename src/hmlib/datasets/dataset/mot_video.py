@@ -38,7 +38,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         path,
         img_size,
         clip_original=None,
-        mot_eval_mode: bool = False,
         video_id: int = 1,
         data_dir=None,
         json_file: str = "train_half.json",
@@ -62,10 +61,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.process_width = img_size[1]
         self.width_t = None
         self.height_t = None
-        self.count = torch.tensor([0], dtype=torch.int32)
+        self._count = torch.tensor([0], dtype=torch.int32)
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
-        self._mot_eval_mode = mot_eval_mode
         self._batch_size = batch_size
         self._timer = None
         self._to_worker_queue = multiprocessing.Queue()
@@ -110,6 +108,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 next_batch = self._get_next_batch()
                 self._from_worker_queue.put(next_batch)
         except Exception as ex:
+            print(ex)
+            traceback.print_exc()
             self._from_worker_queue.put(ex)
             return
         self._from_worker_queue.put(StopIteration())
@@ -145,74 +145,81 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         return self
 
     def _get_next_batch(self):
-        # if self.count and self.count % 20 == 0:
+        # TODO: Support other batch sizes
+        # if self._count and self._count % 20 == 0:
         #     logger.info(
         #         "Dataset delivery frame {} ({:.2f} fps)".format(
-        #             self.count + 1, 1.0 / max(1e-5, self._timer.average_time)
+        #             self._count + 1, 1.0 / max(1e-5, self._timer.average_time)
         #         )
         #     )
         # self._timer.tic()
-        if self.count.item() == len(self):
+        if self._count.item() == len(self):
             raise StopIteration
-        # Read image
-        res, img0 = self.cap.read()  # BGR
-        if img0 is None:
-            print(f"Error loading frame: {self.count}")
-            raise StopIteration()
+        frames_inscribed_images = []
+        frames_imgs = []
+        frames_original_imgs = []
+        ids = []
+        for batch_item_number in range(self._batch_size):
+            # Read image
+            _, img0 = self.cap.read()  # BGR
+            if img0 is None:
+                print(f"Error loading frame: {self._count + self._start_frame_number}")
+                raise StopIteration()
 
-        if self.clip_original:
-            img0 = img0[
-                self.clip_original[1] : self.clip_original[3],
-                self.clip_original[0] : self.clip_original[2],
-                :,
-            ]
+            if self.clip_original:
+                img0 = img0[
+                    self.clip_original[1] : self.clip_original[3],
+                    self.clip_original[0] : self.clip_original[2],
+                    :,
+                ]
 
-        original_img = img0.copy()
-
-        (
-            img,
-            inscribed_image,
-            self.letterbox_ratio,
-            self.letterbox_dw,
-            self.letterbox_dh,
-        ) = letterbox(
-            img0,
-            height=self.process_height,
-            width=self.process_width,
-        )
-        if self.width_t is None:
-            self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
-            self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
-
-        if self._mot_eval_mode:
-            imgs_info = [
-                self.height_t,
-                self.width_t,
-                self.count + 1,
-                self.video_id,
-                [self._path],
-            ]
-
-        if self._mot_eval_mode:
-            img = torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)).permute(
-                2, 0, 1
+            (
+                img,
+                inscribed_image,
+                self.letterbox_ratio,
+                self.letterbox_dw,
+                self.letterbox_dh,
+            ) = letterbox(
+                img0,
+                height=self.process_height,
+                width=self.process_width,
             )
-            img = img.unsqueeze(0)
+            if self.width_t is None:
+                self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
+                self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
+            frames_inscribed_images.append(inscribed_image.transpose(2, 0, 1))
+            frames_imgs.append(img.transpose(2, 0, 1))
+            frames_original_imgs.append(img0.transpose(2, 0, 1))
+            ids.append(self._count + 1 + batch_item_number)
+
+        if self._batch_size != 1:
+            inscribed_image = torch.stack(frames_inscribed_images, dim=0)
+            img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
+            original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
+            # Does this need to be in imgs_info this way as an array?
+            ids = torch.stack(ids, dim=0)
         else:
-            # Normalize RGB
-            img = img[:, :, ::-1].transpose(2, 0, 1)
+            inscribed_image = frames_inscribed_images[0]
+            original_img = torch.from_numpy(frames_original_imgs[0]).contiguous()
+            original_img = original_img.unsqueeze(0)
+            img = torch.from_numpy(np.ascontiguousarray(frames_imgs[0], dtype=np.float32))
+            img = img.unsqueeze(0)
+            ids = torch.tensor(self._count + 1).unsqueeze(0)
+
+        imgs_info = [
+            self.height_t,
+            self.width_t,
+            self._count + 1,
+            self.video_id,
+            [self._path],
+        ]
+
+        # TOD: remove ascontiguousarray?
         img /= 255.0
 
-        self.count += 1
-        if self._mot_eval_mode:
-            original_img = torch.from_numpy(original_img.transpose(2, 0, 1))
-            original_img = original_img.unsqueeze(0)
-            ids = torch.tensor(imgs_info[2]).unsqueeze(0)
-            # self._timer.toc()
-            return original_img, img, inscribed_image, imgs_info, ids
-        else:
-            # self._timer.toc()
-            return self.count, img, img0, original_img
+        self._count += 1
+        # self._timer.toc()
+        return original_img, img, inscribed_image, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
@@ -222,13 +229,14 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if not isinstance(results, StopIteration):
                 print(results)
                 traceback.print_exc()
+            self.close()
             raise results
         self._timer.toc()
 
         if self._next_counter and self._next_counter % 20 == 0:
             logger.info(
                 "Dataset delivery frame {} ({:.2f} fps)".format(
-                    self.count + 1, 1.0 / max(1e-5, self._timer.average_time)
+                    self._count + 1, 1.0 / max(1e-5, self._timer.average_time)
                 )
             )
         self._next_counter += 1
