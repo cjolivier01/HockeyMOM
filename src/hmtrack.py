@@ -2,26 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# import _init_paths
-# import math
-# import time
-# import copy
-# import os
-# import os.path as osp
 import cv2
-# import logging
-# import argparse
-# import motmetrics as mm
 import numpy as np
 import torch
-
-# import traceback
-# import typing
-# import multiprocessing
-# import matplotlib.pyplot as plt
-
-# from sklearn.cluster import KMeans
-# from kmeans_pytorch import kmeans
 
 from threading import Thread
 from multiprocessing import Queue
@@ -72,10 +55,19 @@ def scale_tlwhs(tlwhs: List, scale: float):
 
 
 class HmPostProcessor:
-    def __init__(self, opt, args, fps: int, save_dir: str, data_type: str = "mot"):
+    def __init__(
+        self,
+        opt,
+        args,
+        fps: int,
+        save_dir: str,
+        data_type: str = "mot",
+        postprocess: bool = True,
+    ):
         self._opt = opt
         self._args = args
         self._data_type = data_type
+        self._postprocess = postprocess
         self._postprocessor = None
         self._fps = fps
         self._save_dir = save_dir
@@ -103,6 +95,8 @@ class HmPostProcessor:
         original_img,
         online_scores=None,
     ):
+        if not self._postprocess:
+            return
         if self._timer is not None:
             self._timer.toc()
         if isinstance(img, torch.Tensor):
@@ -110,7 +104,6 @@ class HmPostProcessor:
             original_img = to_rgb_non_planar(original_img)
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
-        # if self._args.scale_to_original_image or True:
         if self._args.scale_to_original_image:
             scaled_online_tlwhs = []
             for tlwh in online_tlwhs:
@@ -326,7 +319,6 @@ def track_sequence(
             results[frame_id + 1] = (online_tlwhs, online_ids)
 
             if postprocessor is not None:
-
                 # cv2.imshow("img0", img0)
                 # #cv2.imshow("img", img)
                 # #cv2.imshow("img", original_img)
