@@ -106,8 +106,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 next_batch = self._get_next_batch()
                 self._from_worker_queue.put(next_batch)
         except Exception as ex:
-            print(ex)
-            traceback.print_exc()
+            if not isinstance(ex, StopIteration):
+                print(ex)
+                traceback.print_exc()
             self._from_worker_queue.put(ex)
             return
         self._from_worker_queue.put(StopIteration())
