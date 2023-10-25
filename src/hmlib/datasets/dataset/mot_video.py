@@ -71,8 +71,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.vn = None
         self._thread = None
 
-        assert self._batch_size == 1 and "Only batch size of one supported atm"
-
         self._start_worker()
 
     def _open_video(self):
@@ -187,24 +185,16 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
-            frames_inscribed_images.append(inscribed_image.transpose(2, 0, 1))
-            frames_imgs.append(img.transpose(2, 0, 1))
-            frames_original_imgs.append(img0.transpose(2, 0, 1))
+            frames_inscribed_images.append(torch.from_numpy(inscribed_image.transpose(2, 0, 1)))
+            frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+            frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
 
-        if self._batch_size != 1:
-            inscribed_image = torch.stack(frames_inscribed_images, dim=0)
-            img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
-            original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
-            # Does this need to be in imgs_info this way as an array?
-            ids = torch.stack(ids, dim=0)
-        else:
-            inscribed_image = frames_inscribed_images[0]
-            original_img = torch.from_numpy(frames_original_imgs[0]).contiguous()
-            original_img = original_img.unsqueeze(0)
-            img = torch.from_numpy(np.ascontiguousarray(frames_imgs[0], dtype=np.float32))
-            img = img.unsqueeze(0)
-            ids = torch.tensor(self._count + 1).unsqueeze(0)
+        inscribed_image = torch.stack(frames_inscribed_images, dim=0)
+        img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
+        original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
+        # Does this need to be in imgs_info this way as an array?
+        ids = torch.stack(ids, dim=0)
 
         imgs_info = [
             self.height_t,
