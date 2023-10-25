@@ -13,6 +13,8 @@ from multiprocessing import Queue
 
 from typing import Dict, List
 
+from yolox.evaluators.mot_evaluator import write_results_no_score
+
 from hmlib.tracker.multitracker import JDETracker, torch_device
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
@@ -78,6 +80,7 @@ class HmPostProcessor:
         self._scale_inscribed_to_original = 1
         self._timer = None
         self._counter = 0
+        self._results = []
 
     @property
     def data_type(self):
@@ -93,7 +96,7 @@ class HmPostProcessor:
         img,
         inscribed_image,
         original_img,
-        online_scores=None,
+        online_scores,
     ):
         if not self._postprocess:
             return
@@ -121,6 +124,8 @@ class HmPostProcessor:
             img *= 255
             img = img.clip(min=0, max=255).to(torch.uint8)
 
+        self._results.append((frame_id, online_tlwhs, online_ids, online_scores))
+
         self._postprocessor.send(
             online_tlwhs,
             online_ids,
@@ -139,6 +144,7 @@ class HmPostProcessor:
                 )
             )
         self._timer.tic()
+        return detections, online_tlwhs
 
     def on_first_image(self, frame_id, info_imgs, img, inscribed_image, original_img):
         _, _, self.dw, self.dh = datasets.calculate_letterbox(
@@ -156,14 +162,6 @@ class HmPostProcessor:
                 ),
                 dim=0,
             ).numpy()
-            # self._scale_original_to_processed = make_scale_array(
-            #     from_img=original_img,
-            #     to_img=img,
-            # )
-            # self._scale_original_to_processed = torch.cat(
-            #     (self._scale_original_to_processed, self._scale_original_to_processed),
-            #     dim=0,
-            # ).numpy()
             self._scale_inscribed_to_original = make_scale_array(
                 from_img=inscribed_image,
                 to_img=original_img,
