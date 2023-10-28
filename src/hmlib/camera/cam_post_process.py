@@ -102,7 +102,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.max_in_aspec_ratio = True
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = False
+        # self.apply_fixed_edge_scaling = False
+        self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
@@ -163,7 +164,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        self.detection_inclusion_box = [None, 600, None, None]
+        self.detection_inclusion_box = [363, 600, 5388, 1714]
 
 
 def scale_box(box, from_img, to_img):
