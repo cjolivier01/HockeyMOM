@@ -142,7 +142,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        #self.crop_output_image = True and not BASIC_DEBUGGING
+        self.crop_output_image = True and not BASIC_DEBUGGING
         self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
@@ -161,6 +161,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
+
+        # Roseville #2
+        self.detection_inclusion_box = [None, 600, None, None]
 
 
 def scale_box(box, from_img, to_img):

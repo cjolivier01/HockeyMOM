@@ -23,9 +23,11 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/CHI_VS_TOR/003.mp4"
 #VIDEO="/mnt/data/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.avi"
-VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
+#VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
+VIDEO="${HOME}/Videos/roseville/stitched_output-with-audio-no-warmups.mp4"
+
 
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run"
@@ -39,8 +41,7 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -c="${PRETRAINED_MODEL}" \
   -b=1 -d=1 \
   --infer \
-  --track_thresh=0.05 \
-  --track_thresh_low=0.005 \
+  --conf=0.01 \
   --min-box-area=35 \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \

@@ -53,4 +53,4 @@ def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False)
 
 
 if __name__ == "__main__":
-    draw_box_with_mouse("/mnt/home/colivier-local/Videos/roseville/output_frame.png")
+    draw_box_with_mouse("/mnt/data/Videos/roseville/output.png")
