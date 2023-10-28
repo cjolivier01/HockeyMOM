@@ -285,7 +285,7 @@ def main(exp, args, num_gpu):
                     #data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     #json_file="train.json",
                     json_file="val.json",
-                    batch_size=1,
+                    batch_size=8,
                     name='val',
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),

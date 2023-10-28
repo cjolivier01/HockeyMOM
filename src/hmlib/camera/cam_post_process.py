@@ -82,7 +82,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        #self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -107,6 +107,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
+        #self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 35.0
@@ -159,7 +160,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.remove_largest = False
 
-        self.detection_inclusion_box = None
+        #self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
 
