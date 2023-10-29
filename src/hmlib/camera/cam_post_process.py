@@ -10,7 +10,8 @@ import cv2
 import argparse
 import numpy as np
 import traceback
-import errno
+import multiprocessing
+import queue
 
 from pathlib import Path
 
@@ -18,7 +19,6 @@ import torch
 import torchvision as tv
 
 from threading import Thread
-from multiprocessing import Queue
 
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
@@ -171,7 +171,15 @@ class DefaultArguments(core.HMPostprocessConfig):
 
 
 def get_open_files_count():
-    return len(os.listdir(f"/proc/{os.getpid()}/fd"))
+    pid = os.getpid()
+    return len(os.listdir(f"/proc/{pid}/fd"))
+
+
+def create_queue(mp: bool):
+    if mp:
+        return multiprocessing.Queue()
+    else:
+        return queue.Queue()
 
 
 def scale_box(box, from_img, to_img):
@@ -187,7 +195,6 @@ def scale_box(box, from_img, to_img):
 def make_scale_array(from_img, to_img):
     from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
     to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
-    # return np.array([w_scale, h_scale, w_scale, h_scale], dtype=np.float32)
     return from_sz / to_sz
 
 
@@ -241,10 +248,10 @@ class FramePostProcessor:
         use_fork: bool = False,
     ):
         self._args = args
-        self._frame_id = start_frame_id - 1
+        self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
-        self._queue = Queue()
-        self._imgproc_queue = Queue()
+        self._queue = create_queue(mp=use_fork)
+        self._imgproc_queue = create_queue(mp=use_fork)
         self._data_type = data_type
         self._fps = fps
         self._opt = opt
@@ -339,8 +346,8 @@ class FramePostProcessor:
             ]
             self._queue.put(
                 (
-                    online_tlwhs.copy(),
-                    online_ids.copy(),
+                    online_tlwhs,
+                    online_ids,
                     dets,
                     info_imgs,
                     image,
@@ -390,8 +397,9 @@ class FramePostProcessor:
                 if self._output_video is not None:
                     self._output_video.release()
                 break
-            assert imgproc_data.frame_id not in seen_frames
-            seen_frames.add(imgproc_data.frame_id)
+            frame_id = imgproc_data.frame_id
+            assert frame_id not in seen_frames
+            seen_frames.add(frame_id)
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
                     "Image Post-Processing frame {} ({:.2f} fps), open files count: {}".format(
@@ -592,7 +600,7 @@ class FramePostProcessor:
             self.final_frame_width = int(hockey_mom.video.width)
 
         self._imgproc_queue.put("ready")
-        frame_id = self._frame_id
+        frame_id = self._start_frame_id - 1
         while True:
             frame_id += 1
             online_targets_and_img = self._queue.get()
@@ -1255,7 +1263,7 @@ class FramePostProcessor:
                 # plt.show()
             assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             imgproc_data = ImageProcData(
-                frame_id=frame_id,
+                frame_id=frame_id.item(),
                 img=online_im,
                 current_box=current_box,
             )
