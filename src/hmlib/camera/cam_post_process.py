@@ -100,7 +100,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        #self.max_in_aspec_ratio = True
+        # self.max_in_aspec_ratio = True
         self.max_in_aspec_ratio = True
 
         # Zooming is fixed based upon the horizonal position's distance from center
@@ -205,7 +205,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
     filtered_online_ids = []
     for i in range(len(online_tlwhs)):
         tlwh = online_tlwhs[i]
-        #center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
+        # center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
         center = [tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2]
         if inclusion_box[0] and center[0] < inclusion_box[0]:
             continue
@@ -377,6 +377,8 @@ class FramePostProcessor:
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
+        # The timer that reocrds the overall throughput
+        final_all_timer = None
         if self._output_video is None:
             # results_dir = Path(self._save_dir)
             # results_dir.mkdir(parents=True, exist_ok=True)
@@ -448,20 +450,6 @@ class FramePostProcessor:
                 y1 = intbox[1]
                 y2 = intbox[3]
                 x2 = int(x1 + int(float(y2 - y1) * self._final_aspect_ratio))
-                # if y2 == online_im.shape[0]:
-                #     # Possible to be off by one here sometimes
-                #     print(f"y2 off by one")
-                #     y2 == online_im.shape[0] - 1
-                #     assert y1 > 0
-                #     y1 -= 1
-                # if x2 == online_im.shape[1]:
-                #     print(f"x2 off by one")
-                #     # Possible to be off by one here sometimes
-                #     x2 == online_im.shape[1] - 1
-                #     assert x1 > 0
-                #     x1 -= 1
-                # Sanity check clip dimensions
-                # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
                 if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
                     print(
@@ -477,11 +465,6 @@ class FramePostProcessor:
                     # assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
                     x1 = min(x1, online_im.shape[1])
                     x2 = min(x2, online_im.shape[1])
-
-                # hh = y2 - y1
-                # ww = x2 - x1
-                # assert hh < self.final_frame_height
-                # assert ww < self.final_frame_width
 
                 if not self._args.fake_crop_output_image:
                     if self._args.use_cuda:
@@ -570,6 +553,24 @@ class FramePostProcessor:
                     )
             timer.toc()
 
+            if True:
+                # Overall FPS
+                if final_all_timer is None:
+                    final_all_timer = Timer()
+                    final_all_timer.tic()
+                else:
+                    final_all_timer.toc()
+                    final_all_timer.tic()
+
+                if imgproc_data.frame_id % 100 == 0:
+                    logger.info(
+                        "*** Overall performance, frame {} ({:.2f} fps)".format(
+                            imgproc_data.frame_id,
+                            1.0 / max(1e-5, final_all_timer.average_time),
+                        )
+                    )
+
+
     def prepare_online_image(self, online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
@@ -583,8 +584,6 @@ class FramePostProcessor:
         last_dx_shrink_size = 0
         max_dx_shrink_size = 100
         center_dx_shift = 0
-        # show_image_interval = 1
-        # tv_resizer = None
         timer = Timer()
 
         if self._args.crop_output_image and not self._args.fake_crop_output_image:
@@ -1190,10 +1189,7 @@ class FramePostProcessor:
                         aspect_ratio(current_box), self._final_aspect_ratio
                     )
 
-                if (
-                    self._args.apply_fixed_edge_scaling
-                    and self._args.apply_fixed_edge_scaling
-                ):
+                if self._args.apply_fixed_edge_scaling:
                     current_box = hockey_mom.apply_fixed_edge_scaling(
                         current_box,
                         edge_scaling_factor=self._args.fixed_edge_scaling_factor,
