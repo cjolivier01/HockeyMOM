@@ -6,6 +6,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
 import matplotlib.pyplot as plt
+import pt_autograph as ptag
 
 import torch
 
@@ -235,7 +236,8 @@ class TlwhHistory(object):
         height = tlwh[3]
         x_center = left + width / 2
         y_center = top + height / 2
-        return np.array((x_center, y_center), dtype=np.float32)
+        #return np.array((x_center, y_center), dtype=np.float32)
+        return torch.tensor((x_center, y_center), dtype=torch.float32)
 
     def __len__(self):
         length = len(self._image_position_history)
@@ -489,7 +491,7 @@ class HockeyMOM:
         torch_tensors = []
         for n in self._online_image_center_points:
             # print(n)
-            torch_tensors.append(torch.from_numpy(n).to(device))
+            torch_tensors.append(n.to(device))
         tt = torch.cat(torch_tensors, dim=0)
         tt = torch.reshape(tt, (len(torch_tensors), 2))
         labels = self._kmeans_objects[n_clusters].fit_predict(tt)

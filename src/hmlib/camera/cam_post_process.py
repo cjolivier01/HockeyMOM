@@ -100,7 +100,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
+        #self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
         # self.apply_fixed_edge_scaling = False
@@ -159,8 +160,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Draw watermark on the image
         self.use_watermark = True
         # self.use_watermark = False
-
-        self.remove_largest = False
 
         # self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
@@ -629,20 +628,6 @@ class FramePostProcessor:
             img0 = online_targets_and_img[4]
             original_img = online_targets_and_img[5]
 
-            if self._args.remove_largest:
-                largest_index = -1
-                largest_height = -1
-
-                for i, t in enumerate(online_tlwhs):
-                    h = t[3]
-                    if h > largest_height:
-                        largest_height = h
-                        largest_index = i
-
-                if largest_index >= 0:
-                    del online_tlwhs[largest_index]
-                    del online_ids[largest_index]
-
             hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
             hockey_mom.reset_clusters()
@@ -658,8 +643,6 @@ class FramePostProcessor:
                 else:
                     online_im = img0
                 online_im = self.prepare_online_image(online_im)
-
-                fast_ids_set = None
 
                 if self._args.plot_all_detections:
                     online_id_set = set(online_ids)
@@ -705,7 +688,7 @@ class FramePostProcessor:
                         frame_id=frame_id,
                         fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=[],
-                        line_thickness=2 if not fast_ids_set else 4,
+                        line_thickness=2,
                     )
 
                 # Examine as 2 clusters
@@ -727,10 +710,6 @@ class FramePostProcessor:
                 else:
                     largest_cluster_ids_box2 = None
 
-                # if fast_ids_set:
-                #     print("Skipping 2-cluster box")
-                #     largest_cluster_ids_box2 = None
-
                 # Examine as 3 clusters
                 largest_cluster_ids_3 = hockey_mom.prune_not_in_largest_cluster(
                     n_clusters=3, ids=online_ids
@@ -749,10 +728,6 @@ class FramePostProcessor:
                         )
                 else:
                     largest_cluster_ids_box3 = None
-
-                # if fast_ids_set:
-                #     print("Skipping 3-cluster box")
-                #     largest_cluster_ids_box3 = None
 
                 if (
                     largest_cluster_ids_box2 is not None
@@ -1261,15 +1236,16 @@ class FramePostProcessor:
                 # kmeans.fit(hockey_mom.online_image_center_points)
                 # plt.scatter(x, y, c=kmeans.labels_)
                 # plt.show()
-            assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            imgproc_data = ImageProcData(
-                frame_id=frame_id.item(),
-                img=online_im,
-                current_box=current_box,
-            )
-            timer.toc()
-            # Only let it get ahead around 25 frames so as not to use too much
-            # memory for no gain
-            while self._imgproc_queue.qsize() > 25:
-                time.sleep(0.001)
-            self._imgproc_queue.put(imgproc_data)
+
+                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=current_box,
+                )
+                timer.toc()
+                # Only let it get ahead around 25 frames so as not to use too much
+                # memory for no gain
+                while self._imgproc_queue.qsize() > 25:
+                    time.sleep(0.001)
+                self._imgproc_queue.put(imgproc_data)
