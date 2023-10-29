@@ -170,35 +170,26 @@ def make_parser():
     return parser
 
 
-def compare_dataframes(gts, ts):
-    accs = []
-    names = []
-    for k, tsacc in ts.items():
-        if k in gts:
-            logger.info("Comparing {}...".format(k))
-            accs.append(
-                mm.utils.compare_to_groundtruth(gts[k], tsacc, "iou", distth=0.5)
-            )
-            names.append(k)
-        else:
-            logger.warning("No ground truth for {}, skipping.".format(k))
+# def compare_dataframes(gts, ts):
+#     accs = []
+#     names = []
+#     for k, tsacc in ts.items():
+#         if k in gts:
+#             logger.info("Comparing {}...".format(k))
+#             accs.append(
+#                 mm.utils.compare_to_groundtruth(gts[k], tsacc, "iou", distth=0.5)
+#             )
+#             names.append(k)
+#         else:
+#             logger.warning("No ground truth for {}, skipping.".format(k))
 
-    return accs, names
+#     return accs, names
 
 
-# def get_video_w_h_fps(video_file_name: str) -> Tuple[int, int, float]:
-#     vid = cv2.VideoCapture(video_file_name)
-#     assert vid.isOpenned()
+def set_torch_multiprocessing_use_filesystem():
+    import torch.multiprocessing
+    torch.multiprocessing.set_sharing_strategy('file_system')
 
-#     # Get width and height of the video
-#     width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-#     height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-#     # Get frames per second (FPS) of the video
-#     fps = video.get(cv2.CAP_PROP_FPS)
-
-#     # Release the video capture object
-#     video.release()
 
 # @logger.catch
 def main(exp, args, num_gpu):
