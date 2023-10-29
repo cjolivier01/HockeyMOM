@@ -552,7 +552,7 @@ class FramePostProcessor:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
         if not online_im.flags["C_CONTIGUOUS"]:
-            online_im = online_im.ascontiguousarray(online_im)
+            online_im = np.ascontiguousarray(online_im)
         return online_im
 
     def _postprocess_frame_impl(self, hockey_mom, show_image, opt):
