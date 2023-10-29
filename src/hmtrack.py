@@ -98,7 +98,7 @@ class HmPostProcessor:
         online_scores,
     ):
         self._counter += 1
-        if self._counter % 20 ==:
+        if self._counter % 100 == 0:
             print(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return detections, online_tlwhs
