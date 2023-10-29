@@ -64,7 +64,7 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 0.6,
     },
     "roseville_2": {
-        "fixed_edge_scaling_factor": 1.2,
+        "fixed_edge_scaling_factor": 1.6,
     },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
@@ -82,7 +82,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        self.plot_individual_player_tracking = True
+        #self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -110,7 +110,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = 35.0
+        self.fixed_edge_rotation_angle = 20.0
+        # self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
@@ -380,14 +381,14 @@ class FramePostProcessor:
                 if self._output_video is not None:
                     self._output_video.release()
                 break
-            timer.tic()
-
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
                     "Image Post-Processing frame {} ({:.2f} fps)".format(
                         imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
+                timer = Timer()
+            timer.tic()
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
@@ -578,7 +579,6 @@ class FramePostProcessor:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            timer.tic()
             self._frame_id += 1
 
             if self._frame_id % 20 == 0:
@@ -587,6 +587,8 @@ class FramePostProcessor:
                         self._frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
+                timer = Timer()
+            timer.tic()
 
             online_tlwhs = online_targets_and_img[0]
             online_ids = online_targets_and_img[1]
@@ -755,14 +757,14 @@ class FramePostProcessor:
                     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
                 )
 
-                # if self._args.plot_camera_tracking:
-                #     vis.plot_rectangle(
-                #         online_im,
-                #         current_box,
-                #         color=(128, 0, 128),
-                #         thickness=2,
-                #         label="union_clusters_2_and_3",
-                #     )
+                if self._args.plot_camera_tracking:
+                    vis.plot_rectangle(
+                        online_im,
+                        current_box,
+                        color=(128, 0, 128),
+                        thickness=2,
+                        label="union_clusters_2_and_3",
+                    )
 
                 # if fast_bounding_box is not None and self._args.plot_camera_tracking:
                 #     vis.plot_rectangle(
@@ -835,9 +837,14 @@ class FramePostProcessor:
                     # assert height(last_box) <= hockey_mom.video.height
                     return current_box, last_box
 
-                group_x_velocity, edge_center = hockey_mom.get_group_x_velocity()
+                group_x_velocity, edge_center = hockey_mom.get_group_x_velocity(
+                    min_considered_velocity=5.0,
+                    group_threshhold=0.6,
+                    # min_considered_velocity=0.01,
+                    # group_threshhold=0.6,
+                )
                 if group_x_velocity:
-                    # print(f"group x velocity: {group_x_velocity}")
+                    print(f"group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
@@ -852,6 +859,7 @@ class FramePostProcessor:
                     # assert height(current_box) <= hockey_mom.video.height
 
                     hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
+
                     # last_temporal_box = translate_box(last_temporal_box, group_x_velocity, 0)
                     # hockey_mom.add_x_velocity(group_x_velocity)
                     # hockey_mom.apply_box_velocity(current_box, scale_speed = 1.0)

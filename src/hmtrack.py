@@ -78,8 +78,8 @@ class HmPostProcessor:
         self.dw = 0
         self.dh = 0
         self._scale_inscribed_to_original = 1
-        self._timer = None
-        self._counter = 0
+        #self._timer = None
+        #self._counter = 0
         self._results = []
 
     @property
@@ -100,8 +100,8 @@ class HmPostProcessor:
     ):
         if not self._postprocess:
             return
-        if self._timer is not None:
-            self._timer.toc()
+        # if self._timer is not None:
+        #     self._timer.toc()
         if isinstance(img, torch.Tensor):
             img = to_rgb_non_planar(img).cpu()
             original_img = to_rgb_non_planar(original_img)
@@ -134,16 +134,16 @@ class HmPostProcessor:
             img,
             original_img,
         )
-        if self._timer is None:
-            self._timer = Timer()
-        self._counter += 1
-        if self._counter % 20 == 0:
-            logger.info(
-                "Model Proc frame {} ({:.2f} fps)".format(
-                    frame_id, 1.0 / max(1e-5, self._timer.average_time)
-                )
-            )
-        self._timer.tic()
+        # if self._timer is None:
+        #     self._timer = Timer()
+        #self._counter += 1
+        # if self._counter % 20 == 0:
+        #     logger.info(
+        #         "Model Proc frame {} ({:.2f} fps)".format(
+        #             frame_id, 1.0 / max(1e-5, self._timer.average_time)
+        #         )
+        #     )
+        # self._timer.tic()
         return detections, online_tlwhs
 
     def on_first_image(self, frame_id, info_imgs, img, inscribed_image, original_img):

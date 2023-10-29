@@ -195,12 +195,13 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
         original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         # Does this need to be in imgs_info this way as an array?
-        ids = torch.stack(ids, dim=0)
+        ids = torch.cat(ids, dim=0)
 
         imgs_info = [
             self.height_t,
             self.width_t,
-            self._count + 1,
+            #self._count + 1,
+            ids,
             self.video_id,
             [self._path],
         ]
@@ -208,7 +209,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # TOD: remove ascontiguousarray?
         img /= 255.0
 
-        self._count += 1
+        self._count += self._batch_size
         # self._timer.toc()
         return original_img, img, inscribed_image, imgs_info, ids
 

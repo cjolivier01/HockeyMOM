@@ -272,7 +272,8 @@ def main(exp, args, num_gpu):
                 )
             else:
 
-                start_frame_number = 0
+                start_frame_number = 1000
+                #start_frame_number = 0
 
                 from yolox.data import ValTransform
                 assert len(input_video_files) == 1
@@ -285,7 +286,7 @@ def main(exp, args, num_gpu):
                     #data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     #json_file="train.json",
                     json_file="val.json",
-                    batch_size=8,
+                    batch_size=6,
                     name='val',
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
