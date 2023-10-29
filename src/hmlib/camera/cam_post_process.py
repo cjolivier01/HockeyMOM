@@ -341,7 +341,6 @@ class FramePostProcessor:
                     image,
                     original_img,
                 )
-                # (online_tlwhs.copy(), online_ids.copy(), info_imgs, image, original_img)
             )
         except Exception as ex:
             print(ex)
@@ -357,6 +356,7 @@ class FramePostProcessor:
             raise
 
     def final_image_processing(self):
+        print("final_image_processing thread started.")
         assert not self._final_image_processing_started
         self._final_image_processing_started = True
         ready_string = self._imgproc_queue.get()
@@ -378,7 +378,7 @@ class FramePostProcessor:
             )
             assert self._output_video.isOpened()
             self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-        seen_frames = set()
+        self.seen_frames = set()
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
@@ -581,16 +581,17 @@ class FramePostProcessor:
             self.final_frame_width = int(hockey_mom.video.width)
 
         self._imgproc_queue.put("ready")
+        frame_id = self._frame_id
         while True:
+            frame_id += 1
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            self._frame_id += 1
 
-            if self._frame_id % 20 == 0:
+            if frame_id % 20 == 0:
                 logger.info(
                     "Post-Processing frame {} ({:.2f} fps)".format(
-                        self._frame_id, 1.0 / max(1e-5, timer.average_time)
+                        frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
                 timer = Timer()
@@ -666,7 +667,7 @@ class FramePostProcessor:
                             online_im,
                             offline_tlwhs,
                             offline_ids,
-                            frame_id=self._frame_id,
+                            frame_id=frame_id,
                             fps=1.0 / timer.average_time
                             if timer.average_time
                             else 1000.0,
@@ -682,7 +683,7 @@ class FramePostProcessor:
                         online_im,
                         online_tlwhs,
                         online_ids,
-                        frame_id=self._frame_id,
+                        frame_id=frame_id,
                         fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=[],
                         line_thickness=2 if not fast_ids_set else 4,
@@ -796,7 +797,7 @@ class FramePostProcessor:
                 if self._args.plot_speed:
                     vis.plot_frame_id_and_speeds(
                         online_im,
-                        -self._frame_id,
+                        -frame_id,
                         *hockey_mom.get_velocity_and_acceleratrion_xy(),
                     )
 
@@ -849,7 +850,7 @@ class FramePostProcessor:
                     # group_threshhold=0.6,
                 )
                 if group_x_velocity:
-                    print(f"group x velocity: {group_x_velocity}")
+                    # print(f"group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
@@ -919,7 +920,7 @@ class FramePostProcessor:
                 # assert height(current_box) <= hockey_mom.video.height
 
                 current_box = hockey_mom.make_box_proper_aspect_ratio(
-                    frame_id=self._frame_id,
+                    frame_id=frame_id,
                     the_box=current_box,
                     desired_aspect_ratio=self._final_aspect_ratio,
                     max_in_aspec_ratio=self._args.max_in_aspec_ratio,
@@ -1041,7 +1042,7 @@ class FramePostProcessor:
                     # assert width(box) <= hockey_mom.video.width
                     # assert height(box) <= hockey_mom.video.height
                     box = hockey_mom.make_box_proper_aspect_ratio(
-                        frame_id=self._frame_id,
+                        frame_id=frame_id,
                         the_box=box,
                         desired_aspect_ratio=self._final_aspect_ratio,
                         max_in_aspec_ratio=False,
@@ -1224,7 +1225,7 @@ class FramePostProcessor:
                     )
 
                 # current_box = hockey_mom.make_box_proper_aspect_ratio(
-                #     frame_id=self._frame_id,
+                #     frame_id=frame_id,
                 #     the_box=current_box,
                 #     desired_aspect_ratio=self._final_aspect_ratio,
                 #     max_in_aspec_ratio=False, # FALSE HERE HARD CODED
@@ -1243,7 +1244,7 @@ class FramePostProcessor:
                 # plt.show()
             assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             imgproc_data = ImageProcData(
-                frame_id=self._frame_id,
+                frame_id=frame_id,
                 img=online_im,
                 current_box=current_box,
             )
