@@ -445,9 +445,12 @@ class HockeyMOM:
         # assert isinstance(online_tlwh_map, dict)
         self._online_ids = np.array(online_ids)
         self._online_tlws = np.array(online_tlws)
-        self._online_image_center_points = np.array(
-            [TlwhHistory.center_point(twls) for twls in online_tlws]
-        )
+        if online_tlws:
+            self._online_image_center_points = torch.stack(
+                [TlwhHistory.center_point(twls) for twls in online_tlws]
+            )
+        else:
+            self._online_image_center_points = []
         # Result will be 3D with all Z axis as zeroes, so just trim that dim
         # if len(self._online_image_center_points):
         #     self._online_spatial = self._camera.spaceFromImage(
@@ -477,7 +480,6 @@ class HockeyMOM:
             # Minimum clusters that we can have is the minimum number of objects
             max_clusters = len(self._online_image_center_points)
             if not max_clusters:
-                # self._kmeans_objects = dict()
                 return
             elif max_clusters < n_clusters:
                 return
