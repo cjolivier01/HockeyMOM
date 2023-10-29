@@ -375,12 +375,15 @@ class FramePostProcessor:
             )
             assert self._output_video.isOpened()
             self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+        seen_frames = set()
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
                 if self._output_video is not None:
                     self._output_video.release()
                 break
+            assert imgproc_data.frame_id not in seen_frames
+            seen_frames.add(imgproc_data.frame_id)
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
                     "Image Post-Processing frame {} ({:.2f} fps)".format(
@@ -545,7 +548,7 @@ class FramePostProcessor:
                     )
             timer.toc()
 
-    def prepare_online_image(online_im) -> np.array:
+    def prepare_online_image(self, online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
         if not online_im.flags["C_CONTIGUOUS"]:
@@ -631,8 +634,7 @@ class FramePostProcessor:
                     del original_img
                 else:
                     online_im = img0
-                    if isinstance(online_im, torch.Tensor):
-                        online_im = online_im.numpy()
+                online_im = self.prepare_online_image(online_im)
 
                 fast_ids_set = None
 
@@ -838,7 +840,7 @@ class FramePostProcessor:
                     return current_box, last_box
 
                 group_x_velocity, edge_center = hockey_mom.get_group_x_velocity(
-                    min_considered_velocity=5.0,
+                    min_considered_velocity=4.5,
                     group_threshhold=0.6,
                     # min_considered_velocity=0.01,
                     # group_threshhold=0.6,
