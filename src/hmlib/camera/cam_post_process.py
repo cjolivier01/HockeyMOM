@@ -73,20 +73,21 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = False
 
+
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        #self.show_image = True
+        # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        #self.plot_individual_player_tracking = True
+        # self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
-        #self.plot_all_detections = True
+        # self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
@@ -107,7 +108,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
@@ -142,11 +143,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        # self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
-        #self.crop_output_image = False
+        # self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -161,12 +162,16 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.remove_largest = False
 
-        #self.detection_inclusion_box = None
+        # self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
         self.detection_inclusion_box = [363, 600, 5388, 1714]
+
+
+def get_open_files_count():
+    return len(os.listdir(f"/proc/{os.getpid()}/fd"))
 
 
 def scale_box(box, from_img, to_img):
@@ -378,7 +383,7 @@ class FramePostProcessor:
             )
             assert self._output_video.isOpened()
             self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-        self.seen_frames = set()
+        seen_frames = set()
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
@@ -389,8 +394,10 @@ class FramePostProcessor:
             seen_frames.add(imgproc_data.frame_id)
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps)".format(
-                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
+                    "Image Post-Processing frame {} ({:.2f} fps), open files count: {}".format(
+                        imgproc_data.frame_id,
+                        1.0 / max(1e-5, timer.average_time),
+                        get_open_files_count(),
                     )
                 )
                 timer = Timer()
@@ -449,13 +456,17 @@ class FramePostProcessor:
                 # print(f"shape={online_im.shape}, x1={x1}, x2={x2}, y1={y1}, y2={y2}")
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
                 if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
-                    print(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}")
-                    #assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
+                    print(
+                        f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}"
+                    )
+                    # assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
                     y1 = min(y1, online_im.shape[0])
                     y2 = min(y2, online_im.shape[0])
                 if x1 >= online_im.shape[1] or x2 >= online_im.shape[1]:
-                    print(f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}")
-                    #assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
+                    print(
+                        f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}"
+                    )
+                    # assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
                     x1 = min(x1, online_im.shape[1])
                     x2 = min(x2, online_im.shape[1])
 
