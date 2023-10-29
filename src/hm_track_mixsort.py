@@ -238,6 +238,7 @@ def main(exp, args, num_gpu):
             fps=30,
             save_dir=results_folder,
             data_type="mot",
+            use_fork=False,
         )
 
         dataloader = None

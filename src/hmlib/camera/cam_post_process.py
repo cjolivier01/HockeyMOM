@@ -101,7 +101,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
         #self.max_in_aspec_ratio = True
-        self.max_in_aspec_ratio = False
+        self.max_in_aspec_ratio = True
 
         # Zooming is fixed based upon the horizonal position's distance from center
         # self.apply_fixed_edge_scaling = False
@@ -205,7 +205,8 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
     filtered_online_ids = []
     for i in range(len(online_tlwhs)):
         tlwh = online_tlwhs[i]
-        center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
+        #center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
+        center = [tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2]
         if inclusion_box[0] and center[0] < inclusion_box[0]:
             continue
         elif inclusion_box[2] and center[0] > inclusion_box[2]:
@@ -631,8 +632,13 @@ class FramePostProcessor:
             hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
             hockey_mom.reset_clusters()
-            hockey_mom.calculate_clusters(n_clusters=2)
-            hockey_mom.calculate_clusters(n_clusters=3)
+
+            def _kmeans_cuda_device():
+                return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+
+            kmeans_device = _kmeans_cuda_device()
+            hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
+            hockey_mom.calculate_clusters(n_clusters=3, device=kmeans_device)
 
             if show_image or self._save_dir is not None:
                 if self._args.scale_to_original_image:

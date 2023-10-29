@@ -66,12 +66,14 @@ class HmPostProcessor:
         save_dir: str,
         data_type: str = "mot",
         postprocess: bool = True,
+        use_fork: bool = False,
     ):
         self._opt = opt
         self._args = args
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
+        self._use_fork = use_fork
         self._fps = fps
         self._save_dir = save_dir
         self._hockey_mom = None
@@ -186,6 +188,7 @@ class HmPostProcessor:
                 save_dir=self._save_dir,
                 opt=self._opt,
                 args=self._args,
+                use_fork=self._use_fork,
             )
             self._postprocessor.start()
 
