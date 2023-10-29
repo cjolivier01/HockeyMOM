@@ -272,8 +272,8 @@ def main(exp, args, num_gpu):
                 )
             else:
 
-                start_frame_number = 1000
-                #start_frame_number = 0
+                #start_frame_number = 1000
+                start_frame_number = 0
 
                 from yolox.data import ValTransform
                 assert len(input_video_files) == 1

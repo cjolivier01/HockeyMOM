@@ -248,6 +248,7 @@ class FramePostProcessor:
         self._use_fork = use_fork
         self._final_aspect_ratio = 16.0 / 9.0
         self._output_video = None
+        self._final_image_processing_started = False
 
         self._save_dir = save_dir
         # results_dir = Path(save_dir)
@@ -356,6 +357,8 @@ class FramePostProcessor:
             raise
 
     def final_image_processing(self):
+        assert not self._final_image_processing_started
+        self._final_image_processing_started = True
         ready_string = self._imgproc_queue.get()
         assert ready_string == "ready"
         plot_interias = False
