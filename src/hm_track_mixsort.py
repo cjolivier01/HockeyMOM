@@ -400,6 +400,7 @@ def main(exp, args, num_gpu):
 
 
 if __name__ == "__main__":
+    os.environ['AUTOGRAPH_VERBOSITY'] = 5
     args = make_parser().parse_args()
     exp = get_exp(args.exp_file, args.name)
     exp.merge(args.opts)

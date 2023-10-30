@@ -10,8 +10,8 @@ import pt_autograph as ptag
 
 import torch
 
-# pytorch=1.7.0=py3.8_cuda10.2.89_cudnn7.6.5_0    pytorch
-# torchvision=0.8.0=py38_cu102    pytorch
+import pt_autograph
+import pt_autograph.flow.runner as runner
 
 # nosec B101
 
@@ -787,7 +787,34 @@ class HockeyMOM:
             return nw or 1, y
         return x, nh or 1
 
+    # def make_box_proper_aspect_ratio(
+    #     runner.maybe_run_converted():
+    #                             _inner_update,
+    #                             outputs,
+    #                             frame_index,
+    #                             self.img_size,
+    #                             imgs[frame_index].cuda()
+    #                         )
+
     def make_box_proper_aspect_ratio(
+        self,
+        frame_id: int,
+        the_box: torch.Tensor,
+        desired_aspect_ratio: float,
+        max_in_aspec_ratio: bool,
+        verbose: bool = False,
+        extra_validation: bool = True,
+    ):
+        return self._make_box_proper_aspect_ratio(
+            frame_id=frame_id, 
+            the_box=the_box,
+            desired_aspect_ratio=desired_aspect_ratio,
+            max_in_aspec_ratio=max_in_aspec_ratio,
+            verbose=verbose,
+            extra_validation=extra_validation,
+        )
+
+    def _make_box_proper_aspect_ratio(
         self,
         frame_id: int,
         the_box: torch.Tensor,
