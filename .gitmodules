@@ -50,3 +50,6 @@
 [submodule "external/MOTChallengeEvalKit"]
 	path = external/MOTChallengeEvalKit
 	url = ssh://git@github.com/cjolivier01/MOTChallengeEvalKit
+[submodule "external/pt_autograph"]
+	path = external/pt_autograph
+	url = ssh://git@github.com/cjolivier01/pt_autograph
