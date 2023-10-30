@@ -319,7 +319,6 @@ class StitchingWorker:
             if self._is_ready_to_exit():
                 break
             if not self._feed_next_frame(frame_id=frame_id):
-                assert False
                 break
             else:
                 pass
