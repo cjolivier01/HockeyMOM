@@ -74,7 +74,8 @@ def INFO(*args, **kwargs):
 
 
 # QueueType = QueueType
-QueueType = queue.Queue
+#QueueType = queue.Queue
+QueueType = multiprocessing.Queue
 
 
 ##
@@ -291,8 +292,8 @@ class StitchingWorker:
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 self._stitcher, frame_id
             )
-            self._in_queue -= 1
             assert self._in_queue > 0
+            self._in_queue -= 1
             pull_timer.toc()
 
             if count % 20 == 0:
