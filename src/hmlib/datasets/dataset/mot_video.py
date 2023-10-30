@@ -79,6 +79,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        if not self.vn:
+            raise RuntimeError(
+                f"Video {self._path} either does not exist or has no usable video content"
+            )
         assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
         if self._start_frame_number:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
@@ -186,7 +190,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
-            frames_inscribed_images.append(torch.from_numpy(inscribed_image.transpose(2, 0, 1)))
+            frames_inscribed_images.append(
+                torch.from_numpy(inscribed_image.transpose(2, 0, 1))
+            )
             frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
@@ -200,7 +206,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         imgs_info = [
             self.height_t,
             self.width_t,
-            #self._count + 1,
+            # self._count + 1,
             ids,
             self.video_id,
             [self._path],
@@ -240,4 +246,3 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             self.vn = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
         return self.vn  # number of frames
-

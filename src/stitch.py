@@ -125,8 +125,10 @@ def main(args):
     video_right = "right.mp4"
     # args.lfo = 16300 + 0
     # args.rfo = 16300 - 482
-    args.lfo = 9000 + 0
-    args.rfo = 9000 - 482
+    # args.lfo = 9000 + 0
+    # args.rfo = 9000 - 482
+    args.lfo = 3
+    args.rfo = 0
     lfo, rfo = stitch_videos(
         args.video_dir,
         video_left,
