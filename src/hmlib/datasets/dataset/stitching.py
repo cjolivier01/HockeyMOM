@@ -193,7 +193,7 @@ class StitchingWorker:
         self._receive_timer.toc()
         if self._receive_count and (self._receive_count % 20) == 0:
             logger.info(
-                "Received frame frame {} from stitcking worker {} ({:.2f} fps)".format(
+                "Received frame frame {} from stitching worker {} ({:.2f} fps)".format(
                     fid,
                     self._rank,
                     1.0 / max(1e-5, self._receive_timer.average_time),
@@ -270,13 +270,13 @@ class StitchingWorker:
         # print(f"Adding frame {frame_id} images to stitcher")
         assert img1 is not None
         assert img2 is not None
+        self._in_queue += 1
         core.add_to_stitching_data_loader(
             self._stitcher,
             frame_id,
             self._prepare_image(img1),
             self._prepare_image(img2),
         )
-        self._in_queue += 1
         return True
 
     def _image_getter_worker(self):
@@ -520,6 +520,8 @@ class StitchDataset:
             if self._output_video is None:
                 fps = self.fps
                 fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                # Write lossless Huffyuv codec
+                #fourcc = cv2.VideoWriter_fourcc(*"HFYU")
                 final_video_size = (output_img.shape[1], output_img.shape[0])
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_stitched_video_file,
@@ -537,7 +539,7 @@ class StitchDataset:
         # INFO(f"_prepare_next_frame( {frame_id} )")
         self._prepare_next_frame_timer.tic()
         stitching_worker = self._stitching_workers[self._current_worker]
-        stitched_frame = stitching_worker.receive_image(frame_id=frame_id)
+        stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         # INFO(f"Locally enqueing frame {frame_id}")
         self._ordering_queue.enqueue(frame_id, stitched_frame)
