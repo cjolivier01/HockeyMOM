@@ -123,8 +123,10 @@ def main(args):
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", "blackhawks")
     video_left = "left.mp4"
     video_right = "right.mp4"
-    args.lfo = 0
-    args.rfo = 95
+    # args.lfo = 16300 + 0
+    # args.rfo = 16300 - 482
+    args.lfo = 9000 + 0
+    args.rfo = 9000 - 482
     lfo, rfo = stitch_videos(
         args.video_dir,
         video_left,
