@@ -30,7 +30,7 @@ VIDEO="${HOME}/Videos/roseville/stitched_output-with-audio.mp4"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
 
 #EXP_NAME="mixsort-run-$(uuidgen)"
-EXP_NAME="mixsort-run"
+EXP_NAME="mixsort-run-vallco"
 
 echo "Experiment name: ${EXP_NAME}"
 

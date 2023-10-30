@@ -159,7 +159,7 @@ def plot_tracking(
         global last_frame_id
         # don't call this more than once per frame
         assert frame_id > last_frame_id
-        last_frame_id = frame_id
+        last_frame_id = frame_id.clone()
     assert len(tlwhs) == len(obj_ids)
     if speeds:
         assert len(speeds) == len(obj_ids)
