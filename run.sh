@@ -13,8 +13,8 @@
 #VIDEO="${HOME}/Videos/vacaville/left.mp4,${HOME}/Videos/vacaville/right.mp4"
 #VIDEO="${HOME}/Videos/stockton/left.mp4,${HOME}/Videos/stockton/right.mp4"
 #VIDEO="${HOME}/Videos/stockton/Stockton10.8.23.mp4"
-VIDEO="${HOME}/Videos/roseville/left.mp4,${HOME}/Videos/roseville/right.mp4"
-
+#VIDEO="${HOME}/Videos/roseville/left.mp4,${HOME}/Videos/roseville/right.mp4"
+VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
 
 mkdir -p h-demo-x
 rm -rf h-demo-x/*

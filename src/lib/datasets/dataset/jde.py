@@ -162,7 +162,8 @@ class LoadVideoWithOrig:  # for inference
         path,
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
-        clip_original=None,
+        #clip_original=None,
+        clip_original=(303, 280, 3813, 1583),
         # clip_original=(43, 236, 1917, 864),
     ):
         self.cap = cv2.VideoCapture(path)

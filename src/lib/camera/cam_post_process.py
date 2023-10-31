@@ -72,7 +72,7 @@ BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "roseville", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
@@ -98,10 +98,11 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
-        # self.fixed_edge_rotation_angle = 35.0
-        self.fixed_edge_rotation_angle = 45.0
+        self.fixed_edge_rotation_angle = 20.0
+        #self.fixed_edge_rotation_angle = 35.0
+        #self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
