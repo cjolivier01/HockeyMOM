@@ -471,10 +471,13 @@ class HockeyMOM:
         self._id_to_tlwhs_history_map = dict()
         # self._id_to_speed_map = dict()
         # trunk-ignore(ruff/B905)
-        for id, image_pos in zip(self._online_ids, self._online_tlws):
+        assert len(self._online_ids) == len(self._online_tlws)
+        for index in range(len(self._online_ids)):
+            id = self._online_ids[index]
+            image_pos = self._online_tlws[index]
             hist = prev_dict.get(id, TlwhHistory(id=id, video_frame=self._video_frame))
             hist.append(image_position=image_pos)
-            self._id_to_tlwhs_history_map[id] = hist
+            self._id_to_tlwhs_history_map[id.item()] = hist
 
     def reset_clusters(self):
         self._cluster_label_ids = dict()
@@ -672,10 +675,10 @@ class HockeyMOM:
     def _box_centers(cls, bboxes):
         """
         Compute the centers of multiple bounding boxes.
-        
+
         Parameters:
         bboxes (Tensor): A tensor containing multiple bounding boxes, each with the form [x1, y1, x2, y2].
-        
+
         Returns:
         Tensor: A tensor containing the center coordinates [cx, cy] for each bounding box.
         """
