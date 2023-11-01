@@ -10,8 +10,9 @@ import pt_autograph as ptag
 
 import torch
 
-#import pt_autograph
-#import pt_autograph.flow.runner as runner
+import pt_autograph
+from pt_autograph import pt_function
+import pt_autograph.flow.runner as runner
 
 # nosec B101
 
@@ -19,8 +20,8 @@ X_SPEED_HISTORY_LENGTH = 5
 
 
 def _as_scalar(tensor):
-    if isinstance(tensor, torch.Tensor):
-        return tensor.item()
+    # if isinstance(tensor, torch.Tensor):
+    #     return tensor.item()
     return tensor
 
 
@@ -63,6 +64,7 @@ def center(box):
     return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
 
 
+#@pt_function
 def clamp_value(low, val, high):
     assert high > low
     if val < low:
@@ -73,27 +75,28 @@ def clamp_value(low, val, high):
 
 
 def make_box_at_center(center_point, w: float, h: float):
-    box = np.array(
+    box = torch.tensor(
         (
-            center_point[0] - (float(w) / 2.0) + 0.5,
-            center_point[1] - (float(h) / 2.0) + 0.5,
-            center_point[0] + (float(w) / 2.0) - 0.5,
-            center_point[1] + (float(h) / 2.0) - 0.5,
+            center_point[0] - (w / 2.0) + 0.5,
+            center_point[1] - (h / 2.0) + 0.5,
+            center_point[0] + (w / 2.0) - 0.5,
+            center_point[1] + (h / 2.0) - 0.5,
         ),
-        dtype=np.float32,
+        dtype=torch.float32,
     )
     # assert np.isclose(width(box), w)
     # assert np.isclose(height(box), h)
     return box
 
 
-def translate_box(box, dx, dy):
-    return box + np.array([dx, dy, dx, dy], dtype=np.float32)
+# def translate_box(box, dx, dy):
+#     return box + np.array([dx, dy, dx, dy], dtype=np.float32)
 
 
 def center_distance(box1, box2) -> float:
-    if box1 is None or box2 is None:
-        return 0.0
+    assert box1 is not None and box2 is not None
+    # if box1 is None or box2 is None:
+    #     return 0.0
     c1 = center(box1)
     c2 = center(box2)
     if c1 == c2:
@@ -104,8 +107,9 @@ def center_distance(box1, box2) -> float:
 
 
 def center_x_distance(box1, box2) -> float:
-    if box1 is None or box2 is None:
-        return 0.0
+    assert box1 is not None and box2 is not None
+    # if box1 is None or box2 is None:
+    #     return 0.0
     return abs(center(box1)[0] - center(box2)[0])
 
 
@@ -136,9 +140,12 @@ class VideoFrame(object):
         self._horizontal_center = self._image_width / 2
 
     def box(self):
-        return np.array(
-            (0, 0, self._image_width - 1, self._image_height - 1), dtype=np.int32
+        return torch.tensor(
+            (0, 0, self._image_width - 1, self._image_height - 1), dtype=torch.float32
         )
+        # return np.array(
+        #     (0, 0, self._image_width - 1, self._image_height - 1), dtype=np.int32
+        # )
 
     @property
     def width(self):
@@ -157,18 +164,18 @@ class TlwhHistory(object):
         self._image_position_history = list()
         # self._spatial_position_history = list()
         self._spatial_distance_sum = 0.0
-        #self._current_spatial_speed = 0.0
+        # self._current_spatial_speed = 0.0
         self._current_spatial_x_speed = 0.0
         self._image_distance_sum = 0.0
         self._current_image_speed = 0.0
         self._current_image_x_speed = 0.0
-        #self._spatial_speed_multiplier = 100.0
+        # self._spatial_speed_multiplier = 100.0
 
     @property
     def id(self):
         return self.id_
 
-    def append(self, image_position: np.array, spatial_position: np.array = None):
+    def append(self, image_position: torch.Tensor, spatial_position: torch.Tensor = None):
         current_historty_length = len(self._image_position_history)
         if current_historty_length >= self._max_history_length - 1:
             # trunk-ignore(bandit/B101)
@@ -182,7 +189,7 @@ class TlwhHistory(object):
             # removing_spatial_point - self._spatial_position_history[0]
             # )
             # self._spatial_distance_sum -= old_spatial_distance
-            old_image_distance = np.linalg.norm(
+            old_image_distance = torch.linalg.norm(
                 removing_image_point - self._image_position_history[0]
             )
             self._image_distance_sum -= old_image_distance
@@ -191,7 +198,7 @@ class TlwhHistory(object):
             # spatial_position - self._spatial_position_history[-1]
             # )
             # self._spatial_distance_sum += new_spatial_distance
-            new_image_distance = np.linalg.norm(
+            new_image_distance = torch.linalg.norm(
                 image_position - self._image_position_history[-1]
             )
             self._image_distance_sum += new_image_distance
@@ -216,7 +223,7 @@ class TlwhHistory(object):
             else:
                 self._current_image_x_speed = 0.0
         else:
-            #self._current_spatial_speed = 0.0
+            # self._current_spatial_speed = 0.0
             self._current_image_speed = 0.0
             self._current_image_x_speed = 0.0
 
@@ -236,7 +243,7 @@ class TlwhHistory(object):
         height = tlwh[3]
         x_center = left + width / 2
         y_center = top + height / 2
-        #return np.array((x_center, y_center), dtype=np.float32)
+        # return np.array((x_center, y_center), dtype=np.float32)
         return torch.tensor((x_center, y_center), dtype=torch.float32)
 
     def __len__(self):
@@ -443,8 +450,8 @@ class HockeyMOM:
 
     def append_online_objects(self, online_ids, online_tlws):
         # assert isinstance(online_tlwh_map, dict)
-        self._online_ids = np.array(online_ids)
-        self._online_tlws = np.array(online_tlws)
+        self._online_ids = torch.tensor(online_ids)
+        self._online_tlws = torch.tensor(online_tlws)
         if online_tlws:
             self._online_image_center_points = torch.stack(
                 [TlwhHistory.center_point(twls) for twls in online_tlws]
@@ -593,7 +600,7 @@ class HockeyMOM:
     ) -> List[int]:
         # Sort by speed
         keys = list(id_to_pos_history.keys())
-        #speeds = [hist.spatial_speed for hist in id_to_pos_history.values()]
+        # speeds = [hist.spatial_speed for hist in id_to_pos_history.values()]
         speeds = [hist.image_speed for hist in id_to_pos_history.values()]
         sorted_value_index = np.argsort(speeds)
         sorted_ids = reversed([keys[i] for i in sorted_value_index])
@@ -657,30 +664,61 @@ class HockeyMOM:
     def add_x_velocity(self, x_velocity_to_add):
         self._current_camera_box_speed_x += x_velocity_to_add
 
+    # @classmethod
+    # def _box_centers(cls, box):
+    #     return torch.tensor([(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0], dtype=box.dtype)
+
     @classmethod
-    def _box_center(cls, box):
-        return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
+    def _box_centers(cls, bboxes):
+        """
+        Compute the centers of multiple bounding boxes.
+        
+        Parameters:
+        bboxes (Tensor): A tensor containing multiple bounding boxes, each with the form [x1, y1, x2, y2].
+        
+        Returns:
+        Tensor: A tensor containing the center coordinates [cx, cy] for each bounding box.
+        """
+        single = False
+        if len(bboxes.shape) == 1:
+            bboxes = bboxes.unsqueeze(dim=0)
+            single = True
+        x1 = bboxes[:, 0]
+        y1 = bboxes[:, 1]
+        x2 = bboxes[:, 2]
+        y2 = bboxes[:, 3]
+        cxs = (x1 + x2) / 2
+        cys = (y1 + y2) / 2
+        centers = torch.stack((cxs, cys), dim=1)
+        if single:
+            centers = centers.squeeze(dim=0)
+        return centers
 
     @classmethod
     def _clamp(cls, box, clamp_box):
-        box[0] = max(box[0], clamp_box[0])
-        box[1] = max(box[1], clamp_box[1])
-        box[2] = min(box[2], clamp_box[2])
-        box[3] = min(box[3], clamp_box[3])
-        return box
+        return torch.tensor([
+                torch.max(box[0], clamp_box[0]),
+                torch.max(box[1], clamp_box[1]),
+                torch.min(box[2], clamp_box[2]),
+                torch.min(box[3], clamp_box[3]),
+            ], dtype=box.dtype)
 
     def clamp(self, box):
         return self._clamp(
-            box, np.array([0, 0, self._video_frame.width - 1, self._video_frame.height - 1], dtype=np.float32)
+            box,
+            torch.tensor(
+                [0, 0, self._video_frame.width - 1, self._video_frame.height - 1],
+                dtype=torch.float32,
+            ),
         )
 
     @staticmethod
     def _tlwh_to_tlbr(box):
-        return np.array(box[0], box[1], box[0] + box[2], box[1] + box[3])
+        return torch.tensor(box[0], box[1], box[0] + box[2], box[1] + box[3])
 
     @staticmethod
     def _tlbr_to_tlwh(box):
-        return np.array(box[0], box[1], box[2] - box[0], box[3] - box[1])
+        return torch.tensor(box[0], box[1], box[2] - box[0], box[3] - box[1])
 
     @staticmethod
     def _union(box1, box2):
@@ -694,12 +732,25 @@ class HockeyMOM:
 
     @classmethod
     def union_box(cls, box1, box2):
-        box = box1.copy()
-        box[0] = min(box[0], box2[0])
-        box[1] = min(box[1], box2[1])
-        box[2] = max(box[2], box2[2])
-        box[3] = max(box[3], box2[3])
-        return box
+        # box = box1.clone()
+        # box[0] = torch.min(box[0], box2[0])
+        # box[1] = torch.min(box[1], box2[1])
+        # box[2] = torch.max(box[2], box2[2])
+        # box[3] = torch.max(box[3], box2[3])
+        # return box
+        assert box1.dtype == box2.dtype
+        top_left = torch.min(box1[:2], box2[:2])
+        bottom_right = torch.max(box1[2:], box2[2:])
+        return torch.cat([top_left, bottom_right])
+        # return torch.tensor(
+        #     [
+        #         torch.min(box1[0], box2[0]),
+        #         torch.min(box1[1], box2[1]),
+        #         torch.max(box1[2], box2[2]),
+        #         torch.max(box1[3], box2[3]),
+        #     ],
+        #     dtype=box1.dtype,
+        # )
 
     @staticmethod
     def _make_pruned_map(map, allowed_keys):
@@ -719,7 +770,7 @@ class HockeyMOM:
 
     @classmethod
     def box_str(cls, box):
-        center = cls._box_center(box)
+        center = cls._box_centers(box)
         return (
             f"[x1={box[0]}, y1={box[1]}, x2={box[2]}, y2={box[3]}] "
             + f"w={box[2] - box[0]}, h={box[3] - box[1]}, "
@@ -755,7 +806,7 @@ class HockeyMOM:
             y1 = tlwh[1]
             w = tlwh[2]
             h = tlwh[3]
-            intbox = np.array((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=np.int32)
+            intbox = torch.tensor((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=torch.int32)
             bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
             bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
             bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
@@ -765,7 +816,7 @@ class HockeyMOM:
     def ratioed_expand(self, box):
         ew = self._video_frame.width / 10
         eh = self._video_frame.height / 10
-        diff = np.array([-ew / 2, -eh / 2, ew / 2, eh / 2])
+        diff = torch.tensor([-ew / 2, -eh / 2, ew / 2, eh / 2])
 
         # Expand less in the velocity-trailing x direction
         # (this gives the effect of "leading" the movement)
@@ -806,7 +857,7 @@ class HockeyMOM:
         extra_validation: bool = True,
     ):
         return self._make_box_proper_aspect_ratio(
-            frame_id=frame_id, 
+            frame_id=frame_id,
             the_box=the_box,
             desired_aspect_ratio=desired_aspect_ratio,
             max_in_aspec_ratio=max_in_aspec_ratio,
@@ -828,7 +879,7 @@ class HockeyMOM:
         The final box must be within the initial box.
         """
 
-        center = self._box_center(the_box)
+        center = self._box_centers(the_box)
 
         w = width(the_box)
         if w > self._video_frame.width:
@@ -898,8 +949,9 @@ class HockeyMOM:
         # floating-point math gets funky sometimes and overflows
         # above the max width or height (due to python sucking,
         # most likely)
-        center[0] = float(int(center[0]))
-        center[1] = float(int(center[1]))
+        center = center.trunc()
+        # center[0] = float(int(center[0]))
+        # center[1] = float(int(center[1]))
 
         new_box = make_box_at_center(center, new_w, new_h)
 
@@ -996,7 +1048,7 @@ class HockeyMOM:
         dy = self._current_camera_box_speed_y * scale_speed
         # if verbose:
         #     print(f"Moving box by {dx} x {dy}")
-        return box + np.array([dx, dy, dx, dy], dtype=np.float32)
+        return box + torch.tensor([dx, dy, dx, dy], dtype=torch.float32)
 
     def adjust_veclocity_based_upon_new_box(
         self,
@@ -1138,8 +1190,8 @@ class HockeyMOM:
             return next_box
 
         # First, we apply the center's proposed change
-        proposed_center = self._box_center(proposed_new_box)
-        last_center = self._box_center(last_box)
+        proposed_center = self._box_centers(proposed_new_box)
+        last_center = self._box_centers(last_box)
         dx = proposed_center[0] - last_center[0]
         dy = proposed_center[1] - last_center[1]
 

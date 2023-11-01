@@ -30,9 +30,9 @@ from .camera import (
     width,
     height,
     center,
-    center_distance,
+    #center_distance,
     center_x_distance,
-    translate_box,
+    #translate_box,
     make_box_at_center,
 )
 
@@ -169,6 +169,21 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.detection_inclusion_box = [363, 600, 5388, 1714]
 
 
+def as_tensor(array):
+    #want_type = np.array
+    want_type = torch.Tensor
+    if want_type == torch.Tensor:
+        if isinstance(array, torch.Tensor):
+            return array
+        else:
+            return torch.from_numpy(array)
+    else:
+        if isinstance(array, torch.Tensor):
+            return array.numpy()
+        else:
+            return array
+
+
 def get_open_files_count():
     pid = os.getpid()
     return len(os.listdir(f"/proc/{pid}/fd"))
@@ -225,7 +240,7 @@ class ImageProcData:
     def __init__(self, frame_id: int, img, current_box):
         self.frame_id = frame_id
         self.img = img
-        self.current_box = current_box.copy()
+        self.current_box = current_box.clone()
 
 
 class Detection:
@@ -258,7 +273,7 @@ class FramePostProcessor:
         self._thread = None
         self._imgproc_thread = None
         self._use_fork = use_fork
-        self._final_aspect_ratio = 16.0 / 9.0
+        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float32)
         self._output_video = None
         self._final_image_processing_started = False
 
@@ -758,8 +773,11 @@ class FramePostProcessor:
                 # assert width(current_box) <= hockey_mom.video.width
                 # assert height(current_box) <= hockey_mom.video.height
 
-                outside_expanded_box = current_box + np.array(
-                    [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
+                # outside_expanded_box = current_box + np.array(
+                #     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
+                # )
+                outside_expanded_box = current_box + torch.tensor(
+                    [-100.0, -100.0, 100.0, 100.0], dtype=torch.float32
                 )
 
                 if self._args.plot_camera_tracking:
@@ -820,7 +838,7 @@ class FramePostProcessor:
                         scale_speed=scale_speed,
                         verbose=verbose,
                     )
-                    last_box = current_box.copy()
+                    last_box = current_box.clone()
                     if self._args.plot_camera_tracking:
                         vis.plot_rectangle(
                             online_im,
@@ -898,7 +916,7 @@ class FramePostProcessor:
                 # Aspect Ratio
                 #
                 # current_box = hockey_mom.clamp(current_box)
-                fine_tracking_box = current_box.copy()
+                fine_tracking_box = current_box.clone()
                 if self._args.plot_camera_tracking:
                     vis.plot_rectangle(
                         online_im,
@@ -1011,14 +1029,14 @@ class FramePostProcessor:
                         h = w / self._final_aspect_ratio
                         h -= 1
                         w -= 1
-                        current_box = np.array(
+                        current_box = torch.tensor(
                             (
                                 cb_center[0] - (w / 2.0),
                                 cb_center[1] - (h / 2.0),
                                 cb_center[0] + (w / 2.0),
                                 cb_center[1] + (h / 2.0),
                             ),
-                            dtype=np.float32,
+                            dtype=torch.float32,
                         )
                         # assert width(current_box) <= hockey_mom.video.width
                         # assert height(current_box) <= hockey_mom.video.height
@@ -1035,7 +1053,7 @@ class FramePostProcessor:
                 # assert width(current_box) <= hockey_mom.video.width
                 # assert height(current_box) <= hockey_mom.video.height
 
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
                 def _fix_aspect_ratio(box):
                     # assert width(box) <= hockey_mom.video.width
@@ -1125,8 +1143,9 @@ class FramePostProcessor:
                             color=(0, 0, 0),
                             thickness=2,
                         )
+                else:
+                    last_sticky_temporal_box = current_box.clone()
 
-                # cdist = center_distance(current_box, last_sticky_temporal_box)
                 cdist = center_x_distance(current_box, last_sticky_temporal_box)
 
                 # if stuck and (center_distance(current_box, last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
@@ -1173,7 +1192,7 @@ class FramePostProcessor:
                     )
                     hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
                 elif last_sticky_temporal_box is None:
-                    last_sticky_temporal_box = current_box.copy()
+                    last_sticky_temporal_box = current_box.clone()
                     # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
                     # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
                     assert np.isclose(
@@ -1183,7 +1202,7 @@ class FramePostProcessor:
                     # assert width(last_sticky_temporal_box) <= hockey_mom.video.width
                     # assert height(last_sticky_temporal_box) <= hockey_mom.video.height
 
-                    current_box = last_sticky_temporal_box.copy()
+                    current_box = last_sticky_temporal_box.clone()
                     current_box = _fix_aspect_ratio(current_box)
                     assert np.isclose(
                         aspect_ratio(current_box), self._final_aspect_ratio
