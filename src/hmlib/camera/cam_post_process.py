@@ -71,8 +71,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
-
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -630,8 +629,8 @@ class FramePostProcessor:
                 timer = Timer()
             timer.tic()
 
-            online_tlwhs = online_targets_and_img[0]
-            online_ids = online_targets_and_img[1]
+            online_tlwhs = online_targets_and_img[0])
+            online_ids = online_targets_and_img[1], dtype=torch.int32)
             detections = online_targets_and_img[2]
 
             # Exclude detections outside of an optional bounding box

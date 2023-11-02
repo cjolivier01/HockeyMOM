@@ -450,9 +450,11 @@ class HockeyMOM:
 
     def append_online_objects(self, online_ids, online_tlws):
         # assert isinstance(online_tlwh_map, dict)
-        self._online_ids = torch.tensor(online_ids)
-        self._online_tlws = torch.tensor(online_tlws)
-        if online_tlws:
+        assert isinstance(online_ids, torch.Tensor)
+        assert isinstance(online_tlws, torch.Tensor)
+        self._online_ids = online_ids
+        self._online_tlws = online_tlws
+        if len(online_tlws) != 0:
             self._online_image_center_points = torch.stack(
                 [TlwhHistory.center_point(twls) for twls in online_tlws]
             )
