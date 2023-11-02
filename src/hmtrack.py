@@ -111,13 +111,14 @@ class HmPostProcessor:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
         if self._args.scale_to_original_image:
             scaled_online_tlwhs = []
-            for tlwh in online_tlwhs:
-                tlwh = torch.tensor(tlwh)
-                tlwh[0] -= self.dw
-                tlwh[1] -= self.dh
-                tlwh /= self._scale_inscribed_to_original
-                scaled_online_tlwhs.append(tlwh)
-            online_tlwhs = torch.stack(scaled_online_tlwhs)
+            if len(online_tlwhs):
+                for tlwh in online_tlwhs:
+                    tlwh = torch.tensor(tlwh)
+                    tlwh[0] -= self.dw
+                    tlwh[1] -= self.dh
+                    tlwh /= self._scale_inscribed_to_original
+                    scaled_online_tlwhs.append(tlwh)
+                online_tlwhs = torch.stack(scaled_online_tlwhs)
         if (
             not self._args.scale_to_original_image
             and isinstance(img, torch.Tensor)

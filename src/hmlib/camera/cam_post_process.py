@@ -30,9 +30,7 @@ from .camera import (
     width,
     height,
     center,
-    # center_distance,
     center_x_distance,
-    # translate_box,
     make_box_at_center,
 )
 
@@ -71,14 +69,14 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        # self.show_image = True
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -886,7 +884,7 @@ class FramePostProcessor:
                     # group_threshhold=0.6,
                 )
                 if group_x_velocity:
-                    # print(f"group x velocity: {group_x_velocity}")
+                    print(f"group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
