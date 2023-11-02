@@ -117,6 +117,29 @@ def aspect_ratio(box):
     return width(box) / height(box)
 
 
+def tlwh_to_tlbr_multiple(tlwh: torch.Tensor):
+    # Calculate bottom-right coordinates
+    top_left = tlwh[:, :2]  # Get all rows and first 2 columns (x1, y1)
+    sizes = tlwh[:, 2:]     # Get all rows and last 2 columns (width, height)
+
+    bottom_right = top_left + sizes  # Element-wise addition
+
+    # Create the bounding box tensor of [x1, y1, x2, y2]
+    bounding_boxes = torch.cat((top_left, bottom_right), dim=1)
+    return bounding_boxes
+
+def tlwh_to_tlbr_single(tlwh: torch.Tensor):
+    # Calculate bottom-right coordinates
+    top_left = tlwh[:2]  # Get all rows and first 2 columns (x1, y1)
+    sizes = tlwh[2:]     # Get all rows and last 2 columns (width, height)
+
+    bottom_right = top_left + sizes  # Element-wise addition
+
+    # Create the bounding box tensor of [x1, y1, x2, y2]
+    bounding_boxes = torch.cat((top_left, bottom_right), dim=0)
+    return bounding_boxes
+
+
 def get_image_top_view(
     image_file: str,
     camera: ct.Camera,
@@ -520,9 +543,9 @@ class HockeyMOM:
             cluster_label = labels[i].item()
             cluster_counts[cluster_label] += 1
             if cluster_label not in cluster_label_ids:
-                cluster_label_ids[cluster_label] = [id]
+                cluster_label_ids[cluster_label] = [id.item()]
             else:
-                cluster_label_ids[cluster_label].append(id)
+                cluster_label_ids[cluster_label].append(id.item())
         for cluster_label, cluster_id_list in self._cluster_label_ids[
             n_clusters
         ].items():
@@ -541,10 +564,10 @@ class HockeyMOM:
         )
 
     def prune_not_in_largest_cluster(self, n_clusters, ids):
-        largest_clister_set = self.get_largest_cluster_id_set(n_clusters)
+        largest_cluster_set = self.get_largest_cluster_id_set(n_clusters)
         result_ids = []
         for id in ids:
-            if id in largest_clister_set:
+            if id.item() in largest_cluster_set:
                 result_ids.append(id)
         return result_ids
 
@@ -575,7 +598,7 @@ class HockeyMOM:
     def get_image_tracking(self, online_ids):
         results = []
         for id in online_ids:
-            results.append(self._id_to_tlwhs_history_map[id].image_position_history)
+            results.append(self._id_to_tlwhs_history_map[id.item()].image_position_history)
         return results
 
     def get_fast_ids(self, min_fast_items: int = 4, max_fast_items: int = 6):
@@ -589,10 +612,10 @@ class HockeyMOM:
     #     return self._id_to_tlwhs_history_map[id].spatial_speed
 
     def get_image_speed(self, id: int):
-        return self._id_to_tlwhs_history_map[id].image_speed
+        return self._id_to_tlwhs_history_map[id.item()].image_speed
 
     def get_tlwh(self, id: int):
-        position_history = self._id_to_tlwhs_history_map[id]
+        position_history = self._id_to_tlwhs_history_map[id.item()]
         return position_history.image_position_history[-1]
 
     @staticmethod
@@ -807,11 +830,15 @@ class HockeyMOM:
 
         for id in ids:
             tlwh = self.get_tlwh(id)
-            x1 = tlwh[0]
-            y1 = tlwh[1]
-            w = tlwh[2]
-            h = tlwh[3]
-            intbox = torch.tensor((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=torch.int32)
+            #x1, y1, w, h = tlwh.unbind(-1)
+            # x1 = tlwh[0]
+            # y1 = tlwh[1]
+            # w = tlwh[2]
+            # h = tlwh[3]
+            #intbox = torch.tensor([x1, y1, x1 + w + 0.5, y1 + h + 0.5], dtype=torch.int32)
+            #float_tensor = torch.tensor([x1, y1, x1 + w, y1 + h], dtype=torch.float32)
+            this_bbox = tlwh_to_tlbr_single(tlwh=tlwh)
+            intbox = this_bbox.round().int()
             bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
             bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
             bounding_intbox[2] = max(bounding_intbox[2], intbox[2])

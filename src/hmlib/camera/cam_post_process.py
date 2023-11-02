@@ -30,9 +30,9 @@ from .camera import (
     width,
     height,
     center,
-    #center_distance,
+    # center_distance,
     center_x_distance,
-    #translate_box,
+    # translate_box,
     make_box_at_center,
 )
 
@@ -72,6 +72,7 @@ RINK_CONFIG = {
 }
 
 BASIC_DEBUGGING = True
+
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -169,7 +170,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
 
 def as_tensor(array):
-    #want_type = np.array
+    # want_type = np.array
     want_type = torch.Tensor
     if want_type == torch.Tensor:
         if isinstance(array, torch.Tensor):
@@ -211,16 +212,37 @@ def make_scale_array(from_img, to_img):
     return from_sz / to_sz
 
 
+def tlwh_centers(tlwhs: torch.Tensor):
+    """
+    Calculate the centers of bounding boxes given as [x1, y1, width, height].
+
+    Parameters:
+    bboxes (Tensor): A tensor of size (N, 4) where N is the number of boxes,
+                     and each box is defined as [x1, y1, width, height].
+
+    Returns:
+    Tensor: A tensor of size (N, 2) containing [cx, cy] for each bounding box.
+    """
+    # Unpack the bounding box tensor into its components
+    x1, y1, width, height = tlwhs.unbind(-1)
+
+    # Calculate the centers
+    cx = x1 + (width / 2)
+    cy = y1 + (height / 2)
+
+    # Stack the centers into a single tensor
+    centers = torch.stack((cx, cy), dim=-1)
+    return centers
+
+
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
-    # self.detection_inclusion_box
     if not inclusion_box:
         return online_tlwhs, online_ids
     filtered_online_tlwh = []
     filtered_online_ids = []
-    for i in range(len(online_tlwhs)):
-        tlwh = online_tlwhs[i]
-        # center = torch.tensor([tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2])
-        center = [tlwh[0] + tlwh[2] / 2, tlwh[1] + tlwh[3] / 2]
+    online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
+    for i in range(len(online_tlwhs_centers)):
+        center = online_tlwhs_centers[i]
         if inclusion_box[0] and center[0] < inclusion_box[0]:
             continue
         elif inclusion_box[2] and center[0] > inclusion_box[2]:
@@ -229,10 +251,10 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
             continue
         elif inclusion_box[3] and center[1] > inclusion_box[3]:
             continue
-        filtered_online_tlwh.append(tlwh)
+        filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
 
-    return filtered_online_tlwh, filtered_online_ids
+    return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
 class ImageProcData:
@@ -584,7 +606,6 @@ class FramePostProcessor:
                         )
                     )
 
-
     def prepare_online_image(self, online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
             online_im = online_im.numpy()
@@ -629,8 +650,8 @@ class FramePostProcessor:
                 timer = Timer()
             timer.tic()
 
-            online_tlwhs = online_targets_and_img[0])
-            online_ids = online_targets_and_img[1], dtype=torch.int32)
+            online_tlwhs = online_targets_and_img[0]
+            online_ids = online_targets_and_img[1]
             detections = online_targets_and_img[2]
 
             # Exclude detections outside of an optional bounding box
@@ -1052,7 +1073,9 @@ class FramePostProcessor:
                 # assert width(current_box) <= hockey_mom.video.width
                 # assert height(current_box) <= hockey_mom.video.height
 
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(
+                    aspect_ratio(current_box), self._final_aspect_ratio
+                )
 
                 def _fix_aspect_ratio(box):
                     # assert width(box) <= hockey_mom.video.width
