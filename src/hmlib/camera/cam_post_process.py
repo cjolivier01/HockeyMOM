@@ -69,7 +69,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
