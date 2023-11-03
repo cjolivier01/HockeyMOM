@@ -820,16 +820,26 @@ class HockeyMOM:
         return box
 
     def get_current_bounding_box(self, ids=None):
-        bounding_intbox = self._video_frame.box()
+        # bounding_intbox = self._video_frame.box()
 
-        bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
-        bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
+        # bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[0]
+        # bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
 
         if ids is None:
             ids = self._online_ids
+        if len(ids) == 0:
+            return self._video_frame.box()
 
+        tlwh_list = []
         for id in ids:
+            # Can this be a select or gather one day?
             tlwh = self.get_tlwh(id)
+            tlwh_list.append(tlwh_to_tlbr_single(tlwh))
+        bounding_boxes = torch.stack(tlwh_list)
+        min_x1, min_y1 = torch.min(bounding_boxes[:, :2], dim=0).values
+        max_x2, max_y2 = torch.max(bounding_boxes[:, 2:], dim=0).values
+        # The containing bounding box is then
+        containing_box = torch.tensor([min_x1, min_y1, max_x2, max_y2])        
             #x1, y1, w, h = tlwh.unbind(-1)
             # x1 = tlwh[0]
             # y1 = tlwh[1]
@@ -837,13 +847,14 @@ class HockeyMOM:
             # h = tlwh[3]
             #intbox = torch.tensor([x1, y1, x1 + w + 0.5, y1 + h + 0.5], dtype=torch.int32)
             #float_tensor = torch.tensor([x1, y1, x1 + w, y1 + h], dtype=torch.float32)
-            this_bbox = tlwh_to_tlbr_single(tlwh=tlwh)
-            intbox = this_bbox.round().int()
-            bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
-            bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
-            bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
-            bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
-        return bounding_intbox
+
+            # this_bbox = tlwh_to_tlbr_single(tlwh=tlwh)
+            # intbox = this_bbox.round().int()
+            # bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
+            # bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
+            # bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
+            # bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
+        return containing_box
 
     def ratioed_expand(self, box):
         ew = self._video_frame.width / 10
