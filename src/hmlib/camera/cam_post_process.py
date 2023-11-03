@@ -69,14 +69,14 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        # self.show_image = False
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -221,6 +221,9 @@ def tlwh_centers(tlwhs: torch.Tensor):
     Tensor: A tensor of size (N, 2) containing [cx, cy] for each bounding box.
     """
     # Unpack the bounding box tensor into its components
+    if len(tlwhs) == 0:
+        return []
+        
     x1, y1, width, height = tlwhs.unbind(-1)
 
     # Calculate the centers
@@ -233,6 +236,11 @@ def tlwh_centers(tlwhs: torch.Tensor):
 
 
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
+    if len(online_tlwhs) == 0:
+        # online_ids should also be empty
+        assert len(online_ids) == 0
+        # nothing
+        return online_tlwhs, online_ids
     if not inclusion_box:
         return online_tlwhs, online_ids
     filtered_online_tlwh = []
