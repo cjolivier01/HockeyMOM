@@ -127,8 +127,8 @@ class HmPostProcessor:
             # scaled_online_tlwhs = []
             if len(online_tlwhs):
                 # Offset the boxes
-                online_tlwhs[:, 0] += self.dw
-                online_tlwhs[:, 1] += self.dh
+                online_tlwhs[:, 0] -= self.dw
+                online_tlwhs[:, 1] -= self.dh
                 # Scale the width and height
                 online_tlwhs /= self._scale_inscribed_to_original
                 # online_tlwhs[:, 2] /= self._scale_inscribed_to_original[0]
