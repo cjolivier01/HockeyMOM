@@ -69,7 +69,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
@@ -106,8 +106,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        #self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -166,21 +166,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.detection_inclusion_box = [363, 600, 5388, 1714]
 
 
-def as_tensor(array):
-    # want_type = np.array
-    want_type = torch.Tensor
-    if want_type == torch.Tensor:
-        if isinstance(array, torch.Tensor):
-            return array
-        else:
-            return torch.from_numpy(array)
-    else:
-        if isinstance(array, torch.Tensor):
-            return array.numpy()
-        else:
-            return array
-
-
 def get_open_files_count():
     pid = os.getpid()
     return len(os.listdir(f"/proc/{pid}/fd"))
@@ -223,7 +208,7 @@ def tlwh_centers(tlwhs: torch.Tensor):
     # Unpack the bounding box tensor into its components
     if len(tlwhs) == 0:
         return []
-        
+
     x1, y1, width, height = tlwhs.unbind(-1)
 
     # Calculate the centers
@@ -258,7 +243,9 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
             continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
-
+    if len(filtered_online_tlwh) == 0:
+        assert len(filtered_online_ids) == 0
+        return [], []
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
@@ -659,12 +646,15 @@ class FramePostProcessor:
             online_ids = online_targets_and_img[1]
             detections = online_targets_and_img[2]
 
+            # print(online_ids)
+            # print(online_tlwhs)
+
             # Exclude detections outside of an optional bounding box
             online_tlwhs, online_ids = prune_by_inclusion_box(
                 online_tlwhs, online_ids, self._args.detection_inclusion_box
             )
 
-            info_imgs = online_targets_and_img[3]
+            #info_imgs = online_targets_and_img[3]
             img0 = online_targets_and_img[4]
             original_img = online_targets_and_img[5]
 
@@ -673,7 +663,8 @@ class FramePostProcessor:
             hockey_mom.reset_clusters()
 
             def _kmeans_cuda_device():
-                return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+                #return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+                return "cuda"
 
             kmeans_device = _kmeans_cuda_device()
             hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -892,7 +883,7 @@ class FramePostProcessor:
                     # group_threshhold=0.6,
                 )
                 if group_x_velocity:
-                    print(f"group x velocity: {group_x_velocity}")
+                    print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
