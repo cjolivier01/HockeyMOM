@@ -301,8 +301,8 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_type = "zhiwei"
-        # self._camera_type = "gopro"
+        # self._camera_type = "zhiwei"
+        self._camera_type = "gopro"
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
@@ -496,7 +496,9 @@ class HockeyMOM:
             torch_tensors.append(n.to(device))
         tt = torch.cat(torch_tensors, dim=0)
         tt = torch.reshape(tt, (len(torch_tensors), 2))
+        # print(tt)
         labels = self._kmeans_objects[n_clusters].fit_predict(tt)
+        # print(labels)
         self._cluster_counts[n_clusters] = [0 for i in range(n_clusters)]
         cluster_counts = self._cluster_counts[n_clusters]
         cluster_label_ids = self._cluster_label_ids[n_clusters]
@@ -806,7 +808,7 @@ class HockeyMOM:
         extra_validation: bool = True,
     ):
         return self._make_box_proper_aspect_ratio(
-            frame_id=frame_id, 
+            frame_id=frame_id,
             the_box=the_box,
             desired_aspect_ratio=desired_aspect_ratio,
             max_in_aspec_ratio=max_in_aspec_ratio,
