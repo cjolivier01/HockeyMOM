@@ -52,7 +52,7 @@ def clamp_box(box, clamp_box):
     clamped_box[0] = torch.clamp(box[0], min=clamp_box[0], max=clamp_box[2])
     clamped_box[1] = torch.clamp(box[1], min=clamp_box[1], max=clamp_box[3])
     clamped_box[2] = torch.clamp(box[2], min=clamp_box[0], max=clamp_box[2])
-    clamped_box[3] = torch.clamp(box[1], min=clamp_box[1], max=clamp_box[3])
+    clamped_box[3] = torch.clamp(box[3], min=clamp_box[1], max=clamp_box[3])
     return clamped_box
 
 
