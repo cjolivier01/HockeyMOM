@@ -206,7 +206,6 @@ def track_sequence(
     tracker_name: str,
     result_filename,
     postprocessor: HmPostProcessor,
-    output_video_path: str = None,
     save_dir: str = None,
     use_cuda: bool = True,
     data_type: str = "mot",
@@ -219,7 +218,6 @@ def track_sequence(
 
     incremental_results = False
     frame_id = 0
-    image_scale_array = None
 
     if result_filename:
         results = read_results(result_filename, postprocessor.data_type)
@@ -309,12 +307,6 @@ def track_sequence(
             results[frame_id + 1] = (online_tlwhs, online_ids)
 
             if postprocessor is not None:
-                # cv2.imshow("img0", img0)
-                # #cv2.imshow("img", img)
-                # #cv2.imshow("img", original_img)
-                # cv2.waitKey(1)
-                # continue
-
                 postprocessor.online_callback(
                     frame_id=frame_id,
                     online_tlwhs=online_tlwhs,
