@@ -29,6 +29,7 @@ from hmlib.utils.box_functions import (
     height,
     center,
     center_x_distance,
+    center_distance,
     # clamp_value,
     aspect_ratio,
     make_box_at_center,
@@ -102,16 +103,16 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
         # self.max_in_aspec_ratio = True
-        self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        # self.apply_fixed_edge_scaling = False
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
+        # self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -952,14 +953,13 @@ class FramePostProcessor:
             # Aspect Ratio
             #
             # current_box = hockey_mom.clamp(current_box)
-            fine_tracking_box = current_box.clone()
             if self._args.plot_camera_tracking:
                 vis.plot_rectangle(
                     online_im,
                     current_box,
                     color=(0, 0, 0),
                     thickness=10,
-                    label="clamped_pre_aspect",
+                    label="fine_tracking_box",
                 )
                 # vis.plot_rectangle(
                 #     online_im,
@@ -968,6 +968,8 @@ class FramePostProcessor:
                 #     thickness=10,
                 #     label="clamped_pre_aspect",
                 # )
+
+            fine_tracking_box = current_box.clone()
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
@@ -1185,7 +1187,10 @@ class FramePostProcessor:
             else:
                 self._last_sticky_temporal_box = current_box.clone()
 
-            cdist = center_x_distance(current_box, self._last_sticky_temporal_box)
+            if self._args.apply_fixed_edge_scaling:
+                cdist = center_x_distance(current_box, self._last_sticky_temporal_box)
+            else:
+                cdist = center_distance(current_box, self._last_sticky_temporal_box)
 
             # if stuck and (center_distance(current_box, self._last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
             if stuck and (
