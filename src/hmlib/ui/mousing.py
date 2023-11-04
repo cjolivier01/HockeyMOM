@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.widgets import Button
 
 def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False):
     # Global variables to store the starting and ending coordinates of the box
@@ -51,6 +54,71 @@ def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False)
     print(start_x, start_y, end_x, end_y)
     return start_x, start_y, end_x, end_y
 
+def run_selection(image_path: str):
+    # Initialize the list to store the bounding boxes
+    bounding_boxes = []
+
+    # This callback function will be called when the user draws a rectangle
+    def on_draw(event):
+        global bounding_boxes
+        if isinstance(event.artist, patches.Rectangle):
+            bbox = event.artist.get_bbox()
+            bounding_boxes.append(bbox)
+            print(f"Box drawn: {bbox}")
+
+    # This function will be called when the user clicks the "OK" button
+    def on_ok_button_clicked(event):
+        print("Final bounding boxes:")
+        for bbox in bounding_boxes:
+            print(bbox)
+        plt.close(fig)
+
+    # Set up the figure and the button
+    fig, ax = plt.subplots()
+    image = cv2.imread(image_path)
+    ax.imshow(image)  # Replace 'your_image' with the variable containing your image
+    button_ax = plt.axes([0.81, 0.05, 0.1, 0.075])  # Position of the button
+    ok_button = Button(button_ax, 'OK')
+    ok_button.on_clicked(on_ok_button_clicked)
+
+    # Connect the callback function to the 'draw_event'
+    fig.canvas.mpl_connect('draw_event', on_draw)
+
+    plt.show()
+
+
+import cv2
+
+# Function to display the image and get ROIs
+def get_rois(image_path):
+    bounding_boxes = []
+    image = cv2.imread(image_path)
+    key = 0
+
+    while key != ord('q'):  # Press 'q' to quit the ROI selection process
+        bbox = cv2.selectROI("Image", image, fromCenter=False, showCrosshair=True)
+        bounding_boxes.append(bbox)
+
+        # Draw the selected ROI on the image (optional)
+        x, y, w, h = bbox
+        cv2.rectangle(image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+
+        # Display the image with the drawn rectangle
+        cv2.imshow("Image", image)
+
+        key = cv2.waitKey(0) & 0xFF
+
+    # Close the image window
+    cv2.destroyAllWindows()
+
+    # Print the final bounding boxes
+    print("Final bounding boxes:")
+    for bbox in bounding_boxes:
+        print(bbox)
+
 
 if __name__ == "__main__":
-    draw_box_with_mouse("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
+    #draw_box_with_mouse("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
+    # Call the function with the path to your image
+    get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
+    #run_selection("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
