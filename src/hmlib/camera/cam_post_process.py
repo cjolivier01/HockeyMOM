@@ -250,10 +250,13 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
 
 
 class ImageProcData:
-    def __init__(self, frame_id: int, img, current_box):
+    def __init__(self, frame_id: int, img, current_box: torch.Tensor):
         self.frame_id = frame_id
         self.img = img
         self.current_box = current_box.clone()
+
+    def dump(self):
+        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
 class Detection:
@@ -1287,4 +1290,5 @@ class FramePostProcessor:
                 # memory for no gain
                 while self._imgproc_queue.qsize() > 25:
                     time.sleep(0.001)
+                # imgproc_data.dump()
                 self._imgproc_queue.put(imgproc_data)
