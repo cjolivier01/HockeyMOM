@@ -44,6 +44,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         name: str = "train",
         preproc=None,
         return_origin_img=False,
+        max_frames: int = 0,
         batch_size: int = 1,
         start_frame_number: int = 0,
     ):
@@ -64,6 +65,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._count = torch.tensor([0], dtype=torch.int32)
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
+        self._max_frames = max_frames
         self._batch_size = batch_size
         self._timer = None
         self._to_worker_queue = multiprocessing.Queue()
@@ -156,7 +158,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         #         )
         #     )
         # self._timer.tic()
-        if self._count.item() == len(self):
+        current_count = self._count.item()
+        if current_count == len(self) or (
+            self._max_frames and current_count >= self._max_frames
+        ):
             raise StopIteration
         frames_inscribed_images = []
         frames_imgs = []

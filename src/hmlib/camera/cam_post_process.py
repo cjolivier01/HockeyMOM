@@ -106,8 +106,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        #self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -223,6 +223,9 @@ class ImageProcData:
         self.frame_id = frame_id
         self.img = img
         self.current_box = current_box.copy()
+
+    def dump(self):
+        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
 class Detection:
@@ -616,12 +619,15 @@ class FramePostProcessor:
             online_ids = online_targets_and_img[1]
             detections = online_targets_and_img[2]
 
+            # print(torch.tensor(online_ids, dtype=torch.int64))
+            # print(torch.tensor(online_tlwhs))
+
             # Exclude detections outside of an optional bounding box
             online_tlwhs, online_ids = prune_by_inclusion_box(
                 online_tlwhs, online_ids, self._args.detection_inclusion_box
             )
 
-            info_imgs = online_targets_and_img[3]
+            #info_imgs = online_targets_and_img[3]
             img0 = online_targets_and_img[4]
             original_img = online_targets_and_img[5]
 
@@ -630,7 +636,8 @@ class FramePostProcessor:
             hockey_mom.reset_clusters()
 
             def _kmeans_cuda_device():
-                return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+                #return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+                return "cuda"
 
             kmeans_device = _kmeans_cuda_device()
             hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -846,7 +853,7 @@ class FramePostProcessor:
                     # group_threshhold=0.6,
                 )
                 if group_x_velocity:
-                    # print(f"group x velocity: {group_x_velocity}")
+                    # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                     # cv2.circle(
                     #     online_im,
                     #     _to_int(edge_center),
@@ -1247,4 +1254,5 @@ class FramePostProcessor:
                 # memory for no gain
                 while self._imgproc_queue.qsize() > 25:
                     time.sleep(0.001)
+                # imgproc_data.dump()
                 self._imgproc_queue.put(imgproc_data)
