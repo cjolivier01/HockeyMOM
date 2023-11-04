@@ -89,14 +89,8 @@ def make_box_at_center(center_point, w: float, h: float):
     return box
 
 
-# def translate_box(box, dx, dy):
-#     return box + np.array([dx, dy, dx, dy], dtype=np.float32)
-
-
 def center_distance(box1, box2) -> float:
     assert box1 is not None and box2 is not None
-    # if box1 is None or box2 is None:
-    #     return 0.0
     c1 = center(box1)
     c2 = center(box2)
     if c1 == c2:
@@ -108,8 +102,6 @@ def center_distance(box1, box2) -> float:
 
 def center_x_distance(box1, box2) -> float:
     assert box1 is not None and box2 is not None
-    # if box1 is None or box2 is None:
-    #     return 0.0
     return abs(center(box1)[0] - center(box2)[0])
 
 
@@ -166,9 +158,6 @@ class VideoFrame(object):
         return torch.tensor(
             (0, 0, self._image_width - 1, self._image_height - 1), dtype=torch.float32
         )
-        # return np.array(
-        #     (0, 0, self._image_width - 1, self._image_height - 1), dtype=np.int32
-        # )
 
     @property
     def width(self):
@@ -266,7 +255,6 @@ class TlwhHistory(object):
         height = tlwh[3]
         x_center = left + width / 2
         y_center = top + height / 2
-        # return np.array((x_center, y_center), dtype=np.float32)
         return torch.tensor((x_center, y_center), dtype=torch.float32)
 
     def __len__(self):
@@ -565,6 +553,7 @@ class HockeyMOM:
         )
 
     def prune_not_in_largest_cluster(self, n_clusters, ids):
+        # TODO: return a tensor?
         largest_cluster_set = self.get_largest_cluster_id_set(n_clusters)
         result_ids = []
         for id in ids:
@@ -761,25 +750,25 @@ class HockeyMOM:
 
     @classmethod
     def union_box(cls, box1, box2):
-        box = box1.clone()
-        box[0] = torch.min(box[0], box2[0])
-        box[1] = torch.min(box[1], box2[1])
-        box[2] = torch.max(box[2], box2[2])
-        box[3] = torch.max(box[3], box2[3])
-        return box
-        # assert box1.dtype == box2.dtype
-        # top_left = torch.min(box1[:2], box2[:2])
-        # bottom_right = torch.max(box1[2:], box2[2:])
-        # return torch.cat([top_left, bottom_right])
-        # return torch.tensor(
-        #     [
-        #         torch.min(box1[0], box2[0]),
-        #         torch.min(box1[1], box2[1]),
-        #         torch.max(box1[2], box2[2]),
-        #         torch.max(box1[3], box2[3]),
-        #     ],
-        #     dtype=box1.dtype,
-        # )
+        # box = box1.clone()
+        # box[0] = torch.min(box[0], box2[0])
+        # box[1] = torch.min(box[1], box2[1])
+        # box[2] = torch.max(box[2], box2[2])
+        # box[3] = torch.max(box[3], box2[3])
+        # return box
+        assert box1.dtype == box2.dtype
+        top_left = torch.min(box1[:2], box2[:2])
+        bottom_right = torch.max(box1[2:], box2[2:])
+        return torch.cat([top_left, bottom_right])
+        return torch.tensor(
+            [
+                torch.min(box1[0], box2[0]),
+                torch.min(box1[1], box2[1]),
+                torch.max(box1[2], box2[2]),
+                torch.max(box1[3], box2[3]),
+            ],
+            dtype=box1.dtype,
+        )
 
     @staticmethod
     def _make_pruned_map(map, allowed_keys):
@@ -842,63 +831,50 @@ class HockeyMOM:
     #         bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
     #     return bounding_intbox
 
-    def get_current_bounding_box(self, ids=None):
-        bounding_intbox = self._video_frame.box().tolist()
-
-        bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
-        bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
-
-        if ids is None:
-            ids = self._online_ids
-
-        for id in ids:
-            tlwh = self.get_tlwh(id)
-            x1 = tlwh[0]
-            y1 = tlwh[1]
-            w = tlwh[2]
-            h = tlwh[3]
-            intbox = np.array((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=np.int32)
-            bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
-            bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
-            bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
-            bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
-        return torch.tensor(bounding_intbox, dtype=torch.float32)
     # def get_current_bounding_box(self, ids=None):
-    #     # bounding_intbox = self._video_frame.box()
+    #     bounding_intbox = self._video_frame.box().tolist()
 
-    #     # bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[0]
-    #     # bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
+    #     bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
+    #     bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
 
     #     if ids is None:
     #         ids = self._online_ids
-    #     if len(ids) == 0:
-    #         return self._video_frame.box()
 
-    #     tlwh_list = []
     #     for id in ids:
-    #         # Can this be a select or gather one day?
     #         tlwh = self.get_tlwh(id)
-    #         tlwh_list.append(tlwh_to_tlbr_single(tlwh))
-    #     bounding_boxes = torch.stack(tlwh_list)
-    #     min_x1, min_y1 = torch.min(bounding_boxes[:, :2], dim=0).values
-    #     max_x2, max_y2 = torch.max(bounding_boxes[:, 2:], dim=0).values
-    #     # The containing bounding box is then
-    #     containing_box = torch.tensor([min_x1, min_y1, max_x2, max_y2])
-    #         #x1, y1, w, h = tlwh.unbind(-1)
-    #         # x1 = tlwh[0]
-    #         # y1 = tlwh[1]
-    #         # w = tlwh[2]
-    #         # h = tlwh[3]
-    #         #intbox = torch.tensor([x1, y1, x1 + w + 0.5, y1 + h + 0.5], dtype=torch.int32)
-    #         #float_tensor = torch.tensor([x1, y1, x1 + w, y1 + h], dtype=torch.float32)
+    #         x1 = tlwh[0]
+    #         y1 = tlwh[1]
+    #         w = tlwh[2]
+    #         h = tlwh[3]
+    #         intbox = np.array((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=np.int32)
+    #         bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
+    #         bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
+    #         bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
+    #         bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
+    #     return torch.tensor(bounding_intbox, dtype=torch.float32)
 
-    #         # this_bbox = tlwh_to_tlbr_single(tlwh=tlwh)
-    #         # intbox = this_bbox.round().int()
-    #         # bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
-    #         # bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
-    #         # bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
-    #         # bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
-    #     return containing_box
+    def get_current_bounding_box(self, ids=None):
+        # bounding_intbox = self._video_frame.box()
+
+        # bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[0]
+        # bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
+
+        if ids is None:
+            ids = self._online_ids
+        if len(ids) == 0:
+            return self._video_frame.box()
+
+        tlwh_list = []
+        for id in ids:
+            # Can this be a select or gather one day?
+            tlwh = self.get_tlwh(id)
+            tlwh_list.append(tlwh_to_tlbr_single(tlwh))
+        bounding_boxes = torch.stack(tlwh_list)
+        min_x1, min_y1 = torch.min(bounding_boxes[:, :2], dim=0).values
+        max_x2, max_y2 = torch.max(bounding_boxes[:, 2:], dim=0).values
+        # The containing bounding box is then
+        containing_box = torch.tensor([min_x1, min_y1, max_x2, max_y2])
+        return containing_box
 
     def ratioed_expand(self, box):
         ew = self._video_frame.width / 10
