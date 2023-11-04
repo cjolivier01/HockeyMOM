@@ -10,9 +10,23 @@ import pt_autograph as ptag
 
 import torch
 
-import pt_autograph
+# import pt_autograph
 from pt_autograph import pt_function
-import pt_autograph.flow.runner as runner
+
+# import pt_autograph.flow.runner as runner
+
+from hmlib.utils.box_functions import (
+    width,
+    height,
+    center,
+    center_x_distance,
+    clamp_box,
+    clamp_value,
+    aspect_ratio,
+    make_box_at_center,
+    tlwh_to_tlbr_single,
+    translate_box_to_edge,
+)
 
 # nosec B101
 
@@ -52,86 +66,6 @@ def create_camera(
     return cam
 
 
-def width(box):
-    return box[2] - box[0] + 1.0
-
-
-def height(box):
-    return box[3] - box[1] + 1.0
-
-
-def center(box):
-    return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
-
-
-#@pt_function
-def clamp_value(low, val, high):
-    assert high > low
-    if val < low:
-        return low
-    elif val > high:
-        return high
-    return val
-
-
-def make_box_at_center(center_point, w: float, h: float):
-    box = torch.tensor(
-        (
-            center_point[0] - (w / 2.0) + 0.5,
-            center_point[1] - (h / 2.0) + 0.5,
-            center_point[0] + (w / 2.0) - 0.5,
-            center_point[1] + (h / 2.0) - 0.5,
-        ),
-        dtype=torch.float32,
-    )
-    # assert np.isclose(width(box), w)
-    # assert np.isclose(height(box), h)
-    return box
-
-
-def center_distance(box1, box2) -> float:
-    assert box1 is not None and box2 is not None
-    c1 = center(box1)
-    c2 = center(box2)
-    if c1 == c2:
-        return 0.0
-    w = c2[0] - c1[0]
-    h = c2[1] - c1[1]
-    return math.sqrt(w * w + h * h)
-
-
-def center_x_distance(box1, box2) -> float:
-    assert box1 is not None and box2 is not None
-    return abs(center(box1)[0] - center(box2)[0])
-
-
-def aspect_ratio(box):
-    return width(box) / height(box)
-
-
-def tlwh_to_tlbr_multiple(tlwh: torch.Tensor):
-    # Calculate bottom-right coordinates
-    top_left = tlwh[:, :2]  # Get all rows and first 2 columns (x1, y1)
-    sizes = tlwh[:, 2:]     # Get all rows and last 2 columns (width, height)
-
-    bottom_right = top_left + sizes  # Element-wise addition
-
-    # Create the bounding box tensor of [x1, y1, x2, y2]
-    bounding_boxes = torch.cat((top_left, bottom_right), dim=1)
-    return bounding_boxes
-
-def tlwh_to_tlbr_single(tlwh: torch.Tensor):
-    # Calculate bottom-right coordinates
-    top_left = tlwh[:2]  # Get all rows and first 2 columns (x1, y1)
-    sizes = tlwh[2:]     # Get all rows and last 2 columns (width, height)
-
-    bottom_right = top_left + sizes  # Element-wise addition
-
-    # Create the bounding box tensor of [x1, y1, x2, y2]
-    bounding_boxes = torch.cat((top_left, bottom_right), dim=0)
-    return bounding_boxes
-
-
 def get_image_top_view(
     image_file: str,
     camera: ct.Camera,
@@ -144,7 +78,7 @@ def get_image_top_view(
 
 
 def is_equal(f1, f2):
-    return np.isclose(f1, f2, rtol=0.01, atol=0.01)
+    return torch.isclose(f1, f2, rtol=0.01, atol=0.01)
 
 
 class VideoFrame(object):
@@ -153,11 +87,14 @@ class VideoFrame(object):
         self._image_height = _as_scalar(image_height)
         self._vertical_center = self._image_height / 2
         self._horizontal_center = self._image_width / 2
-
-    def box(self):
-        return torch.tensor(
-            (0, 0, self._image_width - 1, self._image_height - 1), dtype=torch.float32
+        self._bbox = torch.tensor(
+            (0, 0, self._image_width - 1, self._image_height - 1),
+            dtype=torch.float32,
+            device=self._image_width.device,
         )
+
+    def bounding_box(self):
+        return self._bbox
 
     @property
     def width(self):
@@ -187,7 +124,9 @@ class TlwhHistory(object):
     def id(self):
         return self.id_
 
-    def append(self, image_position: torch.Tensor, spatial_position: torch.Tensor = None):
+    def append(
+        self, image_position: torch.Tensor, spatial_position: torch.Tensor = None
+    ):
         current_historty_length = len(self._image_position_history)
         if current_historty_length >= self._max_history_length - 1:
             # trunk-ignore(bandit/B101)
@@ -288,14 +227,16 @@ class HockeyMOM:
         self,
         image_width: int,
         image_height: int,
+        device,
         max_history: int = 26,
         speed_history: int = 26,
     ):
+        self._device = device
         self._video_frame = VideoFrame(
-            image_width=image_width,
-            image_height=image_height,
+            image_width=self._to_scalar_float(image_width),
+            image_height=self._to_scalar_float(image_height),
         )
-        self._clamp_box = self._video_frame.box()
+        self._clamp_box = self._video_frame.bounding_box()
         self._online_tlwhs_history = list()
         self._max_history = max_history
         # self._speed_history = speed_history
@@ -308,13 +249,13 @@ class HockeyMOM:
         self._cluster_label_ids = dict()
         self._largest_cluster_label = dict()
 
-        self._epsilon = 0.00001
+        self._epsilon = self._to_scalar_float(0.00001)
 
         #
         # The camera's box speed itself
         #
-        self._current_camera_box_speed_x = 0
-        self._current_camera_box_speed_y = 0
+        self._current_camera_box_speed_x = self._to_scalar_float(0)
+        self._current_camera_box_speed_y = self._to_scalar_float(0)
 
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
@@ -328,11 +269,11 @@ class HockeyMOM:
         # self._camera_box_max_speed_y = max(image_height / 200.0, 12.0)
         # self._camera_box_max_speed_x = max(image_width / 300.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 300.0, 12.0)
-        self._camera_box_max_speed_x = max(
-            image_width / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0
+        self._camera_box_max_speed_x = self._to_scalar_float(
+            max(image_width / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
         )
-        self._camera_box_max_speed_y = max(
-            image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0
+        self._camera_box_max_speed_y = self._to_scalar_float(
+            max(image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
         )
         print(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
@@ -343,27 +284,27 @@ class HockeyMOM:
         # self._camera_box_max_accel_y = 6
         # self._camera_box_max_accel_x = 3
         # self._camera_box_max_accel_y = 3
-        self._camera_box_max_accel_x = 1
-        self._camera_box_max_accel_y = 1
+        self._camera_box_max_accel_x = self._to_scalar_float(1)
+        self._camera_box_max_accel_y = self._to_scalar_float(1)
         # self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 20.0, 1)
         # self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 20.0, 1)
         print(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
 
-        self._last_acceleration_dx = 0
-        self._last_acceleration_dy = 0
+        self._last_acceleration_dx = self._to_scalar_float(0)
+        self._last_acceleration_dy = self._to_scalar_float(0)
 
         #
         # Zoom velocity
         #
-        self._camera_box_size_change_velocity_x = 0
-        self._camera_box_size_change_velocity_y = 0
+        self._camera_box_size_change_velocity_x = self._to_scalar_float(0)
+        self._camera_box_size_change_velocity_y = self._to_scalar_float(0)
 
-        # self._camera_box_max_size_change_velocity_x = 0
-        # self._camera_box_max_size_change_velocity_y = 0
-        self._camera_box_max_size_change_velocity_x = 2
-        self._camera_box_max_size_change_velocity_y = 2
+        # self._camera_box_max_size_change_velocity_x = self._to_scalar_float(0)
+        # self._camera_box_max_size_change_velocity_y = self._to_scalar_float(0)
+        self._camera_box_max_size_change_velocity_x = self._to_scalar_float(2)
+        self._camera_box_max_size_change_velocity_y = self._to_scalar_float(2)
 
         # Create the camera transofrmer
         # self._camera = create_camera(
@@ -375,6 +316,9 @@ class HockeyMOM:
         #     image_size_px=(image_width, image_height),
         # )
         self.setup_gaussian(length=image_width)
+
+    def _to_scalar_float(self, scalar_float):
+        return torch.tensor(scalar_float, dtype=torch.float32, device=self._device)
 
     def get_gaussian_y_from_image_x_position(
         self, image_x_position: float, wide: bool = False
@@ -487,7 +431,9 @@ class HockeyMOM:
         # self._id_to_speed_map = dict()
         # trunk-ignore(ruff/B905)
         for id, image_pos in zip(self._online_ids, self._online_tlws):
-            hist = prev_dict.get(id.item(), TlwhHistory(id=id.item(), video_frame=self._video_frame))
+            hist = prev_dict.get(
+                id.item(), TlwhHistory(id=id.item(), video_frame=self._video_frame)
+            )
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id.item()] = hist
 
@@ -518,9 +464,9 @@ class HockeyMOM:
             torch_tensors.append(n.to(device))
         tt = torch.cat(torch_tensors, dim=0)
         tt = torch.reshape(tt, (len(torch_tensors), 2))
-        #print(tt)
+        # print(tt)
         labels = self._kmeans_objects[n_clusters].fit_predict(tt)
-        #print(labels)
+        # print(labels)
         self._cluster_counts[n_clusters] = [0 for i in range(n_clusters)]
         cluster_counts = self._cluster_counts[n_clusters]
         cluster_label_ids = self._cluster_label_ids[n_clusters]
@@ -588,7 +534,9 @@ class HockeyMOM:
     def get_image_tracking(self, online_ids):
         results = []
         for id in online_ids:
-            results.append(self._id_to_tlwhs_history_map[id.item()].image_position_history)
+            results.append(
+                self._id_to_tlwhs_history_map[id.item()].image_position_history
+            )
         return results
 
     def get_fast_ids(self, min_fast_items: int = 4, max_fast_items: int = 6):
@@ -682,9 +630,11 @@ class HockeyMOM:
     def add_x_velocity(self, x_velocity_to_add):
         self._current_camera_box_speed_x += x_velocity_to_add
 
-    @classmethod
-    def _box_centers(cls, box):
-        return torch.tensor([(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0], dtype=box.dtype)
+    # @classmethod
+    # def _box_centers(cls, box):
+    #     return torch.tensor(
+    #         [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0], dtype=box.dtype
+    #     )
 
     # @classmethod
     # def _box_centers(cls, bboxes):
@@ -712,23 +662,34 @@ class HockeyMOM:
     #         centers = centers.squeeze(dim=0)
     #     return centers
 
-    @classmethod
-    def _clamp(cls, box, clamp_box):
-        return torch.tensor([
-                torch.max(box[0], clamp_box[0]),
-                torch.max(box[1], clamp_box[1]),
-                torch.min(box[2], clamp_box[2]),
-                torch.min(box[3], clamp_box[3]),
-            ], dtype=box.dtype)
+    # @classmethod
+    # def _clamp(cls, box, clamp_box):
+    #     assert box.device == clamp_box.device
+    #     clamped_box = torch.empty_like(box)
+    #     clamped_box[0] = torch.clamp(box[0], min=clamp_box[0], max=clamp_box[2])
+    #     clamped_box[1] = torch.clamp(box[1], min=clamp_box[1], max=clamp_box[3])
+    #     clamped_box[2] = torch.clamp(box[2], min=clamp_box[0], max=clamp_box[2])
+    #     clamped_box[3] = torch.clamp(box[1], min=clamp_box[1], max=clamp_box[3])
+    #     return clamped_box
+    #     # return torch.tensor(
+    #     #     [
+    #     #         torch.max(box[0], clamp_box[0]),
+    #     #         torch.max(box[1], clamp_box[1]),
+    #     #         torch.min(box[2], clamp_box[2]),
+    #     #         torch.min(box[3], clamp_box[3]),
+    #     #     ],
+    #     #     dtype=box.dtype,
+    #     # )
 
-    def clamp(self, box):
-        return self._clamp(
-            box,
-            torch.tensor(
-                [0, 0, self._video_frame.width - 1, self._video_frame.height - 1],
-                dtype=torch.float32,
-            ),
-        )
+    def clamp(self, box: torch.Tensor):
+        return clamp_box(box, self._video_frame.bounding_box())
+        # return self._clamp(
+        #     box,
+        #     torch.tensor(
+        #         [0, 0, self._video_frame.width - 1, self._video_frame.height - 1],
+        #         dtype=torch.float32,
+        #     ),
+        # )
 
     @staticmethod
     def _tlwh_to_tlbr(box):
@@ -788,11 +749,11 @@ class HockeyMOM:
 
     @classmethod
     def box_str(cls, box):
-        center = cls._box_centers(box)
+        box_center = center(box)
         return (
             f"[x1={box[0]}, y1={box[1]}, x2={box[2]}, y2={box[3]}] "
             + f"w={box[2] - box[0]}, h={box[3] - box[1]}, "
-            + f"center=({center[0]}, {center[1]})"
+            + f"center={box_center}"
         )
 
     @classmethod
@@ -810,7 +771,7 @@ class HockeyMOM:
         return box
 
     # def get_current_bounding_box(self, ids=None):
-    #     bounding_intbox = self._video_frame.box()
+    #     bounding_intbox = self._video_frame.bounding_box()
 
     #     bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
     #     bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
@@ -832,7 +793,7 @@ class HockeyMOM:
     #     return bounding_intbox
 
     # def get_current_bounding_box(self, ids=None):
-    #     bounding_intbox = self._video_frame.box().tolist()
+    #     bounding_intbox = self._video_frame.bounding_box().tolist()
 
     #     bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
     #     bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
@@ -854,7 +815,7 @@ class HockeyMOM:
     #     return torch.tensor(bounding_intbox, dtype=torch.float32)
 
     def get_current_bounding_box(self, ids=None):
-        # bounding_intbox = self._video_frame.box()
+        # bounding_intbox = self._video_frame.bounding_box()
 
         # bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[0]
         # bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
@@ -862,7 +823,7 @@ class HockeyMOM:
         if ids is None:
             ids = self._online_ids
         if len(ids) == 0:
-            return self._video_frame.box()
+            return self._video_frame.bounding_box()
 
         tlwh_list = []
         for id in ids:
@@ -870,10 +831,10 @@ class HockeyMOM:
             tlwh = self.get_tlwh(id)
             tlwh_list.append(tlwh_to_tlbr_single(tlwh))
         bounding_boxes = torch.stack(tlwh_list)
-        min_x1, min_y1 = torch.min(bounding_boxes[:, :2], dim=0).values
-        max_x2, max_y2 = torch.max(bounding_boxes[:, 2:], dim=0).values
+        min_tl, _ = torch.min(bounding_boxes[:, :2], dim=0)
+        max_br, _ = torch.max(bounding_boxes[:, 2:], dim=0)
         # The containing bounding box is then
-        containing_box = torch.tensor([min_x1, min_y1, max_x2, max_y2])
+        containing_box = torch.cat([min_tl, max_br])
         return containing_box
 
     def ratioed_expand(self, box):
@@ -942,7 +903,7 @@ class HockeyMOM:
         The final box must be within the initial box.
         """
 
-        center = self._box_centers(the_box)
+        box_center = center(the_box)
 
         w = width(the_box)
         if w > self._video_frame.width:
@@ -1012,15 +973,15 @@ class HockeyMOM:
         # floating-point math gets funky sometimes and overflows
         # above the max width or height (due to python sucking,
         # most likely)
-        #center = center.trunc()
-        center[0] = float(int(center[0]))
-        center[1] = float(int(center[1]))
+        box_center = box_center.trunc()
+        #center[0] = float(int(center[0]))
+        #center[1] = float(int(center[1]))
 
-        new_box = make_box_at_center(center, new_w, new_h)
+        new_box = make_box_at_center(box_center, new_w, new_h)
 
         if verbose:
             print(f"frame_id={frame_id}, ar={aspect_ratio(new_box)}")
-        assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
+        assert torch.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
         if extra_validation:
             # Damned numerics defy logic
@@ -1029,7 +990,7 @@ class HockeyMOM:
             assert ww <= (self._video_frame.width + self._epsilon)
             assert hh <= (self._video_frame.height + self._epsilon)
 
-        assert np.isclose(aspect_ratio(new_box), desired_aspect_ratio)
+        assert torch.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
         return new_box
 
@@ -1089,6 +1050,7 @@ class HockeyMOM:
                 print(
                     f"ERROR: Height {height(box)} is too tall! Larger than video frame width of {self._video_frame.height}"
                 )
+
         if box[0] < 0:
             box[2] += -box[0]
             box[0] += -box[0]
@@ -1106,12 +1068,14 @@ class HockeyMOM:
             box[3] -= offset
         return box
 
+        #return translate_box_to_edge(box=box, bounds=self._video_frame.bounding_box())
+
     def apply_box_velocity(self, box, scale_speed: float, verbose: bool = False):
         dx = self._current_camera_box_speed_x * scale_speed
         dy = self._current_camera_box_speed_y * scale_speed
         # if verbose:
         #     print(f"Moving box by {dx} x {dy}")
-        return box + torch.tensor([dx, dy, dx, dy], dtype=torch.float32)
+        return box + torch.tensor([dx, dy, dx, dy], dtype=torch.float32, device=box.device)
 
     def adjust_veclocity_based_upon_new_box(
         self,
@@ -1246,15 +1210,15 @@ class HockeyMOM:
         next_box = proposed_new_box.copy()
 
         if pre_clamp_to_video_frame:
-            video_frame = self._video_frame.box()
+            video_frame = self._video_frame.bounding_box()
             self._clamp(next_box, video_frame)
 
         if last_box is None:
             return next_box
 
         # First, we apply the center's proposed change
-        proposed_center = self._box_centers(proposed_new_box)
-        last_center = self._box_centers(last_box)
+        proposed_center = center(proposed_new_box)
+        last_center = center(last_box)
         dx = proposed_center[0] - last_center[0]
         dy = proposed_center[1] - last_center[1]
 

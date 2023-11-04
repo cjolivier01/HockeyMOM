@@ -57,6 +57,7 @@ def get_open_files_count():
     pid = os.getpid()
     return len(os.listdir(f"/proc/{pid}/fd"))
 
+
 class HmPostProcessor:
     def __init__(
         self,
@@ -107,18 +108,30 @@ class HmPostProcessor:
         img = to_rgb_non_planar(img).cpu()
         original_img = to_rgb_non_planar(original_img)
         inscribed_image = to_rgb_non_planar(inscribed_image)
+        if isinstance(online_tlwhs, list):
+            online_tlwhs = torch.stack([torch.from_numpy(t) for t in online_tlwhs]).to(
+                torch_device()
+            )
         if self._postprocessor is None:
             self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
         if self._args.scale_to_original_image:
-            scaled_online_tlwhs = []
+            # scaled_online_tlwhs = []
             if len(online_tlwhs):
-                for tlwh in online_tlwhs:
-                    tlwh = torch.tensor(tlwh)
-                    tlwh[0] -= self.dw
-                    tlwh[1] -= self.dh
-                    tlwh /= self._scale_inscribed_to_original
-                    scaled_online_tlwhs.append(tlwh)
-                online_tlwhs = torch.stack(scaled_online_tlwhs)
+                # Offset the boxes
+                online_tlwhs[:, 0] += self.dw
+                online_tlwhs[:, 1] += self.dh
+                # Scale the width and height
+                online_tlwhs /= self._scale_inscribed_to_original
+                # online_tlwhs[:, 2] /= self._scale_inscribed_to_original[0]
+                # online_tlwhs[:, 3] /= self._scale_inscribed_to_original[1]
+
+                # for tlwh in online_tlwhs:
+                #     tlwh = torch.tensor(tlwh)
+                #     tlwh[0] -= self.dw
+                #     tlwh[1] -= self.dh
+                #     tlwh /= self._scale_inscribed_to_original
+                #     scaled_online_tlwhs.append(tlwh)
+                # online_tlwhs = torch.stack(scaled_online_tlwhs)
         if (
             not self._args.scale_to_original_image
             and isinstance(img, torch.Tensor)
@@ -141,6 +154,7 @@ class HmPostProcessor:
         _, _, self.dw, self.dh = datasets.calculate_letterbox(
             shape=inscribed_image.shape, height=img.shape[0], width=img.shape[1]
         )
+        device = torch_device()
         if self._args.scale_to_original_image and self._image_scale_array is None:
             self._scale_processed_to_inscribed = make_scale_array(
                 from_img=img,
@@ -152,7 +166,7 @@ class HmPostProcessor:
                     self._scale_processed_to_inscribed,
                 ),
                 dim=0,
-            )
+            ).to(device)
             self._scale_inscribed_to_original = make_scale_array(
                 from_img=inscribed_image,
                 to_img=original_img,
@@ -160,7 +174,7 @@ class HmPostProcessor:
             self._scale_inscribed_to_original = torch.cat(
                 (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
                 dim=0,
-            )
+            ).to(device)
 
             self._image_scale_array = make_scale_array(
                 from_img=inscribed_image,
@@ -168,17 +182,19 @@ class HmPostProcessor:
             )
             self._image_scale_array = torch.cat(
                 (self._image_scale_array, self._image_scale_array), dim=0
-            )
+            ).to(device)
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:
                 self._hockey_mom = HockeyMOM(
                     image_width=original_img.shape[1],
                     image_height=original_img.shape[0],
+                    device=device,
                 )
             else:
                 self._hockey_mom = HockeyMOM(
                     image_width=img.shape[1],
                     image_height=img.shape[0],
+                    device=device,
                 )
 
         if self._postprocessor is None:

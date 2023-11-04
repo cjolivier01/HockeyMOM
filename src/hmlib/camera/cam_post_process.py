@@ -25,12 +25,13 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracker.multitracker import torch_device
 
-from .camera import (
-    aspect_ratio,
+from hmlib.utils.box_functions import (
     width,
     height,
     center,
     center_x_distance,
+    # clamp_value,
+    aspect_ratio,
     make_box_at_center,
 )
 
@@ -39,6 +40,11 @@ from hmlib.utils.box_functions import tlwh_centers
 from hockeymom import core
 
 core.hello_world()
+
+
+def torch_device():
+    return "cuda"
+
 
 ##
 #  _____         __             _ _                                                     _
@@ -79,7 +85,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        self.show_image = False
+        # self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -166,7 +172,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        self.detection_inclusion_box = [363, 600, 5388, 1714]
+        self.detection_inclusion_box = torch.tensor(
+            [363, 600, 5388, 1714], dtype=torch.float32
+        )
+        print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 
 def get_open_files_count():
@@ -203,7 +212,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
         assert len(online_ids) == 0
         # nothing
         return online_tlwhs, online_ids
-    if not inclusion_box:
+    if inclusion_box is not None:
         return online_tlwhs, online_ids
     filtered_online_tlwh = []
     filtered_online_ids = []
@@ -299,6 +308,10 @@ class FramePostProcessor:
                 self.watermark_alpha_channel,
                 self.watermark_alpha_channel,
             ]
+        )
+
+        self._outside_box_expansion_for_speed_curtailing = torch.tensor(
+            [-100.0, -100.0, 100.0, 100.0], dtype=torch.float32, device=torch_device()
         )
 
         # Camera state
@@ -468,7 +481,7 @@ class FramePostProcessor:
                 )
 
             if self._args.crop_output_image:
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 # print(f"crop ar={aspect_ratio(current_box)}")
                 intbox = [int(i) for i in current_box]
                 x1 = intbox[0]
@@ -495,7 +508,7 @@ class FramePostProcessor:
                     if self._args.use_cuda:
                         gpu_image = torch.Tensor(online_im)[
                             y1 : y2 + 1, x1 : x2 + 1, 0:3
-                        ].to("cuda")
+                        ].to(torch_device())
                         # gpu_image = torch.Tensor(online_im).to("cuda:1")
                         # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
                         # gpu_image = cv2.cuda_GpuMat(online_im)
@@ -517,7 +530,7 @@ class FramePostProcessor:
                         gpu_image = tv_resizer.forward(gpu_image)
                     else:
                         # image_ar = float(online_im.shape[1])/float(online_im.shape[0])
-                        # if not np.isclose(image_ar, self._final_aspect_ratio):
+                        # if not torch.isclose(image_ar, self._final_aspect_ratio):
                         #      print(f"Not close: {image_ar} vs {self._final_aspect_ratio}")
                         # #     assert False
 
@@ -623,9 +636,9 @@ class FramePostProcessor:
             self.final_frame_width = int(self._hockey_mom.video.width)
 
         self._imgproc_queue.put("ready")
-        #frame_id = self._start_frame_id - 1
+        # frame_id = self._start_frame_id - 1
         while True:
-            #frame_id += 1
+            # frame_id += 1
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
@@ -671,7 +684,7 @@ class FramePostProcessor:
 
         def _kmeans_cuda_device():
             # return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-            return "cuda"
+            return torch_device()
 
         kmeans_device = _kmeans_cuda_device()
         self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -710,7 +723,7 @@ class FramePostProcessor:
                         offline_tlwhs,
                         offline_ids,
                         frame_id=frame_id,
-                        #fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                        # fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=[],
                         line_thickness=1,
                         box_color=(255, 128, 255),
@@ -724,7 +737,7 @@ class FramePostProcessor:
                     online_tlwhs,
                     online_ids,
                     frame_id=frame_id,
-                    #fps=1.0 / timer.average_time if timer.average_time else 1000.0,
+                    # fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                     speeds=[],
                     line_thickness=2,
                 )
@@ -779,11 +792,11 @@ class FramePostProcessor:
             elif largest_cluster_ids_box3 is not None:
                 current_box = largest_cluster_ids_box3
             else:
-                current_box = self._hockey_mom._video_frame.box()
+                current_box = self._hockey_mom._video_frame.bounding_box()
 
             # current_box = hockey_mom.ratioed_expand(current_box)
             if current_box is None:
-                current_box = self._hockey_mom._video_frame.box()
+                current_box = self._hockey_mom._video_frame.bounding_box()
 
             # Some players may be off-screen, so their box may go over an edge
             current_box = self._hockey_mom.clamp(current_box)
@@ -794,8 +807,10 @@ class FramePostProcessor:
             # outside_expanded_box = current_box + np.array(
             #     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
             # )
-            outside_expanded_box = current_box + torch.tensor(
-                [-100.0, -100.0, 100.0, 100.0], dtype=torch.float32
+
+            # TODO: make this expand box a class member so not recreated every time
+            outside_expanded_box = (
+                current_box + self._outside_box_expansion_for_speed_curtailing
             )
 
             if self._args.plot_camera_tracking:
@@ -893,6 +908,7 @@ class FramePostProcessor:
                 #     color=(255, 0, 255),
                 #     thickness=20,
                 # )
+                edge_center = torch.tensor(edge_center, dtype=torch.float32, device=current_box.device)
                 current_box = make_box_at_center(
                     edge_center, width(current_box), height(current_box)
                 )
@@ -960,7 +976,7 @@ class FramePostProcessor:
                 desired_aspect_ratio=self._final_aspect_ratio,
                 max_in_aspec_ratio=self._args.max_in_aspec_ratio,
             )
-            assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
@@ -994,14 +1010,14 @@ class FramePostProcessor:
                 cb_center = center(current_box)
                 if box_is_at_right_edge:
                     lt_center = center(self._last_temporal_box)
-                    # frame_center = center(hockey_mom._video_frame.box())
+                    # frame_center = center(hockey_mom._video_frame.bounding_box())
                     if cb_center[0] < lt_center[0]:
                         self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
                     elif cb_center[0] > lt_center[0]:
                         self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
                 elif box_is_at_left_edge:
                     lt_center = center(self._last_temporal_box)
-                    # frame_center = center(hockey_mom._video_frame.box())
+                    # frame_center = center(hockey_mom._video_frame.bounding_box())
                     if cb_center[0] > lt_center[0]:
                         self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
                     elif cb_center[0] < lt_center[0]:
@@ -1057,6 +1073,7 @@ class FramePostProcessor:
                             cb_center[1] + (h / 2.0),
                         ),
                         dtype=torch.float32,
+                        device=cb_center.device,
                     )
                     # assert width(current_box) <= hockey_mom.video.width
                     # assert height(current_box) <= hockey_mom.video.height
@@ -1207,20 +1224,20 @@ class FramePostProcessor:
                 #     thickness=15,
                 #     label="edge-scaled",
                 # )
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
             elif self._last_sticky_temporal_box is None:
                 self._last_sticky_temporal_box = current_box.clone()
                 # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
                 # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             else:
                 # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
                 # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
 
                 current_box = self._last_sticky_temporal_box.clone()
                 current_box = _fix_aspect_ratio(current_box)
-                assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
             if self._args.apply_fixed_edge_scaling:
                 current_box = self._hockey_mom.apply_fixed_edge_scaling(
@@ -1259,7 +1276,7 @@ class FramePostProcessor:
             #     desired_aspect_ratio=self._final_aspect_ratio,
             #     max_in_aspec_ratio=False, # FALSE HERE HARD CODED
             # )
-            # assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+            # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
             # Plot the trajectories
             if self._args.plot_individual_player_tracking:
@@ -1274,7 +1291,7 @@ class FramePostProcessor:
             # plt.scatter(x, y, c=kmeans.labels_)
             # plt.show()
 
-            assert np.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             imgproc_data = ImageProcData(
                 frame_id=frame_id.item(),
                 img=online_im,
