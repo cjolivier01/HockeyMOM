@@ -23,7 +23,6 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.tracker.multitracker import torch_device
 
 from hmlib.utils.box_functions import (
     width,
@@ -40,10 +39,6 @@ from hmlib.utils.box_functions import tlwh_centers
 from hockeymom import core
 
 core.hello_world()
-
-
-def torch_device():
-    return "cuda"
 
 
 ##
@@ -260,6 +255,7 @@ class FramePostProcessor:
         data_type,
         fps: float,
         save_dir,
+        device,
         opt,
         args: argparse.Namespace,
         async_post_processing: bool = False,
@@ -280,6 +276,7 @@ class FramePostProcessor:
         self._output_video = None
         self._final_image_processing_started = False
         self._async_post_processing = async_post_processing
+        self._device = device
 
         self._save_dir = save_dir
         # results_dir = Path(save_dir)
@@ -311,7 +308,9 @@ class FramePostProcessor:
         )
 
         self._outside_box_expansion_for_speed_curtailing = torch.tensor(
-            [-100.0, -100.0, 100.0, 100.0], dtype=torch.float32, device=torch_device()
+            [-100.0, -100.0, 100.0, 100.0],
+            dtype=torch.float32,
+            device=self._device,
         )
 
         # Camera state
@@ -329,7 +328,6 @@ class FramePostProcessor:
         if self._use_fork:
             self._child_pid = os.fork()
             if not self._child_pid:
-                self.device = torch.device(torch_device())
                 self._start()
         else:
             self._thread = Thread(target=self._start, name="CamPostProc")
@@ -481,7 +479,9 @@ class FramePostProcessor:
                 )
 
             if self._args.crop_output_image:
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(
+                    aspect_ratio(current_box), self._final_aspect_ratio
+                )
                 # print(f"crop ar={aspect_ratio(current_box)}")
                 intbox = [int(i) for i in current_box]
                 x1 = intbox[0]
@@ -508,7 +508,7 @@ class FramePostProcessor:
                     if self._args.use_cuda:
                         gpu_image = torch.Tensor(online_im)[
                             y1 : y2 + 1, x1 : x2 + 1, 0:3
-                        ].to(torch_device())
+                        ].to(self._device)
                         # gpu_image = torch.Tensor(online_im).to("cuda:1")
                         # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
                         # gpu_image = cv2.cuda_GpuMat(online_im)
@@ -684,7 +684,7 @@ class FramePostProcessor:
 
         def _kmeans_cuda_device():
             # return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-            return torch_device()
+            return self._device
 
         kmeans_device = _kmeans_cuda_device()
         self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -908,7 +908,9 @@ class FramePostProcessor:
                 #     color=(255, 0, 255),
                 #     thickness=20,
                 # )
-                edge_center = torch.tensor(edge_center, dtype=torch.float32, device=current_box.device)
+                edge_center = torch.tensor(
+                    edge_center, dtype=torch.float32, device=current_box.device
+                )
                 current_box = make_box_at_center(
                     edge_center, width(current_box), height(current_box)
                 )
@@ -1224,20 +1226,26 @@ class FramePostProcessor:
                 #     thickness=15,
                 #     label="edge-scaled",
                 # )
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(
+                    aspect_ratio(current_box), self._final_aspect_ratio
+                )
                 self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
             elif self._last_sticky_temporal_box is None:
                 self._last_sticky_temporal_box = current_box.clone()
                 # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
                 # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(
+                    aspect_ratio(current_box), self._final_aspect_ratio
+                )
             else:
                 # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
                 # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
 
                 current_box = self._last_sticky_temporal_box.clone()
                 current_box = _fix_aspect_ratio(current_box)
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                assert torch.isclose(
+                    aspect_ratio(current_box), self._final_aspect_ratio
+                )
 
             if self._args.apply_fixed_edge_scaling:
                 current_box = self._hockey_mom.apply_fixed_edge_scaling(

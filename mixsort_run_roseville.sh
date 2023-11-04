@@ -41,7 +41,7 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -c="${PRETRAINED_MODEL}" \
   -b=1 -d=1 \
   --infer \
-  --conf=0.01 \
+    --conf=0.01 \
   --min-box-area=35 \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \

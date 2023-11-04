@@ -63,6 +63,7 @@ class HmPostProcessor:
         self,
         opt,
         args,
+        device,
         fps: int,
         save_dir: str,
         data_type: str = "mot",
@@ -82,6 +83,7 @@ class HmPostProcessor:
         self.dw = 0
         self.dh = 0
         self._scale_inscribed_to_original = 1
+        self._device = device
         self._counter = 0
 
     @property
@@ -108,12 +110,19 @@ class HmPostProcessor:
         img = to_rgb_non_planar(img).cpu()
         original_img = to_rgb_non_planar(original_img)
         inscribed_image = to_rgb_non_planar(inscribed_image)
-        if isinstance(online_tlwhs, list):
+        if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
             online_tlwhs = torch.stack([torch.from_numpy(t) for t in online_tlwhs]).to(
-                torch_device()
+                self._device
             )
         if self._postprocessor is None:
-            self.on_first_image(frame_id, info_imgs, img, inscribed_image, original_img)
+            self.on_first_image(
+                frame_id,
+                info_imgs,
+                img,
+                inscribed_image,
+                original_img,
+                device=self._device,
+            )
         if self._args.scale_to_original_image:
             # scaled_online_tlwhs = []
             if len(online_tlwhs):
@@ -150,11 +159,12 @@ class HmPostProcessor:
         )
         return detections, online_tlwhs
 
-    def on_first_image(self, frame_id, info_imgs, img, inscribed_image, original_img):
+    def on_first_image(
+        self, frame_id, info_imgs, img, inscribed_image, original_img, device
+    ):
         _, _, self.dw, self.dh = datasets.calculate_letterbox(
             shape=inscribed_image.shape, height=img.shape[0], width=img.shape[1]
         )
-        device = torch_device()
         if self._args.scale_to_original_image and self._image_scale_array is None:
             self._scale_processed_to_inscribed = make_scale_array(
                 from_img=img,
@@ -204,6 +214,7 @@ class HmPostProcessor:
                 data_type=self._data_type,
                 fps=self._fps,
                 save_dir=self._save_dir,
+                device=device,
                 opt=self._opt,
                 args=self._args,
                 use_fork=self._use_fork,

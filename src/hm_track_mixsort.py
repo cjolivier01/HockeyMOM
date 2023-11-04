@@ -33,6 +33,7 @@ from hmtrack import HmPostProcessor
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 
+
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX Eval")
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
@@ -132,7 +133,10 @@ def make_parser():
         "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
     )
     parser.add_argument(
-        "--track_thresh_low", type=float, default=0.1, help="tracking confidence threshold lower bound"
+        "--track_thresh_low",
+        type=float,
+        default=0.1,
+        help="tracking confidence threshold lower bound",
     )
     parser.add_argument(
         "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
@@ -142,6 +146,9 @@ def make_parser():
         type=float,
         default=0.9,
         help="matching threshold for tracking",
+    )
+    parser.add_argument(
+        "--start-frame", type=int, default=0, help="first frame number to process"
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument(
@@ -188,7 +195,15 @@ def make_parser():
 
 def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
-    torch.multiprocessing.set_sharing_strategy('file_system')
+
+    torch.multiprocessing.set_sharing_strategy("file_system")
+
+
+def set_deterministic(seed: int = 42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 # @logger.catch
@@ -201,6 +216,8 @@ def main(exp, args, num_gpu):
             warnings.warn(
                 "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
             )
+
+        set_deterministic()
 
         is_distributed = num_gpu > 1
 
@@ -237,6 +254,7 @@ def main(exp, args, num_gpu):
             args=DefaultArguments(),
             fps=30,
             save_dir=results_folder,
+            device="cuda",
             data_type="mot",
             use_fork=False,
         )
@@ -263,30 +281,28 @@ def main(exp, args, num_gpu):
                     num_workers=1,
                 )
             else:
-
-                #start_frame_number = 103780
-                start_frame_number = 0
-
                 from yolox.data import ValTransform
+
                 assert len(input_video_files) == 1
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
                     return_origin_img=True,
                     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
-                    start_frame_number=start_frame_number,
-                    #data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
-                    #json_file="train.json",
+                    start_frame_number=args.start_frame,
+                    # data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
+                    # json_file="train.json",
                     json_file="val.json",
-                    batch_size=2,
-                    name='val',
+                    batch_size=4,
+                    # batch_size=1,
+                    name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
                         std=(0.229, 0.224, 0.225),
                     ),
                 )
 
-            #from yolox.data import MOTDataset, ValTransform
+            # from yolox.data import MOTDataset, ValTransform
 
             # valdataset = MOTDataset(
             #     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
@@ -316,7 +332,6 @@ def main(exp, args, num_gpu):
             # }
             # dataloader_kwargs["batch_size"] = args.batch_size
             # dataloader = torch.utils.data.DataLoader(dataloader, **dataloader_kwargs)
-
 
         if dataloader is None:
             dataloader = exp.get_eval_loader(
@@ -400,7 +415,7 @@ def main(exp, args, num_gpu):
 
 
 if __name__ == "__main__":
-    os.environ['AUTOGRAPH_VERBOSITY'] = "5"
+    os.environ["AUTOGRAPH_VERBOSITY"] = "5"
     args = make_parser().parse_args()
     exp = get_exp(args.exp_file, args.name)
     exp.merge(args.opts)
