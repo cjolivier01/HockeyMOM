@@ -78,7 +78,7 @@ class MovingBox(BasicMovingBox):
         self._label = label
         self._color = color
         self._frozen_color = frozen_color
-        #self._current_color = self._color
+        # self._current_color = self._color
         self._thickness = thickness
 
         if isinstance(bbox, BasicMovingBox):
@@ -93,7 +93,9 @@ class MovingBox(BasicMovingBox):
         )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self._device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self._device)
-        self._line_thickness_tensor = torch.tensor([2, 2, -1, -2], dtype=torch.float32, device=self._device)
+        self._line_thickness_tensor = torch.tensor(
+            [2, 2, -1, -2], dtype=torch.float32, device=self._device
+        )
 
         self._scale_width = (
             self._one_float_tensor if scale_width is None else scale_width
@@ -115,7 +117,6 @@ class MovingBox(BasicMovingBox):
         self._current_speed_h = self._zero
         self._nonstop_delay = self._zero
         self._nonstop_delay_counter = self._zero
-        self._dest_center = center(bbox)
 
         self._size_is_frozen = False
         self._translation_is_frozen = False
@@ -165,6 +166,16 @@ class MovingBox(BasicMovingBox):
                 img,
                 draw_box,
                 color=self._frozen_color,
+                thickness=self._thickness,
+                label=self._make_label(),
+                text_scale=2,
+            )
+        if self._translation_is_frozen:
+            draw_box += self._line_thickness_tensor
+            vis.plot_rectangle(
+                img,
+                draw_box,
+                color=(255, 255, 255),
                 thickness=self._thickness,
                 label=self._make_label(),
                 text_scale=2,
@@ -277,6 +288,27 @@ class MovingBox(BasicMovingBox):
         center_dest = center(dest_box)
         total_diff = center_dest - center_current
 
+        diff_magnitude = torch.linalg.norm(total_diff)
+
+        # BEGIN Sticky
+        if self._translation_threashold_low is not None:
+            assert self._translation_threashold is not None
+            if (
+                not self._translation_is_frozen
+                and diff_magnitude <= self._translation_threashold_low
+            ):
+                self._translation_is_frozen = True
+                self._current_speed_x = self._zero
+                self._current_speed_y = self._zero
+            elif (
+                self._translation_is_frozen
+                and diff_magnitude >= self._translation_threashold
+            ):
+                self._translation_is_frozen = False
+        else:
+            assert self._translation_threashold is None
+        # END Sticky
+
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
                 self._current_speed_x = self._zero
@@ -289,7 +321,6 @@ class MovingBox(BasicMovingBox):
         self.adjust_speed(
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
-        self._dest_center = center_dest
         self.set_destination_size(
             dest_width=width(dest_box), dest_height=height(dest_box)
         )
@@ -343,9 +374,6 @@ class MovingBox(BasicMovingBox):
             self._current_speed_h = self._zero
         if stopped_count == 2:
             self._size_is_frozen = True
-            #self._current_color = self._frozen_color
-        #else:
-            #self._current_color = self._color
 
         if (
             self._width_change_threshold is not None

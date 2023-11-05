@@ -74,7 +74,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -97,6 +97,9 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
+
+        #self.plot_moving_boxes = True
+        self.plot_moving_boxes = False
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -827,6 +830,13 @@ class FramePostProcessor:
                     color=(255, 128, 64),
                     thickness=5,
                 )
+
+                unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+                stick_size = unstick_size / 2
+
+                size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+                size_stick_size = size_unstick_size / 3
+
                 self._current_roi_aspect = MovingBox(
                     label="AspectRatio",
                     bbox=self._current_roi,
@@ -837,17 +847,19 @@ class FramePostProcessor:
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
                     max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
-                    width_change_threshold=_scalar_like(50, device=current_box.device),
+                    width_change_threshold=_scalar_like(size_unstick_size, device=current_box.device),
                     width_change_threshold_low=_scalar_like(
-                        10, device=current_box.device
+                        size_stick_size, device=current_box.device
                     ),
-                    height_change_threshold=_scalar_like(50, device=current_box.device),
+                    height_change_threshold=_scalar_like(size_unstick_size, device=current_box.device),
                     height_change_threshold_low=_scalar_like(
-                        10, device=current_box.device
+                        size_stick_size, device=current_box.device
                     ),
-                    translation_threashold=_scalar_like(200, device=current_box.device),
+                    translation_threashold=_scalar_like(
+                        stick_size, device=current_box.device
+                    ),
                     translation_threashold_low=_scalar_like(
-                        100, device=current_box.device
+                        stick_size, device=current_box.device
                     ),
                     scale_width=1.25,
                     scale_height=1.1,
@@ -863,8 +875,9 @@ class FramePostProcessor:
 
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
-            self._current_roi_aspect.draw(img=online_im)
-            self._current_roi.draw(img=online_im)
+            if self._args.plot_moving_boxes:
+                self._current_roi_aspect.draw(img=online_im)
+                self._current_roi.draw(img=online_im)
             vis.plot_line(
                 online_im,
                 center(self._current_roi.bbox),
