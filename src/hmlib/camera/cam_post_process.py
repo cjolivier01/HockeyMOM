@@ -878,13 +878,13 @@ class FramePostProcessor:
             if self._args.plot_moving_boxes:
                 self._current_roi_aspect.draw(img=online_im)
                 self._current_roi.draw(img=online_im)
-            vis.plot_line(
-                online_im,
-                center(self._current_roi.bbox),
-                center(current_box),
-                color=(255, 255, 255),
-                thickness=2,
-            )
+                vis.plot_line(
+                    online_im,
+                    center(self._current_roi.bbox),
+                    center(current_box),
+                    color=(255, 255, 255),
+                    thickness=2,
+                )
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
