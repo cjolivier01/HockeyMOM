@@ -74,7 +74,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -98,8 +98,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
 
-        #self.plot_moving_boxes = True
-        self.plot_moving_boxes = False
+        self.plot_moving_boxes = True
+        # self.plot_moving_boxes = False
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False

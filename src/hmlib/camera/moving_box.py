@@ -380,11 +380,17 @@ class MovingBox(BasicMovingBox):
             and abs(dw) >= self._width_change_threshold
         ):
             self._size_is_frozen = False
+            # start from zero change speed so as not to jerk
+            self._current_speed_w = self._zero
+            self._current_speed_h = self._zero
         elif (
             self._height_change_threshold is not None
             and abs(dh) >= self._height_change_threshold
         ):
             self._size_is_frozen = False
+            # start from zero change speed so as not to jerk
+            self._current_speed_w = self._zero
+            self._current_speed_h = self._zero
         #
         # END size threshhold
         #
