@@ -68,6 +68,8 @@ class MovingBox:
         self._current_speed_y = self._zero
         self._current_speed_w = self._zero
         self._current_speed_h = self._zero
+        self._nonstop_delay = self._zero
+        self._nonstop_delay_counter = self._zero
         self._dest_center = center(bbox)
         # Constraints
         self._max_speed_x = max_speed_x
@@ -134,6 +136,7 @@ class MovingBox:
         accel_x: torch.Tensor = None,
         accel_y: torch.Tensor = None,
         use_constraints: bool = True,
+        nonstop_delay: torch.Tensor = None,
     ):
         if use_constraints:
             if accel_x is not None:
@@ -149,6 +152,9 @@ class MovingBox:
 
         if accel_y is not None:
             self._current_speed_y += accel_y
+        if nonstop_delay is not None:
+            self._nonstop_delay = nonstop_delay
+            self._nonstop_delay_counter = self._zero
         # if use_constraints:
         #     self._clamp_speed()
 
@@ -193,18 +199,22 @@ class MovingBox:
         We try to go to the given box's position, given
         our current velocity and constraints
         """
+        if isinstance(dest_box, MovingBox):
+            dest_box = dest_box._bbox
+
         center_current = center(self._bbox)
         center_dest = center(dest_box)
         total_diff = center_dest - center_current
 
-        if different_directions(total_diff[0], self._current_speed_x):
-            self._current_speed_x = self._zero
-            if stop_on_dir_change:
-                total_diff[0] = self._zero
-        if different_directions(total_diff[1], self._current_speed_y):
-            self._current_speed_y = self._zero
-            if stop_on_dir_change:
-                total_diff[1] = self._zero
+        if not self.is_nonstop():
+            if different_directions(total_diff[0], self._current_speed_x):
+                self._current_speed_x = self._zero
+                if stop_on_dir_change:
+                    total_diff[0] = self._zero
+            if different_directions(total_diff[1], self._current_speed_y):
+                self._current_speed_y = self._zero
+                if stop_on_dir_change:
+                    total_diff[1] = self._zero
         self.adjust_speed(
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
@@ -221,7 +231,7 @@ class MovingBox:
         current_h = height(self._bbox)
         dw = dest_width - current_w
         dh = dest_height - current_h
-        print(f"dw={dw.item()}, dh={dh.item()}")
+        # print(f"dw={dw.item()}, dh={dh.item()}")
         if different_directions(dw, self._current_speed_w):
             self._current_speed_w = self._zero
             if stop_on_dir_change:
@@ -235,19 +245,41 @@ class MovingBox:
     def next_position(self):
         self._bbox += torch.tensor(
             [
-                self._current_speed_x - self._current_speed_w/2,
-                self._current_speed_y - self._current_speed_h/2,
-                self._current_speed_x + self._current_speed_w/2,
-                self._current_speed_y + self._current_speed_h/2,
+                self._current_speed_x - self._current_speed_w / 2,
+                self._current_speed_y - self._current_speed_h / 2,
+                self._current_speed_x + self._current_speed_w / 2,
+                self._current_speed_y + self._current_speed_h / 2,
             ],
             dtype=self._bbox.dtype,
             device=self._bbox.device,
         )
-        # self._bbox[0] -= self._current_speed_w
-        # self._bbox[1] -= self._current_speed_h
-        # self._bbox[2] += self._current_speed_w
-        # self._bbox[3] += self._current_speed_h
+        if self._nonstop_delay != self._zero:
+            print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
+            self._nonstop_delay_counter += 1
+            if self._nonstop_delay_counter >= self._nonstop_delay:
+                self._nonstop_delay = self._zero
+                self._nonstop_delay_counter = self._zero
+        if self._fixed_aspect_ratio is not None:
+            self.set_aspect_ratio(self._fixed_aspect_ratio)
         return self._bbox
+
+    def set_aspect_ratio(self, aspect_ratio: torch.Tensor):
+        w = width(self._bbox)
+        h = height(self._bbox)
+        if w / h < aspect_ratio:
+            # Constrain by height
+            new_h = h
+            new_w = new_h * aspect_ratio
+        else:
+            # Constrain by width
+            new_w = w
+            new_h = new_w / aspect_ratio
+        self._bbox = make_box_at_center(
+            center_point=center(self._bbox), w=new_w, h=new_h
+        )
+
+    def is_nonstop(self):
+        return self._nonstop_delay != self._zero
 
     def __iter__(self):
         return self

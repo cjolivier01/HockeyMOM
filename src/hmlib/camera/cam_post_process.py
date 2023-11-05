@@ -149,8 +149,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        # self.scale_to_original_image = True
-        self.scale_to_original_image = False
+        self.scale_to_original_image = True
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -327,6 +327,7 @@ class FramePostProcessor:
         self._frame_counter = 0
 
         self._current_roi = None
+        self._current_roi_aspect = None
 
     def get_first_frame_id(self):
         return self._args.skip_frame_count
@@ -824,10 +825,28 @@ class FramePostProcessor:
                     color=(255, 128, 64),
                     thickness=5,
                 )
+                self._current_roi_aspect = MovingBox(
+                    label="AspectRatio",
+                    bbox=current_box,
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                    max_width=self._hockey_mom._video_frame.height,
+                    max_height=self._hockey_mom._video_frame.height,
+                    fixed_aspect_ratio=self._final_aspect_ratio,
+                    color=(255, 0, 255),
+                    thickness=5,
+                )
                 self._current_roi = iter(self._current_roi)
+                self._current_roi_aspect = iter(self._current_roi_aspect)
             else:
                 self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                self._current_roi = next(self._current_roi)
+                self._current_roi_aspect.set_destination(self._current_roi)
+
+            self._current_roi = next(self._current_roi)
+            self._current_roi_aspect = next(self._current_roi_aspect)
+            self._current_roi_aspect.draw(img=online_im)
             self._current_roi.draw(img=online_im)
             vis.plot_line(
                 online_im,
@@ -930,8 +949,8 @@ class FramePostProcessor:
                 return current_box, last_box
 
             group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
-                min_considered_velocity=4.5,
-                group_threshhold=0.6,
+                min_considered_velocity=3.5,
+                group_threshhold=0.5,
                 # min_considered_velocity=0.01,
                 # group_threshhold=0.6,
             )
@@ -958,6 +977,13 @@ class FramePostProcessor:
                     accel_x=group_x_velocity / 2,
                     accel_y=None,
                     use_constraints=False,
+                    nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
+                )
+                self._current_roi_aspect.adjust_speed(
+                    accel_x=group_x_velocity / 2,
+                    accel_y=None,
+                    use_constraints=False,
+                    nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
                 )
 
                 # self._last_temporal_box = translate_box(self._last_temporal_box, group_x_velocity, 0)
