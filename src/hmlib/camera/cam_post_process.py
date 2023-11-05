@@ -813,26 +813,28 @@ class FramePostProcessor:
             # Current ROI box
             #
             if self._current_roi is None:
+                #start_box = self._hockey_mom._video_frame.bounding_box()
+                start_box = current_box
                 self._current_roi = MovingBox(
                     label="Current ROI",
-                    bbox=current_box,
+                    bbox=start_box,
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
-                    max_width=self._hockey_mom._video_frame.height,
+                    max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
                     color=(255, 128, 64),
                     thickness=5,
                 )
                 self._current_roi_aspect = MovingBox(
                     label="AspectRatio",
-                    bbox=current_box,
+                    bbox=start_box,
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
-                    max_width=self._hockey_mom._video_frame.height/2,
+                    max_width=self._hockey_mom._video_frame.width/2,
                     max_height=self._hockey_mom._video_frame.height/2,
                     fixed_aspect_ratio=self._final_aspect_ratio,
                     color=(255, 0, 255),
@@ -842,7 +844,7 @@ class FramePostProcessor:
                 self._current_roi_aspect = iter(self._current_roi_aspect)
             else:
                 self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                self._current_roi_aspect.set_destination(self._current_roi)
+                self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
 
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
@@ -979,12 +981,12 @@ class FramePostProcessor:
                     use_constraints=False,
                     nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
                 )
-                self._current_roi_aspect.adjust_speed(
-                    accel_x=group_x_velocity / 2,
-                    accel_y=None,
-                    use_constraints=False,
-                    nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
-                )
+                # self._current_roi_aspect.adjust_speed(
+                #     accel_x=group_x_velocity / 2,
+                #     accel_y=None,
+                #     use_constraints=False,
+                #     nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
+                # )
 
                 # self._last_temporal_box = translate_box(self._last_temporal_box, group_x_velocity, 0)
                 # hockey_mom.add_x_velocity(group_x_velocity)

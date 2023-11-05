@@ -38,6 +38,8 @@ from hmlib.utils.box_functions import (
 
 from hmlib.utils.box_functions import tlwh_centers
 
+from pt_autograph import pt_function
+
 from hockeymom import core
 
 
@@ -46,6 +48,7 @@ class MovingBox:
         self,
         label: str,
         bbox: torch.Tensor,
+        # arena_box: torch.Tensor,
         max_speed_x: torch.Tensor,
         max_speed_y: torch.Tensor,
         max_accel_x: torch.Tensor,
@@ -61,9 +64,12 @@ class MovingBox:
         self._color = color
         self._thickness = thickness
         self._bbox = bbox
+        # self._arena_box = arena_box
         self._fixed_aspect_ratio = fixed_aspect_ratio
         self._device = bbox.device if device is None else device
-        self._zero_float_tensor = torch.tensor(0, dtype=torch.float32, device=self._device)
+        self._zero_float_tensor = torch.tensor(
+            0, dtype=torch.float32, device=self._device
+        )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self._device)
         self._current_speed_x = self._zero
         self._current_speed_y = self._zero
@@ -267,6 +273,8 @@ class MovingBox:
         if self._fixed_aspect_ratio is not None:
             self.set_aspect_ratio(self._fixed_aspect_ratio)
         self.clamp_size()
+        if self._fixed_aspect_ratio is not None:
+            assert torch.isclose(aspect_ratio(self._bbox), self._fixed_aspect_ratio)
         return self._bbox
 
     def clamp_size(self):
@@ -281,9 +289,8 @@ class MovingBox:
         final_scale = torch.max(wscale, hscale)
         if final_scale != self._zero:
             w *= final_scale
-            h += final_scale
+            h *= final_scale
             self._bbox = make_box_at_center(center(self._bbox), w=w, h=h)
-
 
     def set_aspect_ratio(self, aspect_ratio: torch.Tensor):
         w = width(self._bbox)
