@@ -25,7 +25,8 @@ from hmlib.utils.box_functions import (
     aspect_ratio,
     make_box_at_center,
     tlwh_to_tlbr_single,
-    translate_box_to_edge,
+    #translate_box_to_edge,
+    shift_box_to_edge,
 )
 
 # nosec B101

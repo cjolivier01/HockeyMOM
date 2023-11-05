@@ -39,7 +39,6 @@ def height(box: torch.Tensor):
 
 def center(box: torch.Tensor):
     return (box[:2] + box[2:]) / 2
-    #return [(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0]
 
 
 def clamp_value(low, val, high):
@@ -47,7 +46,6 @@ def clamp_value(low, val, high):
 
 
 def clamp_box(box, clamp_box):
-    assert box.device == clamp_box.device
     clamped_box = torch.empty_like(box)
     clamped_box[0] = torch.clamp(box[0], min=clamp_box[0], max=clamp_box[2])
     clamped_box[1] = torch.clamp(box[1], min=clamp_box[1], max=clamp_box[3])
@@ -121,25 +119,49 @@ def tlwh_to_tlbr_single(tlwh: torch.Tensor):
     return bounding_boxes
 
 
-def translate_box_to_edge(box: torch.Tensor, bounds: torch.Tensor):
+# def translate_box_to_edge(box: torch.Tensor, bounds: torch.Tensor):
+#     """
+#     Translate the box to the edge of the bounds if any point is outside.
+#     Both box and bounds are in the form [x_min, y_min, x_max, y_max].
+#     """
+#     # Calculate the out-of-bounds distances
+#     delta_left = bounds[0] - box[0]  # How much box is left of the bounds
+#     delta_right = box[2] - bounds[2]  # How much box is right of the bounds
+#     delta_top = bounds[1] - box[1]    # How much box is above the bounds
+#     delta_bottom = box[3] - bounds[3] # How much box is below the bounds
+
+#     # Calculate translation amounts
+#     trans_x = max(delta_left, -delta_right, 0)
+#     trans_y = max(delta_top, -delta_bottom, 0)
+
+#     # Apply translation
+#     box[0] += trans_x
+#     box[2] += trans_x
+#     box[1] += trans_y
+#     box[3] += trans_y
+
+#     return box
+
+def shift_box_to_edge(box, bounding_box):
     """
-    Translate the box to the edge of the bounds if any point is outside.
-    Both box and bounds are in the form [x_min, y_min, x_max, y_max].
+    If a box is off the edge of the image, translate
+    the box to be flush with the edge instead.
     """
-    # Calculate the out-of-bounds distances
-    delta_left = bounds[0] - box[0]  # How much box is left of the bounds
-    delta_right = box[2] - bounds[2]  # How much box is right of the bounds
-    delta_top = bounds[1] - box[1]    # How much box is above the bounds
-    delta_bottom = box[3] - bounds[3] # How much box is below the bounds
+    xw = width(bounding_box)
+    xh = height(bounding_box)
+    if box[0] < 0:
+        box[2] += -box[0]
+        box[0] += -box[0]
+    elif box[2] >= xw:
+        offset = box[2] - (xw - 1)
+        box[0] -= offset
+        box[2] -= offset
 
-    # Calculate translation amounts
-    trans_x = max(delta_left, -delta_right, 0)
-    trans_y = max(delta_top, -delta_bottom, 0)
-
-    # Apply translation
-    box[0] += trans_x
-    box[2] += trans_x
-    box[1] += trans_y
-    box[3] += trans_y
-
+    if box[1] < 0:
+        box[3] += -box[1]
+        box[1] += -box[1]
+    elif box[3] >= xh:
+        offset = box[3] - (xh - 1)
+        box[1] -= offset
+        box[3] -= offset
     return box

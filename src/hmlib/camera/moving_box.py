@@ -31,9 +31,10 @@ from hmlib.utils.box_functions import (
     center,
     center_x_distance,
     center_distance,
-    # clamp_value,
+    clamp_box,
     aspect_ratio,
     make_box_at_center,
+    shift_box_to_edge,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -48,13 +49,15 @@ class MovingBox:
         self,
         label: str,
         bbox: torch.Tensor,
-        # arena_box: torch.Tensor,
         max_speed_x: torch.Tensor,
         max_speed_y: torch.Tensor,
         max_accel_x: torch.Tensor,
         max_accel_y: torch.Tensor,
         max_width: torch.Tensor,
         max_height: torch.Tensor,
+        scale_width: torch.Tensor = None,
+        scale_height: torch.Tensor = None,
+        arena_box: torch.Tensor = None,
         fixed_aspect_ratio: torch.Tensor = None,
         color: Tuple[int, int, int] = (255, 0, 0),
         thickness: int = 2,
@@ -62,15 +65,34 @@ class MovingBox:
     ):
         self._label = label
         self._color = color
+        self._color_stopped = (
+            self._color[0] ^ 255,
+            self._color[1] ^ 255,
+            self._color[2] ^ 255,
+        )
         self._thickness = thickness
-        self._bbox = bbox
-        # self._arena_box = arena_box
-        self._fixed_aspect_ratio = fixed_aspect_ratio
         self._device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self._device
         )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self._device)
+        self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self._device)
+
+        self._scale_width = (
+            self._one_float_tensor if scale_width is None else scale_width
+        )
+        self._scale_height = (
+            self._one_float_tensor if scale_height is None else scale_height
+        )
+
+        self._bbox = make_box_at_center(
+            center(bbox),
+            w=width(bbox) * self._scale_width,
+            h=height(bbox) * self._scale_height,
+        )
+
+        self._arena_box = arena_box
+        self._fixed_aspect_ratio = fixed_aspect_ratio
         self._current_speed_x = self._zero
         self._current_speed_y = self._zero
         self._current_speed_w = self._zero
@@ -101,6 +123,9 @@ class MovingBox:
         return self._zero_int_tensor.clone()
 
     def draw(self, img: np.array):
+        color = self._color
+        if self._current_speed_x == self._zero and self._current_speed_y == self._zero:
+            color = self._color_stopped
         vis.plot_rectangle(
             img,
             self._bbox,
@@ -238,10 +263,17 @@ class MovingBox:
         dest_height: torch.Tensor,
         stop_on_dir_change: bool = True,
     ):
+        scale_w = (
+            self._one_float_tensor if self._scale_width is None else self._scale_width
+        )
+        scale_h = (
+            self._one_float_tensor if self._scale_height is None else self._scale_height
+        )
+
         current_w = width(self._bbox)
         current_h = height(self._bbox)
-        dw = dest_width - current_w
-        dh = dest_height - current_h
+        dw = (dest_width * scale_w) - current_w
+        dh = (dest_height * scale_h) - current_h
         # print(f"dw={dw.item()}, dh={dh.item()}")
         if different_directions(dw, self._current_speed_w):
             self._current_speed_w = self._zero
@@ -270,14 +302,18 @@ class MovingBox:
             if self._nonstop_delay_counter >= self._nonstop_delay:
                 self._nonstop_delay = self._zero
                 self._nonstop_delay_counter = self._zero
+        self.stop_if_out_of_arena()
+        self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
             self.set_aspect_ratio(self._fixed_aspect_ratio)
-        self.clamp_size()
+        self.clamp_size_scaled()
+        if self._arena_box is not None:
+            self._bbox = shift_box_to_edge(self._bbox, self._arena_box)
         if self._fixed_aspect_ratio is not None:
             assert torch.isclose(aspect_ratio(self._bbox), self._fixed_aspect_ratio)
         return self._bbox
 
-    def clamp_size(self):
+    def clamp_size_scaled(self):
         w = width(self._bbox).unsqueeze(0)
         h = height(self._bbox).unsqueeze(0)
         wscale = self._zero
@@ -292,9 +328,28 @@ class MovingBox:
             h *= final_scale
             self._bbox = make_box_at_center(center(self._bbox), w=w, h=h)
 
+    def clamp_to_arena(self):
+        if self._arena_box is None:
+            return
+        self._bbox = clamp_box(box=self._bbox, clamp_box=self._arena_box)
+
+    def stop_if_out_of_arena(self):
+        if self._arena_box is None:
+            return
+        out_x = (
+            self._bbox[0] <= self._arena_box[0] or self._bbox[2] >= self._arena_box[2]
+        )
+        out_y = (
+            self._bbox[1] <= self._arena_box[1] or self._bbox[3] >= self._arena_box[3]
+        )
+        self.stop_translation(stop_x=out_x, stop_y=out_y)
+
     def set_aspect_ratio(self, aspect_ratio: torch.Tensor):
-        w = width(self._bbox)
-        h = height(self._bbox)
+        setting_box = self._bbox
+        if self._arena_box is not None:
+            setting_box = clamp_box(setting_box, self._arena_box)
+        w = width(setting_box)
+        h = height(setting_box)
         if w / h < aspect_ratio:
             # Constrain by height
             new_h = h
@@ -304,7 +359,7 @@ class MovingBox:
             new_w = w
             new_h = new_w / aspect_ratio
         self._bbox = make_box_at_center(
-            center_point=center(self._bbox), w=new_w, h=new_h
+            center_point=center(setting_box), w=new_w, h=new_h
         )
 
     def is_nonstop(self):
