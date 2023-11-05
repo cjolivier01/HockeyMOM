@@ -63,7 +63,8 @@ class MovingBox:
         self._bbox = bbox
         self._fixed_aspect_ratio = fixed_aspect_ratio
         self._device = bbox.device if device is None else device
-        self._zero_tensor = torch.tensor([0], dtype=torch.float32, device=self._device)
+        self._zero_float_tensor = torch.tensor(0, dtype=torch.float32, device=self._device)
+        self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self._device)
         self._current_speed_x = self._zero
         self._current_speed_y = self._zero
         self._current_speed_w = self._zero
@@ -87,7 +88,11 @@ class MovingBox:
 
     @property
     def _zero(self):
-        return self._zero_tensor.clone()
+        return self._zero_float_tensor.clone()
+
+    @property
+    def _zero_int(self):
+        return self._zero_int_tensor.clone()
 
     def draw(self, img: np.array):
         vis.plot_rectangle(
@@ -261,7 +266,24 @@ class MovingBox:
                 self._nonstop_delay_counter = self._zero
         if self._fixed_aspect_ratio is not None:
             self.set_aspect_ratio(self._fixed_aspect_ratio)
+        self.clamp_size()
         return self._bbox
+
+    def clamp_size(self):
+        w = width(self._bbox).unsqueeze(0)
+        h = height(self._bbox).unsqueeze(0)
+        wscale = self._zero
+        hscale = self._zero
+        if w > self._max_width:
+            wscale = self._max_width / w
+        if h > self._max_height:
+            hscale = self._max_height / h
+        final_scale = torch.max(wscale, hscale)
+        if final_scale != self._zero:
+            w *= final_scale
+            h += final_scale
+            self._bbox = make_box_at_center(center(self._bbox), w=w, h=h)
+
 
     def set_aspect_ratio(self, aspect_ratio: torch.Tensor):
         w = width(self._bbox)
