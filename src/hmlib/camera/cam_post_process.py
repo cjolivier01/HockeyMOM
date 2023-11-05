@@ -76,6 +76,7 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = True
 
+
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
@@ -149,7 +150,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        # self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -812,13 +813,13 @@ class FramePostProcessor:
             # Current ROI box
             #
             if self._current_roi is None:
-                #start_box = self._hockey_mom._video_frame.bounding_box()
+                # start_box = self._hockey_mom._video_frame.bounding_box()
                 start_box = current_box
                 self._current_roi = MovingBox(
                     label="Current ROI",
                     bbox=start_box,
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y,
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 2,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 2,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
                     max_width=self._hockey_mom._video_frame.width,
@@ -830,12 +831,20 @@ class FramePostProcessor:
                     label="AspectRatio",
                     bbox=self._current_roi,
                     arena_box=self._hockey_mom._video_frame.bounding_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y,
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
                     max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
+                    width_change_threshold=_scalar_like(50, device=current_box.device),
+                    width_change_threshold_low=_scalar_like(
+                        10, device=current_box.device
+                    ),
+                    height_change_threshold=_scalar_like(50, device=current_box.device),
+                    height_change_threshold_low=_scalar_like(
+                        10, device=current_box.device
+                    ),
                     scale_width=1.25,
                     scale_height=1.1,
                     fixed_aspect_ratio=self._final_aspect_ratio,
@@ -846,7 +855,7 @@ class FramePostProcessor:
                 self._current_roi_aspect = iter(self._current_roi_aspect)
             else:
                 self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                #self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
+                # self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
 
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
@@ -981,7 +990,9 @@ class FramePostProcessor:
                     accel_x=group_x_velocity / 2,
                     accel_y=None,
                     use_constraints=False,
-                    nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
+                    nonstop_delay=torch.tensor(
+                        1, dtype=torch.int64, device=self._device
+                    ),
                 )
                 # self._current_roi_aspect.adjust_speed(
                 #     accel_x=group_x_velocity / 2,
@@ -1378,7 +1389,7 @@ class FramePostProcessor:
             imgproc_data = ImageProcData(
                 frame_id=frame_id.item(),
                 img=online_im,
-                #current_box=current_box,
+                # current_box=current_box,
                 current_box=self._current_roi_aspect.bounding_box(),
             )
             # timer.toc()
@@ -1388,3 +1399,7 @@ class FramePostProcessor:
                 time.sleep(0.001)
             # imgproc_data.dump()
             self._imgproc_queue.put(imgproc_data)
+
+
+def _scalar_like(v, device):
+    return torch.tensor(v, dtype=torch.float32, device=device)

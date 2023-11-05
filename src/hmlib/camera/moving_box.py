@@ -64,17 +64,21 @@ class MovingBox(BasicMovingBox):
         scale_height: torch.Tensor = None,
         arena_box: torch.Tensor = None,
         fixed_aspect_ratio: torch.Tensor = None,
+        translation_threashold: torch.Tensor = None,
+        translation_threashold_low: torch.Tensor = None,
+        width_change_threshold: torch.Tensor = None,
+        width_change_threshold_low: torch.Tensor = None,
+        height_change_threshold: torch.Tensor = None,
+        height_change_threshold_low: torch.Tensor = None,
         color: Tuple[int, int, int] = (255, 0, 0),
+        frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
         device: str = None,
     ):
         self._label = label
         self._color = color
-        self._color_stopped = (
-            self._color[0] ^ 255,
-            self._color[1] ^ 255,
-            self._color[2] ^ 255,
-        )
+        self._frozen_color = frozen_color
+        self._current_color = self._color
         self._thickness = thickness
 
         if isinstance(bbox, BasicMovingBox):
@@ -111,6 +115,10 @@ class MovingBox(BasicMovingBox):
         self._nonstop_delay = self._zero
         self._nonstop_delay_counter = self._zero
         self._dest_center = center(bbox)
+
+        self._size_is_frozen = False
+        self._translation_is_frozen = False
+
         # Constraints
         self._max_speed_x = max_speed_x
         self._max_speed_y = max_speed_y
@@ -124,6 +132,13 @@ class MovingBox(BasicMovingBox):
         self._max_speed_h = max_speed_y / 2
         self._max_accel_w = max_accel_x
         self._max_accel_h = max_accel_y
+        # Change threshholds
+        self._width_change_threshold = width_change_threshold
+        self._width_change_threshold_low = width_change_threshold_low
+        self._height_change_threshold = height_change_threshold
+        self._height_change_threshold_low = height_change_threshold_low
+        self._translation_threashold = translation_threashold
+        self._translation_threashold_low = translation_threashold_low
 
     @property
     def _zero(self):
@@ -135,12 +150,10 @@ class MovingBox(BasicMovingBox):
 
     def draw(self, img: np.array):
         color = self._color
-        if self._current_speed_x == self._zero and self._current_speed_y == self._zero:
-            color = self._color_stopped
         vis.plot_rectangle(
             img,
             self._bbox,
-            color=self._color,
+            color=self._current_color,
             thickness=self._thickness,
             label=self._make_label(),
             text_scale=2,
@@ -266,7 +279,9 @@ class MovingBox(BasicMovingBox):
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
         self._dest_center = center_dest
-        self.set_destination_size(dest_width=width(dest_box), dest_height=height(dest_box))
+        self.set_destination_size(
+            dest_width=width(dest_box), dest_height=height(dest_box)
+        )
 
     def set_destination_size(
         self,
@@ -283,8 +298,57 @@ class MovingBox(BasicMovingBox):
 
         current_w = width(self._bbox)
         current_h = height(self._bbox)
-        dw = (dest_width * scale_w) - current_w
-        dh = (dest_height * scale_h) - current_h
+
+        dest_width *= scale_w
+        dest_height *= scale_h
+
+        if self._fixed_aspect_ratio is not None:
+            # Apply aspect ratio
+            if dest_width / dest_height < self._fixed_aspect_ratio:
+                # Constrain by height
+                dest_width = dest_height * self._fixed_aspect_ratio
+            else:
+                # Constrain by width
+                dest_height = dest_width / self._fixed_aspect_ratio
+
+        dw = dest_width - current_w
+        dh = dest_height - current_h
+
+        #
+        # BEGIN size threshhold
+        #
+        stopped_count = 0
+        if (
+            self._width_change_threshold_low is not None
+            and abs(dw) < self._width_change_threshold_low
+        ):
+            stopped_count += 1
+            self._current_speed_w = self._zero
+        if (
+            self._height_change_threshold_low is not None
+            and abs(dh) < self._height_change_threshold_low
+        ):
+            stopped_count += 1
+            self._current_speed_h = self._zero
+        if stopped_count == 2:
+            self._size_is_frozen = True
+            self._current_color = self._frozen_color
+        else:
+            self._current_color = self._color
+
+        if (
+            self._width_change_threshold is not None
+            and abs(dw) >= self._width_change_threshold
+        ):
+            self._size_is_frozen = False
+        elif (
+            self._height_change_threshold is not None
+            and abs(dh) >= self._height_change_threshold
+        ):
+            self._size_is_frozen = False
+        #
+        # END size threshhold
+        #
         if different_directions(dw, self._current_speed_w):
             self._current_speed_w = self._zero
             if stop_on_dir_change:
@@ -297,13 +361,30 @@ class MovingBox(BasicMovingBox):
 
     def next_position(self):
         if self._following_box is not None:
-            self.set_destination(dest_box=self._following_box.bounding_box(), stop_on_dir_change=True)
+            self.set_destination(
+                dest_box=self._following_box.bounding_box(), stop_on_dir_change=True
+            )
+
+        if self._translation_is_frozen:
+            dx = self._zero
+            dy = self._zero
+        else:
+            dx = self._current_speed_x
+            dy = self._current_speed_y
+
+        if self._size_is_frozen:
+            dw = self._zero
+            dh = self._zero
+        else:
+            dw = self._current_speed_w / 2
+            dh = self._current_speed_h
+
         self._bbox += torch.tensor(
             [
-                self._current_speed_x - self._current_speed_w / 2,
-                self._current_speed_y - self._current_speed_h / 2,
-                self._current_speed_x + self._current_speed_w / 2,
-                self._current_speed_y + self._current_speed_h / 2,
+                dx - dw,
+                dy - dh,
+                dx + dw,
+                dy + dh,
             ],
             dtype=self._bbox.dtype,
             device=self._bbox.device,
@@ -317,7 +398,7 @@ class MovingBox(BasicMovingBox):
         self.stop_if_out_of_arena()
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
-            self.set_aspect_ratio(self._fixed_aspect_ratio)
+            self._bbox = self.set_aspect_ratio(self._bbox, self._fixed_aspect_ratio)
         self.clamp_size_scaled()
         if self._arena_box is not None:
             self._bbox = shift_box_to_edge(self._bbox, self._arena_box)
@@ -356,8 +437,7 @@ class MovingBox(BasicMovingBox):
         )
         self.stop_translation(stop_x=out_x, stop_y=out_y)
 
-    def set_aspect_ratio(self, aspect_ratio: torch.Tensor):
-        setting_box = self._bbox
+    def set_aspect_ratio(self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor):
         if self._arena_box is not None:
             setting_box = clamp_box(setting_box, self._arena_box)
         w = width(setting_box)
@@ -370,9 +450,7 @@ class MovingBox(BasicMovingBox):
             # Constrain by width
             new_w = w
             new_h = new_w / aspect_ratio
-        self._bbox = make_box_at_center(
-            center_point=center(setting_box), w=new_w, h=new_h
-        )
+        return make_box_at_center(center_point=center(setting_box), w=new_w, h=new_h)
 
     def is_nonstop(self):
         return self._nonstop_delay != self._zero
