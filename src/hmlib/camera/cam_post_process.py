@@ -76,7 +76,6 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = True
 
-
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
         super().__init__()
@@ -116,7 +115,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_rotation = False
         # self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = 20.0
+        self.fixed_edge_rotation_angle = 30.0
         # self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
@@ -829,7 +828,7 @@ class FramePostProcessor:
                 )
                 self._current_roi_aspect = MovingBox(
                     label="AspectRatio",
-                    bbox=start_box,
+                    bbox=self._current_roi,
                     arena_box=self._hockey_mom._video_frame.bounding_box(),
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y,
@@ -847,7 +846,7 @@ class FramePostProcessor:
                 self._current_roi_aspect = iter(self._current_roi_aspect)
             else:
                 self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
+                #self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
 
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
@@ -1379,7 +1378,8 @@ class FramePostProcessor:
             imgproc_data = ImageProcData(
                 frame_id=frame_id.item(),
                 img=online_im,
-                current_box=current_box,
+                #current_box=current_box,
+                current_box=self._current_roi_aspect.bounding_box(),
             )
             # timer.toc()
             # Only let it get ahead around 25 frames so as not to use too much

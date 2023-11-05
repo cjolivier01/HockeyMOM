@@ -44,7 +44,12 @@ from pt_autograph import pt_function
 from hockeymom import core
 
 
-class MovingBox:
+class BasicMovingBox:
+    def bounding_box(self):
+        return self._bbox.clone()
+
+
+class MovingBox(BasicMovingBox):
     def __init__(
         self,
         label: str,
@@ -71,6 +76,13 @@ class MovingBox:
             self._color[2] ^ 255,
         )
         self._thickness = thickness
+
+        if isinstance(bbox, BasicMovingBox):
+            self._following_box = bbox
+            bbox = self._following_box.bounding_box()
+        else:
+            self._following_box = None
+
         self._device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self._device
@@ -84,7 +96,6 @@ class MovingBox:
         self._scale_height = (
             self._one_float_tensor if scale_height is None else scale_height
         )
-
         self._bbox = make_box_at_center(
             center(bbox),
             w=width(bbox) * self._scale_width,
@@ -255,9 +266,9 @@ class MovingBox:
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
         self._dest_center = center_dest
-        self.set_size(dest_width=width(dest_box), dest_height=height(dest_box))
+        self.set_destination_size(dest_width=width(dest_box), dest_height=height(dest_box))
 
-    def set_size(
+    def set_destination_size(
         self,
         dest_width: torch.Tensor,
         dest_height: torch.Tensor,
@@ -274,7 +285,6 @@ class MovingBox:
         current_h = height(self._bbox)
         dw = (dest_width * scale_w) - current_w
         dh = (dest_height * scale_h) - current_h
-        # print(f"dw={dw.item()}, dh={dh.item()}")
         if different_directions(dw, self._current_speed_w):
             self._current_speed_w = self._zero
             if stop_on_dir_change:
@@ -286,6 +296,8 @@ class MovingBox:
         self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
     def next_position(self):
+        if self._following_box is not None:
+            self.set_destination(dest_box=self._following_box.bounding_box(), stop_on_dir_change=True)
         self._bbox += torch.tensor(
             [
                 self._current_speed_x - self._current_speed_w / 2,
