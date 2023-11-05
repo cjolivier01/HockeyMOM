@@ -114,7 +114,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.fixed_edge_rotation = False
-        #self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -819,16 +819,23 @@ class FramePostProcessor:
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                    max_width=self._hockey_mom._video_frame.height,
+                    max_height=self._hockey_mom._video_frame.height,
                     color=(255, 128, 64),
                     thickness=5,
                 )
                 self._current_roi = iter(self._current_roi)
             else:
-                self._current_roi.set_destination(current_box)
+                self._current_roi.set_destination(current_box, stop_on_dir_change=False)
                 self._current_roi = next(self._current_roi)
             self._current_roi.draw(img=online_im)
-            vis.plot_line(online_im, center(self._current_roi.bbox), center(current_box), color=(255, 255, 255), thickness=2)
-
+            vis.plot_line(
+                online_im,
+                center(self._current_roi.bbox),
+                center(current_box),
+                color=(255, 255, 255),
+                thickness=2,
+            )
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
@@ -947,6 +954,11 @@ class FramePostProcessor:
                 # assert height(current_box) <= hockey_mom.video.height
 
                 self._hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
+                self._current_roi.adjust_speed(
+                    accel_x=group_x_velocity / 2,
+                    accel_y=None,
+                    use_constraints=False,
+                )
 
                 # self._last_temporal_box = translate_box(self._last_temporal_box, group_x_velocity, 0)
                 # hockey_mom.add_x_velocity(group_x_velocity)

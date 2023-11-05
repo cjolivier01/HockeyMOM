@@ -50,6 +50,8 @@ class MovingBox:
         max_speed_y: torch.Tensor,
         max_accel_x: torch.Tensor,
         max_accel_y: torch.Tensor,
+        max_width: torch.Tensor,
+        max_height: torch.Tensor,
         color: Tuple[int, int, int] = (255, 0, 0),
         thickness: int = 2,
         device: str = None,
@@ -62,6 +64,8 @@ class MovingBox:
         self._zero_tensor = torch.tensor([0], dtype=torch.float32, device=self._device)
         self._current_speed_x = self._zero
         self._current_speed_y = self._zero
+        self._current_speed_w = self._zero
+        self._current_speed_h = self._zero
         self._dest_center = center(bbox)
         # Constraints
         self._max_speed_x = max_speed_x
@@ -70,8 +74,12 @@ class MovingBox:
         self._max_accel_y = max_accel_y
         self._min_width = 0
         self._min_height = 0
-        self._max_width = -1
-        self._max_height = -1
+        self._max_width = max_width
+        self._max_height = max_height
+        self._max_speed_w = max_speed_x / 2
+        self._max_speed_h = max_speed_y / 2
+        self._max_accel_w = max_accel_x
+        self._max_accel_h = max_accel_y
 
     @property
     def _zero(self):
@@ -96,6 +104,14 @@ class MovingBox:
         )
         self._current_speed_y = torch.clamp(
             self._current_speed_y, min=-self._max_speed_y, max=self._max_speed_y
+        )
+
+    def _clamp_resizing(self):
+        self._current_speed_w = torch.clamp(
+            self._current_speed_w, min=-self._max_speed_w, max=self._max_speed_w
+        )
+        self._current_speed_h = torch.clamp(
+            self._current_speed_h, min=-self._max_speed_h, max=self._max_speed_h
         )
 
     def set_speed(
@@ -124,20 +140,51 @@ class MovingBox:
                 )
             if accel_y is not None:
                 accel_y = torch.clamp(
-                    accel_x, min=-self._max_accel_y, max=self._max_accel_y
+                    accel_y, min=-self._max_accel_y, max=self._max_accel_y
                 )
         if accel_x is not None:
             self._current_speed_x += accel_x
+
         if accel_y is not None:
             self._current_speed_y += accel_y
         if use_constraints:
             self._clamp_speed()
 
-    def stop(self, stop_x: bool = True, stop_y: bool = True):
+    def adjust_size(
+        self,
+        accel_w: torch.Tensor = None,
+        accel_h: torch.Tensor = None,
+        use_constraints: bool = True,
+    ):
+        if use_constraints:
+            if accel_w is not None:
+                accel_w = torch.clamp(
+                    accel_w, min=-self._max_accel_w, max=self._max_accel_w
+                )
+            if accel_h is not None:
+                accel_h = torch.clamp(
+                    accel_h, min=-self._max_accel_h, max=self._max_accel_h
+                )
+        if accel_w is not None:
+            self._current_speed_w += accel_w
+
+        if accel_h is not None:
+            self._current_speed_h += accel_h
+
+        if use_constraints:
+            self._clamp_resizing()
+
+    def stop_translation(self, stop_x: bool = True, stop_y: bool = True):
         if stop_x:
             self._current_speed_x = self._zero
         if stop_y:
             self._current_speed_y = self._zero
+
+    def stop_resizing(self, stop_w: bool = True, stop_h: bool = True):
+        if stop_w:
+            self._current_speed_w = self._zero
+        if stop_h:
+            self._current_speed_h = self._zero
 
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """
@@ -160,18 +207,44 @@ class MovingBox:
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
         self._dest_center = center_dest
+        self.set_size(dest_width=width(dest_box), dest_height=height(dest_box))
+
+    def set_size(
+        self,
+        dest_width: torch.Tensor,
+        dest_height: torch.Tensor,
+        stop_on_dir_change: bool = True,
+    ):
+        current_w = width(self._bbox)
+        current_h = height(self._bbox)
+        dw = dest_width - current_w
+        dh = dest_height - current_h
+        print(f"dw={dw.item()}, dh={dh.item()}")
+        if different_directions(dw, self._current_speed_w):
+            self._current_speed_w = self._zero
+            if stop_on_dir_change:
+                dw = self._zero
+        if different_directions(dh, self._current_speed_h):
+            self._current_speed_h = self._zero
+            if stop_on_dir_change:
+                dh = self._zero
+        self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
     def next_position(self):
         self._bbox += torch.tensor(
             [
-                self._current_speed_x,
-                self._current_speed_y,
-                self._current_speed_x,
-                self._current_speed_y,
+                self._current_speed_x - self._current_speed_w/2,
+                self._current_speed_y - self._current_speed_h/2,
+                self._current_speed_x + self._current_speed_w/2,
+                self._current_speed_y + self._current_speed_h/2,
             ],
             dtype=self._bbox.dtype,
             device=self._bbox.device,
         )
+        # self._bbox[0] -= self._current_speed_w
+        # self._bbox[1] -= self._current_speed_h
+        # self._bbox[2] += self._current_speed_w
+        # self._bbox[3] += self._current_speed_h
         return self._bbox
 
     def __iter__(self):
