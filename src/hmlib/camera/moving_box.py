@@ -52,6 +52,7 @@ class MovingBox:
         max_accel_y: torch.Tensor,
         max_width: torch.Tensor,
         max_height: torch.Tensor,
+        fixed_aspect_ratio: torch.Tensor = None,
         color: Tuple[int, int, int] = (255, 0, 0),
         thickness: int = 2,
         device: str = None,
@@ -60,6 +61,7 @@ class MovingBox:
         self._color = color
         self._thickness = thickness
         self._bbox = bbox
+        self._fixed_aspect_ratio = fixed_aspect_ratio
         self._device = bbox.device if device is None else device
         self._zero_tensor = torch.tensor([0], dtype=torch.float32, device=self._device)
         self._current_speed_x = self._zero
@@ -147,8 +149,8 @@ class MovingBox:
 
         if accel_y is not None:
             self._current_speed_y += accel_y
-        if use_constraints:
-            self._clamp_speed()
+        # if use_constraints:
+        #     self._clamp_speed()
 
     def adjust_size(
         self,
