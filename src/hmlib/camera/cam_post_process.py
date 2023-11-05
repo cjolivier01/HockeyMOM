@@ -23,6 +23,7 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.camera.moving_box import MovingBox
 
 from hmlib.utils.box_functions import (
     width,
@@ -73,7 +74,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -85,7 +86,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        # self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = False
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -95,6 +96,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
 
         self.plot_camera_tracking = False or BASIC_DEBUGGING
+        self.plot_camera_tracking = False
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -111,8 +113,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        #self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 20.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -121,10 +123,12 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use "sticky" panning, where panning occurs in less frequent,
         # but possibly faster, pans rather than a constant
         # pan (which may appear tpo "wiggle")
-        self.sticky_pan = True
+        # self.sticky_pan = True
+        self.sticky_pan = False
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
+        self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -145,8 +149,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # such that the highest possible resolution is available when the camera
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
-        self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        # self.scale_to_original_image = True
+        self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -321,6 +325,8 @@ class FramePostProcessor:
         self._last_dx_shrink_size = 0
         self._center_dx_shift = 0
         self._frame_counter = 0
+
+        self._current_roi = None
 
     def get_first_frame_id(self):
         return self._args.skip_frame_count
@@ -801,6 +807,28 @@ class FramePostProcessor:
 
             # Some players may be off-screen, so their box may go over an edge
             current_box = self._hockey_mom.clamp(current_box)
+
+            #
+            # Current ROI box
+            #
+            if self._current_roi is None:
+                self._current_roi = MovingBox(
+                    label="Current ROI",
+                    bbox=current_box,
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                    color=(255, 128, 64),
+                    thickness=5,
+                )
+                self._current_roi = iter(self._current_roi)
+            else:
+                self._current_roi.set_destination(current_box)
+                self._current_roi = next(self._current_roi)
+            self._current_roi.draw(img=online_im)
+            vis.plot_line(online_im, center(self._current_roi.bbox), center(current_box), color=(255, 255, 255), thickness=2)
+
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height

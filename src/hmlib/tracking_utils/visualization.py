@@ -32,7 +32,7 @@ def resize_image(image, max_size=800):
 
 
 def plot_rectangle(
-    img, box: List[int], color: Tuple[int, int, int], thickness: int, label: str = None
+    img, box: List[int], color: Tuple[int, int, int], thickness: int, label: str = None, text_scale: int = 1,
 ):
     intbox = [int(i) for i in box]
     cv2.rectangle(
@@ -43,7 +43,6 @@ def plot_rectangle(
         thickness=thickness,
     )
     if label:
-        text_scale = 1
         text_thickness = 2
         cv2.putText(
             img,
