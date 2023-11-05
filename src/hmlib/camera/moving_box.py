@@ -78,7 +78,7 @@ class MovingBox(BasicMovingBox):
         self._label = label
         self._color = color
         self._frozen_color = frozen_color
-        self._current_color = self._color
+        #self._current_color = self._color
         self._thickness = thickness
 
         if isinstance(bbox, BasicMovingBox):
@@ -93,6 +93,7 @@ class MovingBox(BasicMovingBox):
         )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self._device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self._device)
+        self._line_thickness_tensor = torch.tensor([2, 2, -1, -2], dtype=torch.float32, device=self._device)
 
         self._scale_width = (
             self._one_float_tensor if scale_width is None else scale_width
@@ -149,15 +150,25 @@ class MovingBox(BasicMovingBox):
         return self._zero_int_tensor.clone()
 
     def draw(self, img: np.array):
-        color = self._color
+        draw_box = self._bbox.clone()
         vis.plot_rectangle(
             img,
-            self._bbox,
-            color=self._current_color,
+            draw_box,
+            color=self._color,
             thickness=self._thickness,
             label=self._make_label(),
             text_scale=2,
         )
+        if self._size_is_frozen:
+            draw_box += self._line_thickness_tensor
+            vis.plot_rectangle(
+                img,
+                draw_box,
+                color=self._frozen_color,
+                thickness=self._thickness,
+                label=self._make_label(),
+                text_scale=2,
+            )
 
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
@@ -332,9 +343,9 @@ class MovingBox(BasicMovingBox):
             self._current_speed_h = self._zero
         if stopped_count == 2:
             self._size_is_frozen = True
-            self._current_color = self._frozen_color
-        else:
-            self._current_color = self._color
+            #self._current_color = self._frozen_color
+        #else:
+            #self._current_color = self._color
 
         if (
             self._width_change_threshold is not None

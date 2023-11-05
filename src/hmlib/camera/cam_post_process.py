@@ -845,6 +845,10 @@ class FramePostProcessor:
                     height_change_threshold_low=_scalar_like(
                         10, device=current_box.device
                     ),
+                    translation_threashold=_scalar_like(200, device=current_box.device),
+                    translation_threashold_low=_scalar_like(
+                        100, device=current_box.device
+                    ),
                     scale_width=1.25,
                     scale_height=1.1,
                     fixed_aspect_ratio=self._final_aspect_ratio,
