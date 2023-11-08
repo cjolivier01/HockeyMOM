@@ -3,7 +3,7 @@ import os
 # from loguru import logger
 
 # import time
-# import socket
+import socket
 # import torch
 # import re
 # import torch.backends.cudnn as cudnn

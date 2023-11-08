@@ -117,7 +117,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        #self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 30.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -243,6 +243,9 @@ class ImageProcData:
         self.frame_id = frame_id
         self.img = img
         self.current_box = current_box.clone()
+
+    def dump(self):
+        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
     def dump(self):
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
