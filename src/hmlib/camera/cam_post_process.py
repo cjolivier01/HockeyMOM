@@ -74,7 +74,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -82,7 +82,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        # self.show_image = False
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -98,8 +98,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
 
-        self.plot_moving_boxes = True
-        # self.plot_moving_boxes = False
+        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = False
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -117,7 +117,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.fixed_edge_rotation = False
-        #self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 30.0
         self.fixed_edge_rotation_angle = 35.0
@@ -860,13 +860,13 @@ class FramePostProcessor:
                     height_change_threshold_low=_scalar_like(
                         size_stick_size, device=current_box.device
                     ),
-                    translation_threashold=_scalar_like(
+                    translation_threshold=_scalar_like(
                         stick_size, device=current_box.device
                     ),
-                    translation_threashold_low=_scalar_like(
+                    translation_threshold_low=_scalar_like(
                         stick_size, device=current_box.device
                     ),
-                    scale_width=1.25,
+                    scale_width=1.1,
                     scale_height=1.1,
                     fixed_aspect_ratio=self._final_aspect_ratio,
                     color=(255, 0, 255),
@@ -990,7 +990,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     _to_int(edge_center),

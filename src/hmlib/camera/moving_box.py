@@ -96,6 +96,8 @@ class MovingBox(BasicMovingBox):
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float32, device=self._device
         )
+        self._true = torch.tensor(True, dtype=torch.bool, device=self._device)
+        self._false = torch.tensor(False, dtype=torch.bool, device=self._device)
 
         self._scale_width = (
             self._one_float_tensor if scale_width is None else scale_width
@@ -289,6 +291,18 @@ class MovingBox(BasicMovingBox):
         total_diff = center_dest - center_current
 
         diff_magnitude = torch.linalg.norm(total_diff)
+
+        # Check if the new center is in a direction opposed to our current velocity
+        velocity = torch.tensor(
+            [self._current_speed_x, self._current_speed_y],
+            device=self._current_speed_x.device,
+        )
+        s1 = torch.sign(total_diff)
+        s2 = torch.sign(velocity)
+        changed_direction = s1 * s2
+        # Reduce velocity on axes that changed direction
+        #velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
+        velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
         # BEGIN Sticky
         if self._translation_threshold_low is not None:
