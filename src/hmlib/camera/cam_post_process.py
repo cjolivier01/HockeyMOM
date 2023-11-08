@@ -78,7 +78,7 @@ BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "roseville_2", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
@@ -433,8 +433,9 @@ class FramePostProcessor:
             # results_dir = Path(self._save_dir)
             # results_dir.mkdir(parents=True, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            output_file_name = os.path.join(self._save_dir, "tracking_output.avi")
             self._output_video = cv2.VideoWriter(
-                filename=os.path.join(self._save_dir, "tracking_output.avi"),
+                filename=output_file_name,
                 fourcc=fourcc,
                 fps=self._fps,
                 frameSize=(self.final_frame_width, self.final_frame_height),

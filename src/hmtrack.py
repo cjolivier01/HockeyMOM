@@ -255,25 +255,12 @@ def track_sequence(
         if i:
             dataset_timer.toc()
 
-        info_imgs = [
-            np.array([img0.shape[0]], dtype=np.int),
-            np.array([img0.shape[1]], dtype=np.int),
-            np.array([frame_id], dtype=np.int),
-            np.array([], dtype=np.int),
-        ]
-
         if frame_id % 20 == 0:
             logger.info(
                 "Dataset frame {} ({:.2f} fps)".format(
                     frame_id, 1.0 / max(1e-5, dataset_timer.average_time)
                 )
             )
-
-        # if args.scale_to_original_image and image_scale_array is None:
-        #     image_scale_array = make_scale_array(from_img=img0, to_img=original_img)
-        #     image_scale_array = torch.cat(
-        #         [image_scale_array, image_scale_array]
-        #     ).numpy()
 
         frame_id = i
         if frame_id > 0 and frame_id <= args.skip_frame_count:
@@ -299,6 +286,7 @@ def track_sequence(
 
         online_tlwhs = []
         online_ids = []
+        online_scores = []
 
         if using_precomputed_results:
             assert frame_id + 1 in results
@@ -306,10 +294,9 @@ def track_sequence(
             for tlwh, target_id, score in frame_results:
                 online_ids.append(target_id)
                 online_tlwhs.append(tlwh)
+                online_scores.append(score)
         else:
             online_targets = tracker.update(blob, img0)
-
-            # online_scores = []
 
             # TODO: move this back to model portion so we can reuse results.txt
             for _, t in enumerate(online_targets):
@@ -320,11 +307,9 @@ def track_sequence(
                     print("VERTICAL!")
                     vertical = False
                 if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
-                    # if args.scale_to_original_image:
-                    #     tlwh *= image_scale_array
                     online_tlwhs.append(tlwh)
                     online_ids.append(tid)
-                    # online_scores.append(t.score)
+                    online_scores.append(t.score)
                 else:
                     print(
                         f"Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})"
@@ -334,15 +319,23 @@ def track_sequence(
             results[frame_id + 1] = (online_tlwhs, online_ids)
 
             if postprocessor is not None:
+                info_imgs = [
+                    torch.tensor([img0.shape[0]], dtype=torch.int64),
+                    torch.tensor([img0.shape[1]], dtype=torch.int64),
+                    torch.tensor([frame_id], dtype=torch.int64),
+                    torch.tensor([], dtype=torch.int64),
+                ]
+
                 postprocessor.online_callback(
                     frame_id=frame_id,
                     online_tlwhs=online_tlwhs,
                     online_ids=online_ids,
                     detections=[],
                     info_imgs=info_imgs,
-                    img=img0,
-                    inscribed_image=img,
-                    original_img=original_img,
+                    img=torch.from_numpy(img0).unsqueeze(0),
+                    inscribed_image=torch.from_numpy(img).unsqueeze(0),
+                    original_img=torch.from_numpy(original_img).unsqueeze(0),
+                    online_scores=online_scores,
                 )
 
             # save results

@@ -40,6 +40,10 @@ def next_power_of_2(n):
     return 2**power
 
 
+def torch_device():
+    return "cuda"
+
+
 def infer_main(opt):
     result_root = opt.output_root if opt.output_root != "" else "."
     mkdir_if_missing(result_root)
@@ -95,8 +99,6 @@ def infer_main(opt):
 
     frame_dir = None if opt.output_format == "text" else osp.join(result_root, "frame")
 
-    output_video_path = osp.join(result_root, "tracking_output.avi")
-
     args = DefaultArguments()
 
     postprocessor = HmPostProcessor(
@@ -105,6 +107,7 @@ def infer_main(opt):
         fps=dataloader.fps,
         save_dir=result_root,
         data_type="mot",
+        device=torch_device(),
     )
 
     track_sequence(
@@ -114,7 +117,6 @@ def infer_main(opt):
         postprocessor=postprocessor,
         tracker_name="jde",
         result_filename=result_filename,
-        output_video_path=output_video_path,
         save_dir=frame_dir,
         use_cuda=opt.gpus != [-1],
     )

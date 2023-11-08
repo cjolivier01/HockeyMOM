@@ -97,7 +97,7 @@ def demo(opt):
         use_cuda=opt.gpus != [-1],
     )
 
-    output_video_path = osp.join(result_root, "tracking_output.mov")
+    output_video_path = osp.join(result_root, "tracking_output.avi")
 
     if opt.output_format == "video":
         cmd_str = "ffmpeg -f image2 -i {}/%05d.png -b:v 5000k -c:v mpeg4 {}".format(
@@ -108,7 +108,7 @@ def demo(opt):
 
     if opt.output_format in ["video", "live_video"]:
         output_video_with_audio_path = osp.join(
-            result_root, "tracking_output-with-audio.mov"
+            result_root, "tracking_output-with-audio.avi"
         )
         copy_audio(
             input_video_files[0], output_video_path, output_video_with_audio_path
