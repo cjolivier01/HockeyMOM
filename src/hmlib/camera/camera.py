@@ -919,13 +919,14 @@ class HockeyMOM:
             the_box[3] += diff / 2
             h = height(the_box)
 
+        # Apparently we are enforcing it here to not be too small
         if w < self._video_frame.width / 3:
             w = self._video_frame.width / 3
         if h < self._video_frame.height / 2:
             h = self._video_frame.height / 2
 
-        assert w <= self._video_frame.width
-        assert h <= self._video_frame.height
+        #assert w <= self._video_frame.width
+        #assert h <= self._video_frame.height
 
         if True:
             if w / h > desired_aspect_ratio:

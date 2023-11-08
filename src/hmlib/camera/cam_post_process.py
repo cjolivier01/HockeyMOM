@@ -86,7 +86,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        self.plot_individual_player_tracking = False
+        #self.plot_individual_player_tracking = False
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -119,8 +119,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_rotation = False
         #self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = 30.0
-        # self.fixed_edge_rotation_angle = 35.0
+        # self.fixed_edge_rotation_angle = 30.0
+        self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
