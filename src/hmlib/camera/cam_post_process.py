@@ -82,7 +82,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        self.show_image = True
+        #self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -106,6 +106,9 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
+
+        self.use_moving_boxes_as_crop = False
+        # self.use_moving_boxes_as_crop = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
