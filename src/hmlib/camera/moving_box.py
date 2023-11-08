@@ -453,7 +453,7 @@ class MovingBox(BasicMovingBox):
             device=self._bbox.device,
         )
         if self._nonstop_delay != self._zero:
-            print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
+            #print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
             self._nonstop_delay_counter += 1
             if self._nonstop_delay_counter >= self._nonstop_delay:
                 self._nonstop_delay = self._zero

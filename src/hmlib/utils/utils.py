@@ -4,6 +4,8 @@ from __future__ import print_function
 
 import torch
 import numpy as np
+import multiprocessing
+import queue
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -177,3 +179,10 @@ def encode_delta(gt_box_list, fg_anchor_list):
     dw = np.log(gw/pw)
     dh = np.log(gh/ph)
     return np.stack((dx, dy, dw, dh), axis=1)
+
+
+def create_queue(mp: bool):
+    if mp:
+        return multiprocessing.Queue()
+    else:
+        return queue.Queue()

@@ -21,9 +21,11 @@ import torchvision as tv
 from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
+from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox
+from hmlib.camera.video_out import ImageProcData, VideoOutput
 
 from hmlib.utils.box_functions import (
     width,
@@ -31,7 +33,6 @@ from hmlib.utils.box_functions import (
     center,
     center_x_distance,
     center_distance,
-    # clamp_value,
     aspect_ratio,
     make_box_at_center,
 )
@@ -74,7 +75,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -82,7 +83,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        #self.show_image = True
+        # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -187,18 +188,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 
-def get_open_files_count():
-    pid = os.getpid()
-    return len(os.listdir(f"/proc/{pid}/fd"))
-
-
-def create_queue(mp: bool):
-    if mp:
-        return multiprocessing.Queue()
-    else:
-        return queue.Queue()
-
-
 def scale_box(box, from_img, to_img):
     from_sz = (from_img.shape[1], from_img.shape[0])
     to_sz = (to_img.shape[1], to_img.shape[0])
@@ -244,19 +233,6 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
-class ImageProcData:
-    def __init__(self, frame_id: int, img, current_box: torch.Tensor):
-        self.frame_id = frame_id
-        self.img = img
-        self.current_box = current_box.clone()
-
-    def dump(self):
-        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
-
-    def dump(self):
-        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
-
-
 class Detection:
     def __init__(self, track_id, tlwh, history):
         self.track_id = track_id
@@ -282,12 +258,12 @@ class FramePostProcessor:
         self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
         self._queue = create_queue(mp=use_fork)
-        self._imgproc_queue = create_queue(mp=use_fork)
         self._data_type = data_type
         self._fps = fps
         self._opt = opt
         self._thread = None
-        self._imgproc_thread = None
+        # self._imgproc_queue = create_queue(mp=use_fork)
+        # self._imgproc_thread = None
         self._use_fork = use_fork
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float32)
         self._output_video = None
@@ -299,30 +275,30 @@ class FramePostProcessor:
         # results_dir = Path(save_dir)
         # results_dir.mkdir(parents=True, exist_ok=True)
 
-        self.watermark = cv2.imread(
-            os.path.realpath(
-                os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)),
-                    "..",
-                    "..",
-                    "..",
-                    "images",
-                    "sports_ai_watermark.png",
-                )
-            ),
-            cv2.IMREAD_UNCHANGED,
-        )
-        self.watermark_height = self.watermark.shape[0]
-        self.watermark_width = self.watermark.shape[1]
-        self.watermark_rgb_channels = self.watermark[:, :, :3]
-        self.watermark_alpha_channel = self.watermark[:, :, 3]
-        self.watermark_mask = cv2.merge(
-            [
-                self.watermark_alpha_channel,
-                self.watermark_alpha_channel,
-                self.watermark_alpha_channel,
-            ]
-        )
+        # self.watermark = cv2.imread(
+        #     os.path.realpath(
+        #         os.path.join(
+        #             os.path.dirname(os.path.realpath(__file__)),
+        #             "..",
+        #             "..",
+        #             "..",
+        #             "images",
+        #             "sports_ai_watermark.png",
+        #         )
+        #     ),
+        #     cv2.IMREAD_UNCHANGED,
+        # )
+        # self.watermark_height = self.watermark.shape[0]
+        # self.watermark_width = self.watermark.shape[1]
+        # self.watermark_rgb_channels = self.watermark[:, :, :3]
+        # self.watermark_alpha_channel = self.watermark[:, :, 3]
+        # self.watermark_mask = cv2.merge(
+        #     [
+        #         self.watermark_alpha_channel,
+        #         self.watermark_alpha_channel,
+        #         self.watermark_alpha_channel,
+        #     ]
+        # )
 
         self._outside_box_expansion_for_speed_curtailing = torch.tensor(
             [-100.0, -100.0, 100.0, 100.0],
@@ -340,6 +316,7 @@ class FramePostProcessor:
 
         self._current_roi = None
         self._current_roi_aspect = None
+        self._video_output = None
 
     def get_first_frame_id(self):
         return self._args.skip_frame_count
@@ -352,32 +329,33 @@ class FramePostProcessor:
         else:
             self._thread = Thread(target=self._start, name="CamPostProc")
             self._thread.start()
-            self._imgproc_thread = Thread(
-                target=self._start_final_image_processing, name="FinalImgProc"
-            )
-            self._imgproc_thread.start()
+            # self._imgproc_thread = Thread(
+            #     target=self._start_final_image_processing, name="FinalImgProc"
+            # )
+            # self._imgproc_thread.start()
 
     def _start(self):
-        if self._args.fake_crop_output_image:
-            self.crop_output_image = True
+        # if self._args.fake_crop_output_image:
+        #     self.crop_output_image = True
         return self.postprocess_frame_worker()
 
-    def _start_final_image_processing(self):
-        return self.final_image_processing()
+    # def _start_final_image_processing(self):
+    #     return self.final_image_processing()
 
     def stop(self):
         if self._thread is not None:
             self._queue.put(None)
             self._thread.join()
             self._thread = None
-            self._imgproc_queue.put(None)
-            self._imgproc_thread.join()
-            self._imgproc_thread = None
+            # self._imgproc_queue.put(None)
+            # self._imgproc_thread.join()
+            # self._imgproc_thread = None
 
         elif self.use_fork:
             self._queue.put(None)
             if self._child_pid:
                 os.waitpid(self._child_pid)
+        self._video_output.stop()
 
     def send(
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
@@ -417,227 +395,11 @@ class FramePostProcessor:
 
     def postprocess_frame_worker(self):
         try:
-            self._postprocess_frame_impl()
+            self._postprocess_frame_worker()
         except Exception as ex:
             print(ex)
             traceback.print_exc()
             raise
-
-    def final_image_processing(self):
-        print("final_image_processing thread started.")
-        assert not self._final_image_processing_started
-        self._final_image_processing_started = True
-        ready_string = self._imgproc_queue.get()
-        assert ready_string == "ready"
-        plot_interias = False
-        show_image_interval = 1
-        skip_frames_before_show = 0
-        timer = Timer()
-        # The timer that reocrds the overall throughput
-        final_all_timer = None
-        if self._output_video is None:
-            # results_dir = Path(self._save_dir)
-            # results_dir.mkdir(parents=True, exist_ok=True)
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-            output_file_name = os.path.join(self._save_dir, "tracking_output.avi")
-            self._output_video = cv2.VideoWriter(
-                filename=output_file_name,
-                fourcc=fourcc,
-                fps=self._fps,
-                frameSize=(self.final_frame_width, self.final_frame_height),
-                isColor=True,
-            )
-            assert self._output_video.isOpened()
-            self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
-        seen_frames = set()
-        while True:
-            imgproc_data = self._imgproc_queue.get()
-            if imgproc_data is None:
-                if self._output_video is not None:
-                    self._output_video.release()
-                break
-            frame_id = imgproc_data.frame_id
-            assert frame_id not in seen_frames
-            seen_frames.add(frame_id)
-            if imgproc_data.frame_id % 20 == 0:
-                logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps), open files count: {}".format(
-                        imgproc_data.frame_id,
-                        1.0 / max(1e-5, timer.average_time),
-                        get_open_files_count(),
-                    )
-                )
-                timer = Timer()
-            timer.tic()
-
-            current_box = imgproc_data.current_box
-            online_im = imgproc_data.img
-
-            if self._args.fixed_edge_rotation:
-                rotation_point = [int(i) for i in center(current_box)]
-                width_center = online_im.shape[1] / 2
-                if rotation_point[0] < width_center:
-                    #     dist_from_center_pct = (width_center - rotation_point[0])/width_center
-                    mult = -1
-                else:
-                    #     dist_from_center_pct = (rotation_point[0] - width_center)/width_center
-                    mult = 1
-                # angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
-
-                gaussian = 1 - self._hockey_mom.get_gaussian_y_from_image_x_position(
-                    rotation_point[0], wide=True
-                )
-                # print(f"gaussian={gaussian}")
-                angle = (
-                    self._args.fixed_edge_rotation_angle
-                    - self._args.fixed_edge_rotation_angle * gaussian
-                )
-                angle *= mult
-                # print(f"angle={angle}")
-                rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
-                online_im = cv2.warpAffine(
-                    online_im, rotation_matrix, (online_im.shape[1], online_im.shape[0])
-                )
-
-            if self._args.crop_output_image:
-                assert torch.isclose(
-                    aspect_ratio(current_box), self._final_aspect_ratio
-                )
-                # print(f"crop ar={aspect_ratio(current_box)}")
-                intbox = [int(i) for i in current_box]
-                x1 = intbox[0]
-                y1 = intbox[1]
-                y2 = intbox[3]
-                x2 = int(x1 + int(float(y2 - y1) * self._final_aspect_ratio))
-                assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
-                    print(
-                        f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}"
-                    )
-                    # assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                    y1 = min(y1, online_im.shape[0])
-                    y2 = min(y2, online_im.shape[0])
-                if x1 >= online_im.shape[1] or x2 >= online_im.shape[1]:
-                    print(
-                        f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}"
-                    )
-                    # assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
-                    x1 = min(x1, online_im.shape[1])
-                    x2 = min(x2, online_im.shape[1])
-
-                if not self._args.fake_crop_output_image:
-                    if self._args.use_cuda:
-                        gpu_image = torch.Tensor(online_im)[
-                            y1 : y2 + 1, x1 : x2 + 1, 0:3
-                        ].to(self._device)
-                        # gpu_image = torch.Tensor(online_im).to("cuda:1")
-                        # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
-                        # gpu_image = cv2.cuda_GpuMat(online_im)
-                        # gpu_image = cv2.cuda_GpuMat(gpu_image, (x1, y1, x2, y2))
-                    else:
-                        online_im = online_im[y1 : y2 + 1, x1 : x2 + 1, 0:3]
-                if not self._args.fake_crop_output_image and (
-                    online_im.shape[0] != self.final_frame_height
-                    or online_im.shape[1] != self.final_frame_width
-                ):
-                    if self._args.use_cuda:
-                        if tv_resizer is None:
-                            tv_resizer = tv.transforms.Resize(
-                                size=(
-                                    int(self.final_frame_width),
-                                    int(self.final_frame_height),
-                                )
-                            )
-                        gpu_image = tv_resizer.forward(gpu_image)
-                    else:
-                        # image_ar = float(online_im.shape[1])/float(online_im.shape[0])
-                        # if not torch.isclose(image_ar, self._final_aspect_ratio):
-                        #      print(f"Not close: {image_ar} vs {self._final_aspect_ratio}")
-                        # #     assert False
-
-                        online_im = cv2.resize(
-                            online_im,
-                            dsize=(
-                                int(self.final_frame_width),
-                                int(self.final_frame_height),
-                            ),
-                            interpolation=cv2.INTER_CUBIC,
-                        )
-                assert online_im.shape[0] == self.final_frame_height
-                assert online_im.shape[1] == self.final_frame_width
-                if self._args.use_cuda:
-                    # online_im = gpu_image.download()
-                    online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
-            #
-            # Watermark
-            #
-            if self._args.use_watermark:
-                y = int(online_im.shape[0] - self.watermark_height)
-                x = int(
-                    online_im.shape[1]
-                    - self.watermark_width
-                    - self.watermark_width / 10
-                )
-                online_im[
-                    y : y + self.watermark_height, x : x + self.watermark_width
-                ] = online_im[
-                    y : y + self.watermark_height, x : x + self.watermark_width
-                ] * (
-                    1 - self.watermark_mask / 255.0
-                ) + self.watermark_rgb_channels * (
-                    self.watermark_mask / 255.0
-                )
-
-            #
-            # Frame Number
-            #
-            if self._args.plot_frame_number:
-                online_im = vis.plot_frame_number(
-                    online_im,
-                    frame_id=frame_id,
-                )
-
-            # Output (and maybe show) the final image
-            if (
-                self._args.show_image
-                and imgproc_data.frame_id >= skip_frames_before_show
-            ):
-                if imgproc_data.frame_id % show_image_interval == 0:
-                    cv2.imshow("online_im", online_im)
-                    cv2.waitKey(1)
-
-            if plot_interias:
-                vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
-
-            if self._save_dir is not None:
-                if self._output_video is not None:
-                    self._output_video.write(online_im)
-                else:
-                    cv2.imwrite(
-                        os.path.join(
-                            self._save_dir,
-                            "{:05d}.png".format(imgproc_data.frame_id),
-                        ),
-                        online_im,
-                    )
-            timer.toc()
-
-            if True:
-                # Overall FPS
-                if final_all_timer is None:
-                    final_all_timer = Timer()
-                    final_all_timer.tic()
-                else:
-                    final_all_timer.toc()
-                    final_all_timer.tic()
-
-                if imgproc_data.frame_id % 100 == 0:
-                    logger.info(
-                        "*** Overall performance, frame {} ({:.2f} fps)".format(
-                            imgproc_data.frame_id,
-                            1.0 / max(1e-5, final_all_timer.average_time),
-                        )
-                    )
 
     def prepare_online_image(self, online_im) -> np.array:
         if isinstance(online_im, torch.Tensor):
@@ -646,7 +408,7 @@ class FramePostProcessor:
             online_im = np.ascontiguousarray(online_im)
         return online_im
 
-    def _postprocess_frame_impl(self):
+    def _postprocess_frame_worker(self):
         # self._last_temporal_box = None
         # self._last_sticky_temporal_box = None
         # self._last_dx_shrink_size = 0
@@ -655,18 +417,39 @@ class FramePostProcessor:
         timer = Timer()
 
         if self._args.crop_output_image and not self._args.fake_crop_output_image:
-            self.final_frame_height = int(self._hockey_mom.video.height)
-            self.final_frame_width = int(
+            self.final_frame_height = self._hockey_mom.video.height
+            self.final_frame_width = (
                 self._hockey_mom.video.height * self._final_aspect_ratio
             )
-            if self._args.use_cuda:
-                self.final_frame_height /= 2.25
-                self.final_frame_width /= 2.25
         else:
-            self.final_frame_height = int(self._hockey_mom.video.height)
-            self.final_frame_width = int(self._hockey_mom.video.width)
+            self.final_frame_height = self._hockey_mom.video.height
+            self.final_frame_width = self._hockey_mom.video.width
 
-        self._imgproc_queue.put("ready")
+        assert self._video_output is None
+        self._video_output = VideoOutput(
+            args=self._args,
+            output_video_path=os.path.join(self._save_dir, "tracking_output.avi"),
+            fps=self._fps,
+            use_fork=False,
+            start=False,
+            output_frame_width=self.final_frame_width,
+            output_frame_height=self.final_frame_height,
+            watermark_image_path=os.path.realpath(
+                os.path.join(
+                    os.path.dirname(os.path.realpath(__file__)),
+                    "..",
+                    "..",
+                    "..",
+                    "images",
+                    "sports_ai_watermark.png",
+                )
+            )
+            if self._args.use_watermark
+            else None,
+        )
+        self._video_output.start()
+
+        # self._imgproc_queue.put("ready")
         # frame_id = self._start_frame_id - 1
         while True:
             # frame_id += 1
@@ -1431,16 +1214,18 @@ class FramePostProcessor:
             imgproc_data = ImageProcData(
                 frame_id=frame_id.item(),
                 img=online_im,
-                # current_box=current_box,
-                current_box=self._current_roi_aspect.bounding_box(),
+                current_box=self._current_roi_aspect.bounding_box()
+                if self.use_moving_boxes_as_crop
+                else current_box,
             )
             # timer.toc()
             # Only let it get ahead around 25 frames so as not to use too much
             # memory for no gain
-            while self._imgproc_queue.qsize() > 25:
-                time.sleep(0.001)
-            # imgproc_data.dump()
-            self._imgproc_queue.put(imgproc_data)
+            # while self._imgproc_queue.qsize() > 25:
+            #     time.sleep(0.001)
+            # # imgproc_data.dump()
+            # self._imgproc_queue.put(imgproc_data)
+            self._video_output.append(imgproc_data)
 
 
 def _scalar_like(v, device):
