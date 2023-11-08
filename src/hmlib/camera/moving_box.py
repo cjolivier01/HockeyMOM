@@ -64,8 +64,8 @@ class MovingBox(BasicMovingBox):
         scale_height: torch.Tensor = None,
         arena_box: torch.Tensor = None,
         fixed_aspect_ratio: torch.Tensor = None,
-        translation_threashold: torch.Tensor = None,
-        translation_threashold_low: torch.Tensor = None,
+        translation_threshold: torch.Tensor = None,
+        translation_threshold_low: torch.Tensor = None,
         width_change_threshold: torch.Tensor = None,
         width_change_threshold_low: torch.Tensor = None,
         height_change_threshold: torch.Tensor = None,
@@ -139,8 +139,8 @@ class MovingBox(BasicMovingBox):
         self._width_change_threshold_low = width_change_threshold_low
         self._height_change_threshold = height_change_threshold
         self._height_change_threshold_low = height_change_threshold_low
-        self._translation_threashold = translation_threashold
-        self._translation_threashold_low = translation_threashold_low
+        self._translation_threshold = translation_threshold
+        self._translation_threshold_low = translation_threshold_low
 
     @property
     def _zero(self):
@@ -291,22 +291,22 @@ class MovingBox(BasicMovingBox):
         diff_magnitude = torch.linalg.norm(total_diff)
 
         # BEGIN Sticky
-        if self._translation_threashold_low is not None:
-            assert self._translation_threashold is not None
+        if self._translation_threshold_low is not None:
+            assert self._translation_threshold is not None
             if (
                 not self._translation_is_frozen
-                and diff_magnitude <= self._translation_threashold_low
+                and diff_magnitude <= self._translation_threshold_low
             ):
                 self._translation_is_frozen = True
                 self._current_speed_x = self._zero
                 self._current_speed_y = self._zero
             elif (
                 self._translation_is_frozen
-                and diff_magnitude >= self._translation_threashold
+                and diff_magnitude >= self._translation_threshold
             ):
                 self._translation_is_frozen = False
         else:
-            assert self._translation_threashold is None
+            assert self._translation_threshold is None
         # END Sticky
 
         if not self.is_nonstop():
@@ -412,6 +412,7 @@ class MovingBox(BasicMovingBox):
                 dest_box=self._following_box.bounding_box(), stop_on_dir_change=True
             )
 
+        # BEGIN Sticky
         if self._translation_is_frozen:
             dx = self._zero
             dy = self._zero
@@ -425,6 +426,7 @@ class MovingBox(BasicMovingBox):
         else:
             dw = self._current_speed_w / 2
             dh = self._current_speed_h
+        # END Sticky
 
         self._bbox += torch.tensor(
             [
