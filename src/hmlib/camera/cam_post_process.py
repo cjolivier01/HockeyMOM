@@ -86,7 +86,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        #self.plot_individual_player_tracking = False
+        # self.plot_individual_player_tracking = False
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -100,6 +100,9 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # self.plot_moving_boxes = True
         self.plot_moving_boxes = False
+
+        self.plot_frame_number = False or BASIC_DEBUGGING
+        self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -119,8 +122,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_rotation = False
         # self.fixed_edge_rotation = True
 
-        # self.fixed_edge_rotation_angle = 30.0
-        self.fixed_edge_rotation_angle = 35.0
+        self.fixed_edge_rotation_angle = 25.0
+        # self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
         # Use "sticky" panning, where panning occurs in less frequent,
@@ -581,6 +584,16 @@ class FramePostProcessor:
                 ) + self.watermark_rgb_channels * (
                     self.watermark_mask / 255.0
                 )
+
+            #
+            # Frame Number
+            #
+            if self._args.plot_frame_number:
+                online_im = vis.plot_frame_number(
+                    online_im,
+                    frame_id=frame_id,
+                )
+
             # Output (and maybe show) the final image
             if (
                 self._args.show_image
@@ -852,11 +865,15 @@ class FramePostProcessor:
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
                     max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
-                    width_change_threshold=_scalar_like(size_unstick_size, device=current_box.device),
+                    width_change_threshold=_scalar_like(
+                        size_unstick_size, device=current_box.device
+                    ),
                     width_change_threshold_low=_scalar_like(
                         size_stick_size, device=current_box.device
                     ),
-                    height_change_threshold=_scalar_like(size_unstick_size, device=current_box.device),
+                    height_change_threshold=_scalar_like(
+                        size_unstick_size, device=current_box.device
+                    ),
                     height_change_threshold_low=_scalar_like(
                         size_stick_size, device=current_box.device
                     ),
@@ -990,7 +1007,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     _to_int(edge_center),

@@ -4,7 +4,7 @@ import math
 import cv2
 from typing import List, Tuple
 
-#import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 
 
@@ -32,7 +32,12 @@ def resize_image(image, max_size=800):
 
 
 def plot_rectangle(
-    img, box: List[int], color: Tuple[int, int, int], thickness: int, label: str = None, text_scale: int = 1,
+    img,
+    box: List[int],
+    color: Tuple[int, int, int],
+    thickness: int,
+    label: str = None,
+    text_scale: int = 1,
 ):
     intbox = [int(i) for i in box]
     cv2.rectangle(
@@ -60,13 +65,18 @@ def _to_int(vals):
 
 
 def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
-    cv2.line(img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness)
+    cv2.line(
+        img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
+    )
 
 
 def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
-    cv2.circle(img, [x, y], radius=int((thickness + 1)//2), color=color, thickness=thickness)
+    cv2.circle(
+        img, [x, y], radius=int((thickness + 1) // 2), color=color, thickness=thickness
+    )
+
 
 last_frame_id = -1
 
@@ -81,8 +91,7 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
     cv2.putText(
         im,
-        "frame: %d"
-        % (frame_id),
+        "frame: %d" % (frame_id),
         (0, text_y_offset),
         cv2.FONT_HERSHEY_PLAIN,
         text_scale,
@@ -93,8 +102,7 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     text_y_offset += y_delta
     cv2.putText(
         im,
-        "vel_x: %.2f"
-        % (vel_x),
+        "vel_x: %.2f" % (vel_x),
         (0, text_y_offset),
         cv2.FONT_HERSHEY_PLAIN,
         text_scale,
@@ -105,8 +113,7 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     text_y_offset += y_delta
     cv2.putText(
         im,
-        "vel_y: %.2f"
-        % (vel_y),
+        "vel_y: %.2f" % (vel_y),
         (0, text_y_offset),
         cv2.FONT_HERSHEY_PLAIN,
         text_scale,
@@ -117,8 +124,7 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     text_y_offset += y_delta
     cv2.putText(
         im,
-        "accel_x: %.2f"
-        % (accel_x),
+        "accel_x: %.2f" % (accel_x),
         (0, text_y_offset),
         cv2.FONT_HERSHEY_PLAIN,
         text_scale,
@@ -129,14 +135,29 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     text_y_offset += y_delta
     cv2.putText(
         im,
-        "accel_y: %.2f"
-        % (accel_y),
+        "accel_y: %.2f" % (accel_y),
         (0, text_y_offset),
         cv2.FONT_HERSHEY_PLAIN,
         text_scale,
         (0, 0, 255),
         thickness=2,
     )
+
+
+def plot_frame_number(image, frame_id):
+    text_scale = max(4, image.shape[1] / 800.0)
+    text_thickness = 2
+    text_offset = int(8 * text_scale)
+    cv2.putText(
+        image,
+        f"F: {frame_id}",
+        (0, int(15 * text_scale)),
+        cv2.FONT_HERSHEY_PLAIN,
+        text_scale,
+        (0, 0, 255),
+        thickness=2,
+    )
+    return image
 
 
 def plot_tracking(
