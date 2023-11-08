@@ -825,6 +825,7 @@ class FramePostProcessor:
                 self._current_roi = MovingBox(
                     label="Current ROI",
                     bbox=start_box,
+                    arena_box=self._hockey_mom._video_frame.bounding_box(),
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 2,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 2,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
@@ -908,7 +909,7 @@ class FramePostProcessor:
                     current_box,
                     color=(128, 0, 128),
                     thickness=2,
-                    label="union_clusters_2_and_3",
+                    label="U:2&3",
                 )
 
             # if fast_bounding_box is not None and self._args.plot_camera_tracking:

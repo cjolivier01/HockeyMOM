@@ -142,6 +142,7 @@ def tlwh_to_tlbr_single(tlwh: torch.Tensor):
 
 #     return box
 
+
 def shift_box_to_edge(box, bounding_box):
     """
     If a box is off the edge of the image, translate
@@ -149,19 +150,25 @@ def shift_box_to_edge(box, bounding_box):
     """
     xw = width(bounding_box)
     xh = height(bounding_box)
+    was_shifted_x = False
+    was_shifted_y = False
     if box[0] < 0:
         box[2] += -box[0]
         box[0] += -box[0]
+        was_shifted_x = True
     elif box[2] >= xw:
         offset = box[2] - (xw - 1)
         box[0] -= offset
         box[2] -= offset
+        was_shifted_x = True
 
     if box[1] < 0:
         box[3] += -box[1]
         box[1] += -box[1]
+        was_shifted_y = True
     elif box[3] >= xh:
         offset = box[3] - (xh - 1)
         box[1] -= offset
         box[3] -= offset
-    return box
+        was_shifted_y = True
+    return box, was_shifted_x, was_shifted_y

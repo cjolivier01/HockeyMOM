@@ -404,7 +404,9 @@ class MovingBox(BasicMovingBox):
                 dh = self._zero
         self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
-    def next_position(self):
+    def next_position(self, arena_box: torch.Tensor = None):
+        if arena_box is None:
+            arena_box = self._arena_box
         if self._following_box is not None:
             self.set_destination(
                 dest_box=self._following_box.bounding_box(), stop_on_dir_change=True
@@ -445,8 +447,17 @@ class MovingBox(BasicMovingBox):
         if self._fixed_aspect_ratio is not None:
             self._bbox = self.set_aspect_ratio(self._bbox, self._fixed_aspect_ratio)
         self.clamp_size_scaled()
-        if self._arena_box is not None:
-            self._bbox = shift_box_to_edge(self._bbox, self._arena_box)
+        if arena_box is not None:
+            self._bbox, was_shifted_x, was_shifted_y = shift_box_to_edge(
+                self._bbox, arena_box
+            )
+            if was_shifted_x:
+                # We show down X velocity if we went off the edge
+                self._current_speed_x /= 2
+            if was_shifted_y:
+                # We show down X velocity if we went off the edge
+                self._current_speed_y /= 2
+
         if self._fixed_aspect_ratio is not None:
             assert torch.isclose(aspect_ratio(self._bbox), self._fixed_aspect_ratio)
         return self._bbox
