@@ -104,7 +104,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_moving_boxes = False
 
         self.plot_frame_number = False or BASIC_DEBUGGING
-        self.plot_frame_number = True
+        #self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -119,8 +119,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = False
-        # self.apply_fixed_edge_scaling = True
+        # self.apply_fixed_edge_scaling = False
+        self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
@@ -139,7 +139,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
-        self.plot_sticky_camera = False
+        # self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
