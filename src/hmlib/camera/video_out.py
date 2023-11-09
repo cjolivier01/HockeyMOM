@@ -22,6 +22,7 @@ from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
+from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracker.multitracker import torch_device
@@ -75,6 +76,7 @@ class VideoOutput:
         self._output_video_path = output_video_path
         self._output_image_dir = output_image_dir
         self._output_video = None
+        self._horizontal_image_gaussian_distribution = None
 
         if watermark_image_path:
             self.watermark = cv2.imread(
@@ -127,6 +129,13 @@ class VideoOutput:
             print(ex)
             traceback.print_exc()
             raise
+
+    def _get_gaussian(self, image_width: int):
+        if self._horizontal_image_gaussian_distribution is None:
+            self._horizontal_image_gaussian_distribution = (
+                ImageHorizontalGaussianDistribution(image_width)
+            )
+        return self._horizontal_image_gaussian_distribution
 
     def _final_image_processing(self):
         print("VideoOutput thread started.")
@@ -185,9 +194,9 @@ class VideoOutput:
                     mult = 1
                 # angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
 
-                gaussian = 1 - self._hockey_mom.get_gaussian_y_from_image_x_position(
-                    rotation_point[0], wide=True
-                )
+                gaussian = 1 - self._get_gaussian(
+                    online_im.shape[1]
+                ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
                 # print(f"gaussian={gaussian}")
                 angle = (
                     self._args.fixed_edge_rotation_angle
@@ -333,6 +342,7 @@ class VideoOutput:
                             1.0 / max(1e-5, final_all_timer.average_time),
                         )
                     )
+
 
 def get_open_files_count():
     pid = os.getpid()

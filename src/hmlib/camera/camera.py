@@ -316,65 +316,9 @@ class HockeyMOM:
         #     sensor_size_mm=(73, 4.55),
         #     image_size_px=(image_width, image_height),
         # )
-        self.setup_gaussian(length=image_width)
 
     def _to_scalar_float(self, scalar_float):
         return torch.tensor(scalar_float, dtype=torch.float32, device=self._device)
-
-    def get_gaussian_y_from_image_x_position(
-        self, image_x_position: float, wide: bool = False
-    ):
-        if not wide:
-            return self.gaussian_y[int(image_x_position)]
-        return self.gaussian_wide[int(image_x_position)]
-
-    def setup_gaussian(self, length: int):
-        # Thinner gaussian
-        std_dev = float(length) / 8.0
-        mean = 1.0
-        x = np.linspace(-length / 2, length / 2, length + 1)
-        self.gaussian_y = (
-            (1 / (std_dev * np.sqrt(2 * np.pi)))
-            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
-            * 1000
-        )
-
-        # Whiten the data
-        min = np.min(self.gaussian_y)
-        max = np.max(self.gaussian_y)
-        self.gaussian_y = self.gaussian_y - min
-        self.gaussian_y = self.gaussian_y / (max - min)
-
-        # Wide gaussian
-        std_dev = float(length)
-        self.gaussian_wide = (
-            (1 / (std_dev * np.sqrt(2 * np.pi)))
-            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
-            * 1000
-        )
-
-        # Whiten the data
-        min = np.min(self.gaussian_wide)
-        max = np.max(self.gaussian_wide)
-        self.gaussian_wide = self.gaussian_wide - min
-        self.gaussian_wide = self.gaussian_wide / (max - min)
-
-        # Flip upside down
-        self.gaussian_wide = np.ones_like(self.gaussian_wide) - self.gaussian_wide
-
-        if False:
-            # Plot the Gaussian curve
-            # plt.plot(x, self.gaussian_y)
-            plt.plot(x, np.ones_like(self.gaussian_wide) - self.gaussian_wide)
-            plt.title("Gaussian Curve")
-            plt.xlabel("X")
-            plt.ylabel("Y")
-            # Show the plot
-            plt.show()
-            print("Plotted")
-            import time
-
-            time.sleep(1000)
 
     def get_speed(self):
         return math.sqrt(

@@ -26,6 +26,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox
 from hmlib.camera.video_out import ImageProcData, VideoOutput
+from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 from hmlib.utils.box_functions import (
     width,
@@ -108,14 +109,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.use_moving_boxes_as_crop = False
+        # self.use_moving_boxes_as_crop = False
         # self.use_moving_boxes_as_crop = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        # self.max_in_aspec_ratio = True
-        self.max_in_aspec_ratio = False
+        self.max_in_aspec_ratio = True
+        # self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
         self.apply_fixed_edge_scaling = False
@@ -123,8 +124,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -270,6 +271,7 @@ class FramePostProcessor:
         self._final_image_processing_started = False
         self._async_post_processing = async_post_processing
         self._device = device
+        self._horizontal_image_gaussian_distribution = None
 
         self._save_dir = save_dir
         # results_dir = Path(save_dir)
@@ -407,6 +409,13 @@ class FramePostProcessor:
         if not online_im.flags["C_CONTIGUOUS"]:
             online_im = np.ascontiguousarray(online_im)
         return online_im
+
+    def _get_gaussian(self, image_width: int):
+        if self._horizontal_image_gaussian_distribution is None:
+            self._horizontal_image_gaussian_distribution = (
+                ImageHorizontalGaussianDistribution(image_width)
+            )
+        return self._horizontal_image_gaussian_distribution
 
     def _postprocess_frame_worker(self):
         # self._last_temporal_box = None
@@ -679,7 +688,6 @@ class FramePostProcessor:
                 self._current_roi_aspect = iter(self._current_roi_aspect)
             else:
                 self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                # self._current_roi_aspect.set_destination(self._current_roi, stop_on_dir_change=True)
 
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
@@ -697,10 +705,6 @@ class FramePostProcessor:
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
 
-            # outside_expanded_box = current_box + np.array(
-            #     [-100.0, -100.0, 100.0, 100.0], dtype=np.float32
-            # )
-
             # TODO: make this expand box a class member so not recreated every time
             outside_expanded_box = (
                 current_box + self._outside_box_expansion_for_speed_curtailing
@@ -714,28 +718,6 @@ class FramePostProcessor:
                     thickness=2,
                     label="U:2&3",
                 )
-
-            # if fast_bounding_box is not None and self._args.plot_camera_tracking:
-            #     vis.plot_rectangle(
-            #         online_im,
-            #         fast_bounding_box,
-            #         color=(0, 255, 0),
-            #         thickness=6,
-            #         label="fast_bounding_box",
-            #     )
-            #     current_box = hockey_mom.union_box(current_box, fast_bounding_box)
-
-            # current_box = scale(current_box, 2.25, 2.25)
-            # current_box = hockey_mom.clamp(current_box)
-
-            # if self._args.plot_camera_tracking:
-            #     vis.plot_rectangle(
-            #         online_im,
-            #         current_box,
-            #         color=(64, 64, 64),  # Dark gray
-            #         thickness=6,
-            #         label="scaled_union_clusters_2_and_3",
-            #     )
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
@@ -819,24 +801,6 @@ class FramePostProcessor:
                         1, dtype=torch.int64, device=self._device
                     ),
                 )
-                # self._current_roi_aspect.adjust_speed(
-                #     accel_x=group_x_velocity / 2,
-                #     accel_y=None,
-                #     use_constraints=False,
-                #     nonstop_delay=torch.tensor(1, dtype=torch.int64, device=self._device),
-                # )
-
-                # self._last_temporal_box = translate_box(self._last_temporal_box, group_x_velocity, 0)
-                # hockey_mom.add_x_velocity(group_x_velocity)
-                # hockey_mom.apply_box_velocity(current_box, scale_speed = 1.0)
-                # current_box = translate_box(current_box, group_x_velocity * 100, 0)
-                # vis.plot_rectangle(
-                #     online_im,
-                #     current_box,
-                #     color=(0, 0, 0),
-                #     thickness=10,
-                #     label="clamped_pre_aspect",
-                # )
 
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
             current_box, self._last_temporal_box = _apply_temporal(
@@ -891,12 +855,6 @@ class FramePostProcessor:
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
 
-            # current_box = hockey_mom.clamp(current_box)
-
-            # self._last_temporal_box = current_box.copy()
-            # current_box = _apply_temporal()
-
-            # print(f"make_box_proper_aspect_ratio ar={aspect_ratio(current_box)}")
             current_box = self._hockey_mom.shift_box_to_edge(current_box)
 
             # assert width(current_box) <= hockey_mom.video.width
@@ -1021,10 +979,10 @@ class FramePostProcessor:
 
             if self._args.max_in_aspec_ratio:
                 if self._last_sticky_temporal_box is not None:
-                    gaussian_factor = (
-                        self._hockey_mom.get_gaussian_y_from_image_x_position(
-                            center(self._last_sticky_temporal_box)[0]
-                        )
+                    gaussian_factor = self._get_gaussian(
+                        online_im.shape[1]
+                    ).get_gaussian_y_from_image_x_position(
+                        center(self._last_sticky_temporal_box)[0]
                     )
                 else:
                     gaussian_factor = 1
@@ -1128,15 +1086,6 @@ class FramePostProcessor:
                 # xx1 = center(current_box)[0]
                 # print(f'A final temporal x change: {xx1 - xx0}')
                 current_box = _fix_aspect_ratio(current_box)
-                # xx1 = center(current_box)[0]
-                # print(f'final temporal x change: {xx1 - xx0}')
-                # vis.plot_rectangle(
-                #     online_im,
-                #     current_box,
-                #     color=(0, 128, 255),
-                #     thickness=15,
-                #     label="edge-scaled",
-                # )
                 assert torch.isclose(
                     aspect_ratio(current_box), self._final_aspect_ratio
                 )
@@ -1189,14 +1138,6 @@ class FramePostProcessor:
                     label="post-sticky",
                 )
 
-            # current_box = hockey_mom.make_box_proper_aspect_ratio(
-            #     frame_id=frame_id,
-            #     the_box=current_box,
-            #     desired_aspect_ratio=self._final_aspect_ratio,
-            #     max_in_aspec_ratio=False, # FALSE HERE HARD CODED
-            # )
-            # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-
             # Plot the trajectories
             if self._args.plot_individual_player_tracking:
                 online_im = vis.plot_trajectory(
@@ -1214,17 +1155,12 @@ class FramePostProcessor:
             imgproc_data = ImageProcData(
                 frame_id=frame_id.item(),
                 img=online_im,
-                current_box=self._current_roi_aspect.bounding_box()
-                if self.use_moving_boxes_as_crop
-                else current_box,
+                current_box=current_box
+                if (
+                    self._args.max_in_aspec_ratio or self._args.apply_fixed_edge_scaling
+                )
+                else self._current_roi_aspect.bounding_box(),
             )
-            # timer.toc()
-            # Only let it get ahead around 25 frames so as not to use too much
-            # memory for no gain
-            # while self._imgproc_queue.qsize() > 25:
-            #     time.sleep(0.001)
-            # # imgproc_data.dump()
-            # self._imgproc_queue.put(imgproc_data)
             self._video_output.append(imgproc_data)
 
 
