@@ -1,6 +1,7 @@
 .idea
 *.pyc
 /*.log
+/my_env
 /*.tif
 /*.avi
 /*.mp4
