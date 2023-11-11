@@ -104,6 +104,12 @@ def make_parser():
         help="Evaluating on test-dev set.",
     )
     parser.add_argument(
+        "--tracker",
+        default="hm",
+        type=str,
+        help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
+    )
+    parser.add_argument(
         "--speed",
         dest="speed",
         default=False,
@@ -289,7 +295,7 @@ def main(exp, args, num_gpu):
                     img_size=exp.test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
-                    #data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+                    # data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     # data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     json_file="test.json",
@@ -388,7 +394,19 @@ def main(exp, args, num_gpu):
             decoder = None
 
         # start evaluate
-        *_, summary = evaluator.evaluate_mixsort(
+
+        eval_functions = {
+            "hm": {"function": evaluator.evaluate_hockeymom},
+            "mixsort": {"function": evaluator.evaluate_mixsort},
+            "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
+            "sort": {"function": evaluator.evaluate_sort},
+            "ocsort": {"function": evaluator.evaluate_ocsort},
+            "byte": {"function": evaluator.evaluate_byte},
+            "deepsort": {"function": evaluator.evaluate_deepsort},
+            "motdt": {"function": evaluator.evaluate_motdt},
+        }
+
+        *_, summary = eval_functions[args.tracker]["function"](
             model,
             is_distributed,
             args.fp16,
@@ -397,15 +415,6 @@ def main(exp, args, num_gpu):
             exp.test_size,
             results_folder,
         )
-        # *_, summary = evaluator.evaluate_byte(
-        #     model,
-        #     is_distributed,
-        #     args.fp16,
-        #     trt_file,
-        #     decoder,
-        #     exp.test_size,
-        #     results_folder,
-        # )
         logger.info("\n" + summary)
 
         logger.info("Completed")

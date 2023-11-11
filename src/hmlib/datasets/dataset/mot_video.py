@@ -47,6 +47,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         max_frames: int = 0,
         batch_size: int = 1,
         start_frame_number: int = 0,
+        multi_width_img_info: bool = True,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -60,6 +61,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.clip_original = clip_original
         self.process_height = img_size[0]
         self.process_width = img_size[1]
+        self._multi_width_img_info = multi_width_img_info
         self.width_t = None
         self.height_t = None
         self._count = torch.tensor([0], dtype=torch.int32)
@@ -212,8 +214,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = torch.stack(frame_sizes, dim=0)
 
         imgs_info = [
-            self.height_t.repeat(len(ids)),
-            self.width_t.repeat(len(ids)),
+            self.height_t.repeat(len(ids)) if self._multi_width_img_info else self.height_t,
+            self.width_t.repeat(len(ids)) if self._multi_width_img_info else self.width_t,
             ids,
             self.video_id.repeat(len(ids)),
             [self._path],

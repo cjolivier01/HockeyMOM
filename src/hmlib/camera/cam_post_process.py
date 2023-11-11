@@ -58,6 +58,16 @@ core.hello_world()
 # Some experimental and debugging parameters that aid in development
 #
 
+# _PERSON_CLASS_ID = 1
+# _PLAYER_CLASS_ID = 2
+# # _REFEREE_CLASS_ID = 3
+
+# category_list = [
+#     {_PERSON_CLASS_ID: "person"},
+#     {_PLAYER_CLASS_ID: "player"},
+#     # {_REFEREE_CLASS_ID: "referee"},
+# ]
+
 RINK_CONFIG = {
     "vallco": {
         "fixed_edge_scaling_factor": 0.8,
@@ -84,7 +94,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        # self.show_image = True
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -104,7 +114,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_moving_boxes = False
 
         self.plot_frame_number = False or BASIC_DEBUGGING
-        #self.plot_frame_number = True
+        # self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False

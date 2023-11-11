@@ -49,6 +49,12 @@ def to_rgb_non_planar(image):
     return image
 
 
+def _pt_tensor(t, device):
+    if not isinstance(t, torch.Tensor):
+        return torch.from_numpy(t).to(device)
+    return t
+
+
 def scale_tlwhs(tlwhs: List, scale: float):
     return tlwhs
 
@@ -111,9 +117,9 @@ class HmPostProcessor:
         original_img = to_rgb_non_planar(original_img)
         inscribed_image = to_rgb_non_planar(inscribed_image)
         if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
-            online_tlwhs = torch.stack([torch.from_numpy(t) for t in online_tlwhs]).to(
-                self._device
-            )
+            online_tlwhs = torch.stack(
+                [_pt_tensor(t, device=inscribed_image.device) for t in online_tlwhs]
+            ).to(self._device)
         if self._postprocessor is None:
             self.on_first_image(
                 frame_id,
