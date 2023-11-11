@@ -12,6 +12,7 @@ from __future__ import print_function
 import numpy as np
 import cv2
 import random
+import torch
 
 
 def flip(img):
@@ -252,8 +253,9 @@ class ImageHorizontalGaussianDistribution:
             return self.gaussian_y[int(image_x_position)]
         return self.gaussian_wide[int(image_x_position)]
 
-    def setup_gaussian(self, length: int):
+    def setup_gaussian(self, length: torch.Tensor):
         # Thinner gaussian
+        length = int(length.trunc().item())
         std_dev = float(length) / 8.0
         mean = 1.0
         x = np.linspace(-length / 2, length / 2, length + 1)

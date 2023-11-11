@@ -700,12 +700,13 @@ class FramePostProcessor:
                     height_change_threshold_low=_scalar_like(
                         size_stick_size, device=current_box.device
                     ),
-                    translation_threshold=_scalar_like(
-                        unstick_size, device=current_box.device
-                    ),
-                    translation_threshold_low=_scalar_like(
-                        stick_size, device=current_box.device
-                    ),
+                    sticky_translation=True,
+                    # translation_threshold=_scalar_like(
+                    #     unstick_size, device=current_box.device
+                    # ),
+                    # translation_threshold_low=_scalar_like(
+                    #     stick_size, device=current_box.device
+                    # ),
                     scale_width=1.1,
                     scale_height=1.1,
                     fixed_aspect_ratio=self._final_aspect_ratio,

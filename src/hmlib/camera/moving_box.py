@@ -24,6 +24,7 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 from hmlib.utils.box_functions import (
     width,
@@ -64,8 +65,9 @@ class MovingBox(BasicMovingBox):
         scale_height: torch.Tensor = None,
         arena_box: torch.Tensor = None,
         fixed_aspect_ratio: torch.Tensor = None,
-        translation_threshold: torch.Tensor = None,
-        translation_threshold_low: torch.Tensor = None,
+        # translation_threshold: torch.Tensor = None,
+        # translation_threshold_low: torch.Tensor = None,
+        sticky_translation: bool = False,
         width_change_threshold: torch.Tensor = None,
         width_change_threshold_low: torch.Tensor = None,
         height_change_threshold: torch.Tensor = None,
@@ -78,8 +80,8 @@ class MovingBox(BasicMovingBox):
         self._label = label
         self._color = color
         self._frozen_color = frozen_color
-        # self._current_color = self._color
         self._thickness = thickness
+        self._sticky_translation = sticky_translation
 
         if isinstance(bbox, BasicMovingBox):
             self._following_box = bbox
@@ -120,6 +122,13 @@ class MovingBox(BasicMovingBox):
         self._nonstop_delay = self._zero
         self._nonstop_delay_counter = self._zero
 
+        if self._arena_box is not None:
+            self._horizontal_image_gaussian_distribution = (
+                ImageHorizontalGaussianDistribution(width(self._arena_box))
+            )
+        else:
+            self._horizontal_image_gaussian_distribution = None
+
         self._size_is_frozen = False
         self._translation_is_frozen = False
 
@@ -142,8 +151,8 @@ class MovingBox(BasicMovingBox):
         self._width_change_threshold_low = width_change_threshold_low
         self._height_change_threshold = height_change_threshold
         self._height_change_threshold_low = height_change_threshold_low
-        self._translation_threshold = translation_threshold
-        self._translation_threshold_low = translation_threshold_low
+        # self._translation_threshold = translation_threshold
+        # self._translation_threshold_low = translation_threshold_low
 
     @property
     def _zero(self):
@@ -183,24 +192,23 @@ class MovingBox(BasicMovingBox):
                 label=self._make_label(),
                 text_scale=2,
             )
-        if draw_threasholds:
+        if draw_threasholds and self._sticky_translation:
+            sticky, unsticky = self._get_sticky_translation_sizes()
             cl = [int(i) for i in center(self._bbox)]
-            if self._translation_threshold_low is not None:
-                cv2.circle(
-                    img,
-                    cl,
-                    radius=int(self._translation_threshold_low),
-                    color=(255, 0, 0),
-                    thickness=3,
-                )
-            if self._translation_threshold is not None:
-                cv2.circle(
-                    img,
-                    cl,
-                    radius=int(self._translation_threshold),
-                    color=(255, 0, 255),
-                    thickness=3,
-                )
+            cv2.circle(
+                img,
+                cl,
+                radius=int(sticky),
+                color=(255, 0, 0),
+                thickness=3,
+            )
+            cv2.circle(
+                img,
+                cl,
+                radius=int(unsticky),
+                color=(255, 0, 255),
+                thickness=3,
+            )
             if self._following_box is not None:
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
@@ -222,6 +230,20 @@ class MovingBox(BasicMovingBox):
                 )
 
         return img
+
+    def _get_sticky_translation_sizes(self):
+        if self._horizontal_image_gaussian_distribution is None:
+            gaussian_factor = 1.0
+        else:
+            gaussian_factor = self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
+                center(self.bounding_box())[0]
+            )
+        gaussian_mult = 6
+        gaussian_add = gaussian_factor * gaussian_mult
+        # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+        sticky_size = self._max_speed_x * 6 + gaussian_add
+        unsticky_size = sticky_size * 3 / 4
+        return sticky_size, unsticky_size
 
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
@@ -344,24 +366,16 @@ class MovingBox(BasicMovingBox):
         # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
         velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
-        # BEGIN Sticky
-        if self._translation_threshold_low is not None:
-            assert self._translation_threshold is not None
-            if (
-                not self._translation_is_frozen
-                and diff_magnitude <= self._translation_threshold_low
-            ):
+        # BEGIN Sticky Translation
+        if self._sticky_translation:
+            sticky, unsticky = self._get_sticky_translation_sizes()
+            if not self._translation_is_frozen and diff_magnitude <= sticky:
                 self._translation_is_frozen = True
                 self._current_speed_x = self._zero
                 self._current_speed_y = self._zero
-            elif (
-                self._translation_is_frozen
-                and diff_magnitude >= self._translation_threshold
-            ):
+            elif self._translation_is_frozen and diff_magnitude >= unsticky:
                 self._translation_is_frozen = False
-        else:
-            assert self._translation_threshold is None
-        # END Sticky
+        # END Sticky Translation
 
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
