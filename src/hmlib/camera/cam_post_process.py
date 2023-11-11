@@ -86,7 +86,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -108,11 +108,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
         # self.plot_cluster_tracking = True
 
-        self.plot_camera_tracking = False or BASIC_DEBUGGING
+        #self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
 
-        # self.plot_moving_boxes = False or BASIC_DEBUGGING
-        self.plot_moving_boxes = False
+        self.plot_moving_boxes = False or BASIC_DEBUGGING
+        # self.plot_moving_boxes = True
 
         self.plot_frame_number = False or BASIC_DEBUGGING
         self.plot_frame_number = True
@@ -147,7 +147,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
-        # self.plot_sticky_camera = False
+        self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -316,8 +316,8 @@ class FramePostProcessor:
             device=self._device,
         )
 
-        # Camera state
-        # TODO: Move to its own class or into hockeymom or something
+        # Persistent state across frames
+        self._previous_cluster_union_box = None
         self._last_temporal_box = None
         self._last_sticky_temporal_box = None
         self._last_dx_shrink_size = 0
@@ -477,6 +477,11 @@ class FramePostProcessor:
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
+    def get_arena_box(self):
+        # if self._args.detection_inclusion_box is not None:
+        #     return self._args.detection_inclusion_box
+        return self._hockey_mom._video_frame.bounding_box()
+
     def cam_postprocess(self, online_targets_and_img):
         max_dx_shrink_size = 100  # ???
 
@@ -622,11 +627,15 @@ class FramePostProcessor:
                 current_box = largest_cluster_ids_box2
             elif largest_cluster_ids_box3 is not None:
                 current_box = largest_cluster_ids_box3
+            elif self._previous_cluster_union_box is not None:
+                current_box =  self._previous_cluster_union_box.clone()
             else:
                 current_box = self._hockey_mom._video_frame.bounding_box()
 
             if current_box is None:
                 current_box = self._hockey_mom._video_frame.bounding_box()
+
+            self._previous_cluster_union_box = current_box.clone()
 
             # Some players may be off-screen, so their box may go over an edge
             current_box = self._hockey_mom.clamp(current_box)
@@ -650,11 +659,12 @@ class FramePostProcessor:
                 self._current_roi = MovingBox(
                     label="Current ROI",
                     bbox=start_box,
-                    arena_box=self._hockey_mom._video_frame.bounding_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 2,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 2,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.5,
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.5,
+                    #arena_box=self._hockey_mom._video_frame.bounding_box(),
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
                     max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
                     color=(255, 128, 64),
@@ -670,9 +680,10 @@ class FramePostProcessor:
                 self._current_roi_aspect = MovingBox(
                     label="AspectRatio",
                     bbox=self._current_roi,
-                    arena_box=self._hockey_mom._video_frame.bounding_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
+                    #arena_box=self._hockey_mom._video_frame.bounding_box(),
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
                     max_accel_x=self._hockey_mom._camera_box_max_accel_x,
                     max_accel_y=self._hockey_mom._camera_box_max_accel_y,
                     max_width=self._hockey_mom._video_frame.width,
