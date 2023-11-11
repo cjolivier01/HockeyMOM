@@ -249,6 +249,7 @@ class HockeyMOM:
         self._cluster_counts = dict()
         self._cluster_label_ids = dict()
         self._largest_cluster_label = dict()
+        self._online_image_center_points = []
 
         self._epsilon = self._to_scalar_float(0.00001)
 
