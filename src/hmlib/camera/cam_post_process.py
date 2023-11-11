@@ -94,28 +94,28 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        self.show_image = True
+        # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        self.plot_individual_player_tracking = True
+        # self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
-        # self.plot_all_detections = False
-        self.plot_all_detections = True
+        self.plot_all_detections = False
+        # self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
-        self.plot_cluster_tracking = True
+        # self.plot_cluster_tracking = True
 
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
 
-        self.plot_moving_boxes = True
-        # self.plot_moving_boxes = False
+        # self.plot_moving_boxes = False or BASIC_DEBUGGING
+        self.plot_moving_boxes = False
 
         self.plot_frame_number = False or BASIC_DEBUGGING
-        # self.plot_frame_number = True
+        self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -173,7 +173,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
-        self.crop_output_image = False
+        # self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -186,7 +186,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_watermark = True
         # self.use_watermark = False
 
-        self.detection_inclusion_box = None
+        # self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
 

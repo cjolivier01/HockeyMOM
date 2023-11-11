@@ -1,7 +1,8 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 
 #
 # Models
@@ -10,7 +11,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
 #PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+PRETRAINED_MODEL="./latest_ckpt-e70.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
@@ -42,8 +44,10 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -b=4 \
   -d=1 \
   --infer \
-  --conf=0.01 \
+  --track_thresh=0.3 \
+  --track_thresh_low=0.05 \
   --min-box-area=35 \
   --config=track \
+  --start-frame=510 \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}"
