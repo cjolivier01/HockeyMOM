@@ -86,7 +86,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):
@@ -98,7 +98,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        # self.plot_individual_player_tracking = False
+        self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         # self.plot_all_detections = False
@@ -110,8 +110,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
 
-        # self.plot_moving_boxes = True
-        self.plot_moving_boxes = False
+        self.plot_moving_boxes = True
+        # self.plot_moving_boxes = False
 
         self.plot_frame_number = False or BASIC_DEBUGGING
         # self.plot_frame_number = True
@@ -119,23 +119,20 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.use_moving_boxes_as_crop = False
-        # self.use_moving_boxes_as_crop = True
-
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
-        # self.max_in_aspec_ratio = False
+        # self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        # self.apply_fixed_edge_scaling = False
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
+        # self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -193,10 +190,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        self.detection_inclusion_box = torch.tensor(
-            [363, 600, 5388, 1714], dtype=torch.float32
-        )
-        print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
+        # self.detection_inclusion_box = torch.tensor(
+        #     [363, 600, 5388, 1714], dtype=torch.float32
+        # )
+        # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 
 def scale_box(box, from_img, to_img):
