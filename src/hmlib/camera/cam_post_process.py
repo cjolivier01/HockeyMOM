@@ -185,7 +185,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_watermark = True
         # self.use_watermark = False
 
-        # self.detection_inclusion_box = None
+        self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
 
@@ -218,7 +218,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
         assert len(online_ids) == 0
         # nothing
         return online_tlwhs, online_ids
-    if inclusion_box is not None:
+    if inclusion_box is None:
         return online_tlwhs, online_ids
     filtered_online_tlwh = []
     filtered_online_ids = []
