@@ -44,7 +44,6 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   --infer \
   --conf=0.01 \
   --min-box-area=35 \
-  --start-frame=510 \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}"
