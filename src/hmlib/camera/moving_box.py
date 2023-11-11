@@ -202,6 +202,8 @@ class MovingBox(BasicMovingBox):
                     thickness=3,
                 )
             if self._following_box is not None:
+                # Line from center of this box to the center of the box that it is following,
+                # with little circle nubs at each end.
                 co = [int(i) for i in center(self._following_box.bounding_box())]
                 vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=3)
                 cv2.circle(
@@ -213,9 +215,9 @@ class MovingBox(BasicMovingBox):
                 )
                 cv2.circle(
                     img,
-                    cl,
+                    co,
                     radius=5,
-                    color=(0, 255, 0),
+                    color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
 
