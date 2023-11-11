@@ -167,6 +167,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         frames_imgs = []
         frames_original_imgs = []
         ids = []
+        # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
             _, img0 = self.cap.read()  # BGR
@@ -201,19 +202,20 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
+            # frame_sizes.append(torch.tensor([self.height_t, self.width_t], dtype=torch.int64, device=self.height_t.device))
 
         inscribed_image = torch.stack(frames_inscribed_images, dim=0)
         img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
         original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         # Does this need to be in imgs_info this way as an array?
         ids = torch.cat(ids, dim=0)
+        # frame_sizes = torch.stack(frame_sizes, dim=0)
 
         imgs_info = [
-            self.height_t,
-            self.width_t,
-            # self._count + 1,
+            self.height_t.repeat(len(ids)),
+            self.width_t.repeat(len(ids)),
             ids,
-            self.video_id,
+            self.video_id.repeat(len(ids)),
             [self._path],
         ]
 
