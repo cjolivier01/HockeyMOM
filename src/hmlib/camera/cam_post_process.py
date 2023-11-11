@@ -191,9 +191,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        # self.detection_inclusion_box = torch.tensor(
-        #     [363, 600, 5388, 1714], dtype=torch.float32
-        # )
+        self.detection_inclusion_box = torch.tensor(
+            [363, 600, 5388, 1714], dtype=torch.float32
+        )
         # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 
@@ -638,7 +638,7 @@ class FramePostProcessor:
                     current_box,
                     color=(64, 64, 64),  # dark gray
                     label="union_clusters",
-                    opacity_percent=10,
+                    opacity_percent=25,
                 )
 
             #
@@ -653,8 +653,8 @@ class FramePostProcessor:
                     arena_box=self._hockey_mom._video_frame.bounding_box(),
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 2,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 2,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x,
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.5,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.5,
                     max_width=self._hockey_mom._video_frame.width,
                     max_height=self._hockey_mom._video_frame.height,
                     color=(255, 128, 64),
@@ -690,7 +690,7 @@ class FramePostProcessor:
                         size_stick_size, device=current_box.device
                     ),
                     translation_threshold=_scalar_like(
-                        stick_size, device=current_box.device
+                        unstick_size, device=current_box.device
                     ),
                     translation_threshold_low=_scalar_like(
                         stick_size, device=current_box.device
@@ -709,7 +709,7 @@ class FramePostProcessor:
             self._current_roi = next(self._current_roi)
             self._current_roi_aspect = next(self._current_roi_aspect)
             if self._args.plot_moving_boxes:
-                self._current_roi_aspect.draw(img=online_im)
+                self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
                 self._current_roi.draw(img=online_im)
                 vis.plot_line(
                     online_im,

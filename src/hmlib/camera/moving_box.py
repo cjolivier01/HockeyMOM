@@ -136,6 +136,7 @@ class MovingBox(BasicMovingBox):
         self._max_speed_h = max_speed_y / 2
         self._max_accel_w = max_accel_x
         self._max_accel_h = max_accel_y
+
         # Change threshholds
         self._width_change_threshold = width_change_threshold
         self._width_change_threshold_low = width_change_threshold_low
@@ -152,7 +153,7 @@ class MovingBox(BasicMovingBox):
     def _zero_int(self):
         return self._zero_int_tensor.clone()
 
-    def draw(self, img: np.array):
+    def draw(self, img: np.array, draw_threasholds: bool = False):
         draw_box = self._bbox.clone()
         vis.plot_rectangle(
             img,
@@ -182,6 +183,43 @@ class MovingBox(BasicMovingBox):
                 label=self._make_label(),
                 text_scale=2,
             )
+        if draw_threasholds:
+            cl = [int(i) for i in center(self._bbox)]
+            if self._translation_threshold_low is not None:
+                cv2.circle(
+                    img,
+                    cl,
+                    radius=int(self._translation_threshold_low),
+                    color=(255, 0, 0),
+                    thickness=3,
+                )
+            if self._translation_threshold is not None:
+                cv2.circle(
+                    img,
+                    cl,
+                    radius=int(self._translation_threshold),
+                    color=(255, 0, 255),
+                    thickness=3,
+                )
+            if self._following_box is not None:
+                co = [int(i) for i in center(self._following_box.bounding_box())]
+                vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=3)
+                cv2.circle(
+                    img,
+                    cl,
+                    radius=5,
+                    color=(255, 255, 0),
+                    thickness=cv2.FILLED,
+                )
+                cv2.circle(
+                    img,
+                    cl,
+                    radius=5,
+                    color=(0, 255, 0),
+                    thickness=cv2.FILLED,
+                )
+
+        return img
 
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
@@ -301,7 +339,7 @@ class MovingBox(BasicMovingBox):
         s2 = torch.sign(velocity)
         changed_direction = s1 * s2
         # Reduce velocity on axes that changed direction
-        #velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
+        # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
         velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
         # BEGIN Sticky
@@ -453,7 +491,7 @@ class MovingBox(BasicMovingBox):
             device=self._bbox.device,
         )
         if self._nonstop_delay != self._zero:
-            #print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
+            # print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
             self._nonstop_delay_counter += 1
             if self._nonstop_delay_counter >= self._nonstop_delay:
                 self._nonstop_delay = self._zero
