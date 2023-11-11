@@ -86,7 +86,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 
 #
 # Models
@@ -11,8 +11,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
 #PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-#PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
-PRETRAINED_MODEL="./latest_ckpt-e70.pth.tar"
+PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+#PRETRAINED_MODEL="./latest_ckpt-e70.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
@@ -36,6 +36,9 @@ EXP_NAME="mixsort-run-roseville"
 
 echo "Experiment name: ${EXP_NAME}"
 
+  # --track_thresh=0.3 \
+  # --track_thresh_low=0.05 \
+
 PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hm_track_mixsort.py \
   -expn="${EXP_NAME}" \
@@ -44,8 +47,6 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -b=4 \
   -d=1 \
   --infer \
-  --track_thresh=0.3 \
-  --track_thresh_low=0.05 \
   --min-box-area=35 \
   --config=track \
   --start-frame=510 \
