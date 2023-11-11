@@ -47,6 +47,7 @@ def plot_rectangle(
         color=color,
         thickness=thickness,
     )
+
     if label:
         text_thickness = 2
         cv2.putText(
@@ -58,6 +59,44 @@ def plot_rectangle(
             (0, 0, 128),
             thickness=text_thickness,
         )
+    return img
+
+
+def plot_alpha_rectangle(
+    img,
+    box: List[int],
+    color: Tuple[int, int, int],
+    label: str = None,
+    text_scale: int = 1,
+    opacity_percent: int = 100,
+):
+    if opacity_percent == 100:
+        return plot_rectangle(img, box, color, thickness, label, text_scale)
+    intbox = [int(i) for i in box]
+
+    # Create a mask and draw the rectangle
+
+    # TODO: Do just a small portion, like how the watermark is done
+
+    mask = np.copy(img)
+    cv2.rectangle(mask, intbox[0:2], intbox[2:4], color=color, thickness=cv2.FILLED)
+
+    alpha = float(opacity_percent) / 100
+    # Blend the mask with the original imagealpha =
+    rectangled_image = cv2.addWeighted(mask, alpha, img, 1 - alpha, 0)
+
+    if label:
+        text_thickness = 2
+        cv2.putText(
+            rectangled_image,
+            label,
+            (intbox[0], intbox[1] + 30),
+            cv2.FONT_HERSHEY_PLAIN,
+            text_scale,
+            (0, 0, 128),
+            thickness=text_thickness,
+        )
+    return rectangled_image
 
 
 def _to_int(vals):

@@ -106,6 +106,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
+        self.plot_cluster_tracking = True
 
         self.plot_camera_tracking = False or BASIC_DEBUGGING
         self.plot_camera_tracking = False
@@ -172,7 +173,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
-        # self.crop_output_image = False
+        self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -586,7 +587,7 @@ class FramePostProcessor:
                         largest_cluster_ids_box2,
                         color=(128, 0, 0),  # dark red
                         thickness=6,
-                        label="largest_cluster_ids_box2",
+                        label="cluster_box2",
                     )
             else:
                 largest_cluster_ids_box2 = None
@@ -605,7 +606,7 @@ class FramePostProcessor:
                         largest_cluster_ids_box3,
                         color=(0, 0, 128),  # dark blue
                         thickness=6,
-                        label="largest_cluster_ids_box3",
+                        label="cluster_box3",
                     )
             else:
                 largest_cluster_ids_box3 = None
@@ -624,12 +625,21 @@ class FramePostProcessor:
             else:
                 current_box = self._hockey_mom._video_frame.bounding_box()
 
-            # current_box = hockey_mom.ratioed_expand(current_box)
             if current_box is None:
                 current_box = self._hockey_mom._video_frame.bounding_box()
 
             # Some players may be off-screen, so their box may go over an edge
             current_box = self._hockey_mom.clamp(current_box)
+
+            if self._args.plot_cluster_tracking:
+                # The union of the two cluster boxes
+                online_im = vis.plot_alpha_rectangle(
+                    online_im,
+                    current_box,
+                    color=(64, 64, 64),  # dark gray
+                    label="union_clusters",
+                    opacity_percent=10,
+                )
 
             #
             # Current ROI box
