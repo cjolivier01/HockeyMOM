@@ -399,7 +399,6 @@ class MovingBox(BasicBox):
         dest_height: torch.Tensor,
         stop_on_dir_change: bool = True,
     ):
-        assert self._following_box is None
         scale_w = (
             self._one_float_tensor if self._scale_width is None else self._scale_width
         )
