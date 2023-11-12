@@ -93,7 +93,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        # self.show_image = True
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -107,18 +107,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_cluster_tracking = False or BASIC_DEBUGGING
         # self.plot_cluster_tracking = True
 
-        #self.plot_camera_tracking = False or BASIC_DEBUGGING
-        self.plot_camera_tracking = False
-
-        self.plot_moving_boxes = False or BASIC_DEBUGGING
-        # self.plot_moving_boxes = True
-
-        self.plot_frame_number = False or BASIC_DEBUGGING
-        self.plot_frame_number = True
-
-        # Plot frame ID and speed/velocity in upper-left corner
-        self.plot_speed = False
-
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
@@ -131,8 +119,24 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        # self.plot_camera_tracking = False or BASIC_DEBUGGING
+        self.plot_camera_tracking = False
+
+        self.plot_moving_boxes = False or (
+            BASIC_DEBUGGING
+            and not (self.max_in_aspec_ratio or self.apply_fixed_edge_scaling)
+        )
+        # self.plot_moving_boxes = True
+
+        # Print each frame number in the upper left corner
+        self.plot_frame_number = False or BASIC_DEBUGGING
+        self.plot_frame_number = True
+
+        # Plot frame ID and speed/velocity in upper-left corner
+        self.plot_speed = False
+
+        self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -146,7 +150,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
-        self.plot_sticky_camera = False
+        # self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -190,9 +194,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        #self.detection_inclusion_box = torch.tensor(
-            #[363, 600, 5388, 1714], dtype=torch.float32
-        #)
+        # self.detection_inclusion_box = torch.tensor(
+        # [363, 600, 5388, 1714], dtype=torch.float32
+        # )
         # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 
@@ -627,7 +631,7 @@ class FramePostProcessor:
             elif largest_cluster_ids_box3 is not None:
                 current_box = largest_cluster_ids_box3
             elif self._previous_cluster_union_box is not None:
-                current_box =  self._previous_cluster_union_box.clone()
+                current_box = self._previous_cluster_union_box.clone()
             else:
                 current_box = self._hockey_mom._video_frame.bounding_box()
 
@@ -658,7 +662,7 @@ class FramePostProcessor:
                 self._current_roi = MovingBox(
                     label="Current ROI",
                     bbox=start_box,
-                    #arena_box=self._hockey_mom._video_frame.bounding_box(),
+                    # arena_box=self._hockey_mom._video_frame.bounding_box(),
                     arena_box=self.get_arena_box(),
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
@@ -679,7 +683,7 @@ class FramePostProcessor:
                 self._current_roi_aspect = MovingBox(
                     label="AspectRatio",
                     bbox=self._current_roi,
-                    #arena_box=self._hockey_mom._video_frame.bounding_box(),
+                    # arena_box=self._hockey_mom._video_frame.bounding_box(),
                     arena_box=self.get_arena_box(),
                     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
                     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
