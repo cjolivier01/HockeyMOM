@@ -39,7 +39,6 @@ from hmlib.utils.box_functions import (
 )
 
 from hmlib.utils.box_functions import tlwh_centers
-
 from hockeymom import core
 
 core.hello_world()
@@ -123,17 +122,17 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        # self.max_in_aspec_ratio = True
-        self.max_in_aspec_ratio = False
+        self.max_in_aspec_ratio = True
+        # self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = False
-        # self.apply_fixed_edge_scaling = True
+        # self.apply_fixed_edge_scaling = False
+        self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -186,14 +185,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_watermark = True
         # self.use_watermark = False
 
-        # self.detection_inclusion_box = None
+        self.detection_inclusion_box = None
         # self.detection_inclusion_box = [None, None, None, None]
         # self.detection_inclusion_box = [None, 140, None, None]
 
         # Roseville #2
-        self.detection_inclusion_box = torch.tensor(
-            [363, 600, 5388, 1714], dtype=torch.float32
-        )
+        #self.detection_inclusion_box = torch.tensor(
+            #[363, 600, 5388, 1714], dtype=torch.float32
+        #)
         # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
 

@@ -255,7 +255,10 @@ class ImageHorizontalGaussianDistribution:
 
     def setup_gaussian(self, length: torch.Tensor):
         # Thinner gaussian
-        length = int(length.trunc().item())
+        if isinstance(length, torch.Tensor):
+            length = int(length.trunc().item())
+        else:
+            length = int(length)
         std_dev = float(length) / 8.0
         mean = 1.0
         x = np.linspace(-length / 2, length / 2, length + 1)

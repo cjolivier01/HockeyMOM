@@ -45,12 +45,12 @@ from pt_autograph import pt_function
 from hockeymom import core
 
 
-class BasicMovingBox:
+class BasicBox:
     def bounding_box(self):
         return self._bbox.clone()
 
 
-class MovingBox(BasicMovingBox):
+class MovingBox(BasicBox):
     def __init__(
         self,
         label: str,
@@ -83,7 +83,7 @@ class MovingBox(BasicMovingBox):
         self._thickness = thickness
         self._sticky_translation = sticky_translation
 
-        if isinstance(bbox, BasicMovingBox):
+        if isinstance(bbox, BasicBox):
             self._following_box = bbox
             bbox = self._following_box.bounding_box()
         else:
@@ -345,8 +345,8 @@ class MovingBox(BasicMovingBox):
         We try to go to the given box's position, given
         our current velocity and constraints
         """
-        if isinstance(dest_box, MovingBox):
-            dest_box = dest_box._bbox
+        if isinstance(dest_box, BasicBox):
+            dest_box = dest_box.bounding_box()
 
         center_current = center(self._bbox)
         center_dest = center(dest_box)
@@ -399,6 +399,7 @@ class MovingBox(BasicMovingBox):
         dest_height: torch.Tensor,
         stop_on_dir_change: bool = True,
     ):
+        assert self._following_box is None
         scale_w = (
             self._one_float_tensor if self._scale_width is None else self._scale_width
         )
