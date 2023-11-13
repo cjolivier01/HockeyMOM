@@ -127,8 +127,8 @@ def main(args):
     # args.rfo = 16300 - 482
     # args.lfo = 9000 + 0
     # args.rfo = 9000 - 482
-    args.lfo = 3
-    args.rfo = 0
+    args.lfo = None
+    args.rfo = None
     lfo, rfo = stitch_videos(
         args.video_dir,
         video_left,
