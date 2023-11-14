@@ -86,7 +86,7 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=1,
+        num_workers=10,
     )
 
     frame_count = 0
@@ -121,22 +121,16 @@ def stitch_videos(
 def main(args):
     if args.video_dir is None:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", "blackhawks")
-    video_left = "left.mp4"
-    video_right = "right.mp4"
-    # args.lfo = 16300 + 0
-    # args.rfo = 16300 - 482
-    # args.lfo = 9000 + 0
-    # args.rfo = 9000 - 482
-    args.lfo = None
-    args.rfo = None
+    video_left = "left-crop.avi"
+    video_right = "right-crop.avi"
+    args.lfo = 0
+    args.rfo = 30
     lfo, rfo = stitch_videos(
         args.video_dir,
         video_left,
         video_right,
         lfo=args.lfo,
         rfo=args.rfo,
-        #max_frames=50,
-        #start_frame_number=30,
     )
 
 
