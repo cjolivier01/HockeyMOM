@@ -11,6 +11,7 @@ rm -f panorama.tif nona*.tif
 #cpfind --linearmatch --celeste my_project.pto -o cpfind_out.pto
 
 # Optimize the project
+#autooptimiser -a -m -l -s -o autooptimiser_out.pto cpfind_out.pto
 autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
 
 # Remap the images
