@@ -146,7 +146,8 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            #fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            fourcc = cv2.VideoWriter_fourcc(*"HFYU")
             self._output_video = cv2.VideoWriter(
                 filename=self._output_video_path,
                 fourcc=fourcc,
