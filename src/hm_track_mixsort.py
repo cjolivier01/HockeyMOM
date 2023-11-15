@@ -260,7 +260,8 @@ def main(exp, args, num_gpu):
             args=DefaultArguments(),
             fps=30,
             save_dir=results_folder,
-            device="cuda",
+            #device="cuda",
+            device="cpu",
             data_type="mot",
             use_fork=False,
         )
