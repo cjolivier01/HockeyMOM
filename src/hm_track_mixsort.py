@@ -397,8 +397,8 @@ def main(exp, args, num_gpu):
         # start evaluate
 
         eval_functions = {
-            #"hm": {"function": evaluator.evaluate_hockeymom},
-            "hm": {"function": evaluator.evaluate_mixsort},
+            "hm": {"function": evaluator.evaluate_hockeymom},
+            #"hm": {"function": evaluator.evaluate_mixsort},
             "mixsort": {"function": evaluator.evaluate_mixsort},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
             "sort": {"function": evaluator.evaluate_sort},
