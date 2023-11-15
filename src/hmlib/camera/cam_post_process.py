@@ -93,7 +93,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
-        self.show_image = True
+        # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -114,8 +114,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        # self.apply_fixed_edge_scaling = False
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
+        # self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
@@ -380,7 +380,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
         if boundaries is not None:
             # TODO: boundaries could be done with the box edges
             if boundaries.is_point_outside(center):
-                print(f"ignoring: {center}")
+                # print(f"ignoring: {center}")
                 continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
