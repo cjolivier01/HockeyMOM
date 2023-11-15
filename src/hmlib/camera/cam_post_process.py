@@ -215,8 +215,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Below any of these lines, ignore
         self.bottom_border_lines = [
             # tlbr
-            #(70, 519, 1740, 866),
-            #(2655, 832, 3801, 669),
             [6, 478, 225, 569],
             [245, 571, 1650, 879],
             # [21, 498, 1664, 878],
