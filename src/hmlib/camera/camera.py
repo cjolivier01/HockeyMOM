@@ -824,7 +824,7 @@ class HockeyMOM:
         desired_aspect_ratio: float,
         max_in_aspec_ratio: bool,
         verbose: bool = False,
-        extra_validation: bool = True,
+        extra_validation: bool = False,
     ):
         return self._make_box_proper_aspect_ratio(
             frame_id=frame_id,
@@ -842,7 +842,7 @@ class HockeyMOM:
         desired_aspect_ratio: float,
         max_in_aspec_ratio: bool,
         verbose: bool = False,
-        extra_validation: bool = True,
+        extra_validation: bool = False,
     ):
         """
         Make the given box the specified aspect ratio about the box's center.

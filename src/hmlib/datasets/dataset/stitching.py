@@ -533,6 +533,7 @@ class StitchDataset:
                     isColor=True,
                 )
                 assert self._output_video.isOpened()
+                print(f"BITRATE: {self.bitrate}")
                 self._output_video.set(cv2.CAP_PROP_BITRATE, self.bitrate)
 
             self._output_video.write(output_img)
