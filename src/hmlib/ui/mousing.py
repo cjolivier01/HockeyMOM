@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.widgets import Button
+from PIL import Image
 
 def draw_box_with_mouse(original_image, destroy_all_windows_after: bool = False):
     # Global variables to store the starting and ending coordinates of the box
@@ -117,8 +118,42 @@ def get_rois(image_path):
         print(bbox)
 
 
+def draw_line(image_path: str):
+    img = Image.open(image_path)
+    img = np.array(img)
+
+    fig, ax = plt.subplots()
+    ax.imshow(img)
+
+    # Variables to store the start and end points
+    points = {'start': None, 'end': None}
+
+    def onclick(event):
+        # Check if the click is valid (i.e., within the axes)
+        if event.inaxes is not None:
+            if points['start'] is None:
+                # Record the start point
+                points['start'] = (event.xdata, event.ydata)
+            else:
+                # Record the end point and draw the line
+                points['end'] = (event.xdata, event.ydata)
+                ax.plot([points['start'][0], points['end'][0]], [points['start'][1], points['end'][1]], 'r-')
+                fig.canvas.draw()
+
+                # Print the line endpoints
+                print(f"Line drawn from {points['start']} to {points['end']}")
+
+                # Reset the points
+                points['start'], points['end'] = None, None
+
+    # Connect the event handler
+    fig.canvas.mpl_connect('button_press_event', onclick)
+    plt.show()
+
 if __name__ == "__main__":
     #draw_box_with_mouse("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     # Call the function with the path to your image
-    get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
+    #get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     #run_selection("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
+    draw_line("/mnt/data/Videos/sharksbb2/stitched.png")
+

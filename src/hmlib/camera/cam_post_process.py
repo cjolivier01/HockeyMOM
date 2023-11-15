@@ -119,8 +119,8 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        # self.plot_camera_tracking = False or BASIC_DEBUGGING
-        self.plot_camera_tracking = False
+        self.plot_camera_tracking = False or BASIC_DEBUGGING
+        # self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or (
             BASIC_DEBUGGING
@@ -135,8 +135,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = 35.0
@@ -199,6 +199,145 @@ class DefaultArguments(core.HMPostprocessConfig):
         # )
         # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
+        # Above any of these lines, ignmore
+        self.top_border_lines = [
+            (
+                1536.77047146402,
+                95.28011257035632,
+                1994.9051927616051,
+                138.63301458572914,
+            ),
+            (
+                2001.9353930884222,
+                143.3198148036072,
+                2629.9666222840888,
+                238.22751921563895,
+            ),
+        ]
+        # Below any of these lines, ignore
+        self.bottom_border_lines = [
+            # tlbr
+            (
+                70.9737033226412,
+                519.4355322883252,
+                1740.6462809417176,
+                866.2587484113053,
+            ),
+            (
+                2655.7440234824185,
+                832.279446831689,
+                3801.666676753616,
+                669.4131392604247,
+            ),
+        ]
+
+
+class BoundaryLines:
+    def __init__(self, upper_border_lines, lower_border_lines):
+        self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
+        self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
+        self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
+        self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
+
+    def tlbr_to_line_vectors(self, tlbr_batch):
+        # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
+
+        top_vectors = torch.stack(
+            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
+        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
+        left_vectors = torch.stack(
+            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
+        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
+        bottom_vectors = torch.stack(
+            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
+        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
+        right_vectors = torch.stack(
+            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
+        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
+
+        # Concatenating vectors for all sides
+        line_vectors = torch.stack(
+            (top_vectors, left_vectors, bottom_vectors, right_vectors), dim=1
+        )
+
+        return line_vectors
+
+    def is_point_too_high(self, point):
+        return False
+
+    def is_point_too_low(self, point):
+        too_low = self.is_point_below_line(point)
+        return False
+
+    def is_point_outside(self, point):
+        return self.is_point_above_line(point) or self.is_point_below_line(point)
+
+    def _is_point_above_line(self, point, line_start, line_end):
+        # Create vectors
+        line_vec = line_end - line_start
+        point_vec = point - line_start
+
+        # Compute the cross product
+        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
+
+        # Check if the point is above the line
+        return cross_product_z < 0
+
+    def is_point_above_line(self, point):
+        point = point.cpu()
+        x = point[0]
+        # y = point[1]
+        for i, high_border in enumerate(self._upper_borders):
+            if x >= high_border[0] and x <= high_border[2]:
+                if self._is_point_above_line(
+                    point, high_border[0:2], high_border[2:4]
+                ):
+                    return True
+        return False
+
+    def is_point_below_line(self, point):
+        point = point.cpu()
+        x = point[0]
+        # y = point[1]
+        for i, low_border in enumerate(self._lower_borders):
+            if x >= low_border[0] and x <= low_border[2]:
+                if self._is_point_below_line(
+                    point, low_border[0:2], low_border[2:4]
+                ):
+                    return True
+        return False
+
+    def _is_point_below_line(self, point, line_start, line_end):
+        # Create vectors
+        line_vec = line_end - line_start
+        point_vec = point - line_start
+
+        # Compute the cross product
+        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
+
+        # Check if the point is below the line
+        return cross_product_z > 0
+
+    def example_is_below():
+        # Example usage
+        point = torch.tensor([X, Y])
+        line_start = torch.tensor([x0, y0])
+        line_end = torch.tensor([x1, y1])
+
+        below = is_point_below_line(point, line_start, line_end)
+        print("Point is below the line:" if below else "Point is above or on the line")
+
+    def example_is_above():
+        # Example usage
+        point = torch.tensor([X, Y])  # Replace with your point's coordinates
+        line_start = torch.tensor(
+            [x0, y0]
+        )  # Replace with your line's start coordinates
+        line_end = torch.tensor([x1, y1])  # Replace with your line's end coordinates
+
+        above = is_point_above_line(point, line_start, line_end)
+        print("Point is above the line:" if above else "Point is below or on the line")
+
 
 def scale_box(box, from_img, to_img):
     from_sz = (from_img.shape[1], from_img.shape[0])
@@ -216,27 +355,33 @@ def make_scale_array(from_img, to_img):
     return from_sz / to_sz
 
 
-def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box):
+def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     if len(online_tlwhs) == 0:
         # online_ids should also be empty
         assert len(online_ids) == 0
         # nothing
         return online_tlwhs, online_ids
-    if inclusion_box is None:
+    if inclusion_box is None and boundaries is None:
         return online_tlwhs, online_ids
     filtered_online_tlwh = []
     filtered_online_ids = []
     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
     for i in range(len(online_tlwhs_centers)):
         center = online_tlwhs_centers[i]
-        if inclusion_box[0] and center[0] < inclusion_box[0]:
-            continue
-        elif inclusion_box[2] and center[0] > inclusion_box[2]:
-            continue
-        elif inclusion_box[1] and center[1] < inclusion_box[1]:
-            continue
-        elif inclusion_box[3] and center[1] > inclusion_box[3]:
-            continue
+        if inclusion_box is not None:
+            if inclusion_box[0] and center[0] < inclusion_box[0]:
+                continue
+            elif inclusion_box[2] and center[0] > inclusion_box[2]:
+                continue
+            elif inclusion_box[1] and center[1] < inclusion_box[1]:
+                continue
+            elif inclusion_box[3] and center[1] > inclusion_box[3]:
+                continue
+        if boundaries is not None:
+            # TODO: boundaries could be done with the box edges
+            if boundaries.is_point_outside(center):
+                print(f"ignoring: {center}")
+                continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
     if len(filtered_online_tlwh) == 0:
@@ -283,6 +428,7 @@ class FramePostProcessor:
         self._async_post_processing = async_post_processing
         self._device = device
         self._horizontal_image_gaussian_distribution = None
+        self._boundaries = None
 
         self._save_dir = save_dir
         # results_dir = Path(save_dir)
@@ -318,6 +464,11 @@ class FramePostProcessor:
             dtype=torch.float32,
             device=self._device,
         )
+
+        if self._args.top_border_lines or self._args.bottom_border_lines:
+            self._boundaries = BoundaryLines(
+                self._args.top_border_lines, self._args.bottom_border_lines
+            )
 
         # Persistent state across frames
         self._previous_cluster_union_box = None
@@ -510,7 +661,10 @@ class FramePostProcessor:
 
         # Exclude detections outside of an optional bounding box
         online_tlwhs, online_ids = prune_by_inclusion_box(
-            online_tlwhs, online_ids, self._args.detection_inclusion_box
+            online_tlwhs,
+            online_ids,
+            self._args.detection_inclusion_box,
+            boundaries=self._boundaries,
         )
 
         # info_imgs = online_targets_and_img[3]
