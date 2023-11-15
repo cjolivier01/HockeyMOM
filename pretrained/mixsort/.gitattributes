@@ -1,18 +1,18 @@
-yolox_x.pth filter=lfs diff=lfs merge=lfs binary
-yolox_x_sports_train.pth filter=lfs diff=lfs merge=lfs binary
-MixFormer_sports_train.pth.tar filter=lfs diff=lfs merge=lfs binary
-MixFormer_soccernet_train.pth filter=lfs diff=lfs merge=lfs binary
-yolox_soccernet.pth filter=lfs diff=lfs merge=lfs binary
-yolox_x_ch.pth filter=lfs diff=lfs merge=lfs binary
-annotations_trainval2017.zip filter=lfs diff=lfs merge=lfs binary
-latest_ckpt.pth.tar filter=lfs diff=lfs merge=lfs binary
-last_epoch_ckpt.pth.tar filter=lfs diff=lfs merge=lfs binary
-my_ch.pth.tar filter=lfs diff=lfs merge=lfs binary
-yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar filter=lfs diff=lfs merge=lfs binary
-MixFormerOnlineScore.pth.tar filter=lfs diff=lfs merge=lfs binary
-MixFormer_soccernet_train.pth.tar filter=lfs diff=lfs merge=lfs binary
-ed/mixsort]] filter=lfs diff=lfs merge=lfs binary
-MixFormer_my_ch_to_hockey_tracking_dataset_ep0005.pth.tar filter=lfs diff=lfs merge=lfs binary
-MixFormer_my_ch_to_hockey_tracking_dataset_ep0010.pth.tar filter=lfs diff=lfs merge=lfs binary
-MixFormer_my_ch_to_hockey_tracking_dataset_ep0035.pth.tar filter=lfs diff=lfs merge=lfs binary
-my_yolox_m_ch.pth.tar filter=lfs diff=lfs merge=lfs binary
+yolox_x.pth filter=lfs diff=lfs merge=lfs
+yolox_x_sports_train.pth filter=lfs diff=lfs merge=lfs
+MixFormer_sports_train.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_soccernet_train.pth filter=lfs diff=lfs merge=lfs
+yolox_soccernet.pth filter=lfs diff=lfs merge=lfs
+yolox_x_ch.pth filter=lfs diff=lfs merge=lfs
+annotations_trainval2017.zip filter=lfs diff=lfs merge=lfs
+latest_ckpt.pth.tar filter=lfs diff=lfs merge=lfs
+last_epoch_ckpt.pth.tar filter=lfs diff=lfs merge=lfs
+my_ch.pth.tar filter=lfs diff=lfs merge=lfs
+yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormerOnlineScore.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_soccernet_train.pth.tar filter=lfs diff=lfs merge=lfs
+ed/mixsort]] filter=lfs diff=lfs merge=lfs
+MixFormer_my_ch_to_hockey_tracking_dataset_ep0005.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_my_ch_to_hockey_tracking_dataset_ep0010.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_my_ch_to_hockey_tracking_dataset_ep0035.pth.tar filter=lfs diff=lfs merge=lfs
+my_yolox_m_ch.pth.tar filter=lfs diff=lfs merge=lfs
