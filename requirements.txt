@@ -21,6 +21,7 @@ tifffile
 scikit-build
 scikit-learn
 tensorrt
+lmdb
 #./DCNv2
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
