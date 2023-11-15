@@ -208,16 +208,15 @@ class DefaultArguments(core.HMPostprocessConfig):
         # SHARKS ORANGE RINK
         #
         self.top_border_lines = [
-            #(1536, 95, 1994, 138),
             [2001, 143, 2629, 238],
             [1283, 117, 1979, 162],
         ]
         # Below any of these lines, ignore
         self.bottom_border_lines = [
             # tlbr
-            [6, 478, 225, 569],
-            [245, 571, 1650, 879],
-            # [21, 498, 1664, 878],
+            # [6, 478, 225, 569],
+            # [245, 571, 1650, 879],
+            [21, 498, 1664, 878],
             [1662, 856, 3034, 799],
             [3044, 800, 3762, 673],
         ]
@@ -284,6 +283,15 @@ class BoundaryLines:
                     return True
         return False
 
+    def point_batch_check_point_above_segents(self, points):
+        lines_start = self._upper_borders[:,0:2]
+        point_vecs = points[0] - lines_start
+        cross_z = (
+            self._upper_line_vectors[:, 0] * point_vecs[:, 1]
+            - self._upper_line_vectors[:, 1] * point_vecs[:, 0]
+        )
+        return cross_z < 0
+
     def is_point_below_line(self, point):
         point = point.cpu()
         x = point[0]
@@ -304,26 +312,6 @@ class BoundaryLines:
 
         # Check if the point is below the line
         return cross_product_z > 0
-
-    def example_is_below():
-        # Example usage
-        point = torch.tensor([X, Y])
-        line_start = torch.tensor([x0, y0])
-        line_end = torch.tensor([x1, y1])
-
-        below = is_point_below_line(point, line_start, line_end)
-        print("Point is below the line:" if below else "Point is above or on the line")
-
-    def example_is_above():
-        # Example usage
-        point = torch.tensor([X, Y])  # Replace with your point's coordinates
-        line_start = torch.tensor(
-            [x0, y0]
-        )  # Replace with your line's start coordinates
-        line_end = torch.tensor([x1, y1])  # Replace with your line's end coordinates
-
-        above = is_point_above_line(point, line_start, line_end)
-        print("Point is above the line:" if above else "Point is below or on the line")
 
 
 def scale_box(box, from_img, to_img):
@@ -353,7 +341,14 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     filtered_online_tlwh = []
     filtered_online_ids = []
     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
+    # outside_boundaries = None
+    # if boundaries is not None:
+    #     outside_boundaries = boundaries.point_batch_check_point_above_segents(
+    #         online_tlwhs_centers
+    #     )
     for i in range(len(online_tlwhs_centers)):
+        # if outside_boundaries is not None and outside_boundaries[i]:
+        #     continue
         center = online_tlwhs_centers[i]
         if inclusion_box is not None:
             if inclusion_box[0] and center[0] < inclusion_box[0]:

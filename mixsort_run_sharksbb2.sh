@@ -34,7 +34,7 @@ VIDEO="${HOME}/Videos/sharksbb2/small-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-sharksbb2"
 
-START_FRAME=900
+START_FRAME=1900
 
 echo "Experiment name: ${EXP_NAME}"
 
