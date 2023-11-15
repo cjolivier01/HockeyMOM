@@ -68,8 +68,8 @@ class CMakeBuild(build_ext):
         cmake_args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE"]
         cmake_args += ["-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
 
-        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
-        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
+#        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
+#        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
 
         #cmake_args += ["-DHM_BUILD_ASAN=1"]
 
