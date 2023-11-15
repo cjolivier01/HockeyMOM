@@ -208,7 +208,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # SHARKS ORANGE RINK
         #
         self.top_border_lines = [
-            [2001, 143, 2629, 238],
+            [2001, 123, 2629, 208],
             [1283, 117, 1979, 162],
         ]
         # Below any of these lines, ignore
@@ -224,10 +224,18 @@ class DefaultArguments(core.HMPostprocessConfig):
 
 class BoundaryLines:
     def __init__(self, upper_border_lines, lower_border_lines):
-        self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
-        self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
-        self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
-        self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
+        if upper_border_lines:
+            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
+            self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
+        else:
+            self._upper_borders = None
+            self._upper_line_vectors = None
+        if lower_border_lines:
+            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
+            self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
+        else:
+            self._lower_borders = None
+            self._lower_line_vectors = None
 
     def tlbr_to_line_vectors(self, tlbr_batch):
         # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
@@ -274,6 +282,8 @@ class BoundaryLines:
         return cross_product_z < 0
 
     def is_point_above_line(self, point):
+        if self._upper_borders is None:
+            return False
         point = point.cpu()
         x = point[0]
         # y = point[1]
@@ -284,7 +294,7 @@ class BoundaryLines:
         return False
 
     def point_batch_check_point_above_segents(self, points):
-        lines_start = self._upper_borders[:,0:2]
+        lines_start = self._upper_borders[:, 0:2]
         point_vecs = points[0] - lines_start
         cross_z = (
             self._upper_line_vectors[:, 0] * point_vecs[:, 1]
@@ -293,6 +303,8 @@ class BoundaryLines:
         return cross_z < 0
 
     def is_point_below_line(self, point):
+        if self._lower_borders is None:
+            return False
         point = point.cpu()
         x = point[0]
         # y = point[1]
