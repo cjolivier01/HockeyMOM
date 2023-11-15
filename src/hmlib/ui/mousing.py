@@ -141,7 +141,8 @@ def draw_line(image_path: str):
                 fig.canvas.draw()
 
                 # Print the line endpoints
-                print(f"Line drawn from {points['start']} to {points['end']}")
+                #print(f"Line drawn from {points['start']} to {points['end']}")
+                print(f"[{int(points['start'][0])}, {int(points['start'][1])}, {int(points['end'][0])}, {int(points['end'][1])}],")
 
                 # Reset the points
                 points['start'], points['end'] = None, None

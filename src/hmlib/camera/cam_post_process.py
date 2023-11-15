@@ -83,13 +83,16 @@ RINK_CONFIG = {
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
     },
+    "sharks_orange": {
+        "fixed_edge_scaling_factor": 1.5,
+    },
 }
 
 BASIC_DEBUGGING = False
 
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "vallco", args: argparse.Namespace = None):
+    def __init__(self, rink: str = "sharks_orange", args: argparse.Namespace = None):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
@@ -97,7 +100,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
-        # self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -176,7 +179,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
-        # self.crop_output_image = False
+        self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
         # except for the actual image manipulations
@@ -200,35 +203,25 @@ class DefaultArguments(core.HMPostprocessConfig):
         # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
 
         # Above any of these lines, ignmore
+
+        #
+        # SHARKS ORANGE RINK
+        #
         self.top_border_lines = [
-            (
-                1536.77047146402,
-                95.28011257035632,
-                1994.9051927616051,
-                138.63301458572914,
-            ),
-            (
-                2001.9353930884222,
-                143.3198148036072,
-                2629.9666222840888,
-                238.22751921563895,
-            ),
+            #(1536, 95, 1994, 138),
+            [2001, 143, 2629, 238],
+            [1283, 117, 1979, 162],
         ]
         # Below any of these lines, ignore
         self.bottom_border_lines = [
             # tlbr
-            (
-                70.9737033226412,
-                519.4355322883252,
-                1740.6462809417176,
-                866.2587484113053,
-            ),
-            (
-                2655.7440234824185,
-                832.279446831689,
-                3801.666676753616,
-                669.4131392604247,
-            ),
+            #(70, 519, 1740, 866),
+            #(2655, 832, 3801, 669),
+            [6, 478, 225, 569],
+            [245, 571, 1650, 879],
+            # [21, 498, 1664, 878],
+            [1662, 856, 3034, 799],
+            [3044, 800, 3762, 673],
         ]
 
 
@@ -289,9 +282,7 @@ class BoundaryLines:
         # y = point[1]
         for i, high_border in enumerate(self._upper_borders):
             if x >= high_border[0] and x <= high_border[2]:
-                if self._is_point_above_line(
-                    point, high_border[0:2], high_border[2:4]
-                ):
+                if self._is_point_above_line(point, high_border[0:2], high_border[2:4]):
                     return True
         return False
 
@@ -301,9 +292,7 @@ class BoundaryLines:
         # y = point[1]
         for i, low_border in enumerate(self._lower_borders):
             if x >= low_border[0] and x <= low_border[2]:
-                if self._is_point_below_line(
-                    point, low_border[0:2], low_border[2:4]
-                ):
+                if self._is_point_below_line(point, low_border[0:2], low_border[2:4]):
                     return True
         return False
 
