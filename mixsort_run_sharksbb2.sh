@@ -36,6 +36,8 @@ EXP_NAME="mixsort-run-sharksbb2"
 
 START_FRAME=1900
 
+HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.01"
+
 echo "Experiment name: ${EXP_NAME}"
 
   # --track_thresh=0.3 \
@@ -50,6 +52,7 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -d=1 \
   --start-frame=${START_FRAME} \
   --infer \
+  ${HYPER_PARAMS} \
   --min-box-area=35 \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \
