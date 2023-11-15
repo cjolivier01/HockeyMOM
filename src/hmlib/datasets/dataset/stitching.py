@@ -521,9 +521,9 @@ class StitchDataset:
         if self._output_stitched_video_file:
             if self._output_video is None:
                 fps = self.fps
-                #fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                fourcc = cv2.VideoWriter_fourcc(*"XVID")
                 # Write lossless Huffyuv codec
-                fourcc = cv2.VideoWriter_fourcc(*"HFYU")
+                #fourcc = cv2.VideoWriter_fourcc(*"HFYU")
                 final_video_size = (output_img.shape[1], output_img.shape[0])
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_stitched_video_file,
@@ -533,7 +533,7 @@ class StitchDataset:
                     isColor=True,
                 )
                 assert self._output_video.isOpened()
-                print(f"BITRATE: {self.bitrate}")
+                print(f"OUPUT VIDEO BITRATE: {self.bitrate}")
                 self._output_video.set(cv2.CAP_PROP_BITRATE, self.bitrate)
 
             self._output_video.write(output_img)
