@@ -875,7 +875,7 @@ class HockeyMOM:
         #assert w <= self._video_frame.width
         #assert h <= self._video_frame.height
 
-        if True:
+        if False:
             if w / h > desired_aspect_ratio:
                 # Constrain by height
                 new_h = h
@@ -1021,7 +1021,9 @@ class HockeyMOM:
 
     def apply_box_velocity(self, box, scale_speed: float, verbose: bool = False):
         dx = self._current_camera_box_speed_x * scale_speed
-        dy = self._current_camera_box_speed_y * scale_speed
+        # dy = self._current_camera_box_speed_y * scale_speed
+        # Don't move up and down
+        dy = 0
         # if verbose:
         #     print(f"Moving box by {dx} x {dy}")
         return box + torch.tensor([dx, dy, dx, dy], dtype=torch.float32, device=box.device)
@@ -1142,181 +1144,6 @@ class HockeyMOM:
             last_width + allowed_width_change,
             last_height + allowed_height_change,
         )
-
-    def old_get_next_temporal_box(
-        self,
-        proposed_new_box: List[int],
-        last_box: List[int],
-        pre_clamp_to_video_frame: bool = True,
-        scale_speed: float = 1.0,
-        verbose: bool = False,
-    ):
-        # if verbose:
-        #     print(f"\nproposed_new_box: {self.box_str(proposed_new_box)}")
-        #     if last_box is not None:
-        #         print(f"last_box: {self.box_str(last_box)}")
-
-        next_box = proposed_new_box.copy()
-
-        if pre_clamp_to_video_frame:
-            video_frame = self._video_frame.bounding_box()
-            self._clamp(next_box, video_frame)
-
-        if last_box is None:
-            return next_box
-
-        # First, we apply the center's proposed change
-        proposed_center = center(proposed_new_box)
-        last_center = center(last_box)
-        dx = proposed_center[0] - last_center[0]
-        dy = proposed_center[1] - last_center[1]
-
-        acceleration_dx = dx - self._current_camera_box_speed_x
-        acceleration_dy = dy - self._current_camera_box_speed_y
-
-        if acceleration_dx < 0:
-            allowed_acceleration_dx = max(
-                acceleration_dx, -self._camera_box_max_accel_x
-            )
-        else:
-            allowed_acceleration_dx = min(acceleration_dx, self._camera_box_max_accel_x)
-
-        if acceleration_dy < 0:
-            allowed_acceleration_dy = max(
-                acceleration_dy, -self._camera_box_max_accel_y
-            )
-        else:
-            allowed_acceleration_dy = min(acceleration_dy, self._camera_box_max_accel_y)
-
-        # if verbose:
-        #     print(
-        #         f"attempted accel x : {acceleration_dx}, allowed: {allowed_acceleration_dx}"
-        #     )
-        #     print(
-        #         f"attempted accel y : {acceleration_dy}, allowed: {allowed_acceleration_dy}"
-        #     )
-
-        #
-        # now adjust velocity based on the allowed accelerations
-        #
-        # self._current_camera_box_speed_reversed_x = False
-        # self._current_camera_box_speed_reversed_y = False
-
-        old_s_x = self._current_camera_box_speed_x
-        old_s_y = self._current_camera_box_speed_y
-
-        self._last_acceleration_dx = allowed_acceleration_dx
-        self._last_acceleration_dy = allowed_acceleration_dy
-
-        self._current_camera_box_speed_x += allowed_acceleration_dx
-        self._current_camera_box_speed_y += allowed_acceleration_dy
-
-        if old_s_x < 0 and self._current_camera_box_speed_x >= 0:
-            self._current_camera_box_speed_reversed_x = True
-        elif old_s_x > 0 and self._current_camera_box_speed_x <= 0:
-            self._current_camera_box_speed_reversed_x = True
-
-        if old_s_y < 0 and self._current_camera_box_speed_y >= 0:
-            self._current_camera_box_speed_reversed_y = True
-        elif old_s_y > 0 and self._current_camera_box_speed_y <= 0:
-            self._current_camera_box_speed_reversed_y = True
-
-        if self._current_camera_box_speed_x < 0:
-            self._current_camera_box_speed_x = max(
-                self._current_camera_box_speed_x, -self._camera_box_max_speed_x
-            )
-        else:
-            self._current_camera_box_speed_x = min(
-                self._current_camera_box_speed_x, self._camera_box_max_speed_x
-            )
-
-        if self._current_camera_box_speed_y < 0:
-            self._current_camera_box_speed_y = max(
-                self._current_camera_box_speed_y, -self._camera_box_max_speed_y
-            )
-        else:
-            self._current_camera_box_speed_y = min(
-                self._current_camera_box_speed_y, self._camera_box_max_speed_y
-            )
-
-        if True:
-            #
-            # Now we curtail in ther allowed height and width changes per frame
-            # This should bew simpler, just a max allowable change in size
-            #
-            proposed_width = proposed_new_box[2] - proposed_new_box[0]
-            proposed_height = proposed_new_box[3] - proposed_new_box[1]
-
-            last_width = last_box[2] - last_box[0]
-            last_height = last_box[3] - last_box[1]
-
-            proposed_width_change = proposed_width - last_width
-            proposed_height_change = proposed_height - last_height
-
-            if proposed_width_change < 0:
-                allowed_width_change = max(
-                    proposed_width_change, -self._camera_box_max_size_change_velocity_x
-                )
-            else:
-                allowed_width_change = min(
-                    proposed_width_change, self._camera_box_max_size_change_velocity_y
-                )
-
-            if proposed_height_change < 0:
-                allowed_height_change = max(
-                    proposed_height_change, -self._camera_box_max_size_change_velocity_x
-                )
-            else:
-                allowed_height_change = min(
-                    proposed_height_change, self._camera_box_max_size_change_velocity_x
-                )
-
-            # Apply the height change against the center
-            # new_last_box = np.array(
-            #     (
-            #         last_box[0] - allowed_width_change / 2,
-            #         last_box[1] - allowed_height_change / 2,
-            #         last_box[2] + allowed_width_change / 2,
-            #         last_box[3] + allowed_height_change / 2,
-            #     ),
-            #     dtype=np.float32,
-            # )
-
-            d0_mul = 1.0
-            d1_mul = 1.0
-            d2_mul = 1.0
-            d3_mul = 1.0
-            # Allow more width change in the direction of movement
-            # if self._current_camera_box_speed_x < 0:
-            #     d0_mul = 2.0
-            # elif self._current_camera_box_speed_x > 0:
-            #     d2_mul = 2.0
-            # if self._current_camera_box_speed_y < 0:
-            #     d1_mul = 2.0
-            # elif self._current_camera_box_speed_y > 0:
-            #     d3_mul = 2.0
-
-            new_last_box = [
-                last_box[0] - d0_mul * allowed_width_change / 2.0,
-                last_box[1] - d1_mul * allowed_height_change / 2.0,
-                last_box[2] + d2_mul * allowed_width_change / 2.0,
-                last_box[3] + d3_mul * allowed_height_change / 2.0,
-            ]
-        else:
-            new_last_box = last_box.copy()
-
-        moved_box = self.apply_box_velocity(
-            new_last_box, scale_speed=scale_speed, verbose=verbose
-        )
-
-        self._curtail_speed_at_edges(moved_box)
-
-        # moved_box = self.shift_box_to_edge(moved_box)
-        # moved_box = self.clamp(moved_box)
-
-        # if verbose:
-        #     print(f"moved_box: {self.box_str(moved_box)}")
-        return moved_box
 
     def did_direction_change(
         self, dx: bool = True, dy: bool = True, reset: bool = False

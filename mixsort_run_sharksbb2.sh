@@ -34,7 +34,7 @@ VIDEO="${HOME}/Videos/sharksbb2/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-sharksbb2"
 
-START_FRAME=0
+START_FRAME=1900
 
 HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.01"
 
@@ -48,7 +48,7 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=2 \
+  -b=1 \
   -d=1 \
   --start-frame=${START_FRAME} \
   --infer \

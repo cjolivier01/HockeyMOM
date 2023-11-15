@@ -84,7 +84,7 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 1.5,
     },
     "sharks_orange": {
-        "fixed_edge_scaling_factor": 1.5,
+        "fixed_edge_scaling_factor": 0.8,
     },
 }
 
