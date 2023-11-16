@@ -34,7 +34,8 @@ VIDEO="${HOME}/Videos/sharksbb2/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-sharksbb2"
 
-START_FRAME=1900
+START_FRAME=0
+#START_FRAME=1900
 
 #HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.1"
 HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
