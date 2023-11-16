@@ -96,8 +96,10 @@ class HmPostProcessor:
     def data_type(self):
         return self._data_type
 
-    def filter_outputs(outputs: torch.Tensor):
-        return outputs
+    def filter_outputs(self, outputs: torch.Tensor, output_results):
+        # TODO: for batches, will be total length of N batches combined
+        #assert len(outputs) == len(output_results)
+        return outputs, output_results
 
     def online_callback(
         self,
