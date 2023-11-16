@@ -96,6 +96,9 @@ class HmPostProcessor:
     def data_type(self):
         return self._data_type
 
+    def filter_outputs(outputs: torch.Tensor):
+        return outputs
+
     def online_callback(
         self,
         frame_id,

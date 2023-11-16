@@ -354,6 +354,7 @@ def main(exp, args, num_gpu):
             nmsthre=exp.nmsthre,
             num_classes=exp.num_classes,
             online_callback=postprocessor.online_callback,
+            postprocessor=postprocessor,
         )
 
         torch.cuda.set_device(rank)
