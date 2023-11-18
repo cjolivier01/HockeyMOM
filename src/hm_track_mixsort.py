@@ -290,16 +290,16 @@ def main(exp, args, num_gpu):
         logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
         # logger.info("Model Structure:\n{}".format(str(model)))
 
-        if args.rink and args.rink in rink_model_config:
-            rink_config = rink_model_config[args.rink]
-            print(f"Overriding model config for rink {args.rink}:\n{rink_config}")
-            args.conf = rink_config["conf"]
-            args.track_thresh = rink_config["track_thresh"]
-            args.track_thresh_low = rink_config["track_thresh_low"]
-            args.exp_file = rink_config["exp_file"]
-            args.ckpt = rink_config["ckpt"]
-            args.script = rink_config["script"]
-            args.tracker = rink_config["tracker"]
+        # if args.rink and args.rink in rink_model_config:
+        #     rink_config = rink_model_config[args.rink]
+        #     print(f"Overriding model config for rink {args.rink}:\n{rink_config}")
+        #     args.conf = rink_config["conf"]
+        #     args.track_thresh = rink_config["track_thresh"]
+        #     args.track_thresh_low = rink_config["track_thresh_low"]
+        #     args.exp_file = rink_config["exp_file"]
+        #     args.ckpt = rink_config["ckpt"]
+        #     args.script = rink_config["script"]
+        #     args.tracker = rink_config["tracker"]
 
         cam_args = DefaultArguments(
             rink=args.rink,
