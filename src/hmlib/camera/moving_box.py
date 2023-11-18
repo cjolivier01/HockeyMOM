@@ -70,6 +70,7 @@ class MovingBox(BasicBox):
         # translation_threshold: torch.Tensor = None,
         # translation_threshold_low: torch.Tensor = None,
         sticky_translation: bool = False,
+        sticky_sizing: bool = False,
         width_change_threshold: torch.Tensor = None,
         width_change_threshold_low: torch.Tensor = None,
         height_change_threshold: torch.Tensor = None,
@@ -84,6 +85,7 @@ class MovingBox(BasicBox):
         self._frozen_color = frozen_color
         self._thickness = thickness
         self._sticky_translation = sticky_translation
+        self._sticky_sizing = sticky_sizing
 
         if isinstance(bbox, BasicBox):
             self._following_box = bbox
@@ -177,16 +179,16 @@ class MovingBox(BasicBox):
             label=self._make_label(),
             text_scale=2,
         )
-        # if self._size_is_frozen:
-        #     # draw_box += self._line_thickness_tensor
-        #     vis.plot_rectangle(
-        #         img,
-        #         draw_box - self._line_thickness_tensor,
-        #         color=(0, 255, 0),
-        #         thickness=self._thickness,
-        #         label=self._make_label(),
-        #         text_scale=2,
-        #     )
+        if self._size_is_frozen:
+            # draw_box += self._line_thickness_tensor
+            vis.plot_rectangle(
+                img,
+                draw_box - self._line_thickness_tensor,
+                color=(0, 255, 0),
+                thickness=self._thickness,
+                label=self._make_label(),
+                text_scale=2,
+            )
         if self._translation_is_frozen:
             draw_box += self._line_thickness_tensor * 2
             vis.plot_rectangle(
@@ -448,38 +450,39 @@ class MovingBox(BasicBox):
         #
         # BEGIN size threshhold
         #
-        stopped_count = 0
-        if (
-            self._width_change_threshold_low is not None
-            and abs(dw) < self._width_change_threshold_low
-        ):
-            stopped_count += 1
-            self._current_speed_w = self._zero
-        if (
-            self._height_change_threshold_low is not None
-            and abs(dh) < self._height_change_threshold_low
-        ):
-            stopped_count += 1
-            self._current_speed_h = self._zero
-        if stopped_count == 2:
-            self._size_is_frozen = True
+        if self._sticky_sizing:
+            stopped_count = 0
+            if (
+                self._width_change_threshold_low is not None
+                and abs(dw) < self._width_change_threshold_low
+            ):
+                stopped_count += 1
+                self._current_speed_w = self._zero
+            if (
+                self._height_change_threshold_low is not None
+                and abs(dh) < self._height_change_threshold_low
+            ):
+                stopped_count += 1
+                self._current_speed_h = self._zero
+            if stopped_count == 2:
+                self._size_is_frozen = True
 
-        if (
-            self._width_change_threshold is not None
-            and abs(dw) >= self._width_change_threshold
-        ):
-            self._size_is_frozen = False
-            # start from zero change speed so as not to jerk
-            self._current_speed_w = self._zero
-            self._current_speed_h = self._zero
-        elif (
-            self._height_change_threshold is not None
-            and abs(dh) >= self._height_change_threshold
-        ):
-            self._size_is_frozen = False
-            # start from zero change speed so as not to jerk
-            self._current_speed_w = self._zero
-            self._current_speed_h = self._zero
+            if (
+                self._width_change_threshold is not None
+                and abs(dw) >= self._width_change_threshold
+            ):
+                self._size_is_frozen = False
+                # start from zero change speed so as not to jerk
+                self._current_speed_w = self._zero
+                self._current_speed_h = self._zero
+            elif (
+                self._height_change_threshold is not None
+                and abs(dh) >= self._height_change_threshold
+            ):
+                self._size_is_frozen = False
+                # start from zero change speed so as not to jerk
+                self._current_speed_w = self._zero
+                self._current_speed_h = self._zero
         #
         # END size threshhold
         #

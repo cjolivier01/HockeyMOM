@@ -15,8 +15,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 #PRETRAINED_MODEL="./latest_ckpt-e70.pth.tar"
 PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
-MIXFORMER_SCRIPT="mixformer_deit"
-#MIXFORMER_SCRIPT="mixformer_deit_hockey"
+#MIXFORMER_SCRIPT="mixformer_deit"
+MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
