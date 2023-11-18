@@ -177,3 +177,33 @@ def is_box_edge_on_or_outside_other_box_edge(box, bounding_box):
         ],
         dtype=torch.bool,
     )
+
+
+def check_for_box_overshoot(
+    box: torch.Tensor,
+    bounding_box: torch.Tensor,
+    movement_directions: torch.Tensor,
+    epsilon: float = 0.01,
+):
+    """
+    Check is a proposed movement direction would push the given box off of the edge of the given boundary box.
+
+    :param box:                     Box which is proposed to be moved [left, top, right, bottomo]
+    :param bounding_box:            Box which it is to be inscribed [left, top, right, bottomo]
+    :param movement_directions:     Proposed movement direction [dx_axis, dy_axis] (signs only)
+    """
+    any_on_edge = is_box_edge_on_or_outside_other_box_edge(
+        box,
+        bounding_box,
+    )
+    x_on_edge = torch.logical_or(
+        torch.logical_and(any_on_edge[0], movement_directions[0] < epsilon),
+        torch.logical_and(any_on_edge[2], movement_directions[0] > -epsilon),
+    )
+    y_on_edge = torch.logical_or(
+        torch.logical_and(any_on_edge[1], movement_directions[1] < epsilon),
+        torch.logical_and(any_on_edge[3], movement_directions[1] > -epsilon),
+    )
+    return torch.tensor(
+        [x_on_edge, y_on_edge], dtype=x_on_edge.dtype, device=x_on_edge.device
+    )
