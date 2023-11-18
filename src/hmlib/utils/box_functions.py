@@ -77,13 +77,6 @@ def center_distance(box1, box2):
     center_box2 = (box2[:2] + box2[2:]) / 2
     distance = torch.norm(center_box1 - center_box2, p=2)
     return distance
-    # c1 = center(box1)
-    # c2 = center(box2)
-    # if c1 == c2:
-    #     return 0.0
-    # w = c2[0] - c1[0]
-    # h = c2[1] - c1[1]
-    # return math.sqrt(w * w + h * h)
 
 
 def center_x_distance(box1, box2) -> float:
@@ -172,3 +165,15 @@ def shift_box_to_edge(box, bounding_box):
         box[3] -= offset
         was_shifted_y = True
     return box, was_shifted_x, was_shifted_y
+
+
+def is_box_edge_on_or_outside_other_box_edge(box, bounding_box):
+    return torch.tensor(
+        [
+            box[0] <= bounding_box[0],
+            box[1] <= bounding_box[1],
+            box[2] >= bounding_box[2],
+            box[3] >= bounding_box[3],
+        ],
+        dtype=torch.bool,
+    )

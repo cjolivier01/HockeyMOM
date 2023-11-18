@@ -29,12 +29,13 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 VIDEO="${HOME}/Videos/sharksbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/sharksbb2/small-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
 
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-sharksbb2"
 
-START_FRAME=0
+START_FRAME=500
 #START_FRAME=1900
 
 #HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.1"

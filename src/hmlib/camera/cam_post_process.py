@@ -70,26 +70,56 @@ core.hello_world()
 RINK_CONFIG = {
     "vallco": {
         "fixed_edge_scaling_factor": 0.8,
+        "borders": {
+            "upper": [],
+            "lower": [],
+        },
     },
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
+        "borders": {
+            "upper": [],
+            "lower": [],
+        },
     },
     "stockton": {
         "fixed_edge_scaling_factor": 0.6,
+        "borders": {
+            "upper": [],
+            "lower": [],
+        },
     },
     "roseville_2": {
         "fixed_edge_scaling_factor": 1.6,
+        "borders": {
+            "upper": [],
+            "lower": [],
+        },
     },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
+        "borders": {
+            "upper": [],
+            "lower": [],
+        },
     },
     "sharks_orange": {
         "fixed_edge_scaling_factor": 0.8,
+        "borders": {
+            "upper": [
+                [2001, 123, 2629, 208],
+                [1283, 117, 1979, 162],
+            ],
+            "lower": [
+                [21, 498, 1664, 878],
+                [1662, 856, 3034, 799],
+                [3044, 800, 3762, 673],
+            ],
+        },
     },
 }
 
 BASIC_DEBUGGING = False
-
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(self, rink: str = "sharks_orange", args: argparse.Namespace = None):
@@ -97,6 +127,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Display the image every frame (slow)
         self.show_image = False or BASIC_DEBUGGING
         # self.show_image = True
+        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and BASIC_DEBUGGING
@@ -113,17 +144,17 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        self.max_in_aspec_ratio = True
-        # self.max_in_aspec_ratio = False
+        # self.max_in_aspec_ratio = True
+        self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        # self.apply_fixed_edge_scaling = False
-        self.apply_fixed_edge_scaling = True
+        self.apply_fixed_edge_scaling = False
+        # self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or BASIC_DEBUGGING
-        # self.plot_camera_tracking = False
+        self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or (
             BASIC_DEBUGGING
@@ -153,7 +184,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or BASIC_DEBUGGING
-        # self.plot_sticky_camera = False
+        self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -175,7 +206,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        #self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not BASIC_DEBUGGING
@@ -207,19 +238,18 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         # SHARKS ORANGE RINK
         #
-        self.top_border_lines = [
-            [2001, 123, 2629, 208],
-            [1283, 117, 1979, 162],
-        ]
-        # Below any of these lines, ignore
-        self.bottom_border_lines = [
-            # tlbr
-            # [6, 478, 225, 569],
-            # [245, 571, 1650, 879],
-            [21, 498, 1664, 878],
-            [1662, 856, 3034, 799],
-            [3044, 800, 3762, 673],
-        ]
+        self.top_border_lines = RINK_CONFIG[rink]["borders"]["upper"]
+        self.bottom_border_lines = RINK_CONFIG[rink]["borders"]["lower"]
+        # self.top_border_lines = [
+        #     [2001, 123, 2629, 208],
+        #     [1283, 117, 1979, 162],
+        # ]
+        # # Below any of these lines, ignore
+        # self.bottom_border_lines = [
+        #     [21, 498, 1664, 878],
+        #     [1662, 856, 3034, 799],
+        #     [3044, 800, 3762, 673],
+        # ]
 
 
 class BoundaryLines:

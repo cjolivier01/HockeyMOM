@@ -36,6 +36,7 @@ from hmlib.utils.box_functions import (
     aspect_ratio,
     make_box_at_center,
     shift_box_to_edge,
+    is_box_edge_on_or_outside_other_box_edge,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -328,17 +329,17 @@ class MovingBox(BasicBox):
         if use_constraints:
             self._clamp_resizing()
 
-    def stop_translation(self, stop_x: bool = True, stop_y: bool = True):
-        if stop_x:
-            self._current_speed_x = self._zero
-        if stop_y:
-            self._current_speed_y = self._zero
+    # def stop_translation(self, stop_x: bool = True, stop_y: bool = True):
+    #     if stop_x:
+    #         self._current_speed_x = self._zero
+    #     if stop_y:
+    #         self._current_speed_y = self._zero
 
-    def stop_resizing(self, stop_w: bool = True, stop_h: bool = True):
-        if stop_w:
-            self._current_speed_w = self._zero
-        if stop_h:
-            self._current_speed_h = self._zero
+    # def stop_resizing(self, stop_w: bool = True, stop_h: bool = True):
+    #     if stop_w:
+    #         self._current_speed_w = self._zero
+    #     if stop_h:
+    #         self._current_speed_h = self._zero
 
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """
@@ -351,6 +352,50 @@ class MovingBox(BasicBox):
         center_current = center(self._bbox)
         center_dest = center(dest_box)
         total_diff = center_dest - center_current
+
+        # If both the dest box and our current box are on an edge, we zero-out
+        # the magnitude in the direction fo that edge so that the size
+        # differences of the box don't keep us in the un-stuck mode,
+        # even though we can't move anymore in that direction
+        # TODO: do cleverly with pytorch tensors
+        if self._arena_box is not None:
+            # dest_box_is_on_edge = is_box_edge_on_or_outside_other_box_edge(
+            #     dest_box, self._arena_box
+            # )
+            this_box_is_on_edge = is_box_edge_on_or_outside_other_box_edge(
+                self._bbox, self._arena_box
+            )
+            # any_on_edge = torch.logical_or(dest_box_is_on_edge, this_box_is_on_edge)
+            any_on_edge = this_box_is_on_edge
+            less_than_epsilon = 0.01
+            more_than_epsilon = -0.01
+            x_ok = torch.logical_not(
+                torch.logical_or(
+                    torch.logical_and(
+                        any_on_edge[0], total_diff[0] < less_than_epsilon
+                    ),
+                    torch.logical_and(
+                        any_on_edge[2], total_diff[0] > more_than_epsilon
+                    ),
+                )
+            )
+            y_ok = torch.logical_not(
+                torch.logical_or(
+                    torch.logical_and(
+                        any_on_edge[1], total_diff[1] < less_than_epsilon
+                    ),
+                    torch.logical_and(
+                        any_on_edge[3], total_diff[1] > more_than_epsilon
+                    ),
+                )
+            )
+            # print(any_on_edge)
+            # print(f"x_ok={x_ok}")
+            # print(f"y_ok={y_ok}")
+            self._current_speed_x *= x_ok
+            self._current_speed_y *= y_ok
+            total_diff *= torch.tensor([x_ok, y_ok])
+            # print(total_diff)
 
         diff_magnitude = torch.linalg.norm(total_diff)
 
@@ -375,6 +420,14 @@ class MovingBox(BasicBox):
                 self._current_speed_y = self._zero
             elif self._translation_is_frozen and diff_magnitude >= unsticky:
                 self._translation_is_frozen = False
+
+                # Unstick at zero velocity
+                self._current_speed_x = self._zero
+                self._current_speed_y = self._zero
+
+                # clamp to max velocities
+                # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
+                # self._current_speed_xy= torch.clamp(self._current_speed_y, -self._max_speed_y, self._max_speed_y)
         # END Sticky Translation
 
         if not self.is_nonstop():
@@ -555,13 +608,27 @@ class MovingBox(BasicBox):
     def stop_if_out_of_arena(self):
         if self._arena_box is None:
             return
-        out_x = (
-            self._bbox[0] <= self._arena_box[0] or self._bbox[2] >= self._arena_box[2]
+        # out_x = (
+        #     self._bbox[0] <= self._arena_box[0] or self._bbox[2] >= self._arena_box[2]
+        # )
+        # out_y = (
+        #     self._bbox[1] <= self._arena_box[1] or self._bbox[3] >= self._arena_box[3]
+        # )
+        # self.stop_translation(stop_x=out_x, stop_y=out_y)
+
+        this_box_is_on_edge = is_box_edge_on_or_outside_other_box_edge(
+            self._bbox, self._arena_box
         )
-        out_y = (
-            self._bbox[1] <= self._arena_box[1] or self._bbox[3] >= self._arena_box[3]
+        x_ok = torch.logical_not(
+            torch.logical_or(this_box_is_on_edge[0], this_box_is_on_edge[2])
         )
-        self.stop_translation(stop_x=out_x, stop_y=out_y)
+        y_ok = torch.logical_not(
+            torch.logical_or(this_box_is_on_edge[1], this_box_is_on_edge[3])
+        )
+        self._current_speed_x *= x_ok
+        self._current_speed_y *= y_ok
+        # if not x_ok or not y_ok:
+        #     print(f"x_ok={x_ok}, y_ok={y_ok}")
 
     def set_aspect_ratio(self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor):
         if self._arena_box is not None:
