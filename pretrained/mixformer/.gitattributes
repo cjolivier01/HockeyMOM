@@ -1,2 +1,4 @@
 MixFormerOnlineScore.pth.tar filter=lfs diff=lfs merge=lfs
 MixViT_ch_ht_ep0020.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_soccernet_train.pth.tar filter=lfs diff=lfs merge=lfs
+MixFormer_sports_train.pth.tar filter=lfs diff=lfs merge=lfs
