@@ -227,7 +227,7 @@ rink_model_config = {
         "track_thresh": 0.3,
         "track_thresh_low": 0.1,
         "exp_file": "models/mixsort/exps/example/mot/yolox_x_ch_ht.py",
-        "ckpt": "pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar",
+        "ckpt": "pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar",
         "script": "mixformer_deit_hockey",
         "tracker": "hm",
     },
