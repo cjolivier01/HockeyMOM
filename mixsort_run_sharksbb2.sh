@@ -35,8 +35,8 @@ VIDEO="${HOME}/Videos/sharksbb2/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-sharksbb2"
 
-START_FRAME=500
-#START_FRAME=1900
+#START_FRAME=500
+START_FRAME=1900
 
 #HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.1"
 HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
@@ -53,10 +53,11 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -c="${PRETRAINED_MODEL}" \
   -b=1 \
   -d=1 \
+  --rink=sharks_orange \
   --start-frame=${START_FRAME} \
   --infer \
   ${HYPER_PARAMS} \
   --min-box-area=35 \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \
-  --input_video="${VIDEO}"
+  --input_video="${VIDEO}" $@

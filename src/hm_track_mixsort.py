@@ -122,6 +122,28 @@ def make_parser():
         default=None,
         nargs=argparse.REMAINDER,
     )
+    # cam args
+    parser.add_argument(
+        "-s",
+        "--show_image",
+        dest="show_image",
+        default=False,
+        action="store_true",
+        help="show as processing",
+    )
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        default=False,
+        action="store_true",
+        help="debug cam processing",
+    )
+    parser.add_argument(
+        "--rink",
+        default=None,
+        type=str,
+        help="rink name",
+    )
     # det args
     parser.add_argument(
         "-c",
@@ -199,6 +221,19 @@ def make_parser():
 #     return accs, names
 
 
+rink_model_config = {
+    "sharks_orange": {
+        "conf": 0.1,
+        "track_thresh": 0.3,
+        "track_thresh_low": 0.1,
+        "exp_file": "models/mixsort/exps/example/mot/yolox_x_ch_ht.py",
+        "ckpt": "pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar",
+        "script": "mixformer_deit_hockey",
+        "tracker": "hm",
+    },
+}
+
+
 def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
 
@@ -255,12 +290,29 @@ def main(exp, args, num_gpu):
         logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
         # logger.info("Model Structure:\n{}".format(str(model)))
 
+        if args.rink and args.rink in rink_model_config:
+            rink_config = rink_model_config[args.rink]
+            print(f"Overriding model config for rink {args.rink}:\n{rink_config}")
+            args.conf = rink_config["conf"]
+            args.track_thresh = rink_config["track_thresh"]
+            args.track_thresh_low = rink_config["track_thresh_low"]
+            args.exp_file = rink_config["exp_file"]
+            args.ckpt = rink_config["ckpt"]
+            args.script = rink_config["script"]
+            args.tracker = rink_config["tracker"]
+
+        cam_args = DefaultArguments(
+            rink=args.rink,
+            basic_debugging=args.debug,
+        )
+        cam_args.show_image = args.show_image
+
         postprocessor = HmPostProcessor(
             opt=args,
-            args=DefaultArguments(),
+            args=cam_args,
             fps=30,
             save_dir=results_folder,
-            #device="cuda",
+            # device="cuda",
             device="cpu",
             data_type="mot",
             use_fork=False,
@@ -399,7 +451,6 @@ def main(exp, args, num_gpu):
 
         eval_functions = {
             "hm": {"function": evaluator.evaluate_hockeymom},
-            #"hm": {"function": evaluator.evaluate_mixsort},
             "mixsort": {"function": evaluator.evaluate_mixsort},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
             "sort": {"function": evaluator.evaluate_sort},

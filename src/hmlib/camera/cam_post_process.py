@@ -119,18 +119,24 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = False
+BASIC_DEBUGGING = True
+
 
 class DefaultArguments(core.HMPostprocessConfig):
-    def __init__(self, rink: str = "sharks_orange", args: argparse.Namespace = None):
+    def __init__(
+        self,
+        rink: str = "sharks_orange",
+        basic_debugging: bool = BASIC_DEBUGGING,
+        args: argparse.Namespace = None,
+    ):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = False or BASIC_DEBUGGING
+        self.show_image = False or basic_debugging
         # self.show_image = True
         self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True and BASIC_DEBUGGING
+        self.plot_individual_player_tracking = True and basic_debugging
         # self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
@@ -138,7 +144,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_all_detections = True
 
         # Draw intermediate boxes which are used to compute the final camera box
-        self.plot_cluster_tracking = False or BASIC_DEBUGGING
+        self.plot_cluster_tracking = False or basic_debugging
         # self.plot_cluster_tracking = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
@@ -153,17 +159,17 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
-        self.plot_camera_tracking = False or BASIC_DEBUGGING
+        self.plot_camera_tracking = False or basic_debugging
         self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or (
-            BASIC_DEBUGGING
+            basic_debugging
             and not (self.max_in_aspec_ratio or self.apply_fixed_edge_scaling)
         )
         # self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
-        self.plot_frame_number = False or BASIC_DEBUGGING
+        self.plot_frame_number = False or basic_debugging
         # self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
@@ -183,7 +189,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.sticky_pan = False
 
         # Plot the component shapes directly related to camera stickiness
-        self.plot_sticky_camera = False or BASIC_DEBUGGING
+        self.plot_sticky_camera = False or basic_debugging
         self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
@@ -206,10 +212,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # box is either the same height or width as the original video image
         # (Slower, but better final quality)
         self.scale_to_original_image = True
-        #self.scale_to_original_image = False
+        # self.scale_to_original_image = False
 
         # Crop the final image to the camera window (possibly zoomed)
-        self.crop_output_image = True and not BASIC_DEBUGGING
+        self.crop_output_image = True and not basic_debugging
         # self.crop_output_image = False
 
         # Don't crop image, but performa of the calculations
