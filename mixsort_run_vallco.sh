@@ -6,12 +6,10 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #
 # Models
 #
-#PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_sports_train.pth"
-#PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
-#PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
-#PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
-#PRETRAINED_MODEL="pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/yolox_x_sports_train.pth"
+#PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
+PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
@@ -32,6 +30,11 @@ VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
 
+#START_FRAME=500
+START_FRAME=1900
+
+HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
+
 echo "Experiment name: ${EXP_NAME}"
 
 PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
@@ -41,8 +44,9 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -c="${PRETRAINED_MODEL}" \
   -b=1 -d=1 \
   --infer \
-  --conf=0.01 \
+  ${HYPER_PARAMS} \
   --min-box-area=35 \
+  --rink="vallco" \
   --config=track \
   --script="${MIXFORMER_SCRIPT}" \
-  --input_video="${VIDEO}"
+  --input_video="${VIDEO}" $@
