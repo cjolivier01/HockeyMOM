@@ -207,3 +207,32 @@ def check_for_box_overshoot(
     return torch.tensor(
         [x_on_edge, y_on_edge], dtype=x_on_edge.dtype, device=x_on_edge.device
     )
+
+
+def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
+    """
+    Remove the bounding box with the largest area from a batch of TLWH bboxes.
+
+    :param batch_bboxes: A tensor of shape (N, 4) where N is the batch size,
+                         and each bbox is in TLWH format.
+    :param secondary_tensor: optional secondary tensor to also mast
+    :return: A tensor of bboxes with one less item, excluding the largest bbox, and the mast used
+    """
+    # Calculate areas (width * height)
+
+    num_boxes = batch_bboxes.shape[0]
+    if num_boxes < min_boxes:
+        mask = torch.ones(num_boxes, dtype=torch.bool, device=batch_bboxes.device)
+        return batch_bboxes, mask
+
+    areas = batch_bboxes[:, 2] * batch_bboxes[:, 3]
+
+    # Find the index of the bbox with the largest area
+    largest_bbox_idx = torch.argmax(areas)
+
+    # Remove the largest bbox
+    mask = torch.ones(
+        batch_bboxes.shape[0], dtype=torch.bool, device=batch_bboxes.device
+    )
+    mask[largest_bbox_idx] = False
+    return batch_bboxes[mask], mask

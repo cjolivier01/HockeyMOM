@@ -125,11 +125,19 @@ def make_parser():
     # cam args
     parser.add_argument(
         "-s",
-        "--show_image",
+        "--show-image",
         dest="show_image",
         default=False,
         action="store_true",
         help="show as processing",
+    )
+    parser.add_argument(
+        "--cam-ignore-largest",
+        default=False,
+        action="store_true",
+        help="Remove the largest tracking box from the camera set (i.e. at Vallco, a ref is "
+        "often right in front of the camera, but not enough of the ref is "
+        "visible to note it as a ref)",
     )
     parser.add_argument(
         "--debug",
@@ -304,6 +312,8 @@ def main(exp, args, num_gpu):
         cam_args = DefaultArguments(
             rink=args.rink,
             basic_debugging=args.debug,
+            show_image=args.show_image,
+            cam_ignore_largest=args.cam_ignore_largest,
         )
         cam_args.show_image = args.show_image
 

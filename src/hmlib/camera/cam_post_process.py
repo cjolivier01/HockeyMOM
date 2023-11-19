@@ -36,6 +36,7 @@ from hmlib.utils.box_functions import (
     center_distance,
     aspect_ratio,
     make_box_at_center,
+    remove_largest_bbox,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -127,13 +128,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         self,
         rink: str = "sharks_orange",
         basic_debugging: bool = BASIC_DEBUGGING,
-        args: argparse.Namespace = None,
+        show_image: bool=False,
+        cam_ignore_largest: bool = False,
+        #args: argparse.Namespace = None,
     ):
         super().__init__()
         # Display the image every frame (slow)
-        self.show_image = False or basic_debugging
+        self.show_image = show_image or basic_debugging
         # self.show_image = True
-        self.show_image = False
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = True and basic_debugging
@@ -206,6 +208,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # that portiuon of the video more quickly
         self.stop_at_frame = 0
         # self.stop_at_frame = 30*30
+
+        self.cam_ignore_largest = cam_ignore_largest
 
         # Make the image the same relative dimensions as the initial image,
         # such that the highest possible resolution is available when the camera
@@ -688,6 +692,11 @@ class FramePostProcessor:
 
         # print(online_ids)
         # print(online_tlwhs)
+
+        if self._args.cam_ignore_largest and len(online_tlwhs):
+            # Don't remove unless we have at least 4 online items being tracked
+            online_tlwhs, mask = remove_largest_bbox(online_tlwhs, min_boxes=4)
+            online_ids = online_ids[mask]
 
         # Exclude detections outside of an optional bounding box
         online_tlwhs, online_ids = prune_by_inclusion_box(
