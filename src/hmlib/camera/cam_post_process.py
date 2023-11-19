@@ -128,9 +128,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         self,
         rink: str = "sharks_orange",
         basic_debugging: bool = BASIC_DEBUGGING,
-        show_image: bool=False,
+        show_image: bool = False,
         cam_ignore_largest: bool = False,
-        #args: argparse.Namespace = None,
+        # args: argparse.Namespace = None,
     ):
         super().__init__()
         # Display the image every frame (slow)
@@ -514,7 +514,8 @@ class FramePostProcessor:
 
         self._current_roi = None
         self._current_roi_aspect = None
-        self._video_output = None
+        self._video_output_campp = None
+        self._video_output_boxtrack = None
 
     def get_first_frame_id(self):
         return self._args.skip_frame_count
@@ -553,7 +554,7 @@ class FramePostProcessor:
             self._queue.put(None)
             if self._child_pid:
                 os.waitpid(self._child_pid)
-        self._video_output.stop()
+        self._video_output_campp.stop()
 
     def send(
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
@@ -630,8 +631,8 @@ class FramePostProcessor:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
 
-        assert self._video_output is None
-        self._video_output = VideoOutput(
+        assert self._video_output_campp is None
+        self._video_output_campp = VideoOutput(
             args=self._args,
             output_video_path=os.path.join(self._save_dir, "tracking_output.avi"),
             fps=self._fps,
@@ -652,7 +653,31 @@ class FramePostProcessor:
             if self._args.use_watermark
             else None,
         )
-        self._video_output.start()
+        self._video_output_campp.start()
+
+        if self._args.crop_output_image:
+            self._video_output_boxtrack = VideoOutput(
+                args=self._args,
+                output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
+                fps=self._fps,
+                use_fork=False,
+                start=False,
+                output_frame_width=self.final_frame_width,
+                output_frame_height=self.final_frame_height,
+                watermark_image_path=os.path.realpath(
+                    os.path.join(
+                        os.path.dirname(os.path.realpath(__file__)),
+                        "..",
+                        "..",
+                        "..",
+                        "images",
+                        "sports_ai_watermark.png",
+                    )
+                )
+                if self._args.use_watermark
+                else None,
+            )
+            self._video_output_boxtrack.start()
 
         # self._imgproc_queue.put("ready")
         # frame_id = self._start_frame_id - 1
@@ -1377,16 +1402,20 @@ class FramePostProcessor:
             # plt.show()
 
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            imgproc_data = ImageProcData(
-                frame_id=frame_id.item(),
-                img=online_im,
-                current_box=current_box
-                if (
-                    self._args.max_in_aspec_ratio or self._args.apply_fixed_edge_scaling
+            if self._video_output_campp is not None:
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=current_box,
                 )
-                else self._current_roi_aspect.bounding_box(),
-            )
-            self._video_output.append(imgproc_data)
+                self._video_output_campp.append(imgproc_data)
+            if self._video_output_boxtrack is not None:
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=self._current_roi_aspect.bounding_box(),
+                )
+                self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):
