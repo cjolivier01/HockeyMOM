@@ -53,3 +53,6 @@
 [submodule "external/pt_autograph"]
 	path = external/pt_autograph
 	url = ssh://git@github.com/cjolivier01/pt_autograph
+[submodule "models/MixFormer"]
+	path = models/MixFormer
+	url = ssh://git@github.com/cjolivier01/MixFormer
