@@ -36,7 +36,7 @@ EXP_NAME="mixsort-run-vallco"
 START_FRAME=2900
 
 #HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
+HYPER_PARAMS="--track_thresh=0.35 --track_thresh_low=0.1"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -45,7 +45,7 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=1 -d=1 \
+  -b=4 -d=1 \
   --infer \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} \
