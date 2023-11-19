@@ -98,8 +98,26 @@ class HmPostProcessor:
 
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         # TODO: for batches, will be total length of N batches combined
-        #assert len(outputs) == len(output_results)
+        # assert len(outputs) == len(output_results)
         return outputs, output_results
+
+    def _maybe_init(
+        self,
+        frame_id,
+        info_imgs,
+        letterbox_img,
+        inscribed_img,
+        original_img,
+    ):
+        if self._postprocessor is None:
+            self.on_first_image(
+                frame_id,
+                info_imgs,
+                letterbox_img,
+                inscribed_img,
+                original_img,
+                device=self._device,
+            )
 
     def online_callback(
         self,
@@ -125,33 +143,15 @@ class HmPostProcessor:
             online_tlwhs = torch.stack(
                 [_pt_tensor(t, device=inscribed_image.device) for t in online_tlwhs]
             ).to(self._device)
-        if self._postprocessor is None:
-            self.on_first_image(
-                frame_id,
-                info_imgs,
-                img,
-                inscribed_image,
-                original_img,
-                device=self._device,
-            )
+        self._maybe_init(
+            frame_id,
+            info_imgs,
+            img,
+            inscribed_image,
+            original_img,
+        )
         if self._args.scale_to_original_image:
-            # scaled_online_tlwhs = []
-            if len(online_tlwhs):
-                # Offset the boxes
-                online_tlwhs[:, 0] -= self.dw
-                online_tlwhs[:, 1] -= self.dh
-                # Scale the width and height
-                online_tlwhs /= self._scale_inscribed_to_original
-                # online_tlwhs[:, 2] /= self._scale_inscribed_to_original[0]
-                # online_tlwhs[:, 3] /= self._scale_inscribed_to_original[1]
-
-                # for tlwh in online_tlwhs:
-                #     tlwh = torch.tensor(tlwh)
-                #     tlwh[0] -= self.dw
-                #     tlwh[1] -= self.dh
-                #     tlwh /= self._scale_inscribed_to_original
-                #     scaled_online_tlwhs.append(tlwh)
-                # online_tlwhs = torch.stack(scaled_online_tlwhs)
+            self._map_to_original_image_coords(online_tlwhs)
         if (
             not self._args.scale_to_original_image
             and isinstance(img, torch.Tensor)
@@ -169,6 +169,33 @@ class HmPostProcessor:
             original_img,
         )
         return detections, online_tlwhs
+
+    def map_to_original_image_coords(
+        self,
+        online_tlwhs: torch.Tensor,
+        frame_id: torch.Tensor,
+        info_imgs: torch.Tensor,
+        letterbox_img: torch.Tensor,
+        inscribed_img: torch.Tensor,
+        original_img: torch.Tensor,
+    ):
+        self._maybe_init(
+            frame_id,
+            info_imgs,
+            img,
+            inscribed_image,
+            original_img,
+        )
+        return self._map_to_original_image_coords(online_tlwhs)
+
+    def _map_to_original_image_coords(self, online_tlwhs: torch.Tensor):
+        if len(online_tlwhs):
+            # Offset the boxes
+            online_tlwhs[:, 0] -= self.dw
+            online_tlwhs[:, 1] -= self.dh
+            # Scale the width and height
+            online_tlwhs /= self._scale_inscribed_to_original
+        return online_tlwhs
 
     def on_first_image(
         self, frame_id, info_imgs, img, inscribed_image, original_img, device

@@ -174,10 +174,8 @@ class VideoOutput:
             seen_frames.add(frame_id)
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps), open files count: {}".format(
-                        imgproc_data.frame_id,
-                        1.0 / max(1e-5, timer.average_time),
-                        get_open_files_count(),
+                    "Image Post-Processing frame {} ({:.2f} fps)".format(
+                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
                 timer = Timer()

@@ -71,6 +71,7 @@ core.hello_world()
 RINK_CONFIG = {
     "vallco": {
         "fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_rotation_angle": 35.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -78,6 +79,7 @@ RINK_CONFIG = {
     },
     "dublin": {
         "fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -85,6 +87,7 @@ RINK_CONFIG = {
     },
     "stockton": {
         "fixed_edge_scaling_factor": 0.6,
+        "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -92,6 +95,7 @@ RINK_CONFIG = {
     },
     "roseville_2": {
         "fixed_edge_scaling_factor": 1.6,
+        "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -99,6 +103,7 @@ RINK_CONFIG = {
     },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
+        "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -106,6 +111,7 @@ RINK_CONFIG = {
     },
     "sharks_orange": {
         "fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "upper": [
                 [2001, 123, 2629, 208],
@@ -152,17 +158,17 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
         # the entire height.  The drawback is there's not much zooming.
-        # self.max_in_aspec_ratio = True
-        self.max_in_aspec_ratio = False
+        self.max_in_aspec_ratio = True
+        # self.max_in_aspec_ratio = False
 
         # Zooming is fixed based upon the horizonal position's distance from center
-        self.apply_fixed_edge_scaling = False
-        # self.apply_fixed_edge_scaling = True
+        # self.apply_fixed_edge_scaling = False
+        self.apply_fixed_edge_scaling = True
 
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        self.plot_camera_tracking = False
+        # self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or (
             basic_debugging
@@ -180,7 +186,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = 25.0
+        # self.fixed_edge_rotation_angle = 25.0
+        self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
         # self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
@@ -250,16 +257,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         self.top_border_lines = RINK_CONFIG[rink]["borders"]["upper"]
         self.bottom_border_lines = RINK_CONFIG[rink]["borders"]["lower"]
-        # self.top_border_lines = [
-        #     [2001, 123, 2629, 208],
-        #     [1283, 117, 1979, 162],
-        # ]
-        # # Below any of these lines, ignore
-        # self.bottom_border_lines = [
-        #     [21, 498, 1664, 878],
-        #     [1662, 856, 3034, 799],
-        #     [3044, 800, 3762, 673],
-        # ]
 
 
 class BoundaryLines:
@@ -615,10 +612,6 @@ class FramePostProcessor:
         return self._horizontal_image_gaussian_distribution
 
     def _postprocess_frame_worker(self):
-        # self._last_temporal_box = None
-        # self._last_sticky_temporal_box = None
-        # self._last_dx_shrink_size = 0
-        # max_dx_shrink_size = 100
         self._center_dx_shift = 0
         timer = Timer()
 
@@ -1025,10 +1018,10 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
-                #     _to_int(edge_center),
+                #     [int(i) for i in edge_center],
                 #     radius=30,
                 #     color=(255, 0, 255),
                 #     thickness=20,
