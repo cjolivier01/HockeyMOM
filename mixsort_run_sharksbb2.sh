@@ -16,8 +16,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
 #MIXFORMER_SCRIPT="mixformer_deit"
-MIXFORMER_SCRIPT="mixformer_deit_hockey"
-#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+#MIXFORMER_SCRIPT="mixformer_deit_hockey"
+MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -41,7 +41,8 @@ EXP_NAME="mixsort-run-sharksbb2"
 START_FRAME=1900
 
 #HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.1"
-HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
+HYPER_PARAMS="--conf=0.1 --track_thresh=0.28 --track_thresh_low=0.1"
+#HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
 
 echo "Experiment name: ${EXP_NAME}"
 
