@@ -74,6 +74,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
         self._thread = None
+        self._open_video()
+        self._close_video()
 
         self._start_worker()
 
@@ -91,6 +93,11 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         if self._start_frame_number:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
         print("Lenth of the video: {:d} frames".format(self.vn))
+
+    def _close_video(self):
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
 
     @property
     def dataset(self):
@@ -119,6 +126,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 traceback.print_exc()
             self._from_worker_queue.put(ex)
             return
+        finally:
+            self._close_video()
         self._from_worker_queue.put(StopIteration())
         return
 

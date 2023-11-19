@@ -70,7 +70,7 @@ class HmPostProcessor:
         opt,
         args,
         device,
-        fps: int,
+        fps: float,
         save_dir: str,
         data_type: str = "mot",
         postprocess: bool = True,

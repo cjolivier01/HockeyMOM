@@ -317,17 +317,6 @@ def main(exp, args, num_gpu):
         )
         cam_args.show_image = args.show_image
 
-        postprocessor = HmPostProcessor(
-            opt=args,
-            args=cam_args,
-            fps=30,
-            save_dir=results_folder,
-            # device="cuda",
-            device="cpu",
-            data_type="mot",
-            use_fork=False,
-        )
-
         dataloader = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -407,6 +396,18 @@ def main(exp, args, num_gpu):
             dataloader = exp.get_eval_loader(
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
+
+        postprocessor = HmPostProcessor(
+            opt=args,
+            args=cam_args,
+            fps=dataloader.fps,
+            save_dir=results_folder,
+            # device="cuda",
+            device="cpu",
+            data_type="mot",
+            use_fork=False,
+        )
+
 
         evaluator = MOTEvaluator(
             args=args,
