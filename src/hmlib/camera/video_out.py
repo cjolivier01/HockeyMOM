@@ -55,6 +55,8 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
+        fourcc="XVID",
+        # fourcc = "HFYU",
         output_image_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
@@ -76,6 +78,7 @@ class VideoOutput:
         self._output_video_path = output_video_path
         self._output_image_dir = output_image_dir
         self._output_video = None
+        self._fourcc = fourcc
         self._horizontal_image_gaussian_distribution = None
 
         if watermark_image_path:
@@ -146,8 +149,7 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-            #fourcc = cv2.VideoWriter_fourcc(*"HFYU")
+            fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             self._output_video = cv2.VideoWriter(
                 filename=self._output_video_path,
                 fourcc=fourcc,
