@@ -2,3 +2,6 @@ MixFormerOnlineScore.pth.tar filter=lfs diff=lfs merge=lfs
 MixFormer_soccernet_train.pth.tar filter=lfs diff=lfs merge=lfs
 MixFormer_sports_train.pth.tar filter=lfs diff=lfs merge=lfs
 MixViT_ch_ht_ep0115.pth.tar filter=lfs diff=lfs merge=lfs
+mixformer_convmae_base_online.pth.tar filter=lfs diff=lfs merge=lfs
+mixformer_online_22k_got.pth.tar filter=lfs diff=lfs merge=lfs
+MixViT_ch_ht_ep0300.pth.tar filter=lfs diff=lfs merge=lfs
