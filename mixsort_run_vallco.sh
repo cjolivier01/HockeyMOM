@@ -26,14 +26,15 @@ MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
-VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
 
 #START_FRAME=500
-START_FRAME=2900
+#START_FRAME=2900
 
 #HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 HYPER_PARAMS="--track_thresh=0.35 --track_thresh_low=0.1"
