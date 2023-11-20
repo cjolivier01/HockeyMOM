@@ -1,10 +1,20 @@
 from loguru import logger
 
+import argparse
+import random
+import warnings
+
+# from collections import OrderedDict
+# from pathlib import Path
+# from typing import List, Tuple
+import traceback
+import sys, os
+
+# import cv2
+
 import torch
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
-import sys, os
-import cv2
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../MixViT"))
 from yolox.core import launch
@@ -19,15 +29,19 @@ from yolox.utils import (
 from yolox.evaluators import MOTEvaluator
 from yolox.data import get_yolox_datadir
 
-import argparse
-import random
-import warnings
-import glob
-import motmetrics as mm
-from collections import OrderedDict
-from pathlib import Path
-from typing import List, Tuple
-import traceback
+from hmlib.stitch_synchronize import (
+    configure_video_stitching,
+)
+
+from hmlib.datasets.dataset.stitching import (
+    StitchDataset,
+)
+
+from hmlib.opts import opts
+from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.ui.mousing import draw_box_with_mouse
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
 
 from hmtrack import HmPostProcessor
 from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
@@ -320,22 +334,48 @@ def main(exp, args, num_gpu):
         dataloader = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
+            if len(input_video_files) == 2 or os.path.isdir(input_video_files):
+                project_file_name = "autooptimiser_out.pto"
 
-            if len(input_video_files) == 2:
-                video_1_offset_frame = None
-                video_2_offset_frame = None
+                if len(input_video_files) == 2:
+                    vl = input_video_files[0]
+                    vr = input_video_files[1]
+                    dir_name = os.path.dirname(vl)
+                    file_name, file_extension = os.path.splitext(os.path.basename(vl))
+                    video_left = file_name + "." + file_extension
+                    file_name, file_extension = os.path.splitext(os.path.basename(vr))
+                    video_right = file_name + "." + file_extension
+                    assert dir_name == os.path.dirname(vr)
+                elif os.path.isdir(input_video_files):
+                    dir_name = dir_name
+                    video_left = "left.mp4"
+                    video_right = "right.mp4"
+                    vl = os.path.join(dir_name, video_left)
+                    vr = os.path.join(dir_name, video_right)
 
-                video_1_offset_frame = 3
-                video_2_offset_frame = 0
+                left_vid = BasicVideoInfo(vl)
+                right_vid = BasicVideoInfo(vr)
+                total_frames = min(left_vid.frame_count, right_vid.frame_count)
+                print(f"Total possible stitched video frames: {total_frames}")
 
-                dataloader = datasets.dataset.stitching.StitchDataset(
-                    video_file_1=f"{dir_name}/{video_left}",
-                    video_file_2=f"{dir_name}/{video_right}",
+                pto_project_file, lfo, rfo = configure_video_stitching(
+                    dir_name,
+                    video_left,
+                    video_right,
+                    project_file_name,
+                    left_frame_offset=lfo,
+                    right_frame_offset=rfo,
+                )
+                output_stitched_video_file = os.path.join(".", "stitched_output.avi")
+                dataloader = StitchDataset(
+                    video_file_1=os.path.join(dir_name, video_left),
+                    video_file_2=os.path.join(dir_name, video_right),
                     pto_project_file=pto_project_file,
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
+                    start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
-                    max_frames=max_frames,
+                    max_frames=None,
                     num_workers=1,
                 )
             else:
@@ -407,7 +447,6 @@ def main(exp, args, num_gpu):
             data_type="mot",
             use_fork=False,
         )
-
 
         evaluator = MOTEvaluator(
             args=args,
