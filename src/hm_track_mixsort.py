@@ -166,6 +166,22 @@ def make_parser():
         type=str,
         help="rink name",
     )
+    parser.add_argument(
+        "--left-file-offset",
+        "--lfo",
+        dest="lfo",
+        default=None,
+        type=float,
+        help="Left video file offset",
+    )
+    parser.add_argument(
+        "--right-file-offset",
+        "--rfo",
+        dest="rfo",
+        default=None,
+        type=float,
+        help="Left video file offset",
+    )
     # det args
     parser.add_argument(
         "-c",
@@ -334,7 +350,7 @@ def main(exp, args, num_gpu):
         dataloader = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
-            if len(input_video_files) == 2 or os.path.isdir(input_video_files):
+            if len(input_video_files) == 2 or os.path.isdir(args.input_video):
                 project_file_name = "autooptimiser_out.pto"
 
                 if len(input_video_files) == 2:
@@ -346,8 +362,8 @@ def main(exp, args, num_gpu):
                     file_name, file_extension = os.path.splitext(os.path.basename(vr))
                     video_right = file_name + "." + file_extension
                     assert dir_name == os.path.dirname(vr)
-                elif os.path.isdir(input_video_files):
-                    dir_name = dir_name
+                elif os.path.isdir(args.input_video):
+                    dir_name = args.input_video
                     video_left = "left.mp4"
                     video_right = "right.mp4"
                     vl = os.path.join(dir_name, video_left)
@@ -363,8 +379,8 @@ def main(exp, args, num_gpu):
                     video_left,
                     video_right,
                     project_file_name,
-                    left_frame_offset=lfo,
-                    right_frame_offset=rfo,
+                    left_frame_offset=args.lfo,
+                    right_frame_offset=args.rfo,
                 )
                 output_stitched_video_file = os.path.join(".", "stitched_output.avi")
                 dataloader = StitchDataset(

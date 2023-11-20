@@ -22,6 +22,8 @@ from hmlib.stitch_synchronize import (
     find_sitched_roi,
 )
 
+from hmlib.ffmpeg import BasicVideoInfo
+
 
 def _get_dir_name(path):
     if os.path.isdir(path):
@@ -74,7 +76,7 @@ def INFO(*args, **kwargs):
 
 
 # QueueType = QueueType
-#QueueType = queue.Queue
+# QueueType = queue.Queue
 QueueType = multiprocessing.Queue
 
 
@@ -306,7 +308,7 @@ class StitchingWorker:
             if stitched_frame is None:
                 break
             while self._image_response_queue.qsize() > 25:
-              time.sleep(0.1)
+                time.sleep(0.1)
             self._image_response_queue.put((frame_id, stitched_frame))
             count += 1
         self._image_response_queue.put(StopIteration())
@@ -350,6 +352,9 @@ class StitchingWorker:
         if self._image_getter_thread is not None:
             self._image_getter_thread.join()
             self._image_getter_thread = None
+
+    def __len__(self):
+        return self._total_num_frames
 
 
 class StitchingWorkersIterator:
@@ -441,6 +446,17 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
+        self._video_1_info = BasicVideoInfo(video_file_1)
+        self._video_2_info = BasicVideoInfo(video_file_2)
+        v1o = 0 if self._video_1_offset_frame is None else self._video_1_offset_frame
+        v2o = 0 if self._video_2_offset_frame is None else self._video_2_offset_frame
+        self._total_number_of_frames = int(
+            min(
+                self._video_1_info.frame_count - v1o,
+                self._video_2_info.frame_count - v2o,
+            )
+        )
+
         self._image_roi = None
 
     def __delete__(self):
@@ -523,7 +539,7 @@ class StitchDataset:
                 fps = self.fps
                 fourcc = cv2.VideoWriter_fourcc(*"XVID")
                 # Write lossless Huffyuv codec
-                #fourcc = cv2.VideoWriter_fourcc(*"HFYU")
+                # fourcc = cv2.VideoWriter_fourcc(*"HFYU")
                 final_video_size = (output_img.shape[1], output_img.shape[0])
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_stitched_video_file,
@@ -678,4 +694,4 @@ class StitchDataset:
         return stitched_frame
 
     def __len__(self):
-        return self._total_num_frames
+        return self._total_number_of_frames
