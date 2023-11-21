@@ -264,8 +264,8 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_y = False
 
         # self._camera_type = "zhiwei"
-        # self._camera_type = "gopro"
-        self._camera_type = "sharks_orange"
+        self._camera_type = "gopro"
+        # self._camera_type = "sharks_orange"
 
         # self._camera_box_max_speed_x = max(image_width / 150.0, 12.0)
         # self._camera_box_max_speed_y = max(image_height / 150.0, 12.0)
