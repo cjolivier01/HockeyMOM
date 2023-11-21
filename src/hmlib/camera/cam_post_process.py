@@ -132,7 +132,7 @@ BASIC_DEBUGGING = True
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
-        rink: str = "sharks_orange",
+        rink: str = None,
         basic_debugging: bool = BASIC_DEBUGGING,
         show_image: bool = False,
         cam_ignore_largest: bool = False,
@@ -733,8 +733,8 @@ class FramePostProcessor:
         self._hockey_mom.reset_clusters()
 
         def _kmeans_cuda_device():
-            # return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-            return self._device
+            return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+            #return self._device
 
         kmeans_device = _kmeans_cuda_device()
         self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -867,83 +867,86 @@ class FramePostProcessor:
             #
             # Current ROI box
             #
-            if self._current_roi is None:
-                # start_box = self._hockey_mom._video_frame.bounding_box()
-                start_box = current_box
-                self._current_roi = MovingBox(
-                    label="Current ROI",
-                    bbox=start_box,
-                    # arena_box=self._hockey_mom._video_frame.bounding_box(),
-                    arena_box=self.get_arena_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
-                    max_width=self._hockey_mom._video_frame.width,
-                    max_height=self._hockey_mom._video_frame.height,
-                    color=(255, 128, 64),
-                    thickness=5,
-                )
+            if True:
+                if self._current_roi is None:
+                    # start_box = self._hockey_mom._video_frame.bounding_box()
+                    start_box = current_box
+                    self._current_roi = MovingBox(
+                        label="Current ROI",
+                        bbox=start_box,
+                        # arena_box=self._hockey_mom._video_frame.bounding_box(),
+                        arena_box=self.get_arena_box(),
+                        max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
+                        max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
+                        max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
+                        max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
+                        max_width=self._hockey_mom._video_frame.width,
+                        max_height=self._hockey_mom._video_frame.height,
+                        color=(255, 128, 64),
+                        thickness=5,
+                    )
 
-                unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-                stick_size = unstick_size / 2
+                    unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+                    stick_size = unstick_size / 2
 
-                size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-                size_stick_size = size_unstick_size / 3
+                    size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+                    size_stick_size = size_unstick_size / 3
 
-                self._current_roi_aspect = MovingBox(
-                    label="AspectRatio",
-                    bbox=self._current_roi,
-                    # arena_box=self._hockey_mom._video_frame.bounding_box(),
-                    arena_box=self.get_arena_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x,
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y,
-                    max_width=self._hockey_mom._video_frame.width,
-                    max_height=self._hockey_mom._video_frame.height,
-                    width_change_threshold=_scalar_like(
-                        size_unstick_size, device=current_box.device
-                    ),
-                    width_change_threshold_low=_scalar_like(
-                        size_stick_size, device=current_box.device
-                    ),
-                    height_change_threshold=_scalar_like(
-                        size_unstick_size, device=current_box.device
-                    ),
-                    height_change_threshold_low=_scalar_like(
-                        size_stick_size, device=current_box.device
-                    ),
-                    sticky_translation=True,
-                    # translation_threshold=_scalar_like(
-                    #     unstick_size, device=current_box.device
-                    # ),
-                    # translation_threshold_low=_scalar_like(
-                    #     stick_size, device=current_box.device
-                    # ),
-                    scale_width=1.1,
-                    scale_height=1.1,
-                    fixed_aspect_ratio=self._final_aspect_ratio,
-                    color=(255, 0, 255),
-                    thickness=5,
-                )
-                self._current_roi = iter(self._current_roi)
-                self._current_roi_aspect = iter(self._current_roi_aspect)
-            else:
-                self._current_roi.set_destination(current_box, stop_on_dir_change=False)
+                    self._current_roi_aspect = MovingBox(
+                        label="AspectRatio",
+                        bbox=self._current_roi,
+                        # arena_box=self._hockey_mom._video_frame.bounding_box(),
+                        arena_box=self.get_arena_box(),
+                        max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
+                        max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
+                        max_accel_x=self._hockey_mom._camera_box_max_accel_x,
+                        max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                        max_width=self._hockey_mom._video_frame.width,
+                        max_height=self._hockey_mom._video_frame.height,
+                        width_change_threshold=_scalar_like(
+                            size_unstick_size, device=current_box.device
+                        ),
+                        width_change_threshold_low=_scalar_like(
+                            size_stick_size, device=current_box.device
+                        ),
+                        height_change_threshold=_scalar_like(
+                            size_unstick_size, device=current_box.device
+                        ),
+                        height_change_threshold_low=_scalar_like(
+                            size_stick_size, device=current_box.device
+                        ),
+                        sticky_translation=True,
+                        # translation_threshold=_scalar_like(
+                        #     unstick_size, device=current_box.device
+                        # ),
+                        # translation_threshold_low=_scalar_like(
+                        #     stick_size, device=current_box.device
+                        # ),
+                        scale_width=1.1,
+                        scale_height=1.1,
+                        fixed_aspect_ratio=self._final_aspect_ratio,
+                        color=(255, 0, 255),
+                        thickness=5,
+                    )
+                    self._current_roi = iter(self._current_roi)
+                    self._current_roi_aspect = iter(self._current_roi_aspect)
+                else:
+                    self._current_roi.set_destination(
+                        current_box, stop_on_dir_change=False
+                    )
 
-            self._current_roi = next(self._current_roi)
-            self._current_roi_aspect = next(self._current_roi_aspect)
-            if self._args.plot_moving_boxes:
-                self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
-                self._current_roi.draw(img=online_im)
-                vis.plot_line(
-                    online_im,
-                    center(self._current_roi.bbox),
-                    center(current_box),
-                    color=(255, 255, 255),
-                    thickness=2,
-                )
+                self._current_roi = next(self._current_roi)
+                self._current_roi_aspect = next(self._current_roi_aspect)
+                if self._args.plot_moving_boxes:
+                    self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
+                    self._current_roi.draw(img=online_im)
+                    vis.plot_line(
+                        online_im,
+                        center(self._current_roi.bbox),
+                        center(current_box),
+                        color=(255, 255, 255),
+                        thickness=2,
+                    )
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
@@ -1018,7 +1021,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     [int(i) for i in edge_center],
@@ -1036,14 +1039,15 @@ class FramePostProcessor:
                 # assert height(current_box) <= hockey_mom.video.height
 
                 self._hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
-                self._current_roi.adjust_speed(
-                    accel_x=group_x_velocity / 2,
-                    accel_y=None,
-                    use_constraints=False,
-                    nonstop_delay=torch.tensor(
-                        1, dtype=torch.int64, device=self._device
-                    ),
-                )
+                if self._current_roi is not None:
+                    self._current_roi.adjust_speed(
+                        accel_x=group_x_velocity / 2,
+                        accel_y=None,
+                        use_constraints=False,
+                        nonstop_delay=torch.tensor(
+                            1, dtype=torch.int64, device=self._device
+                        ),
+                    )
 
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
             current_box, self._last_temporal_box = _apply_temporal(
@@ -1402,7 +1406,10 @@ class FramePostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            if self._video_output_boxtrack is not None:
+            if (
+                self._video_output_boxtrack is not None
+                and self._current_roi is not None
+            ):
                 imgproc_data = ImageProcData(
                     frame_id=frame_id.item(),
                     img=online_im,

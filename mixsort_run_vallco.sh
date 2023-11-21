@@ -51,7 +51,7 @@ LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 -d=1 \
+  -b=32 -d=1 \
   --infer \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} \
