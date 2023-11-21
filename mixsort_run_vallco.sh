@@ -28,8 +28,8 @@ MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb"
+VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb"
 
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
@@ -45,7 +45,8 @@ STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 
-PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
+LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
+  PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hm_track_mixsort.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \

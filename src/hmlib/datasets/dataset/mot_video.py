@@ -75,10 +75,11 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
         self._thread = None
-        self._open_video()
-        self._close_video()
         self._embedded_data_loader = embedded_data_loader
         assert self._embedded_data_loader is None or path is None
+
+        self._open_video()
+        self._close_video()
 
         self._start_worker()
 
