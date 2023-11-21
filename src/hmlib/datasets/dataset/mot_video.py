@@ -48,6 +48,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         batch_size: int = 1,
         start_frame_number: int = 0,
         multi_width_img_info: bool = True,
+        embedded_data_loader=None,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -76,28 +77,41 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._thread = None
         self._open_video()
         self._close_video()
+        self._embedded_data_loader = embedded_data_loader
+        assert self._embedded_data_loader is None or path is None
 
         self._start_worker()
 
     def _open_video(self):
-        self.cap = cv2.VideoCapture(self._path)
-        self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        if not self.vn:
-            raise RuntimeError(
-                f"Video {self._path} either does not exist or has no usable video content"
-            )
-        assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
-        if self._start_frame_number:
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
+        if self._embedded_data_loader is None:
+            self.cap = cv2.VideoCapture(self._path)
+            self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+            if not self.vn:
+                raise RuntimeError(
+                    f"Video {self._path} either does not exist or has no usable video content"
+                )
+            assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
+            if self._start_frame_number:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
+        else:
+            self._embedded_data_loader_iter = iter(self._embedded_data_loader)
+            self.vn = len(self._embedded_data_loader)
+            # self.vw = self._embedded_data_loader.width
+            # self.vh = self._embedded_data_loader.height
+            self.vw = None
+            self.vh = None
+            self.fps = self._embedded_data_loader.fps
         print("Lenth of the video: {:d} frames".format(self.vn))
 
     def _close_video(self):
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+        if self._embedded_data_loader is not None:
+            self._embedded_data_loader.close()
 
     @property
     def dataset(self):
@@ -159,6 +173,20 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     def __iter__(self):
         self._timer = Timer()
         return self
+
+    def _read_next_image(self):
+        if self.cap is not None:
+            return self.cap.read()
+        else:
+            try:
+                img = next(self._embedded_data_loader_iter)
+                if self.vw is None:
+                    self.vw = img.shape[1]
+                    self.vh = img.shape[0]
+                return True, img
+
+            except StopIteration:
+                return False, None
 
     def _get_next_batch(self):
         # TODO: Support other batch sizes
@@ -223,8 +251,12 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = torch.stack(frame_sizes, dim=0)
 
         imgs_info = [
-            self.height_t.repeat(len(ids)) if self._multi_width_img_info else self.height_t,
-            self.width_t.repeat(len(ids)) if self._multi_width_img_info else self.width_t,
+            self.height_t.repeat(len(ids))
+            if self._multi_width_img_info
+            else self.height_t,
+            self.width_t.repeat(len(ids))
+            if self._multi_width_img_info
+            else self.width_t,
             ids,
             self.video_id.repeat(len(ids)),
             [self._path],

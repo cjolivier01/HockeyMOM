@@ -382,8 +382,9 @@ def main(exp, args, num_gpu):
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                 )
+                # Create the stitcher data loader
                 output_stitched_video_file = os.path.join(".", "stitched_output.avi")
-                dataloader = StitchDataset(
+                stitched_dataset = StitchDataset(
                     video_file_1=os.path.join(dir_name, video_left),
                     video_file_2=os.path.join(dir_name, video_right),
                     pto_project_file=pto_project_file,
@@ -394,6 +395,25 @@ def main(exp, args, num_gpu):
                     max_frames=None,
                     num_workers=1,
                 )
+                # Create the MOT video data loader, passing it the 
+                # stitching data loader as its image source
+                dataloader = datasets.MOTLoadVideoWithOrig(
+                    path=None,
+                    img_size=exp.test_size,
+                    return_origin_img=True,
+                    start_frame_number=args.start_frame,
+                    data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
+                    json_file="test.json",
+                    batch_size=args.batch_size,
+                    batch_size=1,
+                    name="val",
+                    preproc=ValTransform(
+                        rgb_means=(0.485, 0.456, 0.406),
+                        std=(0.229, 0.224, 0.225),
+                    ),
+                    embedded_data_loader=stitched_dataset,
+                )
+
             else:
                 from yolox.data import ValTransform
 
