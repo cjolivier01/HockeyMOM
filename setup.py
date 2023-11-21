@@ -3,10 +3,14 @@ import re
 import sys
 import platform
 import subprocess
+import argparse
 
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 from distutils.version import LooseVersion
+
+
+_ARGS = None
 
 
 def run_submodule_setup(submodule_subdir: str):
@@ -51,7 +55,8 @@ class CMakeBuild(build_ext):
             "-DPYTHON_EXECUTABLE=" + sys.executable,
         ]
 
-        default_build_type = "ReleaseWithDebugInfo"
+        default_build_type = "Release"
+        #default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
             default_build_type = "Debug"
         elif int(os.environ.get("PROFILE", "0")) > 0:
@@ -72,6 +77,13 @@ class CMakeBuild(build_ext):
 #        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
 
         #cmake_args += ["-DHM_BUILD_ASAN=1"]
+        
+        #cmake_args += ["-DCMAKE_PREFIX_PATH="]
+        #cmake_args += ["-DCMAKE_FIND_DEBUG_MODE=ON"]
+        #cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
+        
+        #if ARGS.conda:
+        cmake_args += [f"-DCMAKE_PREFIX_PATH={os.path.join(os.getcwd(), 'cmake')}"]
 
         if platform.system() == "Windows":
             cmake_args += [
@@ -112,20 +124,26 @@ class CMakeBuild(build_ext):
             cwd=self.build_temp,
         )
 
-# run_submodule_setup('DCNv2')
-# run_submodule_setup('external/fast_pytorch_kmeans')
+if __name__ == '__main__':
+    #_ = _ARGS
+    #parser = argparse.ArgumentParser(description='HockeyMOM Setup Script.')
+    #parser.add_argument('--conda', action="store_true", help='Build using a conda environment')
+    #_ARGS = parser.parse_args()
+    
+    # run_submodule_setup('DCNv2')
+    # run_submodule_setup('external/fast_pytorch_kmeans')
 
-setup(
-    name="hockeymom",
-    version="0.1.0",
-    author="Christopher Olivier",
-    author_email="cjolivier01@gmail.com",
-    description="HockeyMOM project",
-    long_description=open("README.rst").read(),
-    ext_modules=[CMakeExtension("hockeymom/_hockeymom")],
-    packages=find_packages(),
-    cmdclass=dict(build_ext=CMakeBuild),
-    url="https://github.com/cjolivier01/hockeymom2",
-    zip_safe=False,
-    install_requires=[],
-)
+    setup(
+        name="hockeymom",
+        version="0.1.0",
+        author="Christopher Olivier",
+        author_email="cjolivier01@gmail.com",
+        description="HockeyMOM project",
+        long_description=open("README.rst").read(),
+        ext_modules=[CMakeExtension("hockeymom/_hockeymom")],
+        packages=find_packages(),
+        cmdclass=dict(build_ext=CMakeBuild),
+        url="https://github.com/cjolivier01/hockeymom2",
+        zip_safe=False,
+        install_requires=[],
+    )

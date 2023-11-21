@@ -81,7 +81,7 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN")
 target_include_directories(hm PUBLIC ./include)
 set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
-target_link_libraries(hm PRIVATE OpenGL::OpenGL)
+#target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
 
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
