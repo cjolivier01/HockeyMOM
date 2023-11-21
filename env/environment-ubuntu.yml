@@ -176,6 +176,7 @@ dependencies:
   - perl=5.32.1=4_hd590300_perl5
   - pip=23.3.1=pyhd8ed1ab_0
   - pixman=0.42.2=h59595ed_0
+  - pkg-config=0.29.2=h36c2ea0_1008
   - pthread-stubs=0.4=h36c2ea0_1001
   - pulseaudio-client=16.1=hb77b528_5
   - python=3.8.18=hd12c33a_0_cpython
