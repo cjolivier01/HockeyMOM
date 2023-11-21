@@ -428,6 +428,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
+                    clip_original=[300, 285, 4572, 1750],
                     # batch_size=1,
                     name="val",
                     preproc=ValTransform(

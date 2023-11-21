@@ -40,7 +40,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         clip_original=None,
         video_id: int = 1,
         data_dir=None,
-        json_file: str = "train_half.json",
+        json_file: str = "train.json",
         name: str = "train",
         preproc=None,
         return_origin_img=False,

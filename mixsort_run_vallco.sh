@@ -35,13 +35,13 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 EXP_NAME="mixsort-run-vallco"
 
 START_FRAME=0
-#START_FRAME=500
+#START_FRAME=1900
 #START_FRAME=2900
 
 #HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-HYPER_PARAMS="--track_thresh=0.35 --track_thresh_low=0.1"
+HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
 
-STITCHING_PARAMS="--lfo=15.392 --rfo=0"
+#STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 

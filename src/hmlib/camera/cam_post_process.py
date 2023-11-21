@@ -144,7 +144,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
-        self.plot_individual_player_tracking = True and basic_debugging
+        self.plot_individual_player_tracking = False or basic_debugging
         # self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
@@ -199,7 +199,6 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
-        self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach

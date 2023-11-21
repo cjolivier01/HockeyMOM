@@ -218,7 +218,7 @@ class Clustering:
 
 
 CAMERA_TYPE_MAX_SPEEDS = {
-    "gopro": 300.0,
+    "gopro": 200.0,
     "zhiwei": 200.0,
     "sharks_orange": 400.0,
 }
