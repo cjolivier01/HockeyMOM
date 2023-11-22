@@ -226,7 +226,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        self.crop_output_image = True
+        # self.crop_output_image = True
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
@@ -385,14 +385,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     filtered_online_tlwh = []
     filtered_online_ids = []
     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-    # outside_boundaries = None
-    # if boundaries is not None:
-    #     outside_boundaries = boundaries.point_batch_check_point_above_segents(
-    #         online_tlwhs_centers
-    #     )
     for i in range(len(online_tlwhs_centers)):
-        # if outside_boundaries is not None and outside_boundaries[i]:
-        #     continue
         center = online_tlwhs_centers[i]
         if inclusion_box is not None:
             if inclusion_box[0] and center[0] < inclusion_box[0]:
@@ -457,33 +450,6 @@ class FramePostProcessor:
         self._boundaries = None
 
         self._save_dir = save_dir
-        # results_dir = Path(save_dir)
-        # results_dir.mkdir(parents=True, exist_ok=True)
-
-        # self.watermark = cv2.imread(
-        #     os.path.realpath(
-        #         os.path.join(
-        #             os.path.dirname(os.path.realpath(__file__)),
-        #             "..",
-        #             "..",
-        #             "..",
-        #             "images",
-        #             "sports_ai_watermark.png",
-        #         )
-        #     ),
-        #     cv2.IMREAD_UNCHANGED,
-        # )
-        # self.watermark_height = self.watermark.shape[0]
-        # self.watermark_width = self.watermark.shape[1]
-        # self.watermark_rgb_channels = self.watermark[:, :, :3]
-        # self.watermark_alpha_channel = self.watermark[:, :, 3]
-        # self.watermark_mask = cv2.merge(
-        #     [
-        #         self.watermark_alpha_channel,
-        #         self.watermark_alpha_channel,
-        #         self.watermark_alpha_channel,
-        #     ]
-        # )
 
         self._outside_box_expansion_for_speed_curtailing = torch.tensor(
             [-100.0, -100.0, 100.0, 100.0],
@@ -520,27 +486,15 @@ class FramePostProcessor:
         else:
             self._thread = Thread(target=self._start, name="CamPostProc")
             self._thread.start()
-            # self._imgproc_thread = Thread(
-            #     target=self._start_final_image_processing, name="FinalImgProc"
-            # )
-            # self._imgproc_thread.start()
 
     def _start(self):
-        # if self._args.fake_crop_output_image:
-        #     self.crop_output_image = True
         return self.postprocess_frame_worker()
-
-    # def _start_final_image_processing(self):
-    #     return self.final_image_processing()
 
     def stop(self):
         if self._thread is not None:
             self._queue.put(None)
             self._thread.join()
             self._thread = None
-            # self._imgproc_queue.put(None)
-            # self._imgproc_thread.join()
-            # self._imgproc_thread = None
 
         elif self.use_fork:
             self._queue.put(None)
@@ -667,10 +621,7 @@ class FramePostProcessor:
             )
             self._video_output_boxtrack.start()
 
-        # self._imgproc_queue.put("ready")
-        # frame_id = self._start_frame_id - 1
         while True:
-            # frame_id += 1
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
@@ -679,8 +630,6 @@ class FramePostProcessor:
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
     def get_arena_box(self):
-        # if self._args.detection_inclusion_box is not None:
-        #     return self._args.detection_inclusion_box
         return self._hockey_mom._video_frame.bounding_box()
 
     def cam_postprocess(self, online_targets_and_img):
@@ -729,7 +678,7 @@ class FramePostProcessor:
 
         def _kmeans_cuda_device():
             return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-            #return self._device
+            # return self._device
 
         kmeans_device = _kmeans_cuda_device()
         self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
@@ -768,7 +717,6 @@ class FramePostProcessor:
                         offline_tlwhs,
                         offline_ids,
                         frame_id=frame_id,
-                        # fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                         speeds=[],
                         line_thickness=1,
                         box_color=(255, 128, 255),
@@ -782,7 +730,6 @@ class FramePostProcessor:
                     online_tlwhs,
                     online_ids,
                     frame_id=frame_id,
-                    # fps=1.0 / timer.average_time if timer.average_time else 1000.0,
                     speeds=[],
                     line_thickness=2,
                 )
@@ -864,12 +811,10 @@ class FramePostProcessor:
             #
             if True:
                 if self._current_roi is None:
-                    # start_box = self._hockey_mom._video_frame.bounding_box()
                     start_box = current_box
                     self._current_roi = MovingBox(
                         label="Current ROI",
                         bbox=start_box,
-                        # arena_box=self._hockey_mom._video_frame.bounding_box(),
                         arena_box=self.get_arena_box(),
                         max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
                         max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
@@ -890,7 +835,6 @@ class FramePostProcessor:
                     self._current_roi_aspect = MovingBox(
                         label="AspectRatio",
                         bbox=self._current_roi,
-                        # arena_box=self._hockey_mom._video_frame.bounding_box(),
                         arena_box=self.get_arena_box(),
                         max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
                         max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
@@ -911,12 +855,6 @@ class FramePostProcessor:
                             size_stick_size, device=current_box.device
                         ),
                         sticky_translation=True,
-                        # translation_threshold=_scalar_like(
-                        #     unstick_size, device=current_box.device
-                        # ),
-                        # translation_threshold_low=_scalar_like(
-                        #     stick_size, device=current_box.device
-                        # ),
                         scale_width=1.1,
                         scale_height=1.1,
                         fixed_aspect_ratio=self._final_aspect_ratio,
@@ -1049,13 +987,6 @@ class FramePostProcessor:
                 current_box, self._last_temporal_box, scale_speed=1.0
             )
 
-            # vis.plot_rectangle(
-            #     online_im,
-            #     outside_expanded_box,
-            #     color=(0, 0, 0),
-            #     thickness=5,
-            #     label="",
-            # )
             if not group_x_velocity:
                 self._hockey_mom.curtail_velocity_if_outside_box(
                     current_box, outside_expanded_box
@@ -1073,13 +1004,6 @@ class FramePostProcessor:
                     thickness=10,
                     label="fine_tracking_box",
                 )
-                # vis.plot_rectangle(
-                #     online_im,
-                #     current_box,
-                #     color=(0, 0, 0),
-                #     thickness=10,
-                #     label="clamped_pre_aspect",
-                # )
 
             fine_tracking_box = current_box.clone()
 
@@ -1236,11 +1160,9 @@ class FramePostProcessor:
                     6 + gaussian_add
                 )
                 unsticky_size = sticky_size * 3 / 4
-                # movement_speed_divisor = 1.0
             else:
                 sticky_size = self._hockey_mom._camera_box_max_speed_x * 5
                 unsticky_size = sticky_size / 2
-                # movement_speed_divisor = 3.0
 
             if self._last_sticky_temporal_box is not None:
                 # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
@@ -1254,7 +1176,6 @@ class FramePostProcessor:
                         thickness=6,
                     )
                     # sticky circle
-                    # cc = center(current_box)
                     cc = center(fine_tracking_box)
                     cl = center(self._last_sticky_temporal_box)
 
