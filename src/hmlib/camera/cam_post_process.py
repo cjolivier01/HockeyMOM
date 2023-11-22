@@ -563,7 +563,7 @@ class FramePostProcessor:
         self._center_dx_shift = 0
         timer = Timer()
 
-        if self._args.crop_output_image and not self._args.fake_crop_output_image:
+        if self._args.crop_output_image:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = (
                 self._hockey_mom.video.height * self._final_aspect_ratio
