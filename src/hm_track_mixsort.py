@@ -395,7 +395,7 @@ def main(exp, args, num_gpu):
                     max_frames=None,
                     num_workers=1,
                 )
-                # Create the MOT video data loader, passing it the 
+                # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 dataloader = datasets.MOTLoadVideoWithOrig(
                     path=None,
@@ -482,6 +482,7 @@ def main(exp, args, num_gpu):
             device="cpu",
             data_type="mot",
             use_fork=False,
+            async_post_processing=True,
         )
 
         evaluator = MOTEvaluator(

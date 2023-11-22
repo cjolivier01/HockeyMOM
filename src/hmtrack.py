@@ -75,6 +75,7 @@ class HmPostProcessor:
         data_type: str = "mot",
         postprocess: bool = True,
         use_fork: bool = False,
+        async_post_processing: bool = False,
     ):
         self._opt = opt
         self._args = args
@@ -82,6 +83,7 @@ class HmPostProcessor:
         self._postprocess = postprocess
         self._postprocessor = None
         self._use_fork = use_fork
+        self._async_post_processing = async_post_processing
         self._fps = fps
         self._save_dir = save_dir
         self._hockey_mom = None
@@ -256,6 +258,7 @@ class HmPostProcessor:
                 opt=self._opt,
                 args=self._args,
                 use_fork=self._use_fork,
+                async_post_processing=self._async_post_processing,
             )
             self._postprocessor.start()
 
