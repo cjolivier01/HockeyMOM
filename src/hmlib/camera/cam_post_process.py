@@ -677,6 +677,8 @@ class FramePostProcessor:
         self._hockey_mom.reset_clusters()
 
         def _kmeans_cuda_device():
+            if self._use_fork:
+                return "cpu"
             return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
             # return self._device
 

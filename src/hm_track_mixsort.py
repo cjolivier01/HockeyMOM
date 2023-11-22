@@ -481,7 +481,7 @@ def main(exp, args, num_gpu):
             # device="cuda",
             device="cpu",
             data_type="mot",
-            use_fork=False,
+            use_fork=True,
             async_post_processing=True,
         )
 
