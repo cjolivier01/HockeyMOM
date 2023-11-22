@@ -286,7 +286,7 @@ class VideoOutput:
                     img=online_im, angle=angle, rotation_point=rotation_point
                 )
                 duration = time.time() - start
-                #print(f"rotate image took {duration} seconds")
+                # print(f"rotate image took {duration} seconds")
 
             #
             # Crop to output video frame image
@@ -417,9 +417,10 @@ class VideoOutput:
 
                 if imgproc_data.frame_id % 100 == 0:
                     logger.info(
-                        "*** Overall performance, frame {} ({:.2f} fps)".format(
+                        "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
                             imgproc_data.frame_id,
                             1.0 / max(1e-5, final_all_timer.average_time),
+                            get_open_files_count(),
                         )
                     )
 
