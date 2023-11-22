@@ -572,6 +572,7 @@ class StitchDataset:
             self._from_coordinator_queue.put(("ok", self._next_requested_frame))
             self._next_requested_frame += 1
         self._coordinator_thread = threading.Thread(
+            name="StitchCoordinator",
             target=self._coordinator_thread_worker,
             args=(self._next_requested_frame,),
         )
@@ -598,8 +599,9 @@ class StitchDataset:
                 next_requested_frame += 1
             self._from_coordinator_queue.put(StopIteration())
         except Exception as ex:
-            print(ex)
-            traceback.print_exc()
+            if not isinstance(ex, StopIteration):
+                print(ex)
+                traceback.print_exc()
             self._from_coordinator_queue.put(ex)
 
     @staticmethod

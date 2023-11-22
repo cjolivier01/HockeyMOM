@@ -74,6 +74,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
+        self.cap = None
         self._thread = None
         self._embedded_data_loader = embedded_data_loader
         assert self._embedded_data_loader is None or path is None
@@ -210,7 +211,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
-            _, img0 = self.cap.read()  # BGR
+            #_, img0 = self.cap.read()  # BGR
+            _, img0 = self._read_next_image()
             if img0 is None:
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
@@ -263,7 +265,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             [self._path],
         ]
 
-        # TOD: remove ascontiguousarray?
+        # TODO: remove ascontiguousarray?
         img /= 255.0
 
         self._count += self._batch_size
