@@ -72,9 +72,6 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::HMPostprocessConfig::scale_to_original_image)
       .def_readwrite(
           "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
-      .def_readwrite(
-          "fake_crop_output_image",
-          &hm::HMPostprocessConfig::fake_crop_output_image)
       .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
       .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);
 

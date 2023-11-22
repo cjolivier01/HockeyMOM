@@ -7,16 +7,20 @@ from __future__ import print_function
 import time
 import os
 import cv2
-import argparse
 import numpy as np
 import traceback
 import multiprocessing
 import queue
+import PIL
+from typing import List, Tuple
 
 from pathlib import Path
 
 import torch
 import torchvision as tv
+
+from torchvision.transforms import functional as F
+from PIL import Image
 
 from threading import Thread
 
@@ -28,10 +32,75 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.tracker.multitracker import torch_device
 
 from hmlib.utils.box_functions import (
-    width,
-    height,
     center,
 )
+
+
+def image_width(img):
+    if isinstance(img, torch.Tensor):
+        assert img.shape[-1] == 3
+        if len(img.shape) == 4:
+            return img.shape[2]
+        return img.shape[1]
+    elif isinstance(img, PIL.Image.Image):
+        return img.size[0]
+    assert img.shape[-1] == 3
+    if len(img.shape) == 4:
+        return img.shape[2]
+    return img.shape[1]
+
+
+def image_height(img):
+    if isinstance(img, torch.Tensor):
+        assert img.shape[-1] == 3
+        if len(img.shape) == 4:
+            return img.shape[1]
+        return img.shape[0]
+    elif isinstance(img, PIL.Image.Image):
+        return img.size[1]
+    assert img.shape[-1] == 3
+    if len(img.shape) == 4:
+        return img.shape[1]
+    return img.shape[0]
+
+
+def rotate_image(img, angle: float, rotation_point: List[int]):
+    rotation_point = [int(i) for i in rotation_point]
+    if isinstance(img, PIL.Image.Image):
+        img = img.rotate(
+            angle, resample=Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
+        )
+    else:
+        rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
+        img = cv2.warpAffine(
+            img, rotation_matrix, (image_width(img), image_height(img))
+        )
+    return img
+
+
+def crop_image(img, left, top, right, bottom):
+    if isinstance(img, PIL.Image.Image):
+        return img.crop((left, top, right, bottom))
+    return img[top : bottom + 1, left : right + 1, 0:3]
+
+
+def resize_image(img, new_width: int, new_height: int):
+    if isinstance(img, PIL.Image.Image):
+        return img.resize((int(new_width), int(new_height)))
+    return cv2.resize(
+        img, dsize=(int(new_width), int(new_height)), interpolation=cv2.INTER_CUBIC
+    )
+
+
+def paste_watermark_at_position(
+    dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int
+):
+    watermark_height = image_height(watermark_rgb_channels)
+    watermark_width = image_width(watermark_rgb_channels)
+    dest_image[y : y + watermark_height, x : x + watermark_width] = dest_image[
+        y : y + watermark_height, x : x + watermark_width
+    ] * (1 - watermark_mask / 255.0) + watermark_rgb_channels * (watermark_mask / 255.0)
+    return dest_image
 
 
 class ImageProcData:
@@ -62,8 +131,10 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
+        device: str = "cpu",
     ):
         self._args = args
+        self._device = device
         self._fps = fps
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
@@ -183,20 +254,26 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+            # online_im = Image.fromarray(online_im)
+            # src_image_width = online_im.shape[1]
+            # src_image_height = online_im.shape[0]
+            src_image_width = image_width(online_im)
+            src_image_height = image_height(online_im)
 
+            #
+            # Perspective rotation
+            #
             if self._args.fixed_edge_rotation:
+                start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
-                width_center = online_im.shape[1] / 2
+                width_center = src_image_width / 2
                 if rotation_point[0] < width_center:
-                    #     dist_from_center_pct = (width_center - rotation_point[0])/width_center
                     mult = -1
                 else:
-                    #     dist_from_center_pct = (rotation_point[0] - width_center)/width_center
                     mult = 1
-                # angle = float(self._args.fixed_edge_rotation_angle)* dist_from_center_pct * mult
 
                 gaussian = 1 - self._get_gaussian(
-                    online_im.shape[1]
+                    src_image_width
                 ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
                 # print(f"gaussian={gaussian}")
                 angle = (
@@ -205,11 +282,15 @@ class VideoOutput:
                 )
                 angle *= mult
                 # print(f"angle={angle}")
-                rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
-                online_im = cv2.warpAffine(
-                    online_im, rotation_matrix, (online_im.shape[1], online_im.shape[0])
+                online_im = rotate_image(
+                    img=online_im, angle=angle, rotation_point=rotation_point
                 )
+                duration = time.time() - start
+                #print(f"rotate image took {duration} seconds")
 
+            #
+            # Crop to output video frame image
+            #
             if self._args.crop_output_image:
                 # assert torch.isclose(
                 #     aspect_ratio(current_box), self._output_aspect_ratio,
@@ -221,36 +302,25 @@ class VideoOutput:
                 y2 = intbox[3]
                 x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
                 assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                if y1 >= online_im.shape[0] or y2 >= online_im.shape[0]:
+                if y1 >= src_image_height or y2 >= src_image_height:
                     print(
-                        f"y1 ({y1}) or y2 ({y2}) is too large, should be < {online_im.shape[0]}"
+                        f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
                     )
                     # assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                    y1 = min(y1, online_im.shape[0])
-                    y2 = min(y2, online_im.shape[0])
-                if x1 >= online_im.shape[1] or x2 >= online_im.shape[1]:
+                    y1 = min(y1, src_image_height)
+                    y2 = min(y2, src_image_height)
+                if x1 >= src_image_width or x2 >= src_image_width:
                     print(
-                        f"x1 {x1} or x2 {x2} is too large, should be < {online_im.shape[1]}"
+                        f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
                     )
                     # assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
-                    x1 = min(x1, online_im.shape[1])
-                    x2 = min(x2, online_im.shape[1])
+                    x1 = min(x1, src_image_width)
+                    x2 = min(x2, src_image_width)
 
-                if not self._args.fake_crop_output_image:
-                    if self._args.use_cuda:
-                        gpu_image = torch.Tensor(online_im)[
-                            y1 : y2 + 1, x1 : x2 + 1, 0:3
-                        ].to(self._device)
-                        # gpu_image = torch.Tensor(online_im).to("cuda:1")
-                        # gpu_image = gpu_image[y1:y2,x1:x2,0:3]
-                        # gpu_image = cv2.cuda_GpuMat(online_im)
-                        # gpu_image = cv2.cuda_GpuMat(gpu_image, (x1, y1, x2, y2))
-                    else:
-                        online_im = online_im[y1 : y2 + 1, x1 : x2 + 1, 0:3]
-                if not self._args.fake_crop_output_image and (
-                    online_im.shape[0] != self._output_frame_height
-                    or online_im.shape[1] != self._output_frame_width
-                ):
+                online_im = crop_image(online_im, x1, y1, x2, y2)
+                if image_height(online_im) != int(
+                    self._output_frame_height
+                ) or image_width(online_im) != int(self._output_frame_width):
                     if self._args.use_cuda:
                         if tv_resizer is None:
                             tv_resizer = tv.transforms.Resize(
@@ -261,19 +331,21 @@ class VideoOutput:
                             )
                         gpu_image = tv_resizer.forward(gpu_image)
                     else:
-                        online_im = cv2.resize(
-                            online_im,
-                            dsize=(
-                                int(self._output_frame_width),
-                                int(self._output_frame_height),
-                            ),
-                            interpolation=cv2.INTER_CUBIC,
+                        online_im = resize_image(
+                            img=online_im,
+                            new_width=self._output_frame_width,
+                            new_height=self._output_frame_height,
                         )
-                assert online_im.shape[0] == self._output_frame_height_int
-                assert online_im.shape[1] == self._output_frame_width_int
+                assert image_height(online_im) == self._output_frame_height_int
+                assert image_width(online_im) == self._output_frame_width_int
                 if self._args.use_cuda:
                     # online_im = gpu_image.download()
                     online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
+
+            # Numpy array after here
+            if isinstance(online_im, PIL.Image.Image):
+                online_im = np.array(online_im)
+
             #
             # Watermark
             #
@@ -284,15 +356,22 @@ class VideoOutput:
                     - self.watermark_width
                     - self.watermark_width / 10
                 )
-                online_im[
-                    y : y + self.watermark_height, x : x + self.watermark_width
-                ] = online_im[
-                    y : y + self.watermark_height, x : x + self.watermark_width
-                ] * (
-                    1 - self.watermark_mask / 255.0
-                ) + self.watermark_rgb_channels * (
-                    self.watermark_mask / 255.0
+                online_im = paste_watermark_at_position(
+                    online_im,
+                    watermark_rgb_channels=self.watermark_rgb_channels,
+                    watermark_mask=self.watermark_mask,
+                    x=x,
+                    y=y,
                 )
+                # online_im[
+                #     y : y + self.watermark_height, x : x + self.watermark_width
+                # ] = online_im[
+                #     y : y + self.watermark_height, x : x + self.watermark_width
+                # ] * (
+                #     1 - self.watermark_mask / 255.0
+                # ) + self.watermark_rgb_channels * (
+                #     self.watermark_mask / 255.0
+                # )
 
             #
             # Frame Number

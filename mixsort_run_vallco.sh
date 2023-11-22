@@ -45,13 +45,14 @@ HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
 
 echo "Experiment name: ${EXP_NAME}"
 
-LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
+OMP_NUM_THREADS=16 \
+  LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hm_track_mixsort.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=32 -d=1 \
+  -b=4 -d=1 \
   --infer \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} \

@@ -226,11 +226,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        # self.crop_output_image = False
-
-        # Don't crop image, but performa of the calculations
-        # except for the actual image manipulations
-        self.fake_crop_output_image = False
+        self.crop_output_image = True
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
@@ -1405,16 +1401,16 @@ class FramePostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            if (
-                self._video_output_boxtrack is not None
-                and self._current_roi is not None
-            ):
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=self._current_roi_aspect.bounding_box(),
-                )
-                self._video_output_boxtrack.append(imgproc_data)
+            # if (
+            #     self._video_output_boxtrack is not None
+            #     and self._current_roi is not None
+            # ):
+            #     imgproc_data = ImageProcData(
+            #         frame_id=frame_id.item(),
+            #         img=online_im,
+            #         current_box=self._current_roi_aspect.bounding_box(),
+            #     )
+            #     self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):
