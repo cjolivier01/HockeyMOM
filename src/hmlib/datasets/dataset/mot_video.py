@@ -75,7 +75,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
         self.cap = None
+        self._mapping_offset = None
         self._thread = None
+        self._scale_inscribed_to_original = None
         self._embedded_data_loader = embedded_data_loader
         assert self._embedded_data_loader is None or path is None
 
@@ -190,6 +192,32 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             except StopIteration:
                 return False, None
 
+    def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
+        # [0:4] detections are tlbr
+        if len(yolox_detections) and yolox_detections[0] is not None:
+            for i in range(len(yolox_detections)):
+                dets = yolox_detections[i]
+                # Offset the boxes
+                if self._mapping_offset is None:
+                    self._mapping_offset = torch.tensor(
+                        [
+                            self.letterbox_dw,
+                            self.letterbox_dh,
+                            self.letterbox_dw,
+                            self.letterbox_dh,
+                        ],
+                        dtype=dets.dtype,
+                        device=dets.device,
+                    )
+                    if self._scale_inscribed_to_original.device != dets.device:
+                        self._scale_inscribed_to_original = (
+                            self._scale_inscribed_to_original.to(dets.device)
+                        )
+                yolox_detections[i][:, 0:4] -= self._mapping_offset
+                # Scale the width and height
+                yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
+        return yolox_detections
+
     def _get_next_batch(self):
         # TODO: Support other batch sizes
         # if self._count and self._count % 20 == 0:
@@ -211,7 +239,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
-            #_, img0 = self.cap.read()  # BGR
+            # _, img0 = self.cap.read()  # BGR
             _, img0 = self._read_next_image()
             if img0 is None:
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
@@ -238,6 +266,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
+
             frames_inscribed_images.append(
                 torch.from_numpy(inscribed_image.transpose(2, 0, 1))
             )
@@ -267,6 +296,19 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
         # TODO: remove ascontiguousarray?
         img /= 255.0
+
+        # Set up scaling on the first pass
+        if self._scale_inscribed_to_original is None:
+            self._scale_inscribed_to_original = torch.tensor(
+                (inscribed_image.shape[3], inscribed_image.shape[2]),
+                dtype=torch.float32,
+            ) / torch.tensor(
+                (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
+            )
+            self._scale_inscribed_to_original = torch.cat(
+                (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
+                dim=0,
+            )
 
         self._count += self._batch_size
         # self._timer.toc()

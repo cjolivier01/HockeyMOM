@@ -5,6 +5,7 @@ from __future__ import print_function
 import os
 import numpy as np
 import torch
+import cv2
 
 # from PIL import Image
 
@@ -46,6 +47,9 @@ def to_rgb_non_planar(image):
         ):
             # Assuming it is planar
             image = torch.squeeze(image, dim=0).permute(1, 2, 0)
+        elif len(image.shape) == 3 and image.shape[0] == 3:
+            # Assuming it is planar
+            image = image.permute(1, 2, 0)
     return image
 
 
@@ -87,10 +91,6 @@ class HmPostProcessor:
         self._fps = fps
         self._save_dir = save_dir
         self._hockey_mom = None
-        self._image_scale_array = None
-        self.dw = 0
-        self.dh = 0
-        self._scale_inscribed_to_original = 1
         self._device = device
         self._counter = 0
 
@@ -106,7 +106,6 @@ class HmPostProcessor:
     def _maybe_init(
         self,
         frame_id,
-        info_imgs,
         letterbox_img,
         inscribed_img,
         original_img,
@@ -114,7 +113,6 @@ class HmPostProcessor:
         if self._postprocessor is None:
             self.on_first_image(
                 frame_id,
-                info_imgs,
                 letterbox_img,
                 inscribed_img,
                 original_img,
@@ -128,8 +126,8 @@ class HmPostProcessor:
         online_ids,
         detections,
         info_imgs,
-        img,
-        inscribed_image,
+        letterbox_img,
+        inscribed_img,
         original_img,
         online_scores,
     ):
@@ -138,101 +136,38 @@ class HmPostProcessor:
             print(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return detections, online_tlwhs
-        img = to_rgb_non_planar(img).cpu()
+        letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
         original_img = to_rgb_non_planar(original_img)
-        inscribed_image = to_rgb_non_planar(inscribed_image)
+        inscribed_img = to_rgb_non_planar(inscribed_img)
         if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
             online_tlwhs = torch.stack(
-                [_pt_tensor(t, device=inscribed_image.device) for t in online_tlwhs]
+                [_pt_tensor(t, device=inscribed_img.device) for t in online_tlwhs]
             ).to(self._device)
         self._maybe_init(
             frame_id,
-            info_imgs,
-            img,
-            inscribed_image,
+            letterbox_img,
+            inscribed_img,
             original_img,
         )
-        if self._args.scale_to_original_image:
-            self._map_to_original_image_coords(online_tlwhs)
         if (
             not self._args.scale_to_original_image
-            and isinstance(img, torch.Tensor)
-            and img.dtype != torch.uint8
+            and isinstance(letterbox_img, torch.Tensor)
+            and letterbox_img.dtype != torch.uint8
         ):
-            img *= 255
-            img = img.clip(min=0, max=255).to(torch.uint8)
+            letterbox_img *= 255
+            letterbox_img = letterbox_img.clip(min=0, max=255).to(torch.uint8)
 
         self._postprocessor.send(
             online_tlwhs,
             torch.tensor(online_ids, dtype=torch.int64),
             detections,
             info_imgs,
-            img,
+            letterbox_img,
             original_img,
         )
         return detections, online_tlwhs
 
-    def map_to_original_image_coords(
-        self,
-        online_tlwhs: torch.Tensor,
-        frame_id: torch.Tensor,
-        info_imgs: torch.Tensor,
-        letterbox_img: torch.Tensor,
-        inscribed_img: torch.Tensor,
-        original_img: torch.Tensor,
-    ):
-        self._maybe_init(
-            frame_id,
-            info_imgs,
-            img,
-            inscribed_image,
-            original_img,
-        )
-        return self._map_to_original_image_coords(online_tlwhs)
-
-    def _map_to_original_image_coords(self, online_tlwhs: torch.Tensor):
-        if len(online_tlwhs):
-            # Offset the boxes
-            online_tlwhs[:, 0] -= self.dw
-            online_tlwhs[:, 1] -= self.dh
-            # Scale the width and height
-            online_tlwhs /= self._scale_inscribed_to_original
-        return online_tlwhs
-
-    def on_first_image(
-        self, frame_id, info_imgs, img, inscribed_image, original_img, device
-    ):
-        _, _, self.dw, self.dh = datasets.calculate_letterbox(
-            shape=inscribed_image.shape, height=img.shape[0], width=img.shape[1]
-        )
-        if self._args.scale_to_original_image and self._image_scale_array is None:
-            self._scale_processed_to_inscribed = make_scale_array(
-                from_img=img,
-                to_img=inscribed_image,
-            )
-            self._scale_processed_to_inscribed = torch.cat(
-                (
-                    self._scale_processed_to_inscribed,
-                    self._scale_processed_to_inscribed,
-                ),
-                dim=0,
-            ).to(device)
-            self._scale_inscribed_to_original = make_scale_array(
-                from_img=inscribed_image,
-                to_img=original_img,
-            )
-            self._scale_inscribed_to_original = torch.cat(
-                (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
-                dim=0,
-            ).to(device)
-
-            self._image_scale_array = make_scale_array(
-                from_img=inscribed_image,
-                to_img=original_img,
-            )
-            self._image_scale_array = torch.cat(
-                (self._image_scale_array, self._image_scale_array), dim=0
-            ).to(device)
+    def on_first_image(self, frame_id, img, inscribed_image, original_img, device):
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:
                 self._hockey_mom = HockeyMOM(

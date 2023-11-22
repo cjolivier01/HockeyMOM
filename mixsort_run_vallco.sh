@@ -1,26 +1,26 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 
 #
 # Models
 #
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_sports_train.pth"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
-#PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
-PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
+PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
-#MIXFORMER_SCRIPT="mixformer_deit_hockey"
-MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+MIXFORMER_SCRIPT="mixformer_deit_hockey"
+#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
 #
 #VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
 #VIDEO="/mnt/data/Videos/roseville/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/CHI_VS_TOR/003.mp4"
+#VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/CHI_VS_TOR/003.mp4"i
 #VIDEO="/mnt/data/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.avi"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
@@ -34,9 +34,9 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
 
-START_FRAME=0
+#START_FRAME=0
 #START_FRAME=1900
-#START_FRAME=2900
+START_FRAME=2900
 
 #HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
