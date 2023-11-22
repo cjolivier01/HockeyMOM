@@ -94,10 +94,6 @@ struct HMPostprocessConfig {
   // Crop the final image to the camera window (possibly zoomed)
   bool crop_output_image = true && !BASIC_DEBUGGING;
 
-  // Don't crop image, but performa of the calculations
-  // except for the actual image manipulations
-  bool fake_crop_output_image = false;
-
   // Use cuda for final image resizing (if possible)
   bool use_cuda = false;
 
