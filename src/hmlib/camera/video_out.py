@@ -255,8 +255,6 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             # online_im = Image.fromarray(online_im)
-            # src_image_width = online_im.shape[1]
-            # src_image_height = online_im.shape[0]
             src_image_width = image_width(online_im)
             src_image_height = image_height(online_im)
 

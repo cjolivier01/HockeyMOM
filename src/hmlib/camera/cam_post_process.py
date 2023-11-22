@@ -438,8 +438,6 @@ class FramePostProcessor:
         self._fps = fps
         self._opt = opt
         self._thread = None
-        # self._imgproc_queue = create_queue(mp=use_fork)
-        # self._imgproc_thread = None
         self._use_fork = use_fork
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float32)
         self._output_video = None
@@ -448,6 +446,7 @@ class FramePostProcessor:
         self._device = device
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
+        self._timer = Timer()
 
         self._save_dir = save_dir
 
@@ -633,6 +632,7 @@ class FramePostProcessor:
         return self._hockey_mom._video_frame.bounding_box()
 
     def cam_postprocess(self, online_targets_and_img):
+        self._timer.tic()
         max_dx_shrink_size = 100  # ???
 
         # if frame_id % 20 == 0:
@@ -1314,6 +1314,16 @@ class FramePostProcessor:
             # plt.scatter(x, y, c=kmeans.labels_)
             # plt.show()
 
+            self._timer.toc()
+            if frame_id.item() % 20 == 0:
+                logger.info(
+                    "Camera Processing frame {} ({:.2f} fps)".format(
+                        frame_id.item(), 1.0 / max(1e-5, self._timer.average_time)
+                    )
+                )
+                self._timer = Timer()
+
+
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
                 imgproc_data = ImageProcData(
@@ -1332,7 +1342,6 @@ class FramePostProcessor:
             #         current_box=self._current_roi_aspect.bounding_box(),
             #     )
             #     self._video_output_boxtrack.append(imgproc_data)
-
 
 def _scalar_like(v, device):
     return torch.tensor(v, dtype=torch.float32, device=device)
