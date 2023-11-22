@@ -27,7 +27,6 @@ from hmlib.opts import opts
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.cam_post_process import (
     FramePostProcessor,
-    make_scale_array,
 )
 
 

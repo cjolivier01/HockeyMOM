@@ -368,10 +368,10 @@ def scale_box(box, from_img, to_img):
     return new_box
 
 
-def make_scale_array(from_img, to_img):
-    from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
-    to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
-    return from_sz / to_sz
+# def make_scale_array(from_img, to_img):
+#     from_sz = torch.tensor([from_img.shape[1], from_img.shape[0]], dtype=torch.float32)
+#     to_sz = torch.tensor([to_img.shape[1], to_img.shape[0]], dtype=torch.float32)
+#     return from_sz / to_sz
 
 
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):

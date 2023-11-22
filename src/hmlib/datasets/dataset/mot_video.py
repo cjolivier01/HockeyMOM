@@ -194,9 +194,11 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
         # [0:4] detections are tlbr
-        if len(yolox_detections) and yolox_detections[0] is not None:
+        if len(yolox_detections):
             for i in range(len(yolox_detections)):
                 dets = yolox_detections[i]
+                if dets is None:
+                    continue
                 # Offset the boxes
                 if self._mapping_offset is None:
                     self._mapping_offset = torch.tensor(
