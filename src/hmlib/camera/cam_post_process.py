@@ -26,12 +26,15 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox
 from hmlib.camera.video_out import ImageProcData, VideoOutput
+from hmlib.camera.clusters import ClusterSearch
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.tracking_utils.boundaries import BoundaryLines
 
 from hmlib.utils.box_functions import (
     width,
     height,
     center,
+    center_batch,
     center_x_distance,
     center_distance,
     aspect_ratio,
@@ -251,108 +254,108 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.bottom_border_lines = RINK_CONFIG[rink]["borders"]["lower"]
 
 
-class BoundaryLines:
-    def __init__(self, upper_border_lines, lower_border_lines):
-        if upper_border_lines:
-            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
-            self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
-        else:
-            self._upper_borders = None
-            self._upper_line_vectors = None
-        if lower_border_lines:
-            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
-            self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
-        else:
-            self._lower_borders = None
-            self._lower_line_vectors = None
+# class BoundaryLines:
+#     def __init__(self, upper_border_lines, lower_border_lines):
+#         if upper_border_lines:
+#             self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
+#             self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
+#         else:
+#             self._upper_borders = None
+#             self._upper_line_vectors = None
+#         if lower_border_lines:
+#             self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
+#             self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
+#         else:
+#             self._lower_borders = None
+#             self._lower_line_vectors = None
 
-    def tlbr_to_line_vectors(self, tlbr_batch):
-        # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
+#     def tlbr_to_line_vectors(self, tlbr_batch):
+#         # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
 
-        top_vectors = torch.stack(
-            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
-        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
-        left_vectors = torch.stack(
-            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
-        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
-        bottom_vectors = torch.stack(
-            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
-        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
-        right_vectors = torch.stack(
-            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
-        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
+#         top_vectors = torch.stack(
+#             (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
+#         ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
+#         left_vectors = torch.stack(
+#             (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
+#         ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
+#         bottom_vectors = torch.stack(
+#             (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
+#         ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
+#         right_vectors = torch.stack(
+#             (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
+#         ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
 
-        # Concatenating vectors for all sides
-        line_vectors = torch.stack(
-            (top_vectors, left_vectors, bottom_vectors, right_vectors), dim=1
-        )
+#         # Concatenating vectors for all sides
+#         line_vectors = torch.stack(
+#             (top_vectors, left_vectors, bottom_vectors, right_vectors), dim=1
+#         )
 
-        return line_vectors
+#         return line_vectors
 
-    def is_point_too_high(self, point):
-        return False
+#     def is_point_too_high(self, point):
+#         return False
 
-    def is_point_too_low(self, point):
-        too_low = self.is_point_below_line(point)
-        return False
+#     def is_point_too_low(self, point):
+#         too_low = self.is_point_below_line(point)
+#         return False
 
-    def is_point_outside(self, point):
-        return self.is_point_above_line(point) or self.is_point_below_line(point)
+#     def is_point_outside(self, point):
+#         return self.is_point_above_line(point) or self.is_point_below_line(point)
 
-    def _is_point_above_line(self, point, line_start, line_end):
-        # Create vectors
-        line_vec = line_end - line_start
-        point_vec = point - line_start
+#     def _is_point_above_line(self, point, line_start, line_end):
+#         # Create vectors
+#         line_vec = line_end - line_start
+#         point_vec = point - line_start
 
-        # Compute the cross product
-        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
+#         # Compute the cross product
+#         cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
 
-        # Check if the point is above the line
-        return cross_product_z < 0
+#         # Check if the point is above the line
+#         return cross_product_z < 0
 
-    def is_point_above_line(self, point):
-        if self._upper_borders is None:
-            return False
-        point = point.cpu()
-        x = point[0]
-        # y = point[1]
-        for i, high_border in enumerate(self._upper_borders):
-            if x >= high_border[0] and x <= high_border[2]:
-                if self._is_point_above_line(point, high_border[0:2], high_border[2:4]):
-                    return True
-        return False
+#     def is_point_above_line(self, point):
+#         if self._upper_borders is None:
+#             return False
+#         point = point.cpu()
+#         x = point[0]
+#         # y = point[1]
+#         for i, high_border in enumerate(self._upper_borders):
+#             if x >= high_border[0] and x <= high_border[2]:
+#                 if self._is_point_above_line(point, high_border[0:2], high_border[2:4]):
+#                     return True
+#         return False
 
-    def point_batch_check_point_above_segents(self, points):
-        lines_start = self._upper_borders[:, 0:2]
-        point_vecs = points[0] - lines_start
-        cross_z = (
-            self._upper_line_vectors[:, 0] * point_vecs[:, 1]
-            - self._upper_line_vectors[:, 1] * point_vecs[:, 0]
-        )
-        return cross_z < 0
+#     def point_batch_check_point_above_segents(self, points):
+#         lines_start = self._upper_borders[:, 0:2]
+#         point_vecs = points[0] - lines_start
+#         cross_z = (
+#             self._upper_line_vectors[:, 0] * point_vecs[:, 1]
+#             - self._upper_line_vectors[:, 1] * point_vecs[:, 0]
+#         )
+#         return cross_z < 0
 
-    def is_point_below_line(self, point):
-        if self._lower_borders is None:
-            return False
-        point = point.cpu()
-        x = point[0]
-        # y = point[1]
-        for i, low_border in enumerate(self._lower_borders):
-            if x >= low_border[0] and x <= low_border[2]:
-                if self._is_point_below_line(point, low_border[0:2], low_border[2:4]):
-                    return True
-        return False
+#     def is_point_below_line(self, point):
+#         if self._lower_borders is None:
+#             return False
+#         point = point.cpu()
+#         x = point[0]
+#         # y = point[1]
+#         for i, low_border in enumerate(self._lower_borders):
+#             if x >= low_border[0] and x <= low_border[2]:
+#                 if self._is_point_below_line(point, low_border[0:2], low_border[2:4]):
+#                     return True
+#         return False
 
-    def _is_point_below_line(self, point, line_start, line_end):
-        # Create vectors
-        line_vec = line_end - line_start
-        point_vec = point - line_start
+#     def _is_point_below_line(self, point, line_start, line_end):
+#         # Create vectors
+#         line_vec = line_end - line_start
+#         point_vec = point - line_start
 
-        # Compute the cross product
-        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
+#         # Compute the cross product
+#         cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
 
-        # Check if the point is below the line
-        return cross_product_z > 0
+#         # Check if the point is below the line
+#         return cross_product_z > 0
 
 
 def scale_box(box, from_img, to_img):
@@ -444,6 +447,7 @@ class FramePostProcessor:
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
         self._timer = Timer()
+        self._cluster_man = None
 
         self._save_dir = save_dir
 
@@ -628,6 +632,12 @@ class FramePostProcessor:
     def get_arena_box(self):
         return self._hockey_mom._video_frame.bounding_box()
 
+    def _kmeans_cuda_device(self):
+        if self._use_fork:
+            return "cpu"
+        return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+        # return self._device
+
     def cam_postprocess(self, online_targets_and_img):
         self._timer.tic()
         max_dx_shrink_size = 100  # ???
@@ -671,17 +681,31 @@ class FramePostProcessor:
 
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
-        self._hockey_mom.reset_clusters()
+        if self._cluster_man is None:
+            self._cluster_man = ClusterSearch(
+                sizes=[3, 2], device=self._kmeans_cuda_device()
+            )
 
-        def _kmeans_cuda_device():
-            if self._use_fork:
-                return "cpu"
-            return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-            # return self._device
+        # self._cluster_man.reset_clusters()
 
-        kmeans_device = _kmeans_cuda_device()
-        self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
-        self._hockey_mom.calculate_clusters(n_clusters=3, device=kmeans_device)
+        # kmeans_device = _kmeans_cuda_device()
+        self._cluster_man.calculate_all_clusters(
+            center_points=center_batch(online_tlwhs), ids=online_ids
+        )
+        # self._cluster_man.calculate_clusters(n_clusters=2)
+        # self._cluster_man.calculate_clusters(n_clusters=3)
+
+        # self._hockey_mom.reset_clusters()
+
+        # def _kmeans_cuda_device():
+        #     if self._use_fork:
+        #         return "cpu"
+        #     return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+        #     # return self._device
+
+        # kmeans_device = _kmeans_cuda_device()
+        # self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
+        # self._hockey_mom.calculate_clusters(n_clusters=3, device=kmeans_device)
 
         if self._args.show_image or self._save_dir is not None:
             if self._args.scale_to_original_image:
@@ -734,10 +758,10 @@ class FramePostProcessor:
                 )
 
             # Examine as 2 clusters
-            largest_cluster_ids_2 = self._hockey_mom.prune_not_in_largest_cluster(
-                n_clusters=2, ids=online_ids
+            largest_cluster_ids_2 = self._cluster_man.prune_not_in_largest_cluster(
+                num_clusters=2, ids=online_ids
             )
-            if largest_cluster_ids_2:
+            if len(largest_cluster_ids_2):
                 largest_cluster_ids_box2 = self._hockey_mom.get_current_bounding_box(
                     largest_cluster_ids_2
                 )
@@ -753,10 +777,10 @@ class FramePostProcessor:
                 largest_cluster_ids_box2 = None
 
             # Examine as 3 clusters
-            largest_cluster_ids_3 = self._hockey_mom.prune_not_in_largest_cluster(
-                n_clusters=3, ids=online_ids
+            largest_cluster_ids_3 = self._cluster_man.prune_not_in_largest_cluster(
+                num_clusters=3, ids=online_ids
             )
-            if largest_cluster_ids_3:
+            if len(largest_cluster_ids_3):
                 largest_cluster_ids_box3 = self._hockey_mom.get_current_bounding_box(
                     largest_cluster_ids_3
                 )
@@ -990,7 +1014,9 @@ class FramePostProcessor:
             #
             # HIJACK CURRENT ROI BOX POSITION
             #
-            current_box = self._current_roi.bounding_box()
+            current_box = self._hockey_mom.clamp(
+                self._current_roi.bounding_box().clone()
+            )
 
             #
             # Aspect Ratio
@@ -1323,7 +1349,6 @@ class FramePostProcessor:
                 )
                 self._timer = Timer()
 
-
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
                 imgproc_data = ImageProcData(
@@ -1342,6 +1367,7 @@ class FramePostProcessor:
             #         current_box=self._current_roi_aspect.bounding_box(),
             #     )
             #     self._video_output_boxtrack.append(imgproc_data)
+
 
 def _scalar_like(v, device):
     return torch.tensor(v, dtype=torch.float32, device=device)

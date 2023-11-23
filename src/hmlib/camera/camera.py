@@ -385,83 +385,75 @@ class HockeyMOM:
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id.item()] = hist
 
-    def reset_clusters(self):
-        self._cluster_label_ids = dict()
-        self._largest_cluster_label = dict()
-        self._cluster_counts = dict()
+    # def reset_clusters(self):
+    #     self._cluster_label_ids = dict()
+    #     self._largest_cluster_label = dict()
+    #     self._cluster_counts = dict()
 
-    def calculate_clusters(self, n_clusters, device="cuda"):
-        self._cluster_label_ids[n_clusters] = dict()
-        if len(self._online_image_center_points) < n_clusters:
-            # Minimum clusters that we can have is the minimum number of objects
-            max_clusters = len(self._online_image_center_points)
-            if not max_clusters:
-                return
-            elif max_clusters < n_clusters:
-                return
-        self._largest_cluster_label[n_clusters] = None
-        labels = None
-        if n_clusters not in self._kmeans_objects:
-            self._kmeans_objects[n_clusters] = KMeans(
-                n_clusters=n_clusters,
-                mode="euclidean",
-            )
-        torch_tensors = []
-        for n in self._online_image_center_points:
-            # print(n)
-            torch_tensors.append(n.to(device))
-        tt = torch.cat(torch_tensors, dim=0)
-        tt = torch.reshape(tt, (len(torch_tensors), 2))
-        # print(tt)
-        labels = self._kmeans_objects[n_clusters].fit_predict(tt)
-        # print(labels)
-        self._cluster_counts[n_clusters] = [0 for i in range(n_clusters)]
-        cluster_counts = self._cluster_counts[n_clusters]
-        cluster_label_ids = self._cluster_label_ids[n_clusters]
-        id_count = len(self._online_ids)
-        # trunk-ignore(bandit/B101)
-        assert id_count == labels.shape[0]
-        for i in range(id_count):
-            id = self._online_ids[i].item()
-            cluster_label = labels[i].item()
-            cluster_counts[cluster_label] += 1
-            if cluster_label not in cluster_label_ids:
-                cluster_label_ids[cluster_label] = [id]
-            else:
-                cluster_label_ids[cluster_label].append(id)
-        for cluster_label, cluster_id_list in self._cluster_label_ids[
-            n_clusters
-        ].items():
-            if self._largest_cluster_label[n_clusters] is None:
-                self._largest_cluster_label[n_clusters] = cluster_label
-            elif len(cluster_id_list) > len(
-                cluster_label_ids[self._largest_cluster_label[n_clusters]]
-            ):
-                self._largest_cluster_label[n_clusters] = cluster_label
+    # def calculate_clusters(self, n_clusters, device="cuda"):
+    #     self._cluster_label_ids[n_clusters] = dict()
+    #     if len(self._online_image_center_points) < n_clusters:
+    #         # Minimum clusters that we can have is the minimum number of objects
+    #         max_clusters = len(self._online_image_center_points)
+    #         if not max_clusters:
+    #             return
+    #         elif max_clusters < n_clusters:
+    #             return
+    #     self._largest_cluster_label[n_clusters] = None
+    #     labels = None
+    #     if n_clusters not in self._kmeans_objects:
+    #         self._kmeans_objects[n_clusters] = KMeans(
+    #             n_clusters=n_clusters,
+    #             mode="euclidean",
+    #         )
+    #     torch_tensors = []
+    #     for n in self._online_image_center_points:
+    #         # print(n)
+    #         torch_tensors.append(n.to(device))
+    #     tt = torch.cat(torch_tensors, dim=0)
+    #     tt = torch.reshape(tt, (len(torch_tensors), 2))
+    #     # print(tt)
+    #     labels = self._kmeans_objects[n_clusters].fit_predict(tt)
+    #     # print(labels)
+    #     self._cluster_counts[n_clusters] = [0 for i in range(n_clusters)]
+    #     cluster_counts = self._cluster_counts[n_clusters]
+    #     cluster_label_ids = self._cluster_label_ids[n_clusters]
+    #     id_count = len(self._online_ids)
+    #     # trunk-ignore(bandit/B101)
+    #     assert id_count == labels.shape[0]
+    #     for i in range(id_count):
+    #         id = self._online_ids[i].item()
+    #         cluster_label = labels[i].item()
+    #         cluster_counts[cluster_label] += 1
+    #         if cluster_label not in cluster_label_ids:
+    #             cluster_label_ids[cluster_label] = [id]
+    #         else:
+    #             cluster_label_ids[cluster_label].append(id)
+    #     for cluster_label, cluster_id_list in self._cluster_label_ids[
+    #         n_clusters
+    #     ].items():
+    #         if self._largest_cluster_label[n_clusters] is None:
+    #             self._largest_cluster_label[n_clusters] = cluster_label
+    #         elif len(cluster_id_list) > len(
+    #             cluster_label_ids[self._largest_cluster_label[n_clusters]]
+    #         ):
+    #             self._largest_cluster_label[n_clusters] = cluster_label
 
-    def get_largest_cluster_id_set(self, n_clusters):
-        if n_clusters not in self._largest_cluster_label:
-            return set()
-        return set(
-            self._cluster_label_ids[n_clusters][self._largest_cluster_label[n_clusters]]
-        )
+    # def get_largest_cluster_id_set(self, n_clusters):
+    #     if n_clusters not in self._largest_cluster_label:
+    #         return set()
+    #     return set(
+    #         self._cluster_label_ids[n_clusters][self._largest_cluster_label[n_clusters]]
+    #     )
 
-    def prune_not_in_largest_cluster(self, n_clusters, ids):
-        # TODO: return a tensor?
-        largest_cluster_set = self.get_largest_cluster_id_set(n_clusters)
-        result_ids = []
-        for id in ids:
-            if id.item() in largest_cluster_set:
-                result_ids.append(id)
-        return result_ids
-
-    @property
-    def largest_cluster_label(self, n_clusters):
-        return self._largest_cluster_label[n_clusters]
-
-    @property
-    def cluster_size(self, n_clusters, cluster_label):
-        return len(self._cluster_label_ids[n_clusters][cluster_label])
+    # def prune_not_in_largest_cluster(self, n_clusters, ids):
+    #     # TODO: return a tensor?
+    #     largest_cluster_set = self.get_largest_cluster_id_set(n_clusters)
+    #     result_ids = []
+    #     for id in ids:
+    #         if id.item() in largest_cluster_set:
+    #             result_ids.append(id)
+    #     return result_ids
 
     @property
     def online_image_center_points(self):

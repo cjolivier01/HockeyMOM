@@ -36,10 +36,11 @@ EXP_NAME="mixsort-run-vallco"
 
 #START_FRAME=0
 #START_FRAME=1900
-START_FRAME=2900
+#START_FRAME=2900
+START_FRAME=6200
 
 #HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
+HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
 
 #STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
