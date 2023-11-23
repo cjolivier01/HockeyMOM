@@ -1014,9 +1014,9 @@ class FramePostProcessor:
             #
             # HIJACK CURRENT ROI BOX POSITION
             #
-            current_box = self._hockey_mom.clamp(
-                self._current_roi.bounding_box().clone()
-            )
+            # current_box = self._hockey_mom.clamp(
+            #     self._current_roi.bounding_box().clone()
+            # )
 
             #
             # Aspect Ratio

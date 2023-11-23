@@ -6,7 +6,8 @@ import numpy as np
 from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
 import matplotlib.pyplot as plt
-#import pt_autograph as ptag
+
+# import pt_autograph as ptag
 
 import torch
 
@@ -19,14 +20,15 @@ from hmlib.utils.box_functions import (
     width,
     height,
     center,
-    center_x_distance,
+    # center_x_distance,
     clamp_box,
     clamp_value,
     aspect_ratio,
     make_box_at_center,
     tlwh_to_tlbr_single,
-    #translate_box_to_edge,
-    shift_box_to_edge,
+    # translate_box_to_edge,
+    # shift_box_to_edge,
+    # scale_box_to_fit,
 )
 
 # nosec B101
@@ -661,15 +663,6 @@ class HockeyMOM:
         top_left = torch.min(box1[:2], box2[:2])
         bottom_right = torch.max(box1[2:], box2[2:])
         return torch.cat([top_left, bottom_right])
-        return torch.tensor(
-            [
-                torch.min(box1[0], box2[0]),
-                torch.min(box1[1], box2[1]),
-                torch.max(box1[2], box2[2]),
-                torch.max(box1[3], box2[3]),
-            ],
-            dtype=box1.dtype,
-        )
 
     @staticmethod
     def _make_pruned_map(map, allowed_keys):
@@ -710,56 +703,7 @@ class HockeyMOM:
         box[3] = point[1] + h / 2
         return box
 
-    # def get_current_bounding_box(self, ids=None):
-    #     bounding_intbox = self._video_frame.bounding_box()
-
-    #     bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
-    #     bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
-
-    #     if ids is None:
-    #         ids = self._online_ids
-
-    #     for id in ids:
-    #         tlwh = self.get_tlwh(id)
-    #         x1 = tlwh[0]
-    #         y1 = tlwh[1]
-    #         w = tlwh[2]
-    #         h = tlwh[3]
-    #         intbox = np.array((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=np.int32)
-    #         bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
-    #         bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
-    #         bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
-    #         bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
-    #     return bounding_intbox
-
-    # def get_current_bounding_box(self, ids=None):
-    #     bounding_intbox = self._video_frame.bounding_box().tolist()
-
-    #     bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[1]
-    #     bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
-
-    #     if ids is None:
-    #         ids = self._online_ids
-
-    #     for id in ids:
-    #         tlwh = self.get_tlwh(id)
-    #         x1 = tlwh[0]
-    #         y1 = tlwh[1]
-    #         w = tlwh[2]
-    #         h = tlwh[3]
-    #         intbox = np.array((x1, y1, x1 + w + 0.5, y1 + h + 0.5), dtype=np.int32)
-    #         bounding_intbox[0] = min(bounding_intbox[0], intbox[0])
-    #         bounding_intbox[1] = min(bounding_intbox[1], intbox[1])
-    #         bounding_intbox[2] = max(bounding_intbox[2], intbox[2])
-    #         bounding_intbox[3] = max(bounding_intbox[3], intbox[3])
-    #     return torch.tensor(bounding_intbox, dtype=torch.float32)
-
     def get_current_bounding_box(self, ids=None):
-        # bounding_intbox = self._video_frame.bounding_box()
-
-        # bounding_intbox[0], bounding_intbox[2] = bounding_intbox[2], bounding_intbox[0]
-        # bounding_intbox[1], bounding_intbox[3] = bounding_intbox[3], bounding_intbox[1]
-
         if ids is None:
             ids = self._online_ids
         if len(ids) == 0:
@@ -801,15 +745,6 @@ class HockeyMOM:
             # if torch.pow(int(maximum), torch.Tensor(nw >= x)):
             return nw or 1, y
         return x, nh or 1
-
-    # def make_box_proper_aspect_ratio(
-    #     runner.maybe_run_converted():
-    #                             _inner_update,
-    #                             outputs,
-    #                             frame_index,
-    #                             self.img_size,
-    #                             imgs[frame_index].cuda()
-    #                         )
 
     def make_box_proper_aspect_ratio(
         self,
@@ -864,8 +799,8 @@ class HockeyMOM:
         if h < self._video_frame.height / 2:
             h = self._video_frame.height / 2
 
-        #assert w <= self._video_frame.width
-        #assert h <= self._video_frame.height
+        # assert w <= self._video_frame.width
+        # assert h <= self._video_frame.height
 
         if False:
             if w / h > desired_aspect_ratio:
@@ -915,8 +850,8 @@ class HockeyMOM:
         # above the max width or height (due to python sucking,
         # most likely)
         box_center = box_center.trunc()
-        #center[0] = float(int(center[0]))
-        #center[1] = float(int(center[1]))
+        # center[0] = float(int(center[0]))
+        # center[1] = float(int(center[1]))
 
         new_box = make_box_at_center(box_center, new_w, new_h)
 
@@ -1009,8 +944,6 @@ class HockeyMOM:
             box[3] -= offset
         return box
 
-        #return translate_box_to_edge(box=box, bounds=self._video_frame.bounding_box())
-
     def apply_box_velocity(self, box, scale_speed: float, verbose: bool = False):
         dx = self._current_camera_box_speed_x * scale_speed
         # dy = self._current_camera_box_speed_y * scale_speed
@@ -1018,7 +951,9 @@ class HockeyMOM:
         dy = 0
         # if verbose:
         #     print(f"Moving box by {dx} x {dy}")
-        return box + torch.tensor([dx, dy, dx, dy], dtype=torch.float32, device=box.device)
+        return box + torch.tensor(
+            [dx, dy, dx, dy], dtype=torch.float32, device=box.device
+        )
 
     def adjust_veclocity_based_upon_new_box(
         self,

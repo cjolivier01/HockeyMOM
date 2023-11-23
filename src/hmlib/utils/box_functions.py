@@ -40,10 +40,11 @@ def height(box: torch.Tensor):
 def center(box: torch.Tensor):
     return (box[:2] + box[2:]) / 2
 
+
 def center_batch(boxes: torch.Tensor):
     if len(boxes) == 0:
         return []
-    return (boxes[:,:2] + boxes[:,2:]) / 2
+    return (boxes[:, :2] + boxes[:, 2:]) / 2
 
 
 def clamp_value(low, val, high):
@@ -241,3 +242,28 @@ def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
     )
     mask[largest_bbox_idx] = False
     return batch_bboxes[mask], mask
+
+
+# def scale_box_to_fit(
+#     box: torch.Tensor, max_width: torch.Tensor, max_height: torch.Tensor
+# ):
+#     box_width = width(box)
+#     box_height = height(box)
+#     scale_w = None
+#     scale_h = None
+#     error_count = 0
+#     if box_width > max_width:
+#         error_count += 1
+#         scale_w = box_width / max_width
+#     if box_height > max_height:
+#         error_count += 1
+#         scale_h = box_height / max_height
+#     if error_count:
+#         if error_count == 2:
+#             scale = torch.max(scale_h, scale_w)
+#             return box / scale
+#         elif scale_w is not None:
+#             return box / scale_w
+#         else:
+#             return box / scale_h
+#     return box
