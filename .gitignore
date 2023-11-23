@@ -20,3 +20,4 @@ compile_commands.json
 hockeymom.egg-info
 stitched_output.avi
 YOLOX_outputs
+debug_tensorboard
