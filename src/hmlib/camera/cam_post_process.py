@@ -170,10 +170,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_camera_tracking = False or basic_debugging
         # self.plot_camera_tracking = False
 
-        self.plot_moving_boxes = False or (
-            basic_debugging
-            and not (self.max_in_aspec_ratio or self.apply_fixed_edge_scaling)
-        )
+        self.plot_moving_boxes = False or basic_debugging
         # self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
@@ -828,9 +825,6 @@ class FramePostProcessor:
                         thickness=5,
                     )
 
-                    unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-                    stick_size = unstick_size / 2
-
                     size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
                     size_stick_size = size_unstick_size / 3
 
@@ -886,7 +880,6 @@ class FramePostProcessor:
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
 
-            # TODO: make this expand box a class member so not recreated every time
             outside_expanded_box = (
                 current_box + self._outside_box_expansion_for_speed_curtailing
             )
@@ -995,17 +988,22 @@ class FramePostProcessor:
                 )
 
             #
+            # HIJACK CURRENT ROI BOX POSITION
+            #
+            current_box = self._current_roi.bounding_box()
+
+            #
             # Aspect Ratio
             #
             # current_box = hockey_mom.clamp(current_box)
-            if self._args.plot_camera_tracking:
-                vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(0, 0, 0),
-                    thickness=10,
-                    label="fine_tracking_box",
-                )
+            # if self._args.plot_camera_tracking:
+            #     vis.plot_rectangle(
+            #         online_im,
+            #         current_box,
+            #         color=(0, 0, 0),
+            #         thickness=10,
+            #         label="fine_tracking_box",
+            #     )
 
             fine_tracking_box = current_box.clone()
 
