@@ -40,8 +40,10 @@ def height(box: torch.Tensor):
 def center(box: torch.Tensor):
     return (box[:2] + box[2:]) / 2
 
-def center_batch(box: torch.Tensor):
-    return (box[:,:2] + box[:,2:]) / 2
+def center_batch(boxes: torch.Tensor):
+    if len(boxes) == 0:
+        return []
+    return (boxes[:,:2] + boxes[:,2:]) / 2
 
 
 def clamp_value(low, val, high):

@@ -1,19 +1,19 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 
 #
 # Models
 #
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_sports_train.pth"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
-PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
-#PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
+PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
-MIXFORMER_SCRIPT="mixformer_deit_hockey"
-#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+#MIXFORMER_SCRIPT="mixformer_deit_hockey"
+MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -53,7 +53,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 -d=1 \
+  -b=2 -d=1 \
   --infer \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} \

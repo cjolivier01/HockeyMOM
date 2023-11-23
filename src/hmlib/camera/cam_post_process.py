@@ -26,7 +26,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox
 from hmlib.camera.video_out import ImageProcData, VideoOutput
-from hmlib.camera.clusters import ClusterSearch
+from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
 
@@ -682,7 +682,7 @@ class FramePostProcessor:
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
         if self._cluster_man is None:
-            self._cluster_man = ClusterSearch(
+            self._cluster_man = ClusterMan(
                 sizes=[3, 2], device=self._kmeans_cuda_device()
             )
 
