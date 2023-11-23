@@ -6,7 +6,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
 import matplotlib.pyplot as plt
-import pt_autograph as ptag
+#import pt_autograph as ptag
 
 import torch
 
