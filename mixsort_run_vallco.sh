@@ -53,7 +53,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=2 -d=1 \
+  -b=48 -d=1 \
   --infer \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} \
