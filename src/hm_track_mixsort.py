@@ -222,6 +222,12 @@ def make_parser():
         default=None,
         help="maximum number of frames to process",
     )
+    parser.add_argument(
+        "--save-frame-dir",
+        type=str,
+        default=None,
+        help="directory to save the output video frases as png files",
+    )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument(
         "--min-box-area", type=float, default=100, help="filter out tiny boxes"
@@ -485,6 +491,7 @@ def main(exp, args, num_gpu):
             args=cam_args,
             fps=dataloader.fps,
             save_dir=results_folder,
+            save_frame_dir=args.save_frame_dir,
             # device="cuda",
             device="cpu",
             data_type="mot",
@@ -553,16 +560,16 @@ def main(exp, args, num_gpu):
             "deepsort": {"function": evaluator.evaluate_deepsort},
             "motdt": {"function": evaluator.evaluate_motdt},
         }
+        *_, summary = eval_functions[args.tracker]["function"](
+            model,
+            is_distributed,
+            args.fp16,
+            trt_file,
+            decoder,
+            exp.test_size,
+            results_folder,
+        )
         if not args.infer:
-            *_, summary = eval_functions[args.tracker]["function"](
-                model,
-                is_distributed,
-                args.fp16,
-                trt_file,
-                decoder,
-                exp.test_size,
-                results_folder,
-            )
             logger.info("\n" + str(summary))
         logger.info("Completed")
     except Exception as ex:

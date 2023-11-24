@@ -427,6 +427,7 @@ class FramePostProcessor:
         device,
         opt,
         args: argparse.Namespace,
+        save_frame_dir: str = None,
         async_post_processing: bool = False,
         use_fork: bool = False,
     ):
@@ -450,6 +451,7 @@ class FramePostProcessor:
         self._cluster_man = None
 
         self._save_dir = save_dir
+        self._save_frame_dir = save_frame_dir
 
         self._outside_box_expansion_for_speed_curtailing = torch.tensor(
             [-100.0, -100.0, 100.0, 100.0],
@@ -582,6 +584,7 @@ class FramePostProcessor:
             start=False,
             output_frame_width=self.final_frame_width,
             output_frame_height=self.final_frame_height,
+            save_frame_dir=self._save_frame_dir,
             watermark_image_path=os.path.realpath(
                 os.path.join(
                     os.path.dirname(os.path.realpath(__file__)),

@@ -75,6 +75,7 @@ class HmPostProcessor:
         device,
         fps: float,
         save_dir: str,
+        save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
         use_fork: bool = False,
@@ -89,6 +90,7 @@ class HmPostProcessor:
         self._async_post_processing = async_post_processing
         self._fps = fps
         self._save_dir = save_dir
+        self._save_frame_dir = save_frame_dir
         self._hockey_mom = None
         self._device = device
         self._counter = 0
@@ -188,6 +190,7 @@ class HmPostProcessor:
                 data_type=self._data_type,
                 fps=self._fps,
                 save_dir=self._save_dir,
+                save_frame_dir=self._save_frame_dir,
                 device=device,
                 opt=self._opt,
                 args=self._args,

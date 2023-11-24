@@ -126,7 +126,7 @@ class VideoOutput:
         fps: float,
         fourcc="XVID",
         # fourcc = "HFYU",
-        output_image_dir: str = None,
+        save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
         max_queue_backlog: int = 25,
@@ -147,7 +147,7 @@ class VideoOutput:
         self._imgproc_queue = create_queue(mp=use_fork)
         self._imgproc_thread = None
         self._output_video_path = output_video_path
-        self._output_image_dir = output_image_dir
+        self._save_frame_dir = save_frame_dir
         self._output_video = None
         self._fourcc = fourcc
         self._horizontal_image_gaussian_distribution = None
@@ -170,6 +170,9 @@ class VideoOutput:
             )
         else:
             self.watermark = None
+
+        if self._save_frame_dir:
+            os.makedirs(self._save_frame_dir)
 
         if start:
             self.start()
@@ -394,10 +397,10 @@ class VideoOutput:
 
             if self._output_video is not None:
                 self._output_video.write(online_im)
-            if self._output_image_dir:
+            if self._save_frame_dir:
                 cv2.imwrite(
                     os.path.join(
-                        self._output_image_dir,
+                        self._save_frame_dir,
                         "{:05d}.png".format(imgproc_data.frame_id),
                     ),
                     online_im,
