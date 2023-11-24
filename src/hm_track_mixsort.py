@@ -217,6 +217,14 @@ def make_parser():
         "--start-frame", type=int, default=0, help="first frame number to process"
     )
     parser.add_argument(
+        "--cvat-output",
+        action="store_true",
+        help="generate dataset data importable by cvat",
+    )
+    parser.add_argument(
+        "--plot-tracking", action="store_true", help="plot individual tracking boxes"
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=None,
@@ -358,6 +366,13 @@ def main(exp, args, num_gpu):
             cam_ignore_largest=args.cam_ignore_largest,
         )
         cam_args.show_image = args.show_image
+
+        if args.cvat_output:
+            cam_args.crop_output_image = False
+            cam_args.fixed_edge_rotation = False
+            cam_args.apply_fixed_edge_scaling = False
+
+        cam_args.plot_individual_player_tracking = args.plot_tracking
 
         dataloader = None
         if args.input_video:
