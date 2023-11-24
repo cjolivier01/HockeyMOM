@@ -224,7 +224,7 @@ class JDETracker(object):
                 results[j] = results[j][keep_inds]
         return results
 
-    def update(self, im_blob, img0, log_debug: bool = False):
+    def update(self, im_blob, img0, log_debug: bool = False, dataloader = None):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []

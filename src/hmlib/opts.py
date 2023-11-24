@@ -28,6 +28,16 @@ class opts(object):
             help="General start frame the video reading (after other offsets are applied)",
         )
 
+        self.parser.add_argument(
+            "--start-frame", type=int, default=0, help="first frame number to process"
+        )
+        self.parser.add_argument(
+            "--max-frames",
+            type=int,
+            default=None,
+            help="maximum number of frames to process",
+        )
+
         # basic experiment setting
         self.parser.add_argument("task", default="mot", help="mot")
         self.parser.add_argument("--dataset", default="jde", help="jde")

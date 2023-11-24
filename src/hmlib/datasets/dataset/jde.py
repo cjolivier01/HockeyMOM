@@ -201,6 +201,8 @@ class LoadVideoWithOrig:  # for inference
         img_size=(1088, 608),
         process_img_size=(1920, 1080),
         clip_original=None,
+        start_frame: int = 0,
+        max_frames: int = None,
         # clip_original=(43, 236, 1917, 864),
     ):
         self.cap = cv2.VideoCapture(path)
@@ -214,6 +216,11 @@ class LoadVideoWithOrig:  # for inference
         self.height = img_size[1]
         self.count = 0
         self._last_size = None
+        self._start_frame = start_frame
+        self._max_frames = max_frames
+
+        if self._start_frame:
+            self.set_frame_number(self._start_frame)
 
         self.w, self.h = process_img_size
         print("Lenth of the video: {:d} frames".format(self.vn))
@@ -238,7 +245,9 @@ class LoadVideoWithOrig:  # for inference
     def __next__(self):
         self.count += 1
         if self.count == len(self):
-            raise StopIteration
+            raise StopIteration()
+        if self._max_frames and self.count > self._max_frames:
+            raise StopIteration()
         # Read image
         res, img0 = self.cap.read()  # BGR
         if img0 is None:
@@ -250,22 +259,6 @@ class LoadVideoWithOrig:  # for inference
                 self.clip_original[0] : self.clip_original[2],
                 :,
             ]
-
-        if False: # Warp to cylindrical
-            timg = torch.from_numpy(img0)
-            timg = timg.to(torch.float32)
-            timg = timg.permute(2, 0, 1)
-            timg /= 255.0
-            timg = warp_rectilinear_to_cylindrical(timg, torch.tensor(24.4, dtype=torch.float32))
-            timg *= 255.0
-            timg = timg.permute(0, 2, 1)
-            timg = torch.clip(timg, min=0, max=255)
-            timg = timg.to(torch.uint8)
-            timg = timg.permute(1, 2, 0)
-            timg = timg.numpy()
-
-            cv2.imshow("img0", timg)
-            cv2.waitKey(1)
 
         original_img = img0.copy()
 

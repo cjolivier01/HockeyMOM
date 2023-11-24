@@ -12,11 +12,11 @@ from hmlib.opts import opts
 from hmlib.tracking_utils.utils import mkdir_if_missing
 from hmlib.tracking_utils.log import logger
 import hmlib.datasets.dataset.jde as datasets
-
+from yolox.data import get_yolox_datadir
 # from track import eval_seq
 from hmlib.ffmpeg import copy_audio
 from hmtrack import track_sequence, HmPostProcessor
-
+import hmlib.datasets as datasets
 from hmlib.camera.cam_post_process import (
     DefaultArguments,
 )
@@ -87,14 +87,36 @@ def infer_main(opt):
             video_2_offset_frame=video_2_offset_frame,
             img_size=opt.img_size,
             process_img_size=opt.process_img_size,
+            max_frames=opt.max_frames,
+            start_frame=opt.start_frame,
         )
     else:
         assert len(input_video_files) == 1
-        dataloader = datasets.LoadVideoWithOrig(
+        # dataloader = datasets.LoadVideoWithOrig(
+        #     path=input_video_files[0],
+        #     img_size=opt.img_size,
+        #     process_img_size=opt.process_img_size,
+        #     max_frames=opt.max_frames,
+        #     start_frame=opt.start_frame,
+        # )
+
+        dataloader = datasets.MOTLoadVideoWithOrig(
             path=input_video_files[0],
             img_size=opt.img_size,
-            process_img_size=opt.process_img_size,
+            return_origin_img=True,
+            start_frame_number=opt.start_frame,
+            # data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
+            data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
+            # data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
+            json_file="test.json",
+            # json_file="val.json",
+            batch_size=1,
+            #clip_original=[300, 285, 4572, 1750],
+            # batch_size=1,
+            max_frames=opt.max_frames,
+            name="val",
         )
+
     result_filename = os.path.join(result_root, "results.txt")
 
     frame_dir = None if opt.output_format == "text" else osp.join(result_root, "frame")
@@ -107,7 +129,7 @@ def infer_main(opt):
         fps=dataloader.fps,
         save_dir=result_root,
         data_type="mot",
-        device=torch_device(),
+        device="cpu",
     )
 
     track_sequence(

@@ -168,7 +168,9 @@ class HmPostProcessor:
         )
         return detections, online_tlwhs
 
-    def on_first_image(self, frame_id, img, inscribed_image, original_img, device):
+    def on_first_image(
+        self, frame_id, letterbox_img, inscribed_image, original_img, device
+    ):
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:
                 self._hockey_mom = HockeyMOM(
@@ -177,9 +179,10 @@ class HmPostProcessor:
                     device=device,
                 )
             else:
+                assert False  # Don't do this anymore
                 self._hockey_mom = HockeyMOM(
-                    image_width=img.shape[1],
-                    image_height=img.shape[0],
+                    image_width=letterbox_img.shape[1],
+                    image_height=letterbox_img.shape[0],
                     device=device,
                 )
 
@@ -229,7 +232,20 @@ def track_sequence(
 
     using_precomputed_results = len(results) != 0
 
-    for i, (_, img, img0, original_img) in enumerate(dataloader):
+    # origin_imgs,
+    # letterbox_imgs,
+    # inscribed_images,
+    # info_imgs,
+    # ids,
+
+    for i, (
+        # _, letterbox_img, img0, original_img
+        original_img,
+        letterbox_img,
+        img0,
+        info_imgs,
+        ids,
+    ) in enumerate(dataloader):
         if i:
             dataset_timer.toc()
 
@@ -258,9 +274,9 @@ def track_sequence(
             continue
 
         if use_cuda:
-            blob = torch.from_numpy(img).cuda(torch_device()).unsqueeze(0)
+            blob = letterbox_img.cuda(torch_device())
         else:
-            blob = torch.from_numpy(img).unsqueeze(0)
+            blob = letterbox_img
 
         online_tlwhs = []
         online_ids = []
@@ -274,7 +290,10 @@ def track_sequence(
                 online_tlwhs.append(tlwh)
                 online_scores.append(score)
         else:
-            online_targets = tracker.update(blob, img0)
+            # online_targets = tracker.update(blob, img0)
+            blob = blob.permute(0, 2, 3, 1).contiguous()
+            original_img = original_img.squeeze(0).permute(1, 2, 0).contiguous()
+            online_targets = tracker.update(blob, original_img, dataloader=dataloader)
 
             # TODO: move this back to model portion so we can reuse results.txt
             for _, t in enumerate(online_targets):
@@ -308,12 +327,12 @@ def track_sequence(
                     frame_id=frame_id,
                     online_tlwhs=online_tlwhs,
                     online_ids=online_ids,
+                    online_scores=online_scores,
                     detections=[],
                     info_imgs=info_imgs,
-                    img=torch.from_numpy(img0).unsqueeze(0),
-                    inscribed_image=torch.from_numpy(img).unsqueeze(0),
-                    original_img=torch.from_numpy(original_img).unsqueeze(0),
-                    online_scores=online_scores,
+                    letterbox_img=torch.from_numpy(img0),
+                    inscribed_img=torch.from_numpy(letterbox_img),
+                    original_img=torch.from_numpy(original_img),
                 )
 
             # save results
