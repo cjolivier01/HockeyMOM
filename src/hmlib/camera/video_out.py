@@ -171,7 +171,7 @@ class VideoOutput:
         else:
             self.watermark = None
 
-        if self._save_frame_dir:
+        if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
 
         if start:
