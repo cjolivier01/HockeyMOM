@@ -751,8 +751,8 @@ class FramePostProcessor:
                         arena_box=self.get_arena_box(),
                         max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
                         max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-                        max_accel_x=self._hockey_mom._camera_box_max_accel_x,
-                        max_accel_y=self._hockey_mom._camera_box_max_accel_y,
+                        max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
+                        max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
                         max_width=self._hockey_mom._video_frame.width,
                         max_height=self._hockey_mom._video_frame.height,
                         width_change_threshold=_scalar_like(
