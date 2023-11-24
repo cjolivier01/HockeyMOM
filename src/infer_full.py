@@ -50,7 +50,7 @@ def infer_main(opt):
 
     logger.info("Starting tracking...")
 
-    opt.img_size = (4096, 1024)
+    #opt.img_size = (4096, 1024)
 
     # opt.img_size = (4096 * 3 // 2, 1024 * 3 // 2)
 
@@ -102,7 +102,7 @@ def infer_main(opt):
 
         dataloader = datasets.MOTLoadVideoWithOrig(
             path=input_video_files[0],
-            img_size=opt.img_size,
+            img_size=[opt.img_size[1], opt.img_size[0]],
             return_origin_img=True,
             start_frame_number=opt.start_frame,
             # data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),

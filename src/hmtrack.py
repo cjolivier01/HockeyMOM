@@ -239,10 +239,10 @@ def track_sequence(
     # ids,
 
     for i, (
-        # _, letterbox_img, img0, original_img
+        # _, letterbox_img, inscribed_image, original_img
         original_img,
         letterbox_img,
-        img0,
+        inscribed_image,
         info_imgs,
         ids,
     ) in enumerate(dataloader):
@@ -290,7 +290,7 @@ def track_sequence(
                 online_tlwhs.append(tlwh)
                 online_scores.append(score)
         else:
-            # online_targets = tracker.update(blob, img0)
+            # online_targets = tracker.update(blob, inscribed_image)
             blob = blob.permute(0, 2, 3, 1).contiguous()
             original_img = original_img.squeeze(0).permute(1, 2, 0).contiguous()
             online_targets = tracker.update(blob, original_img, dataloader=dataloader)
@@ -317,8 +317,8 @@ def track_sequence(
 
             if postprocessor is not None:
                 info_imgs = [
-                    torch.tensor([img0.shape[0]], dtype=torch.int64),
-                    torch.tensor([img0.shape[1]], dtype=torch.int64),
+                    torch.tensor([inscribed_image.shape[0]], dtype=torch.int64),
+                    torch.tensor([inscribed_image.shape[1]], dtype=torch.int64),
                     torch.tensor([frame_id], dtype=torch.int64),
                     torch.tensor([], dtype=torch.int64),
                 ]
@@ -330,7 +330,7 @@ def track_sequence(
                     online_scores=online_scores,
                     detections=[],
                     info_imgs=info_imgs,
-                    letterbox_img=torch.from_numpy(img0),
+                    letterbox_img=torch.from_numpy(inscribed_image),
                     inscribed_img=torch.from_numpy(letterbox_img),
                     original_img=torch.from_numpy(original_img),
                 )
