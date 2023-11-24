@@ -100,15 +100,15 @@ class VideoFrame(object):
         )
 
     def bounding_box(self):
-        return self._bbox
+        return self._bbox.clone()
 
     @property
     def width(self):
-        return self._image_width
+        return self._image_width.clone()
 
     @property
     def height(self):
-        return self._image_height
+        return self._image_height.clone()
 
 
 class TlwhHistory(object):
