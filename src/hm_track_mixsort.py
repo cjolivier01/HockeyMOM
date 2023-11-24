@@ -217,7 +217,10 @@ def make_parser():
         "--start-frame", type=int, default=0, help="first frame number to process"
     )
     parser.add_argument(
-        "--max-frames", type=int, default=None, help="maximum number of frames to process"
+        "--max-frames",
+        type=int,
+        default=None,
+        help="maximum number of frames to process",
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument(
@@ -352,7 +355,6 @@ def main(exp, args, num_gpu):
 
         dataloader = None
         if args.input_video:
-
             from yolox.data import ValTransform
 
             input_video_files = args.input_video.split(",")
@@ -543,7 +545,7 @@ def main(exp, args, num_gpu):
 
         eval_functions = {
             "hm": {"function": evaluator.evaluate_hockeymom},
-            #"mixsort": {"function": evaluator.evaluate_mixsort},
+            # "mixsort": {"function": evaluator.evaluate_mixsort},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
             "sort": {"function": evaluator.evaluate_sort},
             "ocsort": {"function": evaluator.evaluate_ocsort},
@@ -567,9 +569,14 @@ def main(exp, args, num_gpu):
         print(ex)
         traceback.print_exc()
         raise
-    postprocessor.stop()
-    if dataloader is not None and hasattr(dataloader, "close"):
-        dataloader.close()
+    finally:
+        try:
+            postprocessor.stop()
+            if dataloader is not None and hasattr(dataloader, "close"):
+                dataloader.close()
+        except Exception as ex:
+            print(f"Exception while shutting down: {ex}")
+
 
 if __name__ == "__main__":
     os.environ["AUTOGRAPH_VERBOSITY"] = "5"
