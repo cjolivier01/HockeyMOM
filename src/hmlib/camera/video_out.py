@@ -398,10 +398,12 @@ class VideoOutput:
             if self._output_video is not None:
                 self._output_video.write(online_im)
             if self._save_frame_dir:
+                # frame_id should start with 1
+                assert imgproc_data.frame_id
                 cv2.imwrite(
                     os.path.join(
                         self._save_frame_dir,
-                        "{:05d}.png".format(imgproc_data.frame_id),
+                        "frame_{:06d}.png".format(int(imgproc_data.frame_id) - 1),
                     ),
                     online_im,
                 )
