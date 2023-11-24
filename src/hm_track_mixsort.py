@@ -216,6 +216,9 @@ def make_parser():
     parser.add_argument(
         "--start-frame", type=int, default=0, help="first frame number to process"
     )
+    parser.add_argument(
+        "--max-frames", type=int, default=None, help="maximum number of frames to process"
+    )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument(
         "--min-box-area", type=float, default=100, help="filter out tiny boxes"
@@ -395,7 +398,7 @@ def main(exp, args, num_gpu):
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
-                    max_frames=None,
+                    max_frames=args.max_frames,
                     num_workers=1,
                 )
                 # Create the MOT video data loader, passing it the
@@ -431,6 +434,7 @@ def main(exp, args, num_gpu):
                     batch_size=args.batch_size,
                     clip_original=[300, 285, 4572, 1750],
                     # batch_size=1,
+                    max_frames=args.max_frames,
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
@@ -547,24 +551,25 @@ def main(exp, args, num_gpu):
             "deepsort": {"function": evaluator.evaluate_deepsort},
             "motdt": {"function": evaluator.evaluate_motdt},
         }
-
-        *_, summary = eval_functions[args.tracker]["function"](
-            model,
-            is_distributed,
-            args.fp16,
-            trt_file,
-            decoder,
-            exp.test_size,
-            results_folder,
-        )
-        logger.info("\n" + summary)
-
+        if not args.infer:
+            *_, summary = eval_functions[args.tracker]["function"](
+                model,
+                is_distributed,
+                args.fp16,
+                trt_file,
+                decoder,
+                exp.test_size,
+                results_folder,
+            )
+            logger.info("\n" + str(summary))
         logger.info("Completed")
     except Exception as ex:
         print(ex)
         traceback.print_exc()
         raise
-
+    postprocessor.stop()
+    if dataloader is not None and hasattr(dataloader, "close"):
+        dataloader.close()
 
 if __name__ == "__main__":
     os.environ["AUTOGRAPH_VERBOSITY"] = "5"
