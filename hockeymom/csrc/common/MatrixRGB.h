@@ -58,17 +58,19 @@ class __attribute__((visibility("default"))) MatrixImage {
     assert(storage_channel_count() == channels());
     // Is it ever read-only?
     assert(!py_buffer_info.readonly);
-    if (false && (copy_data || py_buffer_info.readonly)) {
+    if ((copy_data || py_buffer_info.readonly)) {
       std::size_t image_bytes =
           sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
-      std::cout << "image_bytes=" << image_bytes << std::endl;
+      //std::cout << "image_bytes=" << image_bytes << std::endl;
       data_ = new std::uint8_t[image_bytes];
       memcpy(data_, py_buffer_info.ptr, image_bytes);
       m_own_data = true;
+      is_python_data = false;
     } else {
       data_ = static_cast<uint8_t*>(py_buffer_info.ptr);
       input_image.release();
       m_own_data = true;
+      is_python_data = true;
     }
   }
 
@@ -81,6 +83,7 @@ class __attribute__((visibility("default"))) MatrixImage {
         channels_ * kPixelSampleSize,
         kPixelSampleSize};
     m_own_data = true;
+    is_python_data = false;
   }
 
   MatrixImage(
@@ -99,7 +102,11 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
   virtual ~MatrixImage() {
     if (data_ && m_own_data) {
-      delete[] data_;
+      if (!is_python_data) {
+        delete[] data_;
+      } else {
+        free(data_);
+      }
     }
   }
   std::vector<std::size_t> xy_pos() const {
@@ -142,6 +149,7 @@ class __attribute__((visibility("default"))) MatrixImage {
         data_,
         std::move(capsule));
     m_own_data = false;
+    is_python_data = false;
     data_ = nullptr;
     return result;
   }
@@ -170,6 +178,7 @@ class __attribute__((visibility("default"))) MatrixImage {
 
  private:
   bool m_own_data{false};
+  bool is_python_data{false};
   size_t rows_{0}, cols_{0}, channels_{0};
   std::vector<std::size_t> strides_;
   std::uint8_t* data_;

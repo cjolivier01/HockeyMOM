@@ -13,14 +13,14 @@ import numpy as np
 import torch
 
 from tracker.multitracker import JDETracker
-from tracking_utils import visualization as vis
-from tracking_utils.log import logger
-from tracking_utils.timer import Timer
-from tracking_utils.evaluation import Evaluator
+from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.evaluation import Evaluator
 import datasets.dataset.jde as datasets
 
-from tracking_utils.utils import mkdir_if_missing
-from opts import opts
+from hmlib.tracking_utils.utils import mkdir_if_missing
+from hmlib.opts import opts
 
 
 def write_results(filename, results, data_type):

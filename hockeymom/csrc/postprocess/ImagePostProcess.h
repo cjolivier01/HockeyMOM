@@ -31,6 +31,9 @@ struct HMPostprocessConfig {
   // Draw individual player boxes, tracking ids, speed and history trails
   bool plot_individual_player_tracking = false;
 
+  // Draw all detection boxes (even if not tracking the detection)
+  bool plot_all_detections = false;
+
   // Draw intermediate boxes which are used to compute the final camera box
   bool plot_cluster_tracking = false || BASIC_DEBUGGING;
 
@@ -51,7 +54,7 @@ struct HMPostprocessConfig {
   // Zooming is fixed based upon the horizonal position's distance from center
   bool apply_fixed_edge_scaling = true;
 
-  bool fixed_edge_scaling_factor =
+  float fixed_edge_scaling_factor =
       0.8; // RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
   bool fixed_edge_rotation = false;
@@ -90,10 +93,6 @@ struct HMPostprocessConfig {
 
   // Crop the final image to the camera window (possibly zoomed)
   bool crop_output_image = true && !BASIC_DEBUGGING;
-
-  // Don't crop image, but performa of the calculations
-  // except for the actual image manipulations
-  bool fake_crop_output_image = false;
 
   // Use cuda for final image resizing (if possible)
   bool use_cuda = false;

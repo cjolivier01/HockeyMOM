@@ -12,10 +12,16 @@ namespace hm {
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
     std::string project_file,
+    std::string seam_file,
+    std::string xor_mask_file,
+    bool save_seam_and_xor_mask,
     std::size_t max_queue_size,
     std::size_t remap_thread_count,
     std::size_t blend_thread_count)
     : project_file_(std::move(project_file)),
+      seam_file_(std::move(seam_file)),
+      xor_mask_file_(std::move(xor_mask_file)),
+      save_seam_and_xor_mask_(save_seam_and_xor_mask),
       max_queue_size_(max_queue_size),
       next_frame_id_(start_frame_id),
       remap_thread_count_(remap_thread_count),
@@ -55,7 +61,18 @@ void StitchingDataLoader::initialize() {
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
 #ifndef FAKE_BLEND
-  enblender_ = std::make_shared<enblend::EnBlender>();
+  std::vector<std::string> args;
+  if (!seam_file_.empty()) {
+    std::string seam_file_arg(
+        save_seam_and_xor_mask_ ? "--save-seams" : "--load-seams");
+    //args.emplace_back(std::move(seam_file_arg));
+    //seam_file_arg += seam_file_;
+    //args.emplace_back(seam_file_);
+  }
+  if (!xor_mask_file_.empty() && save_seam_and_xor_mask_) {
+    //args.emplace_back(std::string("--save-xor=") + xor_mask_file_);
+  }
+  enblender_ = std::make_shared<enblend::EnBlender>(args);
 #endif
 }
 

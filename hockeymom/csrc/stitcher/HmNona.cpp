@@ -1,37 +1,7 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "concurrentqueue/blockingconcurrentqueue.h"
 
-// #include "hugin/src/hugin_base/nona/Stitcher.h"
-
-// #include <hugin_config.h>
-// #include <fstream>
-// #include <sstream>
-
 #include <atomic>
-
-//#include <GL/glew.h>
-//#include <GLFW/glfw3.h>
-//#include <stdio.h>
-
-// #include <algorithm>
-// #include <cctype>
-// #include <string>
-
-// #include <vigra/error.hxx>
-
-// #include <getopt.h>
-
-// #include <algorithms/nona/NonaFileStitcher.h>
-// #include <hugin_basic.h>
-// #include <hugin_utils/platform.h>
-// #include <vigra_ext/ImageTransformsGPU.h>
-// #include "hugin_base/algorithms/basic/LayerStacks.h"
-// #include "hugin_utils/stl_utils.h"
-// #include "nona/StitcherOptions.h"
-
-// #include <tbb/tbb.h>
-// #include <tbb/parallel_pipeline.h>
-// #include <tbb/global_control.h>
 
 namespace hm {
 using namespace HuginBase;
@@ -70,8 +40,6 @@ HmNona::~HmNona() {
 }
 
 bool HmNona::load_project(const std::string& project_file) {
-  //std::cout << "Project file: " << project_file_ << std::endl;
-
   if (!pano_.ReadPTOFile(
           project_file, hugin_utils::getPathPrefix(project_file))) {
     return false;

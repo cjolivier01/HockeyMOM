@@ -1,3 +1,4 @@
+cython
 numpy==1.23.5
 yacs
 moviepy
@@ -20,6 +21,7 @@ cameratransform
 tifffile
 scikit-build
 scikit-learn
-./DCNv2
+lmdb
+#./DCNv2
 ./external/fast_pytorch_kmeans
-
+./external/pt_autograph

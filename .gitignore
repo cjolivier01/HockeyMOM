@@ -1,11 +1,11 @@
 .idea
 *.pyc
 /*.log
+/my_env
 /*.tif
-/demos
+/*.avi
+/*.mp4
 /h-demo*
-# /models/*.pth
-/models/*.pt
 /.clangd
 /exp
 __pycache__
@@ -13,8 +13,11 @@ __pycache__
 /build
 /*.mov
 /*.aac
+/my_venv
 pybind11_project_example.egg-info
 compile_commands.json
 /output_image.png
 hockeymom.egg-info
 stitched_output.avi
+YOLOX_outputs
+debug_tensorboard

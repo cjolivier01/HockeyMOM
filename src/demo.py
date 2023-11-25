@@ -8,12 +8,12 @@ import logging
 import os
 import math
 import os.path as osp
-from opts import opts
-from tracking_utils.utils import mkdir_if_missing
-from tracking_utils.log import logger
-import datasets.dataset.jde as datasets
+from hmlib.opts import opts
+from hmlib.tracking_utils.utils import mkdir_if_missing
+from hmlib.tracking_utils.log import logger
+import hmlib.datasets.dataset.jde as datasets
 from track import eval_seq
-from lib.ffmpeg import copy_audio
+from hmlib.ffmpeg import copy_audio
 
 logger.setLevel(logging.INFO)
 
@@ -67,8 +67,8 @@ def demo(opt):
         video_1_offset_frame = None
         video_2_offset_frame = None
 
-        video_1_offset_frame = 13
-        video_2_offset_frame = 0
+        # video_1_offset_frame = 13
+        # video_2_offset_frame = 0
 
         dataloader = datasets.LoadAutoStitchedVideoWithOrig(
             path_video_1=input_video_files[0],
@@ -94,11 +94,10 @@ def demo(opt):
         "mot",
         result_filename,
         save_dir=frame_dir,
-        show_image=False,
         use_cuda=opt.gpus != [-1],
     )
 
-    output_video_path = osp.join(result_root, "tracking_output.mov")
+    output_video_path = osp.join(result_root, "tracking_output.avi")
 
     if opt.output_format == "video":
         cmd_str = "ffmpeg -f image2 -i {}/%05d.png -b:v 5000k -c:v mpeg4 {}".format(
@@ -109,7 +108,7 @@ def demo(opt):
 
     if opt.output_format in ["video", "live_video"]:
         output_video_with_audio_path = osp.join(
-            result_root, "tracking_output-with-audio.mov"
+            result_root, "tracking_output-with-audio.avi"
         )
         copy_audio(
             input_video_files[0], output_video_path, output_video_with_audio_path

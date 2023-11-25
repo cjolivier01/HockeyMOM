@@ -1,0 +1,3 @@
+my_ch.pth.tar filter=lfs diff=lfs merge=lfs
+yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar filter=lfs diff=lfs merge=lfs
+yolox_x_ch.pth filter=lfs diff=lfs merge=lfs

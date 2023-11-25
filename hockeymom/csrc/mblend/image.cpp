@@ -183,7 +183,7 @@ void Image::Open() {
   if (type == ImageType::MB_NONE) {
 		char* ext = strrchr((char*)filename.c_str(), '.');
 		if (!ext) {
-			die("Could not identify file extension: %s", filename);
+			die("Could not identify file extension: %s", filename.c_str());
 		}
 		++ext;
 
@@ -194,13 +194,13 @@ void Image::Open() {
     } else if (!_stricmp(ext, "png")) {
       type = ImageType::MB_PNG;
     } else {
-      die("Unknown file extension: %s", filename);
+      die("Unknown file extension: %s", filename.c_str());
     }
   }
 	switch (type) {
 		case ImageType::MB_TIFF: {
 			tiff = TIFFOpen(filename.c_str(), "r");
-			if (!tiff) die("Could not open %s", filename);
+			if (!tiff) die("Could not open %s", filename.c_str());
 
 			if (!TIFFGetField(tiff, TIFFTAG_XPOSITION, &tiff_xpos)) tiff_xpos = -1;
 			if (!TIFFGetField(tiff, TIFFTAG_YPOSITION, &tiff_ypos)) tiff_ypos = -1;
@@ -217,7 +217,7 @@ void Image::Open() {
 				printf("Invalid bpp %d (%s)", bpp, filename.c_str());
 				printf("%d, %d\n", tiff_width, tiff_height);
 				TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bpp);
-				if (bpp != 8 && bpp != 16) die("Invalid bpp %d (%s)", bpp, filename);
+				if (bpp != 8 && bpp != 16) die("Invalid bpp %d (%s)", bpp, filename.c_str());
 			}
 //			if (spp != 4) die("Images must be RGBA (%s)", filename);
 
@@ -269,8 +269,8 @@ void Image::Open() {
 				if (first_strip) TIFFReadScanline(tiff, buf, 0); else TIFFReadScanline(tiff, buf, tiff_u_height - 1);
 				bool trans;
 				switch (bpp) {
-					case 8: trans = !(((uint32_t*)buf)[0] && 0xff000000); break;
-					case 16: trans = !(((uint64_t*)buf)[0] && 0xffff000000000000); break;
+					case 8: trans = !(((uint32_t*)buf)[0] & 0xff000000); break;
+					case 16: trans = !(((uint64_t*)buf)[0] & 0xffff000000000000); break;
 				}
 				if (!trans) {
 					first_strip = 0;
@@ -287,7 +287,7 @@ void Image::Open() {
 		} break;
 		case ImageType::MB_JPEG: {
 			fopen_s(&file, filename.c_str(), "rb");
-			if (!file) die("Could not open %s", filename);
+			if (!file) die("Could not open %s", filename.c_str());
 
 			cinfo.err = jpeg_std_error(&jerr);
 			jpeg_create_decompress(&cinfo);
@@ -296,11 +296,11 @@ void Image::Open() {
 			jpeg_start_decompress(&cinfo);
 
 			if (!cinfo.output_width || !cinfo.output_height) {
-				die("Unknown JPEG format (%s)", filename);
+				die("Unknown JPEG format (%s)", filename.c_str());
 			}
 
 			if (cinfo.out_color_components != 3) {
-				die("Unknown JPEG format (%s)", filename);
+				die("Unknown JPEG format (%s)", filename.c_str());
 			}
 
 			tiff_width = cinfo.output_width;
@@ -315,11 +315,11 @@ void Image::Open() {
 		} break;
 		case ImageType::MB_PNG: {
 			fopen_s(&file, filename.c_str(), "rb");
-			if (!file) die("Could not open %s", filename);
+			if (!file) die("Could not open %s", filename.c_str());
 
 			uint8_t sig[8];
 			size_t r = fread(sig, 1, 8, file); // assignment suppresses g++ -Ofast warning
-			if (!png_check_sig(sig, 8)) die("Bad PNG signature (%s)", filename);
+			if (!png_check_sig(sig, 8)) die("Bad PNG signature (%s)", filename.c_str());
 
 			png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 			if (!png_ptr) die("Error: libpng problem");
@@ -341,11 +341,11 @@ void Image::Open() {
 			switch (png_colour) {
 				case PNG_COLOR_TYPE_RGB: spp = 3; break;
 				case PNG_COLOR_TYPE_RGBA: spp = 4; break;
-				default: die("Bad PNG colour type (%s)", filename);
+				default: die("Bad PNG colour type (%s)", filename.c_str());
 			}
 
 			if (bpp != 8 && bpp != 16) {
-				die("Bad bit depth (%s)", filename);
+				die("Bad bit depth (%s)", filename.c_str());
 			}
 
 			xpos = ypos = 0;
@@ -359,6 +359,9 @@ void Image::Open() {
       // xpos, ypos spp, has already been set in the constructor
 			tiff_xpos = tiff_ypos = 0;
 			tiff_xres = tiff_yres = 90;
+    } break;
+    case ImageType::MB_NONE: {
+      assert(false);
     } break;
 	}
 
@@ -416,6 +419,9 @@ void Image::Read(void* data, bool gamma) {
         this_data += inc;
 			}
 		} break;
+    case ImageType::MB_NONE: {
+      assert(false);
+    } break;
 	}
 
 /***********************************************************************

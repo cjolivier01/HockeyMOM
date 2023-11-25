@@ -55,6 +55,9 @@ class StitchingDataLoader {
   StitchingDataLoader(
       std::size_t start_frame_id,
       std::string project_file,
+      std::string seam_file,
+      std::string xor_mask_file,
+      bool save_seam_and_xor_mask,
       std::size_t max_queue_size,
       std::size_t remap_thread_count,
       std::size_t blend_thread_count);
@@ -80,6 +83,9 @@ class StitchingDataLoader {
 
   void shutdown();
   std::string project_file_;
+  bool save_seam_and_xor_mask_;
+  std::string seam_file_;
+  std::string xor_mask_file_;
   std::size_t max_queue_size_;
   std::size_t next_frame_id_;
   std::size_t remap_thread_count_;

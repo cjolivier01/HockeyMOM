@@ -11,47 +11,24 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
 
-namespace {
-// std::string get_executable_path() {
-//   char result[PATH_MAX * 2 + 1];
-//   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX * 2);
-//   std::string path = std::string(result, (count > 0) ? count : 0);
-//   return path;
-// }
-
-// void init_stack_trace() {
-//   absl::InitializeSymbolizer(get_executable_path().c_str());
-
-//   // Install the failure signal handler. This should capture various failure
-//   // signals (like segmentation faults) and print a stack trace.
-//   //absl::FailureSignalHandlerOptions options;
-//   //absl::InstallFailureSignalHandler(options);
-// }
-} // namespace
-
-// void __stop_here() {
-//   // debugger is annoying sometimes
-//   std::cout << "__stop_here()" << std::endl;
-// }
-
 PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
 
   // std::cout << "Initializing hockymom module" << std::endl;
-  py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
-      m, "MatrixRGB", py::buffer_protocol())
-      .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
-        return py::buffer_info(
-            m.data(), /* Pointer to buffer */
-            sizeof(std::uint8_t), /* Size of one scalar */
-            py::format_descriptor<std::uint8_t>::
-                format(), /* Python struct-style format descriptor */
-            3, /* Number of dimensions */
-            {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
-            {m.channels() * sizeof(std::uint8_t) * m.cols(),
-             m.channels() * sizeof(std::uint8_t),
-             sizeof(std::uint8_t)});
-      });
+  // py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
+  //     m, "MatrixRGB", py::buffer_protocol())
+  //     .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
+  //       return py::buffer_info(
+  //           m.data(), /* Pointer to buffer */
+  //           sizeof(std::uint8_t), /* Size of one scalar */
+  //           py::format_descriptor<std::uint8_t>::
+  //               format(), /* Python struct-style format descriptor */
+  //           3, /* Number of dimensions */
+  //           {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
+  //           {m.channels() * sizeof(std::uint8_t) * m.cols(),
+  //            m.channels() * sizeof(std::uint8_t),
+  //            sizeof(std::uint8_t)});
+  //     });
 
   py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(
       m, "HMPostprocessConfig")
@@ -95,9 +72,6 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::HMPostprocessConfig::scale_to_original_image)
       .def_readwrite(
           "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
-      .def_readwrite(
-          "fake_crop_output_image",
-          &hm::HMPostprocessConfig::fake_crop_output_image)
       .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
       .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);
 
@@ -110,12 +84,15 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(py::init<
            std::size_t,
            std::string,
+           std::string,
+           std::string,
+           bool,
            std::size_t,
            std::size_t,
            std::size_t>());
 
   using SortedPyArrayUin8Queue =
-      hm::SortedQueue<std::size_t, py::array_t<std::uint8_t>>;
+  hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
 
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
@@ -125,29 +102,31 @@ PYBIND11_MODULE(_hockeymom, m) {
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
              std::size_t key,
              py::array_t<std::uint8_t> array) -> void {
-            sq->enqueue(key, std::move(array));
+            sq->enqueue(
+                key,
+                std::make_unique<py::array_t<std::uint8_t>>(std::move(array)));
           })
       .def(
           "dequeue_key",
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq,
              std::size_t key) -> py::array_t<std::uint8_t> {
-            py::array_t<std::uint8_t> result;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
             {
               py::gil_scoped_release release;
               result = sq->dequeue_key(key);
             }
-            return result;
+            return std::move(*result);
           })
       .def(
           "dequeue_smallest_key",
           [](const std::shared_ptr<SortedPyArrayUin8Queue>& sq) {
             std::size_t key = ~0;
-            py::array_t<std::uint8_t> result;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
             {
               py::gil_scoped_release release;
               result = sq->dequeue_smallest_key(&key);
             }
-            return std::make_tuple(key, std::move(result));
+            return std::make_tuple(key, std::move(*result));
           });
 
   using SortedRGBImageQueue =
@@ -176,7 +155,6 @@ PYBIND11_MODULE(_hockeymom, m) {
              std::size_t key,
              py::array_t<std::uint8_t> array,
              bool copy_data) -> void {
-            //__stop_here();
             auto matrix =
                 std::make_unique<hm::MatrixRGB>(array, 0, 0, copy_data);
             {
@@ -218,7 +196,10 @@ PYBIND11_MODULE(_hockeymom, m) {
         assert(image2.ndim() == 3);
         auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
         auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
-        { data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)}); }
+        {
+          py::gil_scoped_release release_gil;
+          data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
+        }
         return frame_id;
       });
 
@@ -314,43 +295,4 @@ PYBIND11_MODULE(_hockeymom, m) {
         }
         return result->to_py_array();
       });
-}
-
-static std::string get_python_string(PyObject* obj) {
-  std::string str;
-  PyObject* temp_bytes = PyUnicode_AsEncodedString(obj, "UTF-8", "strict");
-  if (temp_bytes != NULL) {
-    const char* s = PyBytes_AS_STRING(temp_bytes);
-    str = s;
-    Py_DECREF(temp_bytes);
-  }
-  return str;
-}
-
-extern "C" __attribute__((visibility("default"))) int __py_bt() {
-  int count = 0;
-  PyThreadState* tstate = PyThreadState_GET();
-  if (NULL != tstate && NULL != tstate->frame) {
-    PyFrameObject* frame = tstate->frame;
-
-    printf("Python stack trace:\n");
-    while (NULL != frame) {
-      /*
-       frame->f_lineno will not always return the correct line number
-       you need to call PyCode_Addr2Line().
-      */
-      int line = PyCode_Addr2Line(frame->f_code, frame->f_lasti);
-      PyObject* temp_bytes = PyUnicode_AsEncodedString(
-          frame->f_code->co_filename, "UTF-8", "strict");
-      if (temp_bytes != NULL) {
-        auto filename = get_python_string(frame->f_code->co_filename);
-        auto funcname = get_python_string(frame->f_code->co_name);
-        printf("    %s(%d): %s\n", filename.c_str(), line, funcname.c_str());
-        Py_DECREF(temp_bytes);
-      }
-      frame = frame->f_back;
-      ++count;
-    }
-  }
-  return count;
 }

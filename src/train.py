@@ -10,7 +10,7 @@ import json
 import torch
 import torch.utils.data
 from torchvision.transforms import transforms as T
-from opts import opts
+from hmlib.opts import opts
 from models.model import create_model, load_model, save_model
 from models.data_parallel import DataParallel
 from logger import Logger

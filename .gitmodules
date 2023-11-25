@@ -23,9 +23,6 @@
 [submodule "models/mixsort"]
 	path = models/mixsort
 	url = ssh://git@github.com/cjolivier01/MixSort
-[submodule "models/yolox"]
-	path = models/yolox
-	url = ssh://git@github.com/cjolivier01/YOLOX
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
@@ -44,3 +41,15 @@
 [submodule "models/SVHNClassifier"]
 	path = models/SVHNClassifier
 	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
+[submodule "models/layers/CvT"]
+	path = models/layers/CvT
+	url = ssh://git@github.com/cjolivier01/CvT
+[submodule "external/MOTChallengeEvalKit"]
+	path = external/MOTChallengeEvalKit
+	url = ssh://git@github.com/cjolivier01/MOTChallengeEvalKit
+[submodule "external/pt_autograph"]
+	path = external/pt_autograph
+	url = ssh://git@github.com/cjolivier01/pt_autograph
+[submodule "models/MixFormer"]
+	path = models/MixFormer
+	url = ssh://git@github.com/cjolivier01/MixFormer
