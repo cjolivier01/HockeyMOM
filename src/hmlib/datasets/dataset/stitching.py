@@ -434,7 +434,7 @@ class StitchDataset:
         self._auto_configure = auto_configure
         self._num_workers = num_workers
         self._stitching_workers = {}
-        # Temporary until we get the middle-man
+        # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
         self._ordering_queue = core.SortedPyArrayUin8Queue()
         self._coordinator_thread = None
@@ -462,6 +462,16 @@ class StitchDataset:
     def __delete__(self):
         for worker in self._stitching_workers.values():
             worker.close()
+
+    @property
+    def lfo(self):
+        assert self._video_1_offset_frame is not None
+        return self._video_1_offset_frame
+
+    @property
+    def rfo(self):
+        assert self._video_2_offset_frame is not None
+        return self._video_2_offset_frame
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]

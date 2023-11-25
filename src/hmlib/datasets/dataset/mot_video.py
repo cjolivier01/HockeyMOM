@@ -74,17 +74,20 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
+        self.vw = None
+        self.vh = None
         self.cap = None
         self._mapping_offset = None
         self._thread = None
         self._scale_inscribed_to_original = None
         self._embedded_data_loader = embedded_data_loader
+        self._embedded_data_loader_iter = None
         assert self._embedded_data_loader is None or path is None
 
         self._open_video()
         self._close_video()
 
-        self._start_worker()
+        # self._start_worker()
 
     def _open_video(self):
         if self._embedded_data_loader is None:
@@ -101,14 +104,15 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if self._start_frame_number:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
         else:
-            self._embedded_data_loader_iter = iter(self._embedded_data_loader)
+            # self._embedded_data_loader_iter = iter(self._embedded_data_loader)
             self.vn = len(self._embedded_data_loader)
             # self.vw = self._embedded_data_loader.width
             # self.vh = self._embedded_data_loader.height
-            self.vw = None
-            self.vh = None
+            # self.vw = None
+            # self.vh = None
             self.fps = self._embedded_data_loader.fps
-        print("Lenth of the video: {:d} frames".format(self.vn))
+        if self.vn is not None:
+            print("Lenth of the video: {:d} frames".format(self.vn))
 
     def _close_video(self):
         if self.cap is not None:
@@ -150,7 +154,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         return
 
     def _start_worker(self):
-        self._thread = threading.Thread(target=self._next_frame_worker)
+        self._thread = threading.Thread(
+            target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
+        )
         self._thread.start()
         # if not os.fork():
         #     try:
@@ -176,6 +182,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
     def __iter__(self):
         self._timer = Timer()
+        if self._embedded_data_loader is not None:
+            self._embedded_data_loader_iter = iter(self._embedded_data_loader)
+        if self._thread is None:
+            self._start_worker()
         return self
 
     def _read_next_image(self):
@@ -188,7 +198,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.vw = img.shape[1]
                     self.vh = img.shape[0]
                 return True, img
-
             except StopIteration:
                 return False, None
 
@@ -293,7 +302,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             else self.width_t,
             ids,
             self.video_id.repeat(len(ids)),
-            [self._path],
+            [self._path if self._path is not None else "external"],
         ]
 
         # TODO: remove ascontiguousarray?
