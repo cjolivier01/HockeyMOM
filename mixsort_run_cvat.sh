@@ -2,19 +2,19 @@
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
-
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_cvat.py"
 #
 # Models
 #
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_sports_train.pth"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
-#PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
-PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
-#PRETRAINED_MODEL="./latest_ckpt-22.pth.tar"
+PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
+#PRETRAINED_MODEL=""
 
-#MIXFORMER_SCRIPT="mixformer_deit_hockey"
-MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+MIXFORMER_SCRIPT="mixformer_deit_hockey"
+#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -29,21 +29,18 @@ MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/right.mp4"
+#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
-#EXP_NAME="mixsort-run-$(uuidgen)"
-EXP_NAME="mixsort-run-vallco"
+EXP_NAME="mixsort-run-cvat"
 
 #START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
 START_FRAME=6200
-
-#HYPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-#HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
-HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
+MAX_FRAMES=200
+HYPER_PARAMS="--conf=0.001 --track_thresh=0.01 --track_thresh_low=0.005"
 
 #STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
@@ -56,9 +53,11 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 -d=1 \
+  -b=1 -d=1 \
   --infer \
+  --cvat-output \
   --start-frame=${START_FRAME} \
+  --max-frames=${MAX_FRAMES} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} \
   --min-box-area=35 \
   --rink="vallco" \
