@@ -59,6 +59,13 @@ class STrack(BaseTrack):
             mean_state, self.covariance
         )
 
+    def remove(self):
+        self.track_id = None
+        self.mean = None
+        self.covariance = None
+        self.kalman_filter = None
+        self.state = None
+
     @staticmethod
     def multi_predict(stracks):
         if len(stracks) > 0:
@@ -469,12 +476,25 @@ class JDETracker(object):
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
-        # TODO: faster sub_stracks like in mixsort
-        self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
-        self.removed_stracks.extend(removed_stracks)
+
+        if removed_stracks:
+            for r in removed_stracks:
+                #self.removed_strack_ids.add(r.track_id)
+                r.remove()
+            #self.removed_strack_count += len(removed_stracks)
+            self.lost_stracks = sub_stracks(self.lost_stracks, removed_stracks)
+
+        #self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
             self.tracked_stracks, self.lost_stracks
         )
+
+
+        # self.lost_stracks = sub_stracks(self.lost_stracks, removed_stracks)
+
+        # self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
+        #     self.tracked_stracks, self.lost_stracks
+        # )
 
         # get scores of lost tracks
         output_stracks = [
