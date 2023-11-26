@@ -40,7 +40,7 @@ def ctdet_post_process_post_recale(
     # dets[:, :, 0:2] = dets[:, :, 0:2] + c_t
     # dets[:, :, 2:4] = dets[:, :, 2:4] + c_t
     # dets[:, :, 0:2] = dets[:, :, 0:2] + c_t
-    dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
+    #dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
     #print(dets[0, :, 0:4])
     w_h = torch.tensor((w, h), dtype=torch.float32, device=dets.device)
     # d_scaled = dets[:,:,0:2] * s_t
@@ -48,6 +48,8 @@ def ctdet_post_process_post_recale(
         top_preds = {}
         #dets[i, :, :2] = pt_transform_preds(dets[i, :, 0:2], c_t, s_t, w_h)
         #dets[i, :, 2:4] = pt_transform_preds(dets[i, :, 2:4], c_t, s_t, w_h)
+        dets[i, :, :2] = pt_transform_preds(dets[i, :, 0:2], c_t, s_t, w_h)
+        dets[i, :, 2:4] = pt_transform_preds(dets[i, :, 2:4], c_t, s_t, w_h)
         classes = dets[i, :, -1]
         for j in range(num_classes):
             inds = classes == j

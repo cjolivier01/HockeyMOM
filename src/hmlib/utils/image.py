@@ -27,10 +27,26 @@ def transform_preds(coords, center, scale, output_size):
     return target_coords
 
 
+# def pt_transform_preds(coords, center, scale, output_size):
+#     target_coords = torch.zeros_like(coords)
+#     zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
+#     trans = pt_get_affine_transform(center, scale, zero, output_size, inv=1)
+#     for p in range(coords.shape[0]):
+#         target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
+#     return target_coords
+
+
 def pt_transform_preds(coords, center, scale, output_size):
     target_coords = torch.zeros_like(coords)
     zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
-    trans = pt_get_affine_transform(center, scale, zero, output_size, inv=1)
+    trans = get_affine_transform(
+        center.cpu().numpy(),
+        scale.cpu().numpy(),
+        zero.cpu().numpy(),
+        output_size.cpu().numpy(),
+        inv=1,
+    )
+    trans = torch.from_numpy(trans).to(torch.float32).to(coords.device)
     for p in range(coords.shape[0]):
         target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
     return target_coords
@@ -75,13 +91,16 @@ def pt_cv2_get_affine_transform(src, dst):
         Source and destination points, shape (3, 2)
     """
     ones = torch.ones(3, dtype=torch.float32, device=src.device)
-    src_h = torch.cat([src, ones.unsqueeze(1)], dim=1)  # Convert to homogeneous coordinates
+    src_h = torch.cat(
+        [src, ones.unsqueeze(1)], dim=1
+    )  # Convert to homogeneous coordinates
     dst_h = dst
 
     # Solve the system of linear equations
     transform_matrix = torch.mm(dst_h.t(), torch.inverse(src_h.t()))
 
     return transform_matrix
+
 
 def pt_get_affine_transform(
     center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
@@ -97,7 +116,9 @@ def pt_get_affine_transform(
     dst_h = output_size[1]
 
     rot_rad = rot * np.pi / 180
-    src_dir = pt_get_dir(torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad)
+    src_dir = pt_get_dir(
+        torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad
+    )
     dst_dir = torch.tensor([0, dst_w * -0.5], dtype=torch.float32, device=dst_w.device)
 
     src = torch.zeros((3, 2), dtype=torch.float32, device=center.device)
@@ -105,22 +126,33 @@ def pt_get_affine_transform(
     src[0, :] = center + scale_tmp * shift
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
-    dst[1, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float32, device=dst_w.device) + dst_dir
+    dst[1, :] = (
+        torch.tensor(
+            [dst_w * 0.5, dst_h * 0.5], dtype=torch.float32, device=dst_w.device
+        )
+        + dst_dir
+    )
 
     src[2:, :] = pt_get_3rd_point(src[0, :], src[1, :])
     dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
 
     if inv:
-        trans = pt_cv2_get_affine_transform(dst.to(torch.float32), src.to(torch.float32))
+        trans = pt_cv2_get_affine_transform(
+            dst.to(torch.float32), src.to(torch.float32)
+        )
     else:
-        trans = pt_cv2_get_affine_transform(src.to(torch.float32), dst.to(torch.float32))
+        trans = pt_cv2_get_affine_transform(
+            src.to(torch.float32), dst.to(torch.float32)
+        )
 
     return trans
+
 
 def affine_transform(pt, t):
     new_pt = np.array([pt[0], pt[1], 1.0], dtype=np.float32).T
     new_pt = np.dot(t, new_pt)
     return new_pt[:2]
+
 
 def pt_affine_transform(pt, t):
     new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float32, device=pt.device).T
@@ -132,9 +164,13 @@ def get_3rd_point(a, b):
     direct = a - b
     return b + np.array([-direct[1], direct[0]], dtype=np.float32)
 
+
 def pt_get_3rd_point(a, b):
     direct = a - b
-    return b + torch.tensor([-direct[1], direct[0]], dtype=torch.float32, device=direct.device)
+    return b + torch.tensor(
+        [-direct[1], direct[0]], dtype=torch.float32, device=direct.device
+    )
+
 
 def get_dir(src_point, rot_rad):
     sn, cs = np.sin(rot_rad), np.cos(rot_rad)
@@ -149,12 +185,13 @@ def get_dir(src_point, rot_rad):
 def pt_get_dir(src_point, rot_rad):
     sn, cs = torch.sin(rot_rad), torch.cos(rot_rad)
 
-    src_result = torch.tensor([
-        src_point[0] * cs - src_point[1] * sn,
-        src_point[0] * sn + src_point[1] * cs
-    ], device=src_point.device)
+    src_result = torch.tensor(
+        [src_point[0] * cs - src_point[1] * sn, src_point[0] * sn + src_point[1] * cs],
+        device=src_point.device,
+    )
 
     return src_result
+
 
 def crop(img, center, scale, output_size, rot=0):
     trans = get_affine_transform(center, scale, rot, output_size)

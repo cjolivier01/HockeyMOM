@@ -207,7 +207,7 @@ class JDETracker(object):
         self.kalman_filter = KalmanFilter()
 
     def post_process(self, dets, meta, dataloader=None):
-        if False and dataloader is not None and hasattr(
+        if dataloader is not None and hasattr(
             dataloader, "scale_letterbox_to_original_image_coordinates"
         ):
             # Data loader will perform an efficient transformation since it has all of the correct info
@@ -216,7 +216,7 @@ class JDETracker(object):
             #dets = dets.reshape(1, -1, dets.shape[2])
             dets = ctdet_post_process_post_recale(
                 dets=dets.clone(),
-                c=[meta["c_letterbox"]],
+                c=[meta["c"]],
                 s=[meta["s"]],
                 h=meta["out_height"],
                 w=meta["out_width"],

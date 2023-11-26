@@ -31,8 +31,8 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/right.mp4"
+#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
 EXP_NAME="mixsort-run-fairmot"
@@ -60,7 +60,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=1 -d=1 \
+  -b=3 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
