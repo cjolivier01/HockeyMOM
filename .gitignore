@@ -21,3 +21,4 @@ hockeymom.egg-info
 stitched_output.avi
 YOLOX_outputs
 debug_tensorboard
+/*.pth.tar
