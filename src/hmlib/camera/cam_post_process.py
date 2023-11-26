@@ -147,7 +147,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging
-        self.plot_individual_player_tracking = True
+        # self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -225,7 +225,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        self.crop_output_image = False
+        # self.crop_output_image = False
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
