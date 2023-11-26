@@ -92,14 +92,6 @@ def infer_main(opt):
         )
     else:
         assert len(input_video_files) == 1
-        # dataloader = datasets.LoadVideoWithOrig(
-        #     path=input_video_files[0],
-        #     img_size=opt.img_size,
-        #     process_img_size=opt.process_img_size,
-        #     max_frames=opt.max_frames,
-        #     start_frame=opt.start_frame,
-        # )
-
         dataloader = datasets.MOTLoadVideoWithOrig(
             path=input_video_files[0],
             img_size=[opt.img_size[1], opt.img_size[0]],

@@ -16,7 +16,7 @@ from hmlib.tracking_utils.kalman_filter import KalmanFilter
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.utils import *
 from hmlib.utils.image import get_affine_transform
-from hmlib.utils.post_process import ctdet_post_process
+from hmlib.utils.post_process import ctdet_post_process, ctdet_post_process_post_recale
 
 from hmlib.tracker import matching
 
@@ -206,20 +206,40 @@ class JDETracker(object):
 
         self.kalman_filter = KalmanFilter()
 
-    def post_process(self, dets, meta):
-        dets = dets.detach().cpu().numpy()
-        dets = dets.reshape(1, -1, dets.shape[2])
-        dets = ctdet_post_process(
-            dets.copy(),
-            [meta["c"]],
-            [meta["s"]],
-            meta["out_height"],
-            meta["out_width"],
-            self.opt.num_classes,
-        )
+    def post_process(self, dets, meta, dataloader=None):
+        if False and dataloader is not None and hasattr(
+            dataloader, "scale_letterbox_to_original_image_coordinates"
+        ):
+            # Data loader will perform an efficient transformation since it has all of the correct info
+            #dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
+            oof = dets.to(torch.int64)
+            #dets = dets.reshape(1, -1, dets.shape[2])
+            dets = ctdet_post_process_post_recale(
+                dets=dets.clone(),
+                c=[meta["c_letterbox"]],
+                s=[meta["s"]],
+                h=meta["out_height"],
+                w=meta["out_width"],
+                num_classes=self.opt.num_classes,
+                dataloader=dataloader,
+            )
+            #dets = dets.cpu().detach().numpy()
+        else:
+            dets = dets.detach().cpu().numpy()
+            dets = dets.reshape(1, -1, dets.shape[2])
+            dets = ctdet_post_process(
+                dets.copy(),
+                [meta["c"]],
+                [meta["s"]],
+                meta["out_height"],
+                meta["out_width"],
+                self.opt.num_classes,
+            )
+        assert len(dets) == 1  # Only compares about class 0?
         for j in range(1, self.opt.num_classes + 1):
             dets[0][j] = np.array(dets[0][j], dtype=np.float32).reshape(-1, 5)
-        return dets[0]
+        print(dets[0])
+        return dets[0], meta
 
     def merge_outputs(self, detections):
         results = {}
@@ -248,12 +268,16 @@ class JDETracker(object):
 
         width = img0.shape[1]
         height = img0.shape[0]
+        ar = float(width) / height
         inp_height = im_blob.shape[2]
         inp_width = im_blob.shape[3]
+        inp_ar = float(inp_width) / inp_height
         c = np.array([width / 2.0, height / 2.0], dtype=np.float32)
+        c_letterbox = np.array([inp_width / 2.0, inp_height / 2.0], dtype=np.float32)
         s = max(float(inp_width) / float(inp_height) * height, width) * 1.0
         meta = {
             "c": c,
+            "c_letterbox": c_letterbox,
             "s": s,
             "out_height": inp_height // self.opt.down_ratio,
             "out_width": inp_width // self.opt.down_ratio,
@@ -275,7 +299,13 @@ class JDETracker(object):
             id_feature = id_feature.cpu().numpy()
 
         # start_model = time.time()
-        dets = self.post_process(dets, meta)
+        # if dataloader is not None and hasattr(
+        #     dataloader, "scale_letterbox_to_original_image_coordinates"
+        # ):
+        #     # Data loader will perform an efficient transformation since it has all of the correct info
+        #     meta = None
+        #     dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
+        dets, meta = self.post_process(dets=dets, meta=meta, dataloader=dataloader)
         duration = time.time() - start_model
         # print(f"duration: {duration} seconds")
 

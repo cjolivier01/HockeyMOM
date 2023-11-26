@@ -202,28 +202,35 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 return False, None
 
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
-        # [0:4] detections are tlbr
+        # Offset the boxes
+        if self._mapping_offset is None:
+            device = yolox_detections[0].device
+            self._mapping_offset = torch.tensor(
+                [
+                    self.letterbox_dw,
+                    self.letterbox_dh,
+                    self.letterbox_dw,
+                    self.letterbox_dh,
+                ],
+                dtype=yolox_detections[0].dtype,
+                device=device,
+            )
+            if self._scale_inscribed_to_original.device != device:
+                self._scale_inscribed_to_original = (
+                    self._scale_inscribed_to_original.to(device)
+                )
+        # if isinstance(yolox_detections, torch.Tensor):
+        #     # [0:4] detections are tlbr
+        #     yolox_detections[i][:,:, 0:4] -= self._mapping_offset
+        #     # Scale the width and height
+        #     yolox_detections[i][:,:, 0:4] /= self._scale_inscribed_to_original
+        #     return yolox_detections
         if len(yolox_detections):
+            # [0:4] detections are tlbr
             for i in range(len(yolox_detections)):
                 dets = yolox_detections[i]
                 if dets is None:
                     continue
-                # Offset the boxes
-                if self._mapping_offset is None:
-                    self._mapping_offset = torch.tensor(
-                        [
-                            self.letterbox_dw,
-                            self.letterbox_dh,
-                            self.letterbox_dw,
-                            self.letterbox_dh,
-                        ],
-                        dtype=dets.dtype,
-                        device=dets.device,
-                    )
-                    if self._scale_inscribed_to_original.device != dets.device:
-                        self._scale_inscribed_to_original = (
-                            self._scale_inscribed_to_original.to(dets.device)
-                        )
                 yolox_detections[i][:, 0:4] -= self._mapping_offset
                 # Scale the width and height
                 yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original

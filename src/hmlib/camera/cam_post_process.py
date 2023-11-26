@@ -129,8 +129,7 @@ RINK_CONFIG = {
     },
 }
 
-BASIC_DEBUGGING = True
-
+BASIC_DEBUGGING = False
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
@@ -144,11 +143,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
-        # self.show_image = True
+        self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging
-        # self.plot_individual_player_tracking = True
+        self.plot_individual_player_tracking = True
 
         # Draw all detection boxes (even if not tracking the detection)
         self.plot_all_detections = False
@@ -226,7 +225,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        # self.crop_output_image = True
+        self.crop_output_image = False
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
