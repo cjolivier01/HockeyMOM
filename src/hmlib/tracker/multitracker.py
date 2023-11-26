@@ -235,10 +235,8 @@ class JDETracker(object):
                 meta["out_width"],
                 self.opt.num_classes,
             )
-        assert len(dets) == 1  # Only compares about class 0?
         for j in range(1, self.opt.num_classes + 1):
             dets[0][j] = np.array(dets[0][j], dtype=np.float32).reshape(-1, 5)
-        print(dets[0])
         return dets[0], meta
 
     def merge_outputs(self, detections):
