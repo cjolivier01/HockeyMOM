@@ -36,21 +36,23 @@ def transform_preds(coords, center, scale, output_size):
 #     return target_coords
 
 
-def pt_transform_preds(coords, center, scale, output_size):
+def pt_transform_preds(coords, center, scale, output_size, trans):
     target_coords = torch.zeros_like(coords)
     zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
-    trans = get_affine_transform(
-        center.cpu().numpy(),
-        scale.cpu().numpy(),
-        zero.cpu().numpy(),
-        output_size.cpu().numpy(),
-        inv=1,
-    )
-    trans = torch.from_numpy(trans).to(torch.float32).to(coords.device)
+    if trans is None:
+        trans = get_affine_transform(
+            center.cpu().numpy(),
+            scale.cpu().numpy(),
+            zero.cpu().numpy(),
+            output_size.cpu().numpy(),
+            inv=1,
+        )
+        trans = torch.from_numpy(trans).to(torch.float32).to(coords.device)
     # for p in range(coords.shape[0]):
     #     target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
-    target_coords[:, 0:2] = batched_pt_affine_transform(coords[:, 0:2], trans)
-    return target_coords
+    target_c = batched_pt_affine_transform(coords[:, 0:2], trans)
+    target_coords[:, 0:2] = target_c
+    return target_coords, trans
 
 
 def get_affine_transform(
@@ -165,17 +167,10 @@ def pt_affine_transform(pt, t):
 def batched_pt_affine_transform(pt, t):
     bs = pt.shape[0]
     ones = torch.ones((bs, 1), dtype=pt.dtype, device=pt.device)
-    new_pt = torch.cat((pt, ones), dim=1)
-    #new_pt = new_pt[:,0:3].T
-    #new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float32, device=pt.device).T
-    for i in range(len(new_pt)):
-        pt_item = new_pt[i]
-        pt_item = pt_item.T
-        result = torch.matmul(t, pt_item)
-        #new_pt[i] = torch.matmul(t, new_pt[i,0:2])
-        new_pt[i][:2] = result
-    #new_pt = torch.bmm(t, new_pt)
-    return new_pt[:,:2]
+    new_pt = torch.cat((pt, ones), dim=1).unsqueeze(2)
+    t = t.unsqueeze(0).repeat(bs, 1, 1)
+    result = torch.bmm(t, new_pt)
+    return result.squeeze(2)[:,:2]
 
 
 def get_3rd_point(a, b):

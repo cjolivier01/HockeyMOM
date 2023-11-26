@@ -37,19 +37,18 @@ def ctdet_post_process_post_recale(
     ret = []
     c_t = torch.from_numpy(c[0]).to(dets.device)
     s_t = torch.from_numpy(np.array(s)).to(dets.device)
-    # dets[:, :, 0:2] = dets[:, :, 0:2] + c_t
-    # dets[:, :, 2:4] = dets[:, :, 2:4] + c_t
-    # dets[:, :, 0:2] = dets[:, :, 0:2] + c_t
-    #dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
-    #print(dets[0, :, 0:4])
     w_h = torch.tensor((w, h), dtype=torch.float32, device=dets.device)
-    # d_scaled = dets[:,:,0:2] * s_t
+    trans = None
+    # Across batches
     for i in range(dets.shape[0]):
         top_preds = {}
-        #dets[i, :, :2] = pt_transform_preds(dets[i, :, 0:2], c_t, s_t, w_h)
-        #dets[i, :, 2:4] = pt_transform_preds(dets[i, :, 2:4], c_t, s_t, w_h)
-        dets[i, :, :2] = pt_transform_preds(dets[i, :, 0:2], c_t, s_t, w_h)
-        dets[i, :, 2:4] = pt_transform_preds(dets[i, :, 2:4], c_t, s_t, w_h)
+        # pt_transform_preds is across detections
+        dets[i, :, :2], trans = pt_transform_preds(
+            dets[i, :, 0:2], c_t, s_t, w_h, trans=trans
+        )
+        dets[i, :, 2:4], _ = pt_transform_preds(
+            dets[i, :, 2:4], c_t, s_t, w_h, trans=trans
+        )
         classes = dets[i, :, -1]
         for j in range(num_classes):
             inds = classes == j
