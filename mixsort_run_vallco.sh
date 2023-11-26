@@ -2,8 +2,8 @@
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Models
@@ -12,11 +12,11 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
 #PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
-#PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
-PRETRAINED_MODEL="./trained_models/fairmot/crowdhuman_dla34.pth"
+PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
+#PRETRAINED_MODEL="./trained_models/fairmot/crowdhuman_dla34.pth"
 
-MIXFORMER_SCRIPT="mixformer_deit_hockey"
-#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+#MIXFORMER_SCRIPT="mixformer_deit_hockey"
+MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -43,12 +43,11 @@ EXP_NAME="mixsort-run-vallco"
 #START_FRAME=2900
 START_FRAME=6200
 
-#TRACKER="hm"
-TRACKER="fair"
+TRACKER="hm"
 
 #YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
-#HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
+HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
 #STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
