@@ -291,7 +291,8 @@ def track_sequence(
                 online_scores.append(score)
         else:
             # online_targets = tracker.update(blob, inscribed_image)
-            blob = blob.permute(0, 2, 3, 1).contiguous()
+            #blob = blob.permute(0, 2, 3, 1).contiguous()
+            #blob = blob.permute(0, 1, 2, 3, 1).contiguous()
             original_img = original_img.squeeze(0).permute(1, 2, 0).contiguous()
             online_targets = tracker.update(blob, original_img, dataloader=dataloader)
 
@@ -330,9 +331,12 @@ def track_sequence(
                     online_scores=online_scores,
                     detections=[],
                     info_imgs=info_imgs,
-                    letterbox_img=torch.from_numpy(inscribed_image),
-                    inscribed_img=torch.from_numpy(letterbox_img),
-                    original_img=torch.from_numpy(original_img),
+                    # letterbox_img=torch.from_numpy(inscribed_image),
+                    # inscribed_img=torch.from_numpy(letterbox_img),
+                    # original_img=torch.from_numpy(original_img),
+                    letterbox_img=inscribed_image,
+                    inscribed_img=letterbox_img,
+                    original_img=original_img,
                 )
 
             # save results
