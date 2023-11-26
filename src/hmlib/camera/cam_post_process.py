@@ -399,10 +399,11 @@ class FramePostProcessor:
         while self._queue.qsize() > 10:
             time.sleep(0.001)
         try:
-            dets = [
-                Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
-                for d in detections
-            ]
+            dets = []
+            # dets = [
+            #     Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
+            #     for d in detections
+            # ]
             if self._async_post_processing:
                 self._queue.put(
                     (

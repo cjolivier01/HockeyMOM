@@ -29,9 +29,7 @@ def ctdet_post_process(dets, c, s, h, w, num_classes):
     return ret
 
 
-def ctdet_post_process_post_recale(
-    dets: torch.Tensor, c, s, h, w, num_classes, dataloader
-):
+def ctdet_post_process_post_recale(dets: torch.Tensor, c, s, h, w, num_classes):
     # dets: batch x max_dets x dim
     # return 1-based class det dict
     ret = []
@@ -39,7 +37,7 @@ def ctdet_post_process_post_recale(
     s_t = torch.from_numpy(np.array(s)).to(dets.device)
     w_h = torch.tensor((w, h), dtype=torch.float32, device=dets.device)
     trans = None
-    # Across batches
+    # Across batch items
     for i in range(dets.shape[0]):
         top_preds = {}
         # pt_transform_preds is across detections
@@ -59,10 +57,9 @@ def ctdet_post_process_post_recale(
                         dets[i, inds, 4:5].to(torch.float32),
                     ],
                     axis=1,
-                )
-                .cpu()
-                .detach()
-                .tolist()
+                ).cpu()
+                # .detach()
+                # .tolist()
             )
         ret.append(top_preds)
     return ret
