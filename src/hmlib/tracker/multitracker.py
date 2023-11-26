@@ -182,13 +182,13 @@ def torch_device():
 class JDETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
-        if opt.gpus[0] >= 0:
-            opt.device = torch.device(torch_device())
-        else:
-            opt.device = torch.device("cpu")
+        # if opt.gpus[0] >= 0:
+        #     opt.device = torch.device(torch_device())
+        # else:
+        #     opt.device = torch.device("cpu")
         print("Creating model...")
         self.model = create_model(opt.arch, opt.heads, opt.head_conv)
-        self.model = load_model(self.model, opt.load_model)
+        self.model = load_model(self.model, opt.ckpt)
         self.model = self.model.to(opt.device)
         self.model.eval()
 

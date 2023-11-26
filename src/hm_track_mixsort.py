@@ -37,7 +37,7 @@ from hmlib.datasets.dataset.stitching import (
     StitchDataset,
 )
 
-from hmlib.opts import opts
+import hmlib.opts2 as opts2
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
@@ -344,8 +344,10 @@ def main(exp, args, num_gpu):
         if args.tsize is not None:
             exp.test_size = (args.tsize, args.tsize)
 
-        model = exp.get_model()
-        logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
+        model = None
+        if args.tracker != "fair":
+            model = exp.get_model()
+            logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
         # logger.info("Model Structure:\n{}".format(str(model)))
 
         # if args.rink and args.rink in rink_model_config:
@@ -526,48 +528,51 @@ def main(exp, args, num_gpu):
         )
 
         torch.cuda.set_device(rank)
-        model.cuda(rank)
-        model.eval()
+        trt_file = None
+        decoder = None
+        if model is not None:
+            model.cuda(rank)
+            model.eval()
 
-        if not args.speed and not args.trt:
-            if args.ckpt is None:
-                ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
-            else:
-                ckpt_file = args.ckpt
-            logger.info("loading checkpoint")
-            loc = "cuda:{}".format(rank)
-            ckpt = torch.load(ckpt_file, map_location=loc)
-            # load the model state dict
-            model.load_state_dict(ckpt["model"])
-            # torch.jit.load()
-            logger.info("loaded checkpoint done.")
+            if not args.speed and not args.trt:
+                if args.ckpt is None:
+                    ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
+                else:
+                    ckpt_file = args.ckpt
+                logger.info("loading checkpoint")
+                loc = "cuda:{}".format(rank)
+                ckpt = torch.load(ckpt_file, map_location=loc)
+                # load the model state dict
+                if "model" in ckpt:
+                    model.load_state_dict(ckpt["model"])
+                # torch.jit.load()
+                logger.info("loaded checkpoint done.")
 
-        if is_distributed:
-            model = DDP(model, device_ids=[rank])
+            if is_distributed:
+                model = DDP(model, device_ids=[rank])
 
-        if args.fuse:
-            logger.info("\tFusing model...")
-            model = fuse_model(model)
+            if args.fuse:
+                logger.info("\tFusing model...")
+                model = fuse_model(model)
 
-        if args.trt:
-            assert (
-                not args.fuse and not is_distributed and args.batch_size == 1
-            ), "TensorRT model is not support model fusing and distributed inferencing!"
-            trt_file = os.path.join(file_name, "model_trt.pth")
-            assert os.path.exists(
-                trt_file
-            ), "TensorRT model is not found!\n Run tools/trt.py first!"
-            model.head.decode_in_inference = False
-            decoder = model.head.decode_outputs
+            if args.trt:
+                assert (
+                    not args.fuse and not is_distributed and args.batch_size == 1
+                ), "TensorRT model is not support model fusing and distributed inferencing!"
+                trt_file = os.path.join(file_name, "model_trt.pth")
+                assert os.path.exists(
+                    trt_file
+                ), "TensorRT model is not found!\n Run tools/trt.py first!"
+                model.head.decode_in_inference = False
+                decoder = model.head.decode_outputs
         else:
-            trt_file = None
-            decoder = None
-
+            args.device = f"cuda:{rank}"
         # start evaluate
 
         eval_functions = {
             "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},
+            "fair": {"function": evaluator.evaluate_fair},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
             "sort": {"function": evaluator.evaluate_sort},
             "ocsort": {"function": evaluator.evaluate_ocsort},
@@ -602,7 +607,13 @@ def main(exp, args, num_gpu):
 
 if __name__ == "__main__":
     os.environ["AUTOGRAPH_VERBOSITY"] = "5"
-    args = make_parser().parse_args()
+    parser = make_parser()
+    opts_2 = opts2.opts(parser=parser)
+    parser = opts_2.parser
+    args = parser.parse_args()
+    if args.tracker == "fair":
+        opts_2.parse(opt=args)
+        opts_2.init(opt=args)
     exp = get_exp(args.exp_file, args.name)
     exp.merge(args.opts)
 
