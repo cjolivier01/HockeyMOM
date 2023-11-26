@@ -207,161 +207,165 @@ class HmPostProcessor:
             self._postprocessor.stop()
 
 
-def track_sequence(
-    opt,
-    args,
-    dataloader,
-    tracker_name: str,
-    result_filename,
-    postprocessor: HmPostProcessor,
-    save_dir: str = None,
-    use_cuda: bool = True,
-    data_type: str = "mot",
-):
-    if save_dir:
-        mkdir_if_missing(save_dir)
-    tracker = get_tracker(tracker_name, opt=opt, frame_rate=dataloader.fps)
-    dataset_timer = Timer()
-    timer = Timer()
+#
+# Moved to mot_evaluator
+#
 
-    incremental_results = False
-    frame_id = 0
+# def track_sequence(
+#     opt,
+#     args,
+#     dataloader,
+#     tracker_name: str,
+#     result_filename,
+#     postprocessor: HmPostProcessor,
+#     save_dir: str = None,
+#     use_cuda: bool = True,
+#     data_type: str = "mot",
+# ):
+#     if save_dir:
+#         mkdir_if_missing(save_dir)
+#     tracker = get_tracker(tracker_name, opt=opt, frame_rate=dataloader.fps)
+#     dataset_timer = Timer()
+#     timer = Timer()
 
-    if result_filename:
-        results = read_results(result_filename, postprocessor.data_type)
+#     incremental_results = False
+#     frame_id = 0
 
-    using_precomputed_results = len(results) != 0
+#     if result_filename:
+#         results = read_results(result_filename, postprocessor.data_type)
 
-    # origin_imgs,
-    # letterbox_imgs,
-    # inscribed_images,
-    # info_imgs,
-    # ids,
+#     using_precomputed_results = len(results) != 0
 
-    for i, (
-        # _, letterbox_img, inscribed_image, original_img
-        original_img,
-        letterbox_img,
-        inscribed_image,
-        info_imgs,
-        ids,
-    ) in enumerate(dataloader):
-        if i:
-            dataset_timer.toc()
+#     # origin_imgs,
+#     # letterbox_imgs,
+#     # inscribed_images,
+#     # info_imgs,
+#     # ids,
 
-        if frame_id % 20 == 0:
-            logger.info(
-                "Dataset frame {} ({:.2f} fps)".format(
-                    frame_id, 1.0 / max(1e-5, dataset_timer.average_time)
-                )
-            )
+#     for i, (
+#         # _, letterbox_img, inscribed_image, original_img
+#         original_img,
+#         letterbox_img,
+#         inscribed_image,
+#         info_imgs,
+#         ids,
+#     ) in enumerate(dataloader):
+#         if i:
+#             dataset_timer.toc()
 
-        frame_id = i
-        if frame_id > 0 and frame_id <= args.skip_frame_count:
-            timer.toc()
+#         if frame_id % 20 == 0:
+#             logger.info(
+#                 "Dataset frame {} ({:.2f} fps)".format(
+#                     frame_id, 1.0 / max(1e-5, dataset_timer.average_time)
+#                 )
+#             )
 
-        if frame_id % 20 == 0:
-            logger.info(
-                "Processing frame {} ({:.2f} fps)".format(
-                    frame_id, 1.0 / max(1e-5, timer.average_time)
-                )
-            )
+#         frame_id = i
+#         if frame_id > 0 and frame_id <= args.skip_frame_count:
+#             timer.toc()
 
-        # run tracking
-        timer.tic()
+#         if frame_id % 20 == 0:
+#             logger.info(
+#                 "Processing frame {} ({:.2f} fps)".format(
+#                     frame_id, 1.0 / max(1e-5, timer.average_time)
+#                 )
+#             )
 
-        if frame_id < args.skip_frame_count:
-            continue
+#         # run tracking
+#         timer.tic()
 
-        if use_cuda:
-            blob = letterbox_img.cuda(torch_device())
-        else:
-            blob = letterbox_img
+#         if frame_id < args.skip_frame_count:
+#             continue
 
-        online_tlwhs = []
-        online_ids = []
-        online_scores = []
+#         if use_cuda:
+#             blob = letterbox_img.cuda(torch_device())
+#         else:
+#             blob = letterbox_img
 
-        if using_precomputed_results:
-            assert frame_id + 1 in results
-            frame_results = results[frame_id + 1]
-            for tlwh, target_id, score in frame_results:
-                online_ids.append(target_id)
-                online_tlwhs.append(tlwh)
-                online_scores.append(score)
-        else:
-            # online_targets = tracker.update(blob, inscribed_image)
-            #blob = blob.permute(0, 2, 3, 1).contiguous()
-            #blob = blob.permute(0, 1, 2, 3, 1).contiguous()
-            original_img = original_img.squeeze(0).permute(1, 2, 0).contiguous()
-            online_targets = tracker.update(blob, original_img, dataloader=dataloader)
+#         online_tlwhs = []
+#         online_ids = []
+#         online_scores = []
 
-            # TODO: move this back to model portion so we can reuse results.txt
-            for _, t in enumerate(online_targets):
-                tlwh = t.tlwh
-                tid = t.track_id
-                vertical = tlwh[2] / tlwh[3] > 1.6
-                if vertical:
-                    print("VERTICAL!")
-                    vertical = False
-                if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
-                    online_scores.append(t.score)
-                else:
-                    print(
-                        f"Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})"
-                    )
-            # save results
-            # results.append((frame_id + 1, online_tlwhs, online_ids))
-            results[frame_id + 1] = (online_tlwhs, online_ids)
+#         if using_precomputed_results:
+#             assert frame_id + 1 in results
+#             frame_results = results[frame_id + 1]
+#             for tlwh, target_id, score in frame_results:
+#                 online_ids.append(target_id)
+#                 online_tlwhs.append(tlwh)
+#                 online_scores.append(score)
+#         else:
+#             # online_targets = tracker.update(blob, inscribed_image)
+#             #blob = blob.permute(0, 2, 3, 1).contiguous()
+#             #blob = blob.permute(0, 1, 2, 3, 1).contiguous()
+#             original_img = original_img.squeeze(0).permute(1, 2, 0).contiguous()
+#             online_targets = tracker.update(blob, original_img, dataloader=dataloader)
 
-            if postprocessor is not None:
-                info_imgs = [
-                    torch.tensor([inscribed_image.shape[0]], dtype=torch.int64),
-                    torch.tensor([inscribed_image.shape[1]], dtype=torch.int64),
-                    torch.tensor([frame_id], dtype=torch.int64),
-                    torch.tensor([], dtype=torch.int64),
-                ]
+#             # TODO: move this back to model portion so we can reuse results.txt
+#             for _, t in enumerate(online_targets):
+#                 tlwh = t.tlwh
+#                 tid = t.track_id
+#                 vertical = tlwh[2] / tlwh[3] > 1.6
+#                 if vertical:
+#                     print("VERTICAL!")
+#                     vertical = False
+#                 if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
+#                     online_tlwhs.append(tlwh)
+#                     online_ids.append(tid)
+#                     online_scores.append(t.score)
+#                 else:
+#                     print(
+#                         f"Box area too small (< {opt.min_box_area}): {tlwh[2] * tlwh[3]} or vertical (vertical={vertical})"
+#                     )
+#             # save results
+#             # results.append((frame_id + 1, online_tlwhs, online_ids))
+#             results[frame_id + 1] = (online_tlwhs, online_ids)
 
-                postprocessor.online_callback(
-                    frame_id=frame_id,
-                    online_tlwhs=online_tlwhs,
-                    online_ids=online_ids,
-                    online_scores=online_scores,
-                    detections=[],
-                    info_imgs=info_imgs,
-                    # letterbox_img=torch.from_numpy(inscribed_image),
-                    # inscribed_img=torch.from_numpy(letterbox_img),
-                    # original_img=torch.from_numpy(original_img),
-                    letterbox_img=inscribed_image,
-                    inscribed_img=letterbox_img,
-                    original_img=original_img,
-                )
+#             if postprocessor is not None:
+#                 info_imgs = [
+#                     torch.tensor([inscribed_image.shape[0]], dtype=torch.int64),
+#                     torch.tensor([inscribed_image.shape[1]], dtype=torch.int64),
+#                     torch.tensor([frame_id], dtype=torch.int64),
+#                     torch.tensor([], dtype=torch.int64),
+#                 ]
 
-            # save results
-            if incremental_results and result_filename and (i + 1) % 25 == 0:
-                results.append((frame_id + 1, online_tlwhs, online_ids))
+#                 postprocessor.online_callback(
+#                     frame_id=frame_id,
+#                     online_tlwhs=online_tlwhs,
+#                     online_ids=online_ids,
+#                     online_scores=online_scores,
+#                     detections=[],
+#                     info_imgs=info_imgs,
+#                     # letterbox_img=torch.from_numpy(inscribed_image),
+#                     # inscribed_img=torch.from_numpy(letterbox_img),
+#                     # original_img=torch.from_numpy(original_img),
+#                     letterbox_img=inscribed_image,
+#                     inscribed_img=letterbox_img,
+#                     original_img=original_img,
+#                 )
 
-        timer.toc()
+#             # save results
+#             if incremental_results and result_filename and (i + 1) % 25 == 0:
+#                 results.append((frame_id + 1, online_tlwhs, online_ids))
 
-        # if postprocessor is not None:
-        #     postprocessor.send(online_tlwhs, online_ids, info_imgs, letterbox_img, original_img)
+#         timer.toc()
 
-        if args.stop_at_frame and frame_id >= args.stop_at_frame:
-            break
+#         # if postprocessor is not None:
+#         #     postprocessor.send(online_tlwhs, online_ids, info_imgs, letterbox_img, original_img)
 
-        # Last thing, tic the dataset timer before we wrap around and next the iter
-        dataset_timer.tic()
+#         if args.stop_at_frame and frame_id >= args.stop_at_frame:
+#             break
 
-    if postprocessor is not None:
-        postprocessor.stop()
+#         # Last thing, tic the dataset timer before we wrap around and next the iter
+#         dataset_timer.tic()
 
-    # save results
-    if result_filename:
-        if incremental_results:
-            append_results(result_filename, results, data_type)
-        else:
-            write_results(result_filename, results, data_type)
+#     if postprocessor is not None:
+#         postprocessor.stop()
 
-    return frame_id, timer.average_time, timer.calls
+#     # save results
+#     if result_filename:
+#         if incremental_results:
+#             append_results(result_filename, results, data_type)
+#         else:
+#             write_results(result_filename, results, data_type)
+
+#     return frame_id, timer.average_time, timer.calls

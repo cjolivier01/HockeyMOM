@@ -225,6 +225,9 @@ def make_parser():
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--no-crop", action="store_true", help="Don't crop output image"
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=None,
@@ -347,7 +350,9 @@ def main(exp, args, num_gpu):
         model = None
         if args.tracker != "fair":
             model = exp.get_model()
-            logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
+            logger.info(
+                "Model Summary: {}".format(get_model_info(model, exp.test_size))
+            )
         # logger.info("Model Structure:\n{}".format(str(model)))
 
         # if args.rink and args.rink in rink_model_config:
@@ -368,6 +373,7 @@ def main(exp, args, num_gpu):
             cam_ignore_largest=args.cam_ignore_largest,
         )
         cam_args.show_image = args.show_image
+        cam_args.crop_output_image = not args.no_crop
 
         if args.cvat_output:
             cam_args.crop_output_image = False
@@ -457,7 +463,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    #clip_original=[300, 285, 4572, 1750],
+                    clip_original=[300, 285, 4572, 1750],
                     # batch_size=1,
                     max_frames=args.max_frames,
                     name="val",

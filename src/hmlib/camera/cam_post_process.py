@@ -173,7 +173,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        #self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
@@ -225,7 +225,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        # self.crop_output_image = False
+        #self.crop_output_image = False
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
@@ -1249,16 +1249,16 @@ class FramePostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            # if (
-            #     self._video_output_boxtrack is not None
-            #     and self._current_roi is not None
-            # ):
-            #     imgproc_data = ImageProcData(
-            #         frame_id=frame_id.item(),
-            #         img=online_im,
-            #         current_box=self._current_roi_aspect.bounding_box(),
-            #     )
-            #     self._video_output_boxtrack.append(imgproc_data)
+            if (
+                self._video_output_boxtrack is not None
+                and self._current_roi is not None
+            ):
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=self._current_roi_aspect.bounding_box(),
+                )
+                self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):

@@ -35,8 +35,7 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
-#EXP_NAME="mixsort-run-$(uuidgen)"
-EXP_NAME="mixsort-run-vallco"
+EXP_NAME="mixsort-run-fairmot"
 
 #START_FRAME=0
 #START_FRAME=1900
