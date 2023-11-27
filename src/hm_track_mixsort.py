@@ -43,7 +43,7 @@ from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 
-from hmtrack import CamTrackHead
+from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
 import hmlib.datasets as datasets
 
