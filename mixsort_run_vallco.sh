@@ -2,8 +2,8 @@
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Models
@@ -13,11 +13,11 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 #PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
-PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
-#PRETRAINED_MODEL="./trained_models/fairmot/crowdhuman_dla34.pth"
+#PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
+PRETRAINED_MODEL="./trained_models/fairmot/crowdhuman_dla34.pth"
 
-#MIXFORMER_SCRIPT="mixformer_deit_hockey"
-MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
+MIXFORMER_SCRIPT="mixformer_deit_hockey"
+#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -32,8 +32,8 @@ MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb/right.mp4"
+VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
 #EXP_NAME="mixsort-run-$(uuidgen)"

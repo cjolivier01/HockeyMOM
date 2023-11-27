@@ -131,6 +131,7 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = False
 
+
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
@@ -143,7 +144,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
-        self.show_image = True
+        # self.show_image = True
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging
@@ -173,7 +174,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or basic_debugging
-        #self.plot_moving_boxes = True
+        # self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
@@ -182,7 +183,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
@@ -226,7 +227,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        #self.crop_output_image = False
+        # self.crop_output_image = False
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
@@ -867,7 +868,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     [int(i) for i in edge_center],
@@ -887,10 +888,14 @@ class FramePostProcessor:
 
                 if self._current_roi is not None:
                     roi_center = center(self._current_roi.bounding_box())
-                    #vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
+                    # vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
                     should_adjust_speed = torch.logical_or(
-                        torch.logical_and(group_x_velocity > 0, roi_center[0] < edge_center[0]),
-                        torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
+                        torch.logical_and(
+                            group_x_velocity > 0, roi_center[0] < edge_center[0]
+                        ),
+                        torch.logical_and(
+                            group_x_velocity < 0, roi_center[0] > edge_center[0]
+                        ),
                     )
                     if should_adjust_speed.item():
                         self._current_roi.adjust_speed(
@@ -1254,16 +1259,17 @@ class FramePostProcessor:
                 self._timer = Timer()
 
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            # if self._video_output_campp is not None:
-            #     imgproc_data = ImageProcData(
-            #         frame_id=frame_id.item(),
-            #         img=online_im,
-            #         current_box=current_box,
-            #     )
-            #     self._video_output_campp.append(imgproc_data)
+            if self._video_output_campp is not None:
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=current_box,
+                )
+                self._video_output_campp.append(imgproc_data)
             if (
                 self._video_output_boxtrack is not None
                 and self._current_roi is not None
+                and (self._video_output_campp is not None and not self._args.show_image)
             ):
                 imgproc_data = ImageProcData(
                     frame_id=frame_id.item(),

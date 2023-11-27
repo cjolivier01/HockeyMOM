@@ -47,9 +47,17 @@ START_FRAME=10590
 #TRACKER="hm"
 TRACKER="fair"
 
+BATCH_SIZE=3
+
 #YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
 #HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
+
+# Problems:
+#   2:05 breakway slow to follow to right
+#   3:15 (same)
+#   5:25 starts skipping targets -- what are these? plot them to see.
+#
 
 STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
@@ -62,7 +70,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=3 -d=1 \
+  -b=${BATCH_SIZE} -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \

@@ -11,7 +11,7 @@ import cv2
 
 from typing import Dict, List
 
-from yolox.evaluators.mot_evaluator import write_results_no_score
+from yolox.evaluators.mot_evaluator import write_results_no_score, TrackingHead
 
 from hmlib.tracker.multitracker import JDETracker, torch_device
 from hmlib.tracking_utils import visualization as vis
@@ -67,7 +67,7 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
-class HmPostProcessor:
+class HmPostProcessor(TrackingHead):
     def __init__(
         self,
         opt,
@@ -120,7 +120,7 @@ class HmPostProcessor:
                 device=self._device,
             )
 
-    def online_callback(
+    def process_tracking(
         self,
         frame_id,
         online_tlwhs,
