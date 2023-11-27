@@ -170,20 +170,20 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        # self.plot_camera_tracking = False
+        self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or basic_debugging
         #self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        # self.plot_frame_number = True
+        self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
         self.fixed_edge_rotation = False
-        #self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
@@ -198,6 +198,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
+        self.plot_sticky_camera = False
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -756,16 +757,16 @@ class FramePostProcessor:
                         max_width=self._hockey_mom._video_frame.width,
                         max_height=self._hockey_mom._video_frame.height,
                         width_change_threshold=_scalar_like(
-                            size_unstick_size, device=current_box.device
+                            size_unstick_size * 4, device=current_box.device
                         ),
                         width_change_threshold_low=_scalar_like(
-                            size_stick_size, device=current_box.device
+                            size_stick_size / 2, device=current_box.device
                         ),
                         height_change_threshold=_scalar_like(
-                            size_unstick_size, device=current_box.device
+                            size_unstick_size * 4, device=current_box.device
                         ),
                         height_change_threshold_low=_scalar_like(
-                            size_stick_size, device=current_box.device
+                            size_stick_size / 2, device=current_box.device
                         ),
                         sticky_translation=True,
                         scale_width=1.1,
@@ -866,7 +867,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     [int(i) for i in edge_center],
@@ -882,17 +883,26 @@ class FramePostProcessor:
                 )
                 # assert width(current_box) <= hockey_mom.video.width
                 # assert height(current_box) <= hockey_mom.video.height
-
                 self._hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
+
                 if self._current_roi is not None:
-                    self._current_roi.adjust_speed(
-                        accel_x=group_x_velocity / 2,
-                        accel_y=None,
-                        use_constraints=False,
-                        nonstop_delay=torch.tensor(
-                            1, dtype=torch.int64, device=self._device
-                        ),
+                    roi_center = center(self._current_roi.bounding_box())
+                    vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
+                    should_adjust_speed = torch.logical_or(
+                        torch.logical_and(group_x_velocity > 0, roi_center[0] < edge_center[0]),
+                        torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
                     )
+                    if should_adjust_speed.item():
+                        self._current_roi.adjust_speed(
+                            accel_x=group_x_velocity / 2,
+                            accel_y=None,
+                            use_constraints=False,
+                            nonstop_delay=torch.tensor(
+                                1, dtype=torch.int64, device=self._device
+                            ),
+                        )
+                    else:
+                        print("Skipping modifying group x velocity")
 
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
             current_box, self._last_temporal_box = _apply_temporal(
@@ -1250,16 +1260,16 @@ class FramePostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            if (
-                self._video_output_boxtrack is not None
-                and self._current_roi is not None
-            ):
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=self._current_roi_aspect.bounding_box(),
-                )
-                self._video_output_boxtrack.append(imgproc_data)
+            # if (
+            #     self._video_output_boxtrack is not None
+            #     and self._current_roi is not None
+            # ):
+            #     imgproc_data = ImageProcData(
+            #         frame_id=frame_id.item(),
+            #         img=online_im,
+            #         current_box=self._current_roi_aspect.bounding_box(),
+            #     )
+            #     self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):

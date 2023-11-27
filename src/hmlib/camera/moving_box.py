@@ -305,6 +305,7 @@ class MovingBox(BasicBox):
 
         if accel_y is not None:
             self._current_speed_y += accel_y
+
         if nonstop_delay is not None:
             self._nonstop_delay = nonstop_delay
             self._nonstop_delay_counter = self._zero
