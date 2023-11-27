@@ -31,9 +31,9 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb/right.mp4"
-#VIDEO="${HOME}/Videos/tvbb"
+VIDEO="${HOME}/Videos/tvbb"
 
 EXP_NAME="mixsort-run-fairmot"
 
@@ -42,7 +42,7 @@ START_FRAME=0
 #START_FRAME=2900
 #START_FRAME=6200
 #START_FRAME=8000
-#START_FRAME=10590
+START_FRAME=10590
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -51,7 +51,7 @@ TRACKER="fair"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
 #HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
-#STITCHING_PARAMS="--lfo=15.392 --rfo=0"
+STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 

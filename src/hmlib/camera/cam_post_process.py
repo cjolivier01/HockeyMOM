@@ -177,13 +177,13 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        self.plot_frame_number = True
+        # self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        #self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
@@ -887,7 +887,7 @@ class FramePostProcessor:
 
                 if self._current_roi is not None:
                     roi_center = center(self._current_roi.bounding_box())
-                    vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
+                    #vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
                     should_adjust_speed = torch.logical_or(
                         torch.logical_and(group_x_velocity > 0, roi_center[0] < edge_center[0]),
                         torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
@@ -902,7 +902,8 @@ class FramePostProcessor:
                             ),
                         )
                     else:
-                        print("Skipping modifying group x velocity")
+                        # print("Skipping modifying group x velocity")
+                        pass
 
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
             current_box, self._last_temporal_box = _apply_temporal(
