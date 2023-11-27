@@ -867,7 +867,7 @@ class FramePostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     [int(i) for i in edge_center],
@@ -1260,16 +1260,16 @@ class FramePostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            # if (
-            #     self._video_output_boxtrack is not None
-            #     and self._current_roi is not None
-            # ):
-            #     imgproc_data = ImageProcData(
-            #         frame_id=frame_id.item(),
-            #         img=online_im,
-            #         current_box=self._current_roi_aspect.bounding_box(),
-            #     )
-            #     self._video_output_boxtrack.append(imgproc_data)
+            if (
+                self._video_output_boxtrack is not None
+                and self._current_roi is not None
+            ):
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=self._current_roi_aspect.bounding_box(),
+                )
+                self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):
