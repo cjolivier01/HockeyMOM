@@ -307,7 +307,7 @@ class Detection:
         self.history = history
 
 
-class FramePostProcessor:
+class CamTrackPostProcessor:
     def __init__(
         self,
         hockey_mom,

@@ -13,9 +13,10 @@ from hmlib.tracking_utils.utils import mkdir_if_missing
 from hmlib.tracking_utils.log import logger
 import hmlib.datasets.dataset.jde as datasets
 from yolox.data import get_yolox_datadir
+
 # from track import eval_seq
 from hmlib.ffmpeg import copy_audio
-from hmtrack import track_sequence, HmPostProcessor
+from hmtrack import track_sequence, CamTrackHead
 import hmlib.datasets as datasets
 from hmlib.camera.cam_post_process import (
     DefaultArguments,
@@ -50,7 +51,7 @@ def infer_main(opt):
 
     logger.info("Starting tracking...")
 
-    #opt.img_size = (4096, 1024)
+    # opt.img_size = (4096, 1024)
 
     # opt.img_size = (4096 * 3 // 2, 1024 * 3 // 2)
 
@@ -103,7 +104,7 @@ def infer_main(opt):
             json_file="test.json",
             # json_file="val.json",
             batch_size=1,
-            #clip_original=[300, 285, 4572, 1750],
+            # clip_original=[300, 285, 4572, 1750],
             # batch_size=1,
             max_frames=opt.max_frames,
             name="val",
@@ -115,7 +116,7 @@ def infer_main(opt):
 
     args = DefaultArguments()
 
-    postprocessor = HmPostProcessor(
+    postprocessor = CamTrackHead(
         opt=opt,
         args=args,
         fps=dataloader.fps,

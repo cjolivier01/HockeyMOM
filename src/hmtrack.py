@@ -26,7 +26,7 @@ from hmlib.opts import opts
 
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.cam_post_process import (
-    FramePostProcessor,
+    CamTrackPostProcessor,
 )
 
 
@@ -67,7 +67,7 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
-class HmPostProcessor(TrackingHead):
+class CamTrackHead(TrackingHead):
     def __init__(
         self,
         opt,
@@ -187,7 +187,7 @@ class HmPostProcessor(TrackingHead):
                 )
 
         if self._postprocessor is None:
-            self._postprocessor = FramePostProcessor(
+            self._postprocessor = CamTrackPostProcessor(
                 self._hockey_mom,
                 start_frame_id=frame_id,
                 data_type=self._data_type,
@@ -217,7 +217,7 @@ class HmPostProcessor(TrackingHead):
 #     dataloader,
 #     tracker_name: str,
 #     result_filename,
-#     postprocessor: HmPostProcessor,
+#     postprocessor: CamTrackHead,
 #     save_dir: str = None,
 #     use_cuda: bool = True,
 #     data_type: str = "mot",

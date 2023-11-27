@@ -43,7 +43,7 @@ from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 
-from hmtrack import HmPostProcessor
+from hmtrack import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
 import hmlib.datasets as datasets
 
@@ -510,7 +510,7 @@ def main(exp, args, num_gpu):
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
 
-        postprocessor = HmPostProcessor(
+        postprocessor = CamTrackHead(
             opt=args,
             args=cam_args,
             fps=dataloader.fps,
