@@ -1253,13 +1253,13 @@ class FramePostProcessor:
                 self._timer = Timer()
 
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            if self._video_output_campp is not None:
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=current_box,
-                )
-                self._video_output_campp.append(imgproc_data)
+            # if self._video_output_campp is not None:
+            #     imgproc_data = ImageProcData(
+            #         frame_id=frame_id.item(),
+            #         img=online_im,
+            #         current_box=current_box,
+            #     )
+            #     self._video_output_campp.append(imgproc_data)
             if (
                 self._video_output_boxtrack is not None
                 and self._current_roi is not None
