@@ -39,16 +39,17 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
 
-#START_FRAME=0
+START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
-START_FRAME=6200
+#START_FRAME=6200
 
-TRACKER="hm"
+#TRACKER="hm"
+TRACKER="fair"
 
 #YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
-HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
+#HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
 #STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
@@ -72,3 +73,4 @@ OMP_NUM_THREADS=16 \
   --cam-ignore-largest \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}" $@
+
