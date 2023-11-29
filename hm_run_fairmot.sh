@@ -12,7 +12,6 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
 #PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
-#PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
 PRETRAINED_MODEL="./trained_models/fairmot/crowdhuman_dla34.pth"
 
@@ -36,22 +35,31 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
-EXP_NAME="mixsort-run-vallco"
+EXP_NAME="$(basename $0 .sh)"
 
-#START_FRAME=0
+START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
 #START_FRAME=6200
+#START_FRAME=8000
 START_FRAME=10590
 
 #TRACKER="hm"
 TRACKER="fair"
 
+BATCH_SIZE=3
+
 #YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
 #HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
-#STITCHING_PARAMS="--lfo=15.392 --rfo=0"
+# Problems:
+#   2:05 breakway slow to follow to right
+#   3:15 (same)
+#   5:25 starts skipping targets -- what are these? plot them to see.
+#
+
+STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -62,7 +70,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=6 -d=1 \
+  -b=${BATCH_SIZE} -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
@@ -73,4 +81,3 @@ OMP_NUM_THREADS=16 \
   --cam-ignore-largest \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}" $@
-

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
+#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
+EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 
 #
 # Models
@@ -11,11 +11,13 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
 #PRETRAINED_MODEL="pretrained/mixsort/latest_ckpt.pth.tar"
 #PRETRAINED_MODEL="pretrained/mixsort/last_epoch_ckpt.pth.tar"
 #PRETRAINED_MODEL="models/mixsort/pretrained/yolox_x_ch.pth"
-PRETRAINED_MODEL="pretrained/mixsort/my_ch.pth.tar"
+#PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e70.pth.tar"
-#PRETRAINED_MODEL="pretrained/mixsort/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
+PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 
-MIXFORMER_SCRIPT="mixformer_deit_hockey"
+#MIXFORMER_SCRIPT="mixformer_deit"
+#MIXFORMER_SCRIPT="mixformer_deit_hockey"
+MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
@@ -28,11 +30,18 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
-VIDEO="${HOME}/Videos/roseville/stitched_output-with-audio-no-warmups.mp4"
+VIDEO="${HOME}/Videos/sharksbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/sharksbb2/small-with-audio.avi"
 #VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
 
-#EXP_NAME="mixsort-run-$(uuidgen)"
-EXP_NAME="mixsort-run-roseville"
+EXP_NAME="$(basename $0 .sh)"
+
+#START_FRAME=500
+START_FRAME=1900
+
+#HYPER_PARAMS="--conf=0.008 --track_thresh=0.08 --track_thresh_low=0.1"
+HYPER_PARAMS="--conf=0.1 --track_thresh=0.28 --track_thresh_low=0.1"
+#HYPER_PARAMS="--track_thresh=0.3 --track_thresh_low=0.1"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -44,11 +53,13 @@ PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pw
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 \
+  -b=1 \
   -d=1 \
+  --rink=sharks_orange \
+  --start-frame=${START_FRAME} \
   --infer \
+  ${HYPER_PARAMS} \
   --min-box-area=35 \
   --config=track \
-  --start-frame=510 \
   --script="${MIXFORMER_SCRIPT}" \
-  --input_video="${VIDEO}"
+  --input_video="${VIDEO}" $@

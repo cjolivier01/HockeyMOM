@@ -13,7 +13,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 VIDEO="${HOME}/Videos/tvbb/right.mp4"
 
-EXP_NAME="mixsort-run-cvat"
+EXP_NAME="$(basename $0 .sh)"
 
 START_FRAME=6200
 MAX_FRAMES=200
