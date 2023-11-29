@@ -1,8 +1,8 @@
 {
   "root": "/home/colivier/src/hockeymom/datasets",
   "train": {
-    "crowdhuman_train": "src/data/crowdhuman.train",
-    "crowdhuman_test": "src/data/crowdhuman.val"
+    "crowdhuman_train": "data/crowdhuman.train",
+    "crowdhuman_test": "data/crowdhuman.val"
   },
   "test_emb": {
     "mot17": "./datasets/MOT17.val"
