@@ -74,7 +74,7 @@ core.hello_world()
 RINK_CONFIG = {
     "vallco": {
         "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 35.0,
+        "fixed_edge_rotation_angle": 40.0,
         "borders": {
             "upper": [],
             "lower": [],
@@ -183,7 +183,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.fixed_edge_rotation = False
+        #self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
@@ -770,6 +770,7 @@ class CamTrackPostProcessor:
                             size_stick_size * 2, device=current_box.device
                         ),
                         sticky_translation=True,
+                        sticky_sizing = True,
                         scale_width=1.1,
                         scale_height=1.1,
                         fixed_aspect_ratio=self._final_aspect_ratio,

@@ -433,7 +433,7 @@ class LoadImagesAndLabels:  # for training
             cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)
 
         h, w, _ = img.shape
-        img, ratio, padw, padh = letterbox(img, height=height, width=width)
+        img, _, ratio, padw, padh = letterbox(img, height=height, width=width)
 
         # Load labels
         if os.path.isfile(label_path):

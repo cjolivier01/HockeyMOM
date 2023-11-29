@@ -67,8 +67,6 @@ class MovingBox(BasicBox):
         scale_height: torch.Tensor = None,
         arena_box: torch.Tensor = None,
         fixed_aspect_ratio: torch.Tensor = None,
-        # translation_threshold: torch.Tensor = None,
-        # translation_threshold_low: torch.Tensor = None,
         sticky_translation: bool = False,
         sticky_sizing: bool = False,
         width_change_threshold: torch.Tensor = None,
@@ -128,6 +126,7 @@ class MovingBox(BasicBox):
         self._current_speed_h = self._zero
         self._nonstop_delay = self._zero
         self._nonstop_delay_counter = self._zero
+        self._previous_area = width(bbox) * height(bbox)
 
         if self._arena_box is not None:
             self._horizontal_image_gaussian_distribution = (
@@ -158,8 +157,6 @@ class MovingBox(BasicBox):
         self._width_change_threshold_low = width_change_threshold_low
         self._height_change_threshold = height_change_threshold
         self._height_change_threshold_low = height_change_threshold_low
-        # self._translation_threshold = translation_threshold
-        # self._translation_threshold_low = translation_threshold_low
 
     @property
     def _zero(self):
@@ -179,26 +176,26 @@ class MovingBox(BasicBox):
             label=self._make_label(),
             text_scale=2,
         )
-        if self._size_is_frozen:
-            # draw_box += self._line_thickness_tensor
-            vis.plot_rectangle(
-                img,
-                draw_box - self._line_thickness_tensor,
-                color=(0, 255, 0),
-                thickness=self._thickness,
-                label=self._make_label(),
-                text_scale=2,
-            )
-        if self._translation_is_frozen:
-            draw_box += self._line_thickness_tensor * 2
-            vis.plot_rectangle(
-                img,
-                draw_box,
-                color=(255, 0, 0),
-                thickness=self._thickness * 2,
-                label=self._make_label(),
-                text_scale=2,
-            )
+        # if self._size_is_frozen:
+        #     # draw_box += self._line_thickness_tensor
+        #     vis.plot_rectangle(
+        #         img,
+        #         draw_box - self._line_thickness_tensor,
+        #         color=(0, 255, 0),
+        #         thickness=self._thickness,
+        #         label=self._make_label(),
+        #         text_scale=2,
+        #     )
+        # if self._translation_is_frozen:
+        #     draw_box += self._line_thickness_tensor * 2
+        #     vis.plot_rectangle(
+        #         img,
+        #         draw_box,
+        #         color=(255, 0, 0),
+        #         thickness=self._thickness * 2,
+        #         label=self._make_label(),
+        #         text_scale=2,
+        #     )
         if draw_threasholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
             cl = [int(i) for i in center(self._bbox)]
@@ -247,7 +244,7 @@ class MovingBox(BasicBox):
                 vis.draw_dashed_rectangle(
                     img,
                     current_following_box_center_inside,
-                    color=(128, 128, 128),
+                    color=(128, 128, 128) if not self._size_is_frozen else (0, 0, 0),
                     thickness=self._thickness * 2,
                 )
                 stickiness = self._get_sticky_resize_sizes()
@@ -279,6 +276,25 @@ class MovingBox(BasicBox):
 
         return img
 
+    def _get_inner_and_outer_resize_boxes(self, validate: bool = True):
+        stickiness = self._get_sticky_resize_sizes()
+        unsticky_wh = stickiness[2:4] / 2
+        outer_box = self._bbox.clone()
+        outer_box[0] += unsticky_wh[0]
+        outer_box[2] -= unsticky_wh[0]
+        outer_box[1] += unsticky_wh[1]
+        outer_box[3] -= unsticky_wh[1]
+        sticky_wh = stickiness[0:2] / 2
+        inner_box = self._bbox.clone()
+        inner_box[0] += sticky_wh[0]
+        inner_box[2] -= sticky_wh[0]
+        inner_box[1] += sticky_wh[1]
+        inner_box[3] -= sticky_wh[1]
+        if validate:
+            assert width(inner_box) < width(outer_box)
+            assert height(inner_box) < height(outer_box)
+        return inner_box, outer_box
+
     def _get_sticky_translation_sizes(self):
         if self._horizontal_image_gaussian_distribution is None:
             gaussian_factor = 1.0
@@ -302,13 +318,13 @@ class MovingBox(BasicBox):
             )
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
-        print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+        # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
         sticky_size_w = self._width_change_threshold + gaussian_add
         unsticky_size_w = self._width_change_threshold_low + gaussian_add
         sticky_size_h = self._height_change_threshold + gaussian_add
         unsticky_size_h = self._height_change_threshold_low + gaussian_add
         return torch.tensor(
-            [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h],
+            [sticky_size_w, sticky_size_h, -unsticky_size_w, -unsticky_size_h],
             dtype=torch.float32,
             device=self._bbox.device,
         )
@@ -448,14 +464,14 @@ class MovingBox(BasicBox):
             sticky, unsticky = self._get_sticky_translation_sizes()
             if not self._translation_is_frozen and diff_magnitude <= sticky:
                 self._translation_is_frozen = True
-                self._current_speed_x = self._zero
-                self._current_speed_y = self._zero
+                self._current_speed_x = self._zero.clone()
+                self._current_speed_y = self._zero.clone()
             elif self._translation_is_frozen and diff_magnitude >= unsticky:
                 self._translation_is_frozen = False
 
                 # Unstick at zero velocity
-                self._current_speed_x = self._zero
-                self._current_speed_y = self._zero
+                self._current_speed_x = self._zero.clone()
+                self._current_speed_y = self._zero.clone()
 
                 # clamp to max velocities
                 # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
@@ -464,13 +480,13 @@ class MovingBox(BasicBox):
 
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
-                self._current_speed_x = self._zero
+                self._current_speed_x = self._zero.clone()
                 if stop_on_dir_change:
-                    total_diff[0] = self._zero
+                    total_diff[0] = self._zero.clone()
             if different_directions(total_diff[1], self._current_speed_y):
-                self._current_speed_y = self._zero
+                self._current_speed_y = self._zero.clone()
                 if stop_on_dir_change:
-                    total_diff[1] = self._zero
+                    total_diff[1] = self._zero.clone()
         self.adjust_speed(
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
@@ -490,6 +506,8 @@ class MovingBox(BasicBox):
         scale_h = (
             self._one_float_tensor if self._scale_height is None else self._scale_height
         )
+
+        dest_area = dest_width * dest_height
 
         current_w = width(self._bbox)
         current_h = height(self._bbox)
@@ -513,52 +531,87 @@ class MovingBox(BasicBox):
         # BEGIN size threshhold
         #
         if self._sticky_sizing:
-            stickiness = self._get_sticky_resize_sizes()
+            if True:
+                stopped_count = 0
+                if (
+                    self._width_change_threshold_low is not None
+                    and abs(dw) < self._width_change_threshold_low
+                ):
+                    stopped_count += 1
+                    self._current_speed_w = self._zero
+                if (
+                    self._height_change_threshold_low is not None
+                    and abs(dh) < self._height_change_threshold_low
+                ):
+                    stopped_count += 1
+                    self._current_speed_h = self._zero
+                if stopped_count == 2:
+                    self._size_is_frozen = True
 
-            stopped_count = 0
-            if (
-                self._width_change_threshold_low is not None
-                and abs(dw) < self._width_change_threshold_low
-            ):
-                stopped_count += 1
-                self._current_speed_w = self._zero
-            if (
-                self._height_change_threshold_low is not None
-                and abs(dh) < self._height_change_threshold_low
-            ):
-                stopped_count += 1
-                self._current_speed_h = self._zero
-            if stopped_count == 2:
-                self._size_is_frozen = True
+                if (
+                    self._width_change_threshold is not None
+                    and abs(dw) >= self._width_change_threshold
+                ):
+                    self._size_is_frozen = False
+                    # start from zero change speed so as not to jerk
+                    self._current_speed_w = self._zero
+                    self._current_speed_h = self._zero
+                elif (
+                    self._height_change_threshold is not None
+                    and abs(dh) >= self._height_change_threshold
+                ):
+                    self._size_is_frozen = False
+                    # start from zero change speed so as not to jerk
+                    self._current_speed_w = self._zero
+                    self._current_speed_h = self._zero
+                else:
+                    inner_box, outer_box = self._get_inner_and_outer_resize_boxes()
 
-            if (
-                self._width_change_threshold is not None
-                and abs(dw) >= self._width_change_threshold
-            ):
-                self._size_is_frozen = False
-                # start from zero change speed so as not to jerk
-                self._current_speed_w = self._zero
-                self._current_speed_h = self._zero
-            elif (
-                self._height_change_threshold is not None
-                and abs(dh) >= self._height_change_threshold
-            ):
-                self._size_is_frozen = False
-                # start from zero change speed so as not to jerk
-                self._current_speed_w = self._zero
-                self._current_speed_h = self._zero
+                    # stickiness = self._get_sticky_resize_sizes()
+                    # dest_area = dest_width * dest_height
+                    inner_width = width(inner_box)
+                    inner_height = height(inner_box)
+                    outer_width = width(outer_box)
+                    outer_height = height(outer_box)
+                    inner_area = width(inner_box) * height(inner_box)
+                    outer_area = width(outer_box) * height(outer_box)
+                    assert outer_area > inner_area
+                    # can we do area here or long/tall boxes will be ignored?
+                    # if not self._size_is_frozen and (dw < stickiness[0] or dh < stickiness[1]):
+                    if not self._size_is_frozen and (
+                        dest_area >= inner_area and dest_area <= outer_area
+                    ):
+                        self._size_is_frozen = True
+                        self._current_speed_w = self._zero.clone()
+                        self._current_speed_h = self._zero.clone()
+                        dw = self._zero.clone()
+                        dh = self._zero.clone()
+                    # elif self._size_is_frozen and (dw > stickiness[2] or dh > stickiness[3]):
+                    elif self._size_is_frozen and (
+                        dest_area >= outer_area or dest_area <= inner_area
+                    ):
+                        self._size_is_frozen = False
+                        # Unstick at zero velocity
+                        self._current_speed_w = self._zero.clone()
+                        self._current_speed_h = self._zero.clone()
         #
         # END size threshhold
         #
+
+        assert self._zero.item() == 0
+
         if different_directions(dw, self._current_speed_w):
-            self._current_speed_w = self._zero
+            self._current_speed_w = self._zero.clone()
             if stop_on_dir_change:
-                dw = self._zero
+                dw = self._zero.clone()
+                # self._size_is_frozen = True
         if different_directions(dh, self._current_speed_h):
-            self._current_speed_h = self._zero
+            self._current_speed_h = self._zero.clone()
             if stop_on_dir_change:
-                dh = self._zero
-        self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
+                dh = self._zero.clone()
+                # self._size_is_frozen = True
+        if not self._size_is_frozen:
+            self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
     def next_position(self, arena_box: torch.Tensor = None):
         if arena_box is None:
@@ -581,7 +634,7 @@ class MovingBox(BasicBox):
             dh = self._zero
         else:
             dw = self._current_speed_w / 2
-            dh = self._current_speed_h
+            dh = self._current_speed_h / 2
         # END Sticky
 
         self._bbox += torch.tensor(
@@ -600,7 +653,7 @@ class MovingBox(BasicBox):
             if self._nonstop_delay_counter >= self._nonstop_delay:
                 self._nonstop_delay = self._zero
                 self._nonstop_delay_counter = self._zero
-        self.stop_if_out_of_arena()
+        self.stop_translation_if_out_of_arena()
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
             self._bbox = self.set_aspect_ratio(self._bbox, self._fixed_aspect_ratio)
@@ -640,7 +693,7 @@ class MovingBox(BasicBox):
             return
         self._bbox = clamp_box(box=self._bbox, clamp_box=self._arena_box)
 
-    def stop_if_out_of_arena(self):
+    def stop_translation_if_out_of_arena(self):
         if self._arena_box is None:
             return
         edge_ok = torch.logical_not(

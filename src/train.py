@@ -57,7 +57,8 @@ def main(opt):
         dataset,
         batch_size=opt.batch_size,
         shuffle=True,
-        num_workers=opt.num_workers,
+        num_workers=1,
+        #num_workers=opt.num_workers,
         pin_memory=True,
         drop_last=True
     )
