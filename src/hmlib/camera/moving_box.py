@@ -236,6 +236,47 @@ class MovingBox(BasicBox):
                     thickness=cv2.FILLED,
                 )
 
+                # plot the box we're following inscribed at our
+                # center at its current size
+                draw_box = self._bbox.clone()
+                current_following_box_center_inside = make_box_at_center(
+                    center(draw_box),
+                    width(self._following_box.bounding_box()),
+                    height(self._following_box.bounding_box()),
+                )
+                vis.draw_dashed_rectangle(
+                    img,
+                    current_following_box_center_inside,
+                    color=(128, 128, 128),
+                    thickness=self._thickness * 2,
+                )
+                stickiness = self._get_sticky_resize_sizes()
+                sticky_wh = stickiness[0:2] / 2
+                unsticky_wh = stickiness[2:4] / 2
+                # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
+                draw_box[0] += unsticky_wh[0]
+                draw_box[2] -= unsticky_wh[0]
+                draw_box[1] += unsticky_wh[1]
+                draw_box[3] -= unsticky_wh[1]
+                vis.draw_dashed_rectangle(
+                    img,
+                    draw_box,
+                    color=(255, 255, 255),
+                    thickness=self._thickness // 2,
+                )
+                draw_box = self._bbox.clone()
+                # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
+                draw_box[0] += sticky_wh[0]
+                draw_box[2] -= sticky_wh[0]
+                draw_box[1] += sticky_wh[1]
+                draw_box[3] -= sticky_wh[1]
+                vis.draw_dashed_rectangle(
+                    img,
+                    draw_box,
+                    color=(0, 128, 0),
+                    thickness=self._thickness // 2,
+                )
+
         return img
 
     def _get_sticky_translation_sizes(self):
@@ -252,6 +293,26 @@ class MovingBox(BasicBox):
         unsticky_size = sticky_size * 3 / 4
         return sticky_size, unsticky_size
 
+    def _get_sticky_resize_sizes(self):
+        if self._horizontal_image_gaussian_distribution is None:
+            gaussian_factor = 1.0
+        else:
+            gaussian_factor = self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
+                center(self.bounding_box())[0]
+            )
+        gaussian_mult = 6
+        gaussian_add = gaussian_factor * gaussian_mult
+        print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+        sticky_size_w = self._width_change_threshold + gaussian_add
+        unsticky_size_w = self._width_change_threshold_low + gaussian_add
+        sticky_size_h = self._height_change_threshold + gaussian_add
+        unsticky_size_h = self._height_change_threshold_low + gaussian_add
+        return torch.tensor(
+            [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h],
+            dtype=torch.float32,
+            device=self._bbox.device,
+        )
+
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
 
@@ -259,7 +320,7 @@ class MovingBox(BasicBox):
         self._current_speed_x = torch.clamp(
             self._current_speed_x, min=-self._max_speed_x, max=self._max_speed_x
         )
-        self._current_speed_y = torch.clamp(
+        self._current_speed_ = torch.clamp(
             self._current_speed_y, min=-self._max_speed_y, max=self._max_speed_y
         )
 
@@ -452,6 +513,8 @@ class MovingBox(BasicBox):
         # BEGIN size threshhold
         #
         if self._sticky_sizing:
+            stickiness = self._get_sticky_resize_sizes()
+
             stopped_count = 0
             if (
                 self._width_change_threshold_low is not None

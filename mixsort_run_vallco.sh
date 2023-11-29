@@ -36,13 +36,13 @@ VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb/right.mp4"
 #VIDEO="${HOME}/Videos/tvbb"
 
-#EXP_NAME="mixsort-run-$(uuidgen)"
 EXP_NAME="mixsort-run-vallco"
 
-START_FRAME=0
+#START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
 #START_FRAME=6200
+START_FRAME=10590
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -62,7 +62,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=1 -d=1 \
+  -b=6 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \

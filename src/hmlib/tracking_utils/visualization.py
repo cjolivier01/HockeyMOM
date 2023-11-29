@@ -99,6 +99,33 @@ def plot_alpha_rectangle(
     return rectangled_image
 
 
+def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
+    """
+    Draw a dashed-line rectangle on an image.
+
+    Parameters:
+    img (numpy.ndarray): The image.
+    top_left (tuple): The top-left corner of the rectangle (x, y).
+    bottom_right (tuple): The bottom-right corner of the rectangle (x, y).
+    color (tuple): Color of the rectangle (B, G, R).
+    thickness (int): Thickness of the rectangle lines.
+    dash_length (int): Length of each dash.
+    """
+    x1, y1 = int(box[0]), int(box[1])
+    x2, y2 = int(box[2]), int(box[3])
+
+    # Draw top and bottom sides
+    for x in range(x1, x2, dash_length * 2):
+        cv2.line(img, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
+        cv2.line(img, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
+
+    # Draw left and right sides
+    for y in range(y1, y2, dash_length * 2):
+        cv2.line(img, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
+        cv2.line(img, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
+    return img
+
+
 def _to_int(vals):
     return [int(i) for i in vals]
 

@@ -758,16 +758,16 @@ class CamTrackPostProcessor:
                         max_width=self._hockey_mom._video_frame.width,
                         max_height=self._hockey_mom._video_frame.height,
                         width_change_threshold=_scalar_like(
-                            size_unstick_size * 4, device=current_box.device
+                            size_unstick_size * 2, device=current_box.device
                         ),
                         width_change_threshold_low=_scalar_like(
-                            size_stick_size / 2, device=current_box.device
+                            size_stick_size * 2, device=current_box.device
                         ),
                         height_change_threshold=_scalar_like(
-                            size_unstick_size * 4, device=current_box.device
+                            size_unstick_size * 2, device=current_box.device
                         ),
                         height_change_threshold_low=_scalar_like(
-                            size_stick_size / 2, device=current_box.device
+                            size_stick_size * 2, device=current_box.device
                         ),
                         sticky_translation=True,
                         scale_width=1.1,
