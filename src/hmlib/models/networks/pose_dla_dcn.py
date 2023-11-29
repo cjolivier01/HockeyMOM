@@ -463,7 +463,7 @@ class DLASeg(nn.Module):
                 fc[-1].bias.data.fill_(-2.19)
               else:
                 fill_fc_weights(fc)
-            else:``
+            else:
               fc = nn.Conv2d(channels[self.first_level], classes,
                   kernel_size=final_kernel, stride=1,
                   padding=final_kernel // 2, bias=True)
