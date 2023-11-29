@@ -104,12 +104,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if self._start_frame_number:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
         else:
-            # self._embedded_data_loader_iter = iter(self._embedded_data_loader)
             self.vn = len(self._embedded_data_loader)
-            # self.vw = self._embedded_data_loader.width
-            # self.vh = self._embedded_data_loader.height
-            # self.vw = None
-            # self.vh = None
             self.fps = self._embedded_data_loader.fps
         if self.vn is not None:
             print("Lenth of the video: {:d} frames".format(self.vn))
@@ -219,12 +214,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 self._scale_inscribed_to_original = (
                     self._scale_inscribed_to_original.to(device)
                 )
-        # if isinstance(yolox_detections, torch.Tensor):
-        #     # [0:4] detections are tlbr
-        #     yolox_detections[i][:,:, 0:4] -= self._mapping_offset
-        #     # Scale the width and height
-        #     yolox_detections[i][:,:, 0:4] /= self._scale_inscribed_to_original
-        #     return yolox_detections
         if len(yolox_detections):
             # [0:4] detections are tlbr
             for i in range(len(yolox_detections)):
@@ -237,14 +226,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         return yolox_detections
 
     def _get_next_batch(self):
-        # TODO: Support other batch sizes
-        # if self._count and self._count % 20 == 0:
-        #     logger.info(
-        #         "Dataset delivery frame {} ({:.2f} fps)".format(
-        #             self._count + 1, 1.0 / max(1e-5, self._timer.average_time)
-        #         )
-        #     )
-        # self._timer.tic()
         current_count = self._count.item()
         if current_count == len(self) or (
             self._max_frames and current_count >= self._max_frames
@@ -257,7 +238,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
-            # _, img0 = self.cap.read()  # BGR
             _, img0 = self._read_next_image()
             if img0 is None:
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
@@ -291,7 +271,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
-            # frame_sizes.append(torch.tensor([self.height_t, self.width_t], dtype=torch.int64, device=self.height_t.device))
 
         inscribed_image = torch.stack(frames_inscribed_images, dim=0)
         img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
