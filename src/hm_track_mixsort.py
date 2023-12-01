@@ -442,7 +442,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    clip_original=[300, 285, 4572, 1750],
+                    #clip_original=[300, 285, 4572, 1750],
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
@@ -464,7 +464,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    clip_original=[300, 285, 4572, 1750],
+                    #clip_original=[300, 285, 4572, 1750],
                     # batch_size=1,
                     max_frames=args.max_frames,
                     name="val",

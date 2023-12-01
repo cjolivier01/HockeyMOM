@@ -14,7 +14,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
-PRETRAINED_MODEL="./pretrained/fairmot/crowdhuman_dla34.pth"
+PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
@@ -62,7 +62,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 -d=1 \
+  -b=2 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
