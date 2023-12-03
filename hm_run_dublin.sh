@@ -34,11 +34,9 @@ VIDEO="${HOME}/Videos/lbd3/stitched_output-with-audio.avi"
 
 EXP_NAME="$(basename $0 .sh)"
 
-START_FRAME=0
-#START_FRAME=1900
-#START_FRAME=2900
-#START_FRAME=6200
-#START_FRAME=10590
+#START_FRAME=0
+START_FRAME=14400
+#START_FRAME=125850
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -58,7 +56,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=1 -d=1 \
+  -b=4 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \

@@ -121,10 +121,12 @@ RINK_CONFIG = {
                 [1101, 568, 2688, 588],
             ],
             "lower": [
+                [7, 854, 375, 1082],
                 [264, 1007, 1188, 1539],
                 [1229, 1524, 2398, 1572],
                 [2362, 1517, 3245, 1181],
                 [3240, 1199, 3536, 1000],
+                [3370, 1095, 3808, 819],
             ],
         },
     },
@@ -187,19 +189,21 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        #self.plot_camera_tracking = False
+        # self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or basic_debugging
         self.plot_moving_boxes = False
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        self.plot_frame_number = True
+        # self.plot_frame_number = True
+
+        self.plot_boundaries = False or basic_debugging
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
@@ -369,7 +373,9 @@ class CamTrackPostProcessor:
 
         if self._args.top_border_lines or self._args.bottom_border_lines:
             self._boundaries = BoundaryLines(
-                self._args.top_border_lines, self._args.bottom_border_lines, original_clip_box,
+                self._args.top_border_lines,
+                self._args.bottom_border_lines,
+                original_clip_box,
             )
 
         # Persistent state across frames
@@ -629,7 +635,8 @@ class CamTrackPostProcessor:
                 online_im = img0
             online_im = self.prepare_online_image(online_im)
 
-            self._boundaries.draw(online_im)
+            if self._args.plot_boundaries and self._boundaries is not None:
+                self._boundaries.draw(online_im)
 
             if self._args.plot_all_detections:
                 online_id_set = set(online_ids)
@@ -789,7 +796,7 @@ class CamTrackPostProcessor:
                             size_stick_size * 2, device=current_box.device
                         ),
                         sticky_translation=True,
-                        sticky_sizing = True,
+                        sticky_sizing=True,
                         scale_width=1.1,
                         scale_height=1.1,
                         fixed_aspect_ratio=self._final_aspect_ratio,
@@ -882,13 +889,13 @@ class CamTrackPostProcessor:
                 return current_box, last_box
 
             group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
-                min_considered_velocity=3.5,
+                min_considered_velocity=3.0,
                 group_threshhold=0.5,
                 # min_considered_velocity=0.01,
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
                 # cv2.circle(
                 #     online_im,
                 #     [int(i) for i in edge_center],
