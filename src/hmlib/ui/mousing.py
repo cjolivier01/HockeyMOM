@@ -156,5 +156,5 @@ if __name__ == "__main__":
     # Call the function with the path to your image
     #get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     #run_selection("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
-    draw_line("/mnt/data/Videos/sharksbb2/stitched.png")
+    draw_line("/home/colivier/src/hockeymom/stitched_output.jpg")
 

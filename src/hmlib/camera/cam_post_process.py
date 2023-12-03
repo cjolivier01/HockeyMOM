@@ -112,6 +112,22 @@ RINK_CONFIG = {
             "lower": [],
         },
     },
+    "dublin": {
+        "fixed_edge_scaling_factor": 1.5,
+        "fixed_edge_rotation_angle": 30.0,
+        "borders": {
+            "upper": [
+                [254, 840, 1071, 598],
+                [1101, 568, 2688, 588],
+            ],
+            "lower": [
+                [264, 1007, 1188, 1539],
+                [1229, 1524, 2398, 1572],
+                [2362, 1517, 3245, 1181],
+                [3240, 1199, 3536, 1000],
+            ],
+        },
+    },
     "sharks_orange": {
         "fixed_edge_scaling_factor": 0.8,
         "fixed_edge_rotation_angle": 25.0,

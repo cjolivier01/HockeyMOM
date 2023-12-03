@@ -1,4 +1,4 @@
-
+import torch
 
 class BoundaryLines:
     def __init__(self, upper_border_lines, lower_border_lines):
