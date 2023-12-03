@@ -69,6 +69,7 @@ class CamTrackHead(TrackingHead):
         device,
         fps: float,
         save_dir: str,
+        original_clip_box: torch.Tensor,
         save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
@@ -82,6 +83,7 @@ class CamTrackHead(TrackingHead):
         self._postprocessor = None
         self._use_fork = use_fork
         self._async_post_processing = async_post_processing
+        self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
@@ -190,6 +192,7 @@ class CamTrackHead(TrackingHead):
                 save_frame_dir=self._save_frame_dir,
                 device=device,
                 opt=self._opt,
+                original_clip_box=self._original_clip_box, # TODO: Put in args
                 args=self._args,
                 use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,

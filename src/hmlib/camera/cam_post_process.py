@@ -187,14 +187,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        self.plot_camera_tracking = False
+        #self.plot_camera_tracking = False
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = False
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        # self.plot_frame_number = True
+        self.plot_frame_number = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -333,6 +333,7 @@ class CamTrackPostProcessor:
         save_dir,
         device,
         opt,
+        original_clip_box,
         args: argparse.Namespace,
         save_frame_dir: str = None,
         async_post_processing: bool = False,
@@ -368,7 +369,7 @@ class CamTrackPostProcessor:
 
         if self._args.top_border_lines or self._args.bottom_border_lines:
             self._boundaries = BoundaryLines(
-                self._args.top_border_lines, self._args.bottom_border_lines
+                self._args.top_border_lines, self._args.bottom_border_lines, original_clip_box,
             )
 
         # Persistent state across frames
@@ -627,6 +628,8 @@ class CamTrackPostProcessor:
             else:
                 online_im = img0
             online_im = self.prepare_online_image(online_im)
+
+            self._boundaries.draw(online_im)
 
             if self._args.plot_all_detections:
                 online_id_set = set(online_ids)

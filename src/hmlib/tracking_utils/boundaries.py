@@ -1,19 +1,53 @@
 import torch
+from hmlib.tracking_utils import visualization as vis
+
 
 class BoundaryLines:
-    def __init__(self, upper_border_lines, lower_border_lines):
+    def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
+        self._original_clip_box = original_clip_box
+        if self._original_clip_box is None:
+            self._original_clip_box = torch.Tensor([0, 0, 0, 0], dtype=torch.float32)
+        elif not isinstance(self._original_clip_box, torch.Tensor):
+            self._original_clip_box = torch.tensor(
+                self._original_clip_box, dtype=torch.float32
+            )
+        clip_upper_left = self._original_clip_box[0:2]
         if upper_border_lines:
             self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
+            self._upper_borders[:, 0:2] -= clip_upper_left
+            self._upper_borders[:, 2:4] -= clip_upper_left
             self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
         else:
             self._upper_borders = None
             self._upper_line_vectors = None
         if lower_border_lines:
             self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
+            self._lower_borders[:, 0:2] -= clip_upper_left
+            self._lower_borders[:, 2:4] -= clip_upper_left
             self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
         else:
             self._lower_borders = None
             self._lower_line_vectors = None
+
+    def draw(self, img):
+        if self._upper_borders is not None:
+            for i in range(len(self._upper_borders)):
+                vis.plot_line(
+                    img,
+                    self._upper_borders[i][0:2],
+                    self._upper_borders[i][2:4],
+                    color=(255, 0, 0),
+                    thickness=1,
+                )
+        if self._lower_borders is not None:
+            for i in range(len(self._lower_borders)):
+                vis.plot_line(
+                    img,
+                    self._lower_borders[i][0:2],
+                    self._lower_borders[i][2:4],
+                    color=(0, 0, 255),
+                    thickness=1,
+                )
 
     def tlbr_to_line_vectors(self, tlbr_batch):
         # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
