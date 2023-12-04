@@ -182,6 +182,12 @@ def make_parser():
         type=float,
         help="Left video file offset",
     )
+    parser.add_argument(
+        "--game-id",
+        default=None,
+        type=str,
+        help="Game ID",
+    )
     # det args
     parser.add_argument(
         "-c",
@@ -264,6 +270,17 @@ def make_parser():
         help="only use iou for similarity",
     )
     return parser
+
+
+CLIP_BOXES = {
+    "lbd3": [120, 360, 3785, 1660],
+    "tvbb2": [246, 360, 3928, 1557]
+}
+
+def get_clip_box(name: str):
+    if name in CLIP_BOXES:
+        return CLIP_BOXES[name]
+    return None
 
 
 # def compare_dataframes(gts, ts):
@@ -442,7 +459,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    clip_original=[120, 360, 3785, 1660],
+                    clip_original=get_clip_box(args.game_id),
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
@@ -464,7 +481,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    clip_original=[120, 360, 3785, 1660],
+                    clip_original=get_clip_box(args.game_id),
                     # batch_size=1,
                     max_frames=args.max_frames,
                     name="val",
