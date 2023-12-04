@@ -30,12 +30,13 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
-VIDEO="${HOME}/Videos/lbd3/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb2"
 
 EXP_NAME="$(basename $0 .sh)"
 
-#START_FRAME=0
-START_FRAME=14400
+START_FRAME=0
+#START_FRAME=14400
 #START_FRAME=125850
 
 #TRACKER="hm"
@@ -45,7 +46,7 @@ TRACKER="fair"
 #HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
 #HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
-STITCHING_PARAMS="--lfo=0 --rfo=65.62892889423502"
+#STITCHING_PARAMS="--lfo=78.94010751153608 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -56,7 +57,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=4 -d=1 \
+  -b=1 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \

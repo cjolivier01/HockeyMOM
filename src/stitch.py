@@ -31,7 +31,7 @@ def make_parser():
         "-d", "--devices", default=None, type=int, help="device for training"
     )
     parser.add_argument(
-        "--lfo", "--left_frame_offset", default=None, type=int, help="Left frame offset"
+        "--lfo", "--left_frame_offset", default=None, type=float, help="Left frame offset"
     )
     parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
@@ -40,7 +40,7 @@ def make_parser():
         "--rfo",
         "--right_frame_offset",
         default=None,
-        type=int,
+        type=float,
         help="Right frame offset",
     )
     parser.add_argument(
