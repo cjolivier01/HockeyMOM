@@ -33,6 +33,8 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb2"
 
+GAME_ID="--game-id tvbb2"
+
 EXP_NAME="$(basename $0 .sh)"
 
 START_FRAME=0
@@ -41,10 +43,6 @@ START_FRAME=0
 
 #TRACKER="hm"
 TRACKER="fair"
-
-#YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-#HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
-#HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
 #STITCHING_PARAMS="--lfo=78.94010751153608 --rfo=0"
 
@@ -61,7 +59,7 @@ OMP_NUM_THREADS=16 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
-  ${HYPER_PARAMS} ${STITCHING_PARAMS} \
+  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} \
   --min-box-area=35 \
   --rink="dublin" \
   --config=track \
