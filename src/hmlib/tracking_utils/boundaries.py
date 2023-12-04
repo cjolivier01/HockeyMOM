@@ -6,7 +6,7 @@ class BoundaryLines:
     def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
         self._original_clip_box = original_clip_box
         if self._original_clip_box is None:
-            self._original_clip_box = torch.Tensor([0, 0, 0, 0], dtype=torch.float32)
+            self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float32)
         elif not isinstance(self._original_clip_box, torch.Tensor):
             self._original_clip_box = torch.tensor(
                 self._original_clip_box, dtype=torch.float32
