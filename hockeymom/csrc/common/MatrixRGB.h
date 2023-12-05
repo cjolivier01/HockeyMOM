@@ -170,6 +170,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     } else {
       assert(false);
     }
+    return nullptr;
   }
 
   constexpr const std::vector<std::size_t>& strides() const {
