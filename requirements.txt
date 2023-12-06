@@ -22,6 +22,7 @@ tifffile
 scikit-build
 scikit-learn
 lmdb
+sympy
 #./DCNv2
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
