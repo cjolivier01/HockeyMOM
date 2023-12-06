@@ -20,9 +20,6 @@
 [submodule "models/deft"]
 	path = models/deft
 	url = ssh://git@github.com/cjolivier01/DEFT
-[submodule "models/mixsort"]
-	path = models/mixsort
-	url = ssh://git@github.com/cjolivier01/MixSort
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
@@ -53,3 +50,6 @@
 [submodule "models/MixFormer"]
 	path = models/MixFormer
 	url = ssh://git@github.com/cjolivier01/MixFormer
+[submodule "models/mixsort"]
+	path = models/mixsort
+	url = ssh://git@github.com/cjolivier01/HmMixSort

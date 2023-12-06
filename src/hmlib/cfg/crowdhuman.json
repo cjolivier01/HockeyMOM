@@ -1,5 +1,5 @@
 {
-  "root": "/home/colivier/src/hockeymom/datasets",
+  "root": "/home/colivier/src/hm/datasets",
   "train": {
     "crowdhuman_train": "data/crowdhuman.train",
     "crowdhuman_test": "data/crowdhuman.val"
