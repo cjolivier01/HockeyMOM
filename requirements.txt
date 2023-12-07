@@ -13,7 +13,10 @@ lap
 openpyxl
 Pillow-simd
 psutil
-tensorboardX
+tensorboard
+filterpy
+gast
+astunparse
 fvcore
 opencv-python
 opencv-contrib-python
@@ -22,6 +25,12 @@ tifffile
 scikit-build
 scikit-learn
 lmdb
+loguru
+thop
+pycocotools
+ffmpeg
+libgstreamer-plugins-bad1.0i-dev
+libgstreamer-plugins-good1.0-dev
 #./DCNv2
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
