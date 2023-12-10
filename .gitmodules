@@ -53,3 +53,6 @@
 [submodule "models/mixsort"]
 	path = models/mixsort
 	url = ssh://git@github.com/cjolivier01/HmMixSort
+[submodule "models/centerpoint"]
+	path = models/centerpoint
+	url = ssh://git@github.com/cjolivier01/CenterPoint

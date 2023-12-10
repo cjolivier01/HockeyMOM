@@ -231,6 +231,9 @@ def make_parser():
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
+    )
+    parser.add_argument(
         "--no-crop", action="store_true", help="Don't crop output image"
     )
     parser.add_argument(
@@ -272,10 +275,8 @@ def make_parser():
     return parser
 
 
-CLIP_BOXES = {
-    "lbd3": [120, 360, 3785, 1660],
-    "tvbb2": [246, 360, 3928, 1557]
-}
+CLIP_BOXES = {"lbd3": [120, 360, 3785, 1660], "tvbb2": [246, 360, 3928, 1557]}
+
 
 def get_clip_box(name: str):
     if name in CLIP_BOXES:
@@ -325,6 +326,10 @@ def set_deterministic(seed: int = 42):
     torch.backends.cudnn.benchmark = False
 
 
+def to_32bit_mul(val):
+    return int((val + 31)) & ~31
+
+
 # @logger.catch
 def main(exp, args, num_gpu):
     try:
@@ -361,7 +366,15 @@ def main(exp, args, num_gpu):
             exp.test_conf = args.conf
         if args.nms is not None:
             exp.nmsthre = args.nms
-        if args.tsize is not None:
+
+        if args.test_size:
+            assert args.tsize is None
+            tokens = args.test_size.split("x")
+            if len(tokens) == 1:
+                tokens = args.test_size.split("X")
+            assert len(tokens) == 2
+            exp.test_size = (to_32bit_mul(int(tokens[0])), to_32bit_mul(int(tokens[1])))
+        elif args.tsize is not None:
             exp.test_size = (args.tsize, args.tsize)
 
         model = None
@@ -482,7 +495,6 @@ def main(exp, args, num_gpu):
                     # json_file="val.json",
                     batch_size=args.batch_size,
                     clip_original=get_clip_box(args.game_id),
-                    # batch_size=1,
                     max_frames=args.max_frames,
                     name="val",
                     preproc=ValTransform(

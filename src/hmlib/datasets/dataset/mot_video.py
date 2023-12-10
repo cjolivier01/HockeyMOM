@@ -87,8 +87,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._open_video()
         self._close_video()
 
-        # self._start_worker()
-
     def _open_video(self):
         if self._embedded_data_loader is None:
             self.cap = cv2.VideoCapture(self._path)

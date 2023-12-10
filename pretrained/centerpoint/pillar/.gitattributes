@@ -1,0 +1,2 @@
+latest.pth filter=lfs diff=lfs merge=lfs -binary
+infos_val_10sweeps_withvelo_filter_True.json filter=lfs diff=lfs merge=lfs -text

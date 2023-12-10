@@ -35,11 +35,14 @@ VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
 
 GAME_ID="--game-id tvbb2"
 
+#TEST_SIZE_ARG="--test-size=400x1040"
+TEST_SIZE_ARG="--test-size=200x520"
+
 EXP_NAME="$(basename $0 .sh)"
 
-START_FRAME=0
+#START_FRAME=0
 #START_FRAME=14400
-#START_FRAME=125850
+START_FRAME=125850
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -55,11 +58,11 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=1 -d=1 \
+  -b=8 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
-  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} \
+  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
   --rink="dublin" \
   --config=track \
