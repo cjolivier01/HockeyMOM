@@ -66,7 +66,19 @@ def image_height(img):
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
-    if isinstance(img, PIL.Image.Image):
+    if isinstance(img, torch.Tensor):
+        img = img.permute(1, 2, 0)
+        img = F.rotate(
+            img=img,
+            # angle=angle,
+            angle=0,
+            center=(rotation_point[1], rotation_point[0]),
+            interpolation=tv.transforms.InterpolationMode.BILINEAR,
+            expand=False,
+            fill=None,
+        )
+        img = img.permute(2, 0, 1)
+    elif isinstance(img, PIL.Image.Image):
         img = img.rotate(
             angle, resample=Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
         )
@@ -85,7 +97,14 @@ def crop_image(img, left, top, right, bottom):
 
 
 def resize_image(img, new_width: int, new_height: int):
-    if isinstance(img, PIL.Image.Image):
+    if isinstance(img, torch.Tensor):
+        return torch.nn.functional.interpolate(
+            img.unsqueeze(0),  # add a batch dimension
+            size=(new_width, new_height),
+            mode="bucubic",
+            align_corners=False,
+        ).squeeze(0)
+    elif isinstance(img, PIL.Image.Image):
         return img.resize((int(new_width), int(new_height)))
     return cv2.resize(
         img, dsize=(int(new_width), int(new_height)), interpolation=cv2.INTER_CUBIC
@@ -257,6 +276,9 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+
+            #online_im = torch.from_numpy(online_im)
+
             # online_im = Image.fromarray(online_im)
             src_image_width = image_width(online_im)
             src_image_height = image_height(online_im)
@@ -382,6 +404,10 @@ class VideoOutput:
                     online_im,
                     frame_id=frame_id,
                 )
+
+            # Make a numpy image array
+            if isinstance(online_im, torch.Tensor):
+                online_im = online_im.cpu().detach().numpy()
 
             # Output (and maybe show) the final image
             if (

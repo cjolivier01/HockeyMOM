@@ -22,21 +22,13 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 # Videos
 #
-#VIDEO="${HOME}/Videos/roseville/Sacramento.10.15.2023.mp4"
-#VIDEO="/mnt/data/Videos/roseville/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/CHI_VS_TOR/003.mp4"i
-#VIDEO="/mnt/data/Videos/roseville/clips/at10mins_small.mp4"
-#VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.avi"
-#VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
-#VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
-#VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/blackhawks/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb/right.mp4"
-#VIDEO="${HOME}/Videos/tvbb"
 
 EXP_NAME="$(basename $0 .sh)"
+
+GAME_ID="--game-id lbd2"
+
+TEST_SIZE_ARG="--test-size=200x520"
 
 START_FRAME=0
 #START_FRAME=1900
@@ -46,10 +38,6 @@ START_FRAME=0
 
 #TRACKER="hm"
 TRACKER="fair"
-
-#YPER_PARAMS="--conf=0.1 --track_thresh=0.3 --track_thresh_low=0.1"
-#HYPER_PARAMS="--conf=0.01 --track_thresh=0.01 --track_thresh_low=0.005"
-#HYPER_PARAMS="--conf=0.001 --track_thresh=0.005 --track_thresh_low=0.0001"
 
 #STITCHING_PARAMS="--lfo=15.392 --rfo=0"
 
@@ -62,11 +50,11 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=2 -d=1 \
+  -b=16 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
-  ${HYPER_PARAMS} ${STITCHING_PARAMS} \
+  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
   --rink="vallco" \
   --config=track \
