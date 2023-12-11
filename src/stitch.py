@@ -120,7 +120,7 @@ def stitch_videos(
 
 def main(args):
     if args.video_dir is None:
-        args.video_dir = os.path.join(os.environ["HOME"], "Videos", "blackhawks")
+        args.video_dir = os.path.join(os.environ["HOME"], "Videos", "stockton2")
     video_left = "left.mp4"
     video_right = "right.mp4"
     # args.lfo = 15
