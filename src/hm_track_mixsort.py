@@ -275,7 +275,11 @@ def make_parser():
     return parser
 
 
-CLIP_BOXES = {"lbd3": [120, 360, 3785, 1660], "tvbb2": [246, 360, 3928, 1557]}
+CLIP_BOXES = {
+    "lbd3": [120, 360, 3785, 1660],
+    "tvbb2": [246, 360, 3928, 1557],
+    "stockton2": [10, 375, 3900, 1590],
+}
 
 
 def get_clip_box(name: str):

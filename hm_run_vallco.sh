@@ -1,45 +1,36 @@
 #!/bin/bash
 
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_sportsmot.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_hockey.py"
-#EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch_ht.py"
 EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Models
 #
-#PRETRAINED_MODEL="pretrained/yolox/yolox_x_sports_train.pth"
-#PRETRAINED_MODEL="pretrained/yolox/yolox_x_ch.pth"
-#PRETRAINED_MODEL="pretrained/yolox/my_ch.pth.tar"
-#PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
-#PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
-#PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
 PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
-#MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
 
 #
 # Videos
 #
-VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/stockton2/"
 
 EXP_NAME="$(basename $0 .sh)"
 
-GAME_ID="--game-id lbd2"
+GAME_ID="--game-id stockton2"
 
 TEST_SIZE_ARG="--test-size=200x520"
 
-START_FRAME=0
+#START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
-#START_FRAME=6200
+START_FRAME=8730
 #START_FRAME=10590
 
 #TRACKER="hm"
 TRACKER="fair"
 
-#STITCHING_PARAMS="--lfo=15.392 --rfo=0"
+STITCHING_PARAMS="--lfo=0 --rfo=49.79510285632735"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -50,7 +41,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=16 -d=1 \
+  -b=8 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
