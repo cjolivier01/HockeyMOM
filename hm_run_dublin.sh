@@ -40,9 +40,9 @@ TEST_SIZE_ARG="--test-size=200x520"
 
 EXP_NAME="$(basename $0 .sh)"
 
-#START_FRAME=0
+START_FRAME=0
 #START_FRAME=14400
-START_FRAME=125850
+#START_FRAME=125850
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -58,7 +58,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=8 -d=1 \
+  -b=32 -d=1 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
