@@ -67,17 +67,18 @@ def image_height(img):
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
     if isinstance(img, torch.Tensor):
-        img = img.permute(1, 2, 0)
+        # H, W, C -> C, W, H
+        img = img.permute(2, 1, 0)
         img = F.rotate(
             img=img,
-            # angle=angle,
-            angle=0,
+            angle=angle,
             center=(rotation_point[1], rotation_point[0]),
             interpolation=tv.transforms.InterpolationMode.BILINEAR,
             expand=False,
             fill=None,
         )
-        img = img.permute(2, 0, 1)
+        # W, H, C -> C, H, W
+        img = img.permute(2, 1, 0)
     elif isinstance(img, PIL.Image.Image):
         img = img.rotate(
             angle, resample=Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
@@ -97,18 +98,22 @@ def crop_image(img, left, top, right, bottom):
 
 
 def resize_image(img, new_width: int, new_height: int):
+    w = int(new_width)
+    h = int(new_height)
     if isinstance(img, torch.Tensor):
-        return torch.nn.functional.interpolate(
-            img.unsqueeze(0),  # add a batch dimension
-            size=(new_width, new_height),
-            mode="bucubic",
-            align_corners=False,
-        ).squeeze(0)
+        # H, W, C -> C, W, H
+        img = img.permute(2, 1, 0)
+        img = F.resize(
+            img=img,
+            size=(w, h),
+            interpolation=tv.transforms.InterpolationMode.BILINEAR,
+        )
+        # C, W, H -> H, W, C
+        img = img.permute(2, 1, 0)
+        return img
     elif isinstance(img, PIL.Image.Image):
-        return img.resize((int(new_width), int(new_height)))
-    return cv2.resize(
-        img, dsize=(int(new_width), int(new_height)), interpolation=cv2.INTER_CUBIC
-    )
+        return img.resize((w, h))
+    return cv2.resize(img, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
 
 
 def paste_watermark_at_position(
@@ -150,7 +155,8 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        device: str = "cpu",
+        # device: str = None,
+        device: str = "cuda:0",
     ):
         self._args = args
         self._device = device
@@ -187,6 +193,17 @@ class VideoOutput:
                     self.watermark_alpha_channel,
                 ]
             )
+
+            if self._device is not None:
+                self.watermark_rgb_channels = torch.from_numpy(
+                    self.watermark_rgb_channels
+                ).to(self._device)
+                self.watermark_alpha_channel = torch.from_numpy(
+                    self.watermark_alpha_channel
+                ).to(self._device)
+                self.watermark_mask = torch.from_numpy(self.watermark_mask).to(
+                    self._device
+                )
         else:
             self.watermark = None
 
@@ -239,6 +256,7 @@ class VideoOutput:
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
+        tv_resizer = None
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
@@ -265,19 +283,14 @@ class VideoOutput:
             frame_id = imgproc_data.frame_id
             assert frame_id not in seen_frames
             seen_frames.add(frame_id)
-            if imgproc_data.frame_id % 20 == 0:
-                logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps)".format(
-                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
-                    )
-                )
-                timer = Timer()
+
             timer.tic()
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            #online_im = torch.from_numpy(online_im)
+            if self._device is not None:
+                online_im = torch.from_numpy(online_im).to(self._device)
 
             # online_im = Image.fromarray(online_im)
             src_image_width = image_width(online_im)
@@ -309,7 +322,7 @@ class VideoOutput:
                     img=online_im, angle=angle, rotation_point=rotation_point
                 )
                 duration = time.time() - start
-                # print(f"rotate image took {duration} seconds")
+                #print(f"rotate image took {duration} seconds")
 
             #
             # Crop to output video frame image
@@ -344,7 +357,11 @@ class VideoOutput:
                 if image_height(online_im) != int(
                     self._output_frame_height
                 ) or image_width(online_im) != int(self._output_frame_width):
-                    if self._args.use_cuda:
+                    if (
+                        False
+                        and isinstance(online_im, torch.Tensor)
+                        and online_im.device.type == "cuda"
+                    ):
                         if tv_resizer is None:
                             tv_resizer = tv.transforms.Resize(
                                 size=(
@@ -352,7 +369,7 @@ class VideoOutput:
                                     int(self._output_frame_height),
                                 )
                             )
-                        gpu_image = tv_resizer.forward(gpu_image)
+                        gpu_image = tv_resizer.forward(online_im)
                     else:
                         online_im = resize_image(
                             img=online_im,
@@ -361,9 +378,6 @@ class VideoOutput:
                         )
                 assert image_height(online_im) == self._output_frame_height_int
                 assert image_width(online_im) == self._output_frame_width_int
-                if self._args.use_cuda:
-                    # online_im = gpu_image.download()
-                    online_im = np.array(gpu_image.cpu().numpy(), np.uint8)
 
             # Numpy array after here
             if isinstance(online_im, PIL.Image.Image):
@@ -396,6 +410,10 @@ class VideoOutput:
                 #     self.watermark_mask / 255.0
                 # )
 
+            # Make a numpy image array
+            if isinstance(online_im, torch.Tensor):
+                online_im = online_im.cpu().detach().numpy()
+
             #
             # Frame Number
             #
@@ -404,10 +422,6 @@ class VideoOutput:
                     online_im,
                     frame_id=frame_id,
                 )
-
-            # Make a numpy image array
-            if isinstance(online_im, torch.Tensor):
-                online_im = online_im.cpu().detach().numpy()
 
             # Output (and maybe show) the final image
             if (
@@ -434,6 +448,14 @@ class VideoOutput:
                     online_im,
                 )
             timer.toc()
+
+            if imgproc_data.frame_id % 20 == 0:
+                logger.info(
+                    "Image Post-Processing frame {} ({:.2f} fps)".format(
+                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+                timer = Timer()
 
             if True:
                 # Overall FPS
