@@ -53,7 +53,7 @@ SET(WITH_CUDNN ON)
 SET(OPENCV_DNN_CUDA ON)
 SET(ENABLE_FAST_MATH 1)
 SET(CUDA_FAST_MATH 1)
-SET(CUDA_ARCH_BIN 7.5)
+SET(CUDA_ARCH_BIN 6.1)
 SET(WITH_CUBLAS 1)
 SET(OPENCV_DNN_CUDA 0)
 
@@ -96,8 +96,8 @@ set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 link_directories($ENV{CONDA_PREFIX}/lib)
 
 # find_package(
-#   Threads REQUIRED 
-#   PATHS 
+#   Threads REQUIRED
+#   PATHS
 #   $ENV{CONDA_PREFIX}
 #   $ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr
 # )
