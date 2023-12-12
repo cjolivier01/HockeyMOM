@@ -72,7 +72,7 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
         img = F.rotate(
             img=img,
             angle=angle,
-            center=(rotation_point[1], rotation_point[0]),
+            center=(rotation_point[0], rotation_point[1]),
             interpolation=tv.transforms.InterpolationMode.BILINEAR,
             expand=False,
             fill=None,
@@ -455,7 +455,7 @@ class VideoOutput:
                         imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
-                timer = Timer()
+                #timer = Timer()
 
             if True:
                 # Overall FPS
