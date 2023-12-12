@@ -156,7 +156,7 @@ class VideoOutput:
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
         # device: str = None,
-        device: str = "cuda:0",
+        device: str = "cuda",
     ):
         self._args = args
         self._device = device
