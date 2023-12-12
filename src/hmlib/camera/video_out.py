@@ -71,7 +71,7 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
         img = img.permute(2, 1, 0)
         img = F.rotate(
             img=img,
-            angle=angle,
+            angle=-angle,
             center=(rotation_point[0], rotation_point[1]),
             interpolation=tv.transforms.InterpolationMode.BILINEAR,
             expand=False,
@@ -156,7 +156,7 @@ class VideoOutput:
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
         # device: str = None,
-        device: str = "cuda",
+        device: str = "cuda:1",
     ):
         self._args = args
         self._device = device

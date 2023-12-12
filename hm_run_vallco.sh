@@ -12,8 +12,8 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 # Videos
 #
-#VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
+VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
 
 EXP_NAME="$(basename $0 .sh)"
 
