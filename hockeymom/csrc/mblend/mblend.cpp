@@ -886,6 +886,7 @@ class Blender {
     ThreadPool threadpool(ThreadPool::get_base_thread_pool());
     int n_threads = std::max(2, (int)threadpool.GetNThreads());
     n_threads = std::min((int)kMaxThreadPyramidLineThreads, n_threads);
+    std::cout << "Pyramid thread count: " << n_threads << std::endl;
     uint64_t** thread_lines = new uint64_t*[n_threads];
 
     if (!seamload_filename) {
@@ -926,8 +927,7 @@ class Blender {
         x = width - 1;
 
         { // make sure the last compression thread to use this chunk of memory
-          // is
-          // finished
+          // is finished
           std::unique_lock<std::mutex> mlock(*flex_mutex_p);
           flex_cond_p->wait(mlock, [&seam_flex, y, n_threads, this] {
             return seam_flex->y > (height - 1) - y - n_threads;

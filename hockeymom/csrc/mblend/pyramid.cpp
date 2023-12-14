@@ -9,7 +9,7 @@ namespace hm {
 
 //static absl::Mutex debugging_sync_mutex;
 
-constexpr std::size_t kMaxThreadPyramidLineThreads = 24;
+constexpr std::size_t kMaxThreadPyramidLineThreads = 32;
 
 /***********************************************************************
  * Constructor/destructor
