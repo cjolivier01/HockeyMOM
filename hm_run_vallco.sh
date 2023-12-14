@@ -13,8 +13,8 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/stockton2/"
+VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/stockton2/"
 
 EXP_NAME="$(basename $0 .sh)"
 
@@ -22,10 +22,11 @@ GAME_ID="--game-id stockton2"
 
 TEST_SIZE_ARG="--test-size=200x520"
 
-START_FRAME=0
+#START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
 #START_FRAME=8730
+START_FRAME=47000
 #START_FRAME=10590
 
 #TRACKER="hm"

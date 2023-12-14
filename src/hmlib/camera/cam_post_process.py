@@ -204,7 +204,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        # self.plot_camera_tracking = False
+        self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
         self.plot_moving_boxes = False
