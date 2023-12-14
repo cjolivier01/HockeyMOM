@@ -223,7 +223,7 @@ class StitchingWorker:
             )
 
         for i in range(self._rank):
-            print(f"rank {self._rank} pre-reading frame {i}")
+            #print(f"rank {self._rank} pre-reading frame {i}")
             self._video1.read()
             self._video2.read()
         self._start_frame_number += self._rank
@@ -414,8 +414,7 @@ class StitchDataset:
         video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
-        #max_input_queue_size: int = 50,
-        max_input_queue_size: int = 2,
+        max_input_queue_size: int = 50,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
