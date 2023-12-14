@@ -63,7 +63,9 @@ def image_height(img):
         return img.shape[1]
     return img.shape[0]
 
+
 _ANGLE = 0.0
+
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
@@ -108,7 +110,7 @@ def resize_image(img, new_width: int, new_height: int):
         img = F.resize(
             img=img,
             size=(w, h),
-            interpolation=tv.transforms.InterpolationMode.BILINEAR,
+            interpolation=tv.transforms.InterpolationMode.BICUBIC,
         )
         # C, W, H -> H, W, C
         img = img.permute(2, 1, 0)
@@ -302,7 +304,7 @@ class VideoOutput:
             # Perspective rotation
             #
             if self._args.fixed_edge_rotation:
-                start = time.time()
+                # start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
                 width_center = src_image_width / 2
                 if rotation_point[0] < width_center:
@@ -323,8 +325,8 @@ class VideoOutput:
                 online_im = rotate_image(
                     img=online_im, angle=angle, rotation_point=rotation_point
                 )
-                duration = time.time() - start
-                #print(f"rotate image took {duration} seconds")
+                # duration = time.time() - start
+                # print(f"rotate image took {duration} seconds")
 
             #
             # Crop to output video frame image
@@ -402,15 +404,6 @@ class VideoOutput:
                     x=x,
                     y=y,
                 )
-                # online_im[
-                #     y : y + self.watermark_height, x : x + self.watermark_width
-                # ] = online_im[
-                #     y : y + self.watermark_height, x : x + self.watermark_width
-                # ] * (
-                #     1 - self.watermark_mask / 255.0
-                # ) + self.watermark_rgb_channels * (
-                #     self.watermark_mask / 255.0
-                # )
 
             # Make a numpy image array
             if isinstance(online_im, torch.Tensor):
@@ -457,7 +450,7 @@ class VideoOutput:
                         imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )
-                #timer = Timer()
+                # timer = Timer()
 
             if True:
                 # Overall FPS
