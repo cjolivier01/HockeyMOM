@@ -87,6 +87,8 @@ def stitch_videos(
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         num_workers=1,
+        remap_thread_count=10,
+        blend_thread_count=10,
     )
 
     frame_count = 0

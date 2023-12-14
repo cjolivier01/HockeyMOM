@@ -76,8 +76,8 @@ def INFO(*args, **kwargs):
 
 
 # QueueType = QueueType
-# QueueType = queue.Queue
-QueueType = multiprocessing.Queue
+QueueType = queue.Queue
+#QueueType = multiprocessing.Queue
 
 
 ##
