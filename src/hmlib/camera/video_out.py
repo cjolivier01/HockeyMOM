@@ -296,7 +296,6 @@ class VideoOutput:
             if self._device is not None:
                 online_im = torch.from_numpy(online_im).to(self._device)
 
-            # online_im = Image.fromarray(online_im)
             src_image_width = image_width(online_im)
             src_image_height = image_height(online_im)
 
