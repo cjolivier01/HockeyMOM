@@ -4,7 +4,9 @@ Experiments in stitching
 import os
 import cv2
 import threading
+import argparse
 import time
+import torch
 import traceback
 import multiprocessing
 import numpy as np
@@ -23,13 +25,13 @@ from hmlib.stitch_synchronize import (
 )
 
 from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.camera.video_out import VideoOutput, ImageProcData
 
 
 def _get_dir_name(path):
     if os.path.isdir(path):
         return path
     return Path(path).parent
-
 
 class FrameRequest:
     def __init__(self, frame_id: int, want_alpha: bool = False):
@@ -77,7 +79,7 @@ def INFO(*args, **kwargs):
 
 # QueueType = QueueType
 QueueType = queue.Queue
-#QueueType = multiprocessing.Queue
+# QueueType = multiprocessing.Queue
 
 
 ##
@@ -458,6 +460,7 @@ class StitchDataset:
         )
 
         self._image_roi = None
+        self._video_output = None
 
     def __delete__(self):
         for worker in self._stitching_workers.values():
@@ -542,6 +545,9 @@ class StitchDataset:
             stitching_worker.close()
         self._stop_coordinator_thread()
         self._stitching_workers.clear()
+        if self._video_output is not None:
+            self._video_output.stop()
+            self._video_output = None
 
     def _maybe_write_output(self, output_img):
         if self._output_stitched_video_file:
@@ -594,6 +600,39 @@ class StitchDataset:
             self._to_coordinator_queue.put("stop")
             self._coordinator_thread.join()
             self._coordinator_thread = None
+
+    def _send_frame_to_video_out(self, frame_id: int, stitched_frame: torch.Tensor):
+        if not self._output_stitched_video_file:
+            return
+        if self._video_output is None:
+            args = argparse.Namespace()
+            args.fixed_edge_rotation = False
+            args.crop_output_image = False
+            args.use_watermark = False
+            args.show_image = False
+            args.plot_frame_number = False
+            self._video_output = VideoOutput(
+                args=args,
+                output_video_path=self._output_stitched_video_file,
+                output_frame_width=torch.tensor(
+                    stitched_frame.shape[1], dtype=torch.int32
+                ),
+                output_frame_height=torch.tensor(
+                    stitched_frame.shape[0], dtype=torch.int32
+                ),
+                fps=self.fps,
+            )
+            self._video_output.start()
+        image_proc_data = ImageProcData(
+            frame_id=frame_id,
+            img=stitched_frame,
+            current_box=torch.tensor(
+                [0, 0, stitched_frame.shape[1] - 1, stitched_frame.shape[0] - 1],
+                dtype=torch.int32,
+            ),
+        )
+
+        self._video_output.append(image_proc_data)
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
@@ -699,6 +738,8 @@ class StitchDataset:
             stitched_frame,
             image_roi=self._image_roi,
         )
+
+        self._send_frame_to_video_out(frame_id=frame_id, stitched_frame=stitched_frame)
 
         self._current_frame += 1
         self._maybe_write_output(stitched_frame)
