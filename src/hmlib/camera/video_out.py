@@ -430,7 +430,8 @@ class VideoOutput:
                 vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
             if self._output_video is not None:
-                self._output_video.write(online_im)
+                #self._output_video.write(online_im)
+                pass
             if self._save_frame_dir:
                 # frame_id should start with 1
                 assert imgproc_data.frame_id

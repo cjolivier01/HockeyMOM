@@ -33,6 +33,7 @@ def _get_dir_name(path):
         return path
     return Path(path).parent
 
+
 class FrameRequest:
     def __init__(self, frame_id: int, want_alpha: bool = False):
         self.frame_id = frame_id
@@ -188,7 +189,7 @@ class StitchingWorker:
 
     def receive_image(self, expected_frame_id):
         self._receive_timer.tic()
-        #INFO(f"rank {self._rank} ASK StitchingWorker.receive_image {frame_id}")
+        # INFO(f"rank {self._rank} ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
@@ -223,7 +224,7 @@ class StitchingWorker:
             )
 
         for i in range(self._rank):
-            #print(f"rank {self._rank} pre-reading frame {i}")
+            # print(f"rank {self._rank} pre-reading frame {i}")
             self._video1.read()
             self._video2.read()
         self._start_frame_number += self._rank
@@ -285,7 +286,7 @@ class StitchingWorker:
         assert img1 is not None
         assert img2 is not None
         self._in_queue += 1
-        #print(f"rank {self._rank} feeding LR frame {frame_id}")
+        # print(f"rank {self._rank} feeding LR frame {frame_id}")
         core.add_to_stitching_data_loader(
             self._stitcher,
             frame_id,
@@ -621,25 +622,24 @@ class StitchDataset:
             args.use_watermark = False
             args.show_image = False
             args.plot_frame_number = False
+            self._video_output_size = torch.tensor(
+                (stitched_frame.shape[1], stitched_frame.shape[0]), dtype=torch.int32
+            )
+            self._video_output_box = torch.tensor(
+                (0, 0, self._video_output_size[0] - 1, self._video_output_size[1] - 1),
+                dtype=torch.float32,
+            )
             self._video_output = VideoOutput(
                 args=args,
                 output_video_path=self._output_stitched_video_file,
-                output_frame_width=torch.tensor(
-                    stitched_frame.shape[1], dtype=torch.int32
-                ),
-                output_frame_height=torch.tensor(
-                    stitched_frame.shape[0], dtype=torch.int32
-                ),
+                output_frame_width=self._video_output_size[0],
+                output_frame_height=self._video_output_size[1],
                 fps=self.fps,
             )
-            self._video_output.start()
         image_proc_data = ImageProcData(
             frame_id=frame_id,
             img=stitched_frame,
-            current_box=torch.tensor(
-                [0, 0, stitched_frame.shape[1] - 1, stitched_frame.shape[0] - 1],
-                dtype=torch.int32,
-            ),
+            current_box=self._video_output_box.clone(),
         )
 
         self._video_output.append(image_proc_data)
