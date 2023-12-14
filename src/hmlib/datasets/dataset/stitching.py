@@ -188,7 +188,7 @@ class StitchingWorker:
 
     def receive_image(self, expected_frame_id):
         self._receive_timer.tic()
-        # INFO(f"{self._rp_str()} ASK StitchingWorker.receive_image {frame_id}")
+        #INFO(f"rank {self._rank} ASK StitchingWorker.receive_image {frame_id}")
         result = self._image_response_queue.get()
         if isinstance(result, Exception):
             raise result
@@ -221,6 +221,13 @@ class StitchingWorker:
                 cv2.CAP_PROP_POS_FRAMES,
                 self._start_frame_number + self._video_2_offset_frame,
             )
+
+        for i in range(self._rank):
+            print(f"rank {self._rank} pre-reading frame {i}")
+            self._video1.read()
+            self._video2.read()
+        self._start_frame_number += self._rank
+
         # TODO: adjust max frames based on this
         self._total_num_frames = min(
             int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
@@ -259,16 +266,18 @@ class StitchingWorker:
             self._shutdown_barrier.wait()
 
     def _feed_next_frame(self, frame_id: int) -> bool:
-        ret1, img1 = self._video1.read()
-        if not ret1:
-            return False
-        # Read the corresponding frame from the second video
-        ret2, img2 = self._video2.read()
-        if not ret2:
-            return False  # assert img1 is not None and img2 is not None
+        for _ in range(self._frame_stride_count):
+            ret1, img1 = self._video1.read()
+            if not ret1:
+                return False
+            # Read the corresponding frame from the second video
+            ret2, img2 = self._video2.read()
+            if not ret2:
+                return False  # assert img1 is not None and img2 is not None
         # INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
+        assert self._max_input_queue_size >= 2
         while self._in_queue >= self._max_input_queue_size:
             # print("Too many images in the outgoing queue")
             time.sleep(0.01)
@@ -276,6 +285,7 @@ class StitchingWorker:
         assert img1 is not None
         assert img2 is not None
         self._in_queue += 1
+        #print(f"rank {self._rank} feeding LR frame {frame_id}")
         core.add_to_stitching_data_loader(
             self._stitcher,
             frame_id,
@@ -404,7 +414,8 @@ class StitchDataset:
         video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 50,
+        #max_input_queue_size: int = 50,
+        max_input_queue_size: int = 2,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
@@ -681,7 +692,7 @@ class StitchDataset:
                     ]  # TODO: call just once
                 self._stitching_workers[worker_number] = self.create_stitching_worker(
                     rank=worker_number,
-                    start_frame_number=self._start_frame_number + worker_number,
+                    start_frame_number=self._start_frame_number,
                     frame_stride_count=self._num_workers,
                     max_frames=max_for_worker,
                     max_input_queue_size=int(
