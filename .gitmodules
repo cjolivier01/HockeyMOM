@@ -53,3 +53,6 @@
 [submodule "models/centerpoint"]
 	path = models/centerpoint
 	url = ssh://git@github.com/cjolivier01/CenterPoint
+[submodule "models/centertrack"]
+	path = models/centertrack
+	url = ssh://git@github.com/cjolivier01/centertrack
