@@ -267,6 +267,7 @@ class VideoOutput:
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
             #is_cuda = self._device.startswith("cuda")
+            # I think it crashes if the size is off by even one pixed between frames?
             is_cuda = False
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             if not is_cuda:
