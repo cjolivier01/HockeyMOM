@@ -161,8 +161,8 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        device: str = None,
-        # device: str = "cuda:1",
+        #device: str = None,
+        device: str = "cuda",
     ):
         self._args = args
         self._device = device
@@ -276,6 +276,8 @@ class VideoOutput:
                     int(self._output_frame_height.item()),
                 ),
                 isColor=True,
+                apiPreference=cv2.CAP_FFMPEG,
+                #apiPreference=cv2.CAP_GSTREAMER,
             )
             assert self._output_video.isOpened()
             self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
