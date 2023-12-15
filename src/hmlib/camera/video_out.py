@@ -266,21 +266,32 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
+            is_cuda = self._device.startswith("cuda")
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-            self._output_video = cv2.VideoWriter(
-                filename=self._output_video_path,
-                fourcc=fourcc,
-                fps=self._fps,
-                frameSize=(
-                    int(self._output_frame_width.item()),
-                    int(self._output_frame_height.item()),
-                ),
-                isColor=True,
-                apiPreference=cv2.CAP_FFMPEG,
-                #apiPreference=cv2.CAP_GSTREAMER,
-            )
-            assert self._output_video.isOpened()
-            self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+            if not is_cuda:
+                self._output_video = cv2.VideoWriter(
+                    filename=self._output_video_path,
+                    fourcc=fourcc,
+                    fps=self._fps,
+                    frameSize=(
+                        int(self._output_frame_width.item()),
+                        int(self._output_frame_height.item()),
+                    ),
+                    isColor=True,
+                )
+                assert self._output_video.isOpened()
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+            else:
+                self._output_video = cv2.cudacodec.VideoWriter(
+                    filename=self._output_video_path,
+                    fourcc=fourcc,
+                    fps=self._fps,
+                    frameSize=(
+                        int(self._output_frame_width.item()),
+                        int(self._output_frame_height.item()),
+                    ),
+                )
+
         seen_frames = set()
         while True:
             imgproc_data = self._imgproc_queue.get()
