@@ -266,7 +266,8 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
-            is_cuda = self._device.startswith("cuda")
+            #is_cuda = self._device.startswith("cuda")
+            is_cuda = False
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             if not is_cuda:
                 self._output_video = cv2.VideoWriter(
