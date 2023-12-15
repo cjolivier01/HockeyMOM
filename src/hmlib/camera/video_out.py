@@ -152,8 +152,10 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
-        fourcc="XVID",
-        # fourcc = "HFYU",
+        #fourcc="XVID",
+        fourcc="HEVC",
+        #fourcc="X264",
+        #fourcc = "HFYU",
         save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
@@ -276,7 +278,7 @@ class VideoOutput:
                 isColor=True,
             )
             assert self._output_video.isOpened()
-            self._output_video.set(cv2.CAP_PROP_BITRATE, 35000 * 1024)
+            self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
         seen_frames = set()
         while True:
             imgproc_data = self._imgproc_queue.get()
