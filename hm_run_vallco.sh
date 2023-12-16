@@ -21,7 +21,8 @@ EXP_NAME="$(basename $0 .sh)"
 GAME_ID="--game-id stockton2"
 
 #TEST_SIZE_ARG="--test-size=200x520"
-TEST_SIZE_ARG="--test-size=400x1040"
+TEST_SIZE_ARG="--test-size=300x780"
+#TEST_SIZE_ARG="--test-size=400x1040"
 
 #START_FRAME=0
 #START_FRAME=1900
