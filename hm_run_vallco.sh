@@ -41,7 +41,7 @@ echo "Experiment name: ${EXP_NAME}"
 
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
+  PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hm_track_mixsort.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
@@ -56,5 +56,8 @@ OMP_NUM_THREADS=16 \
   --config=track \
   --cam-ignore-largest \
   --script="${MIXFORMER_SCRIPT}" \
-  --input_video="${VIDEO}" $@
+  --input_video="${VIDEO}" \
+  $@ \
+  tracking
+
 

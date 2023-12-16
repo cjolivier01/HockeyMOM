@@ -182,7 +182,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # args: argparse.Namespace = None,
     ):
 
-        basic_debugging = False
+        #basic_debugging = False
 
         super().__init__()
         # Display the image every frame (slow)
@@ -228,8 +228,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
@@ -920,14 +920,14 @@ class CamTrackPostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                print(f"frame {frame_id} group x velocity: {group_x_velocity}")
-                cv2.circle(
-                    online_im,
-                    [int(i) for i in edge_center],
-                    radius=30,
-                    color=(255, 0, 255),
-                    thickness=20,
-                )
+                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                # cv2.circle(
+                #     online_im,
+                #     [int(i) for i in edge_center],
+                #     radius=30,
+                #     color=(255, 0, 255),
+                #     thickness=20,
+                # )
                 edge_center = torch.tensor(
                     edge_center, dtype=torch.float32, device=current_box.device
                 )
@@ -975,9 +975,9 @@ class CamTrackPostProcessor:
             #
             # HIJACK CURRENT ROI BOX POSITION
             #
-            current_box = self._hockey_mom.clamp(
-                self._current_roi.bounding_box().clone()
-            )
+            # current_box = self._hockey_mom.clamp(
+            #     self._current_roi.bounding_box().clone()
+            # )
 
             #
             # Aspect Ratio

@@ -43,6 +43,12 @@ class opts(object):
         #     default=None,
         #     help="maximum number of frames to process",
         # )
+        # parser.add_argument(
+        #     "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
+        # )
+
+        parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
+
         self.parser.add_argument('--public_det', action='store_true')
         self.parser.add_argument('--no_pre_img', action='store_true')
         self.parser.add_argument('--non_block_test', action='store_true')
@@ -51,7 +57,7 @@ class opts(object):
         self.parser.add_argument('--test_focal_length', type=int, default=-1)
         self.parser.add_argument('--test_dataset', default='',
                                 help='coco | kitti | coco_hp | pascal')
-
+        parser.add_argument("--seed", default=None, type=int, help="eval seed")
         self.parser.add_argument('--debug', type=int, default=0,
                                 help='level of visualization.'
                                     '1: only show the final detection results'
@@ -335,7 +341,6 @@ class opts(object):
                                 help='')
         self.parser.add_argument('--pre_thresh', type=float, default=-1)
         self.parser.add_argument('--new_thresh', type=float, default=0.3)
-        self.parser.add_argument('--track_thresh', type=float, default=0.3)
         # END Centrtrack tracking
 
         # BEGIN Centertrack Train
@@ -508,82 +513,21 @@ class opts(object):
             else:
                 opt = self.parser.parse_args(args)
 
-        # opt.gpus_str = opt.gpus
-        # opt.gpus = [int(gpu) for gpu in opt.gpus.split(",")]
-        # opt.lr_step = [int(i) for i in opt.lr_step.split(",")]
+        opt.gpus_str = opt.gpus
+        opt.gpus = [int(gpu) for gpu in opt.gpus.split(",")]
+        opt.lr_step = [int(i) for i in opt.lr_step.split(",")]
 
-        # opt.fix_res = not opt.keep_res
+        opt.fix_res = not opt.keep_res
         # print("Fix size testing." if opt.fix_res else "Keep resolution testing.")
         opt.reg_offset = not opt.not_reg_offset
 
-        # if opt.head_conv == -1:  # init default head_conv
-        #     opt.head_conv = 256 if "dla" in opt.arch else 256
-        # opt.pad = 31
-        # opt.num_stacks = 1
+        if opt.head_conv == -1:  # init default head_conv
+            opt.head_conv = 256 if "dla" in opt.arch else 256
+        opt.pad = 31
+        opt.num_stacks = 1
 
         if opt.trainval:
             opt.val_intervals = 100000000
-
-        # if opt.master_batch_size == -1:
-        #     opt.master_batch_size = opt.batch_size // len(opt.gpus)
-        # rest_batch_size = opt.batch_size - opt.master_batch_size
-        # opt.chunk_sizes = [opt.master_batch_size]
-        # for i in range(len(opt.gpus) - 1):
-        #     slave_chunk_size = rest_batch_size // (len(opt.gpus) - 1)
-        #     if i < rest_batch_size % (len(opt.gpus) - 1):
-        #         slave_chunk_size += 1
-        #     opt.chunk_sizes.append(slave_chunk_size)
-        # print("training chunk_sizes:", opt.chunk_sizes)
-
-        # opt.root_dir = os.path.join(os.path.dirname(__file__), "..", "..")
-        # opt.exp_dir = os.path.join(opt.root_dir, "exp", opt.task)
-        # opt.save_dir = os.path.join(opt.exp_dir, opt.exp_id)
-        # opt.debug_dir = os.path.join(opt.save_dir, "debug")
-        # print("The output will be saved to ", opt.save_dir)
-
-        # if opt.resume and opt.load_model == "":
-        #     model_path = (
-        #         opt.save_dir[:-4] if opt.save_dir.endswith("TEST") else opt.save_dir
-        #     )
-        #     opt.load_model = os.path.join(model_path, "model_last.pth")
-
-        if opt.test_dataset == "":
-            opt.test_dataset = opt.dataset
-
-        opt.gpus_str = opt.gpus
-        opt.gpus = [int(gpu) for gpu in opt.gpus.split(",")]
-        opt.gpus = [i for i in range(len(opt.gpus))] if opt.gpus[0] >= 0 else [-1]
-        opt.lr_step = [int(i) for i in opt.lr_step.split(",")]
-        opt.save_point = [int(i) for i in opt.save_point.split(",")]
-        opt.test_scales = [float(i) for i in opt.test_scales.split(",")]
-        opt.save_imgs = [i for i in opt.save_imgs.split(",")] if opt.save_imgs != "" else []
-        opt.ignore_loaded_cats = (
-            [int(i) for i in opt.ignore_loaded_cats.split(",")]
-            if opt.ignore_loaded_cats != ""
-            else []
-        )
-
-        opt.num_workers = max(opt.num_workers, 2 * len(opt.gpus))
-        opt.pre_img = False
-        if "tracking" in opt.task:
-            print("Running tracking")
-            opt.tracking = True
-            opt.out_thresh = max(opt.track_thresh, opt.out_thresh)
-            opt.pre_thresh = max(opt.track_thresh, opt.pre_thresh)
-            opt.new_thresh = max(opt.track_thresh, opt.new_thresh)
-            opt.pre_img = not opt.no_pre_img
-            print("Using tracking threshold for out threshold!", opt.track_thresh)
-            if "ddd" in opt.task:
-                opt.show_track_color = True
-
-        opt.fix_res = not opt.keep_res
-        print("Fix size testing." if opt.fix_res else "Keep resolution testing.")
-
-        if opt.head_conv == -1:  # init default head_conv
-            opt.head_conv = 256 if "dla" in opt.arch else 64
-
-        opt.pad = 127 if "hourglass" in opt.arch else 31
-        opt.num_stacks = 2 if opt.arch == "hourglass" else 1
 
         if opt.master_batch_size == -1:
             opt.master_batch_size = opt.batch_size // len(opt.gpus)
@@ -596,21 +540,82 @@ class opts(object):
             opt.chunk_sizes.append(slave_chunk_size)
         print("training chunk_sizes:", opt.chunk_sizes)
 
-        if opt.debug > 0:
-            opt.num_workers = 0
-            opt.batch_size = 1
-            opt.gpus = [opt.gpus[0]]
-            opt.master_batch_size = -1
-
-        # log dirs
         opt.root_dir = os.path.join(os.path.dirname(__file__), "..", "..")
-        opt.data_dir = os.path.join(opt.root_dir, "data")
         opt.exp_dir = os.path.join(opt.root_dir, "exp", opt.task)
         opt.save_dir = os.path.join(opt.exp_dir, opt.exp_id)
         opt.debug_dir = os.path.join(opt.save_dir, "debug")
+        print("The output will be saved to ", opt.save_dir)
 
         if opt.resume and opt.load_model == "":
-            opt.load_model = os.path.join(opt.save_dir, "model_last.pth")
+            model_path = (
+                opt.save_dir[:-4] if opt.save_dir.endswith("TEST") else opt.save_dir
+            )
+            opt.load_model = os.path.join(model_path, "model_last.pth")
+
+        if opt.test_dataset == "":
+            opt.test_dataset = opt.dataset
+
+        # opt.gpus_str = opt.gpus
+        # opt.gpus = [int(gpu) for gpu in opt.gpus.split(",")]
+        # opt.gpus = [i for i in range(len(opt.gpus))] if opt.gpus[0] >= 0 else [-1]
+        # opt.lr_step = [int(i) for i in opt.lr_step.split(",")]
+        # opt.save_point = [int(i) for i in opt.save_point.split(",")]
+        # opt.test_scales = [float(i) for i in opt.test_scales.split(",")]
+        # opt.save_imgs = [i for i in opt.save_imgs.split(",")] if opt.save_imgs != "" else []
+        # opt.ignore_loaded_cats = (
+        #     [int(i) for i in opt.ignore_loaded_cats.split(",")]
+        #     if opt.ignore_loaded_cats != ""
+        #     else []
+        # )
+
+        # opt.num_workers = max(opt.num_workers, 2 * len(opt.gpus))
+        # opt.pre_img = False
+        # if "tracking" in opt.task:
+        #     print("Running tracking")
+        #     opt.tracking = True
+        #     opt.out_thresh = max(opt.track_thresh, opt.out_thresh)
+        #     opt.pre_thresh = max(opt.track_thresh, opt.pre_thresh)
+        #     opt.new_thresh = max(opt.track_thresh, opt.new_thresh)
+        #     opt.pre_img = not opt.no_pre_img
+        #     print("Using tracking threshold for out threshold!", opt.track_thresh)
+        #     if "ddd" in opt.task:
+        #         opt.show_track_color = True
+
+        # opt.fix_res = not opt.keep_res
+        # print("Fix size testing." if opt.fix_res else "Keep resolution testing.")
+
+        # if opt.head_conv == -1:  # init default head_conv
+        #     opt.head_conv = 256 if "dla" in opt.arch else 64
+
+        # opt.pad = 127 if "hourglass" in opt.arch else 31
+        # opt.num_stacks = 2 if opt.arch == "hourglass" else 1
+
+        # if opt.master_batch_size == -1:
+        #     opt.master_batch_size = opt.batch_size // len(opt.gpus)
+        # rest_batch_size = opt.batch_size - opt.master_batch_size
+        # opt.chunk_sizes = [opt.master_batch_size]
+        # for i in range(len(opt.gpus) - 1):
+        #     slave_chunk_size = rest_batch_size // (len(opt.gpus) - 1)
+        #     if i < rest_batch_size % (len(opt.gpus) - 1):
+        #         slave_chunk_size += 1
+        #     opt.chunk_sizes.append(slave_chunk_size)
+        # print("training chunk_sizes:", opt.chunk_sizes)
+
+        # if opt.debug > 0:
+        #     opt.num_workers = 0
+        #     opt.batch_size = 1
+        #     opt.gpus = [opt.gpus[0]]
+        #     opt.master_batch_size = -1
+
+        # # log dirs
+        # opt.root_dir = os.path.join(os.path.dirname(__file__), "..", "..")
+        # opt.data_dir = os.path.join(opt.root_dir, "data")
+        # opt.exp_dir = os.path.join(opt.root_dir, "exp", opt.task)
+        # opt.save_dir = os.path.join(opt.exp_dir, opt.exp_id)
+        # opt.debug_dir = os.path.join(opt.save_dir, "debug")
+
+        # if opt.resume and opt.load_model == "":
+        #     opt.load_model = os.path.join(opt.save_dir, "model_last.pth")
         opt.ckpt = opt.load_model
 
         return opt
