@@ -38,6 +38,8 @@ from hmlib.datasets.dataset.stitching import (
 )
 
 import hmlib.opts2 as opts2
+import lib.opts as centertrack_opts
+
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
@@ -48,8 +50,9 @@ from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
 import hmlib.datasets as datasets
 
 
-def make_parser():
-    parser = argparse.ArgumentParser("YOLOX Eval")
+def make_parser(parser: argparse.ArgumentParser = None):
+    if parser is None:
+        parser = argparse.ArgumentParser("YOLOX Eval")
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
@@ -110,13 +113,13 @@ def make_parser():
         action="store_true",
         help="Using TensorRT model for testing.",
     )
-    parser.add_argument(
-        "--test",
-        dest="test",
-        default=False,
-        action="store_true",
-        help="Evaluating on test-dev set.",
-    )
+    # parser.add_argument(
+    #     "--test",
+    #     dest="test",
+    #     default=False,
+    #     action="store_true",
+    #     help="Evaluating on test-dev set.",
+    # )
     parser.add_argument(
         "--tracker",
         default="hm",
@@ -198,9 +201,9 @@ def make_parser():
     #     help="ckpt for eval",
     # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
-    parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
+    #parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
-    parser.add_argument("--seed", default=None, type=int, help="eval seed")
+    #parser.add_argument("--seed", default=None, type=int, help="eval seed")
     # tracking args
     # parser.add_argument(
     #     "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
@@ -649,12 +652,17 @@ def main(exp, args, num_gpu):
 
 
 if __name__ == "__main__":
-    os.environ["AUTOGRAPH_VERBOSITY"] = "5"
     parser = make_parser()
     opts_2 = opts2.opts(parser=parser)
     parser = opts_2.parser
     args = parser.parse_args()
-    if args.tracker in ["fair", "centertrack"]:
+    if args.tracker == "centertrack":
+        opts = centertrack_opts.opts()
+        opts.parser = make_parser(opts.parser)
+        args = opts.parse()
+        args = opts.init()
+        exp = get_exp(args.exp_file, args.name)
+    elif args.tracker == "fair":
         opts_2.parse(opt=args)
         args = opts_2.init(opt=args)
         exp = get_exp(args.exp_file, args.name)

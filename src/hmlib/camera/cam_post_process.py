@@ -181,6 +181,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         cam_ignore_largest: bool = False,
         # args: argparse.Namespace = None,
     ):
+
+        basic_debugging = False
+
         super().__init__()
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
@@ -218,7 +221,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        self.plot_frame_number = True
+        self.plot_frame_number = False
 
         self.plot_boundaries = False or basic_debugging
 
