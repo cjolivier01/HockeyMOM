@@ -153,13 +153,13 @@ def make_parser():
         "often right in front of the camera, but not enough of the ref is "
         "visible to note it as a ref)",
     )
-    parser.add_argument(
-        "--debug",
-        dest="debug",
-        default=False,
-        action="store_true",
-        help="debug cam processing",
-    )
+    # parser.add_argument(
+    #     "--debug",
+    #     dest="debug",
+    #     default=False,
+    #     action="store_true",
+    #     help="debug cam processing",
+    # )
     parser.add_argument(
         "--rink",
         default=None,
@@ -189,13 +189,13 @@ def make_parser():
         help="Game ID",
     )
     # det args
-    parser.add_argument(
-        "-c",
-        "--ckpt",
-        default="pretrained/yolox_x_sportsmix_ch.pth.tar",
-        type=str,
-        help="ckpt for eval",
-    )
+    # parser.add_argument(
+    #     "-c",
+    #     "--ckpt",
+    #     default="pretrained/yolox_x_sportsmix_ch.pth.tar",
+    #     type=str,
+    #     help="ckpt for eval",
+    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
@@ -382,7 +382,7 @@ def main(exp, args, num_gpu):
             exp.test_size = (args.tsize, args.tsize)
 
         model = None
-        if args.tracker != "fair":
+        if args.tracker not in ["fair", "centertrack"]:
             model = exp.get_model()
             logger.info(
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
@@ -614,6 +614,7 @@ def main(exp, args, num_gpu):
             "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},
             "fair": {"function": evaluator.evaluate_fair},
+            "centertrack": {"function": evaluator.evaluate_centertrack},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
             "sort": {"function": evaluator.evaluate_sort},
             "ocsort": {"function": evaluator.evaluate_ocsort},
@@ -652,11 +653,14 @@ if __name__ == "__main__":
     opts_2 = opts2.opts(parser=parser)
     parser = opts_2.parser
     args = parser.parse_args()
-    if args.tracker == "fair":
+    if args.tracker in ["fair", "centertrack"]:
         opts_2.parse(opt=args)
-        opts_2.init(opt=args)
-    exp = get_exp(args.exp_file, args.name)
-    exp.merge(args.opts)
+        args = opts_2.init(opt=args)
+        exp = get_exp(args.exp_file, args.name)
+        exp.merge(args.opts) # seems to do nothing
+    else:
+        exp = get_exp(args.exp_file, args.name)
+        exp.merge(args.opts)
 
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
