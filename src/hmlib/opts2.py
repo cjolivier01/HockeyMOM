@@ -13,6 +13,10 @@ class opts(object):
         if self.parser is None:
             self.parser = argparse.ArgumentParser()
 
+        self.parser.add_argument('task', default='',
+                                help='ctdet | ddd | multi_pose '
+                                '| tracking or combined with ,')
+
         # stitching
         # self.parser.add_argument(
         #     "--left-frame-offset",
@@ -39,8 +43,11 @@ class opts(object):
         #     default=None,
         #     help="maximum number of frames to process",
         # )
-        self.parser.add_argument('--debugger_theme', default='white',
-                                choices=['white', 'black'])
+        self.parser.add_argument('--public_det', action='store_true')
+        self.parser.add_argument('--no_pre_img', action='store_true')
+        self.parser.add_argument('--non_block_test', action='store_true')
+        self.parser.add_argument('--vis_gt_bev', default='', help='')
+        self.parser.add_argument('--fix_short', type=int, default=-1)
         self.parser.add_argument('--test_focal_length', type=int, default=-1)
         self.parser.add_argument('--test_dataset', default='',
                                 help='coco | kitti | coco_hp | pascal')
@@ -51,9 +58,6 @@ class opts(object):
                                     '2: show the network output features'
                                     '3: use matplot to display' # useful when lunching training with ipython notebook
                                     '4: save all visualizations to disk')
-
-        self.parser.add_argument('--save_imgs', default='', help='')
-        self.parser.add_argument('--save_img_suffix', default='', help='')
 
         # basic experiment setting
         self.parser.add_argument("--task", default="mot", help="mot")
@@ -97,25 +101,16 @@ class opts(object):
 
         # log
         self.parser.add_argument(
-            "--print_iter",
-            type=int,
-            default=0,
-            help="disable progress bar and print to screen.",
-        )
-        self.parser.add_argument(
             "--hide_data_time",
             action="store_true",
             help="not display time during training.",
         )
         self.parser.add_argument(
-            "--save_all", action="store_true", help="save model to disk every 5 epochs."
-        )
-        self.parser.add_argument(
             "--metric", default="loss", help="main metric to save best model"
         )
-        self.parser.add_argument(
-            "--vis_thresh", type=float, default=0.5, help="visualization threshold."
-        )
+        # self.parser.add_argument(
+        #     "--vis_thresh", type=float, default=0.5, help="visualization threshold."
+        # )
 
         # model
         # self.parser.add_argument(
@@ -322,6 +317,7 @@ class opts(object):
         # END Centertrack model
 
         # BEGIN Centertrack Tracking
+        self.parser.add_argument('--tracking', action='store_true')
         self.parser.add_argument('--pre_hm', action='store_true')
         self.parser.add_argument('--same_aug_pre', action='store_true')
         self.parser.add_argument('--zero_pre_hm', action='store_true')
@@ -330,6 +326,16 @@ class opts(object):
         self.parser.add_argument('--fp_disturb', type=float, default=0)
         self.parser.add_argument("--ltrb_amodal", action="store_true")
         self.parser.add_argument("--ltrb_amodal_weight", type=float, default=0.1)
+        self.parser.add_argument('--zero_tracking', action='store_true')
+        self.parser.add_argument('--hungarian', action='store_true')
+        self.parser.add_argument('--max_age', type=int, default=-1)
+        self.parser.add_argument('--out_thresh', type=float, default=-1,
+                                help='')
+        self.parser.add_argument('--depth_scale', type=float, default=1,
+                                help='')
+        self.parser.add_argument('--pre_thresh', type=float, default=-1)
+        self.parser.add_argument('--new_thresh', type=float, default=0.3)
+        self.parser.add_argument('--track_thresh', type=float, default=0.3)
         # END Centrtrack tracking
 
         # BEGIN Centertrack Train
@@ -399,6 +405,35 @@ class opts(object):
         self.parser.add_argument("--velocity", action="store_true")
         self.parser.add_argument("--velocity_weight", type=float, default=1)
         # END Centertrack loss
+
+        # BEGIN CenterTrack Log
+        self.parser.add_argument('--print_iter', type=int, default=0,
+                                help='disable progress bar and print to screen.')
+        self.parser.add_argument('--save_all', action='store_true',
+                                help='save model to disk every 5 epochs.')
+        self.parser.add_argument('--vis_thresh', type=float, default=0.3,
+                                help='visualization threshold.')
+        self.parser.add_argument('--debugger_theme', default='white',
+                                choices=['white', 'black'])
+        self.parser.add_argument('--eval_val', action='store_true')
+        self.parser.add_argument('--save_imgs', default='', help='')
+        self.parser.add_argument('--save_img_suffix', default='', help='')
+        self.parser.add_argument('--skip_first', type=int, default=-1, help='')
+        self.parser.add_argument('--save_video', action='store_true')
+        self.parser.add_argument('--save_framerate', type=int, default=30)
+        self.parser.add_argument('--resize_video', action='store_true')
+        self.parser.add_argument('--video_h', type=int, default=512, help='')
+        self.parser.add_argument('--video_w', type=int, default=512, help='')
+        self.parser.add_argument('--transpose_video', action='store_true')
+        self.parser.add_argument('--show_track_color', action='store_true')
+        self.parser.add_argument('--not_show_bbox', action='store_true')
+        self.parser.add_argument('--not_show_number', action='store_true')
+        self.parser.add_argument('--not_show_txt', action='store_true')
+        self.parser.add_argument('--qualitative', action='store_true')
+        self.parser.add_argument('--tango_color', action='store_true')
+        self.parser.add_argument('--only_show_dots', action='store_true')
+        self.parser.add_argument('--show_trace', action='store_true')
+        # END CenterTrack Log
 
         # loss
         self.parser.add_argument(
@@ -479,15 +514,15 @@ class opts(object):
 
         # opt.fix_res = not opt.keep_res
         # print("Fix size testing." if opt.fix_res else "Keep resolution testing.")
-        # opt.reg_offset = not opt.not_reg_offset
+        opt.reg_offset = not opt.not_reg_offset
 
         # if opt.head_conv == -1:  # init default head_conv
         #     opt.head_conv = 256 if "dla" in opt.arch else 256
         # opt.pad = 31
         # opt.num_stacks = 1
 
-        # if opt.trainval:
-        #     opt.val_intervals = 100000000
+        if opt.trainval:
+            opt.val_intervals = 100000000
 
         # if opt.master_batch_size == -1:
         #     opt.master_batch_size = opt.batch_size // len(opt.gpus)
@@ -576,6 +611,7 @@ class opts(object):
 
         if opt.resume and opt.load_model == "":
             opt.load_model = os.path.join(opt.save_dir, "model_last.pth")
+        opt.ckpt = opt.load_model
 
         return opt
 
@@ -625,6 +661,8 @@ class opts(object):
         opt.output_w = opt.input_w // opt.down_ratio
         opt.input_res = max(opt.input_h, opt.input_w)
         opt.output_res = max(opt.output_h, opt.output_w)
+
+        opt.demo = opt.input_video
 
         opt.heads = {"hm": opt.num_classes, "reg": 2, "wh": 2}
 
@@ -689,6 +727,8 @@ class opts(object):
 
     def init(self, args="", opt=None):
         if opt.tracker == "fair":
+            if opt.task == "tracking":
+                opt.task = "mot"
             default_dataset_info = {
                 "mot": {
                     "default_resolution": [608, 1088],

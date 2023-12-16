@@ -140,6 +140,7 @@ def make_parser():
     parser.add_argument(
         "-s",
         "--show-image",
+        "--show",
         dest="show_image",
         default=False,
         action="store_true",
@@ -201,9 +202,9 @@ def make_parser():
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument("--seed", default=None, type=int, help="eval seed")
     # tracking args
-    parser.add_argument(
-        "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
-    )
+    # parser.add_argument(
+    #     "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
+    # )
     parser.add_argument(
         "--track_thresh_low",
         type=float,
@@ -657,7 +658,7 @@ if __name__ == "__main__":
         opts_2.parse(opt=args)
         args = opts_2.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
-        exp.merge(args.opts) # seems to do nothing
+        #exp.merge(args.opts) # seems to do nothing
     else:
         exp = get_exp(args.exp_file, args.name)
         exp.merge(args.opts)
