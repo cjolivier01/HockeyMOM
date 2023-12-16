@@ -25,7 +25,7 @@ from hmlib.stitch_synchronize import (
 )
 
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.camera.video_out import VideoOutput, ImageProcData
+from hmlib.video_out import VideoOutput, ImageProcData
 
 
 def _get_dir_name(path):

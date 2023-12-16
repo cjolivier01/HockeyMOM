@@ -25,7 +25,7 @@ from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox
-from hmlib.camera.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
@@ -207,19 +207,19 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        self.plot_moving_boxes = False
+        self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        # self.plot_frame_number = True
+        self.plot_frame_number = True
 
         self.plot_boundaries = False or basic_debugging
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        #self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
@@ -234,7 +234,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
-        self.plot_sticky_camera = False
+        #self.plot_sticky_camera = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -910,14 +910,14 @@ class CamTrackPostProcessor:
                 # group_threshhold=0.6,
             )
             if group_x_velocity:
-                #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
-                # cv2.circle(
-                #     online_im,
-                #     [int(i) for i in edge_center],
-                #     radius=30,
-                #     color=(255, 0, 255),
-                #     thickness=20,
-                # )
+                print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+                cv2.circle(
+                    online_im,
+                    [int(i) for i in edge_center],
+                    radius=30,
+                    color=(255, 0, 255),
+                    thickness=20,
+                )
                 edge_center = torch.tensor(
                     edge_center, dtype=torch.float32, device=current_box.device
                 )
@@ -949,7 +949,7 @@ class CamTrackPostProcessor:
                             ),
                         )
                     else:
-                        # print("Skipping modifying group x velocity")
+                        print("Skipping modifying group x velocity")
                         pass
 
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
@@ -965,9 +965,9 @@ class CamTrackPostProcessor:
             #
             # HIJACK CURRENT ROI BOX POSITION
             #
-            # current_box = self._hockey_mom.clamp(
-            #     self._current_roi.bounding_box().clone()
-            # )
+            current_box = self._hockey_mom.clamp(
+                self._current_roi.bounding_box().clone()
+            )
 
             #
             # Aspect Ratio
