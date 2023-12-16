@@ -76,8 +76,10 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 0.8,
         "fixed_edge_rotation_angle": 40.0,
         "borders": {
-            "upper": [],
-            "lower": [],
+            "stockton2": {
+                "upper": [],
+                "lower": [],
+            },
         },
     },
     "dublin": {
@@ -116,48 +118,52 @@ RINK_CONFIG = {
         "fixed_edge_scaling_factor": 1.5,
         "fixed_edge_rotation_angle": 30.0,
         "borders": {
-            "upper": [
-                # lbd3
-                # [254, 840, 1071, 598],
-                # [1101, 568, 2688, 588],
-                # tvbb2
-                [214, 753, 1265, 492],
-                [1179, 495, 3275, 653],
-
-            ],
-            "lower": [
-                # lbd3
-                # [7, 854, 375, 1082],
-                # [264, 1007, 1188, 1539],
-                # [1229, 1524, 2398, 1572],
-                # [2362, 1517, 3245, 1181],
-                # [3240, 1199, 3536, 1000],
-                # [3370, 1095, 3808, 819],
-
-                # tvbb2
-                [6, 737, 413, 894],
-                [2340, 1552, 3200, 1394],
-                [3142, 1405, 3631, 1151],
-                [423, 891, 1273, 1387],
-                [1279, 1394, 2235, 1564],
-                [3441, 1260, 3803, 1050],
-                [3803, 1050, 4134, 712],
-            ],
+            "lbd3": {
+                "upper": [
+                    [254, 840, 1071, 598],
+                    [1101, 568, 2688, 588],
+                ],
+                "lower": [
+                    [7, 854, 375, 1082],
+                    [264, 1007, 1188, 1539],
+                    [1229, 1524, 2398, 1572],
+                    [2362, 1517, 3245, 1181],
+                    [3240, 1199, 3536, 1000],
+                    [3370, 1095, 3808, 819],
+                ],
+            },
+            "tvbb2": {
+                "upper": [
+                    [214, 753, 1265, 492],
+                    [1179, 495, 3275, 653],
+                ],
+                "lower": [
+                    [6, 737, 413, 894],
+                    [2340, 1552, 3200, 1394],
+                    [3142, 1405, 3631, 1151],
+                    [423, 891, 1273, 1387],
+                    [1279, 1394, 2235, 1564],
+                    [3441, 1260, 3803, 1050],
+                    [3803, 1050, 4134, 712],
+                ],
+            },
         },
     },
     "sharks_orange": {
         "fixed_edge_scaling_factor": 0.8,
         "fixed_edge_rotation_angle": 25.0,
         "borders": {
-            "upper": [
-                [2001, 123, 2629, 208],
-                [1283, 117, 1979, 162],
-            ],
-            "lower": [
-                [21, 498, 1664, 878],
-                [1662, 856, 3034, 799],
-                [3044, 800, 3762, 673],
-            ],
+            "sharksbb2-1": {
+                "upper": [
+                    [2001, 123, 2629, 208],
+                    [1283, 117, 1979, 162],
+                ],
+                "lower": [
+                    [21, 498, 1664, 878],
+                    [1662, 856, 3034, 799],
+                    [3044, 800, 3762, 673],
+                ],
+            },
         },
     },
 }
@@ -168,7 +174,8 @@ BASIC_DEBUGGING = False
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
-        rink: str = "vallco",
+        game_id: str,
+        rink: str,
         basic_debugging: bool = BASIC_DEBUGGING,
         show_image: bool = False,
         cam_ignore_largest: bool = False,
@@ -204,7 +211,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
 
         self.plot_camera_tracking = False or basic_debugging
-        #self.plot_camera_tracking = True
+        # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
         self.plot_moving_boxes = True
@@ -219,7 +226,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_speed = False
 
         self.fixed_edge_rotation = False
-        #self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
@@ -234,7 +241,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
-        #self.plot_sticky_camera = True
+        # self.plot_sticky_camera = True
 
         # Skip some number of frames before post-processing. Useful for debugging a
         # particular section of video and being able to reach
@@ -286,8 +293,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         # SHARKS ORANGE RINK
         #
-        self.top_border_lines = RINK_CONFIG[rink]["borders"]["upper"]
-        self.bottom_border_lines = RINK_CONFIG[rink]["borders"]["lower"]
+        self.top_border_lines = RINK_CONFIG[rink]["borders"][game_id]["upper"]
+        self.bottom_border_lines = RINK_CONFIG[rink]["borders"][game_id]["lower"]
 
 
 def scale_box(box, from_img, to_img):

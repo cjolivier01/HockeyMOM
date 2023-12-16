@@ -402,6 +402,7 @@ def main(exp, args, num_gpu):
 
         cam_args = DefaultArguments(
             rink=args.rink,
+            game_id=args.game_id,
             basic_debugging=args.debug,
             show_image=args.show_image,
             cam_ignore_largest=args.cam_ignore_largest,
