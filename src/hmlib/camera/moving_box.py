@@ -115,6 +115,160 @@ class ResizingBox(BasicBox):
     def draw(self, img: np.array, draw_threasholds: bool = False):
         pass
 
+    def _adjust_size(
+        self,
+        accel_w: torch.Tensor = None,
+        accel_h: torch.Tensor = None,
+        use_constraints: bool = True,
+    ):
+        if self._size_is_frozen:
+            return
+
+        if use_constraints:
+            if accel_w is not None:
+                accel_w = torch.clamp(
+                    accel_w, min=-self._max_accel_w, max=self._max_accel_w
+                )
+            if accel_h is not None:
+                accel_h = torch.clamp(
+                    accel_h, min=-self._max_accel_h, max=self._max_accel_h
+                )
+        if accel_w is not None:
+            self._current_speed_w += accel_w
+
+        if accel_h is not None:
+            self._current_speed_h += accel_h
+
+        if use_constraints:
+            self._clamp_resizing()
+
+    def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
+        self._set_destination_size(
+            dest_width=width(dest_box),
+            dest_height=height(dest_box),
+            stop_on_dir_change=stop_on_dir_change,
+        )
+
+    def _set_destination_size(
+        self,
+        dest_width: torch.Tensor,
+        dest_height: torch.Tensor,
+        stop_on_dir_change: bool = True,
+    ):
+        scale_w = (
+            self._one_float_tensor if self._scale_width is None else self._scale_width
+        )
+        scale_h = (
+            self._one_float_tensor if self._scale_height is None else self._scale_height
+        )
+
+        dest_area = dest_width * dest_height
+
+        bbox = self.bounding_box()
+        current_w = width(bbox)
+        current_h = height(bbox)
+
+        dest_width *= scale_w
+        dest_height *= scale_h
+
+        if self._fixed_aspect_ratio is not None:
+            # Apply aspect ratio
+            if dest_width / dest_height < self._fixed_aspect_ratio:
+                # Constrain by height
+                dest_width = dest_height * self._fixed_aspect_ratio
+            else:
+                # Constrain by width
+                dest_height = dest_width / self._fixed_aspect_ratio
+
+        dw = dest_width - current_w
+        dh = dest_height - current_h
+
+        #
+        # BEGIN size threshhold
+        #
+        if self._sticky_sizing:
+            if False:
+                stopped_count = 0
+                if (
+                    self._width_change_threshold_low is not None
+                    and abs(dw) < self._width_change_threshold_low
+                ):
+                    stopped_count += 1
+                    self._current_speed_w = self._zero
+                if (
+                    self._height_change_threshold_low is not None
+                    and abs(dh) < self._height_change_threshold_low
+                ):
+                    stopped_count += 1
+                    self._current_speed_h = self._zero
+                if stopped_count == 2:
+                    self._size_is_frozen = True
+
+                if (
+                    self._width_change_threshold is not None
+                    and abs(dw) >= self._width_change_threshold
+                ):
+                    self._size_is_frozen = False
+                    # start from zero change speed so as not to jerk
+                    self._current_speed_w = self._zero
+                    self._current_speed_h = self._zero
+                elif (
+                    self._height_change_threshold is not None
+                    and abs(dh) >= self._height_change_threshold
+                ):
+                    self._size_is_frozen = False
+                    # start from zero change speed so as not to jerk
+                    self._current_speed_w = self._zero
+                    self._current_speed_h = self._zero
+                else:
+                    inner_box, outer_box = self._get_inner_and_outer_resize_boxes()
+
+                    # stickiness = self._get_sticky_resize_sizes()
+                    # dest_area = dest_width * dest_height
+                    inner_width = width(inner_box)
+                    inner_height = height(inner_box)
+                    outer_width = width(outer_box)
+                    outer_height = height(outer_box)
+                    inner_area = width(inner_box) * height(inner_box)
+                    outer_area = width(outer_box) * height(outer_box)
+                    assert outer_area > inner_area
+                    # can we do area here or long/tall boxes will be ignored?
+                    # if not self._size_is_frozen and (dw < stickiness[0] or dh < stickiness[1]):
+                    if not self._size_is_frozen and (
+                        dest_area >= inner_area and dest_area <= outer_area
+                    ):
+                        self._size_is_frozen = True
+                        self._current_speed_w = self._zero.clone()
+                        self._current_speed_h = self._zero.clone()
+                        dw = self._zero.clone()
+                        dh = self._zero.clone()
+                    # elif self._size_is_frozen and (dw > stickiness[2] or dh > stickiness[3]):
+                    elif self._size_is_frozen and (
+                        dest_area >= outer_area or dest_area <= inner_area
+                    ):
+                        self._size_is_frozen = False
+                        # Unstick at zero velocity
+                        self._current_speed_w = self._zero.clone()
+                        self._current_speed_h = self._zero.clone()
+        #
+        # END size threshhold
+        #
+
+        assert self._zero.item() == 0
+
+        if different_directions(dw, self._current_speed_w):
+            self._current_speed_w = self._zero.clone()
+            if stop_on_dir_change:
+                dw = self._zero.clone()
+                # self._size_is_frozen = True
+        if different_directions(dh, self._current_speed_h):
+            self._current_speed_h = self._zero.clone()
+            if stop_on_dir_change:
+                dh = self._zero.clone()
+                # self._size_is_frozen = True
+        #if not self._size_is_frozen:
+        self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
+
 
 class MovingBox(ResizingBox):
     def __init__(
@@ -186,11 +340,13 @@ class MovingBox(ResizingBox):
         self._scale_height = (
             self._one_float_tensor if scale_height is None else scale_height
         )
-        self.set_bbox(make_box_at_center(
-            center(bbox),
-            w=width(bbox) * self._scale_width,
-            h=height(bbox) * self._scale_height,
-        ))
+        self.set_bbox(
+            make_box_at_center(
+                center(bbox),
+                w=width(bbox) * self._scale_width,
+                h=height(bbox) * self._scale_height,
+            )
+        )
 
         self._arena_box = arena_box
         self._fixed_aspect_ratio = fixed_aspect_ratio
@@ -444,30 +600,6 @@ class MovingBox(ResizingBox):
         # if use_constraints:
         #     self._clamp_speed()
 
-    def adjust_size(
-        self,
-        accel_w: torch.Tensor = None,
-        accel_h: torch.Tensor = None,
-        use_constraints: bool = True,
-    ):
-        if use_constraints:
-            if accel_w is not None:
-                accel_w = torch.clamp(
-                    accel_w, min=-self._max_accel_w, max=self._max_accel_w
-                )
-            if accel_h is not None:
-                accel_h = torch.clamp(
-                    accel_h, min=-self._max_accel_h, max=self._max_accel_h
-                )
-        if accel_w is not None:
-            self._current_speed_w += accel_w
-
-        if accel_h is not None:
-            self._current_speed_h += accel_h
-
-        if use_constraints:
-            self._clamp_resizing()
-
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """
         We try to go to the given box's position, given
@@ -546,129 +678,9 @@ class MovingBox(ResizingBox):
         self.adjust_speed(
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
-        self.set_destination_size(
-            dest_width=width(dest_box), dest_height=height(dest_box)
+        super(MovingBox, self).set_destination(
+            dest_box=dest_box, stop_on_dir_change=stop_on_dir_change
         )
-
-    def set_destination_size(
-        self,
-        dest_width: torch.Tensor,
-        dest_height: torch.Tensor,
-        stop_on_dir_change: bool = True,
-    ):
-        scale_w = (
-            self._one_float_tensor if self._scale_width is None else self._scale_width
-        )
-        scale_h = (
-            self._one_float_tensor if self._scale_height is None else self._scale_height
-        )
-
-        dest_area = dest_width * dest_height
-
-        bbox = self.bounding_box()
-        current_w = width(bbox)
-        current_h = height(bbox)
-
-        dest_width *= scale_w
-        dest_height *= scale_h
-
-        if self._fixed_aspect_ratio is not None:
-            # Apply aspect ratio
-            if dest_width / dest_height < self._fixed_aspect_ratio:
-                # Constrain by height
-                dest_width = dest_height * self._fixed_aspect_ratio
-            else:
-                # Constrain by width
-                dest_height = dest_width / self._fixed_aspect_ratio
-
-        dw = dest_width - current_w
-        dh = dest_height - current_h
-
-        #
-        # BEGIN size threshhold
-        #
-        if self._sticky_sizing:
-            if False:
-                stopped_count = 0
-                if (
-                    self._width_change_threshold_low is not None
-                    and abs(dw) < self._width_change_threshold_low
-                ):
-                    stopped_count += 1
-                    self._current_speed_w = self._zero
-                if (
-                    self._height_change_threshold_low is not None
-                    and abs(dh) < self._height_change_threshold_low
-                ):
-                    stopped_count += 1
-                    self._current_speed_h = self._zero
-                if stopped_count == 2:
-                    self._size_is_frozen = True
-
-                if (
-                    self._width_change_threshold is not None
-                    and abs(dw) >= self._width_change_threshold
-                ):
-                    self._size_is_frozen = False
-                    # start from zero change speed so as not to jerk
-                    self._current_speed_w = self._zero
-                    self._current_speed_h = self._zero
-                elif (
-                    self._height_change_threshold is not None
-                    and abs(dh) >= self._height_change_threshold
-                ):
-                    self._size_is_frozen = False
-                    # start from zero change speed so as not to jerk
-                    self._current_speed_w = self._zero
-                    self._current_speed_h = self._zero
-                else:
-                    inner_box, outer_box = self._get_inner_and_outer_resize_boxes()
-
-                    # stickiness = self._get_sticky_resize_sizes()
-                    # dest_area = dest_width * dest_height
-                    inner_width = width(inner_box)
-                    inner_height = height(inner_box)
-                    outer_width = width(outer_box)
-                    outer_height = height(outer_box)
-                    inner_area = width(inner_box) * height(inner_box)
-                    outer_area = width(outer_box) * height(outer_box)
-                    assert outer_area > inner_area
-                    # can we do area here or long/tall boxes will be ignored?
-                    # if not self._size_is_frozen and (dw < stickiness[0] or dh < stickiness[1]):
-                    if not self._size_is_frozen and (
-                        dest_area >= inner_area and dest_area <= outer_area
-                    ):
-                        self._size_is_frozen = True
-                        self._current_speed_w = self._zero.clone()
-                        self._current_speed_h = self._zero.clone()
-                        dw = self._zero.clone()
-                        dh = self._zero.clone()
-                    # elif self._size_is_frozen and (dw > stickiness[2] or dh > stickiness[3]):
-                    elif self._size_is_frozen and (
-                        dest_area >= outer_area or dest_area <= inner_area
-                    ):
-                        self._size_is_frozen = False
-                        # Unstick at zero velocity
-                        self._current_speed_w = self._zero.clone()
-                        self._current_speed_h = self._zero.clone()
-        #
-        # END size threshhold
-        #
-
-        assert self._zero.item() == 0
-
-        if different_directions(dw, self._current_speed_w):
-            self._current_speed_w = self._zero.clone()
-            if stop_on_dir_change:
-                dw = self._zero.clone()
-                # self._size_is_frozen = True
-        if different_directions(dh, self._current_speed_h):
-            self._current_speed_h = self._zero.clone()
-            if stop_on_dir_change:
-                dh = self._zero.clone()
-                # self._size_is_frozen = True
-        if not self._size_is_frozen:
-            self.adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
     def next_position(self, arena_box: torch.Tensor = None):
         if arena_box is None:
@@ -797,4 +809,4 @@ class MovingBox(ResizingBox):
 
 
 def different_directions(d1: torch.Tensor, d2: torch.Tensor):
-    return torch.sign(d1) * torch.sign(d2) == -1
+    return torch.sign(d1) * torch.sign(d2) < 0

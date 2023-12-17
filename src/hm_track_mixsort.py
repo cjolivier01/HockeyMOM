@@ -127,6 +127,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
     parser.add_argument(
+        "--no_save_video",
+        "--no-save-video",
+        dest="no_save_video",
+        action="store_true",
+        help="Don't save the output video",
+    )
+    parser.add_argument(
         "--speed",
         dest="speed",
         default=False,
@@ -201,9 +208,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
     #     help="ckpt for eval",
     # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
-    #parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
+    # parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
-    #parser.add_argument("--seed", default=None, type=int, help="eval seed")
+    # parser.add_argument("--seed", default=None, type=int, help="eval seed")
     # tracking args
     # parser.add_argument(
     #     "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
@@ -553,7 +560,7 @@ def main(exp, args, num_gpu):
             opt=args,
             args=cam_args,
             fps=dataloader.fps,
-            save_dir=results_folder,
+            save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
             original_clip_box=dataloader.clip_original,
             # device="cuda",
@@ -667,7 +674,7 @@ if __name__ == "__main__":
         opts_2.parse(opt=args)
         args = opts_2.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
-        #exp.merge(args.opts) # seems to do nothing
+        # exp.merge(args.opts) # seems to do nothing
     else:
         exp = get_exp(args.exp_file, args.name)
         exp.merge(args.opts)

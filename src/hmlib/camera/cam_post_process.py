@@ -190,8 +190,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         cam_ignore_largest: bool = False,
         # args: argparse.Namespace = None,
     ):
-
-        #basic_debugging = False
+        # basic_debugging = False
 
         super().__init__()
         # Display the image every frame (slow)
@@ -528,7 +527,9 @@ class CamTrackPostProcessor:
         assert self._video_output_campp is None
         self._video_output_campp = VideoOutput(
             args=self._args,
-            output_video_path=os.path.join(self._save_dir, "tracking_output.avi"),
+            output_video_path=os.path.join(self._save_dir, "tracking_output.avi")
+            if self._save_dir is not None
+            else None,
             fps=self._fps,
             use_fork=False,
             start=False,
@@ -550,7 +551,7 @@ class CamTrackPostProcessor:
         )
         self._video_output_campp.start()
 
-        if self._args.crop_output_image:
+        if self._args.crop_output_image and self._save_dir is not None:
             self._video_output_boxtrack = VideoOutput(
                 args=self._args,
                 output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
