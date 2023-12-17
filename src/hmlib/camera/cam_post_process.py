@@ -80,6 +80,10 @@ RINK_CONFIG = {
                 "upper": [],
                 "lower": [],
             },
+            "sharksbb1": {
+                "upper": [],
+                "lower": [],
+            },
         },
     },
     "dublin": {
