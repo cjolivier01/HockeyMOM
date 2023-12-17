@@ -81,8 +81,13 @@ RINK_CONFIG = {
                 "lower": [],
             },
             "sharksbb1": {
-                "upper": [],
-                "lower": [],
+                "upper": [
+                    [77, 899, 982, 550],
+                ],
+                "lower": [
+                    [11, 721, 358, 1420],
+                    [3287, 1468, 3645, 720],
+                ],
             },
         },
     },
@@ -203,7 +208,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or basic_debugging
-        # self.plot_cluster_tracking = True
+        self.plot_cluster_tracking = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -221,19 +226,20 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
         self.plot_frame_number = False
 
         self.plot_boundaries = False or basic_debugging
+        self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
         self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]

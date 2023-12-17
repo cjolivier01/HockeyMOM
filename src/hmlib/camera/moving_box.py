@@ -30,8 +30,8 @@ from hmlib.utils.box_functions import (
     width,
     height,
     center,
-    center_x_distance,
-    center_distance,
+    # center_x_distance,
+    # center_distance,
     clamp_box,
     aspect_ratio,
     make_box_at_center,
@@ -235,44 +235,47 @@ class MovingBox(BasicBox):
 
                 # plot the box we're following inscribed at our
                 # center at its current size
-                draw_box = self._bbox.clone()
-                current_following_box_center_inside = make_box_at_center(
-                    center(draw_box),
-                    width(self._following_box.bounding_box()),
-                    height(self._following_box.bounding_box()),
-                )
-                vis.draw_dashed_rectangle(
-                    img,
-                    current_following_box_center_inside,
-                    color=(128, 128, 128) if not self._size_is_frozen else (0, 0, 0),
-                    thickness=self._thickness * 2,
-                )
-                stickiness = self._get_sticky_resize_sizes()
-                sticky_wh = stickiness[0:2] / 2
-                unsticky_wh = stickiness[2:4] / 2
-                # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
-                draw_box[0] += unsticky_wh[0]
-                draw_box[2] -= unsticky_wh[0]
-                draw_box[1] += unsticky_wh[1]
-                draw_box[3] -= unsticky_wh[1]
-                vis.draw_dashed_rectangle(
-                    img,
-                    draw_box,
-                    color=(255, 255, 255),
-                    thickness=self._thickness // 2,
-                )
-                draw_box = self._bbox.clone()
-                # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
-                draw_box[0] += sticky_wh[0]
-                draw_box[2] -= sticky_wh[0]
-                draw_box[1] += sticky_wh[1]
-                draw_box[3] -= sticky_wh[1]
-                vis.draw_dashed_rectangle(
-                    img,
-                    draw_box,
-                    color=(0, 128, 0),
-                    thickness=self._thickness // 2,
-                )
+                # draw_box = self._bbox.clone()
+                # w = width(draw_box)
+                # h = height(draw_box)
+                # w_outer = w +
+                # current_following_box_center_inside = make_box_at_center(
+                #     center(draw_box),
+                #     width(self._following_box.bounding_box()),
+                #     height(self._following_box.bounding_box()),
+                # )
+                # vis.draw_dashed_rectangle(
+                #     img,
+                #     current_following_box_center_inside,
+                #     color=(128, 128, 128) if not self._size_is_frozen else (0, 0, 0),
+                #     thickness=self._thickness * 2,
+                # )
+                # stickiness = self._get_sticky_resize_sizes()
+                # sticky_wh = stickiness[0:2] / 2
+                # unsticky_wh = stickiness[2:4] / 2
+                # # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
+                # draw_box[0] += unsticky_wh[0]
+                # draw_box[2] -= unsticky_wh[0]
+                # draw_box[1] += unsticky_wh[1]
+                # draw_box[3] -= unsticky_wh[1]
+                # vis.draw_dashed_rectangle(
+                #     img,
+                #     draw_box,
+                #     color=(255, 255, 255),
+                #     thickness=self._thickness // 2,
+                # )
+                # draw_box = self._bbox.clone()
+                # # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
+                # draw_box[0] += sticky_wh[0]
+                # draw_box[2] -= sticky_wh[0]
+                # draw_box[1] += sticky_wh[1]
+                # draw_box[3] -= sticky_wh[1]
+                # vis.draw_dashed_rectangle(
+                #     img,
+                #     draw_box,
+                #     color=(0, 128, 0),
+                #     thickness=self._thickness // 2,
+                # )
 
         return img
 
