@@ -36,6 +36,7 @@ from hmlib.utils.box_functions import (
     aspect_ratio,
     make_box_at_center,
     shift_box_to_edge,
+    scale_box,
     is_box_edge_on_or_outside_other_box_edge,
     check_for_box_overshoot,
 )
@@ -165,21 +166,21 @@ class ResizingBox(BasicBox):
         dest_height: torch.Tensor,
         stop_on_dir_change: bool = True,
     ):
-        scale_w = (
-            self._one_float_tensor if self._scale_width is None else self._scale_width
-        )
-        scale_h = (
-            self._one_float_tensor if self._scale_height is None else self._scale_height
-        )
+        # scale_w = (
+        #     self._one_float_tensor if self._scale_width is None else self._scale_width
+        # )
+        # scale_h = (
+        #     self._one_float_tensor if self._scale_height is None else self._scale_height
+        # )
 
-        dest_area = dest_width * dest_height
+        # dest_area = dest_width * dest_height
 
         bbox = self.bounding_box()
         current_w = width(bbox)
         current_h = height(bbox)
 
-        dest_width *= scale_w
-        dest_height *= scale_h
+        # dest_width *= scale_w
+        # dest_height *= scale_h
 
         if self._fixed_aspect_ratio is not None:
             # Apply aspect ratio
@@ -679,7 +680,10 @@ class MovingBox(ResizingBox):
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
         super(MovingBox, self).set_destination(
-            dest_box=dest_box, stop_on_dir_change=stop_on_dir_change
+            dest_box=scale_box(
+                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+            ),
+            stop_on_dir_change=stop_on_dir_change,
         )
 
     def next_position(self, arena_box: torch.Tensor = None):

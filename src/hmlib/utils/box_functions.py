@@ -76,6 +76,13 @@ def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Ten
     return box
 
 
+def scale_box(box: torch.Tensor, scale_width: torch.Tensor, scale_height: torch.Tensor):
+    center_point = center(box)
+    w = width(box) * scale_width
+    h = height(box) * scale_height
+    return make_box_at_center(center_point=center_point, w=w, h=h)
+
+
 def center_distance(box1, box2):
     assert box1 is not None and box2 is not None
     # Calculate the center points of each bounding box
