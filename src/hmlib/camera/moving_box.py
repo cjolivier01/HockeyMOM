@@ -217,71 +217,8 @@ class ResizingBox(BasicBox):
             ):
                 self._size_is_frozen = False
 
-            print(f"frozen size={self._size_is_frozen}")
+            #print(f"frozen size={self._size_is_frozen}")
 
-            if False:
-                stopped_count = 0
-                if (
-                    self._width_change_threshold_low is not None
-                    and abs(dw) < self._width_change_threshold_low
-                ):
-                    stopped_count += 1
-                    self._current_speed_w = self._zero
-                if (
-                    self._height_change_threshold_low is not None
-                    and abs(dh) < self._height_change_threshold_low
-                ):
-                    stopped_count += 1
-                    self._current_speed_h = self._zero
-                if stopped_count == 2:
-                    self._size_is_frozen = True
-
-                if (
-                    self._width_change_threshold is not None
-                    and abs(dw) >= self._width_change_threshold
-                ):
-                    self._size_is_frozen = False
-                    # start from zero change speed so as not to jerk
-                    self._current_speed_w = self._zero
-                    self._current_speed_h = self._zero
-                elif (
-                    self._height_change_threshold is not None
-                    and abs(dh) >= self._height_change_threshold
-                ):
-                    self._size_is_frozen = False
-                    # start from zero change speed so as not to jerk
-                    self._current_speed_w = self._zero
-                    self._current_speed_h = self._zero
-                else:
-                    inner_box, outer_box = self._get_inner_and_outer_resize_boxes()
-
-                    # stickiness = self._get_sticky_resize_sizes()
-                    # dest_area = dest_width * dest_height
-                    inner_width = width(inner_box)
-                    inner_height = height(inner_box)
-                    outer_width = width(outer_box)
-                    outer_height = height(outer_box)
-                    inner_area = width(inner_box) * height(inner_box)
-                    outer_area = width(outer_box) * height(outer_box)
-                    assert outer_area > inner_area
-                    # can we do area here or long/tall boxes will be ignored?
-                    # if not self._size_is_frozen and (dw < stickiness[0] or dh < stickiness[1]):
-                    if not self._size_is_frozen and (
-                        dest_area >= inner_area and dest_area <= outer_area
-                    ):
-                        self._size_is_frozen = True
-                        self._current_speed_w = self._zero.clone()
-                        self._current_speed_h = self._zero.clone()
-                        dw = self._zero.clone()
-                        dh = self._zero.clone()
-                    # elif self._size_is_frozen and (dw > stickiness[2] or dh > stickiness[3]):
-                    elif self._size_is_frozen and (
-                        dest_area >= outer_area or dest_area <= inner_area
-                    ):
-                        self._size_is_frozen = False
-                        # Unstick at zero velocity
-                        self._current_speed_w = self._zero.clone()
-                        self._current_speed_h = self._zero.clone()
         #
         # END size threshhold
         #
