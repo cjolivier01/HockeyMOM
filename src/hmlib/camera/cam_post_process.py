@@ -640,26 +640,9 @@ class CamTrackPostProcessor:
                 sizes=[3, 2], device=self._kmeans_cuda_device()
             )
 
-        # self._cluster_man.reset_clusters()
-
-        # kmeans_device = _kmeans_cuda_device()
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
         )
-        # self._cluster_man.calculate_clusters(n_clusters=2)
-        # self._cluster_man.calculate_clusters(n_clusters=3)
-
-        # self._hockey_mom.reset_clusters()
-
-        # def _kmeans_cuda_device():
-        #     if self._use_fork:
-        #         return "cpu"
-        #     return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-        #     # return self._device
-
-        # kmeans_device = _kmeans_cuda_device()
-        # self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
-        # self._hockey_mom.calculate_clusters(n_clusters=3, device=kmeans_device)
 
         if self._args.show_image or self._save_dir is not None:
             if self._args.scale_to_original_image:
