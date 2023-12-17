@@ -56,6 +56,9 @@ class BasicBox:
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self.device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self.device)
 
+    def set_bbox(self, bbox: torch.Tensor):
+        self._bbox = bbox
+
     @property
     def _zero(self):
         return self._zero_float_tensor.clone()
@@ -161,7 +164,6 @@ class MovingBox(ResizingBox):
         self._frozen_color = frozen_color
         self._thickness = thickness
         self._sticky_translation = sticky_translation
-        # self._sticky_sizing = sticky_sizing
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float32, device=self.device
@@ -184,11 +186,11 @@ class MovingBox(ResizingBox):
         self._scale_height = (
             self._one_float_tensor if scale_height is None else scale_height
         )
-        self._bbox = make_box_at_center(
+        self.set_bbox(make_box_at_center(
             center(bbox),
             w=width(bbox) * self._scale_width,
             h=height(bbox) * self._scale_height,
-        )
+        ))
 
         self._arena_box = arena_box
         self._fixed_aspect_ratio = fixed_aspect_ratio
@@ -207,7 +209,6 @@ class MovingBox(ResizingBox):
         else:
             self._horizontal_image_gaussian_distribution = None
 
-        # self._size_is_frozen = False
         self._translation_is_frozen = False
 
         # Constraints
@@ -215,24 +216,10 @@ class MovingBox(ResizingBox):
         self._max_speed_y = max_speed_y
         self._max_accel_x = max_accel_x
         self._max_accel_y = max_accel_y
-        # self._min_width = 0
-        # self._min_height = 0
-        # self._max_width = max_width
-        # self._max_height = max_height
-        # self._max_speed_w = max_speed_x / 2
-        # self._max_speed_h = max_speed_y / 2
-        # self._max_accel_w = max_accel_x
-        # self._max_accel_h = max_accel_y
-
-        # # Change threshholds
-        # self._width_change_threshold = width_change_threshold
-        # self._width_change_threshold_low = width_change_threshold_low
-        # self._height_change_threshold = height_change_threshold
-        # self._height_change_threshold_low = height_change_threshold_low
 
     def draw(self, img: np.array, draw_threasholds: bool = False):
         super().draw(img=img, draw_threasholds=draw_threasholds)
-        draw_box = self._bbox.clone()
+        draw_box = self.bounding_box()
         vis.plot_rectangle(
             img,
             draw_box,
@@ -263,7 +250,7 @@ class MovingBox(ResizingBox):
         #     )
         if draw_threasholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
-            cl = [int(i) for i in center(self._bbox)]
+            cl = [int(i) for i in center(self.bounding_box())]
             cv2.circle(
                 img,
                 cl,
@@ -300,7 +287,7 @@ class MovingBox(ResizingBox):
 
                 # plot the box we're following inscribed at our
                 # center at its current size
-                # draw_box = self._bbox.clone()
+                # draw_box = self.bounding_box()
                 # w = width(draw_box)
                 # h = height(draw_box)
                 # w_outer = w +
@@ -329,7 +316,7 @@ class MovingBox(ResizingBox):
                 #     color=(255, 255, 255),
                 #     thickness=self._thickness // 2,
                 # )
-                # draw_box = self._bbox.clone()
+                # draw_box = self.bounding_box()
                 # # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
                 # draw_box[0] += sticky_wh[0]
                 # draw_box[2] -= sticky_wh[0]
@@ -347,13 +334,13 @@ class MovingBox(ResizingBox):
     # def _get_inner_and_outer_resize_boxes(self, validate: bool = True):
     #     stickiness = self._get_sticky_resize_sizes()
     #     unsticky_wh = stickiness[2:4] / 2
-    #     outer_box = self._bbox.clone()
+    #     outer_box = self.bounding_box()
     #     outer_box[0] += unsticky_wh[0]
     #     outer_box[2] -= unsticky_wh[0]
     #     outer_box[1] += unsticky_wh[1]
     #     outer_box[3] -= unsticky_wh[1]
     #     sticky_wh = stickiness[0:2] / 2
-    #     inner_box = self._bbox.clone()
+    #     inner_box = self.bounding_box()
     #     inner_box[0] += sticky_wh[0]
     #     inner_box[2] -= sticky_wh[0]
     #     inner_box[1] += sticky_wh[1]
@@ -394,7 +381,7 @@ class MovingBox(ResizingBox):
     #     return torch.tensor(
     #         [sticky_size_w, sticky_size_h, -unsticky_size_w, -unsticky_size_h],
     #         dtype=torch.float32,
-    #         device=self._bbox.device,
+    #         device=self.device,
     #     )
 
     def _make_label(self):
@@ -489,7 +476,8 @@ class MovingBox(ResizingBox):
         if isinstance(dest_box, BasicBox):
             dest_box = dest_box.bounding_box()
 
-        center_current = center(self._bbox)
+        bbox = self.bounding_box()
+        center_current = center(bbox)
         center_dest = center(dest_box)
         total_diff = center_dest - center_current
 
@@ -501,7 +489,7 @@ class MovingBox(ResizingBox):
         if self._arena_box is not None:
             edge_ok = torch.logical_not(
                 check_for_box_overshoot(
-                    box=self._bbox,
+                    box=bbox,
                     bounding_box=self._arena_box
                     + self._inflate_arena_for_unsticky_edges,
                     movement_directions=total_diff,
@@ -577,8 +565,9 @@ class MovingBox(ResizingBox):
 
         dest_area = dest_width * dest_height
 
-        current_w = width(self._bbox)
-        current_h = height(self._bbox)
+        bbox = self.bounding_box()
+        current_w = width(bbox)
+        current_h = height(bbox)
 
         dest_width *= scale_w
         dest_height *= scale_h
