@@ -55,6 +55,8 @@ class BasicBox:
         )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self.device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self.device)
+        self._true = torch.tensor(True, dtype=torch.bool, device=self.device)
+        self._false = torch.tensor(False, dtype=torch.bool, device=self.device)
 
     def set_bbox(self, bbox: torch.Tensor):
         self._bbox = bbox
@@ -332,14 +334,13 @@ class MovingBox(ResizingBox):
         self._inflate_arena_for_unsticky_edges = torch.tensor(
             [1, 1, -1, -1], dtype=torch.float32, device=self.device
         )
-        self._true = torch.tensor(True, dtype=torch.bool, device=self.device)
-        self._false = torch.tensor(False, dtype=torch.bool, device=self.device)
 
         if isinstance(bbox, BasicBox):
             self._following_box = bbox
             bbox = self._following_box.bounding_box()
         else:
             self._following_box = None
+            self._size_is_frozen = False
 
         self._scale_width = (
             self._one_float_tensor if scale_width is None else scale_width
