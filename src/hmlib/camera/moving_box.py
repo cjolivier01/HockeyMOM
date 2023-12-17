@@ -166,21 +166,9 @@ class ResizingBox(BasicBox):
         dest_height: torch.Tensor,
         stop_on_dir_change: bool = True,
     ):
-        # scale_w = (
-        #     self._one_float_tensor if self._scale_width is None else self._scale_width
-        # )
-        # scale_h = (
-        #     self._one_float_tensor if self._scale_height is None else self._scale_height
-        # )
-
-        # dest_area = dest_width * dest_height
-
         bbox = self.bounding_box()
         current_w = width(bbox)
         current_h = height(bbox)
-
-        # dest_width *= scale_w
-        # dest_height *= scale_h
 
         if self._fixed_aspect_ratio is not None:
             # Apply aspect ratio
@@ -198,6 +186,39 @@ class ResizingBox(BasicBox):
         # BEGIN size threshhold
         #
         if self._sticky_sizing:
+            scale_amount = 0.1
+            req_w_diff = current_w * scale_amount
+            req_h_diff = current_h * scale_amount
+            dw_thresh = False
+            dh_thresh = False
+            want_bigger = False
+
+            zero = self._zero_float_tensor.clone()
+            if dw < zero and dw < -req_w_diff:
+                dw_thresh = True
+            elif dw > zero and dw > req_w_diff:
+                dw_thresh = True
+                want_bigger = True
+            else:
+                dw = zero.clone()
+
+            if dh < zero and dh < -req_h_diff:
+                dh_thresh = True
+            elif dh > zero and dh > req_h_diff:
+                dh_thresh = True
+                want_bigger = True
+            else:
+                dh = zero.clone()
+
+            if not dw_thresh and not dh_thresh:
+                self._size_is_frozen = True
+            elif (dw_thresh and dh_thresh) or (
+                want_bigger and (dw_thresh or dh_thresh)
+            ):
+                self._size_is_frozen = False
+
+            print(f"frozen size={self._size_is_frozen}")
+
             if False:
                 stopped_count = 0
                 if (
