@@ -230,10 +230,10 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        self.plot_frame_number = False
+        self.plot_frame_number = True
 
         self.plot_boundaries = False or basic_debugging
-        self.plot_boundaries = True
+        self.plot_boundaries = False
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
