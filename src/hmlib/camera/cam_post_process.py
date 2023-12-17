@@ -173,6 +173,29 @@ RINK_CONFIG = {
                     [3044, 800, 3762, 673],
                 ],
             },
+            "sharksbb1-2": {
+                "upper": [
+                    [1300, 528, 1848, 467],
+                    [1850, 469, 2478, 455],
+                    [2535, 450, 3050, 500],
+                    [2951, 480, 3735, 725],
+                    [3671, 700, 3757, 809],
+                    [324, 889, 919, 598],
+                    # false positives on upper boards
+                    [1897, 497, 1924, 495],
+                    [1467, 535, 1518, 534],
+                    [1543, 530, 1581, 528],
+                    [2185, 486, 2214, 486],
+                    [1598, 525, 1632, 525],
+                ],
+                "lower": [
+                    [2862, 949, 3831, 733],
+                    [1444, 1102, 2219, 1047],
+                    [631, 998, 1441, 1126],
+                    [12, 577, 342, 900],
+                    [327, 909, 744, 1022],
+                ],
+            },
         },
     },
 }
@@ -232,12 +255,12 @@ class DefaultArguments(core.HMPostprocessConfig):
         #self.plot_frame_number = True
 
         self.plot_boundaries = False or basic_debugging
-        #self.plot_boundaries = False
+        #self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0

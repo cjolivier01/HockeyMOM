@@ -213,6 +213,18 @@ class StitchingWorker:
         self._receive_count += 1
         return image
 
+    def _initialize_from_initial_frame(self):
+        if self._rank == 0:
+            # Rank 0 will process the first frame normally
+            return
+
+        for _ in range(self._rank):
+            # print(f"rank {self._rank} pre-reading frame {i}")
+            self._video1.read()
+            self._video2.read()
+        self._start_frame_number += self._rank
+
+
     def _open_videos(self):
         if self._is_cuda:
             first_frame_1 = 0
@@ -243,11 +255,18 @@ class StitchingWorker:
                     self._start_frame_number + self._video_2_offset_frame,
                 )
 
-        for i in range(self._rank):
-            # print(f"rank {self._rank} pre-reading frame {i}")
-            self._video1.read()
-            self._video2.read()
-        self._start_frame_number += self._rank
+        self._stitcher = core.StitchingDataLoader(
+            0,
+            self._pto_project_file,
+            os.path.splitext(self._pto_project_file)[0] + ".seam.png",
+            os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png",
+            self._save_seams_and_masks,
+            self._max_input_queue_size,
+            self._remap_thread_count,
+            self._blend_thread_count,
+        )
+
+        self._initialize_from_initial_frame()
 
         # TODO: adjust max frames based on this
         if self._is_cuda:
@@ -266,16 +285,13 @@ class StitchingWorker:
         )
         self._end_frame = self._start_frame_number + max_frames
         assert self._end_frame >= 0
-        self._stitcher = core.StitchingDataLoader(
-            0,
-            self._pto_project_file,
-            os.path.splitext(self._pto_project_file)[0] + ".seam.png",
-            os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png",
-            self._save_seams_and_masks,
-            self._max_input_queue_size,
-            self._remap_thread_count,
-            self._blend_thread_count,
-        )
+
+        for i in range(self._rank):
+            # print(f"rank {self._rank} pre-reading frame {i}")
+            self._video1.read()
+            self._video2.read()
+        self._start_frame_number += self._rank
+
         self._start_feeder_thread()
         self._open = True
 
@@ -293,24 +309,40 @@ class StitchingWorker:
         if self._shutdown_barrier is not None:
             self._shutdown_barrier.wait()
 
+
+    def _read_next_frame_from_video(self):
+        if self._is_cuda:
+            ret1, img1 = self._video1.nextFrame()
+            # Read the corresponding frame from the second video
+            ret2, img2 = self._video2.nextFrame()
+        else:
+            ret1, img1 = self._video1.read()
+            # Read the corresponding frame from the second video
+            ret2, img2 = self._video2.read()
+        return ret1, img1, ret2, img2
+
     def _feed_next_frame(self, frame_id: int) -> bool:
         for _ in range(self._frame_stride_count):
-            if self._is_cuda:
-                ret1, img1 = self._video1.nextFrame()
-                if not ret1:
-                    return False
-                # Read the corresponding frame from the second video
-                ret2, img2 = self._video2.nextFrame()
-                if not ret2:
-                    return False  # assert img1 is not None and img2 is not None
-            else:
-                ret1, img1 = self._video1.read()
-                if not ret1:
-                    return False
-                # Read the corresponding frame from the second video
-                ret2, img2 = self._video2.read()
-                if not ret2:
-                    return False  # assert img1 is not None and img2 is not None
+            ret1, img1, ret2, img2 = self._read_next_frame_from_video()
+            # if self._is_cuda:
+            #     ret1, img1 = self._video1.nextFrame()
+            #     if not ret1:
+            #         return False
+            #     # Read the corresponding frame from the second video
+            #     ret2, img2 = self._video2.nextFrame()
+            #     if not ret2:
+            #         return False  # assert img1 is not None and img2 is not None
+            # else:
+            #     ret1, img1 = self._video1.read()
+            #     if not ret1:
+            #         return False
+            #     # Read the corresponding frame from the second video
+            #     ret2, img2 = self._video2.read()
+            #     if not ret2:
+            #         return False  # assert img1 is not None and img2 is not None
+            if not ret1 or not ret2:
+                return False
+
         # INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually

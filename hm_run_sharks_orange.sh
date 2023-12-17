@@ -16,7 +16,7 @@ VIDEO="${HOME}/Videos/sharksbb1-2"
 
 EXP_NAME="$(basename $0 .sh)"
 
-GAME_ID="--game-id sharksbb1-1"
+GAME_ID="--game-id sharksbb1-2"
 
 #TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
@@ -34,7 +34,7 @@ TRACKER="fair"
 #BATCH_SIZE=64
 BATCH_SIZE=16
 
-#STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
+STITCHING_PARAMS="--lfo=0 --rfo=18.55423488076549"
 
 echo "Experiment name: ${EXP_NAME}"
 
