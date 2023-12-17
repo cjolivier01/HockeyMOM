@@ -110,10 +110,18 @@ class ResizingBox(BasicBox):
         self._max_width = max_width
         self._max_height = max_height
 
-        self._size_is_frozen = False
+        self._size_is_frozen = True
 
     def draw(self, img: np.array, draw_threasholds: bool = False):
         pass
+
+    def _clamp_resizing(self):
+        self._current_speed_w = torch.clamp(
+            self._current_speed_w, min=-self._max_speed_w, max=self._max_speed_w
+        )
+        self._current_speed_h = torch.clamp(
+            self._current_speed_h, min=-self._max_speed_h, max=self._max_speed_h
+        )
 
     def _adjust_size(
         self,
@@ -266,7 +274,6 @@ class ResizingBox(BasicBox):
             if stop_on_dir_change:
                 dh = self._zero.clone()
                 # self._size_is_frozen = True
-        #if not self._size_is_frozen:
         self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
 
@@ -379,7 +386,7 @@ class MovingBox(ResizingBox):
         vis.plot_rectangle(
             img,
             draw_box,
-            color=self._color,
+            color=self._color if not self._translation_is_frozen else (128, 128, 128),
             thickness=self._thickness,
             label=self._make_label(),
             text_scale=2,
@@ -395,12 +402,12 @@ class MovingBox(ResizingBox):
         #         text_scale=2,
         #     )
         # if self._translation_is_frozen:
-        #     draw_box += self._line_thickness_tensor * 2
+        #     #draw_box += self._line_thickness_tensor * 2
         #     vis.plot_rectangle(
         #         img,
         #         draw_box,
-        #         color=(255, 0, 0),
-        #         thickness=self._thickness * 2,
+        #         color=(128, 128, 128),
+        #         thickness=self._thickness//2,
         #         label=self._make_label(),
         #         text_scale=2,
         #     )
@@ -551,14 +558,6 @@ class MovingBox(ResizingBox):
             self._current_speed_y, min=-self._max_speed_y, max=self._max_speed_y
         )
 
-    def _clamp_resizing(self):
-        self._current_speed_w = torch.clamp(
-            self._current_speed_w, min=-self._max_speed_w, max=self._max_speed_w
-        )
-        self._current_speed_h = torch.clamp(
-            self._current_speed_h, min=-self._max_speed_h, max=self._max_speed_h
-        )
-
     def set_speed(
         self,
         speed_x: torch.Tensor,
@@ -633,22 +632,22 @@ class MovingBox(ResizingBox):
             total_diff *= edge_ok
             # print(total_diff)
 
-        diff_magnitude = torch.linalg.norm(total_diff)
-
-        # Check if the new center is in a direction opposed to our current velocity
-        velocity = torch.tensor(
-            [self._current_speed_x, self._current_speed_y],
-            device=self._current_speed_x.device,
-        )
-        s1 = torch.sign(total_diff)
-        s2 = torch.sign(velocity)
-        changed_direction = s1 * s2
-        # Reduce velocity on axes that changed direction
-        # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
-        velocity = torch.where(changed_direction < 0, self._zero, velocity)
-
         # BEGIN Sticky Translation
         if self._sticky_translation:
+            diff_magnitude = torch.linalg.norm(total_diff)
+
+            # Check if the new center is in a direction opposed to our current velocity
+            velocity = torch.tensor(
+                [self._current_speed_x, self._current_speed_y],
+                device=self._current_speed_x.device,
+            )
+            s1 = torch.sign(total_diff)
+            s2 = torch.sign(velocity)
+            changed_direction = s1 * s2
+            # Reduce velocity on axes that changed direction
+            # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
+            velocity = torch.where(changed_direction < 0, self._zero, velocity)
+
             sticky, unsticky = self._get_sticky_translation_sizes()
             if not self._translation_is_frozen and diff_magnitude <= sticky:
                 self._translation_is_frozen = True
