@@ -12,7 +12,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 # Videos
 #
-VIDEO="${HOME}/Videos/sharksbb1-2"
+VIDEO="${HOME}/Videos/sharksbb1-2/stiched_output-with-audio.avi"
 
 EXP_NAME="$(basename $0 .sh)"
 

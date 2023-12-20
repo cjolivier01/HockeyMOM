@@ -33,6 +33,8 @@ libgstreamer-plugins-bad1.0i-dev
 libgstreamer-plugins-good1.0-dev
 sympy
 python-ipmi
+numba
+pyquaternion
 #./DCNv2
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
