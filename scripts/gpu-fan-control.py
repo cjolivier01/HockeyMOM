@@ -4,10 +4,6 @@ import pyipmi.interfaces
 import pyipmi.sensor
 import time
 
-GPU_FANS = {
-    "GPU3 Temp": ["FANA"],
-}
-
 # setting fan speeds
 #
 # https://forums.servethehome.com/index.php?resources/supermicro-x9-x10-x11-fan-speed-control.20/
