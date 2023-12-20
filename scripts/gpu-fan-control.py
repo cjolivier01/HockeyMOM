@@ -27,7 +27,7 @@ FAN_MODE_HEAVY_IO = 4
 def set_zone_fan_speed(speed_percent, zone: int = 1):
     ratio = speed_percent / 100
     #fan_speed = int(ratio * 64)
-    fan_speed = int(ratio * 90)
+    fan_speed = int(ratio * 95)
     raw_command = [0x30, 0x70, 0x66, 0x01, int(zone), int(fan_speed)]
     cmd = [
         "ipmitool",
@@ -85,7 +85,7 @@ def main():
                 set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
                 mode = "fast"
             elif max_temp <= SUPER_LOW_FAN_TEMP and mode != "super-slow":
-                set_zone_fan_speed(speed_percent=20, zone=ZONE_PERIPHERAL)
+                set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
                 mode = "super-slow"
             elif max_temp <= SLOW_FAN_TEMP and mode != "slow":
                 set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
