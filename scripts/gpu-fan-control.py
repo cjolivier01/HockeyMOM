@@ -74,16 +74,17 @@ def main():
                 else:
                     continue
             
-            print(f"\nMax GPU temp: {max_temp} degrees C current mode is {mode})")
             if max_temp >= FAST_FAN_TEMP:
                 set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
                 mode = "fast"
             elif max_temp <= SUPER_LOW_FAN_TEMP:
-                set_zone_fan_speed(speed_percent=20, zone=ZONE_PERIPHERAL)
-                mode = "slow"
+                set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
+                mode = "super-slow"
             elif max_temp <= SLOW_FAN_TEMP:
                 set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
                 mode = "slow"
+            print(f"\nMax GPU temp: {max_temp} degrees C current mode is {mode})")
+
             time.sleep(10)
 
         except Exception as e:
