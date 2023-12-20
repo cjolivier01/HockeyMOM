@@ -13,6 +13,7 @@ import time
 
 FAST_FAN_TEMP = 75
 SLOW_FAN_TEMP = 65
+SUPER_LOW_FAN_TEMP = 45
 
 ZONE_CPU = 0
 ZONE_PERIPHERAL = 1
@@ -74,13 +75,16 @@ def main():
                     continue
             
             print(f"\nMax GPU temp: {max_temp} degrees C current mode is {mode})")
-            if max_temp >= FAST_FAN_TEMP: # and mode == "slow":
+            if max_temp >= FAST_FAN_TEMP:
                 set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
                 mode = "fast"
-            elif max_temp < SLOW_FAN_TEMP: # and mode == "fast":
+            elif max_temp <= SUPER_LOW_FAN_TEMP:
+                set_zone_fan_speed(speed_percent=20, zone=ZONE_PERIPHERAL)
+                mode = "slow"
+            elif max_temp <= SLOW_FAN_TEMP:
                 set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
                 mode = "slow"
-            time.sleep(5)
+            time.sleep(10)
 
         except Exception as e:
             print(f"IPMI error: {e}")
