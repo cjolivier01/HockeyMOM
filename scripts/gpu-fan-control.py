@@ -13,7 +13,7 @@ import time
 
 FAST_FAN_TEMP = 75
 SLOW_FAN_TEMP = 65
-SUPER_LOW_FAN_TEMP = 45
+SUPER_SLOW_FAN_TEMP = 45
 
 ZONE_CPU = 0
 ZONE_PERIPHERAL = 1
@@ -26,7 +26,7 @@ FAN_MODE_HEAVY_IO = 4
 
 def set_zone_fan_speed(speed_percent, zone: int = 1):
     ratio = speed_percent / 100
-    #fan_speed = int(ratio * 64)
+    # fan_speed = int(ratio * 64)
     fan_speed = int(ratio * 95)
     raw_command = [0x30, 0x70, 0x66, 0x01, int(zone), int(fan_speed)]
     cmd = [
@@ -80,16 +80,19 @@ def main():
                     print(f"{sdr.device_id_string}: {temp_in_c} degrees C")
                 else:
                     continue
-            
-            if max_temp >= FAST_FAN_TEMP and mode != "fast":
-                set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
-                mode = "fast"
-            elif max_temp <= SUPER_LOW_FAN_TEMP and mode != "super-slow":
-                set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
-                mode = "super-slow"
-            elif max_temp <= SLOW_FAN_TEMP and mode != "slow":
-                set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
-                mode = "slow"
+
+            if max_temp >= FAST_FAN_TEMP:
+                if mode != "fast":
+                    set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
+                    mode = "fast"
+            elif max_temp <= SUPER_SLOW_FAN_TEMP:
+                if mode != "super-slow":
+                    set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
+                    mode = "super-slow"
+            elif max_temp <= SLOW_FAN_TEMP:
+                if mode != "slow":
+                    set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
+                    mode = "slow"
             print(f"Max GPU temp: {max_temp} degrees C current mode is {mode})")
 
             time.sleep(10)
@@ -100,8 +103,10 @@ def main():
             if ipmi is not None:
                 ipmi.session.close()
 
+
 def mamage_gpu_fans():
     main()
+
 
 if __name__ == "__main__":
     main()
