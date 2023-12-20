@@ -26,7 +26,8 @@ FAN_MODE_HEAVY_IO = 4
 
 def set_zone_fan_speed(speed_percent, zone: int = 1):
     ratio = speed_percent / 100
-    fan_speed = int(ratio * 64)
+    #fan_speed = int(ratio * 64)
+    fan_speed = int(ratio * 90)
     raw_command = [0x30, 0x70, 0x66, 0x01, int(zone), int(fan_speed)]
     cmd = [
         "ipmitool",
@@ -48,7 +49,9 @@ def set_fan_mode(fan_mode: int):
 
 
 def main():
-    mode = "slow"
+    set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
+    mode = "fast"
+
     while True:
         ipmi = None
         try:
@@ -61,12 +64,16 @@ def main():
 
             max_temp = 0
 
+            gpus = []
             reservation_id = ipmi.reserve_device_sdr_repository()
             for sdr in ipmi.get_repository_sdr_list(reservation_id):
                 if (
                     sdr.device_id_string.startswith("GPU")
                     and "Temp" in sdr.device_id_string
                 ):
+                    gpus.append(sdr)
+                    if len(gpus) == 1:
+                        print("")
                     reading = ipmi.get_sensor_reading(sdr.number)
                     temp_in_c = reading[0]
                     max_temp = max(max_temp, temp_in_c)
@@ -74,16 +81,16 @@ def main():
                 else:
                     continue
             
-            if max_temp >= FAST_FAN_TEMP:
+            if max_temp >= FAST_FAN_TEMP and mode != "fast":
                 set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
                 mode = "fast"
-            elif max_temp <= SUPER_LOW_FAN_TEMP:
-                set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
+            elif max_temp <= SUPER_LOW_FAN_TEMP and mode != "super-slow":
+                set_zone_fan_speed(speed_percent=20, zone=ZONE_PERIPHERAL)
                 mode = "super-slow"
-            elif max_temp <= SLOW_FAN_TEMP:
+            elif max_temp <= SLOW_FAN_TEMP and mode != "slow":
                 set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
                 mode = "slow"
-            print(f"\nMax GPU temp: {max_temp} degrees C current mode is {mode})")
+            print(f"Max GPU temp: {max_temp} degrees C current mode is {mode})")
 
             time.sleep(10)
 
