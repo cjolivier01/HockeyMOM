@@ -91,7 +91,7 @@ def main():
                     mode = "super-slow"
             elif max_temp <= SLOW_FAN_TEMP:
                 if mode != "slow":
-                    set_zone_fan_speed(speed_percent=50, zone=ZONE_PERIPHERAL)
+                    set_zone_fan_speed(speed_percent=40, zone=ZONE_PERIPHERAL)
                     mode = "slow"
             print(f"Max GPU temp: {max_temp} degrees C current mode is {mode})")
 
