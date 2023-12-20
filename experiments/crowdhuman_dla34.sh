@@ -4,5 +4,5 @@ cd src
 PYTHONPATH="$(pwd)/hmlib" \
   python \
   train.py mot \
-  --exp_id crowdhuman_dla34 --gpus 0 --batch_size 10 --load_model '../pretrained/dla34/ctdet_coco_dla_2x.pth' --num_epochs 60 --print_iter 25 --lr_step '50' --data_cfg '../src/hmlib/cfg/crowdhuman.json' $@
+  --exp_id crowdhuman_dla34 --gpus 0 --batch_size 9 --load_model '../pretrained/dla34/ctdet_coco_dla_2x.pth' --num_epochs 60 --print_iter 25 --lr_step '50' --data_cfg '../src/hmlib/cfg/crowdhuman.json' $@
 cd ..
