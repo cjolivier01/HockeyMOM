@@ -11,8 +11,8 @@ import time
 # set fan in peripheral zone to 25%: ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x16
 #
 
-FAST_FAN_TEMP = 55
-SLOW_FAN_TEMP = 50
+FAST_FAN_TEMP = 75
+SLOW_FAN_TEMP = 65
 
 ZONE_CPU = 0
 ZONE_PERIPHERAL = 1
@@ -74,7 +74,6 @@ def main():
                     continue
             
             print(f"\nMax GPU temp: {max_temp} degrees C current mode is {mode})")
-            set_zone_fan_speed(speed_percent=50, zone=ZONE_CPU)
             if max_temp >= FAST_FAN_TEMP: # and mode == "slow":
                 set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
                 mode = "fast"
