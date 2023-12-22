@@ -87,6 +87,7 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
 
       // std::size_t ww = image1->cols() + image2->cols();
       pano_.setOptions(new_opt);
+      opts_ = new_opt;
       file_remapper_.setAdvancedOptions(adv_options_);
     }
   }
