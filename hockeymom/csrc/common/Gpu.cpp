@@ -179,7 +179,19 @@ void DestroyContext() {
   };
 };
 
+void maybe_set_display(int disp_nr) {
+  const char *s = getenv("DISPLAY");
+  if (s && *s) {
+    return;
+  }
+  std::string disp = std::to_string(disp_nr) + ":";
+  setenv("DISPLAY", disp.c_str(), true);
+  std::cout << "Set DISPLAY to: \"" << disp << "\"";
+}
+
 GpuContext::GpuContext() {
+  // currently, ripper is display 1: for some reason
+  maybe_set_display(1);
   valid_context = CreateContext();
   if (valid_context) {
     std::cout << "HockeyMOM using graphics card: " << glGetString(GL_VENDOR)
