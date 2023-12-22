@@ -1,5 +1,6 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
-#include "concurrentqueue/blockingconcurrentqueue.h"
+//#include "concurrentqueue/blockingconcurrentqueue.h"
+#include "algorithms/basic/CalculateOptimalScale.h"
 
 #include <atomic>
 
@@ -68,10 +69,26 @@ bool HmNona::load_project(const std::string& project_file) {
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
-  ++image_pair_pass_count_;
-  // Set up panorama options for the two images beforehand
-  if (image_pair_pass_count_ == 1) {
-    file_remapper_.setAdvancedOptions(adv_options_);
+  {
+    std::scoped_lock lk(nona_init_mu_);
+    // Set up panorama options for the two images beforehand
+    if (++image_pair_pass_count_ == 1) {
+      auto new_opt = pano_.getOptions();
+      if (new_opt.fovCalcSupported(new_opt.getProjection())) {
+        // calc optimal size of pano, only if projection is supported
+        // otherwise use current width as start point
+        long opt_width = hugin_utils::roundi(
+            HuginBase::CalculateOptimalScale::calcOptimalScale(pano_) *
+            new_opt.getWidth());
+        //double sizeFactor = HUGIN_ASS_PANO_DOWNSIZE_FACTOR;
+        double sizeFactor = 1.0;
+        new_opt.setWidth(hugin_utils::floori(sizeFactor * opt_width), true);
+      };
+
+      // std::size_t ww = image1->cols() + image2->cols();
+      pano_.setOptions(new_opt);
+      file_remapper_.setAdvancedOptions(adv_options_);
+    }
   }
   if (!pdisp_) {
     pdisp_ = std::make_unique<AppBase::DummyProgressDisplay>();

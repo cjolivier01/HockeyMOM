@@ -481,8 +481,8 @@ def main(exp, args, num_gpu):
                     num_workers=1,
                     
                     # TEMPORARY
-                    blend_thread_count=1,
-                    remap_thread_count=1
+                    # blend_thread_count=1,
+                    # remap_thread_count=1
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

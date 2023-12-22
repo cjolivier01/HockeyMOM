@@ -9,6 +9,7 @@
 #include "panodata/Panorama.h"
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -48,6 +49,7 @@ class HmNona {
   std::unique_ptr<AppBase::DummyProgressDisplay> pdisp_;
   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
   
+  std::mutex nona_init_mu_;
   static inline std::mutex gpu_thread_pool_mu_;
   static inline std::unique_ptr<Eigen::ThreadPool> gpu_thread_pool_;
   static std::size_t nona_count_;
