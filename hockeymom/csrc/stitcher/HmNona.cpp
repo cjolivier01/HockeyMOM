@@ -48,7 +48,6 @@ bool HmNona::load_project(const std::string& project_file) {
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
-
   {
     std::unique_lock<std::mutex> lk(gpu_thread_pool_mu_);
     if (!gpu_thread_pool_) {

@@ -180,11 +180,11 @@ void DestroyContext() {
 };
 
 void maybe_set_display(int disp_nr) {
-  const char *s = getenv("DISPLAY");
+  const char* s = getenv("DISPLAY");
   if (s && *s) {
     return;
   }
-  std::string disp = std::to_string(disp_nr) + ":";
+  std::string disp = std::string(":") + std::to_string(disp_nr);
   setenv("DISPLAY", disp.c_str(), true);
   std::cout << "Set DISPLAY to: \"" << disp << "\"";
 }

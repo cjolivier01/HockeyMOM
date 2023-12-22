@@ -7,7 +7,7 @@
 namespace hm {
 
 // #define FAKE_REMAP
-// #define FAKE_BLEND
+#define FAKE_BLEND
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
