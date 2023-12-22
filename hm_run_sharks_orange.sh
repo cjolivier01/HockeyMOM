@@ -17,7 +17,7 @@ VIDEO="${HOME}/Videos/sharksbb1-2/"
 
 EXP_NAME="$(basename $0 .sh)"
 
-GAME_ID="--game-id sharksbb1-2"
+GAME_ID="--game-id sharksbb1-2.1"
 
 #TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
@@ -58,6 +58,6 @@ OMP_NUM_THREADS=16 \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}" \
   $@ \
-  tracking
+  tracking \
 
 
