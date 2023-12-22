@@ -292,7 +292,7 @@ CLIP_BOXES = {
     "stockton2": [10, 375, 3900, 1590],
     "sharksbb1-1": [10, 375, 3900, 1590],
     "sharksbb1-2": [150, 300, 3800, 1350],
-    #"sharksbb1-2.1": [150, 300, 3800, 1350],
+    "sharksbb1-2.1": [200, 400, 5400, 2000],
 }
 
 
@@ -480,7 +480,7 @@ def main(exp, args, num_gpu):
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
-                    
+
                     # TEMPORARY
                     # blend_thread_count=1,
                     # remap_thread_count=1
