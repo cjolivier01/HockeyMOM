@@ -159,7 +159,8 @@ RINK_CONFIG = {
         },
     },
     "sharks_orange": {
-        "fixed_edge_scaling_factor": 0.8,
+        #"fixed_edge_scaling_factor": 0.8,
+        "fixed_edge_scaling_factor": 1.25,
         "fixed_edge_rotation_angle": 25.0,
         "borders": {
             "sharksbb2-1": {
