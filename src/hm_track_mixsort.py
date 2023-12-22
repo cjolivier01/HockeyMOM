@@ -479,6 +479,10 @@ def main(exp, args, num_gpu):
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
+                    
+                    # TEMPORARY
+                    blend_thread_count=1,
+                    remap_thread_count=1
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

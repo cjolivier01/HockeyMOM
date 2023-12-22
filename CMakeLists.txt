@@ -70,6 +70,18 @@ SET(BUILD_EXAMPLES OFF)
 # MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
 SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
 
+# Detect compiler version (does not seem to work)
+# if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|MSVC")
+#     # Using regular expression to extract major version
+#     string(REGEX MATCH "^[0-9]+" COMPILER_MAJOR_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+#     message(STATUS "Compiler major version: ${COMPILER_MAJOR_VERSION}")
+#     set(CMAKE_CXX_FLAGS "-isystem /usr/include/c++/${COMPILER_MAJOR_VERSION} ${CMAKE_CXX_FLAGS}")
+# else()
+#     message(WARNING "Compiler not recognized. Version detection might not be accurate.")
+# endif()
+
+# set(CMAKE_CXX_FLAGS "-isystem /usr/include/c++/${COMPILER_MAJOR_VERSION} ${CMAKE_CXX_FLAGS}")
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
