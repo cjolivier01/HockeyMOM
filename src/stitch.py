@@ -31,10 +31,21 @@ def make_parser():
         "-d", "--devices", default=None, type=int, help="device for training"
     )
     parser.add_argument(
-        "--lfo", "--left_frame_offset", default=None, type=float, help="Left frame offset"
+        "--lfo",
+        "--left_frame_offset",
+        default=None,
+        type=float,
+        help="Left frame offset",
     )
     parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
+    )
+    parser.add_argument(
+        "--project-file",
+        "--project_file",
+        default="autooptimizer_out.pto",
+        type=str,
+        help="Use project file as input to stitcher",
     )
     parser.add_argument(
         "--rfo",
@@ -133,6 +144,7 @@ def main(args):
         video_right,
         lfo=args.lfo,
         rfo=args.rfo,
+        project_file_name=args.project_file,
     )
 
 
