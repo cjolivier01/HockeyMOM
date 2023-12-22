@@ -110,7 +110,7 @@ class StitchingWorker:
         frame_stride_count: int = 1,
         save_seams_and_masks: bool = True,
         device: str = None,
-        #device: str = "cuda",
+        # device: str = "cuda",
     ):
         assert max_input_queue_size > 0
 
@@ -224,7 +224,6 @@ class StitchingWorker:
             self._video2.read()
         self._start_frame_number += self._rank
 
-
     def _open_videos(self):
         if self._is_cuda:
             first_frame_1 = 0
@@ -286,12 +285,6 @@ class StitchingWorker:
         self._end_frame = self._start_frame_number + max_frames
         assert self._end_frame >= 0
 
-        for i in range(self._rank):
-            # print(f"rank {self._rank} pre-reading frame {i}")
-            self._video1.read()
-            self._video2.read()
-        self._start_frame_number += self._rank
-
         self._start_feeder_thread()
         self._open = True
 
@@ -309,7 +302,6 @@ class StitchingWorker:
         if self._shutdown_barrier is not None:
             self._shutdown_barrier.wait()
 
-
     def _read_next_frame_from_video(self):
         if self._is_cuda:
             ret1, img1 = self._video1.nextFrame()
@@ -324,22 +316,6 @@ class StitchingWorker:
     def _feed_next_frame(self, frame_id: int) -> bool:
         for _ in range(self._frame_stride_count):
             ret1, img1, ret2, img2 = self._read_next_frame_from_video()
-            # if self._is_cuda:
-            #     ret1, img1 = self._video1.nextFrame()
-            #     if not ret1:
-            #         return False
-            #     # Read the corresponding frame from the second video
-            #     ret2, img2 = self._video2.nextFrame()
-            #     if not ret2:
-            #         return False  # assert img1 is not None and img2 is not None
-            # else:
-            #     ret1, img1 = self._video1.read()
-            #     if not ret1:
-            #         return False
-            #     # Read the corresponding frame from the second video
-            #     ret2, img2 = self._video2.read()
-            #     if not ret2:
-            #         return False  # assert img1 is not None and img2 is not None
             if not ret1 or not ret2:
                 return False
 
@@ -386,6 +362,7 @@ class StitchingWorker:
                         1.0 / max(1e-5, pull_timer.average_time),
                     )
                 )
+                pull_timer = Timer()
             if stitched_frame is None:
                 break
             while self._image_response_queue.qsize() > 25:
@@ -790,6 +767,13 @@ class StitchDataset:
 
         self._next_frame_timer.toc()
         self._next_frame_counter += 1
+        if self._next_frame_counter % 20 == 0:
+            logger.info(
+                "Stitch on-demand next-frame delivery speed: {:.2f} fps".format(
+                    1.0 / max(1e-5, self._next_frame_timer.average_time)
+                )
+            )
+            self._next_frame_timer = Timer()
 
         return stitched_frame
 
