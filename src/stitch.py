@@ -43,7 +43,7 @@ def make_parser():
     parser.add_argument(
         "--project-file",
         "--project_file",
-        default="autooptimizer_out.pto",
+        default="autooptimiser_out.pto",
         type=str,
         help="Use project file as input to stitcher",
     )
