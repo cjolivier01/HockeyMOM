@@ -11,9 +11,9 @@ import time
 # set fan in peripheral zone to 25%: ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x16
 #
 
-FAST_FAN_TEMP = 75
-SLOW_FAN_TEMP = 65
-SUPER_SLOW_FAN_TEMP = 45
+PERIPHERAL_FAST_FAN_TEMP = 75
+PERIPHERAL_SLOW_FAN_TEMP = 65
+PERIPHERAL_SUPER_SLOW_FAN_TEMP = 45
 
 ZONE_CPU = 0
 ZONE_PERIPHERAL = 1
@@ -48,52 +48,62 @@ def set_fan_mode(fan_mode: int):
     subprocess.check_call(cmd)
 
 
+def manage_temp(ipmi: pyipmi.Ipmi, match_str: str, zone: int, current_mode: str):
+    max_temp = 0
+
+    sensors = []
+    reservation_id = ipmi.reserve_device_sdr_repository()
+    for sdr in ipmi.get_repository_sdr_list(reservation_id):
+        if match_str in sdr.device_id_string:
+            sensors.append(sdr)
+            if len(sensors) == 1:
+                print("")
+            reading = ipmi.get_sensor_reading(sdr.number)
+            temp_in_c = reading[0]
+            max_temp = max(max_temp, temp_in_c)
+            print(f"{sdr.device_id_string}: {temp_in_c} degrees C")
+        else:
+            continue
+
+    if max_temp <= PERIPHERAL_SUPER_SLOW_FAN_TEMP:
+        if current_mode != "super-slow":
+            set_zone_fan_speed(speed_percent=25, zone=zone)
+            current_mode = "super-slow"
+    elif max_temp <= PERIPHERAL_SLOW_FAN_TEMP:
+        if current_mode != "slow":
+            set_zone_fan_speed(speed_percent=40, zone=zone)
+            current_mode = "slow"
+    elif max_temp <= PERIPHERAL_FAST_FAN_TEMP:
+        if current_mode != "medium":
+            set_zone_fan_speed(speed_percent=60, zone=zone)
+            current_mode = "medium"
+    else:
+        if current_mode != "fast":
+            set_zone_fan_speed(speed_percent=100, zone=zone)
+            current_mode = "fast"
+
+    print(f"Max {match_str} temp: {max_temp} degrees C current mode is {current_mode})")
+    return current_mode
+
+
 def main():
     set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
-    mode = "fast"
+    gpu_mode = "fast"
 
     while True:
         ipmi = None
         try:
             interface = pyipmi.interfaces.create_interface(
-                "ipmitool", interface_type="open"
+                "ipmitool",
+                interface_type="open",
             )
             ipmi = pyipmi.create_connection(interface)
             ipmi.session.establish()
             ipmi.target = pyipmi.Target(ipmb_address=0x20)
 
-            max_temp = 0
-
-            gpus = []
-            reservation_id = ipmi.reserve_device_sdr_repository()
-            for sdr in ipmi.get_repository_sdr_list(reservation_id):
-                if (
-                    sdr.device_id_string.startswith("GPU")
-                    and "Temp" in sdr.device_id_string
-                ):
-                    gpus.append(sdr)
-                    if len(gpus) == 1:
-                        print("")
-                    reading = ipmi.get_sensor_reading(sdr.number)
-                    temp_in_c = reading[0]
-                    max_temp = max(max_temp, temp_in_c)
-                    print(f"{sdr.device_id_string}: {temp_in_c} degrees C")
-                else:
-                    continue
-
-            if max_temp >= FAST_FAN_TEMP:
-                if mode != "fast":
-                    set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
-                    mode = "fast"
-            elif max_temp <= SUPER_SLOW_FAN_TEMP:
-                if mode != "super-slow":
-                    set_zone_fan_speed(speed_percent=25, zone=ZONE_PERIPHERAL)
-                    mode = "super-slow"
-            elif max_temp <= SLOW_FAN_TEMP:
-                if mode != "slow":
-                    set_zone_fan_speed(speed_percent=40, zone=ZONE_PERIPHERAL)
-                    mode = "slow"
-            print(f"Max GPU temp: {max_temp} degrees C current mode is {mode})")
+            gpu_mode = manage_temp(
+                ipmi=ipmi, match_str="GPU", zone=ZONE_PERIPHERAL, current_mode=gpu_mode
+            )
 
             time.sleep(10)
 
