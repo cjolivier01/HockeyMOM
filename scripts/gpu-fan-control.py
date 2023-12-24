@@ -70,20 +70,30 @@ def set_fan_mode(fan_mode: int):
     subprocess.check_call(cmd)
 
 
-def get_percent(sdr: pyipmi.sdr.SdrFullSensorRecord, reading: Tuple[int]):
+def get_percent(
+    sdr: pyipmi.sdr.SdrFullSensorRecord,
+    reading: Tuple[int],
+    normal_maximum_override: int = None,
+):
     current_temp = reading[0]
-    range = sdr.normal_maximum - sdr.nominal_reading
+    if normal_maximum_override is not None:
+        maximum = normal_maximum_override
+    elif sdr.device_id_string.startswith("GPU"):
+        maximum = 80
+    else:
+        maximum = sdr.normal_maximum
+    range = maximum - sdr.nominal_reading
     assert range > 0
-    temp_position = current_temp - sdr.nominal_reading
+    adjust_nominal_amount = -5
+    temp_position = current_temp - (sdr.nominal_reading + adjust_nominal_amount)
     if temp_position < 0:
         # below nominal
         return 0.0
-    return temp_position / range
+    return (temp_position / range) * 100
 
 
 def adjust_percent(pct: int):
-    pct += 10
-    return min(pct, 100)
+    return min(pct + 10, 100)
 
 
 def manage_temp(ipmi: pyipmi.Ipmi):
@@ -116,9 +126,9 @@ def manage_temp(ipmi: pyipmi.Ipmi):
             zone = ZONE_ITEMS[sdr.device_id_string]
         temp_in_c = reading[0]
         max_temps[zone] = max(max_temps[zone], temp_in_c)
-        if sdr.device_id_string == "SOC_VRM Temp":
-            print(sdr)
-            continue
+        # if sdr.device_id_string == "SOC_VRM Temp":
+        #     print(sdr)
+        #     continue
         percent_high = get_percent(sdr, reading)
         max_percents[zone] = max(percent_high, max_percents[zone])
         print(f"{sdr.device_id_string}: {temp_in_c} degrees C, percent: {percent_high}")
@@ -128,8 +138,7 @@ def manage_temp(ipmi: pyipmi.Ipmi):
         zone=ZONE_PERIPHERAL,
     )
     set_zone_fan_speed(
-        speed_percent=adjust_percent(max_percents[ZONE_CPU]), 
-        zone=ZONE_CPU
+        speed_percent=adjust_percent(max_percents[ZONE_CPU]), zone=ZONE_CPU
     )
 
     print(
