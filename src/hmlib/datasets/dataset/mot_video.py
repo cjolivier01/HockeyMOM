@@ -49,6 +49,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         start_frame_number: int = 0,
         multi_width_img_info: bool = True,
         embedded_data_loader=None,
+        original_image_only: bool = False,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -63,6 +64,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.process_height = img_size[0]
         self.process_width = img_size[1]
         self._multi_width_img_info = multi_width_img_info
+        self._original_image_only = original_image_only
         self.width_t = None
         self.height_t = None
         self._count = torch.tensor([0], dtype=torch.int32)
@@ -248,30 +250,38 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     :,
                 ]
 
-            (
-                img,
-                inscribed_image,
-                self.letterbox_ratio,
-                self.letterbox_dw,
-                self.letterbox_dh,
-            ) = letterbox(
-                img0,
-                height=self.process_height,
-                width=self.process_width,
-            )
+            if not self._original_image_only:
+                (
+                    img,
+                    inscribed_image,
+                    self.letterbox_ratio,
+                    self.letterbox_dw,
+                    self.letterbox_dh,
+                ) = letterbox(
+                    img0,
+                    height=self.process_height,
+                    width=self.process_width,
+                )
+            else:
+                img = img0
+
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
 
-            frames_inscribed_images.append(
-                torch.from_numpy(inscribed_image.transpose(2, 0, 1))
-            )
-            frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+            if not self._original_image_only:
+                frames_inscribed_images.append(
+                    torch.from_numpy(inscribed_image.transpose(2, 0, 1))
+                )
+                frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
 
-        inscribed_image = torch.stack(frames_inscribed_images, dim=0)
-        img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
+        if not self._original_image_only:
+            inscribed_image = torch.stack(frames_inscribed_images, dim=0)
+            img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
+
         original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         # Does this need to be in imgs_info this way as an array?
         ids = torch.cat(ids, dim=0)
@@ -290,24 +300,28 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         ]
 
         # TODO: remove ascontiguousarray?
-        img /= 255.0
+        if not self._original_image_only:
+            img /= 255.0
 
-        # Set up scaling on the first pass
-        if self._scale_inscribed_to_original is None:
-            self._scale_inscribed_to_original = torch.tensor(
-                (inscribed_image.shape[3], inscribed_image.shape[2]),
-                dtype=torch.float32,
-            ) / torch.tensor(
-                (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
-            )
-            self._scale_inscribed_to_original = torch.cat(
-                (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
-                dim=0,
-            )
+            # Set up scaling on the first pass
+            if self._scale_inscribed_to_original is None:
+                self._scale_inscribed_to_original = torch.tensor(
+                    (inscribed_image.shape[3], inscribed_image.shape[2]),
+                    dtype=torch.float32,
+                ) / torch.tensor(
+                    (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
+                )
+                self._scale_inscribed_to_original = torch.cat(
+                    (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
+                    dim=0,
+                )
 
         self._count += self._batch_size
         # self._timer.toc()
-        return original_img, img, inscribed_image, imgs_info, ids
+        if self._original_image_only:
+            return original_img, None, None, imgs_info, ids
+        else:
+            return original_img, img, inscribed_image, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()

@@ -516,6 +516,7 @@ def main(exp, args, num_gpu):
                         std=(0.229, 0.224, 0.225),
                     ),
                     embedded_data_loader=stitched_dataset,
+                    original_image_only=args.tracker == "centertrack",
                 )
 
             else:
@@ -538,6 +539,7 @@ def main(exp, args, num_gpu):
                         rgb_means=(0.485, 0.456, 0.406),
                         std=(0.229, 0.224, 0.225),
                     ),
+                    original_image_only=args.tracker == "centertrack",
                 )
 
             # from yolox.data import MOTDataset, ValTransform

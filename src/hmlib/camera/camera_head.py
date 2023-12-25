@@ -108,14 +108,12 @@ class CamTrackHead(TrackingHead):
         self,
         frame_id,
         letterbox_img,
-        inscribed_img,
         original_img,
     ):
         if self._postprocessor is None:
             self.on_first_image(
                 frame_id,
                 letterbox_img,
-                inscribed_img,
                 original_img,
                 device=self._device,
             )
@@ -128,26 +126,32 @@ class CamTrackHead(TrackingHead):
         detections,
         info_imgs,
         letterbox_img,
-        inscribed_img,
+        #inscribed_img,
         original_img,
         online_scores,
     ):
+        def get_image_device(i1, i2):
+            if i1 is None:
+                return i2.device
+            return i1.device
+        
         self._counter += 1
         if self._counter % 100 == 0:
             print(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return detections, online_tlwhs
-        letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
+        if letterbox_img is not None:
+            letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
         original_img = to_rgb_non_planar(original_img)
-        inscribed_img = to_rgb_non_planar(inscribed_img)
+        # if inscribed_img is not None:
+        #     inscribed_img = to_rgb_non_planar(inscribed_img)
         if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
             online_tlwhs = torch.stack(
-                [_pt_tensor(t, device=inscribed_img.device) for t in online_tlwhs]
+                [_pt_tensor(t, device=self._device) for t in online_tlwhs]
             ).to(self._device)
         self._maybe_init(
             frame_id,
             letterbox_img,
-            inscribed_img,
             original_img,
         )
         if (
@@ -169,7 +173,7 @@ class CamTrackHead(TrackingHead):
         return detections, online_tlwhs
 
     def on_first_image(
-        self, frame_id, letterbox_img, inscribed_image, original_img, device
+        self, frame_id, letterbox_img, original_img, device
     ):
         if self._hockey_mom is None:
             if self._args.scale_to_original_image:

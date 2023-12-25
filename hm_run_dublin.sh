@@ -32,7 +32,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
-VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb2"
 
 GAME_ID="--game-id tvbb2"
@@ -43,8 +43,8 @@ TEST_SIZE_ARG="--test-size=300x780"
 
 EXP_NAME="$(basename $0 .sh)"
 
-START_FRAME=0
-#START_FRAME=14400
+#START_FRAME=0
+START_FRAME=14400
 #START_FRAME=125850
 
 #TRACKER="hm"
@@ -62,7 +62,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=16 -d=1 \
+  -b=32 --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
