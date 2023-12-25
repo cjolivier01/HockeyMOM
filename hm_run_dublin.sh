@@ -14,7 +14,9 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #PRETRAINED_MODEL="pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e080.pth.tar"
 #PRETRAINED_MODEL="./latest_ckpt-e076.pth.tar"
-PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
+#PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
+PRETRAINED_MODEL="./pretrained/centertrack/crowdhuman.pth"
+
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #MIXFORMER_SCRIPT="mixformer_deit_ch_ht"
@@ -46,7 +48,8 @@ START_FRAME=0
 #START_FRAME=125850
 
 #TRACKER="hm"
-TRACKER="fair"
+#TRACKER="fair"
+TRACKER="centertrack --num_classes=1"
 
 #STITCHING_PARAMS="--lfo=78.94010751153608 --rfo=0"
 
