@@ -30,8 +30,8 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/roseville/clips/at10mins_small.mp4"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
-#VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb2"
+VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/tvbb2"
 
 GAME_ID="--game-id tvbb2"
 
@@ -55,7 +55,7 @@ echo "Experiment name: ${EXP_NAME}"
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
-  python src/hm_track_mixsort.py \
+  python src/hmtrack.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \

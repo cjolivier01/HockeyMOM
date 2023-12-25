@@ -39,7 +39,7 @@ echo "Experiment name: ${EXP_NAME}"
   # --track_thresh_low=0.05 \
 
 PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
-  python src/hm_track_mixsort.py \
+  python src/hmtrack.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \

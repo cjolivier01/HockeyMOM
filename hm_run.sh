@@ -35,7 +35,7 @@ EXP_NAME="mixsort-run"
 echo "Experiment name: ${EXP_NAME}"
 
 PYTHONPATH="$(pwd)/build:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
-  python src/hm_track_mixsort.py \
+  python src/hmtrack.py \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \

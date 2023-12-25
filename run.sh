@@ -21,7 +21,7 @@ rm -rf h-demo-x/*
 
 PYTHONPATH="$(pwd)/build:$(pwd)/hockeymom:$(pwd)/models/mixsort" \
   python \
-  ./src/hm_track_mixsort.py \
+  ./src/hmtrack.py \
   mot \
   --input-video "${VIDEO}" \
   --output-root=./h-demo-x \
