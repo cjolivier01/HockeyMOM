@@ -75,6 +75,7 @@ class CamTrackHead(TrackingHead):
         postprocess: bool = True,
         use_fork: bool = False,
         async_post_processing: bool = False,
+        video_out_device: str = None,
     ):
         self._opt = opt
         self._args = args
@@ -89,6 +90,9 @@ class CamTrackHead(TrackingHead):
         self._save_frame_dir = save_frame_dir
         self._hockey_mom = None
         self._device = device
+        self._video_out_device = video_out_device
+        if self._video_out_device is None:
+            self._video_out_device = self._device
         self._counter = 0
 
     @property
@@ -196,6 +200,7 @@ class CamTrackHead(TrackingHead):
                 args=self._args,
                 use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,
+                video_out_device=self._video_out_device,
             )
             self._postprocessor.start()
 

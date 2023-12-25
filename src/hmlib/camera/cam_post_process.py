@@ -430,6 +430,7 @@ class CamTrackPostProcessor:
         save_frame_dir: str = None,
         async_post_processing: bool = False,
         use_fork: bool = False,
+        video_out_device: str = None,
     ):
         self._args = args
         self._start_frame_id = start_frame_id
@@ -449,6 +450,10 @@ class CamTrackPostProcessor:
         self._boundaries = None
         self._timer = Timer()
         self._cluster_man = None
+        self._video_out_device = video_out_device
+        
+        if self._video_out_device is None:
+            self._video_out_device = self._device
 
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
@@ -602,6 +607,7 @@ class CamTrackPostProcessor:
             )
             if self._args.use_watermark
             else None,
+            device=self._video_out_device,
         )
         self._video_output_campp.start()
 
@@ -841,6 +847,7 @@ class CamTrackPostProcessor:
                         max_height=self._hockey_mom._video_frame.height,
                         color=(255, 128, 64),
                         thickness=5,
+                        device=self._device,
                     )
 
                     size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
@@ -875,6 +882,7 @@ class CamTrackPostProcessor:
                         fixed_aspect_ratio=self._final_aspect_ratio,
                         color=(255, 0, 255),
                         thickness=5,
+                        device=self._device,
                     )
                     self._current_roi = iter(self._current_roi)
                     self._current_roi_aspect = iter(self._current_roi_aspect)

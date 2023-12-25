@@ -67,9 +67,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="url used to set up distributed training",
     )
     parser.add_argument("-b", "--batch-size", type=int, default=1, help="batch size")
-    parser.add_argument(
-        "-d", "--devices", default=1, type=int, help="device for training"
-    )
+    # parser.add_argument(
+    #     "-d", "--devices", default=1, type=int, help="device for training"
+    # )
     parser.add_argument(
         "--local_rank", default=0, type=int, help="local rank for dist training"
     )
@@ -576,6 +576,19 @@ def main(exp, args, num_gpu):
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
 
+        # print(f"args.gpu_devices={args.gpu_devices}")
+
+        if args.game_id:
+            detection_device = torch.device("cuda", int(args.gpus[0]))
+            track_device = "cpu"
+            video_out_device = "cpu"
+            if len(args.gpus) > 1:
+                video_out_device = torch.device("cuda", int(args.gpus[1]))
+            # if len(args.gpus) > 2:
+            #     track_device = torch.device("cuda", int(args.gpus[2]))
+        else:
+            detection_device = torch.device("cuda", int(rank))
+
         postprocessor = CamTrackHead(
             opt=args,
             args=cam_args,
@@ -583,8 +596,8 @@ def main(exp, args, num_gpu):
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
             original_clip_box=dataloader.clip_original,
-            # device="cuda",
-            device="cpu",
+            device=track_device,
+            video_out_device=video_out_device,
             data_type="mot",
             use_fork=False,
             async_post_processing=True,
@@ -604,7 +617,11 @@ def main(exp, args, num_gpu):
         trt_file = None
         decoder = None
         if model is not None:
-            model.cuda(rank)
+            model = model.to(detection_device)
+            # if args.game_id:
+            #     model.cuda(int(args.gpus[0]))
+            # else:
+            #     model.cuda(rank)
             model.eval()
 
             if not args.speed and not args.trt:
@@ -662,6 +679,7 @@ def main(exp, args, num_gpu):
             decoder,
             exp.test_size,
             results_folder,
+            device=detection_device,
         )
         if not args.infer:
             logger.info("\n" + str(summary))
@@ -702,15 +720,18 @@ if __name__ == "__main__":
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
-    num_gpu = torch.cuda.device_count() if args.devices is None else args.devices
-    assert num_gpu <= torch.cuda.device_count()
-
+    if args.game_id:
+        num_gpus = 1
+    else:
+        num_gpus = len(args.gpus) if args.gpus else 0
+        # num_gpus = torch.cuda.device_count() if args.devices is None else args.devices
+        assert num_gpus <= torch.cuda.device_count()
     launch(
         main,
-        num_gpu,
+        num_gpus,
         args.num_machines,
         args.machine_rank,
         backend=args.dist_backend,
         dist_url=args.dist_url,
-        args=(exp, args, num_gpu),
+        args=(exp, args, num_gpus),
     )
