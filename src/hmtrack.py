@@ -430,6 +430,21 @@ def main(exp, args, num_gpu):
             cam_args.apply_fixed_edge_scaling = False
 
         cam_args.plot_individual_player_tracking = args.plot_tracking
+        if cam_args.plot_individual_player_tracking:
+            cam_args.plot_boundaries = True
+
+        # See if gameid is in videos
+        if not args.input_video and args.game_id:
+            game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
+            if os.path.isdir(game_video_dir):
+                pre_stitched_file_name = "stitched_output-with-audio.avi"
+                pre_stitched_file_path = os.path.join(
+                    game_video_dir, pre_stitched_file_name
+                )
+                if os.path.exists(pre_stitched_file_path):
+                    args.input_video = pre_stitched_file_path
+                else:
+                    args.input_video = game_video_dir
 
         dataloader = None
         if args.input_video:
@@ -480,7 +495,6 @@ def main(exp, args, num_gpu):
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
-
                     # TEMPORARY
                     # blend_thread_count=1,
                     # remap_thread_count=1

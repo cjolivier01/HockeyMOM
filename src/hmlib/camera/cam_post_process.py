@@ -159,7 +159,7 @@ RINK_CONFIG = {
         },
     },
     "sharks_orange": {
-        #"fixed_edge_scaling_factor": 0.8,
+        # "fixed_edge_scaling_factor": 0.8,
         "fixed_edge_scaling_factor": 1.25,
         "fixed_edge_rotation_angle": 25.0,
         "borders": {
@@ -259,7 +259,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or basic_debugging
-        #self.plot_cluster_tracking = True
+        # self.plot_cluster_tracking = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -277,14 +277,16 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        #self.plot_moving_boxes = True
+        # self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        #self.plot_frame_number = True
+        # self.plot_frame_number = True
 
-        self.plot_boundaries = False or basic_debugging
-        #self.plot_boundaries = True
+        self.plot_boundaries = (
+            False or basic_debugging or self.plot_individual_player_tracking
+        )
+        # self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False

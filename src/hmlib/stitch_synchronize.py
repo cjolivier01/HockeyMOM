@@ -4,15 +4,7 @@ import numpy as np
 
 import os
 
-# import sys
-# import torch
-# import torch.nn as nn
 import numpy as np
-
-# import time
-# import cv2
-# import threading
-# import multiprocessing
 
 from typing import List
 
