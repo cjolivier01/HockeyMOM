@@ -33,7 +33,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="/mnt/data/Videos/SportsMOT/v_00HRwkvvjtQ_c001.mp4"
 #VIDEO="${HOME}/src/datasets/hockeyTrackingDataset/clips/PIT_vs_WAS_2016/001.mp4"
 #VIDEO="${HOME}/Videos/tvbb2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb2"
+VIDEO="${HOME}/Videos/tvbb2"
 
 GAME_ID="--game-id tvbb2"
 

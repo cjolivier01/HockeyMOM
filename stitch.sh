@@ -1,6 +1,7 @@
 #!/bin/bash
 
-VIDEO_DIR="/home/colivier-local/Videos/sharksbb1-2"
+#VIDEO_DIR="/home/colivier-local/Videos/sharksbb1-2"
+VIDEO_DIR="/home/colivier-local/Videos/tvbb2"
 
 #OFFSETS="--lfo=0 --rfo=18.55423488076549"
 
