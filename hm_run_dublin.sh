@@ -62,7 +62,7 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=32 --gpus=0,1,2 \
+  -b=2 --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \
