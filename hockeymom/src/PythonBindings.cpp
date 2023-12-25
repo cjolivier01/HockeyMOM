@@ -248,7 +248,11 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::HmNona, std::shared_ptr<hm::HmNona>>(m, "HmNona")
       .def(py::init<std::string>())
-      .def("load_project", &hm::HmNona::load_project);
+      .def("load_project", &hm::HmNona::load_project)
+      .def("get_control_points", [](const std::shared_ptr<hm::HmNona>& nona) {
+        auto results = nona->get_control_points();
+        return results;
+      });
 
   m.def(
       "_nona_process_images",

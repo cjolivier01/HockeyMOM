@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 //#include "concurrentqueue/blockingconcurrentqueue.h"
 #include "algorithms/basic/CalculateOptimalScale.h"
+#include "panodata/Panorama.h"
 
 #include <atomic>
 
@@ -66,6 +67,28 @@ bool HmNona::load_project(const std::string& project_file) {
   return true;
 }
 
+std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
+HmNona::get_control_points() const {
+  std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
+      results;
+  std::cout << "HmNona::get_control_points()" << std::endl;
+  const auto& control_points = pano_.getCtrlPoints();
+  for (const HuginBase::ControlPoint& cp : control_points) {
+    std::map<std::size_t, std::tuple<float, float>> thispt;
+    if (cp.mode != HuginBase::ControlPoint::X_Y) {
+      std::cerr << "Ignoring non X_Y control point" << std::endl;
+      continue;
+    }
+    // assuming only two images 0 and 1
+    assert(cp.image1Nr == 0 || cp.image1Nr == 1);
+    assert(cp.image2Nr == 0 || cp.image2Nr == 1);
+    thispt[cp.image1Nr] = std::tuple<float, float>(cp.x1, cp.y1);
+    thispt[cp.image2Nr] = std::tuple<float, float>(cp.x2, cp.y2);
+    results.emplace_back(std::make_tuple(thispt[0], thispt[1]));
+  }
+  return results;
+}
+
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {
@@ -80,7 +103,7 @@ std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
         long opt_width = hugin_utils::roundi(
             HuginBase::CalculateOptimalScale::calcOptimalScale(pano_) *
             new_opt.getWidth());
-        //double sizeFactor = HUGIN_ASS_PANO_DOWNSIZE_FACTOR;
+        // double sizeFactor = HUGIN_ASS_PANO_DOWNSIZE_FACTOR;
         double sizeFactor = 1.0;
         new_opt.setWidth(hugin_utils::floori(sizeFactor * opt_width), true);
       };

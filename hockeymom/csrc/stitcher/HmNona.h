@@ -39,6 +39,9 @@ class HmNona {
       std::shared_ptr<hm::MatrixRGB> image1,
       std::shared_ptr<hm::MatrixRGB> image2);
 
+  std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
+  get_control_points() const;
+
  private:
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
@@ -48,7 +51,7 @@ class HmNona {
   std::size_t image_pair_pass_count_{0};
   std::unique_ptr<AppBase::DummyProgressDisplay> pdisp_;
   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
-  
+
   std::mutex nona_init_mu_;
   static inline std::mutex gpu_thread_pool_mu_;
   static inline std::unique_ptr<Eigen::ThreadPool> gpu_thread_pool_;
