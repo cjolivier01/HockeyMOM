@@ -155,7 +155,7 @@ class StitchingWorker:
 
     def _prepare_image(self, img):
         if not img.flags["C_CONTIGUOUS"]:
-            img = online_im.ascontiguousarray(img)
+            img = img.ascontiguousarray(img)
         return img
 
     def _is_ready_to_exit(self):
