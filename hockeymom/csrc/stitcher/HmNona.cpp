@@ -42,10 +42,13 @@ bool HmNona::load_project(const std::string& project_file) {
   if (!pano_.ReadPTOFile(
           project_file, hugin_utils::getPathPrefix(project_file))) {
     return false;
-  };
+  }
   opts_ = pano_.getOptions();
   opts_.tiffCompression = "NONE";
   opts_.outputPixelType = "UINT8";
+#if 0 && !defined(NDEBUG)
+  opts_.interpolator = vigra_ext::INTERP_NEAREST_NEIGHBOUR;
+#endif
   opts_.outputEMoRParams = pano_.getSrcImage(0).getEMoRParams();
   {
     std::unique_lock<std::mutex> lk(gpu_thread_pool_mu_);
@@ -55,9 +58,9 @@ bool HmNona::load_project(const std::string& project_file) {
   }
   ManualResetGate gate;
   gpu_thread_pool_->Schedule([&]() {
-    set_thread_name("gpu_nona");
-    opts_.remapUsingGPU = check_cuda_opengl();
-    gate.signal();
+  set_thread_name("gpu_nona");
+  opts_.remapUsingGPU = check_cuda_opengl();
+  gate.signal();
   });
   gate.wait();
   pano_.setOptions(opts_);
