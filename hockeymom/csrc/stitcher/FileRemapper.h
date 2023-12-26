@@ -97,9 +97,7 @@ class HmFileRemapper : public HmSingleImageRemapper<ImageType, AlphaType> {
 
  protected:
   AlphaType srcAlpha_;
-  // std::vector<std::unique_ptr<HmRemappedPanoImage<ImageType, AlphaType>>>
-  // m_remapped;
-  std::mutex image_import_infos_mu_;
+ std::mutex image_import_infos_mu_;
   std::vector<std::unique_ptr<vigra::ImageImportInfo>> image_import_infos_;
 };
 
