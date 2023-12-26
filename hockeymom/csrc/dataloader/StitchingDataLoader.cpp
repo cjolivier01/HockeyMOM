@@ -6,8 +6,8 @@
 
 namespace hm {
 
-//#define FAKE_REMAP
-//#define FAKE_BLEND
+//#define FAKE_REMAP  // ~4 fps
+//#define FAKE_BLEND   // ~10 fps
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
