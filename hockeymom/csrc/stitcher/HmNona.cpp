@@ -1,9 +1,6 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
-//#include "concurrentqueue/blockingconcurrentqueue.h"
 #include "algorithms/basic/CalculateOptimalScale.h"
 #include "panodata/Panorama.h"
-
-#include <atomic>
 
 namespace hm {
 using namespace HuginBase;
