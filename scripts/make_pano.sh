@@ -23,3 +23,10 @@ nona -m TIFF_m -o nona autooptimiser_out.pto
 # Blend the images to create the panorama
 #enblend -o panorama.tif nona*.tif
 $HOME/src/multiblend/src/multiblend -o panorama.tif nona*.tif
+
+
+#
+# mapping files
+#
+#echo "Making mapping files..."
+#nona -m TIFF_m -c -o out autooptimiser_out.pto

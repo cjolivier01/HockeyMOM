@@ -459,9 +459,9 @@ def main(exp, args, num_gpu):
                     vr = input_video_files[1]
                     dir_name = os.path.dirname(vl)
                     file_name, file_extension = os.path.splitext(os.path.basename(vl))
-                    video_left = file_name + "." + file_extension
+                    video_left = file_name + file_extension
                     file_name, file_extension = os.path.splitext(os.path.basename(vr))
-                    video_right = file_name + "." + file_extension
+                    video_right = file_name + file_extension
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
                     dir_name = args.input_video
