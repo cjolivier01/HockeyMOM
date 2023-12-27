@@ -420,7 +420,7 @@ class StitchingWorker:
             self._feeder_thread.join()
             self._feeder_thread = None
         if self._image_getter_thread is not None:
--            if self._waiting_for_frame_id is not None:
+            if self._waiting_for_frame_id is not None:
                 core.close_stitching_data_loader(
                     self._stitcher, self._waiting_for_frame_id
                 )
