@@ -237,8 +237,10 @@ class StitchingWorker:
 
         for _ in range(self._rank):
             # print(f"rank {self._rank} pre-reading frame {i}")
-            self._video1.read()
-            self._video2.read()
+            res1, _ = self._video1.read()
+            res2, _ = self._video2.read()
+            if not res1 or not res2:
+                raise StopIteration()
         self._start_frame_number += self._rank
 
     def _open_videos(self):
@@ -299,7 +301,9 @@ class StitchingWorker:
         max_frames = min(
             self._max_frames, self._total_num_frames // self._frame_stride_count
         )
-        self._end_frame = self._start_frame_number + max_frames
+        self._end_frame = self._start_frame_number + (
+            max_frames * self._frame_stride_count
+        )
         assert self._end_frame >= 0
 
         self._start_feeder_thread()
@@ -336,7 +340,7 @@ class StitchingWorker:
             if not ret1 or not ret2:
                 return False
 
-        # INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
+        INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
         assert self._max_input_queue_size >= 2
@@ -347,7 +351,7 @@ class StitchingWorker:
         assert img1 is not None
         assert img2 is not None
         self._in_queue += 1
-        # print(f"rank {self._rank} feeding LR frame {frame_id}")
+        print(f"rank {self._rank} feeding LR frame {frame_id}")
         core.add_to_stitching_data_loader(
             self._stitcher,
             frame_id,
@@ -383,8 +387,6 @@ class StitchingWorker:
                     )
                 )
                 pull_timer = Timer()
-            if stitched_frame is None:
-                break
             while self._image_response_queue.qsize() > 25:
                 time.sleep(0.1)
             self._image_response_queue.put((frame_id, stitched_frame))
@@ -401,6 +403,7 @@ class StitchingWorker:
             if self._is_ready_to_exit():
                 break
             if not self._feed_next_frame(frame_id=frame_id):
+                core.close_stitching_data_loader(self._stitcher, frame_id)
                 break
             else:
                 pass
@@ -452,11 +455,11 @@ class StitchingWorkersIterator:
         self._worker_index = 0
         self._max_frames = max_frames
         self._current_frame = start_frame_number
-        self._last_frame = start_frame_number + self._max_frames
+        # self._last_frame = (start_frame_number +  + self._max_frames * len(self._stitching_workers)
 
     def __next__(self):
-        if self._current_frame >= self._last_frame:
-            raise StopIteration()
+        # if self._current_frame >= self._last_frame:
+        # raise StopIteration()
         stitching_worker = self._stitching_workers[self._worker_index]
         image = stitching_worker.receive_image(self._current_frame)
         if image is None:
@@ -734,7 +737,7 @@ class StitchDataset:
             if not isinstance(ex, StopIteration):
                 print(ex)
                 traceback.print_exc()
-            self._from_coordinator_queue.put(ex)
+            safe_put_queue(self._from_coordinator_queue, ex)
 
     @staticmethod
     def prepare_frame_for_video(
