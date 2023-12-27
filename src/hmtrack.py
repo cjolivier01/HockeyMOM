@@ -37,9 +37,6 @@ from hmlib.datasets.dataset.stitching import (
     StitchDataset,
 )
 
-import hmlib.opts2 as opts2
-import lib.opts as centertrack_opts
-
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
@@ -122,7 +119,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     # )
     parser.add_argument(
         "--tracker",
-        default="hm",
+        default=None,
         type=str,
         help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
@@ -362,6 +359,9 @@ def main(exp, args, num_gpu):
         set_deterministic()
 
         is_distributed = num_gpu > 1
+        
+        if args.gpus and isinstance(args.gpus, str):
+            args.gpus = [int(i) for i in args.gpus.split(',')]
 
         # set environment variables for distributed training
         cudnn.benchmark = True
@@ -700,8 +700,12 @@ def main(exp, args, num_gpu):
 
 
 if __name__ == "__main__":
+    import hmlib.opts_fair as opts_fair
+    import lib.opts as centertrack_opts
+
     parser = make_parser()
-    opts_2 = opts2.opts(parser=parser)
+
+    opts_2 = opts_fair.opts(parser=parser)
     parser = opts_2.parser
     args = parser.parse_args()
     if args.tracker == "centertrack":

@@ -732,6 +732,7 @@ class opts(object):
 
     def init(self, args="", opt=None):
         if opt.tracker == "fair":
+            opt.cpkt = opt.load_model  # so hacky... need to settle on one
             if opt.task == "tracking":
                 opt.task = "mot"
             default_dataset_info = {
