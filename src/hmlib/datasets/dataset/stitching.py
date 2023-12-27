@@ -117,7 +117,6 @@ class StitchingWorker:
         frame_stride_count: int = 1,
         save_seams_and_masks: bool = True,
         device: str = None,
-        # device: str = "cuda",
         multiprocessingt_queue: bool = False,
     ):
         assert max_input_queue_size > 0
@@ -151,6 +150,7 @@ class StitchingWorker:
         self._closing = False
         self._save_seams_and_masks = save_seams_and_masks
         self._in_queue = 0
+        self._waiting_for_frame_id = None
 
         self._receive_timer = Timer()
         self._receive_count = 0
@@ -356,9 +356,12 @@ class StitchingWorker:
             if self._is_ready_to_exit():
                 break
             pull_timer.tic()
+            self._waiting_for_frame_id = frame_id
             stitched_frame = core.get_stitched_frame_from_data_loader(
                 self._stitcher, frame_id
             )
+            if stitched_frame is None:
+                break
             assert self._in_queue > 0
             self._in_queue -= 1
             pull_timer.toc()
@@ -402,6 +405,7 @@ class StitchingWorker:
         self._feeder_thread.start()
 
         self._image_getter_thread = threading.Thread(
+            name="_image_getter_worker",
             target=self._image_getter_worker,
             args=(),
         )
@@ -416,6 +420,10 @@ class StitchingWorker:
             self._feeder_thread.join()
             self._feeder_thread = None
         if self._image_getter_thread is not None:
+-            if self._waiting_for_frame_id is not None:
+                core.close_stitching_data_loader(
+                    self._stitcher, self._waiting_for_frame_id
+                )
             self._image_getter_thread.join()
             self._image_getter_thread = None
 
@@ -789,7 +797,7 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         status = self._from_coordinator_queue.get()
         self._next_timer.tic()

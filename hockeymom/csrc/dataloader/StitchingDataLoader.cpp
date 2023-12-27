@@ -65,12 +65,12 @@ void StitchingDataLoader::initialize() {
   if (!seam_file_.empty()) {
     std::string seam_file_arg(
         save_seam_and_xor_mask_ ? "--save-seams" : "--load-seams");
-    //args.emplace_back(std::move(seam_file_arg));
-    //seam_file_arg += seam_file_;
-    //args.emplace_back(seam_file_);
+    // args.emplace_back(std::move(seam_file_arg));
+    // seam_file_arg += seam_file_;
+    // args.emplace_back(seam_file_);
   }
   if (!xor_mask_file_.empty() && save_seam_and_xor_mask_) {
-    //args.emplace_back(std::string("--save-xor=") + xor_mask_file_);
+    // args.emplace_back(std::string("--save-xor=") + xor_mask_file_);
   }
   enblender_ = std::make_shared<enblend::EnBlender>(args);
 #endif
@@ -88,6 +88,10 @@ void StitchingDataLoader::add_frame(
 std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
     std::size_t frame_id) {
   auto final_frame = blend_runner_.outputs()->dequeue_key(frame_id);
+  if (!final_frame) {
+    // Closing down
+    return nullptr;
+  }
   return std::move(final_frame->blended_image);
 }
 
@@ -95,6 +99,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
+    if (frame->input_images.empty()) {
+      // Shutting down
+      frame->remapped_images.clear();
+      return frame;
+    }
 #ifdef FAKE_REMAP
     frame->remapped_images.clear();
     frame->remapped_images.emplace_back(std::move(frame->input_images.at(0)));
@@ -127,6 +136,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
+    if (frame->remapped_images.empty()) {
+      // Shutting down, make sure that blended_image is null
+      frame->blended_image.reset();
+      return frame;
+    }
     auto blender = enblender_;
 #ifdef FAKE_BLEND
     frame->blended_image = frame->remapped_images[0];

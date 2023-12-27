@@ -92,7 +92,7 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t>());
 
   using SortedPyArrayUin8Queue =
-  hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
+      hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
 
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
@@ -189,13 +189,18 @@ PYBIND11_MODULE(_hockeymom, m) {
       "_add_to_stitching_data_loader",
       [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
          std::size_t frame_id,
-         py::array_t<uint8_t>& image1,
-         py::array_t<uint8_t>& image2) {
+         std::optional<py::array_t<uint8_t>> image1,
+         std::optional<py::array_t<uint8_t>> image2) {
         // We expect a three-channel RGB image here
-        assert(image1.ndim() == 3);
-        assert(image2.ndim() == 3);
-        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
-        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
+        if (!image1 && !image2) {
+          py::gil_scoped_release release_gil;
+          data_loader->add_frame(frame_id, {});
+          return frame_id;
+        }
+        assert(image1->ndim() == 3);
+        assert(image2->ndim() == 3);
+        auto m1 = std::make_shared<hm::MatrixRGB>(*image1, 0, 0);
+        auto m2 = std::make_shared<hm::MatrixRGB>(*image2, 0, 0);
         {
           py::gil_scoped_release release_gil;
           data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
@@ -206,11 +211,14 @@ PYBIND11_MODULE(_hockeymom, m) {
   m.def(
       "_get_stitched_frame_from_data_loader",
       [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
-         std::size_t frame_id) -> py::array_t<std::uint8_t> {
+         std::size_t frame_id) -> std::optional<py::array_t<std::uint8_t>> {
         std::shared_ptr<hm::MatrixRGB> stitched_image;
         {
           py::gil_scoped_release release_gil;
           stitched_image = data_loader->get_stitched_frame(frame_id);
+          if (!stitched_image) {
+            return std::nullopt;
+          }
         }
         return stitched_image->to_py_array();
       });

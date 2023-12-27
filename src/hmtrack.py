@@ -66,9 +66,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="url used to set up distributed training",
     )
     parser.add_argument("-b", "--batch-size", type=int, default=1, help="batch size")
-    # parser.add_argument(
-    #     "-d", "--devices", default=1, type=int, help="device for training"
-    # )
     parser.add_argument(
         "--local_rank", default=0, type=int, help="local rank for dist training"
     )
@@ -112,13 +109,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Using TensorRT model for testing.",
     )
-    # parser.add_argument(
-    #     "--test",
-    #     dest="test",
-    #     default=False,
-    #     action="store_true",
-    #     help="Evaluating on test-dev set.",
-    # )
     parser.add_argument(
         "--tracker",
         default=None,
@@ -163,13 +153,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "often right in front of the camera, but not enough of the ref is "
         "visible to note it as a ref)",
     )
-    # parser.add_argument(
-    #     "--debug",
-    #     dest="debug",
-    #     default=False,
-    #     action="store_true",
-    #     help="debug cam processing",
-    # )
     parser.add_argument(
         "--rink",
         default=None,
@@ -198,22 +181,8 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="Game ID",
     )
-    # det args
-    # parser.add_argument(
-    #     "-c",
-    #     "--ckpt",
-    #     default="pretrained/yolox_x_sportsmix_ch.pth.tar",
-    #     type=str,
-    #     help="ckpt for eval",
-    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
-    # parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
-    # parser.add_argument("--seed", default=None, type=int, help="eval seed")
-    # tracking args
-    # parser.add_argument(
-    #     "--track_thresh", type=float, default=0.6, help="tracking confidence threshold"
-    # )
     parser.add_argument(
         "--track_thresh_low",
         type=float,
@@ -336,7 +305,18 @@ def get_rink_config(rink: str):
         with open(yaml_file_path, "r") as file:
             try:
                 yaml_content = yaml.safe_load(file)
-                print(yaml_content)  # Print the parsed YAML content
+                return yaml_content
+            except yaml.YAMLError as exc:
+                print(exc)
+    return {}
+
+
+def get_game_config(game_id: str):
+    yaml_file_path = os.path.join(ROOT_DIR, "games", game_id + ".yaml")
+    if os.path.exists(yaml_file_path):
+        with open(yaml_file_path, "r") as file:
+            try:
+                yaml_content = yaml.safe_load(file)
                 return yaml_content
             except yaml.YAMLError as exc:
                 print(exc)
@@ -419,18 +399,13 @@ def main(exp, args, num_gpu):
             )
         # logger.info("Model Structure:\n{}".format(str(model)))
 
-        rink_config = get_rink_config(args.rink)
-
-        # if args.rink and args.rink in rink_model_config:
-        #     rink_config = rink_model_config[args.rink]
-        #     print(f"Overriding model config for rink {args.rink}:\n{rink_config}")
-        #     args.conf = rink_config["conf"]
-        #     args.track_thresh = rink_config["track_thresh"]
-        #     args.track_thresh_low = rink_config["track_thresh_low"]
-        #     args.exp_file = rink_config["exp_file"]
-        #     args.ckpt = rink_config["ckpt"]
-        #     args.script = rink_config["script"]
-        #     args.tracker = rink_config["tracker"]
+        game_config = get_game_config(game_id=args.game_id)
+        if game_config:
+            if not args.rink:
+                args.rink = game_config["game"]["rink"]
+            else:
+                assert args.rink == game_config["game"]["rink"]
+        rink_config = get_rink_config(rink=args.rink)
 
         cam_args = DefaultArguments(
             rink=args.rink,
@@ -512,10 +487,10 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
-                    num_workers=4,
-                    blend_thread_count=2,
-                    remap_thread_count=2,
-                    fork_workers=True,
+                    num_workers=1,
+                    blend_thread_count=1,
+                    remap_thread_count=1,
+                    fork_workers=False,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

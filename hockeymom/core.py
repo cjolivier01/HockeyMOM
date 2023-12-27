@@ -58,6 +58,13 @@ def stitch_images(nona: HmNona, image_left: np.array, image_right: np.array):
     return _stitch_images(nona, image_left, image_right)
 
 
+def close_stitching_data_loader(
+    data_loader: StitchingDataLoader,
+    frame_id: int,
+) -> int:
+    return _add_to_stitching_data_loader(data_loader, frame_id, None, None)
+
+
 def add_to_stitching_data_loader(
     data_loader: StitchingDataLoader,
     frame_id: int,

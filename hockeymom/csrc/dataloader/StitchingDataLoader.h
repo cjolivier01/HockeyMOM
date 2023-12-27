@@ -47,8 +47,6 @@ struct FrameData {
  */
 /* clang-format on */
 class StitchingDataLoader {
-  static constexpr std::size_t kInputQueueCapacity = 32;
-
  public:
   using FRAME_DATA_TYPE = std::shared_ptr<FrameData>;
 
@@ -94,7 +92,6 @@ class StitchingDataLoader {
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
-  //std::vector<std::shared_ptr<enblend::EnBlender>> enblenders_;
   std::shared_ptr<enblend::EnBlender> enblender_;
 };
 

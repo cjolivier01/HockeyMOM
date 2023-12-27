@@ -172,9 +172,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._to_worker_queue.put("stop")
         self._thread.join()
 
-    def __delete__(self):
-        self.close()
-
     def __iter__(self):
         self._timer = Timer()
         if self._embedded_data_loader is not None:
@@ -238,8 +235,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
-            _, img0 = self._read_next_image()
-            if img0 is None:
+            res, img0 = self._read_next_image()
+            if not res or img0 is None:
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
