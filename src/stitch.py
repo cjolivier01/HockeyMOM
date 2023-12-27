@@ -21,6 +21,7 @@ from hmlib.datasets.dataset.stitching import (
     StitchDataset,
 )
 
+from hockeymom import core
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
@@ -88,6 +89,10 @@ def stitch_videos(
         right_frame_offset=rfo,
     )
 
+    # nona = core.HmNona(pto_project_file)
+    # control_points = nona.get_control_points()
+    # print(control_points)
+
     data_loader = StitchDataset(
         video_file_1=os.path.join(dir_name, video_left),
         video_file_2=os.path.join(dir_name, video_right),
@@ -95,11 +100,13 @@ def stitch_videos(
         video_1_offset_frame=lfo,
         video_2_offset_frame=rfo,
         start_frame_number=start_frame_number,
-        output_stitched_video_file=output_stitched_video_file,
+        #output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         num_workers=1,
-        remap_thread_count=10,
-        blend_thread_count=10,
+        # remap_thread_count=10,
+        # blend_thread_count=10,
+        remap_thread_count=2,
+        blend_thread_count=2,
     )
 
     frame_count = 0
