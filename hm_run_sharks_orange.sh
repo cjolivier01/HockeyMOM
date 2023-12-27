@@ -31,11 +31,12 @@ START_FRAME=0
 #START_FRAME=10590
 
 #TRACKER="hm"
-TRACKER="fair"
+#TRACKER="fair"
+TRACKER="centertrack --num_classes=1"
 #BATCH_SIZE=64
 BATCH_SIZE=16
 
-STITCHING_PARAMS="--lfo=0 --rfo=18.55423488076549"
+#STITCHING_PARAMS="--lfo=0 --rfo=18.55423488076549"
 
 echo "Experiment name: ${EXP_NAME}"
 
