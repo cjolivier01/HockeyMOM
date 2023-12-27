@@ -1,5 +1,6 @@
 from loguru import logger
 
+import yaml
 import argparse
 import random
 import warnings
@@ -46,6 +47,7 @@ from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
 import hmlib.datasets as datasets
 
+ROOT_DIR = os.getcwd()
 
 def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
@@ -328,6 +330,19 @@ rink_model_config = {
 }
 
 
+def get_rink_config(rink: str):
+    yaml_file_path = os.path.join(ROOT_DIR, "rinks", rink + ".yaml")
+    if os.path.exists(yaml_file_path):
+        with open(yaml_file_path, "r") as file:
+            try:
+                yaml_content = yaml.safe_load(file)
+                print(yaml_content)  # Print the parsed YAML content
+                return yaml_content
+            except yaml.YAMLError as exc:
+                print(exc)
+    return {}
+
+
 def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
 
@@ -347,6 +362,7 @@ def to_32bit_mul(val):
 
 # @logger.catch
 def main(exp, args, num_gpu):
+    dataloader = None
     try:
         if args.seed is not None:
             random.seed(args.seed)
@@ -359,9 +375,9 @@ def main(exp, args, num_gpu):
         set_deterministic()
 
         is_distributed = num_gpu > 1
-        
+
         if args.gpus and isinstance(args.gpus, str):
-            args.gpus = [int(i) for i in args.gpus.split(',')]
+            args.gpus = [int(i) for i in args.gpus.split(",")]
 
         # set environment variables for distributed training
         cudnn.benchmark = True
@@ -402,6 +418,8 @@ def main(exp, args, num_gpu):
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
             )
         # logger.info("Model Structure:\n{}".format(str(model)))
+
+        rink_config = get_rink_config(args.rink)
 
         # if args.rink and args.rink in rink_model_config:
         #     rink_config = rink_model_config[args.rink]
@@ -526,9 +544,7 @@ def main(exp, args, num_gpu):
                     img_size=exp.test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
-                    # data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
-                    # data_dir=os.path.join(get_yolox_datadir(), "crowdhuman"),
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
@@ -741,3 +757,4 @@ if __name__ == "__main__":
         dist_url=args.dist_url,
         args=(exp, args, num_gpus),
     )
+    print("Done.")

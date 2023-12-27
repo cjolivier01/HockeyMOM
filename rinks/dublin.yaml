@@ -1,7 +1,7 @@
 rink:
-  name: "stockton"
+  name: "dublin"
   location:
-    city: "Stockton"
+    city: "Dublin"
     state: "CA"
     country: "USA"
   dimensions:
@@ -9,15 +9,15 @@ rink:
     width: 85 feet
     corner_radius: 28 feet
   surface_type: "Ice"
-  seating_capacity: 200
+  seating_capacity: 400
   teams:
     home_team:
-      name: "Colts"
-      colors: ["Green", "Black"]
+      name: "Blue Devils"
+      colors: ["Red", "White", "Yellow"]
   facilities:
-    locker_rooms: 4
-    concession_stands: 1
+    locker_rooms: 2
+    concession_stands: 0
     restrooms: 2
   parking:
-    capacity: 400
+    capacity: 100
     price: 0 dollars  
