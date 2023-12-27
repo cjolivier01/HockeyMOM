@@ -90,6 +90,15 @@ def create_queue(mp: bool):
         return queue.Queue()
 
 
+def safe_put_queue(queue, object):
+    try:
+        queue.put(object)
+    except BrokenPipeError:
+        # Ignore broken pipe error
+        return
+    return
+
+
 ##
 #   _____ _   _  _        _     _           __          __         _
 #  / ____| | (_)| |      | |   (_)          \ \        / /        | |
@@ -298,8 +307,8 @@ class StitchingWorker:
 
     def close(self, in_process: bool = False):
         if self._forked and not in_process:
-            self._to_worker_queue.put(None)
-            self._to_worker_queue.put(None)
+            safe_put_queue(self._to_worker_queue, None)
+            safe_put_queue(self._to_worker_queue, None)
         else:
             self._stop_child_threads()
             self._video1.release()
@@ -413,9 +422,9 @@ class StitchingWorker:
 
     def _stop_child_threads(self):
         if self._feeder_thread is not None:
-            self._to_worker_queue.put(None)
+            safe_put_queue(self._to_worker_queue, None)
         if self._image_getter_thread is not None:
-            self._to_worker_queue.put(None)
+            safe_put_queue(self._to_worker_queue, None)
         if self._feeder_thread is not None:
             self._feeder_thread.join()
             self._feeder_thread = None
