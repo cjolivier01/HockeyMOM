@@ -31,8 +31,8 @@ START_FRAME=0
 #START_FRAME=10590
 
 #TRACKER="hm"
-#TRACKER="fair"
-TRACKER="centertrack --num_classes=1"
+TRACKER="fair"
+#TRACKER="centertrack --num_classes=1"
 #BATCH_SIZE=64
 BATCH_SIZE=16
 
