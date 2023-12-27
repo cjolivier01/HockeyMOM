@@ -79,8 +79,15 @@ def INFO(*args, **kwargs):
 
 
 # QueueType = QueueType
-QueueType = queue.Queue
+# QueueType = queue.Queue
 # QueueType = multiprocessing.Queue
+
+
+def create_queue(mp: bool):
+    if mp:
+        return multiprocessing.Queue()
+    else:
+        return queue.Queue()
 
 
 ##
@@ -111,6 +118,7 @@ class StitchingWorker:
         save_seams_and_masks: bool = True,
         device: str = None,
         # device: str = "cuda",
+        multiprocessingt_queue: bool = False,
     ):
         assert max_input_queue_size > 0
 
@@ -130,9 +138,9 @@ class StitchingWorker:
         self._max_input_queue_size = min(max_input_queue_size, self._max_frames)
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
-        self._to_worker_queue = QueueType()
-        self._from_worker_queue = QueueType()
-        self._image_response_queue = QueueType()
+        self._to_worker_queue = create_queue(mp=multiprocessingt_queue)
+        self._from_worker_queue = create_queue(mp=multiprocessingt_queue)
+        self._image_response_queue = create_queue(mp=multiprocessingt_queue)
         self._shutdown_barrier = None
         self._frame_stride_count = frame_stride_count
         self._open = False
@@ -466,6 +474,7 @@ class StitchDataset:
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
+        fork_workers: bool = False,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -482,8 +491,8 @@ class StitchDataset:
         self._max_frames = (
             max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         )
-        self._to_coordinator_queue = QueueType()
-        self._from_coordinator_queue = QueueType()
+        self._to_coordinator_queue = create_queue(mp=False)
+        self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._image_roi = None
@@ -492,6 +501,7 @@ class StitchDataset:
         self._auto_configure = auto_configure
         self._num_workers = num_workers
         self._stitching_workers = {}
+        self._fork_workers = fork_workers
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
         self._ordering_queue = core.SortedPyArrayUin8Queue()
@@ -556,6 +566,7 @@ class StitchDataset:
             blend_thread_count=self._blend_thread_count,
             max_frames=max_frames,
             frame_stride_count=frame_stride_count,
+            multiprocessingt_queue=self._fork_workers,
         )
         return stitching_worker
 
@@ -743,7 +754,7 @@ class StitchDataset:
                         self._max_input_queue_size / self._num_workers + 1
                     ),
                 )
-                self._stitching_workers[worker_number].start(fork=False)
+                self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()
         return self
 
