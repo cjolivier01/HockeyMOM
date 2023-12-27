@@ -159,28 +159,42 @@ def main(pto_project_file):
     image = cv2.imread(f"{os.environ['HOME']}/Videos/tvbb2/left.png")
 
     # Camera parameters
-    k1, k2, k3 = 0.2, 0.1, 0.0
-    center_shift = (16.167116986623, -141.096539158394)
     
-    # roll, pitch, yaw = 10.0, 5.0, 15.0  # degrees
-    roll, pitch, yaw = 0, 0, 1
+    k1, k2, k3 = 0.2, 0.1, 0.0
+    
+    #k1 = 0.0
+    #k2 = -0.0490882016017017
+    #k3 = 0.0
+    
+    #k1, k2, k3 = np.deg2rad([k1, k2, k3])
+    
+    #center_shift = (16.167116986623, -141.096539158394)
+    center_shift = (16.167116986623, -141.096539158394)
+    #center_shift = (0, 0)
+    
+    #roll, pitch, yaw = 10.0, 5.0, 15.0  # degrees
+    roll, pitch, yaw = 0, 0, 0
     #roll = 0
     #pitch = 12.50508189658689
     #yaw = -42.0477000409216
 
-    fov = 108  # Field of View in degrees
+    fov_horizontal = 100  # Horizontal Field of View in degrees
+    fov_vertical = 68    # Vertical Field of View in degrees
 
     # Convert angles to radians
-    roll, pitch, yaw, fov = np.deg2rad([roll, pitch, yaw, fov])
+    roll, pitch, yaw, fov_horizontal, fov_vertical = np.deg2rad([roll, pitch, yaw, fov_horizontal, fov_vertical])
 
     # Calculate focal length based on FoV
     h, w = image.shape[:2]
-    focal_length = w / (2 * np.tan(fov / 2))
+
+    # Calculate focal lengths for horizontal and vertical FoV
+    f_x = w / (2 * np.tan(fov_horizontal / 2))
+    f_y = h / (2 * np.tan(fov_vertical / 2))
 
     # Updated camera matrix with center shift
     cx, cy = w / 2 + center_shift[0], h / 2 + center_shift[1]
-    camera_matrix = np.array([[focal_length, 0, cx],
-                            [0, focal_length, cy],
+    camera_matrix = np.array([[f_x, 0, cx],
+                            [0, f_y, cy],
                             [0, 0, 1]], dtype=np.float32)
 
     # Distortion coefficients
