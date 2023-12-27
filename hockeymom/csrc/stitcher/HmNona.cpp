@@ -58,9 +58,9 @@ bool HmNona::load_project(const std::string& project_file) {
   }
   ManualResetGate gate;
   gpu_thread_pool_->Schedule([&]() {
-  set_thread_name("gpu_nona");
-  opts_.remapUsingGPU = check_cuda_opengl();
-  gate.signal();
+    set_thread_name("gpu_nona");
+    opts_.remapUsingGPU = check_cuda_opengl();
+    gate.signal();
   });
   gate.wait();
   pano_.setOptions(opts_);
