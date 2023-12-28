@@ -29,6 +29,7 @@ from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
+from hmlib.config import get_rink_config, get_game_config
 
 from hmlib.utils.box_functions import (
     width,
@@ -71,11 +72,14 @@ core.hello_world()
 #     # {_REFEREE_CLASS_ID: "referee"},
 # ]
 
+#
+# TODO: Moving to yaml files
+#
 RINK_CONFIG = {
     "vallco": {
         "fixed_edge_scaling_factor": 0.8,
         "fixed_edge_rotation_angle": 40.0,
-        "borders": {
+        "boundaries": {
             "stockton2": {
                 "upper": [],
                 "lower": [],
@@ -91,42 +95,18 @@ RINK_CONFIG = {
             },
         },
     },
-    "dublin": {
-        "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "stockton": {
-        "fixed_edge_scaling_factor": 0.6,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "roseville_2": {
-        "fixed_edge_scaling_factor": 1.6,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
         "fixed_edge_rotation_angle": 25.0,
-        "borders": {
+        "boundaries": {
             "upper": [],
             "lower": [],
         },
     },
     "dublin": {
-        "fixed_edge_scaling_factor": 1.5,
-        "fixed_edge_rotation_angle": 30.0,
-        "borders": {
+        # "fixed_edge_scaling_factor": 1.5,
+        # "fixed_edge_rotation_angle": 30.0,
+        "boundaries": {
             "lbd3": {
                 "upper": [
                     [254, 840, 1071, 598],
@@ -160,9 +140,9 @@ RINK_CONFIG = {
     },
     "sharks_orange": {
         # "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_scaling_factor": 1.25,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
+        # "fixed_edge_scaling_factor": 1.25,
+        # "fixed_edge_rotation_angle": 25.0,
+        "boundaries": {
             "sharksbb2-1": {
                 "upper": [
                     [2001, 123, 2629, 208],
@@ -227,26 +207,26 @@ RINK_CONFIG = {
             },
         },
     },
-    "sharks_black": {
-        "fixed_edge_scaling_factor": 1.25,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "onehockey-sharksbb2": {
-                "upper": [
-                    [3260, 1027, 4129, 1045],
-                    [4107, 1035, 5233, 1159],
-                    [7541, 1679, 8408, 1788],
-                ],
-                "lower": [
-                    [1232, 1605, 1855, 1761],
-                    [1805, 1770, 4063, 2127],
-                    [4006, 2139, 6228, 2093],
-                    [6168, 2115, 7543, 1818],
-                    [7537, 1723, 8388, 1796],
-                ],
-            },
-        },
-    },
+    # "sharks_black": {
+    #     "fixed_edge_scaling_factor": 1.25,
+    #     "fixed_edge_rotation_angle": 25.0,
+    #     "boundaries": {
+    #         "onehockey-sharksbb2": {
+    #             "upper": [
+    #                 [3260, 1027, 4129, 1045],
+    #                 [4107, 1035, 5233, 1159],
+    #                 [7541, 1679, 8408, 1788],
+    #             ],
+    #             "lower": [
+    #                 [1232, 1605, 1855, 1761],
+    #                 [1805, 1770, 4063, 2127],
+    #                 [4006, 2139, 6228, 2093],
+    #                 [6168, 2115, 7543, 1818],
+    #                 [7537, 1723, 8388, 1796],
+    #             ],
+    #         },
+    #     },
+    # },
 }
 
 BASIC_DEBUGGING = False
@@ -263,6 +243,9 @@ class DefaultArguments(core.HMPostprocessConfig):
         # args: argparse.Namespace = None,
     ):
         # basic_debugging = False
+
+        rink_config = get_rink_config(game_id=game_id, root_dir=os.getcwd())
+        game_config = get_game_config(game_id=game_id, root_dir=os.getcwd())
 
         super().__init__()
         # Display the image every frame (slow)
@@ -291,7 +274,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.apply_fixed_edge_scaling = False
         self.apply_fixed_edge_scaling = True
 
-        self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
+        # self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
+        self.fixed_edge_scaling_factor = rink_config["camera"][
+            "fixed_edge_scaling_factor"
+        ]
 
         self.plot_camera_tracking = False or basic_debugging
         # self.plot_camera_tracking = True
@@ -315,7 +301,11 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.fixed_edge_rotation = True
 
         # self.fixed_edge_rotation_angle = 25.0
-        self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
+        # self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
+        self.fixed_edge_rotation_angle = rink_config["camera"][
+            "fixed_edge_rotation_angle"
+        ]
+
         # self.fixed_edge_rotation_angle = 35.0
         # self.fixed_edge_rotation_angle = 45.0
 
@@ -379,8 +369,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         # SHARKS ORANGE RINK
         #
-        self.top_border_lines = RINK_CONFIG[rink]["borders"][game_id]["upper"]
-        self.bottom_border_lines = RINK_CONFIG[rink]["borders"][game_id]["lower"]
+        # self.top_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["upper"]
+        # self.bottom_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["lower"]
+        self.top_border_lines = game_config["game"]["boundaries"]["upper"]
+        self.bottom_border_lines = game_config["game"]["boundaries"]["lower"]
 
 
 def scale_box(box, from_img, to_img):

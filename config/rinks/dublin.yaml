@@ -1,0 +1,26 @@
+rink:
+  name: "dublin"
+  location:
+    city: "Dublin"
+    state: "CA"
+    country: "USA"
+  dimensions:
+    length: 200 feet
+    width: 85 feet
+    corner_radius: 28 feet
+  surface_type: "Ice"
+  seating_capacity: 400
+  teams:
+    home_team:
+      name: "Blue Devils"
+      colors: ["Red", "White", "Yellow"]
+  facilities:
+    locker_rooms: 2
+    concession_stands: 0
+    restrooms: 2
+  parking:
+    capacity: 100
+    price: 0 dollars  
+  camera:
+    fixed_edge_scaling_factor: 1.5
+    fixed_edge_rotation_angle: 25.0

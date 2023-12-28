@@ -42,6 +42,7 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.config import get_clip_box, get_game_config, get_rink_config
 
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
@@ -255,78 +256,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
     return parser
 
 
-CLIP_BOXES = {
-    "lbd3": [120, 360, 3785, 1660],
-    "stockton2": [10, 375, 3900, 1590],
-    "sharksbb1-1": [10, 375, 3900, 1590],
-    "sharksbb1-2": [150, 300, 3800, 1350],
-    "sharksbb1-2.1": [200, 400, 5400, 2000],
-}
-
-
-def get_clip_box(game_id: str):
-    game_config = get_game_config(game_id=game_id)
-    if game_config:
-        assert game_config not in CLIP_BOXES  # Don't have in two places
-        game = game_config["game"]
-        if "clip_box" in game:
-            return game["clip_box"]
-    if game_config in CLIP_BOXES:
-        return CLIP_BOXES[game_config]
-    return None
-
-
-# def compare_dataframes(gts, ts):
-#     accs = []
-#     names = []
-#     for k, tsacc in ts.items():
-#         if k in gts:
-#             logger.info("Comparing {}...".format(k))
-#             accs.append(
-#                 mm.utils.compare_to_groundtruth(gts[k], tsacc, "iou", distth=0.5)
-#             )
-#             names.append(k)
-#         else:
-#             logger.warning("No ground truth for {}, skipping.".format(k))
-
-#     return accs, names
-
-
-rink_model_config = {
-    "sharks_orange": {
-        "conf": 0.1,
-        "track_thresh": 0.3,
-        "track_thresh_low": 0.1,
-        "exp_file": "models/mixsort/exps/example/mot/yolox_x_ch_ht.py",
-        "ckpt": "pretrained/yolox/yolox_x_my_ch_to_hockey_tracking_dataset.pth.tar",
-        "script": "mixformer_deit_hockey",
-        "tracker": "hm",
-    },
-}
-
-
-def get_rink_config(rink: str):
-    yaml_file_path = os.path.join(ROOT_DIR, "rinks", rink + ".yaml")
-    if os.path.exists(yaml_file_path):
-        with open(yaml_file_path, "r") as file:
-            try:
-                yaml_content = yaml.safe_load(file)
-                return yaml_content
-            except yaml.YAMLError as exc:
-                print(exc)
-    return {}
-
-
-def get_game_config(game_id: str):
-    yaml_file_path = os.path.join(ROOT_DIR, "games", game_id + ".yaml")
-    if os.path.exists(yaml_file_path):
-        with open(yaml_file_path, "r") as file:
-            try:
-                yaml_content = yaml.safe_load(file)
-                return yaml_content
-            except yaml.YAMLError as exc:
-                print(exc)
-    return {}
+# CLIP_BOXES = {
+#     "lbd3": [120, 360, 3785, 1660],
+#     "stockton2": [10, 375, 3900, 1590],
+#     "sharksbb1-1": [10, 375, 3900, 1590],
+#     "sharksbb1-2": [150, 300, 3800, 1350],
+#     "sharksbb1-2.1": [200, 400, 5400, 2000],
+# }
 
 
 def set_torch_multiprocessing_use_filesystem():
@@ -491,12 +427,13 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    # output_stitched_video_file=output_stitched_video_file,
+                    output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=4,
                     blend_thread_count=4,
                     remap_thread_count=4,
                     fork_workers=False,
+                    image_roi=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

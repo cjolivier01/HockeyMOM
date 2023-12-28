@@ -13,6 +13,7 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.config import get_clip_box, get_game_config
 
 from hmlib.stitch_synchronize import (
     configure_video_stitching,
@@ -25,6 +26,7 @@ from hmlib.datasets.dataset.stitching import (
 from hockeymom import core
 
 ROOT_DIR = os.getcwd()
+
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
@@ -73,18 +75,6 @@ def make_parser():
     return parser
 
 
-def get_game_config(game_id: str):
-    yaml_file_path = os.path.join(ROOT_DIR, "games", game_id + ".yaml")
-    if os.path.exists(yaml_file_path):
-        with open(yaml_file_path, "r") as file:
-            try:
-                yaml_content = yaml.safe_load(file)
-                return yaml_content
-            except yaml.YAMLError as exc:
-                print(exc)
-    return {}
-
-
 def stitch_videos(
     dir_name: str,
     video_left: str = "left.mp4",
@@ -114,12 +104,6 @@ def stitch_videos(
     # nona = core.HmNona(pto_project_file)
     # control_points = nona.get_control_points()
     # print(control_points)
-    
-    clip_box = None
-    if game_id:
-        game_config = get_game_config(game_id=game_id)
-        if game_config:
-            clip_box = game_config["game"]["clip_box"]
 
     data_loader = StitchDataset(
         video_file_1=os.path.join(dir_name, video_left),
@@ -136,7 +120,7 @@ def stitch_videos(
         remap_thread_count=2,
         blend_thread_count=2,
         fork_workers=False,
-        image_roi=clip_box,
+        image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
     )
 
     frame_count = 0

@@ -1,0 +1,26 @@
+rink:
+  name: "vallco"
+  location:
+    city: "Cupertino"
+    state: "CA"
+    country: "USA"
+  dimensions:
+    length: 180 feet
+    width: 70 feet
+    corner_radius: 20 feet
+  surface_type: "Ice"
+  seating_capacity: 100
+  teams:
+    home_team:
+      name: "Cougars"
+      colors: ["Blue", "Gray"]
+  facilities:
+    locker_rooms: 4
+    concession_stands: 0
+    restrooms: 3
+  parking:
+    capacity: 100
+    price: 0 dollars  
+  camera:
+    fixed_edge_scaling_factor: 1.25
+    fixed_edge_rotation_angle: 25.0

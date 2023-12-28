@@ -21,3 +21,6 @@ rink:
   parking:
     capacity: 400
     price: 0 dollars  
+  camera:
+    fixed_edge_scaling_factor: 0.6
+    fixed_edge_rotation_angle: 25.0

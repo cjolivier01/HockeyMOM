@@ -1,7 +1,7 @@
 rink:
-  name: "dublin"
+  name: "roseville2"
   location:
-    city: "Dublin"
+    city: "Roseville"
     state: "CA"
     country: "USA"
   dimensions:
@@ -12,12 +12,15 @@ rink:
   seating_capacity: 400
   teams:
     home_team:
-      name: "Blue Devils"
-      colors: ["Red", "White", "Yellow"]
+      name: "Capital Thunder"
+      colors: ["Purple", "Gray", "Black"]
   facilities:
-    locker_rooms: 2
+    locker_rooms: 4
     concession_stands: 0
-    restrooms: 2
+    restrooms: 4
   parking:
-    capacity: 100
+    capacity: 200
     price: 0 dollars  
+  camera:
+    fixed_edge_scaling_factor: 1.25
+    fixed_edge_rotation_angle: 25.0
