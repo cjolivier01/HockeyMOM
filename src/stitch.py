@@ -108,10 +108,6 @@ def stitch_videos(
         right_frame_offset=rfo,
     )
 
-    # nona = core.HmNona(pto_project_file)
-    # control_points = nona.get_control_points()
-    # print(control_points)
-
     data_loader = StitchDataset(
         video_file_1=os.path.join(dir_name, video_left),
         video_file_2=os.path.join(dir_name, video_right),
@@ -159,26 +155,127 @@ def stitch_videos(
     return lfo, rfo
 
 
-def new_remapping_blend():
-    pass
+def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
+    frame_list = []
+    res, frame = cap.read()
+    if not res or frame is None:
+        raise StopIteration()
+    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
+    for i in range(batch_size - 1):
+        res, frame = cap.read()
+        if not res or frame is None:
+            raise StopIteration()
+        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
+    tensor = torch.stack(frame_list)
+    return tensor
 
+
+def remap_video(
+    video_file_1: str,
+    video_file_2: str,
+    dir_name: str,
+    basename_1: str,
+    basename_2: str,
+    interpolation: str = None,
+    show: bool = False,
+):
+    cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
+    if not cap_1 or not cap_1.isOpened():
+        raise AssertionError(
+            f"Could not open video file: {os.path.join(dir_name, video_file_1)}"
+        )
+
+    cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
+    if not cap_2 or not cap_2.isOpened():
+        raise AssertionError(
+            f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
+        )
+
+    device = "cuda"
+    batch_size = 8
+
+    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
+    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
+
+    remapper_1 = ImageRemapper(
+        dir_name=dir_name,
+        basename=basename_1,
+        device=device,
+        source_hw=source_tensor_1.shape[-2:],
+        channels=source_tensor_1.shape[1],
+        interpolation=interpolation,
+    )
+    remapper_1.init(batch_size=batch_size)
+
+    remapper_2 = ImageRemapper(
+        dir_name=dir_name,
+        basename=basename_2,
+        device=device,
+        source_hw=source_tensor_2.shape[-2:],
+        channels=source_tensor_2.shape[1],
+        interpolation=interpolation,
+    )
+    remapper_2.init(batch_size=batch_size)
+
+    timer = Timer()
+    frame_count = 0
+    while True:
+        destination_tensor_1 = remapper_1.remap(source_image=source_tensor_1)
+        destination_tensor_2 = remapper_2.remap(source_image=source_tensor_2)
+
+        destination_tensor_1 = destination_tensor_1.detach().cpu()
+        destination_tensor_2 = destination_tensor_2.detach().cpu()
+
+        frame_count += 1
+        if frame_count != 1:
+            timer.toc()
+
+        if frame_count % 20 == 0:
+            print(
+                "Remapping: {:.2f} fps".format(
+                    batch_size * 1.0 / max(1e-5, timer.average_time)
+                )
+            )
+            if frame_count % 50 == 0:
+                timer = Timer()
+
+        if show:
+            for i in range(len(destination_tensor_1)):
+                cv2.imshow(
+                    "mapped image", destination_tensor_1[i].permute(1, 2, 0).numpy()
+                )
+                cv2.waitKey(1)
+
+        source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
+        source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
+        timer.tic()
 
 
 def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
 
-    args.lfo = 15
-    args.rfo = 0
-    lfo, rfo = stitch_videos(
-        args.video_dir,
+    remap_video(
         video_left,
         video_right,
-        lfo=args.lfo,
-        rfo=args.rfo,
-        project_file_name=args.project_file,
-        game_id=args.game_id,
+        args.video_dir,
+        "mapping_0000",
+        "mapping_0001",
+        interpolation="bicubic",
+        show=False,
     )
+
+    # args.lfo = 15
+    # args.rfo = 0
+    # lfo, rfo = stitch_videos(
+    #     args.video_dir,
+    #     video_left,
+    #     video_right,
+    #     lfo=args.lfo,
+    #     rfo=args.rfo,
+    #     project_file_name=args.project_file,
+    #     game_id=args.game_id,
+    # )
 
 
 if __name__ == "__main__":
