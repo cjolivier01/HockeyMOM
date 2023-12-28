@@ -26,7 +26,7 @@ from hmlib.stitch_synchronize import (
     configure_video_stitching,
 )
 
-from hmlib.datasets.dataset.stitching import (
+from hmlib.datasets.dataset.stitching_dataloader import (
     StitchDataset,
 )
 
@@ -157,6 +157,11 @@ def stitch_videos(
             f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
         )
     return lfo, rfo
+
+
+def new_remapping_blend():
+    pass
+
 
 
 def main(args):

@@ -4,25 +4,18 @@ import os
 import os.path as osp
 import random
 import time
-import multiprocessing
-import threading
 from collections import OrderedDict
 from typing import List
 
 import cv2
-import json
 import numpy as np
 import torch
 import copy
 
 import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import transforms as T
-from cython_bbox import bbox_overlaps as bbox_ious
-from hmlib.opts import opts
 from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from hmlib.utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
-from .stitching import StitchDataset
+from hmlib.utils.utils import xyxy2xywh
+from .stitching_dataloader import StitchDataset
 
 
 def warp_rectilinear_to_cylindrical(img, focal_length):

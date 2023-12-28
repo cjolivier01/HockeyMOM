@@ -1,33 +1,14 @@
-import glob
-import math
-import os
-import os.path as osp
-import random
 import traceback
-import time
 import multiprocessing
 import threading
-from collections import OrderedDict
-from typing import List
 
 import cv2
-import json
-import numpy as np
 import torch
-import copy
 
 import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import transforms as T
-import torch.nn.functional as F
-from cython_bbox import bbox_overlaps as bbox_ious
-from hmlib.opts import opts
-from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from hmlib.utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
 from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import letterbox
 from hmlib.tracking_utils.log import logger
-from .stitching import StitchDataset
 
 from yolox.data import MOTDataset
 
@@ -309,7 +290,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
                 )
                 self._scale_inscribed_to_original = torch.cat(
-                    (self._scale_inscribed_to_original, self._scale_inscribed_to_original),
+                    (
+                        self._scale_inscribed_to_original,
+                        self._scale_inscribed_to_original,
+                    ),
                     dim=0,
                 )
 
