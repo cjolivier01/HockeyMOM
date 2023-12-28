@@ -117,8 +117,8 @@ def stitch_videos(
         num_workers=1,
         # remap_thread_count=10,
         # blend_thread_count=10,
-        remap_thread_count=2,
-        blend_thread_count=2,
+        remap_thread_count=1,
+        blend_thread_count=1,
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
     )
