@@ -49,6 +49,7 @@ import hmlib.datasets as datasets
 
 ROOT_DIR = os.getcwd()
 
+
 def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
         parser = argparse.ArgumentParser("YOLOX Eval")
@@ -256,18 +257,22 @@ def make_parser(parser: argparse.ArgumentParser = None):
 
 CLIP_BOXES = {
     "lbd3": [120, 360, 3785, 1660],
-    "tvbb2": [246, 360, 3928, 1557],
     "stockton2": [10, 375, 3900, 1590],
     "sharksbb1-1": [10, 375, 3900, 1590],
     "sharksbb1-2": [150, 300, 3800, 1350],
     "sharksbb1-2.1": [200, 400, 5400, 2000],
-    "onehockey-sharksbb2": [866, 605, 7920, 2438],
 }
 
 
-def get_clip_box(name: str):
-    if name in CLIP_BOXES:
-        return CLIP_BOXES[name]
+def get_clip_box(game_id: str):
+    game_config = get_game_config(game_id=game_id)
+    if game_config:
+        assert game_config not in CLIP_BOXES  # Don't have in two places
+        game = game_config["game"]
+        if "clip_box" in game:
+            return game["clip_box"]
+    if game_config in CLIP_BOXES:
+        return CLIP_BOXES[game_config]
     return None
 
 
@@ -486,7 +491,7 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    #output_stitched_video_file=output_stitched_video_file,
+                    # output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=4,
                     blend_thread_count=4,
@@ -503,7 +508,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(args.game_id),
+                    clip_original=get_clip_box(game_id=args.game_id),
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),
@@ -524,7 +529,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(args.game_id),
+                    clip_original=get_clip_box(game_id=args.game_id),
                     max_frames=args.max_frames,
                     name="val",
                     preproc=ValTransform(
