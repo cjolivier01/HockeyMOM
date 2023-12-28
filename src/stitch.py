@@ -313,6 +313,22 @@ class ImageRemapper:
         return destination_tensor
 
 
+def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
+    frame_list = []
+    res, frame = cap.read()
+    if not res or frame is None:
+        raise StopIteration()
+    assert frame.dtype == np.uint8
+    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
+    for i in range(batch_size - 1):
+        res, frame = cap.read()
+        if not res or frame is None:
+            raise StopIteration()
+        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
+    tensor = torch.stack(frame_list)
+    return tensor
+
+
 def remap_image(
     video_file: str, dir_name: str, basename: str, interpolation: str = None
 ):
@@ -322,27 +338,24 @@ def remap_image(
             f"Could not open video file: {os.path.join(dir_name, video_file)}"
         )
 
-    # Get the first frame
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
-    source_tensor = torch.from_numpy(frame.transpose(2, 0, 1))
-
     device = "cuda"
+    batch_size = 16
+
+    source_tensor = read_frame_batch(cap, batch_size=batch_size)
 
     remapper = ImageRemapper(
         dir_name=dir_name,
         basename=basename,
         device=device,
-        source_hw=source_tensor.shape[1:],
-        channels=source_tensor.shape[0],
+        source_hw=source_tensor.shape[-2:],
+        channels=source_tensor.shape[1],
     )
     remapper.init()
 
     timer = Timer()
     frame_count = 0
     while True:
-        destination_tensor = remapper.remap(source_image=source_tensor.unsqueeze(0))
+        destination_tensor = remapper.remap(source_image=source_tensor)
         destination_tensor = destination_tensor.detach().cpu()
 
         frame_count += 1
@@ -351,21 +364,21 @@ def remap_image(
 
         if frame_count % 20 == 0:
             logger.info(
-                "Remapping: {:.2f} fps".format(1.0 / max(1e-5, timer.average_time))
+                "Remapping: {:.2f} fps".format(
+                    batch_size * 1.0 / max(1e-5, timer.average_time)
+                )
             )
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        cv2.imshow("mapped image", destination_tensor[0].permute(1, 2, 0).cpu().numpy())
-        cv2.waitKey(1)
+        for i in range(len(destination_tensor)):
+            cv2.imshow(
+                "mapped image", destination_tensor[i].permute(1, 2, 0).cpu().numpy()
+            )
+            cv2.waitKey(1)
 
-        # Read next frame
-        res, frame = cap.read()
-        if not res or frame is None:
-            break
+        source_tensor = read_frame_batch(cap, batch_size=batch_size)
         timer.tic()
-        source_tensor = torch.from_numpy(frame.transpose(2, 0, 1)).to(device)
-        # source_tensor = pad_tensor_to_size(source_tensor, working_w, working_h, 0)
 
 
 def main(args):
