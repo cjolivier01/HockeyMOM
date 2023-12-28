@@ -20,6 +20,9 @@ autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
 nona -m TIFF_m -o nona autooptimiser_out.pto
 #nona -m TIFF_m -o nona my_project.pto
 
+echo "Making mapping files..."
+nona -m TIFF_m -c -o mapping_ autooptimiser_out.pto
+
 # Blend the images to create the panorama
 #enblend -o panorama.tif nona*.tif
 $HOME/src/multiblend/src/multiblend -o panorama.tif nona*.tif
@@ -28,5 +31,4 @@ $HOME/src/multiblend/src/multiblend -o panorama.tif nona*.tif
 #
 # mapping files
 #
-#echo "Making mapping files..."
-#nona -m TIFF_m -c -o out autooptimiser_out.pto
+ffmpeg -i left-10sec.mp4 -i out0000_x.pgm -i out0000_y.pgm -lavfi remap -qscale 1 left-10sec-remapped.mp4
