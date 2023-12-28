@@ -301,15 +301,6 @@ def remap_image(
             f"Could not open video file: {os.path.join(dir_name, video_file)}"
         )
 
-    x_file = os.path.join(dir_name, f"{basename}_x.tif")
-    y_file = os.path.join(dir_name, f"{basename}_y.tif")
-    x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
-    y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
-    if x_map is None:
-        raise AssertionError(f"Could not read mapping file: {x_file}")
-    if y_map is None:
-        raise AssertionError(f"Could not read mapping file: {y_file}")
-
     # Get the first frame
     res, frame = cap.read()
     if not res or frame is None:
