@@ -13,11 +13,11 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 # Videos
 #
 #VIDEO="${HOME}/Videos/sharksbb1-2/stiched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/sharksbb1-2/"
+#VIDEO="${HOME}/Videos/sharksbb1-2/"
 
 EXP_NAME="$(basename $0 .sh)"
 
-GAME_ID="--game-id sharksbb1-2.1"
+GAME_ID="--game-id onehockey-sharksbb2"
 
 #TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
@@ -36,7 +36,7 @@ TRACKER="fair"
 #BATCH_SIZE=64
 BATCH_SIZE=16
 
-#STITCHING_PARAMS="--lfo=0 --rfo=18.55423488076549"
+#STITCHING_PARAMS="--lfo=54.70108123169348 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -54,7 +54,7 @@ OMP_NUM_THREADS=16 \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
-  --rink="sharks_orange" \
+  --rink="sharks_black" \
   --config=track \
   --cam-ignore-largest \
   --script="${MIXFORMER_SCRIPT}" \

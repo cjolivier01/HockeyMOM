@@ -261,6 +261,7 @@ CLIP_BOXES = {
     "sharksbb1-1": [10, 375, 3900, 1590],
     "sharksbb1-2": [150, 300, 3800, 1350],
     "sharksbb1-2.1": [200, 400, 5400, 2000],
+    "onehockey-sharksbb2": [866, 605, 7920, 2438],
 }
 
 
@@ -485,11 +486,11 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    output_stitched_video_file=output_stitched_video_file,
+                    #output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
-                    blend_thread_count=1,
-                    remap_thread_count=1,
+                    blend_thread_count=4,
+                    remap_thread_count=4,
                     fork_workers=False,
                 )
                 # Create the MOT video data loader, passing it the

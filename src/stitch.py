@@ -102,12 +102,12 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=6,
+        num_workers=1,
         # remap_thread_count=10,
         # blend_thread_count=10,
-        remap_thread_count=1,
-        blend_thread_count=1,
-        fork_workers=True,
+        remap_thread_count=2,
+        blend_thread_count=2,
+        fork_workers=False,
     )
 
     frame_count = 0

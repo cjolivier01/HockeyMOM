@@ -155,6 +155,7 @@ class VideoOutput:
         #fourcc="XVID",
         fourcc="HEVC",
         #fourcc="X264",
+        #fourcc="H264",
         #fourcc = "HFYU",
         save_frame_dir: str = None,
         use_fork: bool = False,

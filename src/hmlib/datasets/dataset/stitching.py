@@ -340,7 +340,7 @@ class StitchingWorker:
             if not ret1 or not ret2:
                 return False
 
-        INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
+        #INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
         # For some reason, hold onto a ref to the images while we push
         # them down into the data loader, or else there will be a segfault eventually
         assert self._max_input_queue_size >= 2
@@ -351,7 +351,7 @@ class StitchingWorker:
         assert img1 is not None
         assert img2 is not None
         self._in_queue += 1
-        print(f"rank {self._rank} feeding LR frame {frame_id}")
+        #print(f"rank {self._rank} feeding LR frame {frame_id}")
         core.add_to_stitching_data_loader(
             self._stitcher,
             frame_id,
@@ -809,11 +809,11 @@ class StitchDataset:
         return stitched_frame
 
     def __next__(self):
-        INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
+        #INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         status = self._from_coordinator_queue.get()
         self._next_timer.tic()
-        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
+        #INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
             raise status

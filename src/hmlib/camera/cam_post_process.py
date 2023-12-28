@@ -227,6 +227,26 @@ RINK_CONFIG = {
             },
         },
     },
+    "sharks_black": {
+        "fixed_edge_scaling_factor": 1.25,
+        "fixed_edge_rotation_angle": 25.0,
+        "borders": {
+            "onehockey-sharksbb2": {
+                "upper": [
+                    [3260, 1027, 4129, 1045],
+                    [4107, 1035, 5233, 1159],
+                    [7541, 1679, 8408, 1788],
+                ],
+                "lower": [
+                    [1232, 1605, 1855, 1761],
+                    [1805, 1770, 4063, 2127],
+                    [4006, 2139, 6228, 2093],
+                    [6168, 2115, 7543, 1818],
+                    [7537, 1723, 8388, 1796],
+                ],
+            },
+        },
+    },
 }
 
 BASIC_DEBUGGING = False
@@ -451,7 +471,7 @@ class CamTrackPostProcessor:
         self._timer = Timer()
         self._cluster_man = None
         self._video_out_device = video_out_device
-        
+
         if self._video_out_device is None:
             self._video_out_device = self._device
 
