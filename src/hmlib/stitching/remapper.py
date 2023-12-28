@@ -347,7 +347,7 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         interpolation="bicubic",
-        show=True,
+        show=False,
     )
 
 
