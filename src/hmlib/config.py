@@ -24,8 +24,8 @@ def get_rink_config(rink: str, root_dir: str):
     return get_config(root_dir=root_dir, config_type="rinks", config_name=rink)
 
 
-def get_camera_config(game_id: str, root_dir: str):
-    return get_config(root_dir=root_dir, config_type="camera", config_name=game_id)
+def get_camera_config(camera: str, root_dir: str):
+    return get_config(root_dir=root_dir, config_type="camera", config_name=camera)
 
 
 def get_clip_box(game_id: str, root_dir: str):

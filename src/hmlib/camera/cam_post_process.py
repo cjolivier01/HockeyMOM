@@ -29,7 +29,7 @@ from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.config import get_rink_config, get_game_config
+from hmlib.config import get_rink_config, get_game_config, get_camera_config
 
 from hmlib.utils.box_functions import (
     width,
@@ -241,13 +241,16 @@ class DefaultArguments(core.HMPostprocessConfig):
         show_image: bool = False,
         cam_ignore_largest: bool = False,
         # args: argparse.Namespace = None,
+        camera: str = "gopro",
     ):
         # basic_debugging = False
 
-        rink_config = get_rink_config(game_id=game_id, root_dir=os.getcwd())
-        game_config = get_game_config(game_id=game_id, root_dir=os.getcwd())
-
         super().__init__()
+
+        self.camera_config = get_camera_config(camera=camera, root_dir=os.getcwd())
+        self.rink_config = get_rink_config(game_id=game_id, root_dir=os.getcwd())
+        self.game_config = get_game_config(game_id=game_id, root_dir=os.getcwd())
+
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
         # self.show_image = True
@@ -275,7 +278,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.apply_fixed_edge_scaling = True
 
         # self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
-        self.fixed_edge_scaling_factor = rink_config["camera"][
+        self.fixed_edge_scaling_factor = self.rink_config["camera"][
             "fixed_edge_scaling_factor"
         ]
 
@@ -302,7 +305,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # self.fixed_edge_rotation_angle = 25.0
         # self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
-        self.fixed_edge_rotation_angle = rink_config["camera"][
+        self.fixed_edge_rotation_angle = self.rink_config["camera"][
             "fixed_edge_rotation_angle"
         ]
 
@@ -355,24 +358,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.use_watermark = False
 
         self.detection_inclusion_box = None
-        # self.detection_inclusion_box = [None, None, None, None]
-        # self.detection_inclusion_box = [None, 140, None, None]
-
-        # Roseville #2
-        # self.detection_inclusion_box = torch.tensor(
-        # [363, 600, 5388, 1714], dtype=torch.float32
-        # )
-        # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
-
-        # Above any of these lines, ignmore
 
         #
         # SHARKS ORANGE RINK
         #
         # self.top_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["upper"]
         # self.bottom_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["lower"]
-        self.top_border_lines = game_config["game"]["boundaries"]["upper"]
-        self.bottom_border_lines = game_config["game"]["boundaries"]["lower"]
+        self.top_border_lines = self.game_config["game"]["boundaries"]["upper"]
+        self.bottom_border_lines = self.game_config["game"]["boundaries"]["lower"]
 
 
 def scale_box(box, from_img, to_img):
