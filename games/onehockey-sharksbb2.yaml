@@ -1,0 +1,6 @@
+game:
+  name: "onehockey-sharksbb2"
+  rink: "sharks_blacxk"
+  home: "Cougars"
+  away: "Sharks BB2"
+  clip_box: [866, 605, 7920, 2438]

@@ -127,6 +127,7 @@ class StitchingWorker:
         save_seams_and_masks: bool = True,
         device: str = None,
         multiprocessingt_queue: bool = False,
+        image_roi: List[int] = None,
     ):
         assert max_input_queue_size > 0
 
@@ -154,7 +155,7 @@ class StitchingWorker:
         self._open = False
         self._last_requested_frame = None
         self._feeder_thread = None
-        self._image_roi = None
+        self._image_roi = image_roi
         self._forked = False
         self._closing = False
         self._save_seams_and_masks = save_seams_and_masks
@@ -495,6 +496,7 @@ class StitchDataset:
         auto_configure: bool = True,
         num_workers: int = 1,
         fork_workers: bool = False,
+        image_roi: List[int] = None,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -515,7 +517,7 @@ class StitchDataset:
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
-        self._image_roi = None
+        self._image_roi = image_roi
         self._fps = None
         self._bitrate = None
         self._auto_configure = auto_configure
@@ -545,7 +547,6 @@ class StitchDataset:
             )
         )
 
-        self._image_roi = None
         self._video_output = None
 
     def __delete__(self):
