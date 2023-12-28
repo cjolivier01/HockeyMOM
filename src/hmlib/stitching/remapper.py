@@ -11,6 +11,8 @@ import cv2
 import torch
 import torch.nn.functional as F
 
+from hmlib.stitch_synchronize import get_image_geo_position
+
 ROOT_DIR = os.getcwd()
 
 
@@ -124,6 +126,9 @@ class ImageRemapper:
     def init(self, batch_size: int):
         x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
         y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
+        self.xpos, self.ypos = get_image_geo_position(
+            os.path.join(self._dir_name, f"{self._basename}.tif")
+        )
         x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
         y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
         if x_map is None:

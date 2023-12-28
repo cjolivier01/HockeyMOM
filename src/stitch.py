@@ -192,7 +192,7 @@ def remap_video(
         )
 
     device = "cuda"
-    batch_size = 4
+    batch_size = 2
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -241,9 +241,16 @@ def remap_video(
 
         if show:
             for i in range(len(destination_tensor_1)):
-                cv2.imshow(
-                    "mapped image", destination_tensor_1[i].permute(1, 2, 0).numpy()
+                blended = core.emblend_images(
+                    image_left=destination_tensor_1[i].permute(1, 2, 0).numpy(),
+                    xy_pos_1=(remapper_1.xpos, remapper_1.ypos),
+                    image_right=destination_tensor_2[i].permute(1, 2, 0).numpy(),
+                    xy_pos_2=(remapper_2.xpos, remapper_2.ypos),
                 )
+                cv2.imshow("mapped image", blended.numpy())
+                # cv2.imshow(
+                #     "mapped image", destination_tensor_1[i].permute(1, 2, 0).numpy()
+                # )
                 cv2.waitKey(1)
 
         source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
@@ -261,8 +268,8 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         "mapping_0001",
-        interpolation="bicubic",
-        show=False,
+        #interpolation="bicubic",
+        show=True,
     )
 
     # args.lfo = 15

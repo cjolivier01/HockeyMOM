@@ -29,7 +29,7 @@ def synchronize_by_audio(
     video1 = full_video1.subclip(0, seconds)
 
     video_1_frame_count = video0.fps * video0.duration
-    video_2_frame_count = video1.fps * video0.duration
+    #video_2_frame_count = video1.fps * video0.duration
 
     # Load audio from the videos
     print("Loading audio...")
@@ -37,7 +37,7 @@ def synchronize_by_audio(
     audio2 = video1.audio.to_soundarray()
 
     audio_items_per_frame_1 = audio1.shape[0] / video_1_frame_count
-    audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
+    #audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
 
     # Calculate the cross-correlation of audio1 and audio2
     print("Calculating cross-correlation...")
