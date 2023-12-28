@@ -165,7 +165,7 @@ class ImageRemapper:
         self._channels = channels
         self._initialized = False
 
-    def init(self):
+    def init(self, batch_size: int):
         x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
         y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
         x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
@@ -194,10 +194,29 @@ class ImageRemapper:
         mask = torch.logical_or(
             row_map == self.UNMAPPED_PIXEL_VALUE, col_map == self.UNMAPPED_PIXEL_VALUE
         )
+
         # The 65536 will result in an invalid index, so set these to 0,0
         # and we'll get rid of them later with the mask after the image is remapped
         col_map[mask] = 0
         row_map[mask] = 0
+
+        if self._interpolation:
+            row_map_normalized = (
+                2.0 * row_map / (self._working_h - 1)
+            ) - 1  # Normalize to [-1, 1]
+            col_map_normalized = (
+                2.0 * col_map / (self._working_w - 1)
+            ) - 1  # Normalize to [-1, 1]
+
+            # Create the grid for grid_sample
+            grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
+            grid = grid.expand((batch_size, *grid.shape))
+            self._grid = grid.to(self._device)
+
+            # Perform the grid sampling with bicubic interpolation
+            # remapped_tensor = F.grid_sample(
+            #     source_tensor, grid, mode="bicubic", padding_mode="zeros", align_corners=False
+            # )
 
         # Give the mask a channel dimension if necessary
         mask = mask.expand((self._channels, self._working_h, self._working_w))
@@ -225,8 +244,23 @@ class ImageRemapper:
         elif len(source_tensor.shape) == 4:  # Multiple channels
             assert source_tensor.shape[2] == self._mask.shape[1]
             assert source_tensor.shape[3] == self._mask.shape[2]
-            destination_tensor = torch.empty_like(source_tensor)
-            destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
+            if not self._interpolation:
+                destination_tensor = torch.empty_like(source_tensor)
+                destination_tensor[:, :] = source_tensor[
+                    :, :, self._row_map, self._col_map
+                ]
+            else:
+                # Perform the grid sampling with bicubic interpolation
+                destination_tensor = F.grid_sample(
+                    source_tensor.to(torch.float32),
+                    self._grid,
+                    mode=self._interpolation,
+                    padding_mode="zeros",
+                    align_corners=False,
+                )
+                destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(
+                    torch.uint8
+                )
 
         destination_tensor[:, self._mask] = 0
         # Clip to the original size that was specified
@@ -273,8 +307,9 @@ def remap_video(
         device=device,
         source_hw=source_tensor.shape[-2:],
         channels=source_tensor.shape[1],
+        interpolation=interpolation,
     )
-    remapper.init()
+    remapper.init(batch_size=batch_size)
 
     timer = Timer()
     frame_count = 0
@@ -307,7 +342,13 @@ def remap_video(
 
 
 def main(args):
-    remap_video("left.mp4", args.video_dir, "mapping_0000", show=False)
+    remap_video(
+        "left.mp4",
+        args.video_dir,
+        "mapping_0000",
+        interpolation="bicubic",
+        show=True,
+    )
 
 
 if __name__ == "__main__":
