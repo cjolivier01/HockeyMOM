@@ -262,10 +262,10 @@ class ImageRemapper:
 
         src_w = self._source_hw[1]
         src_h = self._source_hw[0]
-        dest_w = col_map.shape[1]
-        dest_h = col_map.shape[0]
-        self._working_w = max(src_w, dest_w)
-        self._working_h = max(src_h, dest_h)
+        self._dest_w = col_map.shape[1]
+        self._dest_h = col_map.shape[0]
+        self._working_w = max(src_w, self._dest_w)
+        self._working_h = max(src_h, self._dest_h)
         print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
         col_map = pad_tensor_to_size(
@@ -300,8 +300,6 @@ class ImageRemapper:
         source_tensor = pad_tensor_to_size_batched(
             source_image, self._working_w, self._working_h, 0
         )
-        # if self._mask.shape != source_tensor.shape:
-        #     self._mask = self._mask.expand_as(source_tensor)
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 3:  # Single channel
             assert source_tensor.shape[1] == self._mask.shape[0]
@@ -310,17 +308,12 @@ class ImageRemapper:
         elif len(source_tensor.shape) == 4:  # Multiple channels
             assert source_tensor.shape[2] == self._mask.shape[1]
             assert source_tensor.shape[3] == self._mask.shape[2]
-            # _, c, _, _ = source_tensor.shape
             destination_tensor = torch.empty_like(source_tensor)
-
             destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
 
-            # for i in range(c):
-            #     destination_tensor[:, i] = source_tensor[
-            #         :, i, self._row_map, self._col_map
-            #     ]
-
         destination_tensor[:, self._mask] = 0
+        # Clip to the original size that was specified
+        destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
         return destination_tensor
 
 
@@ -400,7 +393,7 @@ def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
 
-    remap_image(video_left, args.video_dir, "mapping_0000", show=True)
+    remap_image(video_left, args.video_dir, "mapping_0000", show=False)
 
     # args.lfo = 15
     # args.rfo = 0
