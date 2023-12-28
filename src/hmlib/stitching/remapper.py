@@ -72,47 +72,6 @@ def make_parser():
     return parser
 
 
-#
-# WIP
-#
-def map_with_interpolation():
-    import torch
-    import torch.nn.functional as F
-    import torchvision.transforms as transforms
-    from PIL import Image
-
-    # Load your source image and convert it to a PyTorch tensor
-    source_image = Image.open("path_to_your_image.jpg")  # Replace with your image path
-    transform = transforms.ToTensor()
-    source_tensor = transform(source_image).unsqueeze(0)  # Add batch dimension
-
-    # Assuming row_map and col_map are already defined PyTorch tensors
-    # Normalize these tensors to [-1, 1] range as required by grid_sample
-    h, w = source_tensor.shape[2], source_tensor.shape[3]
-    row_map_normalized = (2.0 * row_map / (h - 1)) - 1  # Normalize to [-1, 1]
-    col_map_normalized = (2.0 * col_map / (w - 1)) - 1  # Normalize to [-1, 1]
-
-    # Create the grid for grid_sample
-    grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1).unsqueeze(
-        0
-    )  # Add batch dimension
-
-    # Perform the grid sampling with bicubic interpolation
-    remapped_tensor = F.grid_sample(
-        source_tensor, grid, mode="bicubic", padding_mode="zeros", align_corners=False
-    )
-
-    # Convert destination tensor back to an image
-    to_pil_image = transforms.ToPILImage()
-    destination_image = to_pil_image(
-        remapped_tensor.squeeze(0)
-    )  # Remove batch dimension
-
-    # Save or display the destination image
-    destination_image.save("remapped_image_bicubic.jpg")
-    # destination_image.show()  # Uncomment to display the image
-
-
 # Function to pad tensor to the target size
 def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
     if len(tensor.shape) == 2:
