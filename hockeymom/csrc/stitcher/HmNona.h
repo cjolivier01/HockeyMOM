@@ -43,6 +43,9 @@ class HmNona {
   get_control_points() const;
 
  private:
+
+  void set_ideal_output_size();
+
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
   HuginBase::Nona::AdvancedOptions adv_options_;
