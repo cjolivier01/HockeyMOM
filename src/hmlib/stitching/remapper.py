@@ -169,11 +169,6 @@ class ImageRemapper:
             grid = grid.expand((batch_size, *grid.shape))
             self._grid = grid.to(self._device)
 
-            # Perform the grid sampling with bicubic interpolation
-            # remapped_tensor = F.grid_sample(
-            #     source_tensor, grid, mode="bicubic", padding_mode="zeros", align_corners=False
-            # )
-
         # Give the mask a channel dimension if necessary
         mask = mask.expand((self._channels, self._working_h, self._working_w))
 
