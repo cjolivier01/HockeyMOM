@@ -228,6 +228,8 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
 
 
 class ImageRemapper:
+    UNMAPPED_PIXEL_VALUE = 65535
+
     def __init__(
         self,
         dir_name: str,
@@ -266,9 +268,15 @@ class ImageRemapper:
         self._working_h = max(src_h, dest_h)
         print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
-        col_map = pad_tensor_to_size(col_map, self._working_w, self._working_h, 65535)
-        row_map = pad_tensor_to_size(row_map, self._working_w, self._working_h, 65535)
-        mask = torch.logical_or(row_map == 65535, col_map == 65535)
+        col_map = pad_tensor_to_size(
+            col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+        )
+        row_map = pad_tensor_to_size(
+            row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+        )
+        mask = torch.logical_or(
+            row_map == self.UNMAPPED_PIXEL_VALUE, col_map == self.UNMAPPED_PIXEL_VALUE
+        )
         # The 65536 will result in an invalid index, so set these to 0,0
         # and we'll get rid of them later with the mask after the image is remapped
         col_map[mask] = 0
@@ -330,7 +338,11 @@ def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
 
 
 def remap_image(
-    video_file: str, dir_name: str, basename: str, interpolation: str = None
+    video_file: str,
+    dir_name: str,
+    basename: str,
+    interpolation: str = None,
+    show: bool = False,
 ):
     cap = cv2.VideoCapture(os.path.join(dir_name, video_file))
     if not cap or not cap.isOpened():
@@ -356,7 +368,7 @@ def remap_image(
     frame_count = 0
     while True:
         destination_tensor = remapper.remap(source_image=source_tensor)
-        # destination_tensor = destination_tensor.detach().cpu()
+        destination_tensor = destination_tensor.detach().cpu()
 
         frame_count += 1
         if frame_count != 1:
@@ -371,11 +383,12 @@ def remap_image(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        # for i in range(len(destination_tensor)):
-        #     cv2.imshow(
-        #         "mapped image", destination_tensor[i].permute(1, 2, 0).cpu().numpy()
-        #     )
-        #     cv2.waitKey(1)
+        if show:
+            for i in range(len(destination_tensor)):
+                cv2.imshow(
+                    "mapped image", destination_tensor[i].permute(1, 2, 0).cpu().numpy()
+                )
+                cv2.waitKey(1)
 
         source_tensor = read_frame_batch(cap, batch_size=batch_size)
         timer.tic()
