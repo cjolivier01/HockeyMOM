@@ -6,6 +6,7 @@ import time
 import argparse
 import yaml
 import numpy as np
+from typing import Tuple
 import cv2
 
 import torch
@@ -211,7 +212,89 @@ def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
     return padded_tensor
 
 
-def remap_image(video_file: str, dir_name: str, basename: str):
+class ImageRemapper:
+    def __init__(
+        self,
+        dir_name: str,
+        basename: str,
+        device: torch.device,
+        source_hw: Tuple[int],
+        interpolation: str = None,
+    ):
+        self._dir_name = dir_name
+        self._basename = basename
+        self._device = device
+        self._interpolation = interpolation
+        self._source_hw = source_hw
+        self._initialized = False
+
+    def init(self):
+        x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
+        y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
+        x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+        y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+        if x_map is None:
+            raise AssertionError(f"Could not read mapping file: {x_file}")
+        if y_map is None:
+            raise AssertionError(f"Could not read mapping file: {y_file}")
+        col_map = torch.from_numpy(x_map.astype(np.int64))
+        row_map = torch.from_numpy(y_map.astype(np.int64))
+
+        src_w = self._source_hw[1]
+        src_h = self._source_hw[0]
+        dest_w = col_map.shape[1]
+        dest_h = col_map.shape[0]
+        self._working_w = max(src_w, dest_w)
+        self._working_h = max(src_h, dest_h)
+        print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
+
+        col_map = pad_tensor_to_size(col_map, self._working_w, self._working_h, 65535)
+        row_map = pad_tensor_to_size(row_map, self._working_w, self._working_h, 65535)
+        mask = torch.logical_or(row_map == 65535, col_map == 65535)
+        # The 65536 will result in an invalid index, so set these to 0,0
+        # and we'll get rid of them later with the mask after the image is remapped
+        col_map[mask] = 0
+        row_map[mask] = 0
+        # Now give the mask a channel dimension if necessary
+        # mask = mask.expand_as(source_tensor)
+
+        self._col_map = col_map.contiguous().to(self._device)
+        self._row_map = row_map.contiguous().to(self._device)
+        self._mask = mask.contiguous().to(self._device)
+
+        self._initialized = True
+
+    def remap(self, source_image: torch.tensor):
+        assert self._initialized
+
+        # Per frame code
+        if source_image.device != self._device:
+            source_image = source_image.to(self._device)
+        source_tensor = pad_tensor_to_size(
+            source_image, self._working_w, self._working_h, 0
+        )
+        if self._mask.shape != source_tensor.shape:
+            self._mask = self._mask.expand_as(source_tensor)
+        # Check if source tensor is a single channel or has multiple channels
+        if len(source_tensor.shape) == 2:  # Single channel
+            assert source_tensor.shape[0] == self._mask.shape[0]
+            assert source_tensor.shape[1] == self._mask.shape[1]
+            destination_tensor = source_tensor[self._row_map, self._col_map]
+        elif len(source_tensor.shape) == 3:  # Multiple channels
+            assert source_tensor.shape[1] == self._mask.shape[1]
+            assert source_tensor.shape[2] == self._mask.shape[2]
+            c, h, w = source_tensor.shape
+            destination_tensor = torch.zeros_like(source_tensor)
+            for i in range(c):
+                destination_tensor[i] = source_tensor[i, self._row_map, self._col_map]
+
+        destination_tensor[self._mask] = 0
+        return destination_tensor
+
+
+def remap_image(
+    video_file: str, dir_name: str, basename: str, interpolation: str = None
+):
     cap = cv2.VideoCapture(os.path.join(dir_name, video_file))
     if not cap or not cap.isOpened():
         raise AssertionError(
@@ -227,56 +310,49 @@ def remap_image(video_file: str, dir_name: str, basename: str):
     if y_map is None:
         raise AssertionError(f"Could not read mapping file: {y_file}")
 
+    # Get the first frame
     res, frame = cap.read()
     if not res or frame is None:
         raise StopIteration()
     source_tensor = torch.from_numpy(frame.transpose(2, 0, 1))
 
-    col_map = torch.from_numpy(x_map.astype(np.int64))
-    row_map = torch.from_numpy(y_map.astype(np.int64))
+    device = "cuda"
 
-    src_w = source_tensor.shape[2]
-    src_h = source_tensor.shape[1]
-    dest_w = col_map.shape[1]
-    dest_h = col_map.shape[0]
-    working_w = max(src_w, dest_w)
-    working_h = max(src_h, dest_h)
-    # working_w = (working_w + 1) & ~1
-    # working_h = (working_h + 1) & ~1
-    print(f"Padding tensors to size w={working_w}, h={working_h}")
+    remapper = ImageRemapper(
+        dir_name=dir_name,
+        basename=basename,
+        device=device,
+        source_hw=source_tensor.shape[1:],
+    )
+    remapper.init()
 
-    col_map = pad_tensor_to_size(col_map, working_w, working_h, 65535)
-    row_map = pad_tensor_to_size(row_map, working_w, working_h, 65535)
-    mask = torch.logical_or(row_map == 65535, col_map == 65535)
+    timer = Timer()
+    frame_count = 0
+    while True:
+        destination_tensor = remapper.remap(source_image=source_tensor)
+        destination_tensor = destination_tensor.detach().cpu()
 
-    # The 65536 will result in an invalid index, so set these to 0,0
-    # and we'll get rid of them later with the mask after the image is remapped
-    col_map[mask] = 0
-    row_map[mask] = 0
+        frame_count += 1
+        if frame_count != 1:
+            timer.toc()
 
-    # Per frame code
-    source_tensor = pad_tensor_to_size(source_tensor, working_w, working_h, 0)
+        if frame_count % 20 == 0:
+            logger.info(
+                "Remapping: {:.2f} fps".format(1.0 / max(1e-5, timer.average_time))
+            )
+            if frame_count % 50 == 0:
+                timer = Timer()
 
-    # Check if source tensor is a single channel or has multiple channels
-    if len(source_tensor.shape) == 2:  # Single channel
-        assert source_tensor.shape[0] <= mask.shape[0]
-        assert source_tensor.shape[1] <= mask.shape[1]
-        destination_tensor = source_tensor[row_map, col_map]
-    elif len(source_tensor.shape) == 3:  # Multiple channels
-        assert source_tensor.shape[1] <= mask.shape[0]
-        assert source_tensor.shape[2] <= mask.shape[1]
-        c, h, w = source_tensor.shape
-        destination_tensor = torch.zeros_like(source_tensor)
-        for i in range(c):
-            destination_tensor[i] = source_tensor[i, row_map, col_map]
+        cv2.imshow("mapped image", destination_tensor.permute(1, 2, 0).cpu().numpy())
+        cv2.waitKey(1)
 
-    # Set places where 65536 was the mapping to 0 (black). Can also do this with alpha channel.
-    # TODO: Can we just use ":" in the first position?
-    mask = mask.expand_as(destination_tensor)
-    destination_tensor[mask] = 0
-
-    cv2.imshow("mapped image", destination_tensor.permute(1, 2, 0).cpu().numpy())
-    cv2.waitKey(0)
+        # Read next frame
+        res, frame = cap.read()
+        if not res or frame is None:
+            break
+        timer.tic()
+        source_tensor = torch.from_numpy(frame.transpose(2, 0, 1)).to(device)
+        # source_tensor = pad_tensor_to_size(source_tensor, working_w, working_h, 0)
 
 
 def main(args):
