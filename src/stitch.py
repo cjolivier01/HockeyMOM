@@ -220,12 +220,14 @@ class ImageRemapper:
         device: torch.device,
         source_hw: Tuple[int],
         interpolation: str = None,
+        channels: int = 3,
     ):
         self._dir_name = dir_name
         self._basename = basename
         self._device = device
         self._interpolation = interpolation
         self._source_hw = source_hw
+        self._channels = channels
         self._initialized = False
 
     def init(self):
@@ -255,8 +257,9 @@ class ImageRemapper:
         # and we'll get rid of them later with the mask after the image is remapped
         col_map[mask] = 0
         row_map[mask] = 0
-        # Now give the mask a channel dimension if necessary
-        # mask = mask.expand_as(source_tensor)
+
+        # Give the mask a channel dimension if necessary
+        mask = mask.expand((self._channels, self._working_h, self._working_w))
 
         self._col_map = col_map.contiguous().to(self._device)
         self._row_map = row_map.contiguous().to(self._device)
@@ -273,8 +276,8 @@ class ImageRemapper:
         source_tensor = pad_tensor_to_size(
             source_image, self._working_w, self._working_h, 0
         )
-        if self._mask.shape != source_tensor.shape:
-            self._mask = self._mask.expand_as(source_tensor)
+        # if self._mask.shape != source_tensor.shape:
+        #     self._mask = self._mask.expand_as(source_tensor)
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 2:  # Single channel
             assert source_tensor.shape[0] == self._mask.shape[0]
