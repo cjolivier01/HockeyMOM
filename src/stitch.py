@@ -310,8 +310,8 @@ class ImageRemapper:
         elif len(source_tensor.shape) == 4:  # Multiple channels
             assert source_tensor.shape[2] == self._mask.shape[1]
             assert source_tensor.shape[3] == self._mask.shape[2]
-            batch_size, c, h, w = source_tensor.shape
-            destination_tensor = torch.zeros_like(source_tensor)
+            _, c, _, _ = source_tensor.shape
+            destination_tensor = torch.empty_like(source_tensor)
             for i in range(c):
                 destination_tensor[:, i] = source_tensor[
                     :, i, self._row_map, self._col_map
@@ -398,7 +398,7 @@ def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
 
-    remap_image(video_left, args.video_dir, "mapping_0000")
+    remap_image(video_left, args.video_dir, "mapping_0000", show=True)
 
     # args.lfo = 15
     # args.rfo = 0
