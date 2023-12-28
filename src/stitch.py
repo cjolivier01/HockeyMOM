@@ -339,7 +339,7 @@ def remap_image(
         )
 
     device = "cuda"
-    batch_size = 16
+    batch_size = 8
 
     source_tensor = read_frame_batch(cap, batch_size=batch_size)
 
@@ -356,7 +356,7 @@ def remap_image(
     frame_count = 0
     while True:
         destination_tensor = remapper.remap(source_image=source_tensor)
-        destination_tensor = destination_tensor.detach().cpu()
+        # destination_tensor = destination_tensor.detach().cpu()
 
         frame_count += 1
         if frame_count != 1:
@@ -371,11 +371,11 @@ def remap_image(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        for i in range(len(destination_tensor)):
-            cv2.imshow(
-                "mapped image", destination_tensor[i].permute(1, 2, 0).cpu().numpy()
-            )
-            cv2.waitKey(1)
+        # for i in range(len(destination_tensor)):
+        #     cv2.imshow(
+        #         "mapped image", destination_tensor[i].permute(1, 2, 0).cpu().numpy()
+        #     )
+        #     cv2.waitKey(1)
 
         source_tensor = read_frame_batch(cap, batch_size=batch_size)
         timer.tic()
