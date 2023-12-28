@@ -212,6 +212,21 @@ def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
     return padded_tensor
 
 
+def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
+    if len(tensor.shape) == 3:
+        pad_height = target_height - tensor.size(1)
+        pad_width = target_width - tensor.size(2)
+    else:
+        assert len(tensor.shape) == 4
+        pad_height = target_height - tensor.size(2)
+        pad_width = target_width - tensor.size(3)
+    pad_height = max(0, pad_height)
+    pad_width = max(0, pad_width)
+    padding = [0, pad_width, 0, pad_height]
+    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
+    return padded_tensor
+
+
 class ImageRemapper:
     def __init__(
         self,
@@ -222,6 +237,7 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
     ):
+        assert len(source_hw) == 2
         self._dir_name = dir_name
         self._basename = basename
         self._device = device
@@ -273,25 +289,27 @@ class ImageRemapper:
         # Per frame code
         if source_image.device != self._device:
             source_image = source_image.to(self._device)
-        source_tensor = pad_tensor_to_size(
+        source_tensor = pad_tensor_to_size_batched(
             source_image, self._working_w, self._working_h, 0
         )
         # if self._mask.shape != source_tensor.shape:
         #     self._mask = self._mask.expand_as(source_tensor)
         # Check if source tensor is a single channel or has multiple channels
-        if len(source_tensor.shape) == 2:  # Single channel
-            assert source_tensor.shape[0] == self._mask.shape[0]
-            assert source_tensor.shape[1] == self._mask.shape[1]
+        if len(source_tensor.shape) == 3:  # Single channel
+            assert source_tensor.shape[1] == self._mask.shape[0]
+            assert source_tensor.shape[2] == self._mask.shape[1]
             destination_tensor = source_tensor[self._row_map, self._col_map]
-        elif len(source_tensor.shape) == 3:  # Multiple channels
-            assert source_tensor.shape[1] == self._mask.shape[1]
-            assert source_tensor.shape[2] == self._mask.shape[2]
-            c, h, w = source_tensor.shape
+        elif len(source_tensor.shape) == 4:  # Multiple channels
+            assert source_tensor.shape[2] == self._mask.shape[1]
+            assert source_tensor.shape[3] == self._mask.shape[2]
+            batch_size, c, h, w = source_tensor.shape
             destination_tensor = torch.zeros_like(source_tensor)
             for i in range(c):
-                destination_tensor[i] = source_tensor[i, self._row_map, self._col_map]
+                destination_tensor[:, i] = source_tensor[
+                    :, i, self._row_map, self._col_map
+                ]
 
-        destination_tensor[self._mask] = 0
+        destination_tensor[:, self._mask] = 0
         return destination_tensor
 
 
@@ -317,13 +335,14 @@ def remap_image(
         basename=basename,
         device=device,
         source_hw=source_tensor.shape[1:],
+        channels=source_tensor.shape[0],
     )
     remapper.init()
 
     timer = Timer()
     frame_count = 0
     while True:
-        destination_tensor = remapper.remap(source_image=source_tensor)
+        destination_tensor = remapper.remap(source_image=source_tensor.unsqueeze(0))
         destination_tensor = destination_tensor.detach().cpu()
 
         frame_count += 1
@@ -337,7 +356,7 @@ def remap_image(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        cv2.imshow("mapped image", destination_tensor.permute(1, 2, 0).cpu().numpy())
+        cv2.imshow("mapped image", destination_tensor[0].permute(1, 2, 0).cpu().numpy())
         cv2.waitKey(1)
 
         # Read next frame
