@@ -488,7 +488,7 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     #output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
-                    num_workers=1,
+                    num_workers=4,
                     blend_thread_count=4,
                     remap_thread_count=4,
                     fork_workers=False,
