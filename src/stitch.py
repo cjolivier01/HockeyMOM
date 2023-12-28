@@ -306,16 +306,19 @@ class ImageRemapper:
         if len(source_tensor.shape) == 3:  # Single channel
             assert source_tensor.shape[1] == self._mask.shape[0]
             assert source_tensor.shape[2] == self._mask.shape[1]
-            destination_tensor = source_tensor[self._row_map, self._col_map]
+            destination_tensor[:] = source_tensor[:, self._row_map, self._col_map]
         elif len(source_tensor.shape) == 4:  # Multiple channels
             assert source_tensor.shape[2] == self._mask.shape[1]
             assert source_tensor.shape[3] == self._mask.shape[2]
-            _, c, _, _ = source_tensor.shape
+            # _, c, _, _ = source_tensor.shape
             destination_tensor = torch.empty_like(source_tensor)
-            for i in range(c):
-                destination_tensor[:, i] = source_tensor[
-                    :, i, self._row_map, self._col_map
-                ]
+
+            destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
+
+            # for i in range(c):
+            #     destination_tensor[:, i] = source_tensor[
+            #         :, i, self._row_map, self._col_map
+            #     ]
 
         destination_tensor[:, self._mask] = 0
         return destination_tensor
@@ -326,7 +329,6 @@ def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
     res, frame = cap.read()
     if not res or frame is None:
         raise StopIteration()
-    assert frame.dtype == np.uint8
     frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
     for i in range(batch_size - 1):
         res, frame = cap.read()
