@@ -95,6 +95,15 @@ std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
   return std::move(final_frame->blended_image);
 }
 
+void StitchingDataLoader::add_remapped_frame(
+    std::size_t frame_id,
+    std::vector<std::shared_ptr<MatrixRGB>>&& images) {
+  auto frame_info = std::make_shared<FrameData>();
+  frame_info->frame_id = frame_id;
+  frame_info->remapped_images = std::move(images);
+  blend_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
+}
+
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {

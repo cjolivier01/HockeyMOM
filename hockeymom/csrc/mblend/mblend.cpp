@@ -215,9 +215,7 @@ class Blender {
   /**
    * @brief State data to reproduce a particular blend context
    */
-  struct BlenderState {
-
-  };
+  struct BlenderState {};
 
  public:
   Blender();
@@ -2467,61 +2465,6 @@ std::unique_ptr<MatrixRGB> EnBlender::blend_images(
   }
   assert(result == EXIT_SUCCESS);
   return output_image;
-}
-
-static std::mutex reusable_blender_mu;
-static std::unique_ptr<Blender> reusable_blender;
-
-std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
-  std::unique_lock<std::mutex> lk(reusable_blender_mu);
-
-  std::vector<std::string> args;
-  args.push_back("python");
-  args.push_back("--no-output");
-
-  int argc = args.size();
-  char** argv = new char*[argc];
-
-  for (int i = 0; i < argc; ++i) {
-    argv[i] = new char[args[i].length() + 1];
-    std::strcpy(argv[i], args[i].c_str());
-  }
-
-  std::vector<std::reference_wrapper<hm::MatrixRGB>> images;
-  images.push_back(image1);
-  images.push_back(image2);
-  std::unique_ptr<MatrixRGB> output_image;
-
-  BlenderImageState* current_state = nullptr;
-  static BlenderImageState persistent_blender_image_state;
-
-  int result = EXIT_SUCCESS;
-  if (!reusable_blender) {
-    reusable_blender = std::make_unique<Blender>();
-
-    result = reusable_blender->multiblend_main(
-        argc, argv, persistent_blender_image_state);
-    result = result ||
-        reusable_blender->process_images(persistent_blender_image_state);
-    result = result ||
-        reusable_blender->process_inputs(
-            persistent_blender_image_state, &output_image);
-  } else {
-    BlenderImageState current_image_state;
-    current_image_state.init_from_image_state(
-        persistent_blender_image_state, images);
-    result = result ||
-        reusable_blender->process_inputs(current_image_state, &output_image);
-  }
-  // Clean up the allocated memory
-  for (int i = 0; i < argc; ++i) {
-    delete[] argv[i];
-  }
-  delete[] argv;
-
-  assert(!result);
-
-  return std::move(output_image);
 }
 
 } // namespace enblend

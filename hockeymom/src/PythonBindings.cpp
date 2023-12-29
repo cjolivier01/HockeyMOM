@@ -89,7 +89,68 @@ PYBIND11_MODULE(_hockeymom, m) {
            bool,
            std::size_t,
            std::size_t,
-           std::size_t>());
+           std::size_t>())
+      .def(
+          "add_frame",
+          [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+             std::size_t frame_id,
+             std::optional<py::array_t<uint8_t>> image1,
+             std::optional<py::array_t<uint8_t>> image2) {
+            // We expect a three-channel RGB image here
+            if (!image1 && !image2) {
+              // Exiting
+              py::gil_scoped_release release_gil;
+              data_loader->add_frame(frame_id, {});
+              return frame_id;
+            }
+            assert(image1->ndim() == 3);
+            assert(image2->ndim() == 3);
+            auto m1 = std::make_shared<hm::MatrixRGB>(*image1, 0, 0);
+            auto m2 = std::make_shared<hm::MatrixRGB>(*image2, 0, 0);
+            {
+              py::gil_scoped_release release_gil;
+              data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
+            }
+            return frame_id;
+          })
+      .def(
+          "add_remapped_frame",
+          [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+             std::size_t frame_id,
+             std::optional<py::array_t<uint8_t>> image1,
+             std::optional<py::array_t<uint8_t>> image2) {
+            // We expect a three-channel RGB image here
+            if (!image1 && !image2) {
+              // Exiting
+              py::gil_scoped_release release_gil;
+              data_loader->add_frame(frame_id, {});
+              return frame_id;
+            }
+            assert(image1->ndim() == 3);
+            assert(image2->ndim() == 3);
+            auto m1 = std::make_shared<hm::MatrixRGB>(*image1, 0, 0);
+            auto m2 = std::make_shared<hm::MatrixRGB>(*image2, 0, 0);
+            {
+              py::gil_scoped_release release_gil;
+              data_loader->add_remapped_frame(
+                  frame_id, {std::move(m1), std::move(m2)});
+            }
+            return frame_id;
+          })
+      .def(
+          "get_stitched_frame",
+          [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+             std::size_t frame_id) -> std::optional<py::array_t<std::uint8_t>> {
+            std::shared_ptr<hm::MatrixRGB> stitched_image;
+            {
+              py::gil_scoped_release release_gil;
+              stitched_image = data_loader->get_stitched_frame(frame_id);
+              if (!stitched_image) {
+                return std::nullopt;
+              }
+            }
+            return stitched_image->to_py_array();
+          });
 
   using SortedPyArrayUin8Queue =
       hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
@@ -185,6 +246,40 @@ PYBIND11_MODULE(_hockeymom, m) {
             return std::make_tuple(key, matrix->to_py_array());
           });
 
+  py::class_<hm::enblend::EnBlender, std::shared_ptr<hm::enblend::EnBlender>>(
+      m, "EnBlender")
+      .def(py::init<>())
+      .def(
+          "blend_images",
+          [](std::shared_ptr<hm::enblend::EnBlender> blender,
+             py::array_t<std::uint8_t> image1,
+             const std::vector<std::size_t>& xy_pos_1,
+             py::array_t<std::uint8_t> image2,
+             const std::vector<std::size_t>& xy_pos_2)
+              -> py::array_t<std::uint8_t> {
+            auto m1 = std::make_shared<hm::MatrixRGB>(
+                image1, xy_pos_1.at(0), xy_pos_1.at(1));
+            auto m2 = std::make_shared<hm::MatrixRGB>(
+                image2, xy_pos_2.at(0), xy_pos_2.at(1));
+            std::unique_ptr<hm::MatrixRGB> blended_image;
+            {
+              py::gil_scoped_release release_gil;
+              blended_image = blender->blend_images(
+                  std::vector<std::shared_ptr<hm::MatrixRGB>>{
+                      std::move(m1), std::move(m2)});
+            }
+            py::array_t<std::uint8_t> result;
+            result = blended_image->to_py_array();
+            return result;
+          },
+          // They don't really have to be left/right here, just the proper order
+          // image-1 and image-2, but just for the sake of consistency, lets
+          // call it left and right
+          py::arg("left_image"),
+          py::arg("left_xy_pos"),
+          py::arg("right_image"),
+          py::arg("right_xy_pos"));
+
   m.def(
       "_add_to_stitching_data_loader",
       [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
@@ -237,23 +332,6 @@ PYBIND11_MODULE(_hockeymom, m) {
             std::move(output_image), std::move(input_files));
       });
 
-  m.def(
-      "_emblend_images",
-      [](py::array_t<uint8_t>& image1,
-         std::vector<std::size_t> xy_pos_1,
-         py::array_t<uint8_t>& image2,
-         std::vector<std::size_t> xy_pos_2) {
-        hm::MatrixRGB m1(image1, xy_pos_1.at(0), xy_pos_1.at(1));
-        hm::MatrixRGB m2(image2, xy_pos_2.at(0), xy_pos_2.at(1));
-        std::unique_ptr<hm::MatrixRGB> result;
-        {
-          py::gil_scoped_release release_gil;
-          // Just blend (no remap)
-          result = hm::enblend::enblend(m1, m2);
-        }
-        return result->to_py_array();
-      });
-
   py::class_<hm::HmNona, std::shared_ptr<hm::HmNona>>(m, "HmNona")
       .def(py::init<std::string>())
       .def("load_project", &hm::HmNona::load_project)
@@ -286,25 +364,5 @@ PYBIND11_MODULE(_hockeymom, m) {
           }
         }
         return results;
-      });
-
-  m.def(
-      "_stitch_images",
-      [](std::shared_ptr<hm::HmNona> nona,
-         py::array_t<uint8_t>& image1,
-         py::array_t<uint8_t>& image2) -> py::array_t<uint8_t> {
-        auto m1 = std::make_shared<hm::MatrixRGB>(image1, 0, 0);
-        auto m2 = std::make_shared<hm::MatrixRGB>(image2, 0, 0);
-        // First remap...
-        std::vector<std::unique_ptr<hm::MatrixRGB>> result_matrices;
-        std::unique_ptr<hm::MatrixRGB> result;
-        {
-          py::gil_scoped_release release_gil;
-          result_matrices = nona->remap_images(std::move(m1), std::move(m2));
-          // Then blend...
-          result = hm::enblend::enblend(
-              *result_matrices.at(0), *result_matrices.at(1));
-        }
-        return result->to_py_array();
       });
 }

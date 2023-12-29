@@ -82,6 +82,15 @@ def make_parser():
     return parser
 
 
+def show_image(image, label: str = "Image", wait: bool = False):
+    if image is not None:
+        if isinstance(image, torch.Tensor):
+            image = image.cpu().numpy()
+        cv2.imshow(label, image)
+    if wait is not None:
+        cv2.waitKey(0 if wait else 1)
+
+
 def stitch_videos(
     dir_name: str,
     video_left: str = "left.mp4",
@@ -191,6 +200,8 @@ def remap_video(
             f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
         )
 
+    blender = core.EnBlender()
+
     device = "cuda"
     batch_size = 2
 
@@ -241,17 +252,18 @@ def remap_video(
 
         if show:
             for i in range(len(destination_tensor_1)):
-                blended = core.emblend_images(
-                    image_left=destination_tensor_1[i].permute(1, 2, 0).numpy(),
-                    xy_pos_1=(remapper_1.xpos, remapper_1.ypos),
-                    image_right=destination_tensor_2[i].permute(1, 2, 0).numpy(),
-                    xy_pos_2=(remapper_2.xpos, remapper_2.ypos),
+                image_left = destination_tensor_1[i].permute(1, 2, 0).numpy()
+                image_right = destination_tensor_2[i].permute(1, 2, 0).numpy()
+                #show_image(image_left, wait=True)
+                #show_image(image_right, wait=True)
+                blended = blender.blend_images(
+                    left_image=image_left,
+                    left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
+                    right_image=image_right,
+                    right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
                 )
-                cv2.imshow("mapped image", blended.numpy())
-                # cv2.imshow(
-                #     "mapped image", destination_tensor_1[i].permute(1, 2, 0).numpy()
-                # )
-                cv2.waitKey(1)
+                show_image(blended, wait=True)
+                #show_image(image=None, wait=True)
 
         source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
         source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -268,7 +280,7 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         "mapping_0001",
-        #interpolation="bicubic",
+        # interpolation="bicubic",
         show=True,
     )
 

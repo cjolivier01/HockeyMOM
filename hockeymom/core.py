@@ -5,9 +5,7 @@ from typing import List
 from ._hockeymom import (
     _hello_world,
     _enblend,
-    _emblend_images,
     _nona_process_images,
-    _stitch_images,
     _add_to_stitching_data_loader,
     _get_stitched_frame_from_data_loader,
 )
@@ -17,19 +15,18 @@ from ._hockeymom import (
     HMPostprocessConfig,
     ImagePostProcessor,
     HmNona,
+    EnBlender,
     StitchingDataLoader,
     SortedRGBImageQueue,
     SortedPyArrayUin8Queue,
 )
 
-# from ._hockeymom import  _enblend
 __all__ = [
     "hello_world",
     "enblend",
-    "emblend_images",
     "HmNona",
     "nona_process_images",
-    "stitch_images",
+    "EnBlender",
 ]
 
 
@@ -41,21 +38,8 @@ def enblend(output_file: str, input_files: List[str]) -> int:
     return _enblend(output_file, input_files)
 
 
-def emblend_images(
-    image_left: np.array,
-    image_right: np.array,
-    xy_pos_1: List[int] = (0, 0),
-    xy_pos_2: List[int] = (0, 0),
-) -> np.array:
-    return _emblend_images(image_left, xy_pos_1, image_right, xy_pos_2)
-
-
 def nona_process_images(nona: HmNona, image_left: np.array, image_right: np.array):
     return _nona_process_images(nona, image_left, image_right)
-
-
-def stitch_images(nona: HmNona, image_left: np.array, image_right: np.array):
-    return _stitch_images(nona, image_left, image_right)
 
 
 def close_stitching_data_loader(

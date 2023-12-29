@@ -31,8 +31,6 @@ int enblend_main(
     std::string output_image,
     std::vector<std::string> input_files);
 
-std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2);
-
 class EnBlender {
  public:
   EnBlender(std::vector<std::string> args = {});

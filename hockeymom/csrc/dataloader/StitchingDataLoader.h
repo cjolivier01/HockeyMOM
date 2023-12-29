@@ -65,6 +65,10 @@ class StitchingDataLoader {
       std::size_t frame_id,
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
+  void add_remapped_frame(
+      std::size_t frame_id,
+      std::vector<std::shared_ptr<MatrixRGB>>&& images);
+
   std::shared_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
 
  private:
