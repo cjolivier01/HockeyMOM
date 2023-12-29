@@ -139,7 +139,7 @@ def stitch_videos(
     start = None
 
     dataset_timer = Timer()
-    for i, _ in enumerate(data_loader):
+    for i, stitched_image in enumerate(data_loader):
         if i > 1:
             dataset_timer.toc()
         if i % 20 == 0:
@@ -151,6 +151,9 @@ def stitch_videos(
             dataset_timer = Timer()
 
         frame_count += 1
+
+        show_image(stitched_image)
+
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
             start = time.time()
@@ -254,8 +257,8 @@ def remap_video(
             for i in range(len(destination_tensor_1)):
                 image_left = destination_tensor_1[i].permute(1, 2, 0).numpy()
                 image_right = destination_tensor_2[i].permute(1, 2, 0).numpy()
-                #show_image(image_left, wait=True)
-                #show_image(image_right, wait=True)
+                show_image(image_left, wait=True)
+                show_image(image_right, wait=True)
                 blended = blender.blend_images(
                     left_image=image_left,
                     left_xy_pos=[remapper_1.xpos, remapper_1.ypos],

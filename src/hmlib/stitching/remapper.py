@@ -175,12 +175,22 @@ class ImageRemapper:
             self._grid = grid.to(self._device)
 
         # Give the mask a channel dimension if necessary
-        mask = mask.expand((self._channels, self._working_h, self._working_w))
+        # mask = mask.expand((self._channels, self._working_h, self._working_w))
 
         self._col_map = col_map.contiguous().to(self._device)
         self._row_map = row_map.contiguous().to(self._device)
         self._mask = mask.contiguous().to(self._device)
 
+        # Set up the alpha channel
+        self._alpha_channel = torch.empty(
+            size=(batch_size, 1, self._working_h, self._working_w),
+            dtype=torch.uint8,
+            device=self._device,
+        )
+        self._alpha_channel.fill_(255)
+        self._alpha_channel[:, :, self._mask] = 0
+
+        # Done.
         self._initialized = True
 
     def remap(self, source_image: torch.tensor):
@@ -194,12 +204,12 @@ class ImageRemapper:
         )
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 3:  # Single channel
-            assert source_tensor.shape[1] == self._mask.shape[0]
-            assert source_tensor.shape[2] == self._mask.shape[1]
+            # assert source_tensor.shape[1] == self._mask.shape[0]
+            # assert source_tensor.shape[2] == self._mask.shape[1]
             destination_tensor[:] = source_tensor[:, self._row_map, self._col_map]
         elif len(source_tensor.shape) == 4:  # Multiple channels
-            assert source_tensor.shape[2] == self._mask.shape[1]
-            assert source_tensor.shape[3] == self._mask.shape[2]
+            # assert source_tensor.shape[2] == self._mask.shape[1]
+            # assert source_tensor.shape[3] == self._mask.shape[2]
             if not self._interpolation:
                 destination_tensor = torch.empty_like(source_tensor)
                 destination_tensor[:, :] = source_tensor[
@@ -217,8 +227,10 @@ class ImageRemapper:
                 destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(
                     torch.uint8
                 )
+        # Add an alpha channel
 
-        destination_tensor[:, self._mask] = 0
+        destination_tensor[:, :, self._mask] = 0
+        destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
         return destination_tensor
