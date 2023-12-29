@@ -206,7 +206,7 @@ def remap_video(
     blender = core.EnBlender()
 
     device = "cuda"
-    batch_size = 2
+    batch_size = 8
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -232,13 +232,18 @@ def remap_video(
     remapper_2.init(batch_size=batch_size)
 
     timer = Timer()
+    blend_timer = Timer()
     frame_count = 0
     while True:
         destination_tensor_1 = remapper_1.remap(source_image=source_tensor_1)
         destination_tensor_2 = remapper_2.remap(source_image=source_tensor_2)
 
-        destination_tensor_1 = destination_tensor_1.detach().cpu()
-        destination_tensor_2 = destination_tensor_2.detach().cpu()
+        destination_tensor_1 = (
+            destination_tensor_1.detach().permute(0, 2, 3, 1).contiguous().cpu()
+        )
+        destination_tensor_2 = (
+            destination_tensor_2.detach().permute(0, 2, 3, 1).contiguous().cpu()
+        )
 
         frame_count += 1
         if frame_count != 1:
@@ -253,20 +258,27 @@ def remap_video(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        if show:
-            for i in range(len(destination_tensor_1)):
-                image_left = destination_tensor_1[i].permute(1, 2, 0).numpy()
-                image_right = destination_tensor_2[i].permute(1, 2, 0).numpy()
-                show_image(image_left, wait=True)
-                show_image(image_right, wait=True)
-                blended = blender.blend_images(
-                    left_image=image_left,
-                    left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
-                    right_image=image_right,
-                    right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
+        blend_timer.tic()
+        for i in range(len(destination_tensor_1)):
+            blended = blender.blend_images(
+                left_image=destination_tensor_1[i],
+                left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
+                right_image=destination_tensor_2[i],
+                right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
+            )
+
+            #show_image(blended, wait=False)
+
+        blend_timer.toc()
+
+        if frame_count % 20 == 0:
+            print(
+                "Blending: {:.2f} fps".format(
+                    batch_size * 1.0 / max(1e-5, timer.average_time)
                 )
-                show_image(blended, wait=True)
-                #show_image(image=None, wait=True)
+            )
+            if frame_count % 50 == 0:
+                timer = Timer()
 
         source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
         source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
