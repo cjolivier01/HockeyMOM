@@ -295,7 +295,7 @@ class AsyncRemapperWorker(AsyncWorker):
 
     @property
     def xy_pos(self):
-        return {self._image_remapper.xpos, self._image_remapper.ypos}
+        return [self._image_remapper.xpos, self._image_remapper.ypos]
 
     def start(self, batch_size: int):
         self._batch_size = batch_size
