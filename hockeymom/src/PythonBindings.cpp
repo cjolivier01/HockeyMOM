@@ -118,7 +118,9 @@ PYBIND11_MODULE(_hockeymom, m) {
           [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
              std::size_t frame_id,
              std::optional<py::array_t<uint8_t>> image1,
-             std::optional<py::array_t<uint8_t>> image2) {
+             const std::vector<std::size_t>& xy_pos_1,
+             std::optional<py::array_t<uint8_t>> image2,
+             const std::vector<std::size_t>& xy_pos_2) {
             // We expect a three-channel RGB image here
             if (!image1 && !image2) {
               // Exiting
@@ -128,8 +130,10 @@ PYBIND11_MODULE(_hockeymom, m) {
             }
             assert(image1->ndim() == 3);
             assert(image2->ndim() == 3);
-            auto m1 = std::make_shared<hm::MatrixRGB>(*image1, 0, 0);
-            auto m2 = std::make_shared<hm::MatrixRGB>(*image2, 0, 0);
+            auto m1 = std::make_shared<hm::MatrixRGB>(
+                *image1, xy_pos_1.at(0), xy_pos_1.at(1));
+            auto m2 = std::make_shared<hm::MatrixRGB>(
+                *image2, xy_pos_2.at(0), xy_pos_2.at(1));
             {
               py::gil_scoped_release release_gil;
               data_loader->add_remapped_frame(

@@ -104,6 +104,17 @@ void StitchingDataLoader::add_remapped_frame(
   blend_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
+const std::shared_ptr<HmNona>& StitchingDataLoader::get_nona_worker(
+    std::size_t worker_index) {
+  std::scoped_lock lk(nonas_create_mu_);
+  if (!nonas_.at(worker_index)) {
+    set_thread_name("remapper", worker_index);
+    assert(worker_index < nonas_.size());
+    nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
+  }
+  return nonas_.at(worker_index);
+}
+
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
@@ -120,12 +131,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     frame->remapped_images.at(0)->set_xy_pos(0, 42);
     frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
-    if (!nonas_.at(worker_index)) {
-      set_thread_name("remapper", worker_index);
-      assert(worker_index < nonas_.size());
-      nonas_[worker_index] = std::make_unique<HmNona>(project_file_);
-    }
-    auto nona = nonas_[worker_index];
+    auto nona = get_nona_worker(worker_index);
     auto remapped = nona->remap_images(
         std::move(frame->input_images.at(0)),
         std::move(frame->input_images.at(1)));

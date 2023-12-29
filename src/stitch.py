@@ -206,7 +206,7 @@ def remap_video(
     blender = core.EnBlender()
 
     device = "cuda"
-    batch_size = 8
+    batch_size = 1
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -258,24 +258,21 @@ def remap_video(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        blend_timer.tic()
         for i in range(len(destination_tensor_1)):
+            blend_timer.tic()
             blended = blender.blend_images(
                 left_image=destination_tensor_1[i],
                 left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
                 right_image=destination_tensor_2[i],
                 right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
             )
+            blend_timer.toc()
 
-            #show_image(blended, wait=False)
-
-        blend_timer.toc()
+            # show_image(blended, wait=False)
 
         if frame_count % 20 == 0:
             print(
-                "Blending: {:.2f} fps".format(
-                    batch_size * 1.0 / max(1e-5, timer.average_time)
-                )
+                "Blending: {:.2f} fps".format(1.0 / max(1e-5, blend_timer.average_time))
             )
             if frame_count % 50 == 0:
                 timer = Timer()
@@ -289,27 +286,27 @@ def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
 
-    remap_video(
-        video_left,
-        video_right,
-        args.video_dir,
-        "mapping_0000",
-        "mapping_0001",
-        # interpolation="bicubic",
-        show=True,
-    )
-
-    # args.lfo = 15
-    # args.rfo = 0
-    # lfo, rfo = stitch_videos(
-    #     args.video_dir,
+    # remap_video(
     #     video_left,
     #     video_right,
-    #     lfo=args.lfo,
-    #     rfo=args.rfo,
-    #     project_file_name=args.project_file,
-    #     game_id=args.game_id,
+    #     args.video_dir,
+    #     "mapping_0000",
+    #     "mapping_0001",
+    #     # interpolation="bicubic",
+    #     show=True,
     # )
+
+    args.lfo = 15
+    args.rfo = 0
+    lfo, rfo = stitch_videos(
+        args.video_dir,
+        video_left,
+        video_right,
+        lfo=args.lfo,
+        rfo=args.rfo,
+        project_file_name=args.project_file,
+        game_id=args.game_id,
+    )
 
 
 if __name__ == "__main__":

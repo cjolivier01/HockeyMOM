@@ -73,6 +73,7 @@ class StitchingDataLoader {
 
  private:
   void initialize();
+  const std::shared_ptr<HmNona>& get_nona_worker(std::size_t worker_number);
 
   using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
 
@@ -95,6 +96,7 @@ class StitchingDataLoader {
   std::shared_ptr<JobRunnerT::InputQueue> input_queue_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
+  std::mutex nonas_create_mu_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
   std::shared_ptr<enblend::EnBlender> enblender_;
 };

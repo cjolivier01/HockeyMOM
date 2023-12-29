@@ -42,6 +42,8 @@ class HmNona {
   std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
   get_control_points() const;
 
+  //std::vector<std::tuple<long, long>> get_image_positions() const;
+
  private:
 
   void set_ideal_output_size();

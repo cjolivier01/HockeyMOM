@@ -33,6 +33,7 @@ def _get_dir_name(path):
 from hmlib.stitching.worker import (
     StitchingWorker,
     create_queue,
+    safe_put_queue,
     INFO,
     _LARGE_NUMBER_OF_FRAMES,
 )
