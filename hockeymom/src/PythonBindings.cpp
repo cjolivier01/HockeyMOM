@@ -252,21 +252,23 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(
           "blend_images",
           [](std::shared_ptr<hm::enblend::EnBlender> blender,
-             py::array_t<std::uint8_t> image1,
+             py::array_t<std::uint8_t>& image1,
              const std::vector<std::size_t>& xy_pos_1,
-             py::array_t<std::uint8_t> image2,
+             py::array_t<std::uint8_t>& image2,
              const std::vector<std::size_t>& xy_pos_2)
               -> py::array_t<std::uint8_t> {
+            assert(image1.ndim() == 3);
+            assert(image2.ndim() == 3);
             auto m1 = std::make_shared<hm::MatrixRGB>(
-                image1, xy_pos_1.at(0), xy_pos_1.at(1));
+                image1, xy_pos_1.at(0), xy_pos_1.at(1), /*copy_data=*/true);
             auto m2 = std::make_shared<hm::MatrixRGB>(
-                image2, xy_pos_2.at(0), xy_pos_2.at(1));
+                image2, xy_pos_2.at(0), xy_pos_2.at(1), /*copy_data=*/true);
             std::unique_ptr<hm::MatrixRGB> blended_image;
             {
               py::gil_scoped_release release_gil;
               blended_image = blender->blend_images(
-                  std::vector<std::shared_ptr<hm::MatrixRGB>>{
-                      std::move(m1), std::move(m2)});
+                  std::vector<std::shared_ptr<hm::MatrixRGB>>{m1, m2});
+              std::cout << "Back from blending" << std::endl;
             }
             py::array_t<std::uint8_t> result;
             result = blended_image->to_py_array();
