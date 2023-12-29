@@ -268,7 +268,6 @@ PYBIND11_MODULE(_hockeymom, m) {
               py::gil_scoped_release release_gil;
               blended_image = blender->blend_images(
                   std::vector<std::shared_ptr<hm::MatrixRGB>>{m1, m2});
-              std::cout << "Back from blending" << std::endl;
             }
             py::array_t<std::uint8_t> result;
             result = blended_image->to_py_array();
