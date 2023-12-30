@@ -316,7 +316,7 @@ class AsyncRemapperWorker(AsyncWorker):
                     break
                 if isinstance(msg, Exception):
                     raise msg
-                remapped_image = self._image_remapper.remap(source_image=msg)
+                remapped_image = self._image_remapper.forward(source_image=msg)
                 self.deliver_item(remapped_image)
         except Exception as e:
             self.deliver_item(e)
