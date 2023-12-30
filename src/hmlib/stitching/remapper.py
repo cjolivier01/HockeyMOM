@@ -114,6 +114,7 @@ class ImageRemapper:
         source_hw: Tuple[int],
         interpolation: str = None,
         channels: int = 3,
+        add_alpha_channel: bool = False,
     ):
         assert len(source_hw) == 2
         self._dir_name = dir_name
@@ -122,6 +123,7 @@ class ImageRemapper:
         self._interpolation = interpolation
         self._source_hw = source_hw
         self._channels = channels
+        self._add_alpha_channel = add_alpha_channel
         self._initialized = False
 
     def init(self, batch_size: int):
@@ -182,14 +184,15 @@ class ImageRemapper:
         self._row_map = row_map.contiguous().to(self._device)
         self._mask = mask.contiguous().to(self._device)
 
-        # Set up the alpha channel
-        self._alpha_channel = torch.empty(
-            size=(batch_size, 1, self._working_h, self._working_w),
-            dtype=torch.uint8,
-            device=self._device,
-        )
-        self._alpha_channel.fill_(255)
-        self._alpha_channel[:, :, self._mask] = 0
+        if self._add_alpha_channel:
+            # Set up the alpha channel
+            self._alpha_channel = torch.empty(
+                size=(batch_size, 1, self._working_h, self._working_w),
+                dtype=torch.uint8,
+                device=self._device,
+            )
+            self._alpha_channel.fill_(255)
+            self._alpha_channel[:, :, self._mask] = 0
 
         # Done.
         self._initialized = True
@@ -229,7 +232,10 @@ class ImageRemapper:
         # Add an alpha channel
 
         destination_tensor[:, :, self._mask] = 0
-        destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
+        if self._add_alpha_channel:
+            destination_tensor = torch.cat(
+                (destination_tensor, self._alpha_channel), dim=1
+            )
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
         return destination_tensor

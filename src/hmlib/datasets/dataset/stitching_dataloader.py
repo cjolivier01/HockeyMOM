@@ -80,9 +80,11 @@ class StitchDataset:
         num_workers: int = 1,
         fork_workers: bool = False,
         image_roi: List[int] = None,
+        device: torch.device = "cpu",
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
+        self._device = device
         self._output_stitched_video_file = output_stitched_video_file
         self._output_video = None
         self._video_1_offset_frame = video_1_offset_frame
@@ -171,6 +173,7 @@ class StitchDataset:
             max_frames=max_frames,
             frame_stride_count=frame_stride_count,
             multiprocessingt_queue=self._fork_workers,
+            device=self._device,
         )
         return stitching_worker
 
