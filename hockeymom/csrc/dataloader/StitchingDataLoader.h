@@ -93,6 +93,7 @@ class StitchingDataLoader {
  private:
   void initialize();
   const std::shared_ptr<HmNona>& get_nona_worker(std::size_t worker_number);
+  std::shared_ptr<ops::ImageRemapper> get_remapper(std::size_t image_index);
 
   using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
 

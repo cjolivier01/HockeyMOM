@@ -105,6 +105,32 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     return padded_tensor
 
 
+def create_remapper_config(
+    dir_name: str,
+    basename: str,
+    image_index: int,
+    batch_size: int,
+    source_hw: Tuple[int],
+    device: str,
+) -> core.RemapperConfig:
+    x_file = os.path.join(dir_name, f"{basename}000{image_index}_x.tif")
+    y_file = os.path.join(dir_name, f"{basename}000{image_index}_y.tif")
+    x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+    y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+    if x_map is None:
+        raise AssertionError(f"Could not read mapping file: {x_file}")
+    if y_map is None:
+        raise AssertionError(f"Could not read mapping file: {y_file}")
+    config = core.RemapperConfig()
+    config.source_height = source_hw[0]
+    config.source_width = source_hw[1]
+    config.device = device
+    config.col_map = torch.from_numpy(x_map.astype(np.int64))
+    config.row_map = torch.from_numpy(y_map.astype(np.int64))
+    config.batch_size = batch_size
+    return config
+
+
 class ImageRemapper:
     UNMAPPED_PIXEL_VALUE = 65535
 
@@ -377,7 +403,7 @@ class AsyncRemapperWorker(AsyncWorker):
         super(AsyncRemapperWorker, self).start()
 
     def run(self, **kwargs):
-        #self._image_remapper.init(self._batch_size)
+        # self._image_remapper.init(self._batch_size)
         try:
             while True:
                 msg = self._incoming_queue.get()

@@ -98,18 +98,30 @@ void StitchingDataLoader::configure_remapper(
     std::vector<ops::RemapperConfig> remapper_configs) {
   remapper_configs_ = std::move(remapper_configs);
   remappers_.clear();
-  for (const auto& config : remapper_configs_) {
-    auto remapper = std::make_shared<ops::ImageRemapper>(
-        config.src_width,
-        config.src_height,
-        config.col_map,
-        config.row_map,
-        config.add_alpha_channel,
-        config.interpolation);
-    remapper->init(config.batch_size);
-    remapper->to(config.device);
-    remappers_.emplace_back(remapper);
+}
+
+std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
+    std::size_t image_index) {
+  std::scoped_lock lk(nonas_create_mu_);
+  if (!remapper_configs_.empty()) {
+    std::shared_ptr<ops::ImageRemapper> remapper;
+    if (remappers_.empty()) {
+      for (const auto& config : remapper_configs_) {
+        auto remapper = std::make_shared<ops::ImageRemapper>(
+            config.src_width,
+            config.src_height,
+            config.col_map,
+            config.row_map,
+            config.add_alpha_channel,
+            config.interpolation);
+        remapper->init(config.batch_size);
+        remapper->to(config.device);
+        remappers_.emplace_back(remapper);
+      }
+    }
+    return remapper;
   }
+  return nullptr;
 }
 
 void StitchingDataLoader::shutdown() {
@@ -121,7 +133,6 @@ void StitchingDataLoader::shutdown() {
 void StitchingDataLoader::initialize() {
   assert(nonas_.empty());
   nonas_.resize(remap_thread_count_);
-  remappers_.resize(2) /* left, right */;
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
 #ifndef FAKE_BLEND
@@ -222,7 +233,8 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
       frame->remapped_images.resize(frame->torch_input_images.size());
       for (std::size_t i = 0; i < frame->torch_input_images.size(); ++i) {
         auto img = frame->torch_input_images[i];
-        auto& remapper = remappers_.at(i);
+        auto remapper = get_remapper(i);
+        assert(remapper);
         local_pool.Schedule([this, frame, index = i, img, r = remapper]() {
           at::Tensor remapped = remappers_.at(index)->remap(
               img.tensor.to(remapper_configs_.at(index).device));

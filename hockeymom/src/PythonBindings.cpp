@@ -69,6 +69,7 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::ops::RemapperConfig, std::shared_ptr<hm::ops::RemapperConfig>>(
       m, "RemapperConfig")
+      .def(py::init<>())
       .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
       .def_readwrite("src_height", &hm::ops::RemapperConfig::src_height)
       .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)

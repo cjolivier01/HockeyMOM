@@ -23,6 +23,7 @@ from hmlib.stitching.remapper import (
     PairCallback,
     RemappedPair,
     ImageRemapper,
+    create_remapper_config,
 )
 
 # Some arbitrarily huge number of frames
@@ -218,7 +219,7 @@ class StitchingWorker:
             # Rank 0 will process the first frame normally
             return
 
-        # TODO: Pass first frame through stitcher in order 
+        # TODO: Pass first frame through stitcher in order
         #       to init all blenders from the same image
 
         for _ in range(self._rank):
@@ -270,10 +271,37 @@ class StitchingWorker:
             self._blend_thread_count,
         )
 
-        # self._remapper_conifg_1 = core.RemapperConfig()
-        # self._remapper_conifg_1.src_width = int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH))
-        # self._remapper_conifg_1.src_height =int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if self._use_pytorch_remap:
+            self._remapper_config_1 = create_remapper_config(
+                dir_name=os.path.dirname(self._video_file_1),
+                image_index=0,
+                basename="mapping_",
+                source_hw=(
+                    int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                    int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                ),
+                batch_size=1,
+                device=self._remapping_device,
+            )
 
+            self._remapper_config_2 = create_remapper_config(
+                dir_name=os.path.dirname(self._video_file_2),
+                image_index=1,
+                basename="mapping_",
+                source_hw=(
+                    int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                    int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                ),
+                batch_size=1,
+                device=self._remapping_device,
+            )
+            self._stitcher.configure_remapper(
+                remapper_config=[
+                    self._remapper_config_1,
+                    self._remapper_config_2,
+                ]
+            )
+            
         self._initialize_from_initial_frame()
 
         # TODO: adjust max frames based on this
