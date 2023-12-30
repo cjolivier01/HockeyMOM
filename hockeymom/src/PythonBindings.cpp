@@ -1,4 +1,4 @@
-#include "hockeymom/csrc/camera/CamProps.h"
+//#include "hockeymom/csrc/camera/CamProps.h"
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
@@ -6,6 +6,9 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <iostream>
+
+#include <torch/extension.h>
+#include <torch/torch.h>
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
@@ -390,22 +393,42 @@ PYBIND11_MODULE(_hockeymom, m) {
         return hm::ops::add_tensors(t1, t2);
       },
       py::arg("t1"),
-      py::arg("t2"));
+      py::arg("t2"),
+      py::call_guard<py::gil_scoped_release>());
   py::class_<hm::ops::ImageRemapper, std::shared_ptr<hm::ops::ImageRemapper>>(
       m, "ImageRemapper")
       .def(
           py::init<
+              std::size_t,
+              std::size_t,
               at::Tensor,
               at::Tensor,
-              at::Device,
               bool,
-              std::optional<std::string>>(),
+              std::string>(),
+          py::arg("src_width"),
+          py::arg("src_height"),
           py::arg("col_map"),
           py::arg("row_map"),
-          py::arg("device"),
           py::arg("add_alpha_channel"),
-          py::arg("interpolation"))
-      .def("init", &hm::ops::ImageRemapper::init)
-      .def("is_initialized", &hm::ops::ImageRemapper::is_initialized)
-      .def("remap", &hm::ops::ImageRemapper::remap, py::arg("source_tensor"));
+          py::arg("interpolation"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "init",
+          &hm::ops::ImageRemapper::init,
+          py::arg("batch_size"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "to",
+          &hm::ops::ImageRemapper::to,
+          py::arg("device"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "is_initialized",
+          &hm::ops::ImageRemapper::is_initialized,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "remap",
+          &hm::ops::ImageRemapper::remap,
+          py::arg("source_tensor"),
+          py::call_guard<py::gil_scoped_release>());
 }

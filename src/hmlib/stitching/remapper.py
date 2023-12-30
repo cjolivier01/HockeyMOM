@@ -117,14 +117,16 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
-        fake_remapping: bool = True,
+        fake_remapping: bool = False,
         use_cpp_remap_op: bool = True,
     ):
         assert len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
         self._dir_name = dir_name
         self._basename = basename
-        self._device = device
+        self._device = (
+            device if isinstance(device, torch.device) else torch.device(device)
+        )
         self._interpolation = interpolation
         self._source_hw = source_hw
         self._channels = channels
@@ -153,18 +155,21 @@ class ImageRemapper:
         col_map = torch.from_numpy(x_map.astype(np.int64))
         row_map = torch.from_numpy(y_map.astype(np.int64))
 
+        src_w = self._source_hw[1]
+        src_h = self._source_hw[0]
+
         if self._use_cpp_remap_op:
             self._remap_op = core.ImageRemapper(
-                col_map=col_map,
-                row_map=row_map,
-                device=self._device,
-                add_alpha_channel=self._add_alpha_channel,
-                interpolation=self._interpolation,
+                src_w,
+                src_h,
+                col_map,
+                row_map,
+                self._add_alpha_channel,
+                self._interpolation,
             )
-            self._remap_op.init()
+            self._remap_op.init(batch_size=batch_size)
+            self._remap_op.to(device=str(self._device))
         else:
-            src_w = self._source_hw[1]
-            src_h = self._source_hw[0]
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
             self._working_w = max(src_w, self._dest_w)
@@ -187,7 +192,7 @@ class ImageRemapper:
             col_map[mask] = 0
             row_map[mask] = 0
 
-            if self._interpolation:
+            if self._interpolation or True:
                 row_map_normalized = (
                     2.0 * row_map / (self._working_h - 1)
                 ) - 1  # Normalize to [-1, 1]
