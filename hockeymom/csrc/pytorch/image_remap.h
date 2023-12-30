@@ -5,6 +5,17 @@
 namespace hm {
 namespace ops {
 
+struct RemapperConfig {
+  std::size_t src_width{0};
+  std::size_t src_height{0};
+  at::Tensor col_map;
+  at::Tensor row_map;
+  bool add_alpha_channel{false};
+  std::string interpolation;
+  std::size_t batch_size{1};
+  std::string device{"cpu"};
+};
+
 class ImageRemapper {
  public:
   ImageRemapper(

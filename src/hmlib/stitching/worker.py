@@ -218,6 +218,9 @@ class StitchingWorker:
             # Rank 0 will process the first frame normally
             return
 
+        # TODO: Pass first frame through stitcher in order 
+        #       to init all blenders from the same image
+
         for _ in range(self._rank):
             # print(f"rank {self._rank} pre-reading frame {i}")
             res1, _ = self._video1.read()
@@ -266,6 +269,10 @@ class StitchingWorker:
             self._remap_thread_count,
             self._blend_thread_count,
         )
+
+        # self._remapper_conifg_1 = core.RemapperConfig()
+        # self._remapper_conifg_1.src_width = int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH))
+        # self._remapper_conifg_1.src_height =int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         self._initialize_from_initial_frame()
 

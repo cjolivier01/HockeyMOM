@@ -67,17 +67,17 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "ImagePostProcessor")
       .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>, std::string>());
 
-  py::class_<hm::RemapperConfig, std::shared_ptr<hm::RemapperConfig>>(
+  py::class_<hm::ops::RemapperConfig, std::shared_ptr<hm::ops::RemapperConfig>>(
       m, "RemapperConfig")
-      .def_readwrite("src_width", &hm::RemapperConfig::src_width)
-      .def_readwrite("src_height", &hm::RemapperConfig::src_height)
-      .def_readwrite("col_map", &hm::RemapperConfig::col_map)
-      .def_readwrite("row_map", &hm::RemapperConfig::row_map)
+      .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
+      .def_readwrite("src_height", &hm::ops::RemapperConfig::src_height)
+      .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
+      .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
       .def_readwrite(
-          "add_alpha_channel", &hm::RemapperConfig::add_alpha_channel)
-      .def_readwrite("interpolation", &hm::RemapperConfig::interpolation)
-      .def_readwrite("batch_size", &hm::RemapperConfig::batch_size)
-      .def_readwrite("device", &hm::RemapperConfig::device);
+          "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
+      .def_readwrite("interpolation", &hm::ops::RemapperConfig::interpolation)
+      .def_readwrite("batch_size", &hm::ops::RemapperConfig::batch_size)
+      .def_readwrite("device", &hm::ops::RemapperConfig::device);
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")

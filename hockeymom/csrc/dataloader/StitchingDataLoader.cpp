@@ -95,7 +95,7 @@ StitchingDataLoader::~StitchingDataLoader() {
 }
 
 void StitchingDataLoader::configure_remapper(
-    std::vector<RemapperConfig> remapper_configs) {
+    std::vector<ops::RemapperConfig> remapper_configs) {
   remapper_configs_ = std::move(remapper_configs);
   remappers_.clear();
   for (const auto& config : remapper_configs_) {

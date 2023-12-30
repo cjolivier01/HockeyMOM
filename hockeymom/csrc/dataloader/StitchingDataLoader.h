@@ -44,17 +44,6 @@ struct FrameData {
   std::shared_ptr<MatrixRGB> blended_image;
 };
 
-struct RemapperConfig {
-  std::size_t src_width{0};
-  std::size_t src_height{0};
-  at::Tensor col_map;
-  at::Tensor row_map;
-  bool add_alpha_channel{false};
-  std::string interpolation;
-  std::size_t batch_size{1};
-  std::string device{"cpu"};
-};
-
 /* clang-format off */
 /**
  *   _____ _   _  _        _     _             _____        _         _                      _
@@ -82,7 +71,7 @@ class StitchingDataLoader {
       std::size_t blend_thread_count);
   ~StitchingDataLoader();
 
-  void configure_remapper(std::vector<RemapperConfig> remapper_configs);
+  void configure_remapper(std::vector<ops::RemapperConfig> remapper_configs);
 
   void add_frame(
       std::size_t frame_id,
@@ -130,7 +119,7 @@ class StitchingDataLoader {
   std::vector<std::shared_ptr<HmNona>> nonas_;
   std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
-  std::vector<RemapperConfig> remapper_configs_;
+  std::vector<ops::RemapperConfig> remapper_configs_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
 };
