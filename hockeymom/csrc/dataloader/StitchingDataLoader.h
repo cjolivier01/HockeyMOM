@@ -5,14 +5,16 @@
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
-#include <condition_variable>
-#include <cstdint>
-#include <map>
+// #include <condition_variable>
+// #include <cstdint>
+// #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
+//#include <thread>
 #include <vector>
+
+#include <ATen/ATen.h>
 
 namespace hm {
 
@@ -64,6 +66,13 @@ class StitchingDataLoader {
   void add_frame(
       std::size_t frame_id,
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
+
+  void add_torch_frame(
+      std::size_t frame_id,
+      at::Tensor images_1,
+      std::vector<int> xy_pos_1,
+      at::Tensor images_2,
+      std::vector<int> xy_pos_2);
 
   void add_remapped_frame(
       std::size_t frame_id,

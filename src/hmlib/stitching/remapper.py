@@ -112,28 +112,30 @@ class ImageRemapper:
         self,
         dir_name: str,
         basename: str,
-        device: torch.device,
         source_hw: Tuple[int],
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
         fake_remapping: bool = False,
-        use_cpp_remap_op: bool = True,
+        use_cpp_remap_op: bool = False,
     ):
         assert len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
         self._dir_name = dir_name
         self._basename = basename
-        self._device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
         self._interpolation = interpolation
         self._source_hw = source_hw
         self._channels = channels
         self._add_alpha_channel = add_alpha_channel
+        self._alpha_channel = None
+        self._grid = None
         self._fake_remapping = fake_remapping
         self._initialized = False
         self._remap_op = None
+
+    @property
+    def device(self):
+        return self._mask.device
 
     def init(self, batch_size: int):
         x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
@@ -168,7 +170,6 @@ class ImageRemapper:
                 self._interpolation,
             )
             self._remap_op.init(batch_size=batch_size)
-            self._remap_op.to(device=str(self._device))
         else:
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
@@ -202,28 +203,41 @@ class ImageRemapper:
 
                 # Create the grid for grid_sample
                 grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
-                grid = grid.expand((batch_size, *grid.shape))
-                self._grid = grid.to(self._device)
+                self._grid = grid.expand((batch_size, *grid.shape))
 
             # Give the mask a channel dimension if necessary
             # mask = mask.expand((self._channels, self._working_h, self._working_w))
 
-            self._col_map = col_map.contiguous().to(self._device)
-            self._row_map = row_map.contiguous().to(self._device)
-            self._mask = mask.contiguous().to(self._device)
+            self._col_map = col_map.contiguous()
+            self._row_map = row_map.contiguous()
+            self._mask = mask.contiguous()
 
             if self._add_alpha_channel:
                 # Set up the alpha channel
                 self._alpha_channel = torch.empty(
                     size=(batch_size, 1, self._working_h, self._working_w),
                     dtype=torch.uint8,
-                    device=self._device,
                 )
                 self._alpha_channel.fill_(255)
                 self._alpha_channel[:, :, self._mask] = 0
 
         # Done.
         self._initialized = True
+
+    def to(self, device: torch.device):
+        if self._fake_remapping:
+            return
+        dev = str(device)
+        if self._use_cpp_remap_op:
+            self._remap_op.to(dev)
+        else:
+            self._col_map = self._col_map.to(dev)
+            self._row_map = self._row_map.to(dev)
+            self._mask = self._mask.to(dev)
+            if self._grid is not None:
+                self._grid = self._grid.to(dev)
+            if self._add_alpha_channel:
+                self._alpha_channel = self._alpha_channel.to(dev)
 
     def forward(self, source_image: torch.tensor):
         assert self._initialized
@@ -234,8 +248,8 @@ class ImageRemapper:
         if self._fake_remapping:
             return source_image.clone()
 
-        if source_image.device != self._device:
-            source_image = source_image.to(self._device)
+        # if source_image.device != self._device:
+        #     source_image = source_image.to(self._device)
 
         if self._use_cpp_remap_op:
             assert self._remap_op is not None
@@ -416,12 +430,12 @@ def remap_video(
     remapper = ImageRemapper(
         dir_name=dir_name,
         basename=basename,
-        device=device,
         source_hw=source_tensor.shape[-2:],
         channels=source_tensor.shape[1],
         interpolation=interpolation,
     )
     remapper.init(batch_size=batch_size)
+    remapper.to(device=device)
 
     timer = Timer()
     frame_count = 0
@@ -458,7 +472,7 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        #interpolation="bilinear",
+        # interpolation="bilinear",
         interpolation="",
         show=True,
     )

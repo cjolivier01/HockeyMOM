@@ -6,8 +6,8 @@
 
 namespace hm {
 
-//#define FAKE_REMAP  // ~4 fps
-#define FAKE_BLEND   // ~10 fps
+#define FAKE_REMAP  // ~4 fps
+#define FAKE_BLEND // ~10 fps
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
@@ -93,6 +93,15 @@ std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
     return nullptr;
   }
   return std::move(final_frame->blended_image);
+}
+
+void StitchingDataLoader::add_torch_frame(
+    std::size_t frame_id,
+    at::Tensor images_1,
+    std::vector<int> xy_pos_1,
+    at::Tensor images_2,
+    std::vector<int> xy_pos_2) {
+  assert(false); // IMPLEMENT ME
 }
 
 void StitchingDataLoader::add_remapped_frame(

@@ -102,6 +102,15 @@ PYBIND11_MODULE(_hockeymom, m) {
             return frame_id;
           })
       .def(
+          "add_torch_frame",
+          &hm::StitchingDataLoader::add_torch_frame,
+          py::arg("frame_id"),
+          py::arg("image_1"),
+          py::arg("xy_pos_1"),
+          py::arg("image_2"),
+          py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
           "add_remapped_frame",
           [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
              std::size_t frame_id,

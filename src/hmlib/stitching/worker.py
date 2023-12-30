@@ -295,13 +295,13 @@ class StitchingWorker:
             remapper_1 = ImageRemapper(
                 dir_name=project_dir,
                 basename="mapping_0000",
-                device=self._remapping_device,
                 source_hw=[
                     int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 ],
                 interpolation=None,
             )
+            #remapper_1.to(device=self._remapping_device)
             self._remapper_1 = AsyncRemapperWorker(
                 image_remapper=remapper_1,
                 pair_callback=self._pair_callback.aggregate_callback_1,
@@ -309,13 +309,13 @@ class StitchingWorker:
             remapper_2 = ImageRemapper(
                 dir_name=project_dir,
                 basename="mapping_0001",
-                device=self._remapping_device,
                 source_hw=[
                     int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 ],
                 interpolation=None,
             )
+            #remapper_2.to(device=self._remapping_device)
             self._remapper_2 = AsyncRemapperWorker(
                 image_remapper=remapper_2,
                 pair_callback=self._pair_callback.aggregate_callback_2,
