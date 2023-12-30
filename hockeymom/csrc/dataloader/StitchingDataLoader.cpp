@@ -5,10 +5,53 @@
 #include <unistd.h>
 #include <memory>
 
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+#include <torch/torch.h>
+
 namespace hm {
 
 //#define FAKE_REMAP // ~4 fps
 #define FAKE_BLEND // ~10 fps
+
+namespace {
+py::array_t<uint8_t> tensor_to_numpy(at::Tensor tensor) {
+  // Ensure the tensor is on CPU and is contiguous
+  tensor = tensor.contiguous();
+
+  // Ensure the tensor is of type uint8_t
+  if (tensor.dtype() != at::kByte) {
+    tensor = tensor.to(at::kByte);
+  }
+
+  // Get the dimensions of the tensor
+  auto dims = tensor.sizes();
+  std::vector<std::ptrdiff_t> shape(dims.begin(), dims.end());
+  auto strides_array_ref = tensor.strides();
+  std::vector<std::ptrdiff_t> strides{
+      strides_array_ref.begin(), strides_array_ref.end()};
+  std::transform(
+      strides.begin(),
+      strides.end(),
+      strides.begin(),
+      [tensor](std::ptrdiff_t stride) {
+        return stride * tensor.element_size();
+      });
+
+  // Create a NumPy array with the same data
+  return py::array_t<uint8_t>(shape, strides, tensor.data_ptr<uint8_t>());
+}
+
+std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
+    at::Tensor tensor,
+    const std::vector<int>& xy_pos,
+    bool copy_data) {
+  py::array_t<uint8_t> array = tensor_to_numpy(tensor);
+  return std::make_shared<MatrixRGB>(
+      array, xy_pos.at(0), xy_pos.at(1), copy_data);
+}
+
+} // namespace
 
 StitchingDataLoader::StitchingDataLoader(
     std::size_t start_frame_id,
@@ -50,6 +93,24 @@ StitchingDataLoader::StitchingDataLoader(
 
 StitchingDataLoader::~StitchingDataLoader() {
   shutdown();
+}
+
+void StitchingDataLoader::configure_remapper(
+    std::vector<RemapperConfig> remapper_configs) {
+  remapper_configs_ = std::move(remapper_configs);
+  remappers_.clear();
+  for (const auto& config : remapper_configs_) {
+    auto remapper = std::make_shared<ops::ImageRemapper>(
+        config.src_width,
+        config.src_height,
+        config.col_map,
+        config.row_map,
+        config.add_alpha_channel,
+        config.interpolation);
+    remapper->init(config.batch_size);
+    remapper->to(config.device);
+    remappers_.emplace_back(remapper);
+  }
 }
 
 void StitchingDataLoader::shutdown() {
@@ -157,7 +218,27 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
     if (!frame->torch_input_images.empty()) {
-      assert(false);
+      HmThreadPool local_pool(thread_pool_.get());
+      frame->torch_remapped_images.resize(frame->torch_input_images.size());
+      frame->remapped_images.resize(frame->torch_input_images.size());
+      for (std::size_t i = 0; i < frame->torch_input_images.size(); ++i) {
+        auto img = frame->torch_input_images[i];
+        auto& remapper = remappers_.at(i);
+        local_pool.Schedule([this, frame, index = i, img, r = remapper]() {
+          at::Tensor remapped = remappers_.at(index)->remap(
+              img.tensor.to(remapper_configs_.at(index).device));
+          frame->torch_remapped_images.at(index) = FrameData::TorchImage{
+              .tensor = remapped.contiguous().cpu(),
+              .xy_pos = img.xy_pos,
+          };
+
+          frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
+              frame->torch_remapped_images[index].tensor,
+              frame->torch_remapped_images[index].xy_pos,
+              /*copy_data=*/false);
+        });
+        local_pool.join_all();
+      }
     } else {
       auto nona = get_nona_worker(worker_index);
       auto remapped = nona->remap_images(
@@ -189,6 +270,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
 #ifdef FAKE_BLEND
     frame->blended_image = frame->remapped_images[0];
 #else
+if (if (!frame->torch_remapped_images.empty()) {)
     frame->blended_image = blender->blend_images(frame->remapped_images);
 #endif
   } catch (...) {

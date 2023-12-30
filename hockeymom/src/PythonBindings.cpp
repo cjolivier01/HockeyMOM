@@ -67,6 +67,17 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "ImagePostProcessor")
       .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>, std::string>());
 
+  py::class_<hm::RemapperConfig, std::shared_ptr<hm::RemapperConfig>>(
+      m, "RemapperConfig")
+      .def("src_width", &hm::RemapperConfig::src_width)
+      .def("src_height", &hm::RemapperConfig::src_height)
+      .def("col_map", &hm::RemapperConfig::col_map)
+      .def("row_map", &hm::RemapperConfig::row_map)
+      .def("add_alpha_channel", &hm::RemapperConfig::add_alpha_channel)
+      .def("interpolation", &hm::RemapperConfig::interpolation)
+      .def("batch_size", &hm::RemapperConfig::batch_size)
+      .def("device", &hm::RemapperConfig::device);
+
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
       .def(py::init<
@@ -78,6 +89,11 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t,
            std::size_t,
            std::size_t>())
+      .def(
+          "configure_remapper",
+          &hm::StitchingDataLoader::configure_remapper,
+          py::arg("remapper_config"),
+          py::call_guard<py::gil_scoped_release>())
       .def(
           "add_frame",
           [](std::shared_ptr<hm::StitchingDataLoader> data_loader,

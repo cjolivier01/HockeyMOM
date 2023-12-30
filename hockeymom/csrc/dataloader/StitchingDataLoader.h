@@ -3,8 +3,8 @@
 #include "hockeymom/csrc/common/JobRunner.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/mblend/mblend.h"
-#include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
+#include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include "hockeymom/csrc/mblend/threadpool.h"
 
@@ -27,7 +27,6 @@ namespace hm {
  *
  */
 struct FrameData {
-
   struct TorchImage {
     at::Tensor tensor;
     std::vector<int> xy_pos;
@@ -43,6 +42,17 @@ struct FrameData {
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
   std::shared_ptr<MatrixRGB> blended_image;
+};
+
+struct RemapperConfig {
+  std::size_t src_width{0};
+  std::size_t src_height{0};
+  at::Tensor col_map;
+  at::Tensor row_map;
+  bool add_alpha_channel{false};
+  std::string interpolation;
+  std::size_t batch_size{1};
+  std::string device{"cpu"};
 };
 
 /* clang-format off */
@@ -71,6 +81,8 @@ class StitchingDataLoader {
       std::size_t remap_thread_count,
       std::size_t blend_thread_count);
   ~StitchingDataLoader();
+
+  void configure_remapper(std::vector<RemapperConfig> remapper_configs);
 
   void add_frame(
       std::size_t frame_id,
@@ -118,6 +130,7 @@ class StitchingDataLoader {
   std::vector<std::shared_ptr<HmNona>> nonas_;
   std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
+  std::vector<RemapperConfig> remapper_configs_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
 };
