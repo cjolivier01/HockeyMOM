@@ -4,14 +4,13 @@
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
+#include "hockeymom/csrc/pytorch/image_remap.h"
 
-// #include <condition_variable>
-// #include <cstdint>
-// #include <map>
+#include "hockeymom/csrc/mblend/threadpool.h"
+
 #include <memory>
 #include <mutex>
 #include <string>
-//#include <thread>
 #include <vector>
 
 #include <ATen/ATen.h>
@@ -28,9 +27,19 @@ namespace hm {
  *
  */
 struct FrameData {
+
+  struct TorchImage {
+    at::Tensor tensor;
+    std::vector<int> xy_pos;
+  };
+
   static constexpr std::size_t kInvalidFrameId =
       std::numeric_limits<std::size_t>::max();
   std::size_t frame_id{kInvalidFrameId};
+  // pytorch specific
+  std::vector<TorchImage> torch_input_images;
+  std::vector<TorchImage> torch_remapped_images;
+  // Non-pytorch
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
   std::shared_ptr<MatrixRGB> blended_image;
@@ -107,7 +116,10 @@ class StitchingDataLoader {
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
   std::mutex nonas_create_mu_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
+  std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
+  std::unique_ptr<Eigen::ThreadPool> thread_pool_;
+  std::unique_ptr<HmThreadPool> remap_thread_pool_;
 };
 
 } // namespace hm

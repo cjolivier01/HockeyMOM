@@ -116,7 +116,7 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
-        fake_remapping: bool = False,
+        fake_remapping: bool = True,
         use_cpp_remap_op: bool = True,
     ):
         assert len(source_hw) == 2

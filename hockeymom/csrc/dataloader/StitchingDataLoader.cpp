@@ -3,10 +3,11 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <unistd.h>
+#include <memory>
 
 namespace hm {
 
-#define FAKE_REMAP  // ~4 fps
+//#define FAKE_REMAP // ~4 fps
 #define FAKE_BLEND // ~10 fps
 
 StitchingDataLoader::StitchingDataLoader(
@@ -41,7 +42,9 @@ StitchingDataLoader::StitchingDataLoader(
               std::size_t worker_index,
               StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
             return this->blend_worker(worker_index, std::move(frame));
-          }) {
+          }),
+      thread_pool_(std::make_unique<Eigen::ThreadPool>(4)),
+      remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())) {
   initialize();
 }
 
@@ -58,6 +61,7 @@ void StitchingDataLoader::shutdown() {
 void StitchingDataLoader::initialize() {
   assert(nonas_.empty());
   nonas_.resize(remap_thread_count_);
+  remappers_.resize(2) /* left, right */;
   remap_runner_.start(remap_thread_count_);
   blend_runner_.start(blend_thread_count_);
 #ifndef FAKE_BLEND
@@ -97,11 +101,23 @@ std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
 
 void StitchingDataLoader::add_torch_frame(
     std::size_t frame_id,
-    at::Tensor images_1,
+    at::Tensor image_1,
     std::vector<int> xy_pos_1,
-    at::Tensor images_2,
+    at::Tensor image_2,
     std::vector<int> xy_pos_2) {
-  assert(false); // IMPLEMENT ME
+  auto frame_info = std::make_shared<FrameData>();
+  frame_info->frame_id = frame_id;
+  frame_info->torch_input_images = {
+      FrameData::TorchImage{
+          .tensor = image_1,
+          .xy_pos = xy_pos_1,
+      },
+      FrameData::TorchImage{
+          .tensor = image_2,
+          .xy_pos = xy_pos_2,
+      },
+  };
+  remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
 void StitchingDataLoader::add_remapped_frame(
@@ -140,13 +156,17 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     frame->remapped_images.at(0)->set_xy_pos(0, 42);
     frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
-    auto nona = get_nona_worker(worker_index);
-    auto remapped = nona->remap_images(
-        std::move(frame->input_images.at(0)),
-        std::move(frame->input_images.at(1)));
-    frame->remapped_images.clear();
-    for (auto& r : remapped) {
-      frame->remapped_images.emplace_back(std::move(r));
+    if (!frame->torch_input_images.empty()) {
+      assert(false);
+    } else {
+      auto nona = get_nona_worker(worker_index);
+      auto remapped = nona->remap_images(
+          std::move(frame->input_images.at(0)),
+          std::move(frame->input_images.at(1)));
+      frame->remapped_images.clear();
+      for (auto& r : remapped) {
+        frame->remapped_images.emplace_back(std::move(r));
+      }
     }
 #endif
   } catch (...) {

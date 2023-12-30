@@ -19,7 +19,7 @@ class ImageRemapper {
   bool is_initialized() const {
     return initialized_;
   }
-  at::Tensor remap(at::Tensor source_tensor);
+  at::Tensor remap(at::Tensor source_tensor) const;
 
  private:
   bool initialized_{false};
