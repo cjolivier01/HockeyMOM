@@ -197,7 +197,7 @@ class ImageRemapper:
         # Done.
         self._initialized = True
 
-    def remap(self, source_image: torch.tensor):
+    def forward(self, source_image: torch.tensor):
         assert self._initialized
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
@@ -388,7 +388,7 @@ def remap_video(
     timer = Timer()
     frame_count = 0
     while True:
-        destination_tensor = remapper.remap(source_image=source_tensor)
+        destination_tensor = remapper.forward(source_image=source_tensor)
         destination_tensor = destination_tensor.detach().contiguous().cpu()
 
         frame_count += 1
