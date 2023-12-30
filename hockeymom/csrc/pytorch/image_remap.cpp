@@ -1,5 +1,7 @@
 #include "hockeymom/csrc/pytorch/image_remap.h"
 
+#include <torch/nn/functional.h>
+
 namespace hm {
 namespace ops {
 
@@ -15,7 +17,7 @@ at::Tensor pad_tensor_to_size(
     const VALUE_TYPE& pad_value) {
   std::size_t pad_width, pad_height;
   if (tensor.sizes().size() == 2) {
-    pad_height = target_height = tensor.size(0);
+    pad_height = target_height - tensor.size(0);
     pad_width = target_width - tensor.size(1);
   } else {
     assert(tensor.sizes().size() == 3);
@@ -39,7 +41,7 @@ at::Tensor pad_tensor_to_size_batched(
     const VALUE_TYPE& pad_value) {
   std::size_t pad_width, pad_height;
   if (tensor.sizes().size() == 3) {
-    pad_height = target_height = tensor.size(1);
+    pad_height = target_height - tensor.size(1);
     pad_width = target_width - tensor.size(2);
   } else {
     assert(tensor.sizes().size() == 4);
@@ -135,7 +137,46 @@ void ImageRemapper::to(std::string device) {
 
 at::Tensor ImageRemapper::remap(at::Tensor source_tensor) {
   assert(initialized_);
-  return source_tensor.clone();
+  source_tensor = pad_tensor_to_size_batched(
+      source_tensor, working_width_, working_height_, (uint8_t)0);
+  // batch + 3 channels
+  assert(source_tensor.sizes().size() == 4);
+  at::Tensor destination_tensor;
+  if (interpolation_.empty()) {
+    destination_tensor = at::empty_like(source_tensor);
+    destination_tensor.index_put_(
+        {at::indexing::Slice(), at::indexing::Slice()},
+        source_tensor.index(
+            {at::indexing::Slice(),
+             at::indexing::Slice(),
+             row_map_,
+             col_map_}));
+  } else {
+    torch::nn::functional::GridSampleFuncOptions options;
+    assert(interpolation_ == "bilinear"); // TODO: implement enum switch
+    auto mode = torch::kBilinear;
+    options = options.padding_mode(torch::kZeros).align_corners(false);
+    options.mode(mode);
+    destination_tensor = torch::nn::functional::grid_sample(
+        source_tensor.to(at::TensorOptions().dtype(torch::kF32)),
+        grid_,
+        options);
+    destination_tensor = destination_tensor.clamp(0, 255.0).to(torch::kByte);
+  }
+  destination_tensor.index_put_(
+      {torch::indexing::Slice(), torch::indexing::Slice(), mask_}, (uint8_t)0);
+  // Add alpha channel if necessary
+  if (add_alpha_channel_) {
+    destination_tensor =
+        at::cat({destination_tensor, alpha_channel_}, /*dim=*/1);
+  }
+  // Clip to the original size that was specified
+  destination_tensor = destination_tensor.index(
+      {torch::indexing::Slice(),
+       torch::indexing::Slice(),
+       torch::indexing::Slice(0, dest_height_),
+       torch::indexing::Slice(0, dest_width_)});
+  return destination_tensor;
 }
 
 } // namespace ops

@@ -192,7 +192,7 @@ class ImageRemapper:
             col_map[mask] = 0
             row_map[mask] = 0
 
-            if self._interpolation or True:
+            if self._interpolation:
                 row_map_normalized = (
                     2.0 * row_map / (self._working_h - 1)
                 ) - 1  # Normalize to [-1, 1]
@@ -234,13 +234,14 @@ class ImageRemapper:
         if self._fake_remapping:
             return source_image.clone()
 
-        if self._use_cpp_remap_op:
-            assert self._remap_op is not None
-            return self._remap_op.remap(source_image)
-
-        # Per frame code
         if source_image.device != self._device:
             source_image = source_image.to(self._device)
+
+        if self._use_cpp_remap_op:
+            assert self._remap_op is not None
+            return self._remap_op.remap(source_image.to(self._device))
+
+        # Per frame code
         source_tensor = pad_tensor_to_size_batched(
             source_image, self._working_w, self._working_h, 0
         )
@@ -457,8 +458,9 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        interpolation="bicubic",
-        show=False,
+        #interpolation="bilinear",
+        interpolation="",
+        show=True,
     )
 
 
