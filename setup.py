@@ -5,8 +5,12 @@ import platform
 import subprocess
 import argparse
 
+import torch
 from setuptools import setup, Extension, find_packages
-from setuptools.command.build_ext import build_ext
+#from setuptools.command.build_ext import build_ext
+
+from torch.utils.cpp_extension import BuildExtension, CppExtension
+
 from distutils.version import LooseVersion
 
 
@@ -29,7 +33,7 @@ class CMakeExtension(Extension):
         self.sourcedir = os.path.abspath(sourcedir)
 
 
-class CMakeBuild(build_ext):
+class CMakeBuild(BuildExtension):
     def run(self):
         try:
             out = subprocess.check_output(["cmake", "--version"])
@@ -55,6 +59,13 @@ class CMakeBuild(build_ext):
             "-DPYTHON_EXECUTABLE=" + sys.executable,
         ]
 
+        #Torch_DIR = "/home/colivier/src/pytorch/torch/share/cmake/Torch/"
+        Torch_DIR = os.path.dirname(torch.__file__)
+        os.environ["Torch_DIR"] = Torch_DIR
+        #os.environ["CUDNN_LIBRARY_PATH"] = "/usr/local/cudnn/lib"
+        #os.environ["CUDNN_LIB_DIR"] = "/usr/local/cudnn/lib"
+        #os.environ["CUDNN_INCLUDE_PATH"] = "/usr/local/cudnn/include"
+
         default_build_type = "Release"
         #default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
@@ -72,6 +83,11 @@ class CMakeBuild(build_ext):
         # Pile all .so in one place and use $ORIGIN as RPATH
         cmake_args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE"]
         cmake_args += ["-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
+        
+        cmake_args += ["-DCUDNN_INCLUDE_DIR=/usr/local/cudnn/include"]
+        cmake_args += ["-DCUDNN_INCLUDE_PATH=/usr/local/cudnn/include"]
+        cmake_args += ["-DCUDNN_LIBRARY=/usr/local/cudnn/lib/libcudnn.so"]
+        cmake_args += ["-DCUDNN_LIBRARY_PATH=/usr/local/cudnn/lib/libcudnn.so"]
 
 #        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
 #        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
@@ -140,7 +156,10 @@ if __name__ == '__main__':
         author_email="cjolivier01@gmail.com",
         description="HockeyMOM project",
         long_description=open("README.rst").read(),
-        ext_modules=[CMakeExtension("hockeymom/_hockeymom")],
+        ext_modules=[
+#            CppExtension("hockeymom/_hockeymom")
+            CMakeExtension("hockeymom/_hockeymom")
+        ],
         packages=find_packages(),
         cmdclass=dict(build_ext=CMakeBuild),
         url="https://github.com/cjolivier01/hockeymom2",

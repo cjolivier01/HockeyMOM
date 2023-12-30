@@ -2,6 +2,7 @@
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
+#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <iostream>
@@ -370,4 +371,20 @@ PYBIND11_MODULE(_hockeymom, m) {
         }
         return results;
       });
+
+  /**
+   *   ____                         _
+   *  / __ \                       | |
+   * | |  | |_ __   ___  _ __  __ _| |_  ___  _ __  ___
+   * | |  | | '_ \ / _ \| '__|/ _` | __|/ _ \| '__|/ __|
+   * | |__| | |_) |  __/| |  | (_| | |_| (_) | |   \__ \
+   *  \____/| .__/ \___||_|   \__,_|\__|\___/|_|   |___/
+   *        | |
+   *        |_|
+   */
+   m.def("add_tensors",
+   [](at::Tensor t1, at::Tensor t2) {
+      py::gil_scoped_release release_gil;
+      return hm::ops::add_tensors(t1, t2);
+   }, py::arg("t1"), py::arg("t2"));
 }

@@ -115,6 +115,7 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
+        fake_remapping: bool = True,
     ):
         assert len(source_hw) == 2
         self._dir_name = dir_name
@@ -124,6 +125,7 @@ class ImageRemapper:
         self._source_hw = source_hw
         self._channels = channels
         self._add_alpha_channel = add_alpha_channel
+        self._fake_remapping = fake_remapping
         self._initialized = False
 
     def init(self, batch_size: int):
@@ -132,6 +134,11 @@ class ImageRemapper:
         self.xpos, self.ypos = get_image_geo_position(
             os.path.join(self._dir_name, f"{self._basename}.tif")
         )
+
+        if self._fake_remapping:
+            self._initialized = True
+            return
+
         x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
         y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
         if x_map is None:
@@ -203,6 +210,8 @@ class ImageRemapper:
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
             source_image = torch.from_numpy(source_image)
+        if self._fake_remapping:
+            return source_image.clone()
         # Per frame code
         if source_image.device != self._device:
             source_image = source_image.to(self._device)

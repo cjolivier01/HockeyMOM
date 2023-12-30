@@ -4,6 +4,10 @@ find_package(yaml-cpp REQUIRED)
 
 #find_package(OpenCV REQUIRED)
 
+find_package(Torch REQUIRED)
+#message(FATAL_ERROR "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}")
+include_directories(${TORCH_INCLUDE_DIRS})
+
 # Include certain OpenCV modules
 # SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
 # include_directories(${BASE_OPENCV_DIR}/modules/core/include)
@@ -19,7 +23,10 @@ set(
   csrc/common/Gpu.cpp
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
+  csrc/pytorch/image_remap.cpp
 )
+
+set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
 
 # set(
 #   PROTO_FILES
@@ -61,6 +68,15 @@ set(
   absl::strings
 )
 
+#
+# PyTorch
+#
+
+#find_package(Torch REQUIRED)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+#include_directories(${TORCH_INCLUDE_DIRS})
+
+
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
 target_link_libraries(hm PRIVATE yaml-cpp)
 
@@ -83,6 +99,7 @@ set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
+target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
 
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
