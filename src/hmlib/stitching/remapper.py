@@ -122,9 +122,9 @@ def create_remapper_config(
     if y_map is None:
         raise AssertionError(f"Could not read mapping file: {y_file}")
     config = core.RemapperConfig()
-    config.source_height = source_hw[0]
-    config.source_width = source_hw[1]
-    config.device = device
+    config.src_height = source_hw[0]
+    config.src_width = source_hw[1]
+    config.device = str(device)
     config.col_map = torch.from_numpy(x_map.astype(np.int64))
     config.row_map = torch.from_numpy(y_map.astype(np.int64))
     config.batch_size = batch_size
