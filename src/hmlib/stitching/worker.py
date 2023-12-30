@@ -320,8 +320,6 @@ class StitchingWorker:
                 image_remapper=remapper_2,
                 pair_callback=self._pair_callback.aggregate_callback_2,
             )
-            self._remapper_1.start(batch_size=self._batch_size)
-            self._remapper_2.start(batch_size=self._batch_size)
 
         self._start_feeder_thread()
         self._open = True
@@ -446,16 +444,21 @@ class StitchingWorker:
             count += 1
         self._image_response_queue.put(StopIteration())
 
+    def _init_remappers(self):
+        if self._remapper_1 is not None:
+            self._remapper_1.init(self._batch_size)
+            self._remapper_1.to(self._remapping_device)
+            self._remapper_1.start(batch_size=self._batch_size)
+        if self._remapper_2 is not None:
+            self._remapper_2.init(self._batch_size)
+            self._remapper_2.to(self._remapping_device)
+            self._remapper_2.start(batch_size=self._batch_size)
+
     def _frame_feeder_worker(
         self,
         max_frames: int,
     ):
-        if self._remapper_1 is not None:
-            self._remapper_1.init(self._batch_size)
-            self._remapper_1.to(self._remapping_device)
-        if self._remapper_2 is not None:
-            self._remapper_2.init(self._batch_size)
-            self._remapper_2.to(self._remapping_device)
+        self._init_remappers()
         for frame_id in range(
             self._start_frame_number, self._end_frame, self._frame_stride_count
         ):

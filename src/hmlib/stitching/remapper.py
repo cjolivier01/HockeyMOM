@@ -117,7 +117,7 @@ class ImageRemapper:
         channels: int = 3,
         add_alpha_channel: bool = False,
         fake_remapping: bool = False,
-        use_cpp_remap_op: bool = False,
+        use_cpp_remap_op: bool = True,
     ):
         assert len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
@@ -132,11 +132,14 @@ class ImageRemapper:
         self._fake_remapping = fake_remapping
         self._initialized = False
         self._remap_op = None
+        self._remap_op_device = "cpu"
 
     @property
     def device(self):
         if self._fake_remapping:
             return "cpu"
+        elif self._remap_op is not None:
+            return self._remap_op_device
         return self._mask.device
 
     def init(self, batch_size: int):
@@ -231,6 +234,7 @@ class ImageRemapper:
             return
         dev = str(device)
         if self._use_cpp_remap_op:
+            self._remap_op_device = dev
             self._remap_op.to(dev)
         else:
             self._col_map = self._col_map.to(dev)
