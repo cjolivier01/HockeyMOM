@@ -14,6 +14,8 @@ import torch.nn.functional as F
 from hmlib.stitch_synchronize import get_image_geo_position
 from hmlib.async_worker import AsyncWorker
 
+import hockeymom.core as core
+
 ROOT_DIR = os.getcwd()
 
 
@@ -116,8 +118,10 @@ class ImageRemapper:
         channels: int = 3,
         add_alpha_channel: bool = False,
         fake_remapping: bool = True,
+        use_cpp_remap_op: bool = True,
     ):
         assert len(source_hw) == 2
+        self._use_cpp_remap_op = use_cpp_remap_op
         self._dir_name = dir_name
         self._basename = basename
         self._device = device
@@ -127,6 +131,7 @@ class ImageRemapper:
         self._add_alpha_channel = add_alpha_channel
         self._fake_remapping = fake_remapping
         self._initialized = False
+        self._remap_op = None
 
     def init(self, batch_size: int):
         x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
@@ -148,58 +153,69 @@ class ImageRemapper:
         col_map = torch.from_numpy(x_map.astype(np.int64))
         row_map = torch.from_numpy(y_map.astype(np.int64))
 
-        src_w = self._source_hw[1]
-        src_h = self._source_hw[0]
-        self._dest_w = col_map.shape[1]
-        self._dest_h = col_map.shape[0]
-        self._working_w = max(src_w, self._dest_w)
-        self._working_h = max(src_h, self._dest_h)
-        print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
-
-        col_map = pad_tensor_to_size(
-            col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-        )
-        row_map = pad_tensor_to_size(
-            row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-        )
-        mask = torch.logical_or(
-            row_map == self.UNMAPPED_PIXEL_VALUE, col_map == self.UNMAPPED_PIXEL_VALUE
-        )
-
-        # The 65536 will result in an invalid index, so set these to 0,0
-        # and we'll get rid of them later with the mask after the image is remapped
-        col_map[mask] = 0
-        row_map[mask] = 0
-
-        if self._interpolation:
-            row_map_normalized = (
-                2.0 * row_map / (self._working_h - 1)
-            ) - 1  # Normalize to [-1, 1]
-            col_map_normalized = (
-                2.0 * col_map / (self._working_w - 1)
-            ) - 1  # Normalize to [-1, 1]
-
-            # Create the grid for grid_sample
-            grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
-            grid = grid.expand((batch_size, *grid.shape))
-            self._grid = grid.to(self._device)
-
-        # Give the mask a channel dimension if necessary
-        # mask = mask.expand((self._channels, self._working_h, self._working_w))
-
-        self._col_map = col_map.contiguous().to(self._device)
-        self._row_map = row_map.contiguous().to(self._device)
-        self._mask = mask.contiguous().to(self._device)
-
-        if self._add_alpha_channel:
-            # Set up the alpha channel
-            self._alpha_channel = torch.empty(
-                size=(batch_size, 1, self._working_h, self._working_w),
-                dtype=torch.uint8,
+        if self._use_cpp_remap_op:
+            self._remap_op = core.ImageRemapper(
+                col_map=col_map,
+                row_map=row_map,
                 device=self._device,
+                add_alpha_channel=self._add_alpha_channel,
+                interpolation=self._interpolation,
             )
-            self._alpha_channel.fill_(255)
-            self._alpha_channel[:, :, self._mask] = 0
+            self._remap_op.init()
+        else:
+            src_w = self._source_hw[1]
+            src_h = self._source_hw[0]
+            self._dest_w = col_map.shape[1]
+            self._dest_h = col_map.shape[0]
+            self._working_w = max(src_w, self._dest_w)
+            self._working_h = max(src_h, self._dest_h)
+            print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
+
+            col_map = pad_tensor_to_size(
+                col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            )
+            row_map = pad_tensor_to_size(
+                row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            )
+            mask = torch.logical_or(
+                row_map == self.UNMAPPED_PIXEL_VALUE,
+                col_map == self.UNMAPPED_PIXEL_VALUE,
+            )
+
+            # The 65536 will result in an invalid index, so set these to 0,0
+            # and we'll get rid of them later with the mask after the image is remapped
+            col_map[mask] = 0
+            row_map[mask] = 0
+
+            if self._interpolation:
+                row_map_normalized = (
+                    2.0 * row_map / (self._working_h - 1)
+                ) - 1  # Normalize to [-1, 1]
+                col_map_normalized = (
+                    2.0 * col_map / (self._working_w - 1)
+                ) - 1  # Normalize to [-1, 1]
+
+                # Create the grid for grid_sample
+                grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
+                grid = grid.expand((batch_size, *grid.shape))
+                self._grid = grid.to(self._device)
+
+            # Give the mask a channel dimension if necessary
+            # mask = mask.expand((self._channels, self._working_h, self._working_w))
+
+            self._col_map = col_map.contiguous().to(self._device)
+            self._row_map = row_map.contiguous().to(self._device)
+            self._mask = mask.contiguous().to(self._device)
+
+            if self._add_alpha_channel:
+                # Set up the alpha channel
+                self._alpha_channel = torch.empty(
+                    size=(batch_size, 1, self._working_h, self._working_w),
+                    dtype=torch.uint8,
+                    device=self._device,
+                )
+                self._alpha_channel.fill_(255)
+                self._alpha_channel[:, :, self._mask] = 0
 
         # Done.
         self._initialized = True
@@ -212,6 +228,11 @@ class ImageRemapper:
             source_image = torch.from_numpy(source_image)
         if self._fake_remapping:
             return source_image.clone()
+
+        if self._use_cpp_remap_op:
+            assert self._remap_op is not None
+            return self._remap_op.remap(source_image)
+
         # Per frame code
         if source_image.device != self._device:
             source_image = source_image.to(self._device)

@@ -17,6 +17,7 @@ from ._hockeymom import (
     HmNona,
     EnBlender,
     StitchingDataLoader,
+    ImageRemapper,
     SortedRGBImageQueue,
     SortedPyArrayUin8Queue,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "hello_world",
     "enblend",
     "HmNona",
+    "ImageRemapper",
     "nona_process_images",
     "EnBlender",
 ]

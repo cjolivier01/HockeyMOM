@@ -4,10 +4,6 @@ find_package(yaml-cpp REQUIRED)
 
 #find_package(OpenCV REQUIRED)
 
-find_package(Torch REQUIRED)
-#message(FATAL_ERROR "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}")
-include_directories(${TORCH_INCLUDE_DIRS})
-
 # Include certain OpenCV modules
 # SET(BASE_OPENCV_DIR "${HOCKEYMOM_TOP_SRC_DIR}/external/opencv-python/opencv")
 # include_directories(${BASE_OPENCV_DIR}/modules/core/include)
@@ -112,6 +108,16 @@ pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
 target_link_libraries(_hockeymom PUBLIC hm)
 target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
-set_target_properties(_hockeymom PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(
+  _hockeymom PROPERTIES 
+  INSTALL_RPATH "$ORIGIN"
+  INSTALL_RPATH "${TORCH_LIBRARY_PATH}"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
+# Set the RPATH
+# set_target_properties(_hockeymom PROPERTIES
+#     INSTALL_RPATH "/path/to/pytorch/lib"
+#     BUILD_WITH_INSTALL_RPATH TRUE
+# )
 add_subdirectory(csrc)

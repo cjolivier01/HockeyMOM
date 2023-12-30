@@ -382,9 +382,30 @@ PYBIND11_MODULE(_hockeymom, m) {
    *        | |
    *        |_|
    */
-   m.def("add_tensors",
-   [](at::Tensor t1, at::Tensor t2) {
-      py::gil_scoped_release release_gil;
-      return hm::ops::add_tensors(t1, t2);
-   }, py::arg("t1"), py::arg("t2"));
+  // TODO: Make a subfunction
+  m.def(
+      "add_tensors",
+      [](at::Tensor t1, at::Tensor t2) {
+        py::gil_scoped_release release_gil;
+        return hm::ops::add_tensors(t1, t2);
+      },
+      py::arg("t1"),
+      py::arg("t2"));
+  py::class_<hm::ops::ImageRemapper, std::shared_ptr<hm::ops::ImageRemapper>>(
+      m, "ImageRemapper")
+      .def(
+          py::init<
+              at::Tensor,
+              at::Tensor,
+              at::Device,
+              bool,
+              std::optional<std::string>>(),
+          py::arg("col_map"),
+          py::arg("row_map"),
+          py::arg("device"),
+          py::arg("add_alpha_channel"),
+          py::arg("interpolation"))
+      .def("init", &hm::ops::ImageRemapper::init)
+      .def("is_initialized", &hm::ops::ImageRemapper::is_initialized)
+      .def("remap", &hm::ops::ImageRemapper::remap, py::arg("source_tensor"));
 }

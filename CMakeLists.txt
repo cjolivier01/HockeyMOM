@@ -105,6 +105,13 @@ endif(HM_BUILD_ASAN)
 
 #link_directories($ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr/lib64)
 
+find_package(Torch REQUIRED)
+#message(FATAL_ERROR "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}")
+include_directories(${TORCH_INCLUDE_DIRS})
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+set(TORCH_LIBRARY_PATH "${TORCH_INSTALL_PREFIX}/lib")
+link_directories(${TORCH_LIBRARY_PATH})
+
 set(THREADS_PREFER_PTHREAD_FLAG 0)
 #set(Threads_FOUND 1)
 #add_compile_options(-pthread)
