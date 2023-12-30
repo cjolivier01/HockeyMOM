@@ -371,7 +371,7 @@ def remap_video(
         )
 
     device = "cuda"
-    batch_size = 8
+    batch_size = 4
 
     source_tensor = read_frame_batch(cap, batch_size=batch_size)
 
@@ -389,7 +389,7 @@ def remap_video(
     frame_count = 0
     while True:
         destination_tensor = remapper.remap(source_image=source_tensor)
-        destination_tensor = destination_tensor.detach().cpu()
+        destination_tensor = destination_tensor.detach().contiguous().cpu()
 
         frame_count += 1
         if frame_count != 1:
