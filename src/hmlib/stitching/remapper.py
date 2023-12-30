@@ -373,7 +373,7 @@ def remap_video(
         )
 
     device = "cuda"
-    batch_size = 4
+    batch_size = 1
 
     source_tensor = read_frame_batch(cap, batch_size=batch_size)
 

@@ -99,7 +99,8 @@ class StitchingWorker:
         max_frames: int = None,
         frame_stride_count: int = 1,
         save_seams_and_masks: bool = True,
-        device: str = None,
+        device: str = torch.device,
+        remapping_device: torch.device = torch.device("cuda", 2),
         multiprocessingt_queue: bool = False,
         image_roi: List[int] = None,
         use_pytorch_remap: bool = True,
@@ -110,6 +111,7 @@ class StitchingWorker:
         self._batch_size = batch_size
         self._use_pytorch_remap = use_pytorch_remap
         self._device = device
+        self._remapping_device = remapping_device
         self._is_cuda = self._device and self._device.startswith("cuda")
         self._start_frame_number = start_frame_number
         self._output_video = None
@@ -293,7 +295,7 @@ class StitchingWorker:
             remapper_1 = ImageRemapper(
                 dir_name=project_dir,
                 basename="mapping_0000",
-                device="cuda",
+                device=self._remapping_device,
                 source_hw=[
                     int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -307,7 +309,7 @@ class StitchingWorker:
             remapper_2 = ImageRemapper(
                 dir_name=project_dir,
                 basename="mapping_0001",
-                device="cuda",
+                device=self._remapping_device,
                 source_hw=[
                     int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -325,6 +327,7 @@ class StitchingWorker:
         self._open = True
 
     def _deliver_remapped_pair(self, remapped_pair: RemappedPair):
+        #print("_deliver_remapped_pair")
         # TODO: handle exception and stuff
         assert isinstance(remapped_pair, RemappedPair)
         assert remapped_pair.image_1.shape[0] == 1
@@ -372,9 +375,6 @@ class StitchingWorker:
             # Read the corresponding frame from the second video
             ret2, img2 = self._video2.read()
         return ret1, img1, ret2, img2
-
-    def _on_remapped_frame(self, frame_id_and_remapped_image):
-        pass
 
     def _feed_next_frame(self, frame_id: int) -> bool:
         for _ in range(self._frame_stride_count):
