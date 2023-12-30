@@ -199,6 +199,7 @@ class ImageRemapper:
 
     def forward(self, source_image: torch.tensor):
         assert self._initialized
+        # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
             source_image = torch.from_numpy(source_image)
@@ -229,13 +230,14 @@ class ImageRemapper:
                 destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(
                     torch.uint8
                 )
-        # Add an alpha channel
-
         destination_tensor[:, :, self._mask] = 0
+
+        # Add an alpha channel if necessary
         if self._add_alpha_channel:
             destination_tensor = torch.cat(
                 (destination_tensor, self._alpha_channel), dim=1
             )
+
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
         return destination_tensor
