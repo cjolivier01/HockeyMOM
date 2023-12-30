@@ -4,7 +4,6 @@
 
 namespace hm {
 namespace ops {
-at::Tensor add_tensors(const at::Tensor& a, const at::Tensor& b);
 
 class ImageRemapper {
  public:
@@ -14,7 +13,7 @@ class ImageRemapper {
       at::Tensor col_map,
       at::Tensor row_map,
       bool add_alpha_channel,
-      std::string interpolation);
+      std::optional<std::string> interpolation);
   void init(std::size_t batch_size);
   void to(std::string device);
   bool is_initialized() const {

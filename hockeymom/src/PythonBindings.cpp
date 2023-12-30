@@ -18,22 +18,6 @@ namespace py = pybind11;
 PYBIND11_MODULE(_hockeymom, m) {
   hm::init_stack_trace();
 
-  // std::cout << "Initializing hockymom module" << std::endl;
-  // py::class_<hm::MatrixRGB, std::shared_ptr<hm::MatrixRGB>>(
-  //     m, "MatrixRGB", py::buffer_protocol())
-  //     .def_buffer([](hm::MatrixRGB& m) -> py::buffer_info {
-  //       return py::buffer_info(
-  //           m.data(), /* Pointer to buffer */
-  //           sizeof(std::uint8_t), /* Size of one scalar */
-  //           py::format_descriptor<std::uint8_t>::
-  //               format(), /* Python struct-style format descriptor */
-  //           3, /* Number of dimensions */
-  //           {m.rows(), m.cols(), m.channels()}, /* Buffer dimensions */
-  //           {m.channels() * sizeof(std::uint8_t) * m.cols(),
-  //            m.channels() * sizeof(std::uint8_t),
-  //            sizeof(std::uint8_t)});
-  //     });
-
   py::class_<hm::HMPostprocessConfig, std::shared_ptr<hm::HMPostprocessConfig>>(
       m, "HMPostprocessConfig")
       .def(py::init<>())
@@ -385,16 +369,6 @@ PYBIND11_MODULE(_hockeymom, m) {
    *        | |
    *        |_|
    */
-  // TODO: Make a subfunction
-  m.def(
-      "add_tensors",
-      [](at::Tensor t1, at::Tensor t2) {
-        py::gil_scoped_release release_gil;
-        return hm::ops::add_tensors(t1, t2);
-      },
-      py::arg("t1"),
-      py::arg("t2"),
-      py::call_guard<py::gil_scoped_release>());
   py::class_<hm::ops::ImageRemapper, std::shared_ptr<hm::ops::ImageRemapper>>(
       m, "ImageRemapper")
       .def(
@@ -404,7 +378,7 @@ PYBIND11_MODULE(_hockeymom, m) {
               at::Tensor,
               at::Tensor,
               bool,
-              std::string>(),
+              std::optional<std::string>>(),
           py::arg("src_width"),
           py::arg("src_height"),
           py::arg("col_map"),

@@ -58,17 +58,13 @@ at::Tensor pad_tensor_to_size_batched(
 }
 } // namespace
 
-at::Tensor add_tensors(const at::Tensor& a, const at::Tensor& b) {
-  return a + b;
-}
-
 ImageRemapper::ImageRemapper(
     std::size_t src_width,
     std::size_t src_height,
     at::Tensor col_map,
     at::Tensor row_map,
     bool add_alpha_channel,
-    std::string interpolation)
+    std::optional<std::string> interpolation)
     : src_width_(src_width),
       src_height_(src_height),
       dest_width_(col_map.size(1)),
@@ -76,7 +72,7 @@ ImageRemapper::ImageRemapper(
       col_map_(col_map),
       row_map_(row_map),
       add_alpha_channel_(add_alpha_channel),
-      interpolation_(std::move(interpolation)) {
+      interpolation_(interpolation ? *interpolation : "") {
   working_width_ = std::max(src_width_, dest_width_);
   working_height_ = std::max(src_height_, dest_height_);
 }
