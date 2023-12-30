@@ -301,7 +301,7 @@ class StitchingWorker:
                 ],
                 interpolation=None,
             )
-            #remapper_1.to(device=self._remapping_device)
+            # remapper_1.to(device=self._remapping_device)
             self._remapper_1 = AsyncRemapperWorker(
                 image_remapper=remapper_1,
                 pair_callback=self._pair_callback.aggregate_callback_1,
@@ -315,7 +315,7 @@ class StitchingWorker:
                 ],
                 interpolation=None,
             )
-            #remapper_2.to(device=self._remapping_device)
+            # remapper_2.to(device=self._remapping_device)
             self._remapper_2 = AsyncRemapperWorker(
                 image_remapper=remapper_2,
                 pair_callback=self._pair_callback.aggregate_callback_2,
@@ -327,7 +327,7 @@ class StitchingWorker:
         self._open = True
 
     def _deliver_remapped_pair(self, remapped_pair: RemappedPair):
-        #print("_deliver_remapped_pair")
+        # print("_deliver_remapped_pair")
         # TODO: handle exception and stuff
         assert isinstance(remapped_pair, RemappedPair)
         assert remapped_pair.image_1.shape[0] == 1
@@ -450,6 +450,12 @@ class StitchingWorker:
         self,
         max_frames: int,
     ):
+        if self._remapper_1 is not None:
+            self._remapper_1.init(self._batch_size)
+            self._remapper_1.to(self._remapping_device)
+        if self._remapper_2 is not None:
+            self._remapper_2.init(self._batch_size)
+            self._remapper_2.to(self._remapping_device)
         for frame_id in range(
             self._start_frame_number, self._end_frame, self._frame_stride_count
         ):

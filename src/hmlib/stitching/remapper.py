@@ -135,6 +135,8 @@ class ImageRemapper:
 
     @property
     def device(self):
+        if self._fake_remapping:
+            return "cpu"
         return self._mask.device
 
     def init(self, batch_size: int):
@@ -248,12 +250,12 @@ class ImageRemapper:
         if self._fake_remapping:
             return source_image.clone()
 
-        # if source_image.device != self._device:
-        #     source_image = source_image.to(self._device)
+        if source_image.device != self.device:
+            source_image = source_image.to(self.device)
 
         if self._use_cpp_remap_op:
             assert self._remap_op is not None
-            return self._remap_op.remap(source_image.to(self._device))
+            return self._remap_op.remap(source_image)
 
         # Per frame code
         source_tensor = pad_tensor_to_size_batched(
@@ -355,12 +357,23 @@ class AsyncRemapperWorker(AsyncWorker):
     def xy_pos(self):
         return [self._image_remapper.xpos, self._image_remapper.ypos]
 
+    @property
+    def device(self):
+        return self._image_remapper.device
+
+    def init(self, batch_size: int):
+        self._image_remapper.init(batch_size)
+
+    def to(self, device: torch.device):
+        self._image_remapper.to(device)
+        return self
+
     def start(self, batch_size: int):
         self._batch_size = batch_size
         super(AsyncRemapperWorker, self).start()
 
     def run(self, **kwargs):
-        self._image_remapper.init(self._batch_size)
+        #self._image_remapper.init(self._batch_size)
         try:
             while True:
                 msg = self._incoming_queue.get()
