@@ -292,12 +292,14 @@ class StitchDataset:
                 (0, 0, self._video_output_size[0] - 1, self._video_output_size[1] - 1),
                 dtype=torch.float32,
             )
+            # Not doing anything fancy, so don't waste time copy to and from the GPU
             self._video_output = VideoOutput(
                 args=args,
                 output_video_path=self._output_stitched_video_file,
                 output_frame_width=self._video_output_size[0],
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
+                device=None,
             )
         image_proc_data = ImageProcData(
             frame_id=frame_id,
