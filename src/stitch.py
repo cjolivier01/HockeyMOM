@@ -126,12 +126,12 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         #output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=6,
-        remap_thread_count=2,
-        blend_thread_count=2,
+        num_workers=1,
+        remap_thread_count=1,
+        blend_thread_count=1,
         #remap_thread_count=1,
         #blend_thread_count=1,
-        fork_workers=True,
+        fork_workers=False,
         #fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
         #device="cuda",
@@ -154,7 +154,7 @@ def stitch_videos(
 
         frame_count += 1
 
-        #show_image(stitched_image)
+        show_image(stitched_image)
 
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)

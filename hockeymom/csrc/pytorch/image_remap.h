@@ -8,6 +8,8 @@ namespace ops {
 struct RemapperConfig {
   std::size_t src_width{0};
   std::size_t src_height{0};
+  int x_pos{0};
+  int y_pos{0};
   at::Tensor col_map;
   at::Tensor row_map;
   bool add_alpha_channel{false};

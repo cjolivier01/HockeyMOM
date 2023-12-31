@@ -14,20 +14,27 @@ namespace hm {
 #define FAKE_BLEND // ~10 fps
 
 namespace {
-py::array_t<uint8_t> tensor_to_numpy(at::Tensor tensor) {
+std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
+    at::Tensor tensor,
+    const std::vector<int>& xy_pos,
+    bool copy_data) {
+  // Get the dimensions of the tensor
+  auto dims = tensor.sizes();
+  std::vector<std::ptrdiff_t> shape(dims.begin(), dims.end());
+  assert(shape[0] == 1); // batch dimensions
+
   // Ensure the tensor is on CPU and is contiguous
-  tensor = tensor.contiguous();
+  tensor = tensor.squeeze(0).permute({1, 2, 0}).contiguous();
+  dims = tensor.sizes();
+  shape = {dims.begin(), dims.end()};
 
   // Ensure the tensor is of type uint8_t
   if (tensor.dtype() != at::kByte) {
     tensor = tensor.to(at::kByte);
   }
 
-  // Get the dimensions of the tensor
-  auto dims = tensor.sizes();
-  std::vector<std::ptrdiff_t> shape(dims.begin(), dims.end());
   auto strides_array_ref = tensor.strides();
-  std::vector<std::ptrdiff_t> strides{
+  std::vector<std::size_t> strides{
       strides_array_ref.begin(), strides_array_ref.end()};
   std::transform(
       strides.begin(),
@@ -36,18 +43,16 @@ py::array_t<uint8_t> tensor_to_numpy(at::Tensor tensor) {
       [tensor](std::ptrdiff_t stride) {
         return stride * tensor.element_size();
       });
-
   // Create a NumPy array with the same data
-  return py::array_t<uint8_t>(shape, strides, tensor.data_ptr<uint8_t>());
-}
-
-std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
-    at::Tensor tensor,
-    const std::vector<int>& xy_pos,
-    bool copy_data) {
-  py::array_t<uint8_t> array = tensor_to_numpy(tensor);
-  return std::make_shared<MatrixRGB>(
-      array, xy_pos.at(0), xy_pos.at(1), copy_data);
+  std::size_t rows = shape[1];
+  std::size_t cols = shape[0];
+  std::size_t channels = shape[2];
+  assert(channels == 3 || channels == 4);
+  // py::array_t<uint8_t> array(shape, strides, tensor.data_ptr<uint8_t>());
+  auto rgb = std::make_shared<MatrixRGB>(rows, cols, channels, strides);
+  memcpy(rgb->data(), tensor.data_ptr<uint8_t>(), rows * cols * channels);
+  rgb->set_xy_pos(xy_pos.at(0), xy_pos.at(1));
+  return rgb;
 }
 
 } // namespace
@@ -107,7 +112,7 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
     std::shared_ptr<ops::ImageRemapper> remapper;
     if (remappers_.empty()) {
       for (const auto& config : remapper_configs_) {
-        auto remapper = std::make_shared<ops::ImageRemapper>(
+        remapper = std::make_shared<ops::ImageRemapper>(
             config.src_width,
             config.src_height,
             config.col_map,
@@ -119,7 +124,7 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
         remappers_.emplace_back(remapper);
       }
     }
-    return remapper;
+    return remappers_.at(image_index);
   }
   return nullptr;
 }
@@ -173,19 +178,19 @@ std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
 void StitchingDataLoader::add_torch_frame(
     std::size_t frame_id,
     at::Tensor image_1,
-    std::vector<int> xy_pos_1,
-    at::Tensor image_2,
-    std::vector<int> xy_pos_2) {
+    at::Tensor image_2) {
   auto frame_info = std::make_shared<FrameData>();
   frame_info->frame_id = frame_id;
   frame_info->torch_input_images = {
       FrameData::TorchImage{
           .tensor = image_1,
-          .xy_pos = xy_pos_1,
+          .xy_pos =
+              {remapper_configs_.at(0).x_pos, remapper_configs_.at(0).y_pos},
       },
       FrameData::TorchImage{
           .tensor = image_2,
-          .xy_pos = xy_pos_2,
+          .xy_pos =
+              {remapper_configs_.at(1).x_pos, remapper_configs_.at(1).y_pos},
       },
   };
   remap_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
@@ -215,9 +220,10 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
-    if (frame->input_images.empty()) {
+    if (frame->input_images.empty() && frame->torch_input_images.empty()) {
       // Shutting down
       frame->remapped_images.clear();
+      frame->torch_remapped_images.clear();
       return frame;
     }
 #ifdef FAKE_REMAP
@@ -246,7 +252,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
           frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
               frame->torch_remapped_images[index].tensor,
               frame->torch_remapped_images[index].xy_pos,
-              /*copy_data=*/false);
+              /*copy_data=*/true);
         });
         local_pool.join_all();
       }

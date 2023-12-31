@@ -124,6 +124,9 @@ def create_remapper_config(
     config = core.RemapperConfig()
     config.src_height = source_hw[0]
     config.src_width = source_hw[1]
+    config.x_pos, config.y_pos = get_image_geo_position(
+        os.path.join(dir_name, f"{basename}000{image_index}.tif")
+    )
     config.device = str(device)
     config.col_map = torch.from_numpy(x_map.astype(np.int64))
     config.row_map = torch.from_numpy(y_map.astype(np.int64))
@@ -142,7 +145,7 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
-        fake_remapping: bool = True,
+        fake_remapping: bool = False,
         use_cpp_remap_op: bool = True,
     ):
         assert len(source_hw) == 2

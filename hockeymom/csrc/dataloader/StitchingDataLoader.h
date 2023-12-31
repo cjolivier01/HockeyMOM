@@ -80,9 +80,7 @@ class StitchingDataLoader {
   void add_torch_frame(
       std::size_t frame_id,
       at::Tensor images_1,
-      std::vector<int> xy_pos_1,
-      at::Tensor images_2,
-      std::vector<int> xy_pos_2);
+      at::Tensor images_2);
 
   void add_remapped_frame(
       std::size_t frame_id,

@@ -72,6 +72,8 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(py::init<>())
       .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
       .def_readwrite("src_height", &hm::ops::RemapperConfig::src_height)
+      .def_readwrite("x_pos", &hm::ops::RemapperConfig::x_pos)
+      .def_readwrite("y_pos", &hm::ops::RemapperConfig::y_pos)
       .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
       .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
       .def_readwrite(
@@ -124,9 +126,7 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::StitchingDataLoader::add_torch_frame,
           py::arg("frame_id"),
           py::arg("image_1"),
-          py::arg("xy_pos_1"),
           py::arg("image_2"),
-          py::arg("xy_pos_2"),
           py::call_guard<py::gil_scoped_release>())
       .def(
           "add_remapped_frame",

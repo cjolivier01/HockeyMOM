@@ -74,14 +74,18 @@ class __attribute__((visibility("default"))) MatrixImage {
     }
   }
 
-  MatrixImage(size_t rows, size_t cols, size_t channels)
+  MatrixImage(size_t rows, size_t cols, size_t channels, std::vector<std::size_t> strides = {})
       : rows_(rows), cols_(cols), channels_(channels) {
     data_ = new std::uint8_t[rows * cols * channels_ * kPixelSampleSize];
-    strides_ = {
-        channels_ * kPixelSampleSize *
-            cols_ /* Strides (in bytes) for each index */,
-        channels_ * kPixelSampleSize,
-        kPixelSampleSize};
+    if (!strides.empty()) {
+      strides_ = strides;
+    } else {
+      strides_ = {
+          channels_ * kPixelSampleSize *
+              cols_ /* Strides (in bytes) for each index */,
+          channels_ * kPixelSampleSize,
+          kPixelSampleSize};
+    }
     m_own_data = true;
     is_python_data = false;
   }
