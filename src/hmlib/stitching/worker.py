@@ -19,10 +19,6 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 
 from hmlib.stitching.remapper import (
-    #AsyncRemapperWorker,
-    #PairCallback,
-    #RemappedPair,
-    #ImageRemapper,
     create_remapper_config,
 )
 
@@ -112,7 +108,10 @@ class StitchingWorker:
         self._batch_size = batch_size
         self._use_pytorch_remap = use_pytorch_remap
         self._device = device
-        self._remapping_device = remapping_device
+        
+        #self._remapping_device = remapping_device
+        self._remapping_device = torch.device("cuda", rank)
+        
         self._is_cuda = self._device and self._device.startswith("cuda")
         self._start_frame_number = start_frame_number
         self._output_video = None
@@ -279,6 +278,7 @@ class StitchingWorker:
                 ),
                 batch_size=1,
                 device=self._remapping_device,
+                #device=torch.device("cuda", 0),
             )
 
             self._remapper_config_2 = create_remapper_config(
@@ -291,6 +291,7 @@ class StitchingWorker:
                 ),
                 batch_size=1,
                 device=self._remapping_device,
+                #device=torch.device("cuda", 1),
             )
             self._stitcher.configure_remapper(
                 remapper_config=[

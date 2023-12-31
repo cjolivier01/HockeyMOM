@@ -132,8 +132,8 @@ def stitch_videos(
         blend_thread_count=1,
         #remap_thread_count=1,
         #blend_thread_count=1,
+        #fork_workers=True,
         fork_workers=False,
-        #fork_workers=False,
         #image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
         #device="cuda",
     )

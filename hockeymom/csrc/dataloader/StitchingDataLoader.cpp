@@ -44,7 +44,7 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
   assert(channels == 3 || channels == 4);
 
   // #ifdef FAKE_BLEND
-  //bool copy_data = true;
+  // bool copy_data = true;
   // #else
   bool copy_data = false;
   //#endif
@@ -267,6 +267,9 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
               .tensor = remapped,
               .xy_pos = img.xy_pos,
           };
+          frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
+              frame->torch_remapped_images.at(index).tensor,
+              frame->torch_remapped_images.at(index).xy_pos);
         });
         local_pool.join_all();
       }
@@ -318,13 +321,23 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     }
     auto blender = enblender_;
 #ifdef FAKE_BLEND
-    frame->remapped_images.at(0) = tensor_to_matrix_rgb_image(
-        frame->torch_remapped_images.at(0).tensor,
-        frame->torch_remapped_images.at(0).xy_pos);
-    
+    // frame->remapped_images.at(0) = tensor_to_matrix_rgb_image(
+    //     frame->torch_remapped_images.at(0).tensor,
+    //     frame->torch_remapped_images.at(0).xy_pos);
+
     frame->blended_image = frame->remapped_images[0];
 #else
+    // Timer stuff
+    blend_inner_.tic();
+
     frame->blended_image = blender->blend_images(frame->remapped_images);
+
+    // More timer stuff
+    blend_inner_.toc();
+    if ((blend_inner_.count() % kPrintInterval) == 0) {
+      std::cout << blend_inner_ << std::endl;
+      blend_inner_.reset();
+    }
 #endif
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;
