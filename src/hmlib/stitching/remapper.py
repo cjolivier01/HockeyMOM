@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.stitch_synchronize import get_image_geo_position
-from hmlib.async_worker import AsyncWorker
+#from hmlib.async_worker import AsyncWorker
 
 import hockeymom.core as core
 
@@ -328,116 +328,116 @@ class ImageRemapper:
         return destination_tensor
 
 
-class RemappedPair:
-    def __init__(self, frame_id: int):
-        self.frame_id = frame_id
-        self.image_1 = None
-        self.image_2 = None
+# class RemappedPair:
+#     def __init__(self, frame_id: int):
+#         self.frame_id = frame_id
+#         self.image_1 = None
+#         self.image_2 = None
 
 
-class PairCallback:
-    def __init__(self, callback: callable):
-        self._callback = callback
-        self._data = dict()
+# class PairCallback:
+#     def __init__(self, callback: callable):
+#         self._callback = callback
+#         self._data = dict()
 
-    def _deliver(self, frame_id: int):
-        rp = self._data[frame_id]
-        del self._data[frame_id]
-        self._callback(rp)
+#     def _deliver(self, frame_id: int):
+#         rp = self._data[frame_id]
+#         del self._data[frame_id]
+#         self._callback(rp)
 
-    def aggregate_callback_1(self, item):
-        if isinstance(item, tuple):
-            frame_id, remapped_image = item
-            if frame_id not in self._data:
-                rp = RemappedPair(frame_id=frame_id)
-                rp.image_1 = remapped_image
-                self._data[frame_id] = rp
-            else:
-                rp = self._data[frame_id]
-                assert rp.image_1 is None
-                assert rp.frame_id == frame_id
-                self._data[frame_id].image_1 = remapped_image
-                self._deliver(frame_id=frame_id)
-        else:
-            assert False and "Implement me"
+#     def aggregate_callback_1(self, item):
+#         if isinstance(item, tuple):
+#             frame_id, remapped_image = item
+#             if frame_id not in self._data:
+#                 rp = RemappedPair(frame_id=frame_id)
+#                 rp.image_1 = remapped_image
+#                 self._data[frame_id] = rp
+#             else:
+#                 rp = self._data[frame_id]
+#                 assert rp.image_1 is None
+#                 assert rp.frame_id == frame_id
+#                 self._data[frame_id].image_1 = remapped_image
+#                 self._deliver(frame_id=frame_id)
+#         else:
+#             assert False and "Implement me"
 
-    def aggregate_callback_2(self, item):
-        if isinstance(item, tuple):
-            frame_id, remapped_image = item
-            if frame_id not in self._data:
-                rp = RemappedPair(frame_id=frame_id)
-                rp.image_2 = remapped_image
-                self._data[frame_id] = rp
-            else:
-                rp = self._data[frame_id]
-                assert rp.image_2 is None
-                assert rp.frame_id == frame_id
-                self._data[frame_id].image_2 = remapped_image
-                self._deliver(frame_id=frame_id)
-        else:
-            assert False and "Implement me"
+#     def aggregate_callback_2(self, item):
+#         if isinstance(item, tuple):
+#             frame_id, remapped_image = item
+#             if frame_id not in self._data:
+#                 rp = RemappedPair(frame_id=frame_id)
+#                 rp.image_2 = remapped_image
+#                 self._data[frame_id] = rp
+#             else:
+#                 rp = self._data[frame_id]
+#                 assert rp.image_2 is None
+#                 assert rp.frame_id == frame_id
+#                 self._data[frame_id].image_2 = remapped_image
+#                 self._deliver(frame_id=frame_id)
+#         else:
+#             assert False and "Implement me"
 
 
-class AsyncRemapperWorker(AsyncWorker):
-    def __init__(self, image_remapper: ImageRemapper, pair_callback: callable):
-        super(AsyncRemapperWorker, self).__init__(
-            name="AsyncRemapperWorker", callback=pair_callback
-        )
-        self._image_remapper = image_remapper
-        self.frame_ids = []
+# class AsyncRemapperWorker(AsyncWorker):
+#     def __init__(self, image_remapper: ImageRemapper, pair_callback: callable):
+#         super(AsyncRemapperWorker, self).__init__(
+#             name="AsyncRemapperWorker", callback=pair_callback
+#         )
+#         self._image_remapper = image_remapper
+#         self.frame_ids = []
 
-    @property
-    def xy_pos(self):
-        return [self._image_remapper.xpos, self._image_remapper.ypos]
+#     @property
+#     def xy_pos(self):
+#         return [self._image_remapper.xpos, self._image_remapper.ypos]
 
-    @property
-    def device(self):
-        return self._image_remapper.device
+#     @property
+#     def device(self):
+#         return self._image_remapper.device
 
-    def init(self, batch_size: int):
-        self._image_remapper.init(batch_size)
+#     def init(self, batch_size: int):
+#         self._image_remapper.init(batch_size)
 
-    def to(self, device: torch.device):
-        self._image_remapper.to(device)
-        return self
+#     def to(self, device: torch.device):
+#         self._image_remapper.to(device)
+#         return self
 
-    def start(self, batch_size: int):
-        self._batch_size = batch_size
-        super(AsyncRemapperWorker, self).start()
+#     def start(self, batch_size: int):
+#         self._batch_size = batch_size
+#         super(AsyncRemapperWorker, self).start()
 
-    def run(self, **kwargs):
-        # self._image_remapper.init(self._batch_size)
-        try:
-            while True:
-                msg = self._incoming_queue.get()
-                if msg is None:
-                    break
-                if isinstance(msg, Exception):
-                    raise msg
-                remapped_image = self._image_remapper.forward(source_image=msg)
-                self.deliver_item(remapped_image)
-        except Exception as e:
-            self.deliver_item(e)
-            raise
-        finally:
-            try:
-                self.deliver_item(None)
-            except:
-                pass
+#     def run(self, **kwargs):
+#         # self._image_remapper.init(self._batch_size)
+#         try:
+#             while True:
+#                 msg = self._incoming_queue.get()
+#                 if msg is None:
+#                     break
+#                 if isinstance(msg, Exception):
+#                     raise msg
+#                 remapped_image = self._image_remapper.forward(source_image=msg)
+#                 self.deliver_item(remapped_image)
+#         except Exception as e:
+#             self.deliver_item(e)
+#             raise
+#         finally:
+#             try:
+#                 self.deliver_item(None)
+#             except:
+#                 pass
 
-    def send(self, frame_id: int, source_tensor: torch.Tensor):
-        self.frame_ids.append(frame_id)
-        self._incoming_queue.put(source_tensor)
+#     def send(self, frame_id: int, source_tensor: torch.Tensor):
+#         self.frame_ids.append(frame_id)
+#         self._incoming_queue.put(source_tensor)
 
-    def deliver_item(self, remapped_image):
-        if remapped_image is None:
-            raise StopIteration()
-        elif isinstance(remapped_image, Exception):
-            raise remapped_image
-        assert len(self.frame_ids) != 0
-        frame_id = self.frame_ids[0]
-        del self.frame_ids[0]
-        super(AsyncRemapperWorker, self).deliver_item((frame_id, remapped_image))
+#     def deliver_item(self, remapped_image):
+#         if remapped_image is None:
+#             raise StopIteration()
+#         elif isinstance(remapped_image, Exception):
+#             raise remapped_image
+#         assert len(self.frame_ids) != 0
+#         frame_id = self.frame_ids[0]
+#         del self.frame_ids[0]
+#         super(AsyncRemapperWorker, self).deliver_item((frame_id, remapped_image))
 
 
 def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):

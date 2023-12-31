@@ -19,10 +19,10 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 
 from hmlib.stitching.remapper import (
-    AsyncRemapperWorker,
-    PairCallback,
-    RemappedPair,
-    ImageRemapper,
+    #AsyncRemapperWorker,
+    #PairCallback,
+    #RemappedPair,
+    #ImageRemapper,
     create_remapper_config,
 )
 
@@ -141,9 +141,6 @@ class StitchingWorker:
         self._save_seams_and_masks = save_seams_and_masks
         self._in_queue = 0
         self._waiting_for_frame_id = None
-
-        self._remapper_1 = None
-        self._remapper_2 = None
 
         self._receive_timer = Timer()
         self._receive_count = 0
@@ -324,71 +321,14 @@ class StitchingWorker:
         )
         assert self._end_frame >= 0
 
-        # if self._use_pytorch_remap:
-        #     project_dir = os.path.dirname(self._pto_project_file)
-        #     self._pair_callback = PairCallback(callback=self._deliver_remapped_pair)
-        #     remapper_1 = ImageRemapper(
-        #         dir_name=project_dir,
-        #         basename="mapping_0000",
-        #         source_hw=[
-        #             int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-        #             int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
-        #         ],
-        #         interpolation=None,
-        #     )
-        #     # remapper_1.to(device=self._remapping_device)
-        #     self._remapper_1 = AsyncRemapperWorker(
-        #         image_remapper=remapper_1,
-        #         pair_callback=self._pair_callback.aggregate_callback_1,
-        #     )
-        #     remapper_2 = ImageRemapper(
-        #         dir_name=project_dir,
-        #         basename="mapping_0001",
-        #         source_hw=[
-        #             int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-        #             int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
-        #         ],
-        #         interpolation=None,
-        #     )
-        #     # remapper_2.to(device=self._remapping_device)
-        #     self._remapper_2 = AsyncRemapperWorker(
-        #         image_remapper=remapper_2,
-        #         pair_callback=self._pair_callback.aggregate_callback_2,
-        #     )
-
         self._start_feeder_thread()
         self._open = True
-
-    def _deliver_remapped_pair(self, remapped_pair: RemappedPair):
-        # print("_deliver_remapped_pair")
-        # TODO: handle exception and stuff
-        assert isinstance(remapped_pair, RemappedPair)
-        assert remapped_pair.image_1.shape[0] == 1
-        assert remapped_pair.image_2.shape[0] == 1
-        remapped_pair.image_1 = (
-            remapped_pair.image_1.permute(0, 2, 3, 1).unsqueeze(0).contiguous().cpu().numpy()
-        )
-        remapped_pair.image_2 = (
-            remapped_pair.image_2.permute(0, 2, 3, 1).unsqueeze(0).contiguous().cpu().numpy()
-        )
-        self._stitcher.add_remapped_frame(
-            remapped_pair.frame_id,
-            remapped_pair.image_1[0],
-            self._remapper_1.xy_pos,
-            remapped_pair.image_2[0],
-            self._remapper_2.xy_pos,
-        )
 
     def close(self, in_process: bool = False):
         if self._forked and not in_process:
             safe_put_queue(self._to_worker_queue, None)
             safe_put_queue(self._to_worker_queue, None)
         else:
-            # if self._use_pytorch_remap:
-            #     self._remapper_1.stop()
-            #     self._remapper_2.stop()
-            #     self._remapper_1 = None
-            #     self._remapper_2 = None
             self._stop_child_threads()
             self._video1.release()
             self._video2.release()
@@ -438,14 +378,6 @@ class StitchingWorker:
                     np.expand_dims(img2.transpose(2, 0, 1), axis=0)
                 ),
             )
-            # self._remapper_1.send(
-            #     frame_id=frame_id,
-            #     source_tensor=np.expand_dims(img1.transpose(2, 0, 1), axis=0),
-            # )
-            # self._remapper_2.send(
-            #     frame_id=frame_id,
-            #     source_tensor=np.expand_dims(img2.transpose(2, 0, 1), axis=0),
-            # )
         else:
             core.add_to_stitching_data_loader(
                 self._stitcher,
@@ -489,21 +421,10 @@ class StitchingWorker:
             count += 1
         self._image_response_queue.put(StopIteration())
 
-    def _init_remappers(self):
-        if self._remapper_1 is not None:
-            self._remapper_1.init(self._batch_size)
-            self._remapper_1.to(self._remapping_device)
-            self._remapper_1.start(batch_size=self._batch_size)
-        if self._remapper_2 is not None:
-            self._remapper_2.init(self._batch_size)
-            self._remapper_2.to(self._remapping_device)
-            self._remapper_2.start(batch_size=self._batch_size)
-
     def _frame_feeder_worker(
         self,
         max_frames: int,
     ):
-        self._init_remappers()
         for frame_id in range(
             self._start_frame_number, self._end_frame, self._frame_stride_count
         ):
