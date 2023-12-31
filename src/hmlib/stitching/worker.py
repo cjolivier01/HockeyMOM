@@ -416,7 +416,7 @@ class StitchingWorker:
                 return False
 
         # INFO(f"{self._rp_str()} Adding frame {frame_id} to stitch data loader")
-        # For some reason, hold onto a ref to the images while we push
+        # For some reason, hold onto a ref to the images while we pushq
         # them down into the data loader, or else there will be a segfault eventually
         assert self._max_input_queue_size >= 2
         while self._in_queue >= self._max_input_queue_size:
@@ -470,6 +470,7 @@ class StitchingWorker:
             )
             if stitched_frame is None:
                 break
+            #print(stitched_frame.shape)
             assert self._in_queue > 0
             self._in_queue -= 1
             pull_timer.toc()

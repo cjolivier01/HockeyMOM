@@ -101,6 +101,7 @@ def stitch_videos(
     project_file_name: str = "my_project.pto",
     start_frame_number: int = 0,
     max_frames: int = None,
+    show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.avi"),
 ):
     left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
@@ -126,9 +127,9 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         #output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
-        num_workers=1,
-        remap_thread_count=1,
-        blend_thread_count=1,
+        num_workers=2,
+        remap_thread_count=6,
+        blend_thread_count=6,
         #remap_thread_count=1,
         #blend_thread_count=1,
         fork_workers=False,
@@ -154,7 +155,8 @@ def stitch_videos(
 
         frame_count += 1
 
-        show_image(stitched_image)
+        if show:
+            show_image(stitched_image, wait=True)
 
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
@@ -270,7 +272,8 @@ def remap_video(
             )
             blend_timer.toc()
 
-            # show_image(blended, wait=False)
+            if show:
+                show_image(blended, wait=False)
 
         if frame_count % 20 == 0:
             print(
@@ -308,6 +311,7 @@ def main(args):
         rfo=args.rfo,
         project_file_name=args.project_file,
         game_id=args.game_id,
+        show=False,
     )
 
 

@@ -520,7 +520,7 @@ def main(args):
         "mapping_0000",
         # interpolation="bilinear",
         interpolation="",
-        show=True,
+        show=False,
     )
 
 

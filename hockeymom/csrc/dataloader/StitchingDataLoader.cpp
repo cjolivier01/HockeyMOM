@@ -21,12 +21,6 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
   // Get the dimensions of the tensor
   auto dims = tensor.sizes();
   std::vector<std::ptrdiff_t> shape(dims.begin(), dims.end());
-  assert(shape[0] == 1); // batch dimensions
-
-  // Ensure the tensor is on CPU and is contiguous
-  tensor = tensor.squeeze(0).permute({1, 2, 0}).contiguous();
-  dims = tensor.sizes();
-  shape = {dims.begin(), dims.end()};
 
   // Ensure the tensor is of type uint8_t
   if (tensor.dtype() != at::kByte) {
@@ -44,8 +38,8 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
         return stride * tensor.element_size();
       });
   // Create a NumPy array with the same data
-  std::size_t rows = shape[1];
-  std::size_t cols = shape[0];
+  std::size_t rows = shape[0];
+  std::size_t cols = shape[1];
   std::size_t channels = shape[2];
   assert(channels == 3 || channels == 4);
   // py::array_t<uint8_t> array(shape, strides, tensor.data_ptr<uint8_t>());
@@ -90,7 +84,7 @@ StitchingDataLoader::StitchingDataLoader(
               StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
             return this->blend_worker(worker_index, std::move(frame));
           }),
-      thread_pool_(std::make_unique<Eigen::ThreadPool>(4)),
+      thread_pool_(std::make_unique<Eigen::ThreadPool>(8)),
       remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())) {
   initialize();
 }
@@ -244,14 +238,20 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         local_pool.Schedule([this, frame, index = i, img, r = remapper]() {
           at::Tensor remapped = remappers_.at(index)->remap(
               img.tensor.to(remapper_configs_.at(index).device));
+
+          // Prepare layout for blending
+          assert(remapped.size(0) == 1); // batch dimensions
+          remapped = remapped.squeeze(0).permute({1, 2, 0});
+          remapped = remapped.contiguous().cpu();
+
           frame->torch_remapped_images.at(index) = FrameData::TorchImage{
-              .tensor = remapped.contiguous().cpu(),
+              .tensor = remapped,
               .xy_pos = img.xy_pos,
           };
 
           frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
-              frame->torch_remapped_images[index].tensor,
-              frame->torch_remapped_images[index].xy_pos,
+              remapped,
+              img.xy_pos,
               /*copy_data=*/true);
         });
         local_pool.join_all();
@@ -287,7 +287,6 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
 #ifdef FAKE_BLEND
     frame->blended_image = frame->remapped_images[0];
 #else
-if (if (!frame->torch_remapped_images.empty()) {)
     frame->blended_image = blender->blend_images(frame->remapped_images);
 #endif
   } catch (...) {
