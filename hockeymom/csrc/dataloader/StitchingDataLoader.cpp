@@ -10,7 +10,7 @@
 namespace hm {
 
 //#define FAKE_REMAP // ~4 fps
-#define FAKE_BLEND // ~10 fps
+//#define FAKE_BLEND // ~10 fps
 
 namespace {
 constexpr std::size_t kPrintInterval = 20;
@@ -96,7 +96,7 @@ StitchingDataLoader::StitchingDataLoader(
           }),
       thread_pool_(std::make_unique<Eigen::ThreadPool>(4)),
       remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())),
-      remap_inner_("remape_inner"),
+      remap_inner_("remap_inner"),
       remap_outer_("remap_outer"),
       blend_inner_("blend_inner"),
       blend_outer_("blend_outer") {

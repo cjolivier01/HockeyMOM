@@ -110,7 +110,7 @@ class StitchingWorker:
         self._device = device
         
         #self._remapping_device = remapping_device
-        self._remapping_device = torch.device("cuda", rank)
+        self._remapping_device = torch.device("cuda", rank + 1)
         
         self._is_cuda = self._device and self._device.startswith("cuda")
         self._start_frame_number = start_frame_number

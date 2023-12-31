@@ -163,7 +163,7 @@ class VideoOutput:
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
         #device: str = None,
-        device: str = "cuda",
+        device: str = "cuda:0",
     ):
         self._args = args
         self._device = device
@@ -447,6 +447,8 @@ class VideoOutput:
             if plot_interias:
                 vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
+            assert self._output_frame_width.item() == online_im.shape[1]
+            assert self._output_frame_height.item() == online_im.shape[0]
             if self._output_video is not None:
                 self._output_video.write(online_im)
             if self._save_frame_dir:
