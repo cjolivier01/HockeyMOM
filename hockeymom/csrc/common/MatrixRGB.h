@@ -257,16 +257,8 @@ class __attribute__((visibility("default"))) MatrixImage {
         } catch (std::exception& e) {
           std::cerr << e.what();
         }
-        // result = torch::from_blob(
-        //     at_tensor_storage_.data(),
-        //     {(int)rows(),
-        //      (int)cols(),
-        //      (int)channels()} /* total buffer size in bytes */,
-        //     std::vector<long>{strides_.begin(), strides_.end()},
-        //     at::TensorOptions().dtype(at::ScalarType::Byte));
         use_count = at_tensor_storage_.use_count();
         at_tensor_storage_ = at::Storage();
-        std::cout << "hjr90-23hrtf02-hrt" << std::endl;
       } else {
         assert(false);
         result = torch::from_blob(

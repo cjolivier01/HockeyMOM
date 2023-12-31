@@ -2,7 +2,6 @@
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include <unistd.h>
-#include <memory>
 
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -45,9 +44,9 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
   assert(channels == 3 || channels == 4);
 
   // #ifdef FAKE_BLEND
-  bool copy_data = true;
+  //bool copy_data = true;
   // #else
-  //bool copy_data = false;
+  bool copy_data = false;
   //#endif
 
   // py::array_t<uint8_t> array(shape, strides, tensor.data_ptr<uint8_t>());
@@ -268,9 +267,6 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
               .tensor = remapped,
               .xy_pos = img.xy_pos,
           };
-
-          frame->remapped_images.at(index) =
-              tensor_to_matrix_rgb_image(remapped, img.xy_pos);
         });
         local_pool.join_all();
       }
@@ -286,13 +282,13 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     }
 
     // More timer stuff
-    //double outer_remap_fps = 0.0;
+    // double outer_remap_fps = 0.0;
     remap_inner_.toc();
     // if (!is_first_timed) {
     //   remap_outer_.toc();
     //   outer_remap_fps = remap_outer_.fps();
     // }
-    //remap_outer_.tic();
+    // remap_outer_.tic();
     if ((remap_inner_.count() % kPrintInterval) == 0) {
       std::cout << remap_inner_ << std::endl;
       remap_inner_.reset();
@@ -322,6 +318,10 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     }
     auto blender = enblender_;
 #ifdef FAKE_BLEND
+    frame->remapped_images.at(0) = tensor_to_matrix_rgb_image(
+        frame->torch_remapped_images.at(0).tensor,
+        frame->torch_remapped_images.at(0).xy_pos);
+    
     frame->blended_image = frame->remapped_images[0];
 #else
     frame->blended_image = blender->blend_images(frame->remapped_images);
