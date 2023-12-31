@@ -128,8 +128,8 @@ def stitch_videos(
         #output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         num_workers=2,
-        remap_thread_count=6,
-        blend_thread_count=6,
+        remap_thread_count=2,
+        blend_thread_count=2,
         #remap_thread_count=1,
         #blend_thread_count=1,
         fork_workers=False,
@@ -151,7 +151,8 @@ def stitch_videos(
                     i, 1.0 / max(1e-5, dataset_timer.average_time)
                 )
             )
-            dataset_timer = Timer()
+            if i % 100 == 0:
+                dataset_timer = Timer()
 
         frame_count += 1
 

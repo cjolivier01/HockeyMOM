@@ -202,15 +202,15 @@ class StitchingWorker:
         # INFO(f"{self._rp_str()} GOT StitchingWorker.receive_image {fid}")
         assert fid == expected_frame_id
         self._receive_timer.toc()
-        if self._receive_count and (self._receive_count % 20) == 0:
-            logger.info(
-                "Received frame frame {} from stitching worker {} ({:.2f} fps)".format(
-                    fid,
-                    self._rank,
-                    1.0 / max(1e-5, self._receive_timer.average_time),
-                )
-            )
-            self._receive_timer = Timer()
+        # if self._receive_count and (self._receive_count % 20) == 0:
+        #     logger.info(
+        #         "Received frame frame {} from stitching worker {} ({:.2f} fps)".format(
+        #             fid,
+        #             self._rank,
+        #             1.0 / max(1e-5, self._receive_timer.average_time),
+        #         )
+        #     )
+        #     self._receive_timer = Timer()
         self._receive_count += 1
         return image
 
@@ -475,14 +475,14 @@ class StitchingWorker:
             self._in_queue -= 1
             pull_timer.toc()
 
-            if count % 20 == 0:
-                logger.info(
-                    "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
-                        frame_id,
-                        1.0 / max(1e-5, pull_timer.average_time),
-                    )
-                )
-                pull_timer = Timer()
+            # if count % 20 == 0:
+            #     logger.info(
+            #         "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
+            #             frame_id,
+            #             1.0 / max(1e-5, pull_timer.average_time),
+            #         )
+            #     )
+            #     pull_timer = Timer()
             while self._image_response_queue.qsize() > 25:
                 time.sleep(0.1)
             self._image_response_queue.put((frame_id, stitched_frame))

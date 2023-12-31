@@ -385,13 +385,13 @@ class StitchDataset:
 
         self._next_frame_timer.toc()
         self._next_frame_counter += 1
-        if self._next_frame_counter % 20 == 0:
-            logger.info(
-                "Stitch on-demand next-frame delivery speed: {:.2f} fps".format(
-                    1.0 / max(1e-5, self._next_frame_timer.average_time)
-                )
-            )
-            self._next_frame_timer = Timer()
+        # if self._next_frame_counter % 20 == 0:
+        #     logger.info(
+        #         "Stitch on-demand next-frame delivery speed: {:.2f} fps".format(
+        #             1.0 / max(1e-5, self._next_frame_timer.average_time)
+        #         )
+        #     )
+        #     self._next_frame_timer = Timer()
 
         return stitched_frame
 
