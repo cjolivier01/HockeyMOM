@@ -2,6 +2,7 @@
 
 #include "hockeymom/csrc/common/JobRunner.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
+#include "hockeymom/csrc/common/Timer.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
@@ -121,6 +122,12 @@ class StitchingDataLoader {
   std::vector<ops::RemapperConfig> remapper_configs_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
+
+  // Timers
+  Timer remap_inner_;
+  Timer remap_outer_;
+  Timer blend_inner_;
+  Timer blend_outer_;
 };
 
 } // namespace hm

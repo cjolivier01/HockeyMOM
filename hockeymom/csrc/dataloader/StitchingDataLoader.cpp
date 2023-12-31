@@ -14,10 +14,11 @@ namespace hm {
 #define FAKE_BLEND // ~10 fps
 
 namespace {
+constexpr std::size_t kPrintInterval = 20;
+
 std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
     at::Tensor tensor,
-    const std::vector<int>& xy_pos,
-    bool copy_data) {
+    const std::vector<int>& xy_pos) {
   // Get the dimensions of the tensor
   auto dims = tensor.sizes();
   std::vector<std::ptrdiff_t> shape(dims.begin(), dims.end());
@@ -42,10 +43,20 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
   std::size_t cols = shape[1];
   std::size_t channels = shape[2];
   assert(channels == 3 || channels == 4);
+
+  // #ifdef FAKE_BLEND
+  bool copy_data = true;
+  // #else
+  //bool copy_data = false;
+  //#endif
+
   // py::array_t<uint8_t> array(shape, strides, tensor.data_ptr<uint8_t>());
-  auto rgb = std::make_shared<MatrixRGB>(rows, cols, channels, strides);
-  memcpy(rgb->data(), tensor.data_ptr<uint8_t>(), rows * cols * channels);
-  rgb->set_xy_pos(xy_pos.at(0), xy_pos.at(1));
+  // auto rgb = std::make_shared<MatrixRGB>(array, /*copy_data=*/false);
+  auto rgb = std::make_shared<MatrixRGB>(
+      tensor, xy_pos.at(0), xy_pos.at(1), /*copy_data=*/copy_data);
+  // auto rgb = std::make_shared<MatrixRGB>(rows, cols, channels, strides);
+  // memcpy(rgb->data(), tensor.data_ptr<uint8_t>(), rows * cols * channels);
+  // rgb->set_xy_pos(xy_pos.at(0), xy_pos.at(1));
   return rgb;
 }
 
@@ -84,8 +95,12 @@ StitchingDataLoader::StitchingDataLoader(
               StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
             return this->blend_worker(worker_index, std::move(frame));
           }),
-      thread_pool_(std::make_unique<Eigen::ThreadPool>(8)),
-      remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())) {
+      thread_pool_(std::make_unique<Eigen::ThreadPool>(4)),
+      remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())),
+      remap_inner_("remape_inner"),
+      remap_outer_("remap_outer"),
+      blend_inner_("blend_inner"),
+      blend_outer_("blend_outer") {
   initialize();
 }
 
@@ -227,6 +242,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     frame->remapped_images.at(0)->set_xy_pos(0, 42);
     frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
+    // Timer stuff
+    const bool is_first_timed = remap_inner_.count() == 0;
+    remap_inner_.tic();
+
+    // The actual work
     if (!frame->torch_input_images.empty()) {
       HmThreadPool local_pool(thread_pool_.get());
       frame->torch_remapped_images.resize(frame->torch_input_images.size());
@@ -249,10 +269,8 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
               .xy_pos = img.xy_pos,
           };
 
-          frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
-              remapped,
-              img.xy_pos,
-              /*copy_data=*/true);
+          frame->remapped_images.at(index) =
+              tensor_to_matrix_rgb_image(remapped, img.xy_pos);
         });
         local_pool.join_all();
       }
@@ -266,6 +284,25 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         frame->remapped_images.emplace_back(std::move(r));
       }
     }
+
+    // More timer stuff
+    //double outer_remap_fps = 0.0;
+    remap_inner_.toc();
+    // if (!is_first_timed) {
+    //   remap_outer_.toc();
+    //   outer_remap_fps = remap_outer_.fps();
+    // }
+    //remap_outer_.tic();
+    if ((remap_inner_.count() % kPrintInterval) == 0) {
+      std::cout << remap_inner_ << std::endl;
+      remap_inner_.reset();
+    }
+    // if (outer_remap_fps != 0.0 &&
+    //     (remap_outer_.count() % kPrintInterval) == 0) {
+    //   std::cout << remap_outer_ << std::endl;
+    //   remap_outer_.reset();
+    // }
+
 #endif
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;

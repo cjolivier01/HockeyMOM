@@ -273,7 +273,7 @@ def create_stitched_image(
         1,
     )
     core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
-    stitched_frame = core.get_stitched_frame_from_data_loader(stitcher, 0)
+    stitched_frame = stitcher.get_stitched_frame(0)
     return stitched_frame
 
 

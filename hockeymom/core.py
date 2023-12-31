@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List
+import torch
 
 # Functions
 from ._hockeymom import (
@@ -7,7 +8,6 @@ from ._hockeymom import (
     _enblend,
     _nona_process_images,
     _add_to_stitching_data_loader,
-    _get_stitched_frame_from_data_loader,
 )
 
 # Classes
@@ -62,8 +62,3 @@ def add_to_stitching_data_loader(
 ) -> int:
     return _add_to_stitching_data_loader(data_loader, frame_id, image_left, image_right)
 
-
-def get_stitched_frame_from_data_loader(
-    data_loader: StitchingDataLoader, frame_id: int
-) -> np.array:
-    return _get_stitched_frame_from_data_loader(data_loader, frame_id)

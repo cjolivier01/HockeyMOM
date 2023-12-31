@@ -16,6 +16,9 @@
 #include <cstdint>
 #include <vector>
 
+#include <ATen/ATen.h>
+#include <torch/csrc/autograd/generated/variable_factories.h>
+
 namespace py = pybind11;
 
 namespace hm {
@@ -61,7 +64,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     if ((copy_data || py_buffer_info.readonly)) {
       std::size_t image_bytes =
           sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
-      //std::cout << "image_bytes=" << image_bytes << std::endl;
+      // std::cout << "image_bytes=" << image_bytes << std::endl;
       data_ = new std::uint8_t[image_bytes];
       memcpy(data_, py_buffer_info.ptr, image_bytes);
       m_own_data = true;
@@ -74,7 +77,63 @@ class __attribute__((visibility("default"))) MatrixImage {
     }
   }
 
-  MatrixImage(size_t rows, size_t cols, size_t channels, std::vector<std::size_t> strides = {})
+  MatrixImage(
+      at::Tensor tensor,
+      std::size_t xpos,
+      std::size_t ypos,
+      bool copy_data = false) {
+    // Access the data and information from the NumPy array
+    std::size_t ndims = tensor.sizes().size();
+    auto dtype = tensor.dtype();
+    // Check if the input is a 3D array with dtype uint8 (RGB image)
+    if (ndims != 3 /*|| !dtype.is(py::dtype::of<uint8_t>())*/) {
+      throw std::runtime_error("Input must be a 3D uint8 RGB image array");
+    }
+
+    // auto py_buffer_info = input_image.request();
+
+    // Get the dimensions
+    rows_ = tensor.size(0);
+    cols_ = tensor.size(1);
+    channels_ = tensor.size(2);
+    auto strides = tensor.strides();
+    strides_ = {strides.begin(), strides.end()};
+    x_pos_ = xpos;
+    y_pos_ = ypos;
+    // need to fiogure out how to get the proper byte size
+    assert(storage_channel_count() == channels());
+    // Is it ever read-only?
+    if (copy_data) {
+      std::size_t image_bytes =
+          sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
+      data_ = new std::uint8_t[image_bytes];
+      assert(image_bytes == tensor.nbytes());
+      memcpy(data_, tensor.data_ptr<uint8_t>(), image_bytes);
+      m_own_data = true;
+      is_python_data = false;
+    } else {
+      m_own_data = false;
+      is_python_data = false;
+      tensor_ = tensor.cpu().clone();
+      at_tensor_storage_ = tensor_.storage();
+      at_tensor_storage_offset_ = tensor_.storage_offset();
+      data_ = tensor_.data_ptr<uint8_t>();
+      assert(
+          data_ ==
+          static_cast<std::uint8_t*>(tensor_.data_ptr<uint8_t>()) +
+              at_tensor_storage_offset_);
+      assert(
+          at_tensor_storage_.nbytes() ==
+          rows() * cols() * channels() * kPixelSampleSize);
+      has_tensor_ = true;
+    }
+  }
+
+  MatrixImage(
+      size_t rows,
+      size_t cols,
+      size_t channels,
+      std::vector<std::size_t> strides = {})
       : rows_(rows), cols_(cols), channels_(channels) {
     data_ = new std::uint8_t[rows * cols * channels_ * kPixelSampleSize];
     if (!strides.empty()) {
@@ -142,6 +201,9 @@ class __attribute__((visibility("default"))) MatrixImage {
       assert(data);
       delete[] reinterpret_cast<std::uint8_t*>(data);
     });
+    if (!data_ || !m_own_data) {
+      std::cout << "rh270377f7yh23f" << std::endl;
+    }
     assert(data_ && m_own_data);
     assert(!strides_.empty());
 
@@ -153,6 +215,69 @@ class __attribute__((visibility("default"))) MatrixImage {
         data_,
         std::move(capsule));
     m_own_data = false;
+    is_python_data = false;
+    data_ = nullptr;
+    return result;
+  }
+
+  at::Tensor to_tensor() {
+    assert(data_);
+    assert(!strides_.empty());
+
+    at::Tensor result;
+    if (m_own_data) {
+      std::function<void(void*)> deleter = [](void *p) {
+        assert(p);
+        delete[] reinterpret_cast<std::uint8_t*>(p);
+      };
+      result = torch::from_blob(
+          data_,
+          {(int)rows(),
+           (int)cols(),
+           (int)channels()} /* total buffer size in bytes */,
+          std::vector<long>{strides_.begin(), strides_.end()},
+          deleter,
+          at::TensorOptions().dtype(at::ScalarType::Byte));
+      m_own_data = false;
+    } else {
+      if (has_tensor_) {
+        std::size_t use_count = at_tensor_storage_.use_count();
+        assert(at_tensor_storage_.data());
+        assert(
+            at_tensor_storage_.nbytes() ==
+            rows() * cols() * channels() * kPixelSampleSize);
+        try {
+          result = tensor_.set_(
+              at_tensor_storage_,
+              at_tensor_storage_offset_,
+              {(int)rows(),
+               (int)cols(),
+               (int)channels()} /* total buffer size in bytes */,
+              std::vector<long>{strides_.begin(), strides_.end()});
+        } catch (std::exception& e) {
+          std::cerr << e.what();
+        }
+        // result = torch::from_blob(
+        //     at_tensor_storage_.data(),
+        //     {(int)rows(),
+        //      (int)cols(),
+        //      (int)channels()} /* total buffer size in bytes */,
+        //     std::vector<long>{strides_.begin(), strides_.end()},
+        //     at::TensorOptions().dtype(at::ScalarType::Byte));
+        use_count = at_tensor_storage_.use_count();
+        at_tensor_storage_ = at::Storage();
+        std::cout << "hjr90-23hrtf02-hrt" << std::endl;
+      } else {
+        assert(false);
+        result = torch::from_blob(
+            data_,
+            {(int)rows(),
+             (int)cols(),
+             (int)channels()} /* total buffer size in bytes */,
+            std::vector<long>{strides_.begin(), strides_.end()},
+            at::TensorOptions().dtype(at::ScalarType::Byte));
+      }
+    }
     is_python_data = false;
     data_ = nullptr;
     return result;
@@ -182,11 +307,15 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
  private:
+  at::Tensor tensor_;
+  at::Storage at_tensor_storage_;
+  std::size_t at_tensor_storage_offset_{0};
+  bool has_tensor_{false};
   bool m_own_data{false};
   bool is_python_data{false};
   size_t rows_{0}, cols_{0}, channels_{0};
   std::vector<std::size_t> strides_;
-  std::uint8_t* data_;
+  std::uint8_t* data_{nullptr};
   std::size_t x_pos_{0};
   std::size_t y_pos_{0};
 };

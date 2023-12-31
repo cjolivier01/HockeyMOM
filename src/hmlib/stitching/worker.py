@@ -465,11 +465,11 @@ class StitchingWorker:
                 break
             pull_timer.tic()
             self._waiting_for_frame_id = frame_id
-            stitched_frame = core.get_stitched_frame_from_data_loader(
-                self._stitcher, frame_id
-            )
+            stitched_frame = self._stitcher.get_stitched_frame(frame_id)
             if stitched_frame is None:
                 break
+            if isinstance(stitched_frame, torch.Tensor):
+                stitched_frame = stitched_frame.numpy()
             #print(stitched_frame.shape)
             assert self._in_queue > 0
             self._in_queue -= 1

@@ -159,7 +159,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(
           "get_stitched_frame",
           [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
-             std::size_t frame_id) -> std::optional<py::array_t<std::uint8_t>> {
+             std::size_t frame_id) -> std::optional<at::Tensor> {
             std::shared_ptr<hm::MatrixRGB> stitched_image;
             {
               py::gil_scoped_release release_gil;
@@ -167,8 +167,8 @@ PYBIND11_MODULE(_hockeymom, m) {
               if (!stitched_image) {
                 return std::nullopt;
               }
+              return stitched_image->to_tensor();
             }
-            return stitched_image->to_py_array();
           });
 
   using SortedPyArrayUin8Queue =
@@ -321,21 +321,6 @@ PYBIND11_MODULE(_hockeymom, m) {
           data_loader->add_frame(frame_id, {std::move(m1), std::move(m2)});
         }
         return frame_id;
-      });
-
-  m.def(
-      "_get_stitched_frame_from_data_loader",
-      [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
-         std::size_t frame_id) -> std::optional<py::array_t<std::uint8_t>> {
-        std::shared_ptr<hm::MatrixRGB> stitched_image;
-        {
-          py::gil_scoped_release release_gil;
-          stitched_image = data_loader->get_stitched_frame(frame_id);
-          if (!stitched_image) {
-            return std::nullopt;
-          }
-        }
-        return stitched_image->to_py_array();
       });
 
   m.def("_hello_world", []() {
