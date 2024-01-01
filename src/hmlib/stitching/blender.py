@@ -15,7 +15,7 @@ from hmlib.stitch_synchronize import get_image_geo_position
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
-from hmlib.video_out import VideoOutput, ImageProcData, resize_image
+from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -232,6 +232,7 @@ def blend_video(
     start_frame_number: int = 0,
     output_video: str = None,
     max_width: int = 7680,
+    rotation_angle: int = 0,
 ):
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
@@ -368,7 +369,22 @@ def blend_video(
                         )
                         frame_id += 1
                 else:
-                    cpu_blended_image = blended.permute(0, 2, 3, 1).contiguous().cpu()
+                    my_blended = blended.permute(0, 2, 3, 1)
+                    if rotation_angle:
+                        my_blended = rotate_image(
+                            img=my_blended,
+                            angle=-25,
+                            rotation_point=(
+                                my_blended.shape[-2] // 2,
+                                my_blended.shape[-3] // 2,
+                            ),
+                        )
+                    # cv2.imshow(
+                    #     "stitched",
+                    #     my_blended[0].contiguous().cpu().numpy(),
+                    # )
+                    # cv2.waitKey(0)
+                    cpu_blended_image = my_blended.contiguous().cpu()
                     for i in range(len(cpu_blended_image)):
                         video_out.append(
                             ImageProcData(

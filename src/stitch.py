@@ -303,8 +303,8 @@ def main(args):
         #     show=True,
         # )
 
-        args.lfo = 15
-        args.rfo = 0
+        # args.lfo = 15
+        # args.rfo = 0
 
         lfo, rfo = stitch_videos(
             args.video_dir,

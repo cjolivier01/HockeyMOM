@@ -70,19 +70,34 @@ _ANGLE = 0.0
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
     if isinstance(img, torch.Tensor):
-        # H, W, C -> C, W, H
-        img = img.permute(2, 1, 0)
-        angle = -angle
-        img = F.rotate(
-            img=img,
-            angle=angle,
-            center=(rotation_point[1], rotation_point[0]),
-            interpolation=tv.transforms.InterpolationMode.BILINEAR,
-            expand=False,
-            fill=None,
-        )
-        # W, H, C -> C, H, W
-        img = img.permute(2, 1, 0)
+        if img.dim() == 4:
+            # H, W, C -> C, W, H
+            img = img.permute(0, 3, 2, 1)
+            angle = -angle
+            img = F.rotate(
+                img=img,
+                angle=angle,
+                center=(rotation_point[1], rotation_point[0]),
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                expand=False,
+                fill=None,
+            )
+            # W, H, C -> C, H, W
+            img = img.permute(0, 3, 2, 1)
+        else:
+            # H, W, C -> C, W, H
+            img = img.permute(2, 1, 0)
+            angle = -angle
+            img = F.rotate(
+                img=img,
+                angle=angle,
+                center=(rotation_point[1], rotation_point[0]),
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                expand=False,
+                fill=None,
+            )
+            # W, H, C -> C, H, W
+            img = img.permute(2, 1, 0)
     elif isinstance(img, PIL.Image.Image):
         img = img.rotate(
             angle, resample=Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
