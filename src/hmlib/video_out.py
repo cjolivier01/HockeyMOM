@@ -106,14 +106,25 @@ def resize_image(img, new_width: int, new_height: int):
     h = int(new_height)
     if isinstance(img, torch.Tensor):
         # H, W, C -> C, W, H
-        img = img.permute(2, 1, 0)
-        img = F.resize(
-            img=img,
-            size=(w, h),
-            interpolation=tv.transforms.InterpolationMode.BICUBIC,
-        )
-        # C, W, H -> H, W, C
-        img = img.permute(2, 1, 0)
+        if img.dim() == 4:
+            # Probably doesn't work
+            img = img.permute(0, 3, 2, 1)
+            img = F.resize(
+                img=img,
+                size=(w, h),
+                interpolation=tv.transforms.InterpolationMode.BICUBIC,
+            )
+            # C, W, H -> H, W, C
+            img = img.permute(0, 3, 2, 1)
+        else:
+            img = img.permute(2, 1, 0)
+            img = F.resize(
+                img=img,
+                size=(w, h),
+                interpolation=tv.transforms.InterpolationMode.BICUBIC,
+            )
+            # C, W, H -> H, W, C
+            img = img.permute(2, 1, 0)
         return img
     elif isinstance(img, PIL.Image.Image):
         return img.resize((w, h))
@@ -169,8 +180,8 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        # device: str = None,
-        device: str = "cuda:0",
+        device: str = None,
+        #device: str = "cuda:0",
     ):
         self._args = args
         self._device = device

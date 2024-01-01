@@ -15,7 +15,7 @@ from hmlib.stitch_synchronize import get_image_geo_position
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
-from hmlib.video_out import VideoOutput, ImageProcData
+from hmlib.video_out import VideoOutput, ImageProcData, resize_image
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -209,6 +209,16 @@ def make_seam_and_xor_masks(
     return seam_tensor, xor_tensor
 
 
+def get_dims_for_output_video(height: int, width: int, max_width: int):
+    if max_width and width > max_width:
+        hh = float(height)
+        ww = float(width)
+        ar = ww / hh
+        new_h = float(max_width) / ar
+        return int(new_h), int(max_width)
+    return int(height), int(width)
+
+
 def blend_video(
     video_file_1: str,
     video_file_2: str,
@@ -221,6 +231,7 @@ def blend_video(
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
+    max_width: int = 7680,
 ):
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
@@ -324,23 +335,49 @@ def blend_video(
             )
 
             if output_video:
+                video_dim_height, video_dim_width = get_dims_for_output_video(
+                    height=blended.shape[-2],
+                    width=blended.shape[-1],
+                    max_width=max_width,
+                )
                 if video_out is None:
                     video_out = VideoOutput(
                         args=None,
                         output_video_path=output_video,
-                        output_frame_width=blended.shape[-1],
-                        output_frame_height=blended.shape[-2],
+                        output_frame_width=video_dim_width,
+                        output_frame_height=video_dim_height,
                         fps=cap_1.get(cv2.CAP_PROP_FPS),
                         device=blended.device,
                     )
-                video_out.append(
-                    ImageProcData(
-                        frame_id=frame_id,
-                        img=blended.permute(0, 2, 3, 1).contiguous().cpu(),
-                        current_box=None,
-                    )
-                )
-                frame_id += len(blended)
+                if (
+                    video_dim_height != blended.shape[-2]
+                    or video_dim_width != blended.shape[-1]
+                ):
+                    for i in range(len(blended)):
+                        resized = resize_image(
+                            img=blended[i].permute(1, 2, 0),
+                            new_width=video_dim_width,
+                            new_height=video_dim_height,
+                        )
+                        video_out.append(
+                            ImageProcData(
+                                frame_id=frame_id,
+                                img=resized.contiguous().cpu(),
+                                current_box=None,
+                            )
+                        )
+                        frame_id += 1
+                else:
+                    cpu_blended_image = blended.permute(0, 2, 3, 1).contiguous().cpu()
+                    for i in range(len(cpu_blended_image)):
+                        video_out.append(
+                            ImageProcData(
+                                frame_id=frame_id,
+                                img=cpu_blended_image[i],
+                                current_box=None,
+                            )
+                        )
+                        frame_id += 1
             else:
                 # blended.cpu()
                 pass
