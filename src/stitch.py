@@ -44,13 +44,6 @@ def make_parser():
         "-d", "--devices", default=None, type=int, help="device for training"
     )
     parser.add_argument(
-        "--lfo",
-        "--left_frame_offset",
-        default=None,
-        type=float,
-        help="Left frame offset",
-    )
-    parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
     )
     parser.add_argument(
@@ -59,6 +52,13 @@ def make_parser():
         default="autooptimiser_out.pto",
         type=str,
         help="Use project file as input to stitcher",
+    )
+    parser.add_argument(
+        "--lfo",
+        "--left_frame_offset",
+        default=None,
+        type=float,
+        help="Left frame offset",
     )
     parser.add_argument(
         "--rfo",

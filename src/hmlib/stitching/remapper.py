@@ -12,48 +12,13 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.stitch_synchronize import get_image_geo_position
-#from hmlib.async_worker import AsyncWorker
+
+# from hmlib.async_worker import AsyncWorker
 
 import hockeymom.core as core
+from hmlib.tracking_utils.timer import Timer
 
 ROOT_DIR = os.getcwd()
-
-
-class Timer(object):
-    """A simple timer."""
-
-    def __init__(self):
-        self.total_time = 0.0
-        self.calls = 0
-        self.start_time = 0.0
-        self.diff = 0.0
-        self.average_time = 0.0
-
-        self.duration = 0.0
-
-    def tic(self):
-        # using time.time instead of time.clock because time time.clock
-        # does not normalize for multithreading
-        self.start_time = time.time()
-
-    def toc(self, average=True):
-        self.diff = time.time() - self.start_time
-        self.total_time += self.diff
-        self.calls += 1
-        self.average_time = self.total_time / self.calls
-        if average:
-            self.duration = self.average_time
-        else:
-            self.duration = self.diff
-        return self.duration
-
-    def clear(self):
-        self.total_time = 0.0
-        self.calls = 0
-        self.start_time = 0.0
-        self.diff = 0.0
-        self.average_time = 0.0
-        self.duration = 0.0
 
 
 def make_parser():
@@ -103,6 +68,23 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     padding = [0, pad_width, 0, pad_height]
     padded_tensor = F.pad(tensor, padding, "constant", pad_value)
     return padded_tensor
+
+
+def read_frame_batch(
+    cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu")
+):
+    frame_list = []
+    res, frame = cap.read()
+    if not res or frame is None:
+        raise StopIteration()
+    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+    for i in range(batch_size - 1):
+        res, frame = cap.read()
+        if not res or frame is None:
+            raise StopIteration()
+        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+    tensor = torch.stack(frame_list)
+    return tensor
 
 
 def create_remapper_config(
@@ -438,21 +420,6 @@ class ImageRemapper:
 #         frame_id = self.frame_ids[0]
 #         del self.frame_ids[0]
 #         super(AsyncRemapperWorker, self).deliver_item((frame_id, remapped_image))
-
-
-def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
-    frame_list = []
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
-    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
-    for i in range(batch_size - 1):
-        res, frame = cap.read()
-        if not res or frame is None:
-            raise StopIteration()
-        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
-    tensor = torch.stack(frame_list)
-    return tensor
 
 
 def remap_video(
