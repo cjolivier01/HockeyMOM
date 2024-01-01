@@ -70,6 +70,12 @@ def make_parser():
         type=float,
         help="Right frame offset",
     )
+    parser.add_argument(
+        "--rotation_angle",
+        default=0,
+        type=int,
+        help="Rotation angle of final stitched image(s)",
+    )
     return parser
 
 
@@ -373,7 +379,8 @@ def blend_video(
                     if rotation_angle:
                         my_blended = rotate_image(
                             img=my_blended,
-                            angle=-25,
+                            # angle=-25,
+                            angle=rotation_angle,
                             rotation_point=(
                                 my_blended.shape[-2] // 2,
                                 my_blended.shape[-3] // 2,
@@ -441,6 +448,7 @@ def main(args):
             show=args.show,
             start_frame_number=12000,
             output_video="stitched_output.avi",
+            rotation_angle=args.rotation_angle,
         )
 
 
