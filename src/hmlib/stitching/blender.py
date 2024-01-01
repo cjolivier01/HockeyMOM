@@ -110,8 +110,14 @@ class ImageBlender:
         print("Initialized")
 
     def forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
-        channels = 3
+        print(
+            f"1={image_1.shape} @ {self._images_info[0].xpos}, {self._images_info[0].ypos}"
+        )
+        print(
+            f"2={image_2.shape} @ {self._images_info[1].xpos}, {self._images_info[1].ypos}"
+        )
         batch_size = image_1.shape[0]
+        channels = image_1.shape[1]
         canvas = torch.zeros(
             size=(
                 batch_size,
@@ -130,8 +136,8 @@ class ImageBlender:
         w2 = image_2.shape[3]
         x2 = self._images_info[1].xpos
         y2 = self._images_info[1].ypos
-        
-        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >=0
+
+        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
         if y1 < y2:
             y2 -= y1
             y1 = 0
@@ -139,12 +145,35 @@ class ImageBlender:
             y1 -= y2
             y2 = 0
         assert x1 == 0 or x2 == 0  # for now this is the case
-            
 
-        #cv2.imshow("...", make_blender_compatible_tensor(image_1[0]))
-        #cv2.waitKey(0)
+        canvas_h = canvas.shape[2]
+        canvas_w = canvas.shape[3]
 
-        canvas[:, :, y1 : y1 + h1, x1 : x1 + w1] = image_1[:, :, :, :]
+        dest_bottom = canvas_h
+        h1_clip_bottom = h1 + y1
+        if h1_clip_bottom > canvas_h:
+            dest_bottom = h1_clip_bottom - canvas_h
+            h1_clip_bottom -= h1_clip_bottom - canvas_h
+            foo = h1_clip_bottom - dest_bottom
+
+        w1_clip_right = w1 + x1
+        if w1_clip_right > canvas_w:
+            w1_clip_right -= w1_clip_right - canvas_w
+
+        h1 = h1_clip_bottom
+        h2 = min(h2 + y2, canvas.shape[2])
+
+        w1 = w1_clip_right
+        w2 = min(w2 + x2, canvas.shape[3])
+
+        # cv2.imshow("...", make_blender_compatible_tensor(image_1[0]))
+        # cv2.waitKey(0)
+
+        img2 = image_2[:, :, 0:h2, 0:w2]
+        canvas[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
+
+        img1 = image_1[:, :, 0:h1_clip_bottom, 0:w1_clip_right]
+        canvas[:, :, y1 : y1 + h1_clip_bottom, x1 : x1 + w1] = img1
 
         cv2.imshow("...", make_blender_compatible_tensor(canvas[0]))
         cv2.waitKey(0)
@@ -232,6 +261,7 @@ def blend_video(
         source_hw=source_tensor_1.shape[-2:],
         channels=source_tensor_1.shape[1],
         interpolation=interpolation,
+        add_alpha_channel=False,
     )
     remapper_1.init(batch_size=batch_size)
     remapper_1.to(device=device)
@@ -242,6 +272,7 @@ def blend_video(
         source_hw=source_tensor_2.shape[-2:],
         channels=source_tensor_2.shape[1],
         interpolation=interpolation,
+        add_alpha_channel=False,
     )
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
@@ -267,7 +298,7 @@ def blend_video(
                     ImageAndPos(
                         image=destination_tensor_2[0],
                         xpos=remapper_2.xpos,
-                        ypos=remapper_1.ypos,
+                        ypos=remapper_2.ypos,
                     ),
                 ],
             )
