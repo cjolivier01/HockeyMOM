@@ -135,7 +135,14 @@ class ImageProcData:
     def __init__(self, frame_id: int, img, current_box: torch.Tensor):
         self.frame_id = frame_id
         self.img = img
-        self.current_box = current_box.clone()
+        if current_box is None:
+            self.current_box = torch.tensor(
+                (0, 0, img.shape[-1], img.shape[-2]),
+                dtype=torch.int64,
+                device=img.device,
+            )
+        else:
+            self.current_box = current_box.clone()
 
     def dump(self):
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
@@ -153,16 +160,16 @@ class VideoOutput:
         output_frame_height: int,
         fps: float,
         fourcc="XVID",
-        #fourcc="HEVC",
-        #fourcc="X264",
-        #fourcc="H264",
-        #fourcc = "HFYU",
+        # fourcc="HEVC",
+        # fourcc="X264",
+        # fourcc="H264",
+        # fourcc = "HFYU",
         save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        #device: str = None,
+        # device: str = None,
         device: str = "cuda:0",
     ):
         self._args = args
@@ -171,8 +178,8 @@ class VideoOutput:
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
         self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
-        self._output_frame_width_int = int(self._output_frame_width.item())
-        self._output_frame_height_int = int(self._output_frame_height.item())
+        self._output_frame_width_int = int(self._output_frame_width)
+        self._output_frame_height_int = int(self._output_frame_height)
         self._use_fork = use_fork
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
@@ -257,6 +264,9 @@ class VideoOutput:
             )
         return self._horizontal_image_gaussian_distribution
 
+    def has_args(self):
+        return self._args is not None
+
     def _final_image_processing(self):
         print("VideoOutput thread started.")
         plot_interias = False
@@ -267,9 +277,9 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
-            #is_cuda = self._device.startswith("cuda")
+            # is_cuda = self._device.startswith("cuda")
             # I think it crashes if the size is off by even one pixed between frames?
-            is_cuda = True
+            is_cuda = False
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             if not is_cuda:
                 self._output_video = cv2.VideoWriter(
@@ -277,8 +287,8 @@ class VideoOutput:
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
-                        int(self._output_frame_width.item()),
-                        int(self._output_frame_height.item()),
+                        int(self._output_frame_width),
+                        int(self._output_frame_height),
                     ),
                     isColor=True,
                 )
@@ -290,8 +300,8 @@ class VideoOutput:
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
-                        int(self._output_frame_width.item()),
-                        int(self._output_frame_height.item()),
+                        int(self._output_frame_width),
+                        int(self._output_frame_height),
                     ),
                 )
 
@@ -311,7 +321,7 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            if self._device is not None:
+            if self._device is not None and not isinstance(online_im, torch.Tensor):
                 online_im = torch.from_numpy(online_im).to(self._device)
 
             src_image_width = image_width(online_im)
@@ -320,7 +330,7 @@ class VideoOutput:
             #
             # Perspective rotation
             #
-            if self._args.fixed_edge_rotation:
+            if self.has_args() and self._args.fixed_edge_rotation:
                 # start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
                 width_center = src_image_width / 2
@@ -348,7 +358,7 @@ class VideoOutput:
             #
             # Crop to output video frame image
             #
-            if self._args.crop_output_image:
+            if self.has_args() and self._args.crop_output_image:
                 # assert torch.isclose(
                 #     aspect_ratio(current_box), self._output_aspect_ratio,
                 # )
@@ -407,7 +417,7 @@ class VideoOutput:
             #
             # Watermark
             #
-            if self._args.use_watermark:
+            if self.has_args() and self._args.use_watermark:
                 y = int(online_im.shape[0] - self.watermark_height)
                 x = int(
                     online_im.shape[1]
@@ -429,7 +439,7 @@ class VideoOutput:
             #
             # Frame Number
             #
-            if self._args.plot_frame_number:
+            if self.has_args() and self._args.plot_frame_number:
                 online_im = vis.plot_frame_number(
                     online_im,
                     frame_id=frame_id,
@@ -437,7 +447,8 @@ class VideoOutput:
 
             # Output (and maybe show) the final image
             if (
-                self._args.show_image
+                self.has_args()
+                and self._args.show_image
                 and imgproc_data.frame_id >= skip_frames_before_show
             ):
                 if imgproc_data.frame_id % show_image_interval == 0:
@@ -447,8 +458,8 @@ class VideoOutput:
             if plot_interias:
                 vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
-            assert self._output_frame_width.item() == online_im.shape[1]
-            assert self._output_frame_height.item() == online_im.shape[0]
+            assert int(self._output_frame_width) == online_im.shape[-2]
+            assert int(self._output_frame_height) == online_im.shape[-3]
             if self._output_video is not None:
                 self._output_video.write(online_im)
             if self._save_frame_dir:

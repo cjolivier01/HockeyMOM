@@ -15,6 +15,7 @@ from hmlib.stitch_synchronize import get_image_geo_position
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
+from hmlib.video_out import VideoOutput, ImageProcData
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -219,6 +220,7 @@ def blend_video(
     rfo: float = 0,
     show: bool = False,
     start_frame_number: int = 0,
+    output_video: str = None,
 ):
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
@@ -266,82 +268,110 @@ def blend_video(
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
 
+    video_out = None
+
     timer = Timer()
     frame_count = 0
     blender = None
-    while True:
-        destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
-        destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2)
+    frame_id = start_frame_number
+    try:
+        while True:
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2)
 
-        if frame_count == 0:
-            seam_tensor, xor_tensor = make_seam_and_xor_masks(
-                dir_name=dir_name,
-                images_and_positions=[
-                    ImageAndPos(
-                        image=destination_tensor_1[0],
-                        xpos=remapper_1.xpos,
-                        ypos=remapper_1.ypos,
-                    ),
-                    ImageAndPos(
-                        image=destination_tensor_2[0],
-                        xpos=remapper_2.xpos,
-                        ypos=remapper_2.ypos,
-                    ),
-                ],
-            )
-            blender = ImageBlender(
-                images_info=[
-                    BlendImageInfo(
-                        width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
-                        height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                        xpos=remapper_1.xpos,
-                        ypos=remapper_1.ypos,
-                    ),
-                    BlendImageInfo(
-                        width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
-                        height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                        xpos=remapper_2.xpos,
-                        ypos=remapper_2.ypos,
-                    ),
-                ],
-                seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
-                xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-            )
-            blender.init()
-            # if show:
-            #     cv2.imshow("blended", blended)
-            #     cv2.waitKey(1)
-
-        blended = blender.forward(
-            image_1=destination_tensor_1, image_2=destination_tensor_2
-        )
-
-        foo = blended.cpu()
-
-        frame_count += 1
-        if frame_count != 1:
-            timer.toc()
-
-        if frame_count % 20 == 0:
-            print(
-                "Stitching: {:.2f} fps".format(
-                    batch_size * 1.0 / max(1e-5, timer.average_time)
+            if frame_count == 0:
+                seam_tensor, xor_tensor = make_seam_and_xor_masks(
+                    dir_name=dir_name,
+                    images_and_positions=[
+                        ImageAndPos(
+                            image=destination_tensor_1[0],
+                            xpos=remapper_1.xpos,
+                            ypos=remapper_1.ypos,
+                        ),
+                        ImageAndPos(
+                            image=destination_tensor_2[0],
+                            xpos=remapper_2.xpos,
+                            ypos=remapper_2.ypos,
+                        ),
+                    ],
                 )
-            )
-            if frame_count % 50 == 0:
-                timer = Timer()
-
-        if show:
-            for i in range(len(blended)):
-                cv2.imshow(
-                    "stitched",
-                    make_cv_compatible_tensor(blended[i]),
+                blender = ImageBlender(
+                    images_info=[
+                        BlendImageInfo(
+                            width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
+                            height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                            xpos=remapper_1.xpos,
+                            ypos=remapper_1.ypos,
+                        ),
+                        BlendImageInfo(
+                            width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
+                            height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                            xpos=remapper_2.xpos,
+                            ypos=remapper_2.ypos,
+                        ),
+                    ],
+                    seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
+                    xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
                 )
-                cv2.waitKey(1)
+                blender.init()
+                # if show:
+                #     cv2.imshow("blended", blended)
+                #     cv2.waitKey(1)
 
-        source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-        source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
-        timer.tic()
+            blended = blender.forward(
+                image_1=destination_tensor_1,
+                image_2=destination_tensor_2,
+            )
+
+            if output_video:
+                if video_out is None:
+                    video_out = VideoOutput(
+                        args=None,
+                        output_video_path=output_video,
+                        output_frame_width=blended.shape[-1],
+                        output_frame_height=blended.shape[-2],
+                        fps=cap_1.get(cv2.CAP_PROP_FPS),
+                        device=blended.device,
+                    )
+                video_out.append(
+                    ImageProcData(
+                        frame_id=frame_id,
+                        img=blended.permute(0, 2, 3, 1).contiguous().cpu(),
+                        current_box=None,
+                    )
+                )
+                frame_id += len(blended)
+            else:
+                # blended.cpu()
+                pass
+
+            frame_count += 1
+            if frame_count != 1:
+                timer.toc()
+
+            if frame_count % 20 == 0:
+                print(
+                    "Stitching: {:.2f} fps".format(
+                        batch_size * 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+                if frame_count % 50 == 0:
+                    timer = Timer()
+
+            if show:
+                for i in range(len(blended)):
+                    cv2.imshow(
+                        "stitched",
+                        make_cv_compatible_tensor(blended[i]),
+                    )
+                    cv2.waitKey(1)
+
+            source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
+            source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
+            timer.tic()
+    finally:
+        if video_out is not None:
+            video_out.stop()
 
 
 def main(args):
@@ -357,6 +387,7 @@ def main(args):
             interpolation="",
             show=args.show,
             start_frame_number=12000,
+            output_video="stitched_output.avi",
         )
 
 
