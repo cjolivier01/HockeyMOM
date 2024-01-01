@@ -34,6 +34,15 @@ def make_parser():
         help="Show images",
     )
     parser.add_argument(
+        "-o",
+        "--output",
+        "--output_video",
+        dest="output_video",
+        type=str,
+        default=None,
+        help="Show images",
+    )
+    parser.add_argument(
         "--project-file",
         "--project_file",
         default="autooptimiser_out.pto",
@@ -100,13 +109,6 @@ class ImageBlender:
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
         assert len(self._unique_values) == 2
-        # This should correspond to what our images and positions are
-        stitched_width = max(
-            self._images_info[0].width + self._images_info[0].xpos,
-            self._images_info[1].width + self._images_info[1].xpos,
-        )
-        stitched_height = 0
-
         print("Initialized")
 
     def forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
@@ -237,7 +239,7 @@ def blend_video(
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
 
     device = "cuda"
-    batch_size = 2
+    batch_size = 8
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -269,9 +271,7 @@ def blend_video(
     blender = None
     while True:
         destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
-        destination_tensor_1 = destination_tensor_1.contiguous().cpu()
         destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2)
-        destination_tensor_2 = destination_tensor_2.contiguous().cpu()
 
         if frame_count == 0:
             seam_tensor, xor_tensor = make_seam_and_xor_masks(
@@ -312,6 +312,12 @@ def blend_video(
             #     cv2.imshow("blended", blended)
             #     cv2.waitKey(1)
 
+        blended = blender.forward(
+            image_1=destination_tensor_1, image_2=destination_tensor_2
+        )
+
+        foo = blended.cpu()
+
         frame_count += 1
         if frame_count != 1:
             timer.toc()
@@ -324,10 +330,6 @@ def blend_video(
             )
             if frame_count % 50 == 0:
                 timer = Timer()
-
-        blended = blender.forward(
-            image_1=destination_tensor_1, image_2=destination_tensor_2
-        )
 
         if show:
             for i in range(len(blended)):
@@ -354,7 +356,7 @@ def main(args):
             rfo=args.rfo,
             interpolation="",
             show=args.show,
-            start_frame_number=6000,
+            start_frame_number=12000,
         )
 
 
