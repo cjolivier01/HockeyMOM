@@ -2,8 +2,8 @@
 #include <algorithm>
 
 #include <malloc.h>
+#include <stdarg.h>
 #include <string.h>  // memcpy
-#include <varargs.h>
 
 namespace hm {
 
