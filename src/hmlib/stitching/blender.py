@@ -88,13 +88,68 @@ class ImageBlender:
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
+        assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
+        assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
 
     def init(self):
         # Check some sanity
+        print(
+            f"Final stitched image size: {self._seam_mask.shape[1]} x {self._seam_mask.shape[0]}"
+        )
+        self._unique_values = torch.unique(self._seam_mask)
+        self._left_value = self._unique_values[0]
+        self._right_value = self._unique_values[1]
+        assert len(self._unique_values) == 2
+        # This should correspond to what our images and positions are
+        stitched_width = max(
+            self._images_info[0].width + self._images_info[0].xpos,
+            self._images_info[1].width + self._images_info[1].xpos,
+        )
+        stitched_height = 0
+
         print("Initialized")
 
     def forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
-        print("Done")
+        channels = 3
+        batch_size = image_1.shape[0]
+        canvas = torch.zeros(
+            size=(
+                batch_size,
+                channels,
+                self._seam_mask.shape[0],
+                self._seam_mask.shape[1],
+            ),
+            dtype=torch.uint8,
+            device=self._seam_mask.device,
+        )
+        h1 = image_1.shape[2]
+        w1 = image_1.shape[3]
+        x1 = self._images_info[0].xpos
+        y1 = self._images_info[0].ypos
+        h2 = image_2.shape[2]
+        w2 = image_2.shape[3]
+        x2 = self._images_info[1].xpos
+        y2 = self._images_info[1].ypos
+        
+        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >=0
+        if y1 < y2:
+            y2 -= y1
+            y1 = 0
+        elif y2 < y1:
+            y1 -= y2
+            y2 = 0
+        assert x1 == 0 or x2 == 0  # for now this is the case
+            
+
+        #cv2.imshow("...", make_blender_compatible_tensor(image_1[0]))
+        #cv2.waitKey(0)
+
+        canvas[:, :, y1 : y1 + h1, x1 : x1 + w1] = image_1[:, :, :, :]
+
+        cv2.imshow("...", make_blender_compatible_tensor(canvas[0]))
+        cv2.waitKey(0)
+
+        return canvas
 
 
 def make_blender_compatible_tensor(tensor):
