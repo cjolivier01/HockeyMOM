@@ -1144,15 +1144,10 @@ class Blender {
 
     prev_line = thread_lines[1];
 
-    // uint64_t total_pixels = 0;
-    // uint64_t channel_totals[3] = {0};
-
     full_mask_ptr_ = std::make_unique<Flex>(width, height);
     xor_mask_ptr_ = std::make_unique<Flex>(width, height);
     Flex& full_mask = *full_mask_ptr_;
     Flex& xor_mask = *xor_mask_ptr_;
-    // Flex full_mask(width, height);
-    // Flex xor_mask(width, height);
 
     bool alpha = false;
 

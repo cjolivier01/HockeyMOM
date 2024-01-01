@@ -89,7 +89,11 @@ class ImageBlender:
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
 
-    def forward(image_1: torch.Tensor, image_2: torch.Tensor):
+    def init(self):
+        # Check some sanity
+        print("Initialized")
+
+    def forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
         print("Done")
 
 
@@ -121,7 +125,7 @@ def make_seam_and_xor_masks(
         ]
     )
 
-    blended = blender.blend_images(
+    _ = blender.blend_images(
         left_image=make_blender_compatible_tensor(images_and_positions[0].image),
         left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
         right_image=make_blender_compatible_tensor(images_and_positions[1].image),
@@ -129,7 +133,7 @@ def make_seam_and_xor_masks(
     )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
     xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
-    return blended, seam_tensor, xor_tensor
+    return seam_tensor, xor_tensor
 
 
 def blend_video(
@@ -197,7 +201,7 @@ def blend_video(
         destination_tensor_2 = destination_tensor_2.contiguous().cpu()
 
         if frame_count == 0:
-            blended, seam_tensor, xor_tensor = make_seam_and_xor_masks(
+            seam_tensor, xor_tensor = make_seam_and_xor_masks(
                 dir_name=dir_name,
                 images_and_positions=[
                     ImageAndPos(
@@ -227,12 +231,13 @@ def blend_video(
                         ypos=remapper_2.ypos,
                     ),
                 ],
-                seam_mask=seam_tensor,
-                xor_mask=xor_tensor,
+                seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
+                xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
             )
-            if show:
-                cv2.imshow("blended", blended)
-                cv2.waitKey(1)
+            blender.init()
+            # if show:
+            #     cv2.imshow("blended", blended)
+            #     cv2.waitKey(1)
 
         frame_count += 1
         if frame_count != 1:
