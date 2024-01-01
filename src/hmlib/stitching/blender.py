@@ -71,9 +71,26 @@ class BlendImageInfo:
         self.ypos = ypos
 
 
+class ImageAndPos:
+    def __init__(self, image: torch.Tensor, xpos: int, ypos: int):
+        self.image = image
+        self.xpos = xpos
+        self.ypos = ypos
+
+
 class ImageBlender:
-    def __init__(self, images: List[BlendImageInfo], seam: torch.Tensor):
-        pass
+    def __init__(
+        self,
+        images_info: List[BlendImageInfo],
+        seam_mask: torch.Tensor,
+        xor_mask: torch.Tensor,
+    ):
+        self._images_info = images_info
+        self._seam_mask = seam_mask.clone()
+        self._xor_mask = xor_mask.clone()
+
+    def forward(image_1: torch.Tensor, image_2: torch.Tensor):
+        print("Done")
 
 
 def make_blender_compatible_tensor(tensor):
@@ -86,6 +103,33 @@ def make_blender_compatible_tensor(tensor):
     if tensor.shape[0] == 3 or tensor.shape[0] == 4:
         tensor = tensor.transpose(1, 2, 0)
     return np.ascontiguousarray(tensor)
+
+
+def make_seam_and_xor_masks(
+    dir_name: str,
+    images_and_positions: List[ImageAndPos],
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert len(images_and_positions) == 2
+    seam_filename = os.path.join(dir_name, "seam_file.png")
+    xor_filename = os.path.join(dir_name, "xor_file.png")
+    blender = core.EnBlender(
+        args=[
+            f"--save-seams",
+            seam_filename,
+            f"--save-xor",
+            xor_filename,
+        ]
+    )
+
+    blended = blender.blend_images(
+        left_image=make_blender_compatible_tensor(images_and_positions[0].image),
+        left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+        right_image=make_blender_compatible_tensor(images_and_positions[1].image),
+        right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+    )
+    seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
+    xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
+    return blended, seam_tensor, xor_tensor
 
 
 def blend_video(
@@ -143,19 +187,9 @@ def blend_video(
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
 
-    seam_filename = os.path.join(dir_name, "seam_file.png")
-    xor_filename = os.path.join(dir_name, "xor_file.png")
-    blender = core.EnBlender(
-        args=[
-            f"--save-seams",
-            seam_filename,
-            f"--save-xor",
-            xor_filename,
-        ]
-    )
-
     timer = Timer()
     frame_count = 0
+    blender = None
     while True:
         destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
         destination_tensor_1 = destination_tensor_1.contiguous().cpu()
@@ -163,11 +197,38 @@ def blend_video(
         destination_tensor_2 = destination_tensor_2.contiguous().cpu()
 
         if frame_count == 0:
-            blended = blender.blend_images(
-                left_image=make_blender_compatible_tensor(destination_tensor_1[0]),
-                left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
-                right_image=make_blender_compatible_tensor(destination_tensor_2[0]),
-                right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
+            blended, seam_tensor, xor_tensor = make_seam_and_xor_masks(
+                dir_name=dir_name,
+                images_and_positions=[
+                    ImageAndPos(
+                        image=destination_tensor_1[0],
+                        xpos=remapper_1.xpos,
+                        ypos=remapper_1.ypos,
+                    ),
+                    ImageAndPos(
+                        image=destination_tensor_2[0],
+                        xpos=remapper_2.xpos,
+                        ypos=remapper_1.ypos,
+                    ),
+                ],
+            )
+            blender = ImageBlender(
+                images_info=[
+                    BlendImageInfo(
+                        width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
+                        height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                        xpos=remapper_1.xpos,
+                        ypos=remapper_1.ypos,
+                    ),
+                    BlendImageInfo(
+                        width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
+                        height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                        xpos=remapper_2.xpos,
+                        ypos=remapper_2.ypos,
+                    ),
+                ],
+                seam_mask=seam_tensor,
+                xor_mask=xor_tensor,
             )
             if show:
                 cv2.imshow("blended", blended)
@@ -186,18 +247,22 @@ def blend_video(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        # if show:
-        #     for i in range(len(destination_tensor_1)):
-        #         cv2.imshow(
-        #             "destination_tensor_1",
-        #             destination_tensor_1[i].permute(1, 2, 0).numpy(),
-        #         )
-        #         #cv2.waitKey(1)
-        #         cv2.imshow(
-        #             "destination_tensor_2",
-        #             destination_tensor_2[i].permute(1, 2, 0).numpy(),
-        #         )
-        #         cv2.waitKey(1)
+        blended = blender.forward(
+            image_1=destination_tensor_1, image_2=destination_tensor_2
+        )
+
+        if show:
+            for i in range(len(blended)):
+                cv2.imshow(
+                    "destination_tensor_1",
+                    blended[i].permute(1, 2, 0).numpy(),
+                )
+                # cv2.waitKey(1)
+                cv2.imshow(
+                    "destination_tensor_2",
+                    blended[i].permute(1, 2, 0).numpy(),
+                )
+                cv2.waitKey(1)
 
         source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
         source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)

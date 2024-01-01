@@ -292,28 +292,30 @@ def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
 
-    # remap_video(
-    #     video_left,
-    #     video_right,
-    #     args.video_dir,
-    #     "mapping_0000",
-    #     "mapping_0001",
-    #     # interpolation="bicubic",
-    #     show=True,
-    # )
+    with torch.no_grad():
+        # remap_video(
+        #     video_left,
+        #     video_right,
+        #     args.video_dir,
+        #     "mapping_0000",
+        #     "mapping_0001",
+        #     # interpolation="bicubic",
+        #     show=True,
+        # )
 
-    args.lfo = 15
-    args.rfo = 0
-    lfo, rfo = stitch_videos(
-        args.video_dir,
-        video_left,
-        video_right,
-        lfo=args.lfo,
-        rfo=args.rfo,
-        project_file_name=args.project_file,
-        game_id=args.game_id,
-        show=False,
-    )
+        args.lfo = 15
+        args.rfo = 0
+
+        lfo, rfo = stitch_videos(
+            args.video_dir,
+            video_left,
+            video_right,
+            lfo=args.lfo,
+            rfo=args.rfo,
+            project_file_name=args.project_file,
+            game_id=args.game_id,
+            show=False,
+        )
 
 
 if __name__ == "__main__":
