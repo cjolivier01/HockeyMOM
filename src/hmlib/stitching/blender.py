@@ -161,13 +161,13 @@ class ImageBlender:
             :, :, self._seam_mask == self._right_value
         ]
 
-        #cv2.imshow("...", make_blender_compatible_tensor(canvas[0]))
-        #cv2.waitKey(0)
+        # cv2.imshow("...", make_cv_compatible_tensor(canvas[0]))
+        # cv2.waitKey(0)
 
         return canvas
 
 
-def make_blender_compatible_tensor(tensor):
+def make_cv_compatible_tensor(tensor):
     if isinstance(tensor, torch.Tensor):
         assert tensor.dim() == 3
         if tensor.size(0) == 3 or tensor.size(0) == 4:
@@ -196,9 +196,9 @@ def make_seam_and_xor_masks(
     )
 
     _ = blender.blend_images(
-        left_image=make_blender_compatible_tensor(images_and_positions[0].image),
+        left_image=make_cv_compatible_tensor(images_and_positions[0].image),
         left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-        right_image=make_blender_compatible_tensor(images_and_positions[1].image),
+        right_image=make_cv_compatible_tensor(images_and_positions[1].image),
         right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
     )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
@@ -216,6 +216,7 @@ def blend_video(
     lfo: float = 0,
     rfo: float = 0,
     show: bool = False,
+    start_frame_number: int = 0,
 ):
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
@@ -223,8 +224,8 @@ def blend_video(
             f"Could not open video file: {os.path.join(dir_name, video_file_1)}"
         )
     else:
-        if lfo:
-            cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo)
+        if lfo or start_frame_number:
+            cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
     cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
     if not cap_2 or not cap_2.isOpened():
@@ -232,8 +233,8 @@ def blend_video(
             f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
         )
     else:
-        if rfo:
-            cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo)
+        if rfo or start_frame_number:
+            cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
 
     device = "cuda"
     batch_size = 2
@@ -331,13 +332,8 @@ def blend_video(
         if show:
             for i in range(len(blended)):
                 cv2.imshow(
-                    "destination_tensor_1",
-                    blended[i].permute(1, 2, 0).numpy(),
-                )
-                # cv2.waitKey(1)
-                cv2.imshow(
-                    "destination_tensor_2",
-                    blended[i].permute(1, 2, 0).numpy(),
+                    "stitched",
+                    make_cv_compatible_tensor(blended[i]),
                 )
                 cv2.waitKey(1)
 
@@ -358,6 +354,7 @@ def main(args):
             rfo=args.rfo,
             interpolation="",
             show=args.show,
+            start_frame_number=6000,
         )
 
 
