@@ -176,9 +176,9 @@ class Blender {
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
-  char* seamsave_filename = NULL;
+  std::string seamsave_filename;
   char* seamload_filename = NULL;
-  char* xor_filename = NULL;
+  std::string xor_filename;
   char* output_filename = NULL;
   int output_bpp = 0;
 
@@ -220,6 +220,11 @@ class Blender {
  public:
   Blender();
   ~Blender();
+
+  // Like a null check
+  static inline bool is(const std::string& s) {
+    return !s.empty();
+  }
 
   static Eigen::ThreadPool* gtp() {
     return thread_pool_.get();
@@ -580,9 +585,9 @@ class Blender {
       die("Error: Bad PNG compression quality setting\n");
     }
 
-    if (output_type == ImageType::MB_NONE && !seamsave_filename)
+    if (output_type == ImageType::MB_NONE && seamsave_filename.empty())
       die("Error: No output file specified");
-    if (seamload_filename && seamsave_filename)
+    if (seamload_filename && !seamsave_filename.empty())
       die("Error: Cannot load and save seams at the same time");
     if (wrap == 3)
       die("Error: Wrapping in both directions is not currently supported");
@@ -620,16 +625,16 @@ class Blender {
 
     if (n_images == 0)
       die("Error: No input files specified");
-    if (seamsave_filename && n_images > 256) {
-      seamsave_filename = NULL;
+    if (!seamsave_filename.empty() && n_images > 256) {
+      seamsave_filename.clear();
       Output(0, "Warning: seam saving not possible with more than 256 images");
     }
     if (seamload_filename && n_images > 256) {
       seamload_filename = NULL;
       Output(0, "Warning: seam loading not possible with more than 256 images");
     }
-    if (xor_filename && n_images > 255) {
-      xor_filename = NULL;
+    if (is(xor_filename) && n_images > 255) {
+      xor_filename.clear();
       Output(
           0, "Warning: XOR map saving not possible with more than 255 images");
     }
@@ -845,15 +850,15 @@ class Blender {
     // timer.Start();
 
     // Output(1, "Seaming");
-    switch (((!!seamsave_filename) << 1) | !!xor_filename) {
+    switch (((!seamsave_filename.empty()) << 1) | !!is(xor_filename)) {
       case 1:
-        // Output(1, " (saving XOR map)");
+        Output(1, " (saving XOR map)");
         break;
       case 2:
-        // Output(1, " (saving seam map)");
+        Output(1, " (saving seam map)");
         break;
       case 3:
-        // Output(1, " (saving XOR and seam maps)");
+        Output(1, " (saving XOR and seam maps)");
         break;
     }
     // Output(1, "...\n");
@@ -1117,17 +1122,18 @@ class Blender {
           std::make_shared<Flex>(width, height));
     }
 
-    Pnger* xor_map = xor_filename
+    Pnger* xor_map = is(xor_filename)
         ? new Pnger(
-              xor_filename, "XOR map", width, height, PNG_COLOR_TYPE_PALETTE)
+              xor_filename.c_str(), "XOR map", width, height, PNG_COLOR_TYPE_PALETTE)
         : NULL;
-    Pnger* seam_map = seamsave_filename ? new Pnger(
-                                              seamsave_filename,
-                                              "Seam map",
-                                              width,
-                                              height,
-                                              PNG_COLOR_TYPE_PALETTE)
-                                        : NULL;
+    Pnger* seam_map = !seamsave_filename.empty()
+        ? new Pnger(
+              seamsave_filename.c_str(),
+              "Seam map",
+              width,
+              height,
+              PNG_COLOR_TYPE_PALETTE)
+        : NULL;
 
     /***********************************************************************
      * Forward distance transform
@@ -2404,17 +2410,19 @@ int enblend_main(
 }
 
 EnBlender::EnBlender(std::vector<std::string> args) {
-  if (args.empty()) {
-    args.push_back("python");
-    args.push_back("--no-output");
-    args.push_back("--all-threads");
+  std::vector<std::string> full_args{"python"};
+  for (const auto& arg : args) {
+    full_args.emplace_back(arg);
   }
-  int argc = args.size();
+  full_args.emplace_back("--all-threads");
+  // --no-output must be last
+  full_args.emplace_back("--no-output");
+  int argc = full_args.size();
   char** argv = new char*[argc];
 
   for (int i = 0; i < argc; ++i) {
-    argv[i] = new char[args[i].length() + 1];
-    std::strcpy(argv[i], args[i].c_str());
+    argv[i] = new char[full_args[i].length() + 1];
+    std::strcpy(argv[i], full_args[i].c_str());
   }
 
   blender_ = std::make_unique<Blender>();

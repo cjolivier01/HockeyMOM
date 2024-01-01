@@ -4,7 +4,6 @@
 
 #include "absl/synchronization/mutex.h"
 
-#include <mutex>
 #include <string>
 #include <vector>
 

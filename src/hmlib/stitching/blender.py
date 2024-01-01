@@ -5,7 +5,7 @@ import os
 import time
 import argparse
 import numpy as np
-from typing import Tuple
+from typing import Tuple, List
 import cv2
 
 import torch
@@ -63,9 +63,29 @@ def make_parser():
     return parser
 
 
+class BlendImageInfo:
+    def __init__(self, width: int, height: int, xpos: int, ypos: int):
+        self.width = width
+        self.height = height
+        self.xpos = xpos
+        self.ypos = ypos
+
+
 class ImageBlender:
-    def __init__(self):
+    def __init__(self, images: List[BlendImageInfo], seam: torch.Tensor):
         pass
+
+
+def make_blender_compatible_tensor(tensor):
+    if isinstance(tensor, torch.Tensor):
+        assert tensor.dim() == 3
+        if tensor.size(0) == 3 or tensor.size(0) == 4:
+            # Need to make channels-last
+            tensor = tensor.permute(1, 2, 0)
+        return tensor.contiguous().cpu().numpy()
+    if tensor.shape[0] == 3 or tensor.shape[0] == 4:
+        tensor = tensor.transpose(1, 2, 0)
+    return np.ascontiguousarray(tensor)
 
 
 def blend_video(
@@ -123,13 +143,35 @@ def blend_video(
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
 
+    seam_filename = os.path.join(dir_name, "seam_file.png")
+    xor_filename = os.path.join(dir_name, "xor_file.png")
+    blender = core.EnBlender(
+        args=[
+            f"--save-seams",
+            seam_filename,
+            f"--save-xor",
+            xor_filename,
+        ]
+    )
+
     timer = Timer()
     frame_count = 0
     while True:
         destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
-        destination_tensor_1 = destination_tensor_1.detach().contiguous().cpu()
+        destination_tensor_1 = destination_tensor_1.contiguous().cpu()
         destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2)
-        destination_tensor_2 = destination_tensor_2.detach().contiguous().cpu()
+        destination_tensor_2 = destination_tensor_2.contiguous().cpu()
+
+        if frame_count == 0:
+            blended = blender.blend_images(
+                left_image=make_blender_compatible_tensor(destination_tensor_1[0]),
+                left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
+                right_image=make_blender_compatible_tensor(destination_tensor_2[0]),
+                right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
+            )
+            if show:
+                cv2.imshow("blended", blended)
+                cv2.waitKey(1)
 
         frame_count += 1
         if frame_count != 1:
@@ -144,12 +186,18 @@ def blend_video(
             if frame_count % 50 == 0:
                 timer = Timer()
 
-        if show:
-            for i in range(len(destination_tensor_1)):
-                cv2.imshow(
-                    "mapped image", destination_tensor_1[i].permute(1, 2, 0).numpy()
-                )
-                cv2.waitKey(1)
+        # if show:
+        #     for i in range(len(destination_tensor_1)):
+        #         cv2.imshow(
+        #             "destination_tensor_1",
+        #             destination_tensor_1[i].permute(1, 2, 0).numpy(),
+        #         )
+        #         #cv2.waitKey(1)
+        #         cv2.imshow(
+        #             "destination_tensor_2",
+        #             destination_tensor_2[i].permute(1, 2, 0).numpy(),
+        #         )
+        #         cv2.waitKey(1)
 
         source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
         source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)

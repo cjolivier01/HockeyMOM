@@ -267,7 +267,9 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   py::class_<hm::enblend::EnBlender, std::shared_ptr<hm::enblend::EnBlender>>(
       m, "EnBlender")
-      .def(py::init<>())
+      .def(
+          py::init<std::vector<std::string>>(),
+          py::arg("args") = std::vector<std::string>{})
       .def(
           "blend_images",
           [](std::shared_ptr<hm::enblend::EnBlender> blender,

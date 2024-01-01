@@ -54,6 +54,7 @@ class __attribute__((visibility("default"))) MatrixImage {
     rows_ = py_buffer_info.shape[0];
     cols_ = py_buffer_info.shape[1];
     channels_ = py_buffer_info.shape[2];
+    assert(channels_ == 3 || channels_ == 4);
     strides_ = {py_buffer_info.strides.begin(), py_buffer_info.strides.end()};
     x_pos_ = xpos;
     y_pos_ = ypos;
@@ -62,7 +63,8 @@ class __attribute__((visibility("default"))) MatrixImage {
     // Is it ever read-only?
     assert(!py_buffer_info.readonly);
     if ((copy_data || py_buffer_info.readonly)) {
-      assert(false);
+      std::cout << "Warning: copying tensor data for MatrixImage.\n";
+      // assert(false);
       std::size_t image_bytes =
           sizeof(std::uint8_t) * rows_ * cols_ * storage_channel_count();
       // std::cout << "image_bytes=" << image_bytes << std::endl;
@@ -228,7 +230,7 @@ class __attribute__((visibility("default"))) MatrixImage {
 
     at::Tensor result;
     if (m_own_data) {
-      std::function<void(void*)> deleter = [](void *p) {
+      std::function<void(void*)> deleter = [](void* p) {
         assert(p);
         delete[] reinterpret_cast<std::uint8_t*>(p);
       };
@@ -301,10 +303,15 @@ class __attribute__((visibility("default"))) MatrixImage {
   }
 
  private:
+  // PyTorch
   at::Tensor tensor_;
   at::Storage at_tensor_storage_;
   std::size_t at_tensor_storage_offset_{0};
   bool has_tensor_{false};
+  // Numpy
+  // py::buffer_info buffer_info_;
+  // bool has_buffer_info_{false};
+  // State info
   bool m_own_data{false};
   bool is_python_data{false};
   size_t rows_{0}, cols_{0}, channels_{0};
