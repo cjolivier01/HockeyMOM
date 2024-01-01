@@ -1,11 +1,14 @@
 #include <chrono>
 #include <algorithm>
+#include <memory>
 
 #include <malloc.h>
 #include <stdarg.h>
 #include <string.h>  // memcpy
 
 namespace hm {
+
+class Pyramid;
 
 /***********************************************************************
 * Flexible data class
