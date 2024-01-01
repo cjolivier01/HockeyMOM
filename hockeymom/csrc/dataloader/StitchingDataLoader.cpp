@@ -13,7 +13,7 @@ namespace hm {
 //#define FAKE_BLEND // ~10 fps
 
 namespace {
-constexpr std::size_t kPrintInterval = 20;
+constexpr std::size_t kPrintInterval = 50;
 
 std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
     at::Tensor tensor,
@@ -294,7 +294,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     // remap_outer_.tic();
     if ((remap_inner_.count() % kPrintInterval) == 0) {
       std::cout << remap_inner_ << std::endl;
-      remap_inner_.reset();
+      //remap_inner_.reset();
     }
     // if (outer_remap_fps != 0.0 &&
     //     (remap_outer_.count() % kPrintInterval) == 0) {
@@ -336,7 +336,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     blend_inner_.toc();
     if ((blend_inner_.count() % kPrintInterval) == 0) {
       std::cout << blend_inner_ << std::endl;
-      blend_inner_.reset();
+      //blend_inner_.reset();
     }
 #endif
   } catch (...) {
