@@ -67,7 +67,6 @@ int verbosity = 1;
 #include "pyramid.cpp"
 #include "functions.cpp"
 
-#include "threadpool.cpp"
 #include "geotiff.cpp"
 
 namespace hm {
