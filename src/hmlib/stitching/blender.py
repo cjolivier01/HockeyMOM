@@ -446,7 +446,8 @@ def main(args):
             rfo=args.rfo,
             interpolation="",
             show=args.show,
-            start_frame_number=0,
+~/vs    
+start_frame_number=0,
             output_video="stitched_output.avi",
             rotation_angle=args.rotation_angle,
         )
