@@ -466,7 +466,7 @@ def main(exp, args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(game_id=args.game_id),
+                    clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     name="val",
                     preproc=ValTransform(
