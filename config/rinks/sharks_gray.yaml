@@ -23,4 +23,4 @@ rink:
     price: 0 dollars
   camera:
     fixed_edge_scaling_factor: 1.25
-    fixed_edge_rotation_angle: [25.0, 45.0]
+    fixed_edge_rotation_angle: [25.0, 75.0]

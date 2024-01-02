@@ -384,7 +384,7 @@ class VideoOutput:
                 # print(f"gaussian={gaussian}")
                 angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
                 angle *= mult
-                # print(f"angle={angle}")
+                #print(f"angle={angle}")
                 online_im = rotate_image(
                     img=online_im, angle=angle, rotation_point=rotation_point
                 )
