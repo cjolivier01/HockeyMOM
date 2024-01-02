@@ -59,7 +59,7 @@ struct HMPostprocessConfig {
 
   bool fixed_edge_rotation = false;
 
-  float fixed_edge_rotation_angle = 35.0;
+  //float fixed_edge_rotation_angle = 35.0;
 
   // Use "sticky" panning, where panning occurs in less frequent,
   // but possibly faster, pans rather than a constant

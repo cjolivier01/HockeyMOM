@@ -20,7 +20,7 @@ rink:
     restrooms: 10
   parking:
     capacity: 1000
-    price: 0 dollars  
+    price: 0 dollars
   camera:
     fixed_edge_scaling_factor: 1.25
-    fixed_edge_rotation_angle: 25.0
+    fixed_edge_rotation_angle: [25.0, 45.0]

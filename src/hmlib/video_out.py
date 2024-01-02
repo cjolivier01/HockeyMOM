@@ -196,7 +196,7 @@ class VideoOutput:
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
         device: str = None,
-        #device: str = "cuda:0",
+        # device: str = "cuda:0",
     ):
         self._args = args
         self._device = device
@@ -368,11 +368,21 @@ class VideoOutput:
                 gaussian = 1 - self._get_gaussian(
                     src_image_width
                 ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
+
+                fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
+                if isinstance(fixed_edge_rotation_angle, (list, tuple)):
+                    assert len(fixed_edge_rotation_angle) == 2
+                    if rotation_point[0] < src_image_width // 2:
+                        fixed_edge_rotation_angle = int(
+                            self._args.fixed_edge_rotation_angle[0]
+                        )
+                    else:
+                        fixed_edge_rotation_angle = int(
+                            self._args.fixed_edge_rotation_angle[1]
+                        )
+
                 # print(f"gaussian={gaussian}")
-                angle = (
-                    self._args.fixed_edge_rotation_angle
-                    - self._args.fixed_edge_rotation_angle * gaussian
-                )
+                angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
                 angle *= mult
                 # print(f"angle={angle}")
                 online_im = rotate_image(

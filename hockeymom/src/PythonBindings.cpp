@@ -46,9 +46,9 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::HMPostprocessConfig::fixed_edge_scaling_factor)
       .def_readwrite(
           "fixed_edge_rotation", &hm::HMPostprocessConfig::fixed_edge_rotation)
-      .def_readwrite(
-          "fixed_edge_rotation_angle",
-          &hm::HMPostprocessConfig::fixed_edge_rotation_angle)
+      // .def_readwrite(
+      //     "fixed_edge_rotation_angle",
+      //     &hm::HMPostprocessConfig::fixed_edge_rotation_angle)
       .def_readwrite("sticky_pan", &hm::HMPostprocessConfig::sticky_pan)
       .def_readwrite(
           "plot_sticky_camera", &hm::HMPostprocessConfig::plot_sticky_camera)
