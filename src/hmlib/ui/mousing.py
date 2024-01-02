@@ -142,7 +142,8 @@ def draw_line(image_path: str):
 
                 # Print the line endpoints
                 #print(f"Line drawn from {points['start']} to {points['end']}")
-                print(f"[{int(points['start'][0])}, {int(points['start'][1])}, {int(points['end'][0])}, {int(points['end'][1])}],")
+                #print(f"[{int(points['start'][0])}, {int(points['start'][1])}, {int(points['end'][0])}, {int(points['end'][1])}],")
+                print(f"      - [{int(points['start'][0])}, {int(points['start'][1])}, {int(points['end'][0])}, {int(points['end'][1])}]")
 
                 # Reset the points
                 points['start'], points['end'] = None, None
@@ -156,5 +157,5 @@ if __name__ == "__main__":
     # Call the function with the path to your image
     #get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     #run_selection("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
-    draw_line("/mnt/ripper-data/Videos/onehockey-sharksbb2/panorama.tif")
+    draw_line("/mnt/ripper-data/Videos/onehockey-sharks10a/stitched_output.png")
 

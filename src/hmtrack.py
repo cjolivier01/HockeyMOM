@@ -34,7 +34,7 @@ from hmlib.stitch_synchronize import (
     configure_video_stitching,
 )
 
-from hmlib.datasets.dataset.stitching import (
+from hmlib.datasets.dataset.stitching_dataloader import (
     StitchDataset,
 )
 
@@ -341,13 +341,13 @@ def main(exp, args, num_gpu):
             )
         # logger.info("Model Structure:\n{}".format(str(model)))
 
-        game_config = get_game_config(game_id=args.game_id)
+        game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
         if game_config:
             if not args.rink:
                 args.rink = game_config["game"]["rink"]
             else:
                 assert args.rink == game_config["game"]["rink"]
-        rink_config = get_rink_config(rink=args.rink)
+        rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
 
         cam_args = DefaultArguments(
             rink=args.rink,
