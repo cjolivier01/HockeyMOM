@@ -347,6 +347,8 @@ def main(exp, args, num_gpu):
                 args.rink = game_config["game"]["rink"]
             else:
                 assert args.rink == game_config["game"]["rink"]
+        if args.rink is None:
+            raise Exception("You must specify a rink")
         rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
 
         cam_args = DefaultArguments(
