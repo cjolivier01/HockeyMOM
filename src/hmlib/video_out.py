@@ -181,6 +181,17 @@ class ImageProcData:
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
+def _to_float(tensor: torch.Tensor):
+    if tensor.dtype == torch.uint8:
+        return tensor.to(torch.float32)
+    return tensor
+
+def _to_uint8(tensor: torch.Tensor):
+    if tensor.dtype == torch.float32:
+        return tensor.to(torch.uint8)
+    return tensor
+
+
 class VideoOutput:
     def __init__(
         self,
@@ -364,6 +375,7 @@ class VideoOutput:
             # Perspective rotation
             #
             if self.has_args() and self._args.fixed_edge_rotation:
+                online_im = _to_float(online_im)
                 # start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
                 width_center = src_image_width / 2
@@ -402,6 +414,7 @@ class VideoOutput:
             # Crop to output video frame image
             #
             if self.has_args() and self._args.crop_output_image:
+                online_im = _to_float(online_im)
                 # assert torch.isclose(
                 #     aspect_ratio(current_box), self._output_aspect_ratio,
                 # )
@@ -460,6 +473,7 @@ class VideoOutput:
             #
             # Watermark
             #
+            online_im = _to_uint8(online_im)
             if self.has_args() and self._args.use_watermark:
                 y = int(online_im.shape[0] - self.watermark_height)
                 x = int(
