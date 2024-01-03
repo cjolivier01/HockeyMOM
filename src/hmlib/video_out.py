@@ -183,12 +183,13 @@ class ImageProcData:
 
 def _to_float(tensor: torch.Tensor):
     if tensor.dtype == torch.uint8:
-        return tensor.to(torch.float32)
+        return tensor.to(torch.float32) / 255.0
     return tensor
+
 
 def _to_uint8(tensor: torch.Tensor):
     if tensor.dtype == torch.float32:
-        return tensor.to(torch.uint8)
+        return (tensor * 255).clamp(min=0, max=255.0).to(torch.uint8)
     return tensor
 
 
