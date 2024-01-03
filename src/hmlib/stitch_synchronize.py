@@ -233,10 +233,12 @@ def build_stitching_project(
                     MULTIBLEND_BIN,
                     "-o",
                     os.path.join(dir_name, "panorama.tif"),
-                    os.path.join(dir_name, "my_project*.tif"),
+                    os.path.join(dir_name, autooptimiser_out + "*.tif"),
                 ]
             else:
-                print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
+                print(
+                    f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}"
+                )
             os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
