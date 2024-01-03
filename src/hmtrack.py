@@ -431,9 +431,9 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
-                    num_workers=4,
-                    blend_thread_count=4,
-                    remap_thread_count=4,
+                    num_workers=1,
+                    blend_thread_count=2,
+                    remap_thread_count=6,
                     fork_workers=False,
                     image_roi=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                 )
@@ -447,7 +447,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(game_id=args.game_id),
+                    clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),

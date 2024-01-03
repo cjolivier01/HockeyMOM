@@ -12,11 +12,11 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #
 # Videos
 #
-VIDEO="${HOME}/Videos/onehockey-sharks10a/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/onehockey-sharks10a/stitched_output-with-audio.avi"
 
 EXP_NAME="$(basename $0 .sh)"
 
-GAME_ID="--game-id onehockey-sharks10a"
+GAME_ID="--game-id tester"
 
 #TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
