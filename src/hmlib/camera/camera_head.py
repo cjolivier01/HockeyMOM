@@ -143,8 +143,6 @@ class CamTrackHead(TrackingHead):
         if letterbox_img is not None:
             letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
         original_img = to_rgb_non_planar(original_img)
-        # if inscribed_img is not None:
-        #     inscribed_img = to_rgb_non_planar(inscribed_img)
         if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
             online_tlwhs = torch.stack(
                 [_pt_tensor(t, device=self._device) for t in online_tlwhs]
@@ -167,7 +165,7 @@ class CamTrackHead(TrackingHead):
             torch.tensor(online_ids, dtype=torch.int64),
             detections,
             info_imgs,
-            letterbox_img,
+            None,
             original_img,
         )
         return detections, online_tlwhs

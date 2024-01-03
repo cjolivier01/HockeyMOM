@@ -3,6 +3,7 @@ import numpy as np
 import math
 import cv2
 from typing import List, Tuple
+import torch
 
 # import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
@@ -39,6 +40,15 @@ def plot_rectangle(
     label: str = None,
     text_scale: int = 1,
 ):
+    if isinstance(img, torch.Tensor):
+        return plot_torch_rectangle(
+            image_tensor=img,
+            tlbr=box,
+            color=color,
+            thickness=thickness,
+            label=label,
+            text_scale=text_scale,
+        )
     intbox = [int(i) for i in box]
     cv2.rectangle(
         img,
@@ -97,6 +107,46 @@ def plot_alpha_rectangle(
             thickness=text_thickness,
         )
     return rectangled_image
+
+
+def plot_torch_rectangle(
+    image_tensor: torch.Tensor,
+    tlbr: torch.Tensor,
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+    label: str = None,
+    text_scale: float = 1,
+):
+    """
+    Draw a light purple box with a touch of green on the image tensor.
+
+    :param image_tensor: A PyTorch tensor of shape (3, H, W) representing an RGB image.
+    :param top_left: A tuple (x, y) representing the top left coordinate of the box.
+    :param bottom_right: A tuple (x, y) representing the bottom right coordinate of the box.
+    :return: Modified image tensor with the light purple-green box.
+    """
+    # Light purple with a touch of green color in RGB
+    color_value = torch.tensor(
+        color, dtype=image_tensor.dtype, device=image_tensor.device
+    )
+    # Unpack coordinates
+    top_x, top_y = tlbr[:2]
+    #top_x -= (thickness + 1) // 2
+    #top_y -= (thickness + 1) // 2
+    
+    bottom_x, bottom_y = tlbr[2:]
+    #bottom_x += thickness // 2
+    #bottom_y += thickness // 2
+
+    # Draw top and bottom lines of the box
+    image_tensor[:, top_y, top_x:bottom_x] = color_value.unsqueeze(1)
+    image_tensor[:, bottom_y, top_x:bottom_x] = color_value.unsqueeze(1)
+
+    # Draw left and right lines of the box
+    image_tensor[:, top_y:bottom_y, top_x] = color_value.unsqueeze(1)
+    image_tensor[:, top_y:bottom_y, bottom_x] = color_value.unsqueeze(1)
+
+    return image_tensor
 
 
 def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):

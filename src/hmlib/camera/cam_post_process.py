@@ -307,12 +307,6 @@ class DefaultArguments(core.HMPostprocessConfig):
             "fixed_edge_rotation_angle"
         ]
 
-        # Use "sticky" panning, where panning occurs in less frequent,
-        # but possibly faster, pans rather than a constant
-        # pan (which may appear tpo "wiggle")
-        # self.sticky_pan = True
-        self.sticky_pan = False
-
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
         # self.plot_sticky_camera = True
@@ -515,6 +509,7 @@ class CamTrackPostProcessor:
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
     ):
         while self._queue.qsize() > 10:
+            #print("Cam post-process queue too large")
             time.sleep(0.001)
         try:
             dets = []
@@ -705,14 +700,17 @@ class CamTrackPostProcessor:
         )
 
         if self._args.show_image or self._save_dir is not None:
-            if self._args.scale_to_original_image:
-                if isinstance(original_img, torch.Tensor):
-                    original_img = original_img.numpy()
-                online_im = original_img
-                del original_img
-            else:
-                online_im = img0
-            online_im = self.prepare_online_image(online_im)
+            assert self._args.scale_to_original_image
+            # del original_img
+            # if self._args.scale_to_original_image:
+            #     if isinstance(original_img, torch.Tensor):
+            #         original_img = original_img.numpy()
+            #     online_im = original_img
+            #     del original_img
+            # else:
+            #     online_im = img0
+            # online_im = self.prepare_online_image(online_im)
+            online_im = original_img
 
             if self._args.plot_boundaries and self._boundaries is not None:
                 self._boundaries.draw(online_im)
@@ -903,6 +901,18 @@ class CamTrackPostProcessor:
                         color=(255, 255, 255),
                         thickness=2,
                     )
+
+                if (
+                    self._video_output_boxtrack is not None
+                    and self._current_roi is not None
+                    and (self._video_output_campp is not None and not self._args.show_image)
+                ):
+                    imgproc_data = ImageProcData(
+                        frame_id=frame_id.item(),
+                        img=online_im,
+                        current_box=self._current_roi_aspect.bounding_box(),
+                    )
+                    self._video_output_boxtrack.append(imgproc_data)
 
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
@@ -1374,17 +1384,17 @@ class CamTrackPostProcessor:
                     current_box=current_box,
                 )
                 self._video_output_campp.append(imgproc_data)
-            if (
-                self._video_output_boxtrack is not None
-                and self._current_roi is not None
-                and (self._video_output_campp is not None and not self._args.show_image)
-            ):
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=self._current_roi_aspect.bounding_box(),
-                )
-                self._video_output_boxtrack.append(imgproc_data)
+            # if (
+            #     self._video_output_boxtrack is not None
+            #     and self._current_roi is not None
+            #     and (self._video_output_campp is not None and not self._args.show_image)
+            # ):
+            #     imgproc_data = ImageProcData(
+            #         frame_id=frame_id.item(),
+            #         img=online_im,
+            #         current_box=self._current_roi_aspect.bounding_box(),
+            #     )
+            #     self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):

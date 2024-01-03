@@ -127,7 +127,9 @@ def resize_image(img, new_width: int, new_height: int):
             img = F.resize(
                 img=img,
                 size=(w, h),
-                interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                #interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                #interpolation=tv.transforms.InterpolationMode.NEAREST,
             )
             # C, W, H -> H, W, C
             img = img.permute(0, 3, 2, 1)
@@ -136,7 +138,9 @@ def resize_image(img, new_width: int, new_height: int):
             img = F.resize(
                 img=img,
                 size=(w, h),
-                interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                #interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                #interpolation=tv.transforms.InterpolationMode.NEAREST,
             )
             # C, W, H -> H, W, C
             img = img.permute(2, 1, 0)
@@ -195,8 +199,7 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        device: str = None,
-        # device: str = "cuda:0",
+        device: str = "cuda:0",
     ):
         self._args = args
         self._device = device
@@ -272,6 +275,7 @@ class VideoOutput:
 
     def append(self, img_proc_data: ImageProcData):
         while self._imgproc_queue.qsize() > self._max_queue_backlog:
+            #print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
             time.sleep(0.001)
         self._imgproc_queue.put(img_proc_data)
 
