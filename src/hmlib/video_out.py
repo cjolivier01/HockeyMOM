@@ -127,9 +127,9 @@ def resize_image(img, new_width: int, new_height: int):
             img = F.resize(
                 img=img,
                 size=(w, h),
-                #interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                # interpolation=tv.transforms.InterpolationMode.BICUBIC,
                 interpolation=tv.transforms.InterpolationMode.BILINEAR,
-                #interpolation=tv.transforms.InterpolationMode.NEAREST,
+                # interpolation=tv.transforms.InterpolationMode.NEAREST,
             )
             # C, W, H -> H, W, C
             img = img.permute(0, 3, 2, 1)
@@ -138,9 +138,9 @@ def resize_image(img, new_width: int, new_height: int):
             img = F.resize(
                 img=img,
                 size=(w, h),
-                #interpolation=tv.transforms.InterpolationMode.BICUBIC,
+                # interpolation=tv.transforms.InterpolationMode.BICUBIC,
                 interpolation=tv.transforms.InterpolationMode.BILINEAR,
-                #interpolation=tv.transforms.InterpolationMode.NEAREST,
+                # interpolation=tv.transforms.InterpolationMode.NEAREST,
             )
             # C, W, H -> H, W, C
             img = img.permute(2, 1, 0)
@@ -275,7 +275,7 @@ class VideoOutput:
 
     def append(self, img_proc_data: ImageProcData):
         while self._imgproc_queue.qsize() > self._max_queue_backlog:
-            #print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+            # print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
             time.sleep(0.001)
         self._imgproc_queue.put(img_proc_data)
 
@@ -351,8 +351,11 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            if self._device is not None and not isinstance(online_im, torch.Tensor):
-                online_im = torch.from_numpy(online_im).to(self._device)
+            if self._device is not None:
+                if not isinstance(online_im, torch.Tensor):
+                    online_im = torch.from_numpy(online_im)
+                if online_im.device != self._device:
+                    online_im = online_im.to(self._device, non_blocking=True)
 
             src_image_width = image_width(online_im)
             src_image_height = image_height(online_im)
@@ -388,7 +391,7 @@ class VideoOutput:
                 # print(f"gaussian={gaussian}")
                 angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
                 angle *= mult
-                #print(f"angle={angle}")
+                # print(f"angle={angle}")
                 online_im = rotate_image(
                     img=online_im, angle=angle, rotation_point=rotation_point
                 )
