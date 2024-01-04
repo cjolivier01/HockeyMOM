@@ -12,6 +12,7 @@ from PIL import Image
 from pslib import *
 from torchvision.io import read_image
 import torch
+import torch.nn.functional as F
 import cv2
 
 
@@ -20,30 +21,96 @@ import cv2
 # In[55]:
 
 
-gaussian_kernel = np.load('gaussian-kernel.npy')
+gaussian_kernel = np.load("/home/colivier/src/laplacian_blend/gaussian-kernel.npy")
+# gaussian_kernel = np.array(
+#     [
+#         [0.00390625, 0.015625, 0.0234375, 0.015625, 0.00390625],
+#         [0.015625, 0.0625, 0.09375, 0.0625, 0.015625],
+#         [0.0234375, 0.09375, 0.140625, 0.09375, 0.0234375],
+#         [0.015625, 0.0625, 0.09375, 0.0625, 0.015625],
+#         [0.00390625, 0.015625, 0.0234375, 0.015625, 0.00390625],
+#     ]
+# )
 
+# Function to create a Gaussian kernel
+def gaussian_kernel(size, sigma):
+    """
+    Generates a 2D Gaussian kernel.
+    """
+    # Create a coordinate grid
+    x = torch.arange(size).float() - size // 2
+    y = x.view(size, 1)
+    
+    # Calculate the 2D Gaussian kernel
+    g = torch.exp(-(x**2 + y**2) / (2 * sigma**2))
+    
+    # Normalize the kernel (so the sum is 1.0)
+    g /= g.sum()
+    
+    return g
+
+# Example usage:
+kernel_size = 5  # Size of the kernel
+sigma = 1.0     # Standard deviation of the Gaussian
+
+# Generate the kernel. The unsqueeze operations are to add the required number of dimensions
+# for conv2d, which are batch and channel dimensions.
+
+# TODO: expand in channel dim
+gaussian_kernel = gaussian_kernel(kernel_size, sigma).unsqueeze(0).unsqueeze(0)
+#gaussian_kernel_3_channels = gaussian_kernel.repeat(1, 3, 1, 1)
+gaussian_kernel_3_channels = gaussian_kernel.repeat(3, 1, 1, 1)
+
+#print(gaussian_kernel)
 
 # ### Define helper functions and cross-correlation/convolution function.
 
 # In[56]:
 
 
+def showable(tensor: torch.Tensor):
+    t = (tensor / 255).clamp(min=0, max=255.0).to(torch.uint8)
+    return t.numpy()
+
+
 def convolution(img, kernel):
-    MAX_ROWS = img.shape[0]
-    MAX_COLS = img.shape[1]
-    kernel_size = kernel.shape[0]
-    pad_amount = int(kernel_size/2)
-    gaussian_convolved_img = np.zeros(img.shape)
-    for i in range(3):
-        zero_padded = pad(img[:,:,i], u_pad=pad_amount, v_pad=pad_amount)
-        for r in range(pad_amount, MAX_ROWS+pad_amount):
-            for c in range(pad_amount, MAX_COLS+pad_amount):
+    img = torch.from_numpy(img).to(torch.float32)
+    img = img.unsqueeze(0)
+    convolved = F.conv2d(img, gaussian_kernel_3_channels, padding=kernel_size//2, groups=3)
+    cv2.imshow("", showable(convolved[0]))
+    cv2.waitkey(0)
+    return convolved
+
+    # img = img.transpose(1, 2, 0)
+    # assert img.shape[-1] == 3
+    # MAX_ROWS = img.shape[1]
+    # MAX_COLS = img.shape[2]
+    # kernel_size = kernel.shape[0]
+    # pad_amount = int(kernel_size / 2)
+    # gaussian_convolved_img = np.zeros(img.shape)
+    # for i in range(3):
+    #     # zero_padded = np.pad(img[:,:,i], u_pad=pad_amount, v_pad=pad_amount)
+    #     zero_padded = np.pad(
+    #         img[:, :, i],
+    #         ((0, pad_amount), (0, pad_amount)),
+    #         mode="constant",
+    #         constant_values=0,
+    #     )
+    #     # zero_padded = pad(img[:,:,i], u_pad=pad_amount, v_pad=pad_amount)
+    #     for r in range(pad_amount, MAX_ROWS + pad_amount):
+    #         for c in range(pad_amount, MAX_COLS + pad_amount):
     #             print("r-pad_amount", r-pad_amount)
     #             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
-                conv = np.multiply(zero_padded[r-pad_amount:r-pad_amount+kernel_size, c-pad_amount:c-pad_amount+kernel_size],kernel)
-                conv = np.sum(conv)
-                gaussian_convolved_img[r-pad_amount, c-pad_amount, i] = float(conv)
-    return gaussian_convolved_img
+    #             conv = np.multiply(
+    #                 zero_padded[
+    #                     r - pad_amount : r - pad_amount + kernel_size,
+    #                     c - pad_amount : c - pad_amount + kernel_size,
+    #                 ],
+    #                 kernel,
+    #             )
+    #             conv = np.sum(conv)
+    #             gaussian_convolved_img[r - pad_amount, c - pad_amount, i] = float(conv)
+    # return gaussian_convolved_img
 
 
 # In[57]:
@@ -53,24 +120,24 @@ def make_one_D_kernel(kernel):
     MAX_ROWS = img.shape[0]
     MAX_COLS = img.shape[1]
     one_d_gaussian_kernel = kernel
-    
+
     kernel_matrix = np.zeros((MAX_ROWS, MAX_ROWS))
     # print(kernel_matrix.shape)
     for m in range(MAX_ROWS):
-    #     print(m)
-    #     print(m+(len(one_d_gaussian_kernel)))
-    #     print(one_d_gaussian_kernel)
-    #     print()
-        over = int(len(one_d_gaussian_kernel)/2)
+        #     print(m)
+        #     print(m+(len(one_d_gaussian_kernel)))
+        #     print(one_d_gaussian_kernel)
+        #     print()
+        over = int(len(one_d_gaussian_kernel) / 2)
         mid = over
-        lower = max(0,m-over)
-        upper = min(m+over, MAX_ROWS)
-        kernel_lower = mid-over if m-over >= 0 else abs(m-over)
-        kernel_upper = mid+over if m+over < MAX_ROWS else (mid+over)-(m+over-MAX_ROWS)
+        lower = max(0, m - over)
+        upper = min(m + over, MAX_ROWS)
+        kernel_lower = mid - over if m - over >= 0 else abs(m - over)
+        kernel_upper = (
+            mid + over if m + over < MAX_ROWS else (mid + over) - (m + over - MAX_ROWS)
+        )
         kernel_matrix[m, lower:upper] = one_d_gaussian_kernel[kernel_lower:kernel_upper]
     return kernel_matrix
-    
-    
 
 
 # In[58]:
@@ -79,11 +146,17 @@ def make_one_D_kernel(kernel):
 def down_sample(img, factor=2):
     MAX_ROWS = img.shape[0]
     MAX_COLS = img.shape[1]
-    small_img = np.zeros((int(MAX_ROWS/2), int(MAX_COLS/2), 3))
-    
-    small_img[:,:,0]=resize(image=img[:,:,0], size=[int(MAX_ROWS/2), int(MAX_COLS/2)])
-    small_img[:,:,1]=resize(image=img[:,:,1], size=[int(MAX_ROWS/2), int(MAX_COLS/2)])
-    small_img[:,:,2]=resize(image=img[:,:,2], size=[int(MAX_ROWS/2), int(MAX_COLS/2)])
+    small_img = np.zeros((int(MAX_ROWS / 2), int(MAX_COLS / 2), 3))
+
+    small_img[:, :, 0] = resize(
+        image=img[:, :, 0], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    )
+    small_img[:, :, 1] = resize(
+        image=img[:, :, 1], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    )
+    small_img[:, :, 2] = resize(
+        image=img[:, :, 2], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    )
     return small_img
 
 
@@ -93,18 +166,24 @@ def down_sample(img, factor=2):
 def up_sample(img, factor=2):
     MAX_ROWS = img.shape[0]
     MAX_COLS = img.shape[1]
-    small_img = np.zeros((int(MAX_ROWS*2), int(MAX_COLS*2), 3))
-    
-    small_img[:,:,0]=resize(image=img[:,:,0], size=[int(MAX_ROWS*2), int(MAX_COLS*2)])
-    small_img[:,:,1]=resize(image=img[:,:,1], size=[int(MAX_ROWS*2), int(MAX_COLS*2)])
-    small_img[:,:,2]=resize(image=img[:,:,2], size=[int(MAX_ROWS*2), int(MAX_COLS*2)])
+    small_img = np.zeros((int(MAX_ROWS * 2), int(MAX_COLS * 2), 3))
+
+    small_img[:, :, 0] = resize(
+        image=img[:, :, 0], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    )
+    small_img[:, :, 1] = resize(
+        image=img[:, :, 1], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    )
+    small_img[:, :, 2] = resize(
+        image=img[:, :, 2], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    )
     return small_img
 
 
 # In[60]:
 
 
-def one_level_laplacian(img,G):
+def one_level_laplacian(img, G):
     # generate Gaussian pyramid for Apple
     A = img.copy()
 
@@ -123,8 +202,8 @@ def one_level_laplacian(img,G):
     laplace_A = A - upsampled_A
 
     # reconstruct A
-#     reconstruct_A = laplace_A + upsampled_A
-    
+    #     reconstruct_A = laplace_A + upsampled_A
+
     return small_A, upsampled_A, laplace_A
 
 
@@ -144,9 +223,9 @@ def gamma_decode(img):
     new_img = np.zeros((img.shape))
     for r in range(img.shape[0]):
         for c in range(img.shape[1]):
-            new_img[r,c,0] = np.power(img[r,c,0], 1/1.2)
-            new_img[r,c,1] = np.power(img[r,c,1], 1/1.2)
-            new_img[r,c,2] = np.power(img[r,c,2], 1/1.2)
+            new_img[r, c, 0] = np.power(img[r, c, 0], 1 / 1.2)
+            new_img[r, c, 1] = np.power(img[r, c, 1], 1 / 1.2)
+            new_img[r, c, 2] = np.power(img[r, c, 2], 1 / 1.2)
     return new_img
 
 
@@ -155,10 +234,9 @@ def gamma_decode(img):
 # In[63]:
 
 
-img = cv2.imread('apple.png')
-print(img.shape)
-print(img.dtype)
+img = cv2.imread("/home/colivier/src/laplacian_blend/apple.png")
 img = gamma_decode(img)
+img /= 255.0
 
 
 # In[64]:
@@ -198,8 +276,10 @@ apple_F_upsampled = []
 apple_L_laplace = []
 
 # Load Images
-apple = read_image('apple.png')
-orange = read_image('orange.png')
+apple = read_image("/home/colivier/src/laplacian_blend/apple.png")
+orange = read_image("/home/colivier/src/laplacian_blend/orange.png")
+#apple = apple.transpose(1, 2, 0)
+#orange = orange.transpose(1, 2, 0)
 apple = gamma_decode(apple)
 orange = gamma_decode(orange)
 
@@ -211,7 +291,6 @@ for i in range(4):
     apple_F_upsampled.append(upsampled_A)
     apple_L_laplace.append(laplace_A)
     img = small_A
-    
 
 
 # In[ ]:
@@ -222,13 +301,12 @@ apple_reconstructed_imgs = []
 start_F = apple_G_small_gaussian_blurred[-1]
 
 for i in reversed(range(0, 4)):
-#     print(start_F.shape)
-#     print(L_laplace[i].shape)
+    #     print(start_F.shape)
+    #     print(L_laplace[i].shape)
     reconstructed_F = F_transform(start_F, G) + apple_L_laplace[i]
-#     print(reconstructed_F.shape)
+    #     print(reconstructed_F.shape)
     apple_reconstructed_imgs.append(reconstructed_F)
     start_F = reconstructed_F
-    
 
 
 # ## Run Laplacian Pyramid on Orange
@@ -255,7 +333,6 @@ for i in range(4):
     orange_F_upsampled.append(upsampled_A)
     orange_L_laplace.append(laplace_A)
     img = small_A
-    
 
 
 # In[ ]:
@@ -266,14 +343,13 @@ orange_reconstructed_imgs = []
 start_F = orange_G_small_gaussian_blurred[-1]
 
 for i in reversed(range(0, 4)):
-#     print()
-#     print(start_F.shape)
-#     print(orange_L_laplace[i].shape)
+    #     print()
+    #     print(start_F.shape)
+    #     print(orange_L_laplace[i].shape)
     reconstructed_F = F_transform(start_F, G) + orange_L_laplace[i]
-#     print(reconstructed_F.shape)
+    #     print(reconstructed_F.shape)
     orange_reconstructed_imgs.append(reconstructed_F)
     start_F = reconstructed_F
-    
 
 
 # ## Run Gaussian Pyramid on Mask.png
@@ -281,7 +357,7 @@ for i in reversed(range(0, 4)):
 # In[ ]:
 
 
-mask = read_image('mask.png')
+mask = read_image("mask.png")
 
 
 # In[ ]:
@@ -299,7 +375,7 @@ ncols = orange.shape[1]
 # In[ ]:
 
 
-new_mask[:, :int(ncols/2)]=255
+new_mask[:, : int(ncols / 2)] = 255
 
 
 # In[ ]:
@@ -328,40 +404,28 @@ def one_layer_convolution(img, kernel):
     MAX_ROWS = img.shape[0]
     MAX_COLS = img.shape[1]
     kernel_size = kernel.shape[0]
-#     pad_amount = int(kernel_size/2)
-    gaussian_convolved_img = np.zeros(img.shape, dtype='uint8')
-#     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
+    #     pad_amount = int(kernel_size/2)
+    gaussian_convolved_img = np.zeros(img.shape, dtype="uint8")
+    #     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
     for r in range(0, MAX_ROWS):
         for c in range(0, MAX_COLS):
-#             print("r-pad_amount", r-pad_amount)
-#             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
-            kernel_r_upper = kernel_size if r+kernel_size < MAX_ROWS else MAX_ROWS-(r+kernel_size)+1
-            kernel_c_upper = kernel_size if c+kernel_size < MAX_COLS else MAX_COLS-(c+kernel_size)+1
-    
-            conv = np.multiply(img[r:r+kernel_size, c:c+kernel_size],kernel[0:kernel_r_upper, 0:kernel_c_upper])
-            conv = np.sum(conv)
-            gaussian_convolved_img[r, c] = float(conv)
-    return gaussian_convolved_img
+            #             print("r-pad_amount", r-pad_amount)
+            #             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
+            kernel_r_upper = (
+                kernel_size
+                if r + kernel_size < MAX_ROWS
+                else MAX_ROWS - (r + kernel_size) + 1
+            )
+            kernel_c_upper = (
+                kernel_size
+                if c + kernel_size < MAX_COLS
+                else MAX_COLS - (c + kernel_size) + 1
+            )
 
-
-# In[ ]:
-
-
-def one_layer_convolution(img, kernel):
-    MAX_ROWS = img.shape[0]
-    MAX_COLS = img.shape[1]
-    kernel_size = kernel.shape[0]
-#     pad_amount = int(kernel_size/2)
-    gaussian_convolved_img = np.zeros(img.shape)
-#     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
-    for r in range(0, MAX_ROWS):
-        for c in range(0, MAX_COLS):
-#             print("r-pad_amount", r-pad_amount)
-#             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
-            kernel_r_upper = kernel_size if r+kernel_size < MAX_ROWS else MAX_ROWS-(r+kernel_size)+1
-            kernel_c_upper = kernel_size if c+kernel_size < MAX_COLS else MAX_COLS-(c+kernel_size)+1
-    
-            conv = np.multiply(img[r:r+kernel_size, c:c+kernel_size],kernel[0:kernel_r_upper, 0:kernel_c_upper])
+            conv = np.multiply(
+                img[r : r + kernel_size, c : c + kernel_size],
+                kernel[0:kernel_r_upper, 0:kernel_c_upper],
+            )
             conv = np.sum(conv)
             gaussian_convolved_img[r, c] = float(conv)
     return gaussian_convolved_img
@@ -379,16 +443,65 @@ def one_layer_convolution(img, kernel):
     #     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
     for r in range(0, MAX_ROWS):
         for c in range(0, MAX_COLS):
-    #             print("r-pad_amount", r-pad_amount)
-    #             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
-            kernel_r_upper = kernel_size if r+kernel_size <= MAX_ROWS else kernel_size-((r+kernel_size)-MAX_ROWS)
-            kernel_c_upper = kernel_size if c+kernel_size <= MAX_COLS else kernel_size-((c+kernel_size)-MAX_COLS)
-            new_kernel = kernel[0:kernel_r_upper, 0:kernel_c_upper]/np.sum(kernel[0:kernel_r_upper, 0:kernel_c_upper])
-            conv = np.multiply(img[r:min(MAX_ROWS,r+kernel_size), c:min(MAX_COLS,c+kernel_size)],new_kernel)
+            #             print("r-pad_amount", r-pad_amount)
+            #             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
+            kernel_r_upper = (
+                kernel_size
+                if r + kernel_size < MAX_ROWS
+                else MAX_ROWS - (r + kernel_size) + 1
+            )
+            kernel_c_upper = (
+                kernel_size
+                if c + kernel_size < MAX_COLS
+                else MAX_COLS - (c + kernel_size) + 1
+            )
+
+            conv = np.multiply(
+                img[r : r + kernel_size, c : c + kernel_size],
+                kernel[0:kernel_r_upper, 0:kernel_c_upper],
+            )
             conv = np.sum(conv)
             gaussian_convolved_img[r, c] = float(conv)
     return gaussian_convolved_img
 
+
+# In[ ]:
+
+
+def one_layer_convolution(img, kernel):
+    MAX_ROWS = img.shape[0]
+    MAX_COLS = img.shape[1]
+    kernel_size = kernel.shape[0]
+    #     pad_amount = int(kernel_size/2)
+    gaussian_convolved_img = np.zeros(img.shape)
+    #     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
+    for r in range(0, MAX_ROWS):
+        for c in range(0, MAX_COLS):
+            #             print("r-pad_amount", r-pad_amount)
+            #             print("r-pad_amount+kernel_size", r-pad_amount+kernel_size)
+            kernel_r_upper = (
+                kernel_size
+                if r + kernel_size <= MAX_ROWS
+                else kernel_size - ((r + kernel_size) - MAX_ROWS)
+            )
+            kernel_c_upper = (
+                kernel_size
+                if c + kernel_size <= MAX_COLS
+                else kernel_size - ((c + kernel_size) - MAX_COLS)
+            )
+            new_kernel = kernel[0:kernel_r_upper, 0:kernel_c_upper] / np.sum(
+                kernel[0:kernel_r_upper, 0:kernel_c_upper]
+            )
+            conv = np.multiply(
+                img[
+                    r : min(MAX_ROWS, r + kernel_size),
+                    c : min(MAX_COLS, c + kernel_size),
+                ],
+                new_kernel,
+            )
+            conv = np.sum(conv)
+            gaussian_convolved_img[r, c] = float(conv)
+    return gaussian_convolved_img
 
 
 # In[ ]:
@@ -397,10 +510,12 @@ def one_layer_convolution(img, kernel):
 def one_layer_down_sample(img, factor=2):
     MAX_ROWS = img.shape[0]
     MAX_COLS = img.shape[1]
-    small_img = np.zeros((int(MAX_ROWS/2), int(MAX_COLS/2)))
-    
-    small_img[:,:]=resize(image=img[:,:], size=[int(MAX_ROWS/2), int(MAX_COLS/2)])
-    
+    small_img = np.zeros((int(MAX_ROWS / 2), int(MAX_COLS / 2)))
+
+    small_img[:, :] = resize(
+        image=img[:, :], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    )
+
     return small_img
 
 
@@ -436,19 +551,18 @@ img = mask.copy()
 for i in range(5):
     small_A = one_level_gaussian_pyramid(img, G)
     mask_G_small_gaussian_blurred.append(small_A)
-#     F_upsampled.append(upsampled_A)
-#     L_laplace.append(laplace_A)
+    #     F_upsampled.append(upsampled_A)
+    #     L_laplace.append(laplace_A)
     img = small_A
-    
 
 
 # In[ ]:
 
 
 for i in range(len(mask_G_small_gaussian_blurred)):
-    mask_G_small_gaussian_blurred[i] = mask_G_small_gaussian_blurred[i]/np.max(mask_G_small_gaussian_blurred[i])
-    
-    
+    mask_G_small_gaussian_blurred[i] = mask_G_small_gaussian_blurred[i] / np.max(
+        mask_G_small_gaussian_blurred[i]
+    )
 
 
 # In[ ]:
@@ -498,13 +612,17 @@ for i in orange_L_laplace:
 
 
 mask_apple_1d = mask_G_small_gaussian_blurred[-2]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[-2]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[-2]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 
-G_c = apple_G_small_gaussian_blurred[-1]*mask_apple + \
-        orange_G_small_gaussian_blurred[-1]*mask_orange
+G_c = (
+    apple_G_small_gaussian_blurred[-1] * mask_apple
+    + orange_G_small_gaussian_blurred[-1] * mask_orange
+)
 
 
 # In[ ]:
@@ -518,10 +636,12 @@ upsampled_F1 = convolution(F_1, G)
 
 
 mask_apple_1d = mask_G_small_gaussian_blurred[-3]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[-3]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[-3]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 
 
 # In[ ]:
@@ -577,7 +697,7 @@ plt.imshow(F1_plot)
 # In[ ]:
 
 
-new_L_c = L_c + (1-L_c)
+new_L_c = L_c + (1 - L_c)
 
 
 # In[ ]:
@@ -604,22 +724,28 @@ plt.imshow(F2_plot)
 
 reconstructed_imgs = []
 mask_apple_1d = mask_G_small_gaussian_blurred[4]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[4]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[4]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 
-G_c = apple_G_small_gaussian_blurred[3]*mask_apple + \
-        orange_G_small_gaussian_blurred[3]*mask_orange
+G_c = (
+    apple_G_small_gaussian_blurred[3] * mask_apple
+    + orange_G_small_gaussian_blurred[3] * mask_orange
+)
 
 F_1 = up_sample(G_c)
 upsampled_F1 = convolution(F_1, G)
 
 mask_apple_1d = mask_G_small_gaussian_blurred[3]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[3]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[3]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 
 L_a = apple_L_laplace[3]
 L_o = orange_L_laplace[3]
@@ -637,10 +763,12 @@ F_1 = up_sample(F_2)
 upsampled_F1 = convolution(F_1, G)
 
 mask_apple_1d = mask_G_small_gaussian_blurred[2]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[2]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[2]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 print(mask_apple.shape)
 
 L_a = apple_L_laplace[2]
@@ -666,10 +794,12 @@ F_1 = up_sample(F_2)
 upsampled_F1 = convolution(F_1, G)
 
 mask_apple_1d = mask_G_small_gaussian_blurred[1]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[1]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[1]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 print(mask_apple.shape)
 
 L_a = apple_L_laplace[1]
@@ -695,10 +825,12 @@ F_1 = up_sample(F_2)
 upsampled_F1 = convolution(F_1, G)
 
 mask_apple_1d = mask_G_small_gaussian_blurred[0]
-mask_orange_1d = 1- mask_G_small_gaussian_blurred[0]
+mask_orange_1d = 1 - mask_G_small_gaussian_blurred[0]
 
-mask_apple = np.stack(np.array([mask_apple_1d,mask_apple_1d,mask_apple_1d]), axis=2)
-mask_orange = np.stack(np.array([mask_orange_1d,mask_orange_1d,mask_orange_1d]), axis=2)
+mask_apple = np.stack(np.array([mask_apple_1d, mask_apple_1d, mask_apple_1d]), axis=2)
+mask_orange = np.stack(
+    np.array([mask_orange_1d, mask_orange_1d, mask_orange_1d]), axis=2
+)
 print(mask_apple.shape)
 
 L_a = apple_L_laplace[0]
@@ -719,11 +851,7 @@ plt.imshow(F_2)
 # In[ ]:
 
 
-write_image(path='apple-and-orange.png', image=F_2)
+write_image(path="apple-and-orange.png", image=F_2)
 
 
 # In[ ]:
-
-
-
-
