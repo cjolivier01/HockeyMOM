@@ -69,16 +69,28 @@ gaussian_kernel_3_channels = gaussian_kernel.repeat(3, 1, 1, 1)
 
 
 def showable(tensor: torch.Tensor):
-    t = (tensor / 255).clamp(min=0, max=255.0).to(torch.uint8)
-    return t.numpy()
+    t = (tensor * 255).clamp(min=0, max=255.0).to(torch.uint8)
+    #t = tensor.clamp(min=0, max=255.0).to(torch.uint8)
+    #t = tensor
+    print(torch.min(t))
+    print(torch.max(t))
+    return t.numpy().transpose(1, 2, 0)
 
 
 def convolution(img, kernel):
-    img = torch.from_numpy(img).to(torch.float32)
+    if not isinstance(img, torch.Tensor):
+        img = torch.from_numpy(img)
+    img = img.to(torch.float32)
+    print(torch.min(img))
+    print(torch.max(img))
     img = img.unsqueeze(0)
+    cv2.imshow("", showable(img[0]))
+    cv2.waitKey(0)
     convolved = F.conv2d(img, gaussian_kernel_3_channels, padding=kernel_size//2, groups=3)
+    print(torch.min(img))
+    print(torch.max(img))
     cv2.imshow("", showable(convolved[0]))
-    cv2.waitkey(0)
+    cv2.waitKey(0)
     return convolved
 
     # img = img.transpose(1, 2, 0)
@@ -105,7 +117,7 @@ def convolution(img, kernel):
     #                 zero_padded[
     #                     r - pad_amount : r - pad_amount + kernel_size,
     #                     c - pad_amount : c - pad_amount + kernel_size,
-    #                 ],
+    #                 ], 
     #                 kernel,
     #             )
     #             conv = np.sum(conv)
@@ -185,7 +197,7 @@ def up_sample(img, factor=2):
 
 def one_level_laplacian(img, G):
     # generate Gaussian pyramid for Apple
-    A = img.copy()
+    A = img.clone()
 
     # Gaussian blur on Apple
     blurred_A = convolution(A, G)
@@ -219,24 +231,31 @@ def F_transform(small_A, G):
 # In[62]:
 
 
-def gamma_decode(img):
-    new_img = np.zeros((img.shape))
-    for r in range(img.shape[0]):
-        for c in range(img.shape[1]):
-            new_img[r, c, 0] = np.power(img[r, c, 0], 1 / 1.2)
-            new_img[r, c, 1] = np.power(img[r, c, 1], 1 / 1.2)
-            new_img[r, c, 2] = np.power(img[r, c, 2], 1 / 1.2)
-    return new_img
+# def gamma_decode(img):
+#     new_img = np.zeros((img.shape))
+#     for r in range(img.shape[0]):
+#         for c in range(img.shape[1]):
+#             new_img[r, c, 0] = np.power(img[r, c, 0], 1 / 1.2)
+#             new_img[r, c, 1] = np.power(img[r, c, 1], 1 / 1.2)
+#             new_img[r, c, 2] = np.power(img[r, c, 2], 1 / 1.2)
+#     return new_img
 
+def gamma_decode(img):
+    return img.to(torch.float32) / 255.0
 
 # ## Run Laplacian Pyramid on Apple
 
 # In[63]:
 
 
-img = cv2.imread("/home/colivier/src/laplacian_blend/apple.png")
-img = gamma_decode(img)
-img /= 255.0
+img = torch.from_numpy(cv2.imread("/home/colivier/src/laplacian_blend/apple.png"))
+#plt.imshow(img)
+#plt.show()
+cv2.imshow("", img.numpy())
+cv2.waitKey(0)
+
+img = gamma_decode(img) / 255.0
+#img /= 255.0
 
 
 # In[64]:
@@ -264,7 +283,7 @@ print("MAX_COLS = ", MAX_COLS)
 # In[67]:
 
 
-G = gaussian_kernel
+#G = gaussian_kernel
 
 
 # In[68]:
