@@ -1,0 +1,10 @@
+game:
+  name: "game id"
+  rink: "rink name"
+  home: "Home team"
+  away: "Away team"
+  clip_box: []
+  boundaries:
+    upper:
+    lower:
+      

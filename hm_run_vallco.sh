@@ -48,7 +48,8 @@ OMP_NUM_THREADS=16 \
   -expn="${EXP_NAME}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
-  -b=${BATCH_SIZE} -d=1 \
+  -b=${BATCH_SIZE} \
+  --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
   --start-frame=${START_FRAME} \

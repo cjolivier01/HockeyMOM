@@ -76,25 +76,6 @@ core.hello_world()
 # TODO: Moving to yaml files
 #
 RINK_CONFIG = {
-    "vallco": {
-        "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 40.0,
-        "boundaries": {
-            "stockton2": {
-                "upper": [],
-                "lower": [],
-            },
-            "sharksbb1": {
-                "upper": [
-                    [77, 899, 982, 550],
-                ],
-                "lower": [
-                    [30, 721, 358, 1420],
-                    [3287, 1468, 3645, 720],
-                ],
-            },
-        },
-    },
     "yerba_buena": {
         "fixed_edge_scaling_factor": 1.5,
         "fixed_edge_rotation_angle": 25.0,
