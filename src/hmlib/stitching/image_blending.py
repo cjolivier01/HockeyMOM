@@ -10,11 +10,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from pslib import *
+import torchvision as tv
 from torchvision.io import read_image
 import torch
 import torch.nn.functional as F
 import cv2
-
+from hmlib.video_out import resize_image
 
 # ### Load provided Gaussian kernel.
 
@@ -32,6 +33,7 @@ gaussian_kernel = np.load("/home/colivier/src/laplacian_blend/gaussian-kernel.np
 #     ]
 # )
 
+
 # Function to create a Gaussian kernel
 def gaussian_kernel(size, sigma):
     """
@@ -40,28 +42,29 @@ def gaussian_kernel(size, sigma):
     # Create a coordinate grid
     x = torch.arange(size).float() - size // 2
     y = x.view(size, 1)
-    
+
     # Calculate the 2D Gaussian kernel
     g = torch.exp(-(x**2 + y**2) / (2 * sigma**2))
-    
+
     # Normalize the kernel (so the sum is 1.0)
     g /= g.sum()
-    
+
     return g
+
 
 # Example usage:
 kernel_size = 5  # Size of the kernel
-sigma = 1.0     # Standard deviation of the Gaussian
+sigma = 1.0  # Standard deviation of the Gaussian
 
 # Generate the kernel. The unsqueeze operations are to add the required number of dimensions
 # for conv2d, which are batch and channel dimensions.
 
 # TODO: expand in channel dim
 gaussian_kernel = gaussian_kernel(kernel_size, sigma).unsqueeze(0).unsqueeze(0)
-#gaussian_kernel_3_channels = gaussian_kernel.repeat(1, 3, 1, 1)
-gaussian_kernel_3_channels = gaussian_kernel.repeat(3, 1, 1, 1)
+# gaussian_kernel_3_channels = gaussian_kernel.repeat(1, 3, 1, 1)
+gaussian_kernel = gaussian_kernel.repeat(3, 1, 1, 1)
 
-#print(gaussian_kernel)
+# print(gaussian_kernel)
 
 # ### Define helper functions and cross-correlation/convolution function.
 
@@ -70,8 +73,8 @@ gaussian_kernel_3_channels = gaussian_kernel.repeat(3, 1, 1, 1)
 
 def showable(tensor: torch.Tensor):
     t = (tensor * 255).clamp(min=0, max=255.0).to(torch.uint8)
-    #t = tensor.clamp(min=0, max=255.0).to(torch.uint8)
-    #t = tensor
+    # t = tensor.clamp(min=0, max=255.0).to(torch.uint8)
+    # t = tensor
     print(torch.min(t))
     print(torch.max(t))
     return t.numpy().transpose(1, 2, 0)
@@ -81,16 +84,18 @@ def convolution(img, kernel):
     if not isinstance(img, torch.Tensor):
         img = torch.from_numpy(img)
     img = img.to(torch.float32)
+    #print(torch.min(img))
+    #print(torch.max(img))
+    #img = img.unsqueeze(0)
+    # cv2.imshow("", showable(img[0]))
+    # cv2.waitKey(0)
+    convolved = F.conv2d(
+        img, kernel, padding=kernel_size // 2, groups=3
+    )
     print(torch.min(img))
     print(torch.max(img))
-    img = img.unsqueeze(0)
-    cv2.imshow("", showable(img[0]))
-    cv2.waitKey(0)
-    convolved = F.conv2d(img, gaussian_kernel_3_channels, padding=kernel_size//2, groups=3)
-    print(torch.min(img))
-    print(torch.max(img))
-    cv2.imshow("", showable(convolved[0]))
-    cv2.waitKey(0)
+    # cv2.imshow("", showable(convolved[0]))
+    # cv2.waitKey(0)
     return convolved
 
     # img = img.transpose(1, 2, 0)
@@ -117,7 +122,7 @@ def convolution(img, kernel):
     #                 zero_padded[
     #                     r - pad_amount : r - pad_amount + kernel_size,
     #                     c - pad_amount : c - pad_amount + kernel_size,
-    #                 ], 
+    #                 ],
     #                 kernel,
     #             )
     #             conv = np.sum(conv)
@@ -128,68 +133,82 @@ def convolution(img, kernel):
 # In[57]:
 
 
-def make_one_D_kernel(kernel):
-    MAX_ROWS = img.shape[0]
-    MAX_COLS = img.shape[1]
-    one_d_gaussian_kernel = kernel
+# def make_one_D_kernel(kernel):
+#     MAX_ROWS = img.shape[0]
+#     MAX_COLS = img.shape[1]
+#     one_d_gaussian_kernel = kernel
 
-    kernel_matrix = np.zeros((MAX_ROWS, MAX_ROWS))
-    # print(kernel_matrix.shape)
-    for m in range(MAX_ROWS):
-        #     print(m)
-        #     print(m+(len(one_d_gaussian_kernel)))
-        #     print(one_d_gaussian_kernel)
-        #     print()
-        over = int(len(one_d_gaussian_kernel) / 2)
-        mid = over
-        lower = max(0, m - over)
-        upper = min(m + over, MAX_ROWS)
-        kernel_lower = mid - over if m - over >= 0 else abs(m - over)
-        kernel_upper = (
-            mid + over if m + over < MAX_ROWS else (mid + over) - (m + over - MAX_ROWS)
-        )
-        kernel_matrix[m, lower:upper] = one_d_gaussian_kernel[kernel_lower:kernel_upper]
-    return kernel_matrix
+#     kernel_matrix = np.zeros((MAX_ROWS, MAX_ROWS))
+#     # print(kernel_matrix.shape)
+#     for m in range(MAX_ROWS):
+#         #     print(m)
+#         #     print(m+(len(one_d_gaussian_kernel)))
+#         #     print(one_d_gaussian_kernel)
+#         #     print()
+#         over = int(len(one_d_gaussian_kernel) / 2)
+#         mid = over
+#         lower = max(0, m - over)
+#         upper = min(m + over, MAX_ROWS)
+#         kernel_lower = mid - over if m - over >= 0 else abs(m - over)
+#         kernel_upper = (
+#             mid + over if m + over < MAX_ROWS else (mid + over) - (m + over - MAX_ROWS)
+#         )
+#         kernel_matrix[m, lower:upper] = one_d_gaussian_kernel[kernel_lower:kernel_upper]
+#     return kernel_matrix
 
 
 # In[58]:
 
 
 def down_sample(img, factor=2):
-    MAX_ROWS = img.shape[0]
-    MAX_COLS = img.shape[1]
-    small_img = np.zeros((int(MAX_ROWS / 2), int(MAX_COLS / 2), 3))
+    MAX_ROWS = img.shape[-2]
+    MAX_COLS = img.shape[-1]
+    assert img.dtype == torch.float32
+    img = resize_image(
+        img=img,
+        new_width=MAX_COLS // 2,
+        new_height=MAX_ROWS // 2,
+        mode=tv.transforms.InterpolationMode.BILINEAR,
+    )
+    # small_img = np.zeros((int(MAX_ROWS / 2), int(MAX_COLS / 2), 3))
 
-    small_img[:, :, 0] = resize(
-        image=img[:, :, 0], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
-    )
-    small_img[:, :, 1] = resize(
-        image=img[:, :, 1], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
-    )
-    small_img[:, :, 2] = resize(
-        image=img[:, :, 2], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
-    )
-    return small_img
+    # small_img[:, :, 0] = resize(
+    #     image=img[:, :, 0], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    # )
+    # small_img[:, :, 1] = resize(
+    #     image=img[:, :, 1], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    # )
+    # small_img[:, :, 2] = resize(
+    #     image=img[:, :, 2], size=[int(MAX_ROWS / 2), int(MAX_COLS / 2)]
+    # )
+    return img
 
 
 # In[59]:
 
 
 def up_sample(img, factor=2):
-    MAX_ROWS = img.shape[0]
-    MAX_COLS = img.shape[1]
-    small_img = np.zeros((int(MAX_ROWS * 2), int(MAX_COLS * 2), 3))
+    MAX_ROWS = img.shape[-2]
+    MAX_COLS = img.shape[-1]
+    img = resize_image(
+        img=img,
+        new_width=int(MAX_COLS * 2),
+        new_height=int(MAX_ROWS * 2),
+        mode=tv.transforms.InterpolationMode.BILINEAR,
+    )
+    # small_img = np.zeros((int(MAX_ROWS * 2), int(MAX_COLS * 2), 3))
 
-    small_img[:, :, 0] = resize(
-        image=img[:, :, 0], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
-    )
-    small_img[:, :, 1] = resize(
-        image=img[:, :, 1], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
-    )
-    small_img[:, :, 2] = resize(
-        image=img[:, :, 2], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
-    )
-    return small_img
+    # small_img[:, :, 0] = resize(
+    #     image=img[:, :, 0], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    # )
+    # small_img[:, :, 1] = resize(
+    #     image=img[:, :, 1], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    # )
+    # small_img[:, :, 2] = resize(
+    #     image=img[:, :, 2], size=[int(MAX_ROWS * 2), int(MAX_COLS * 2)]
+    # )
+    # return small_img
+    return img
 
 
 # In[60]:
@@ -240,29 +259,32 @@ def F_transform(small_A, G):
 #             new_img[r, c, 2] = np.power(img[r, c, 2], 1 / 1.2)
 #     return new_img
 
+
 def gamma_decode(img):
     return img.to(torch.float32) / 255.0
+
 
 # ## Run Laplacian Pyramid on Apple
 
 # In[63]:
 
 
-img = torch.from_numpy(cv2.imread("/home/colivier/src/laplacian_blend/apple.png"))
-#plt.imshow(img)
-#plt.show()
-cv2.imshow("", img.numpy())
-cv2.waitKey(0)
+img = torch.from_numpy(cv2.imread("/home/colivier/src/laplacian_blend/apple.png")).unsqueeze(0)
+# plt.imshow(img)
+# plt.show()
+# cv2.imshow("", img.numpy())
+# cv2.waitKey(0)
 
-img = gamma_decode(img) / 255.0
-#img /= 255.0
+# img = gamma_decode(img) / 255.0
+# img /= 255.0
 
+# cv2.imshow("", img.numpy())
 
 # In[64]:
 
 
-plt.imshow(img)
-plt.show()
+# plt.imshow(img)
+# plt.show()
 
 
 # In[65]:
@@ -274,8 +296,8 @@ img.shape
 # In[66]:
 
 
-MAX_ROWS = img.shape[0]
-MAX_COLS = img.shape[1]
+MAX_ROWS = img.shape[-2]
+MAX_COLS = img.shape[-1]
 print("MAX_ROWS = ", MAX_ROWS)
 print("MAX_COLS = ", MAX_COLS)
 
@@ -283,7 +305,7 @@ print("MAX_COLS = ", MAX_COLS)
 # In[67]:
 
 
-#G = gaussian_kernel
+# G = gaussian_kernel
 
 
 # In[68]:
@@ -297,10 +319,10 @@ apple_L_laplace = []
 # Load Images
 apple = read_image("/home/colivier/src/laplacian_blend/apple.png")
 orange = read_image("/home/colivier/src/laplacian_blend/orange.png")
-#apple = apple.transpose(1, 2, 0)
-#orange = orange.transpose(1, 2, 0)
-apple = gamma_decode(apple)
-orange = gamma_decode(orange)
+# apple = apple.transpose(1, 2, 0)
+# orange = orange.transpose(1, 2, 0)
+apple = gamma_decode(apple).unsqueeze(0)
+orange = gamma_decode(orange).unsqueeze(0)
 
 img = apple
 
@@ -344,7 +366,7 @@ orange_L_laplace = []
 # apple = gamma_decode(apple)
 # orange = gamma_decode(orange)
 
-img = orange.copy()
+img = orange.clone()
 
 for i in range(4):
     small_A, upsampled_A, laplace_A = one_level_laplacian(img, G)
@@ -376,19 +398,21 @@ for i in reversed(range(0, 4)):
 # In[ ]:
 
 
-mask = read_image("mask.png")
+#mask = read_image("/home/colivier/src/laplacian_blend/mask.png")
+mask = cv2.imread("/home/colivier/src/laplacian_blend/mask.png")
+mask = torch.from_numpy(mask).permute(2, 1, 0)
 
 
 # In[ ]:
 
 
-new_mask = np.zeros((orange.shape[0], orange.shape[1]))
+new_mask = torch.zeros((orange.shape[-1], orange.shape[-2]), dtype=torch.uint8)
 
 
 # In[ ]:
 
 
-ncols = orange.shape[1]
+ncols = orange.shape[-1]
 
 
 # In[ ]:
@@ -406,8 +430,8 @@ mask = new_mask
 # In[ ]:
 
 
-plt.imshow(mask)
-plt.show()
+# plt.imshow(mask)
+# plt.show()
 
 
 # In[ ]:
@@ -565,7 +589,7 @@ mask_G_small_gaussian_blurred = [mask]
 # Load Images
 
 
-img = mask.copy()
+img = mask.clone()
 
 for i in range(5):
     small_A = one_level_gaussian_pyramid(img, G)

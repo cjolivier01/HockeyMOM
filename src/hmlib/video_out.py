@@ -116,34 +116,40 @@ def crop_image(img, left, top, right, bottom):
     return img[top : bottom + 1, left : right + 1, 0:3]
 
 
-def resize_image(img, new_width: int, new_height: int):
+def resize_image(
+    img, new_width: int, new_height: int, mode = tv.transforms.InterpolationMode.BILINEAR
+):
     w = int(new_width)
     h = int(new_height)
     if isinstance(img, torch.Tensor):
-        # H, W, C -> C, W, H
         if img.dim() == 4:
             # Probably doesn't work
-            img = img.permute(0, 3, 2, 1)
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(0, 3, 2, 1)
+            assert img.shape[1] == 2 or img.shape[1] == 3
             img = F.resize(
                 img=img,
                 size=(w, h),
-                # interpolation=tv.transforms.InterpolationMode.BICUBIC,
-                interpolation=tv.transforms.InterpolationMode.BILINEAR,
-                # interpolation=tv.transforms.InterpolationMode.NEAREST,
+                interpolation=mode,
             )
-            # C, W, H -> H, W, C
-            img = img.permute(0, 3, 2, 1)
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(0, 3, 2, 1)
         else:
-            img = img.permute(2, 1, 0)
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(2, 1, 0)
             img = F.resize(
                 img=img,
                 size=(w, h),
-                # interpolation=tv.transforms.InterpolationMode.BICUBIC,
-                interpolation=tv.transforms.InterpolationMode.BILINEAR,
-                # interpolation=tv.transforms.InterpolationMode.NEAREST,
+                interpolation=mode,
             )
-            # C, W, H -> H, W, C
-            img = img.permute(2, 1, 0)
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(2, 1, 0)
         return img
     elif isinstance(img, PIL.Image.Image):
         return img.resize((w, h))
