@@ -15,7 +15,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/stockton2/"
-VIDEO="${HOME}/Videos/sharksbb1-1/stitched_output-with-audio.avi"
+#VIDEO="${HOME}/Videos/sharksbb1-1/stitched_output-with-audio.avi"
 
 EXP_NAME="$(basename $0 .sh)"
 
@@ -37,7 +37,7 @@ TRACKER="fair"
 #BATCH_SIZE=64
 BATCH_SIZE=16
 
-STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
+#STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
 
 echo "Experiment name: ${EXP_NAME}"
 
