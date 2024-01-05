@@ -183,6 +183,8 @@ def build_stitching_project(
         os.chdir(dir_name)
         cmd = [
             "pto_gen",
+            "-p",
+            "1",
             "-o",
             project_file_path,
             "-f",
