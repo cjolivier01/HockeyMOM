@@ -1,3 +1,5 @@
+import os
+import sys
 import subprocess
 import pyipmi
 import pyipmi.interfaces
@@ -22,6 +24,8 @@ FAN_MODE_STANDARD = 0
 FAN_MODE_FULL = 1
 FAN_MODE_OPTIMAL = 2
 FAN_MODE_HEAVY_IO = 4
+
+lock_file_path = "/tmp/gpu_fan_control.lock"
 
 
 def set_zone_fan_speed(speed_percent, zone: int = 1):
@@ -119,4 +123,16 @@ def mamage_gpu_fans():
 
 
 if __name__ == "__main__":
-    main()
+    # Check if the lock file already exists
+    if os.path.exists(lock_file_path):
+        print(f"Another instance of the script {__file__} is already running.")
+        sys.exit(1)
+
+    with open(lock_file_path, "w") as lock_file:
+        lock_file.write("Lock")
+    try:
+        main()
+    finally:
+        # Remove the lock file when done
+        if os.path.exists(lock_file_path):
+            os.remove(lock_file_path)
