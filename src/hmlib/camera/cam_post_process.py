@@ -256,7 +256,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
@@ -854,34 +854,6 @@ class CamTrackPostProcessor(torch.nn.Module):
                 *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
             )
 
-        def _apply_temporal(
-            current_box,
-            last_box,
-            scale_speed: float,
-            grays_level: int = 128,
-            verbose: bool = False,
-        ):
-            #
-            # Temporal: Apply velocity and acceleration
-            #
-            nonlocal self, online_im
-            current_box = self._hockey_mom.get_next_temporal_box(
-                current_box,
-                last_box,
-                scale_speed=scale_speed,
-                verbose=verbose,
-            )
-            last_box = current_box.clone()
-            if self._args.plot_camera_tracking:
-                online_im = vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(grays_level, grays_level, grays_level),
-                    thickness=2,
-                    label="next_temporal_box",
-                )
-            return current_box, last_box
-
         group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
             min_considered_velocity=3.0,
             group_threshhold=0.5,
@@ -938,6 +910,35 @@ class CamTrackPostProcessor(torch.nn.Module):
             )
 
         # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
+
+        def _apply_temporal(
+            current_box,
+            last_box,
+            scale_speed: float,
+            grays_level: int = 128,
+            verbose: bool = False,
+        ):
+            #
+            # Temporal: Apply velocity and acceleration
+            #
+            nonlocal self, online_im
+            current_box = self._hockey_mom.get_next_temporal_box(
+                current_box,
+                last_box,
+                scale_speed=scale_speed,
+                verbose=verbose,
+            )
+            last_box = current_box.clone()
+            if self._args.plot_camera_tracking:
+                online_im = vis.plot_rectangle(
+                    online_im,
+                    current_box,
+                    color=(grays_level, grays_level, grays_level),
+                    thickness=2,
+                    label="next_temporal_box",
+                )
+            return current_box, last_box
+
         current_box, self._last_temporal_box = _apply_temporal(
             current_box, self._last_temporal_box, scale_speed=1.0
         )
