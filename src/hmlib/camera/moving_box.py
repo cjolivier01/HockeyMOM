@@ -370,11 +370,17 @@ class MovingBox(ResizingBox):
                 thickness=3,
             )
             if self._following_box is not None:
-                follwoing_bbox = self._following_box.bounding_box()
-                follwoing_bbox_center = center(follwoing_bbox)
+                following_bbox = self._following_box.bounding_box()
+                following_bbox_center = center(following_bbox)
                 # dashed box representing the following box inscribed at our center
+
+                scaled_following_box = scale_box(
+                    following_bbox.clone(),
+                    scale_width=self._scale_width,
+                    scale_height=self._scale_height,
+                )
                 inscribed = move_box_to_center(
-                    follwoing_bbox.clone(), center(self.bounding_box())
+                    scaled_following_box.clone(), center(self.bounding_box())
                 )
                 img = vis.draw_dashed_rectangle(
                     img, box=inscribed, color=(255, 255, 255), thickness=1
@@ -382,7 +388,7 @@ class MovingBox(ResizingBox):
 
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
-                co = [int(i) for i in follwoing_bbox_center]
+                co = [int(i) for i in following_bbox_center]
                 vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=3)
                 cv2.circle(
                     img,
@@ -405,7 +411,7 @@ class MovingBox(ResizingBox):
         if self._horizontal_image_gaussian_distribution is None:
             return 1.0
         else:
-            gaussian_factor = self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
+            return self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
                 x
             )
 

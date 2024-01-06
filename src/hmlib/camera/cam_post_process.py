@@ -841,8 +841,8 @@ class CamTrackPostProcessor(torch.nn.Module):
                     # scale_height=1.25,
                     # scale_width=1.8,
                     # scale_height=1.25,
-                    scale_width=1.0,
-                    scale_height=1.0,
+                    scale_width=1.5,
+                    scale_height=1.5,
                     fixed_aspect_ratio=self._final_aspect_ratio,
                     color=(255, 0, 255),
                     thickness=5,
@@ -1293,17 +1293,17 @@ class CamTrackPostProcessor(torch.nn.Module):
                 current_box=current_box,
             )
             self._video_output_campp.append(imgproc_data)
-        # if (
-        #     self._video_output_boxtrack is not None
-        #     and self._current_roi is not None
-        #     and (self._video_output_campp is not None and not self._args.show_image)
-        # ):
-        #     imgproc_data = ImageProcData(
-        #         frame_id=frame_id.item(),
-        #         img=online_im,
-        #         current_box=self._current_roi_aspect.bounding_box(),
-        #     )
-        #     self._video_output_boxtrack.append(imgproc_data)
+        if (
+            self._video_output_boxtrack is not None
+            and self._current_roi is not None
+            and (self._video_output_campp is not None and not self._args.show_image)
+        ):
+            imgproc_data = ImageProcData(
+                frame_id=frame_id.item(),
+                img=online_im,
+                current_box=self._current_roi_aspect.bounding_box(),
+            )
+            self._video_output_boxtrack.append(imgproc_data)
 
 
 def _scalar_like(v, device):
