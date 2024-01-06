@@ -7,11 +7,12 @@ game:
   stitching:
     offsets: [42.63559569682018, 0.0]
 
-  #clip_box: [null, 350, null, null]
+  clip_box: [null, 350, null, null]
   boundaries:
     upper:
       - [100, 907, 721, 670]
       - [711, 668, 1017, 574]
+      - [2745, 461, 3637, 797]
     lower:
       - [32, 838, 116, 840]
       - [99, 838, 387, 1430]

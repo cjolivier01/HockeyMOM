@@ -580,8 +580,6 @@ class VideoOutput:
 
             # Make a numpy image array
             if isinstance(online_im, torch.Tensor):
-                # if online_im.shape[0] not in [3, 4]:
-                #     online_im = online_im.permute(2, 0, 1)
                 online_im = online_im.cpu().detach().numpy()
 
             #

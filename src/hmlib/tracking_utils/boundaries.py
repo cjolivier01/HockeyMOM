@@ -37,7 +37,7 @@ class BoundaryLines:
                     self._upper_borders[i][0:2],
                     self._upper_borders[i][2:4],
                     color=(255, 0, 0),
-                    thickness=2,
+                    thickness=1,
                 )
         if self._lower_borders is not None:
             for i in range(len(self._lower_borders)):
@@ -46,7 +46,7 @@ class BoundaryLines:
                     self._lower_borders[i][0:2],
                     self._lower_borders[i][2:4],
                     color=(0, 0, 255),
-                    thickness=2,
+                    thickness=1,
                 )
         return img
 
