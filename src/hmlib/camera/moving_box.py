@@ -542,10 +542,10 @@ class MovingBox(ResizingBox):
                 self._current_speed_x = self._zero.clone()
                 self._current_speed_y = self._zero.clone()
 
-            if self._translation_is_frozen:
-                print("Translation FROZEN")
-            else:
-                print("Translation unfrozen")
+            # if self._translation_is_frozen:
+            #     print("Translation FROZEN")
+            # else:
+            #     print("Translation unfrozen")
 
                 # clamp to max velocities
                 # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)

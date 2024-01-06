@@ -478,8 +478,8 @@ class VideoOutput:
 
                 # BEGIN PERFORMANCE HACK
                 #
-                # Chop off edges of image that won't be visible after a final crop 
-                # before we rotate in order to reduce the computation necessary 
+                # Chop off edges of image that won't be visible after a final crop
+                # before we rotate in order to reduce the computation necessary
                 # for the rotation (as well as other subsequent operations)
                 #
                 if True and self._args.crop_output_image:
@@ -488,6 +488,7 @@ class VideoOutput:
                     )
                     src_image_width = image_width(online_im)
                     src_image_height = image_height(online_im)
+                    rotation_point = center(current_box)
                 #
                 # END PERFORMANCE HACK
                 #

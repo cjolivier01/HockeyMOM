@@ -7,7 +7,7 @@ game:
   stitching:
     offsets: [42.63559569682018, 0.0]
 
-  clip_box: [null, 350, null, null]
+  clip_box: [null, 280, null, null]
   boundaries:
     upper:
       - [100, 907, 721, 670]
@@ -20,4 +20,5 @@ game:
 rink:
   camera:
     fixed_edge_scaling_factor: 1.25
+    #fixed_edge_rotation_angle: [40, 20]
     fixed_edge_rotation_angle: 40

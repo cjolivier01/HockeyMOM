@@ -219,7 +219,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or basic_debugging
-        self.plot_cluster_tracking = True
+        # self.plot_cluster_tracking = True
 
         # Use a differenmt algorithm when fitting to the proper aspect ratio,
         # such that the box calculated is much larger and often takes
@@ -239,7 +239,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        self.plot_moving_boxes = True
+        # self.plot_moving_boxes = True
 
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
@@ -256,8 +256,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        #self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
             "fixed_edge_rotation_angle"
