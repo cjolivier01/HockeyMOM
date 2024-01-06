@@ -256,8 +256,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
             "fixed_edge_rotation_angle"
@@ -583,7 +583,19 @@ class CamTrackPostProcessor(torch.nn.Module):
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            self.forward(online_targets_and_img=online_targets_and_img)
+
+            frame_id, online_im, current_box = self.forward(
+                online_targets_and_img=online_targets_and_img
+            )
+
+            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+            if self._video_output_campp is not None:
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=current_box,
+                )
+                self._video_output_campp.append(imgproc_data)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
@@ -662,6 +674,9 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
+        #
+        # Clusters
+        #
         cluster_counts = [3, 2]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
             online_tlwhs, online_ids, cluster_counts=cluster_counts
@@ -716,60 +731,6 @@ class CamTrackPostProcessor(torch.nn.Module):
                     opacity_percent=25,
                 )
 
-        # Examine as 2 clusters
-        # largest_cluster_ids_2 = self._cluster_man.prune_not_in_largest_cluster(
-        #     num_clusters=2, ids=online_ids
-        # )
-        # if len(largest_cluster_ids_2):
-        #     largest_cluster_ids_box2 = self._hockey_mom.get_current_bounding_box(
-        #         largest_cluster_ids_2
-        #     )
-        #     if self._args.plot_cluster_tracking:
-        #         online_im = vis.plot_rectangle(
-        #             online_im,
-        #             largest_cluster_ids_box2,
-        #             color=(128, 0, 0),  # dark red
-        #             thickness=6,
-        #             label="cluster_box2",
-        #         )
-        # else:
-        #     largest_cluster_ids_box2 = None
-
-        # # Examine as 3 clusters
-        # largest_cluster_ids_3 = self._cluster_man.prune_not_in_largest_cluster(
-        #     num_clusters=3, ids=online_ids
-        # )
-        # if len(largest_cluster_ids_3):
-        #     largest_cluster_ids_box3 = self._hockey_mom.get_current_bounding_box(
-        #         largest_cluster_ids_3
-        #     )
-        #     if self._args.plot_cluster_tracking:
-        #         online_im = vis.plot_rectangle(
-        #             online_im,
-        #             largest_cluster_ids_box3,
-        #             color=(0, 0, 128),  # dark blue
-        #             thickness=6,
-        #             label="cluster_box3",
-        #         )
-        # else:
-        #     largest_cluster_ids_box3 = None
-
-        # if (
-        #     largest_cluster_ids_box2 is not None
-        #     and largest_cluster_ids_box3 is not None
-        # ):
-        #     current_box = self._hockey_mom.union_box(
-        #         largest_cluster_ids_box2, largest_cluster_ids_box3
-        #     )
-        # elif largest_cluster_ids_box2 is not None:
-        #     current_box = largest_cluster_ids_box2
-        # elif largest_cluster_ids_box3 is not None:
-        #     current_box = largest_cluster_ids_box3
-        # elif self._previous_cluster_union_box is not None:
-        #     current_box = self._previous_cluster_union_box.clone()
-        # else:
-        #     current_box = self._hockey_mom._video_frame.bounding_box()
-
         if current_box is None:
             assert False  # how does this happen?
             current_box = self._hockey_mom._video_frame.bounding_box()
@@ -778,16 +739,6 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         # Some players may be off-screen, so their box may go over an edge
         current_box = self._hockey_mom.clamp(current_box)
-
-        # if self._args.plot_cluster_tracking:
-        #     # The union of the two cluster boxes
-        #     online_im = vis.plot_alpha_rectangle(
-        #         online_im,
-        #         current_box,
-        #         color=(64, 64, 64),  # dark gray
-        #         label="union_clusters",
-        #         opacity_percent=25,
-        #     )
 
         #
         # Current ROI box
@@ -1285,14 +1236,16 @@ class CamTrackPostProcessor(torch.nn.Module):
             )
             self._timer = Timer()
 
-        assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-        if self._video_output_campp is not None:
-            imgproc_data = ImageProcData(
-                frame_id=frame_id.item(),
-                img=online_im,
-                current_box=current_box,
-            )
-            self._video_output_campp.append(imgproc_data)
+        # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+        # if self._video_output_campp is not None:
+        #     imgproc_data = ImageProcData(
+        #         frame_id=frame_id.item(),
+        #         img=online_im,
+        #         current_box=current_box,
+        #     )
+        #     self._video_output_campp.append(imgproc_data)
+
+        return frame_id, online_im, current_box
 
 
 def _scalar_like(v, device):

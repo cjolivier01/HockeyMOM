@@ -389,7 +389,6 @@ class MovingBox(ResizingBox):
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
                 co = [int(i) for i in following_bbox_center]
-                vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=3)
                 cv2.circle(
                     img,
                     cl,
@@ -404,6 +403,11 @@ class MovingBox(ResizingBox):
                     color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
+                vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=1)
+                # X
+                vis.plot_line(img, cl, [co[0], cl[1]], color=(255, 255, 0), thickness=3)
+                # Y
+                vis.plot_line(img, cl, [cl[0], co[1]], color=(255, 255, 0), thickness=3)
 
         return img
 
@@ -534,10 +538,14 @@ class MovingBox(ResizingBox):
                 self._current_speed_y = self._zero.clone()
             elif self._translation_is_frozen and diff_magnitude >= unsticky:
                 self._translation_is_frozen = False
-
                 # Unstick at zero velocity
                 self._current_speed_x = self._zero.clone()
                 self._current_speed_y = self._zero.clone()
+
+            if self._translation_is_frozen:
+                print("Translation FROZEN")
+            else:
+                print("Translation unfrozen")
 
                 # clamp to max velocities
                 # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
@@ -569,10 +577,11 @@ class MovingBox(ResizingBox):
         if self._following_box is not None:
             self.set_destination(
                 dest_box=self._following_box.bounding_box(),
+
                 stop_on_dir_change=True,
             )
 
-        # BEGIN Sticky
+        # BEGIN Sticky Translation
         if self._translation_is_frozen:
             dx = self._zero
             dy = self._zero
@@ -586,7 +595,7 @@ class MovingBox(ResizingBox):
         else:
             dw = self._current_speed_w / 2
             dh = self._current_speed_h / 2
-        # END Sticky
+        # END Sticky Translation
 
         self._bbox += torch.tensor(
             [
