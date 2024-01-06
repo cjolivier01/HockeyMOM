@@ -8,8 +8,9 @@ import cv2
 import argparse
 import numpy as np
 import traceback
-import multiprocessing
-import queue
+# import multiprocessing
+# import queue
+import yaml
 
 from pathlib import Path
 
@@ -83,8 +84,6 @@ RINK_CONFIG = {
         },
     },
     "dublin": {
-        # "fixed_edge_scaling_factor": 1.5,
-        # "fixed_edge_rotation_angle": 30.0,
         "boundaries": {
             "lbd3": {
                 "upper": [
@@ -118,9 +117,6 @@ RINK_CONFIG = {
         },
     },
     "sharks_orange": {
-        # "fixed_edge_scaling_factor": 0.8,
-        # "fixed_edge_scaling_factor": 1.25,
-        # "fixed_edge_rotation_angle": 25.0,
         "boundaries": {
             "sharksbb2-1": {
                 "upper": [
@@ -190,6 +186,7 @@ RINK_CONFIG = {
 
 BASIC_DEBUGGING = False
 
+#print(yaml.dump(RINK_CONFIG["dublin"]))
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
@@ -239,6 +236,9 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         self.plot_moving_boxes = False or basic_debugging
         self.plot_moving_boxes = True
+        
+        #self.old_tracking_use_new_moving_box = True
+        self.old_tracking_use_new_moving_box = False
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
@@ -247,7 +247,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_boundaries = (
             False or basic_debugging or self.plot_individual_player_tracking
         )
-        # self.plot_boundaries = True
+        self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -635,7 +635,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             online_im = original_img
 
             if self._args.plot_boundaries and self._boundaries is not None:
-                self._boundaries.draw(online_im)
+                online_im = self._boundaries.draw(online_im)
 
             if self._args.plot_all_detections:
                 online_id_set = set(online_ids)
@@ -955,6 +955,14 @@ class CamTrackPostProcessor(torch.nn.Module):
                         print("Skipping modifying group x velocity")
                         pass
 
+            #
+            # HIJACK CURRENT ROI BOX POSITION
+            #
+            if self._args.old_tracking_use_new_moving_box:
+                current_box = self._hockey_mom.clamp(
+                    self._current_roi.bounding_box().clone()
+                )
+
             # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
             current_box, self._last_temporal_box = _apply_temporal(
                 current_box, self._last_temporal_box, scale_speed=1.0
@@ -965,12 +973,6 @@ class CamTrackPostProcessor(torch.nn.Module):
                     current_box, outside_expanded_box
                 )
 
-            #
-            # HIJACK CURRENT ROI BOX POSITION
-            #
-            # current_box = self._hockey_mom.clamp(
-            #     self._current_roi.bounding_box().clone()
-            # )
 
             #
             # Aspect Ratio

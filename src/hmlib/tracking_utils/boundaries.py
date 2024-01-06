@@ -32,22 +32,23 @@ class BoundaryLines:
     def draw(self, img):
         if self._upper_borders is not None:
             for i in range(len(self._upper_borders)):
-                vis.plot_line(
+                img = vis.plot_line(
                     img,
                     self._upper_borders[i][0:2],
                     self._upper_borders[i][2:4],
                     color=(255, 0, 0),
-                    thickness=1,
+                    thickness=2,
                 )
         if self._lower_borders is not None:
             for i in range(len(self._lower_borders)):
-                vis.plot_line(
+                img = vis.plot_line(
                     img,
                     self._lower_borders[i][0:2],
                     self._lower_borders[i][2:4],
                     color=(0, 0, 255),
-                    thickness=1,
+                    thickness=2,
                 )
+        return img
 
     def tlbr_to_line_vectors(self, tlbr_batch):
         # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]

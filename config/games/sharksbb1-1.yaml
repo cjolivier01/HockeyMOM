@@ -1,17 +1,21 @@
 game:
   name: "sharksbb1-1"
   rink: "vallco"
-  home: "Blue Devils"
-  away: "Cougars"
-  clip_box: [None, 200, None, None]
+  home: "Cougars"
+  away: "Sharks 10BB-1"
+
   stitching:
     offsets: [42.63559569682018, 0.0]
 
-  #clip_box: [0, 350, 3650, 1867]
+  #clip_box: [null, 350, null, null]
   boundaries:
     upper:
+      - [100, 907, 721, 670]
+      - [711, 668, 1017, 574]
     lower:
-
+      - [32, 838, 116, 840]
+      - [99, 838, 387, 1430]
+      - [3305, 1446, 3629, 785]
 rink:
   camera:
     fixed_edge_scaling_factor: 1.25

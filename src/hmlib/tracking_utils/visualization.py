@@ -180,6 +180,8 @@ def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
     x1, y1 = int(box[0]), int(box[1])
     x2, y2 = int(box[2]), int(box[3])
 
+    img = to_cv2(img)
+
     # Draw top and bottom sides
     for x in range(x1, x2, dash_length * 2):
         cv2.line(img, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
@@ -197,18 +199,21 @@ def _to_int(vals):
 
 
 def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
+    img = to_cv2(img)
     cv2.line(
-        to_cv2(img), _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
+        img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
     )
     return img
 
 
 def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
+    img = to_cv2(img)
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
     cv2.circle(
         img, [x, y], radius=int((thickness + 1) // 2), color=color, thickness=thickness
     )
+    return img
 
 
 last_frame_id = -1
@@ -279,12 +284,14 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     )
     return im
 
+
 def plot_frame_number(image, frame_id):
     text_scale = max(4, image.shape[1] / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
+    image = to_cv2(image)
     cv2.putText(
-        to_cv2(image),
+        image,
         f"F: {frame_id}",
         (0, int(15 * text_scale)),
         cv2.FONT_HERSHEY_PLAIN,
@@ -310,6 +317,7 @@ def plot_tracking(
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
 ):
+    image = to_cv2(image)
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame
