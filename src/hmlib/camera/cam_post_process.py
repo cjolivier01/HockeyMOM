@@ -21,7 +21,7 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.camera.moving_box import MovingBox
 from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
@@ -362,11 +362,11 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
-class Detection:
-    def __init__(self, track_id, tlwh, history):
-        self.track_id = track_id
-        self.tlwh = tlwh
-        self.history = history
+# class Detection:
+#     def __init__(self, track_id, tlwh, history):
+#         self.track_id = track_id
+#         self.tlwh = tlwh
+#         self.history = history
 
 
 class CamTrackPostProcessor(torch.nn.Module):
@@ -437,6 +437,8 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._current_roi_aspect = None
         self._video_output_campp = None
         self._video_output_boxtrack = None
+        self._queue_timer = Timer()
+        self._send_to_timer_post_process = Timer()
 
     def start(self):
         if self._use_fork:
@@ -465,18 +467,29 @@ class CamTrackPostProcessor(torch.nn.Module):
     def send(
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
     ):
-        while self._queue.qsize() > 10:
-            # print("Cam post-process queue too large")
-            time.sleep(0.001)
         try:
-            dets = []
-            # dets = [
-            #     Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
-            #     for d in detections
-            # ]
-            if self._async_post_processing:
-                self._queue.put(
-                    (
+            with TimeTracker("Send to cam post process queue", self._send_to_timer_post_process, print_interval=50):
+                while self._queue.qsize() > 10:
+                    # print("Cam post-process queue too large")
+                    time.sleep(0.001)
+                dets = []
+                # dets = [
+                #     Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
+                #     for d in detections
+                # ]
+                if self._async_post_processing:
+                    self._queue.put(
+                        (
+                            online_tlwhs,
+                            online_ids,
+                            dets,
+                            info_imgs,
+                            image,
+                            original_img,
+                        )
+                    )
+                else:
+                    online_targets_and_img = (
                         online_tlwhs,
                         online_ids,
                         dets,
@@ -484,17 +497,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                         image,
                         original_img,
                     )
-                )
-            else:
-                online_targets_and_img = (
-                    online_tlwhs,
-                    online_ids,
-                    dets,
-                    info_imgs,
-                    image,
-                    original_img,
-                )
-                self.cam_postprocess(online_targets_and_img=online_targets_and_img)
+                    self.cam_postprocess(online_targets_and_img=online_targets_and_img)
         except Exception as ex:
             print(ex)
             traceback.print_exc()

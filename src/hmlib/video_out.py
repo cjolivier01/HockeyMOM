@@ -28,7 +28,7 @@ from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
 
 from hmlib.utils.box_functions import (
@@ -253,6 +253,8 @@ class VideoOutput:
         self._zero_f32 = torch.tensor(0, dtype=torch.float32, device=device)
         self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
+        self._send_to_video_out_timer = Timer()
+
         if watermark_image_path:
             self.watermark = cv2.imread(
                 watermark_image_path,
@@ -307,10 +309,13 @@ class VideoOutput:
         self._imgproc_thread = None
 
     def append(self, img_proc_data: ImageProcData):
-        while self._imgproc_queue.qsize() > self._max_queue_backlog:
-            # print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
-            time.sleep(0.001)
-        self._imgproc_queue.put(img_proc_data)
+        with TimeTracker(
+            "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
+        ):
+            while self._imgproc_queue.qsize() > self._max_queue_backlog:
+                # print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+                time.sleep(0.01)
+            self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
         try:
