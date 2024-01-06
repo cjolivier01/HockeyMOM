@@ -5,7 +5,6 @@ import cv2
 from typing import List, Tuple
 import torch
 
-# import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 
 
@@ -25,6 +24,15 @@ def get_color(idx):
     return color
 
 
+def to_cv2(image):
+    # OpenCV likes [Height, Width, Channels]
+    if isinstance(image, torch.Tensor):
+        image = image.cpu().numpy()
+    if image.shape[0] in [3, 4]:
+        image = image.transpose(1, 2, 0)
+    return np.ascontiguousarray(image)
+
+
 def resize_image(image, max_size=800):
     if max(image.shape[:2]) > max_size:
         scale = float(max_size) / max(image.shape[:2])
@@ -40,7 +48,7 @@ def plot_rectangle(
     label: str = None,
     text_scale: int = 1,
 ):
-    if isinstance(img, torch.Tensor):
+    if False and isinstance(img, torch.Tensor):
         return plot_torch_rectangle(
             image_tensor=img,
             tlbr=box,
@@ -49,6 +57,9 @@ def plot_rectangle(
             label=label,
             text_scale=text_scale,
         )
+    # if isinstance(img, torch.Tensor):
+    #     img = img.permute(2, 0, 1).contiguous().cpu().numpy()
+    img = to_cv2(img)
     intbox = [int(i) for i in box]
     cv2.rectangle(
         img,
@@ -76,6 +87,7 @@ def plot_alpha_rectangle(
     img,
     box: List[int],
     color: Tuple[int, int, int],
+    thickness: int = 1,
     label: str = None,
     text_scale: int = 1,
     opacity_percent: int = 100,
@@ -130,21 +142,25 @@ def plot_torch_rectangle(
         color, dtype=image_tensor.dtype, device=image_tensor.device
     )
     # Unpack coordinates
-    top_x, top_y = tlbr[:2]
-    #top_x -= (thickness + 1) // 2
-    #top_y -= (thickness + 1) // 2
-    
-    bottom_x, bottom_y = tlbr[2:]
-    #bottom_x += thickness // 2
-    #bottom_y += thickness // 2
+    top_x, top_y = tlbr[:2].to(torch.int64)
+    # top_x -= (thickness + 1) // 2
+    # top_y -= (thickness + 1) // 2
+
+    bottom_x, bottom_y = tlbr[2:].to(torch.int64)
+    # bottom_x += thickness // 2
+    # bottom_y += thickness // 2
 
     # Draw top and bottom lines of the box
-    image_tensor[:, top_y, top_x:bottom_x] = color_value.unsqueeze(1)
-    image_tensor[:, bottom_y, top_x:bottom_x] = color_value.unsqueeze(1)
+    image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
+        1
+    )
+    image_tensor[
+        :, bottom_y : bottom_y + thickness, top_x:bottom_x
+    ] = color_value.unsqueeze(1)
 
     # Draw left and right lines of the box
-    image_tensor[:, top_y:bottom_y, top_x] = color_value.unsqueeze(1)
-    image_tensor[:, top_y:bottom_y, bottom_x] = color_value.unsqueeze(1)
+    image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
+    image_tensor[top_y:bottom_y, bottom_x + thickness, :] = color_value.unsqueeze(1)
 
     return image_tensor
 

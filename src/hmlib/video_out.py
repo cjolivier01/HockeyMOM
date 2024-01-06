@@ -33,6 +33,8 @@ from hmlib.tracker.multitracker import torch_device
 
 from hmlib.utils.box_functions import (
     center,
+    width,
+    height,
 )
 
 
@@ -117,7 +119,7 @@ def crop_image(img, left, top, right, bottom):
 
 
 def resize_image(
-    img, new_width: int, new_height: int, mode = tv.transforms.InterpolationMode.BILINEAR
+    img, new_width: int, new_height: int, mode=tv.transforms.InterpolationMode.BILINEAR
 ):
     w = int(new_width)
     h = int(new_height)
@@ -199,6 +201,17 @@ def _to_uint8(tensor: torch.Tensor):
     return tensor
 
 
+def image_wh(image: torch.Tensor):
+    if image.shape[-1] in [3, 4]:
+        return torch.tensor(
+            [image.shape[-2], image.shape[-3]], dtype=torch.float32, device=image.device
+        )
+    assert image.shape[1] in [3, 4]
+    return torch.tensor(
+        [image.shape[-1], image.shape[-2]], dtype=torch.float32, device=image.device
+    )
+
+
 class VideoOutput:
     def __init__(
         self,
@@ -237,6 +250,8 @@ class VideoOutput:
         self._output_video = None
         self._fourcc = fourcc
         self._horizontal_image_gaussian_distribution = None
+        self._zero_f32 = torch.tensor(0, dtype=torch.float32, device=device)
+        self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
         if watermark_image_path:
             self.watermark = cv2.imread(
@@ -315,6 +330,49 @@ class VideoOutput:
     def has_args(self):
         return self._args is not None
 
+    def crop_working_image_width(
+        self, image: torch.Tensor, current_box: torch.Tensor, scale: torch.Tensor
+    ):
+        """
+        We try to only retain enough image to supply an arbitrary rotation
+        about the center of the given bounding box with pixels,
+        and offset that bounding box to be relative to the new (hopefully smaller)
+        image
+        """
+        bbox_w = width(current_box)
+        bbox_h = height(current_box)
+        bbox_c = center(current_box)
+        assert image.ndim == 3  # No batch dimension
+        # make sure we're the expected (albeit arbitrary) channels first
+        assert image.shape[-1] in [3, 4]
+        img_wh = image_wh(image)
+        min_width_per_side = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
+        # min_width_per_side = bbox_w * scale / 2
+        clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side)
+        clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side)
+        image = image[:, int(clip_left) : int(clip_right), :]
+        current_box[0] -= clip_left.to(current_box.device)
+        current_box[2] -= clip_left.to(current_box.device)
+
+        # Adjust our output frame size if necessary
+        if (
+            not self._args.crop_output_image
+            and image.shape[1] != self._output_frame_width_int
+        ):
+            self._output_frame_width = torch.tensor(
+                image.shape[1], dtype=img_wh.dtype, device=img_wh.device
+            )
+            self._output_frame_height = torch.tensor(
+                image.shape[0], dtype=img_wh.dtype, device=img_wh.device
+            )
+            self._output_aspect_ratio = (
+                self._output_frame_width / self._output_frame_height
+            )
+            self._output_frame_width_int = int(self._output_frame_width)
+            self._output_frame_height_int = int(self._output_frame_height)
+
+        return image, current_box
+
     def _final_image_processing(self):
         print("VideoOutput thread started.")
         plot_interias = False
@@ -371,6 +429,8 @@ class VideoOutput:
 
             if self._device is not None:
                 if not isinstance(online_im, torch.Tensor):
+                    if online_im.shape[-1] not in [3, 4]:
+                        online_im = online_im.transpose(1, 2, 0)
                     online_im = torch.from_numpy(online_im)
                 if online_im.device != self._device:
                     online_im = online_im.to(self._device, non_blocking=True)
@@ -382,6 +442,14 @@ class VideoOutput:
             # Perspective rotation
             #
             if self.has_args() and self._args.fixed_edge_rotation:
+                # BEGIN PERFORMANCE HACK
+                # online_im, current_box = self.crop_working_image_width(
+                #     image=online_im, current_box=current_box, scale=1.2
+                # )
+                # src_image_width = image_width(online_im)
+                # src_image_height = image_height(online_im)
+                # END PERFORMANCE HACK
+
                 online_im = _to_float(online_im)
                 # start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
@@ -498,16 +566,18 @@ class VideoOutput:
 
             # Make a numpy image array
             if isinstance(online_im, torch.Tensor):
+                # if online_im.shape[0] not in [3, 4]:
+                #     online_im = online_im.permute(2, 0, 1)
                 online_im = online_im.cpu().detach().numpy()
 
             #
             # Frame Number
             #
-            if self.has_args() and self._args.plot_frame_number:
-                online_im = vis.plot_frame_number(
-                    online_im,
-                    frame_id=frame_id,
-                )
+            # if self.has_args() and self._args.plot_frame_number:
+            #     online_im = vis.plot_frame_number(
+            #         online_im,
+            #         frame_id=frame_id,
+            #     )
 
             # Output (and maybe show) the final image
             if (

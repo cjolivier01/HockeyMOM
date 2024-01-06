@@ -1,17 +1,11 @@
 from loguru import logger
 
-import yaml
 import argparse
 import random
 import warnings
 
-# from collections import OrderedDict
-# from pathlib import Path
-# from typing import List, Tuple
 import traceback
 import sys, os
-
-# import cv2
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -39,7 +33,6 @@ from hmlib.datasets.dataset.stitching_dataloader import (
 )
 
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box, get_game_config, get_rink_config

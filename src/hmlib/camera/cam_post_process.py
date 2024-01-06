@@ -2,8 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# from numba import njit
-
 import time
 import os
 import cv2
@@ -490,7 +488,7 @@ class CamTrackPostProcessor:
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
     ):
         while self._queue.qsize() > 10:
-            #print("Cam post-process queue too large")
+            # print("Cam post-process queue too large")
             time.sleep(0.001)
         try:
             dets = []
@@ -551,6 +549,7 @@ class CamTrackPostProcessor:
         timer = Timer()
 
         if self._args.crop_output_image:
+            # TODO: Does self._hockey_mom.video.height take into account clipping of the stitched frame?
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = (
                 self._hockey_mom.video.height * self._final_aspect_ratio
@@ -745,7 +744,7 @@ class CamTrackPostProcessor:
                     largest_cluster_ids_2
                 )
                 if self._args.plot_cluster_tracking:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         largest_cluster_ids_box2,
                         color=(128, 0, 0),  # dark red
@@ -764,7 +763,7 @@ class CamTrackPostProcessor:
                     largest_cluster_ids_3
                 )
                 if self._args.plot_cluster_tracking:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         largest_cluster_ids_box3,
                         color=(0, 0, 128),  # dark blue
@@ -886,7 +885,10 @@ class CamTrackPostProcessor:
                 if (
                     self._video_output_boxtrack is not None
                     and self._current_roi is not None
-                    and (self._video_output_campp is not None and not self._args.show_image)
+                    and (
+                        self._video_output_campp is not None
+                        and not self._args.show_image
+                    )
                 ):
                     imgproc_data = ImageProcData(
                         frame_id=frame_id.item(),
@@ -903,7 +905,7 @@ class CamTrackPostProcessor:
             )
 
             if self._args.plot_camera_tracking:
-                vis.plot_rectangle(
+                online_im = vis.plot_rectangle(
                     online_im,
                     current_box,
                     color=(128, 0, 128),
@@ -931,7 +933,7 @@ class CamTrackPostProcessor:
                 # Temporal: Apply velocity and acceleration
                 #
                 # nonlocal current_box, self
-                nonlocal self
+                nonlocal self, online_im
                 current_box = self._hockey_mom.get_next_temporal_box(
                     current_box,
                     last_box,
@@ -940,13 +942,15 @@ class CamTrackPostProcessor:
                 )
                 last_box = current_box.clone()
                 if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         current_box,
                         color=(grays_level, grays_level, grays_level),
                         thickness=2,
                         label="next_temporal_box",
                     )
+                    #cv2.imshow("image", vis.to_cv2(online_im))
+                    #cv2.waitKey(0)
                     # cv2.circle(
                     #     online_im,
                     #     [int(i) for i in center(current_box)],
@@ -1031,7 +1035,7 @@ class CamTrackPostProcessor:
             #
             # current_box = hockey_mom.clamp(current_box)
             # if self._args.plot_camera_tracking:
-            #     vis.plot_rectangle(
+            #     online_im = vis.plot_rectangle(
             #         online_im,
             #         current_box,
             #         color=(0, 0, 0),
@@ -1062,7 +1066,7 @@ class CamTrackPostProcessor:
 
             # print(f"shift_box_to_edge ar={aspect_ratio(current_box)}")
             if self._args.plot_camera_tracking:
-                vis.plot_rectangle(
+                online_im = vis.plot_rectangle(
                     online_im,
                     current_box,
                     color=(255, 255, 255),  # White
@@ -1147,7 +1151,7 @@ class CamTrackPostProcessor:
                     # assert height(current_box) <= hockey_mom.video.height
                     current_box = self._hockey_mom.shift_box_to_edge(current_box)
                 if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         current_box,
                         color=(60, 60, 60),  # Gray
@@ -1203,7 +1207,7 @@ class CamTrackPostProcessor:
                 # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
 
                 if self._args.plot_sticky_camera:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         self._last_sticky_temporal_box,
                         color=(255, 255, 255),
@@ -1310,7 +1314,7 @@ class CamTrackPostProcessor:
                     edge_scaling_factor=self._args.fixed_edge_scaling_factor,
                 )
                 if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
+                    online_im = vis.plot_rectangle(
                         online_im,
                         current_box,
                         color=(255, 0, 255),
@@ -1319,7 +1323,7 @@ class CamTrackPostProcessor:
                     )
 
             if stuck and self._args.plot_camera_tracking:
-                vis.plot_rectangle(
+                online_im = vis.plot_rectangle(
                     online_im,
                     current_box,
                     color=(0, 160, 255),
@@ -1327,7 +1331,7 @@ class CamTrackPostProcessor:
                     label="stuck",
                 )
             elif self._args.plot_camera_tracking:
-                vis.plot_rectangle(
+                online_im = vis.plot_rectangle(
                     online_im,
                     current_box,
                     color=(160, 160, 255),
