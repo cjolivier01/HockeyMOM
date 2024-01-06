@@ -11,3 +11,7 @@ game:
   boundaries:
     upper:
     lower:
+
+rink:
+  camera:
+    fixed_edge_scaling_factor: 1.25
