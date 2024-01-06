@@ -1,0 +1,36 @@
+camera:
+  name: null
+  make: null
+  model: null
+  mount:
+    - offset_80:
+      resolution: null
+    - offset_90:
+      resolution: null
+rink:
+  name: null
+  location:
+    city: null
+    state: null
+    country: null
+  dimensions:
+    length: null
+    width: null
+    corner_radius: null
+  surface_type: "Ice"
+  seating_capacity: null
+  teams:
+    home_team:
+      name: null
+      colors: null
+  facilities:
+    locker_rooms: null
+    concession_stands: null
+    restrooms: null
+  parking:
+    capacity: null
+    price: null
+  tracking:
+    cam_ignore_largest: false
+  camera:
+    fixed_edge_scaling_factor: 0.8

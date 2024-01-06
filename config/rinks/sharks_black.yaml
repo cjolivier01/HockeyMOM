@@ -21,6 +21,8 @@ rink:
   parking:
     capacity: 1000
     price: 0 dollars  
+  tracking:
+    cam_ignore_largest: false
   camera:
     fixed_edge_scaling_factor: 1.25
     fixed_edge_rotation_angle: 25.0

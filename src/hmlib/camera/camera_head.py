@@ -152,14 +152,6 @@ class CamTrackHead(TrackingHead):
             letterbox_img,
             original_img,
         )
-        if (
-            not self._args.scale_to_original_image
-            and isinstance(letterbox_img, torch.Tensor)
-            and letterbox_img.dtype != torch.uint8
-        ):
-            letterbox_img *= 255
-            letterbox_img = letterbox_img.clip(min=0, max=255).to(torch.uint8)
-
         self._postprocessor.send(
             online_tlwhs,
             torch.tensor(online_ids, dtype=torch.int64),
@@ -174,19 +166,11 @@ class CamTrackHead(TrackingHead):
         self, frame_id, letterbox_img, original_img, device
     ):
         if self._hockey_mom is None:
-            if self._args.scale_to_original_image:
-                self._hockey_mom = HockeyMOM(
-                    image_width=original_img.shape[1],
-                    image_height=original_img.shape[0],
-                    device=device,
-                )
-            else:
-                assert False  # Don't do this anymore
-                self._hockey_mom = HockeyMOM(
-                    image_width=letterbox_img.shape[1],
-                    image_height=letterbox_img.shape[0],
-                    device=device,
-                )
+            self._hockey_mom = HockeyMOM(
+                image_width=original_img.shape[1],
+                image_height=original_img.shape[0],
+                device=device,
+            )
 
         if self._postprocessor is None:
             self._postprocessor = CamTrackPostProcessor(

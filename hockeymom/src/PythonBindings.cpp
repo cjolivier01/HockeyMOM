@@ -52,9 +52,6 @@ PYBIND11_MODULE(_hockeymom, m) {
           "skip_frame_count", &hm::HMPostprocessConfig::skip_frame_count)
       .def_readwrite("stop_at_frame", &hm::HMPostprocessConfig::stop_at_frame)
       .def_readwrite(
-          "scale_to_original_image",
-          &hm::HMPostprocessConfig::scale_to_original_image)
-      .def_readwrite(
           "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
       .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
       .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);

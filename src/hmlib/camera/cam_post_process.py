@@ -27,7 +27,7 @@ from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.config import get_rink_config, get_game_config, get_camera_config
+from hmlib.config import get_nested_value
 
 from hmlib.utils.box_functions import (
     width,
@@ -214,22 +214,15 @@ BASIC_DEBUGGING = False
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
-        # game_id: str,
-        # rink: str,
         game_config: dict(),
         basic_debugging: bool = BASIC_DEBUGGING,
         show_image: bool = False,
-        cam_ignore_largest: bool = False,
-        # args: argparse.Namespace = None,
-        camera: str = "gopro",
     ):
         # basic_debugging = False
 
         super().__init__()
 
-        camera_config = get_camera_config(camera=camera, root_dir=os.getcwd())
-        camera_config.update(game_config)
-        self.game_config = camera_config
+        self.game_config = game_config
 
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
@@ -305,14 +298,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.stop_at_frame = 0
         # self.stop_at_frame = 30*30
 
-        self.cam_ignore_largest = cam_ignore_largest
-
-        # Make the image the same relative dimensions as the initial image,
-        # such that the highest possible resolution is available when the camera
-        # box is either the same height or width as the original video image
-        # (Slower, but better final quality)
-        self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        # self.cam_ignore_largest = self.game_config["rink"]["tracking"]["cam_ignore_largest"]
+        self.cam_ignore_largest = get_nested_value(
+            self.game_config, "rink.tracking.cam_ignore_largest", default_value=False
+        )
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
@@ -332,8 +321,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         # self.top_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["upper"]
         # self.bottom_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["lower"]
-        self.top_border_lines = self.game_config["game"]["boundaries"]["upper"]
-        self.bottom_border_lines = self.game_config["game"]["boundaries"]["lower"]
+        # self.top_border_lines = self.game_config["game"]["boundaries"]["upper"]
+        # self.bottom_border_lines = self.game_config["game"]["boundaries"]["lower"]
+        self.top_border_lines = get_nested_value(
+            self.game_config, "game.boundaries.upper", []
+        )
+        self.bottom_border_lines = get_nested_value(
+            self.game_config, "game.boundaries.lower", []
+        )
 
 
 def scale_box(box, from_img, to_img):
@@ -680,16 +675,6 @@ class CamTrackPostProcessor:
         )
 
         if self._args.show_image or self._save_dir is not None:
-            assert self._args.scale_to_original_image
-            # del original_img
-            # if self._args.scale_to_original_image:
-            #     if isinstance(original_img, torch.Tensor):
-            #         original_img = original_img.numpy()
-            #     online_im = original_img
-            #     del original_img
-            # else:
-            #     online_im = img0
-            # online_im = self.prepare_online_image(online_im)
             online_im = original_img
 
             if self._args.plot_boundaries and self._boundaries is not None:
@@ -949,8 +934,8 @@ class CamTrackPostProcessor:
                         thickness=2,
                         label="next_temporal_box",
                     )
-                    #cv2.imshow("image", vis.to_cv2(online_im))
-                    #cv2.waitKey(0)
+                    # cv2.imshow("image", vis.to_cv2(online_im))
+                    # cv2.waitKey(0)
                     # cv2.circle(
                     #     online_im,
                     #     [int(i) for i in center(current_box)],

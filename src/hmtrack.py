@@ -34,11 +34,10 @@ from hmlib.datasets.dataset.stitching_dataloader import (
 
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
-from hmlib.config import get_clip_box, get_game_config, get_rink_config
+from hmlib.config import get_clip_box, get_config
 
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.camera.cam_post_process import DefaultArguments, BoundaryLines
+from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 
 ROOT_DIR = os.getcwd()
@@ -153,6 +152,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         type=str,
         help="rink name",
+    )
+    parser.add_argument(
+        "--camera",
+        default="GoPro",
+        type=str,
+        help="Camera name",
     )
     parser.add_argument(
         "--left-file-offset",
@@ -333,46 +338,45 @@ def main(exp, args, num_gpu):
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
             )
 
-        rink_config = None
-        if args.rink:
-            rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
+        game_config = get_config(
+            game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
+        )
 
-        game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
-        if game_config:
-            if not args.rink:
-                args.rink = game_config["game"]["rink"]
-                rink_config = game_config["game"]["rink"]
-            else:
-                assert args.rink == game_config["game"]["rink"]
-                rink_config.update(game_config)
-                game_config = rink_config
-                rink_config = None
-            if args.lfo is None and args.rfo is None:
-                if (
-                    "stitching" in game_config["game"]
-                    and "offsets" in game_config["game"]["stitching"]
-                ):
-                    offsets = game_config["game"]["stitching"]["offsets"]
-                    args.lfo = offsets[0]
-                    if len(offsets) == 1:
-                        args.rfo = 0.0
-                    else:
-                        assert len(offsets) == 2
-                        args.rfo = offsets[1]
-                    if args.lfo < 0:
-                        args.rfo += args.lfo
-                        args.rfo = 0.0
-                    assert args.lfo >= 0 and args.rfo >= 0
-        if args.rink is None:
-            raise Exception("You must specify a rink")
+        # rink_config = None
+        # if args.rink:
+        #     rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
+
+        # game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
+        # if game_config:
+        #     if not args.rink:
+        #         args.rink = game_config["game"]["rink"]
+        #         rink_config = game_config["game"]["rink"]
+        #     else:
+        #         assert args.rink == game_config["game"]["rink"]
+        #         rink_config.update(game_config)
+        #         game_config = rink_config
+        #         rink_config = None
+        if args.lfo is None and args.rfo is None:
+            if (
+                "stitching" in game_config["game"]
+                and "offsets" in game_config["game"]["stitching"]
+            ):
+                offsets = game_config["game"]["stitching"]["offsets"]
+                args.lfo = offsets[0]
+                if len(offsets) == 1:
+                    args.rfo = 0.0
+                else:
+                    assert len(offsets) == 2
+                    args.rfo = offsets[1]
+                if args.lfo < 0:
+                    args.rfo += args.lfo
+                    args.rfo = 0.0
+                assert args.lfo >= 0 and args.rfo >= 0
 
         cam_args = DefaultArguments(
-            # rink=args.rink,
-            # game_id=args.game_id,
             game_config=game_config,
             basic_debugging=args.debug,
             show_image=args.show_image,
-            cam_ignore_largest=args.cam_ignore_largest,
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
@@ -446,7 +450,7 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    #output_stitched_video_file=output_stitched_video_file,
+                    # output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
                     blend_thread_count=2,

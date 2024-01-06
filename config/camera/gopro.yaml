@@ -1,4 +1,5 @@
 camera:
+  name: "GoPro"
   make: "GoPro"
   model: "Hero Black 11"
   mount:

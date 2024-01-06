@@ -1,8 +1,11 @@
 import os
 import yaml
+from typing import List, Dict
 
 
-def get_config(root_dir: str, config_type: str, config_name: str):
+def load_config_file(
+    root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
+):
     yaml_file_path = os.path.join(
         root_dir, "config", config_type, config_name + ".yaml"
     )
@@ -10,22 +13,65 @@ def get_config(root_dir: str, config_type: str, config_name: str):
         with open(yaml_file_path, "r") as file:
             try:
                 yaml_content = yaml.safe_load(file)
+                if merge_into_config:
+                    yaml_content = recursive_update(merge_into_config, yaml_content)
                 return yaml_content
             except yaml.YAMLError as exc:
                 print(exc)
-    return {}
+    return {} if not merge_into_config else merge_into_config
+
+
+def default_config(root_dir: str):
+    return load_config_file(root_dir=root_dir, config_type=".", config_name="defaults")
 
 
 def get_game_config(game_id: str, root_dir: str):
-    return get_config(root_dir=root_dir, config_type="games", config_name=game_id)
+    return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
 
 
 def get_rink_config(rink: str, root_dir: str):
-    return get_config(root_dir=root_dir, config_type="rinks", config_name=rink)
+    return load_config_file(root_dir=root_dir, config_type="rinks", config_name=rink)
 
 
 def get_camera_config(camera: str, root_dir: str):
-    return get_config(root_dir=root_dir, config_type="camera", config_name=camera)
+    return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera)
+
+
+def get_item(key: str, maps: List[Dict]):
+    for map in maps:
+        if map is not None and key in map:
+            return map[key]
+    return None
+
+
+def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None):
+    """
+    Get a consolidated configuration.
+    Direct parameters override parameters whihc are in the higher-level yaml
+    (i.e. a specified 'rink' to this function overrides the 'rink' in the game config)
+    """
+    consolidated_config = default_config(root_dir=root_dir)
+    game_config = dict()
+    rink_config = dict()
+    camera_config = dict()
+    if camera is not None:
+        camera_config = get_camera_config(camera=camera, root_dir=root_dir)
+    if rink is not None:
+        rink_config = get_rink_config(rink=rink, root_dir=root_dir)
+    if game_id is not None:
+        game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    if camera is None:
+        camera = get_item("camera", [game_config, rink_config])
+        if camera:
+            camera_config = get_camera_config(camera=camera["name"], root_dir=root_dir)
+    if rink is None:
+        rink = get_nested_value(game_config, "rink.name")
+        if rink:
+            rink_config = get_rink_config(rink=rink, root_dir=root_dir)
+    consolidated_config = recursive_update(consolidated_config, camera_config)
+    consolidated_config = recursive_update(consolidated_config, rink_config)
+    consolidated_config = recursive_update(consolidated_config, game_config)
+    return consolidated_config
 
 
 def get_clip_box(game_id: str, root_dir: str):
@@ -35,3 +81,43 @@ def get_clip_box(game_id: str, root_dir: str):
         if "clip_box" in game:
             return game["clip_box"]
     return None
+
+
+#
+# Dict utilities
+#
+def recursive_update(original, update):
+    """
+    Recursively update the original dictionary with the update dictionary.
+    If a key in the original dictionary is not present in the update dictionary,
+    its value is preserved.
+    """
+    for key, value in update.items():
+        if isinstance(value, dict) and key in original:
+            recursive_update(original[key], value)
+        else:
+            original[key] = value
+    return original
+
+
+def get_nested_value(dct, key_str, default_value=None):
+    """
+    Retrieve a value from a nested dictionary using a dot-separated key string.
+
+    Parameters:
+    - dct (dict): The dictionary to search.
+    - key_str (str): The dot-separated key string.
+
+    Returns:
+    - The value if found, otherwise None.
+    """
+    keys = key_str.split(".")
+    current = dct
+
+    for key in keys:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            return default_value
+
+    return current
