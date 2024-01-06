@@ -400,6 +400,7 @@ def main(exp, args, num_gpu):
                     args.input_video = game_video_dir
 
         dataloader = None
+        postprocessor = None
         if args.input_video:
             from yolox.data import ValTransform
 

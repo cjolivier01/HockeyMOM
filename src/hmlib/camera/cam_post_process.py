@@ -257,7 +257,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.apply_fixed_edge_scaling = False
         self.apply_fixed_edge_scaling = True
 
-        # self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
         self.fixed_edge_scaling_factor = self.game_config["rink"]["camera"][
             "fixed_edge_scaling_factor"
         ]
