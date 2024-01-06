@@ -126,7 +126,6 @@ class CamTrackHead(TrackingHead):
         detections,
         info_imgs,
         letterbox_img,
-        #inscribed_img,
         original_img,
         online_scores,
     ):

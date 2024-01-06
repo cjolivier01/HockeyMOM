@@ -283,21 +283,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_sticky_camera = False or basic_debugging
         # self.plot_sticky_camera = True
 
-        # Skip some number of frames before post-processing. Useful for debugging a
-        # particular section of video and being able to reach
-        # that portiuon of the video more quickly
-        self.skip_frame_count = 0
-
-        # Moving right-to-left
-        # self.skip_frame_count = 450
-
-        # Stop at the given frame and (presumably) output the final video.
-        # Useful for debugging a
-        # particular section of video and being able to reach
-        # that portiuon of the video more quickly
-        self.stop_at_frame = 0
-        # self.stop_at_frame = 30*30
-
         # self.cam_ignore_largest = self.game_config["rink"]["tracking"]["cam_ignore_largest"]
         self.cam_ignore_largest = get_nested_value(
             self.game_config, "rink.tracking.cam_ignore_largest", default_value=False
@@ -314,6 +299,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_watermark = True
         # self.use_watermark = False
 
+        # Deprecated
         self.detection_inclusion_box = None
 
         #
@@ -383,7 +369,7 @@ class Detection:
         self.history = history
 
 
-class CamTrackPostProcessor:
+class CamTrackPostProcessor(torch.nn.Module):
     def __init__(
         self,
         hockey_mom,
@@ -451,9 +437,6 @@ class CamTrackPostProcessor:
         self._current_roi_aspect = None
         self._video_output_campp = None
         self._video_output_boxtrack = None
-
-    def get_first_frame_id(self):
-        return self._args.skip_frame_count
 
     def start(self):
         if self._use_fork:
@@ -609,7 +592,7 @@ class CamTrackPostProcessor:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            self.cam_postprocess(online_targets_and_img=online_targets_and_img)
+            self.forward(online_targets_and_img=online_targets_and_img)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
@@ -622,18 +605,10 @@ class CamTrackPostProcessor:
         return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
         # return self._device
 
-    def cam_postprocess(self, online_targets_and_img):
+    def forward(self, online_targets_and_img):
         self._timer.tic()
         max_dx_shrink_size = 100  # ???
 
-        # if frame_id % 20 == 0:
-        #     logger.info(
-        #         "Post-Processing frame {} ({:.2f} fps)".format(
-        #             frame_id, 1.0 / max(1e-5, timer.average_time)
-        #         )
-        #     )
-        #     timer = Timer()
-        # timer.tic()
         online_tlwhs = online_targets_and_img[0]
         online_ids = online_targets_and_img[1]
         detections = online_targets_and_img[2]
@@ -660,7 +635,6 @@ class CamTrackPostProcessor:
         )
 
         # info_imgs = online_targets_and_img[3]
-        img0 = online_targets_and_img[4]
         original_img = online_targets_and_img[5]
 
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)

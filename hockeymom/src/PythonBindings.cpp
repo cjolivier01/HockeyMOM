@@ -49,9 +49,6 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite(
           "plot_sticky_camera", &hm::HMPostprocessConfig::plot_sticky_camera)
       .def_readwrite(
-          "skip_frame_count", &hm::HMPostprocessConfig::skip_frame_count)
-      .def_readwrite("stop_at_frame", &hm::HMPostprocessConfig::stop_at_frame)
-      .def_readwrite(
           "crop_output_image", &hm::HMPostprocessConfig::crop_output_image)
       .def_readwrite("use_cuda", &hm::HMPostprocessConfig::use_cuda)
       .def_readwrite("use_watermark", &hm::HMPostprocessConfig::use_watermark);
