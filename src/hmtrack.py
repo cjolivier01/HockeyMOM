@@ -333,12 +333,20 @@ def main(exp, args, num_gpu):
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
             )
 
+        rink_config = None
+        if args.rink:
+            rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
+
         game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
         if game_config:
             if not args.rink:
                 args.rink = game_config["game"]["rink"]
+                rink_config = game_config["game"]["rink"]
             else:
                 assert args.rink == game_config["game"]["rink"]
+                rink_config.update(game_config)
+                game_config = rink_config
+                rink_config = None
             if args.lfo is None and args.rfo is None:
                 if (
                     "stitching" in game_config["game"]
@@ -357,11 +365,11 @@ def main(exp, args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
         if args.rink is None:
             raise Exception("You must specify a rink")
-        rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
 
         cam_args = DefaultArguments(
-            rink=args.rink,
-            game_id=args.game_id,
+            # rink=args.rink,
+            # game_id=args.game_id,
+            game_config=game_config,
             basic_debugging=args.debug,
             show_image=args.show_image,
             cam_ignore_largest=args.cam_ignore_largest,
@@ -437,7 +445,7 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    output_stitched_video_file=output_stitched_video_file,
+                    # output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
                     blend_thread_count=2,

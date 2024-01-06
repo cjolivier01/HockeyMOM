@@ -214,8 +214,9 @@ BASIC_DEBUGGING = False
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
-        game_id: str,
-        rink: str,
+        # game_id: str,
+        # rink: str,
+        game_config: dict(),
         basic_debugging: bool = BASIC_DEBUGGING,
         show_image: bool = False,
         cam_ignore_largest: bool = False,
@@ -226,9 +227,9 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         super().__init__()
 
-        self.camera_config = get_camera_config(camera=camera, root_dir=os.getcwd())
-        self.rink_config = get_rink_config(rink=rink, root_dir=os.getcwd())
-        self.game_config = get_game_config(game_id=game_id, root_dir=os.getcwd())
+        camera_config = get_camera_config(camera=camera, root_dir=os.getcwd())
+        camera_config.update(game_config)
+        self.game_config = camera_config
 
         # Display the image every frame (slow)
         self.show_image = show_image or basic_debugging
@@ -257,7 +258,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.apply_fixed_edge_scaling = True
 
         # self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
-        self.fixed_edge_scaling_factor = self.rink_config["rink"]["camera"][
+        self.fixed_edge_scaling_factor = self.game_config["rink"]["camera"][
             "fixed_edge_scaling_factor"
         ]
 
@@ -282,7 +283,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = self.rink_config["rink"]["camera"][
+        self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
             "fixed_edge_rotation_angle"
         ]
 
