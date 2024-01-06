@@ -332,7 +332,6 @@ def main(exp, args, num_gpu):
             logger.info(
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
             )
-        # logger.info("Model Structure:\n{}".format(str(model)))
 
         game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
         if game_config:
@@ -340,6 +339,22 @@ def main(exp, args, num_gpu):
                 args.rink = game_config["game"]["rink"]
             else:
                 assert args.rink == game_config["game"]["rink"]
+            if args.lfo is None and args.rfo is None:
+                if (
+                    "stitching" in game_config["game"]
+                    and "offsets" in game_config["game"]["stitching"]
+                ):
+                    offsets = game_config["game"]["stitching"]["offsets"]
+                    args.lfo = offsets[0]
+                    if len(offsets) == 1:
+                        args.rfo = 0.0
+                    else:
+                        assert len(offsets) == 2
+                        args.rfo = offsets[1]
+                    if args.lfo < 0:
+                        args.rfo += args.lfo
+                        args.rfo = 0.0
+                    assert args.lfo >= 0 and args.rfo >= 0
         if args.rink is None:
             raise Exception("You must specify a rink")
         rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)

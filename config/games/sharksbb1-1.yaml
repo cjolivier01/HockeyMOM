@@ -3,7 +3,11 @@ game:
   rink: "vallco"
   home: "Blue Devils"
   away: "Cougars"
-  clip_box: [0, 350, 3650, 1867]
+  clip_box: [None, 200, None, None]
+  stitching:
+    offsets: [42.63559569682018, 0.0]
+
+  #clip_box: [0, 350, 3650, 1867]
   boundaries:
     upper:
     lower:
