@@ -343,8 +343,8 @@ class MovingBox(ResizingBox):
     def draw(self, img: np.array, draw_threasholds: bool = False):
         super().draw(img=img, draw_threasholds=draw_threasholds)
         draw_box = self.bounding_box()
-        vis.plot_rectangle(
-            img,
+        img = vis.plot_rectangle(
+            vis.to_cv2(img),
             draw_box,
             color=self._color if not self._translation_is_frozen else (128, 128, 128),
             thickness=self._thickness,

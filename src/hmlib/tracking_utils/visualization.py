@@ -198,8 +198,9 @@ def _to_int(vals):
 
 def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
     cv2.line(
-        img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
+        to_cv2(img), _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
     )
+    return img
 
 
 def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
@@ -220,6 +221,8 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
     y_delta = int(15 * text_scale)
     text_y_offset = y_delta
+
+    im = to_cv2(im)
 
     cv2.putText(
         im,
@@ -274,14 +277,14 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
         (0, 0, 255),
         thickness=2,
     )
-
+    return im
 
 def plot_frame_number(image, frame_id):
     text_scale = max(4, image.shape[1] / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
     cv2.putText(
-        image,
+        to_cv2(image),
         f"F: {frame_id}",
         (0, int(15 * text_scale)),
         cv2.FONT_HERSHEY_PLAIN,

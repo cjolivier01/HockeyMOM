@@ -448,11 +448,11 @@ class VideoOutput:
             #
             if self.has_args() and self._args.fixed_edge_rotation:
                 # BEGIN PERFORMANCE HACK
-                # online_im, current_box = self.crop_working_image_width(
-                #     image=online_im, current_box=current_box, scale=1.2
-                # )
-                # src_image_width = image_width(online_im)
-                # src_image_height = image_height(online_im)
+                online_im, current_box = self.crop_working_image_width(
+                    image=online_im, current_box=current_box, scale=1.2
+                )
+                src_image_width = image_width(online_im)
+                src_image_height = image_height(online_im)
                 # END PERFORMANCE HACK
 
                 online_im = _to_float(online_im)

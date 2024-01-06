@@ -186,26 +186,6 @@ RINK_CONFIG = {
             },
         },
     },
-    # "sharks_black": {
-    #     "fixed_edge_scaling_factor": 1.25,
-    #     "fixed_edge_rotation_angle": 25.0,
-    #     "boundaries": {
-    #         "onehockey-sharksbb2": {
-    #             "upper": [
-    #                 [3260, 1027, 4129, 1045],
-    #                 [4107, 1035, 5233, 1159],
-    #                 [7541, 1679, 8408, 1788],
-    #             ],
-    #             "lower": [
-    #                 [1232, 1605, 1855, 1761],
-    #                 [1805, 1770, 4063, 2127],
-    #                 [4006, 2139, 6228, 2093],
-    #                 [6168, 2115, 7543, 1818],
-    #                 [7537, 1723, 8388, 1796],
-    #             ],
-    #         },
-    #     },
-    # },
 }
 
 BASIC_DEBUGGING = False
@@ -255,10 +235,10 @@ class DefaultArguments(core.HMPostprocessConfig):
         ]
 
         self.plot_camera_tracking = False or basic_debugging
-        # self.plot_camera_tracking = True
+        self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = True
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
@@ -834,9 +814,9 @@ class CamTrackPostProcessor(torch.nn.Module):
                 self._current_roi = next(self._current_roi)
                 self._current_roi_aspect = next(self._current_roi_aspect)
                 if self._args.plot_moving_boxes:
-                    self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
-                    self._current_roi.draw(img=online_im)
-                    vis.plot_line(
+                    online_im = self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
+                    online_im = self._current_roi.draw(img=online_im)
+                    online_im = vis.plot_line(
                         online_im,
                         center(self._current_roi.bbox),
                         center(current_box),
