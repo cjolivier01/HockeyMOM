@@ -447,14 +447,6 @@ class VideoOutput:
             # Perspective rotation
             #
             if self.has_args() and self._args.fixed_edge_rotation:
-                # BEGIN PERFORMANCE HACK
-                online_im, current_box = self.crop_working_image_width(
-                    image=online_im, current_box=current_box, scale=1.2
-                )
-                src_image_width = image_width(online_im)
-                src_image_height = image_height(online_im)
-                # END PERFORMANCE HACK
-
                 online_im = _to_float(online_im)
                 # start = time.time()
                 rotation_point = [int(i) for i in center(current_box)]
@@ -483,6 +475,23 @@ class VideoOutput:
                 # print(f"gaussian={gaussian}")
                 angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
                 angle *= mult
+
+                # BEGIN PERFORMANCE HACK
+                #
+                # Chop off edges of image that won't be visible after a final crop 
+                # before we rotate in order to reduce the computation necessary 
+                # for the rotation (as well as other subsequent operations)
+                #
+                if True and self._args.crop_output_image:
+                    online_im, current_box = self.crop_working_image_width(
+                        image=online_im, current_box=current_box, scale=1.2
+                    )
+                    src_image_width = image_width(online_im)
+                    src_image_height = image_height(online_im)
+                #
+                # END PERFORMANCE HACK
+                #
+
                 # print(f"angle={angle}")
                 online_im = rotate_image(
                     img=online_im, angle=angle, rotation_point=rotation_point
