@@ -76,6 +76,15 @@ def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Ten
     return box
 
 
+def move_box_to_center(box: torch.Tensor, center_point: torch.Tensor):
+    ww = width(box)
+    hh = height(box)
+    moved_box = make_box_at_center(center_point=center_point, w=ww, h=hh)
+    assert ww == width(box)
+    assert hh == height(box)
+    return moved_box
+
+
 def scale_box(box: torch.Tensor, scale_width: torch.Tensor, scale_height: torch.Tensor):
     center_point = center(box)
     w = width(box) * scale_width
@@ -249,6 +258,69 @@ def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
     )
     mask[largest_bbox_idx] = False
     return batch_bboxes[mask], mask
+
+
+def get_enclosing_box(batch_boxes: torch.Tensor):
+    """
+    Get a bounding box that encompasses all bounding boxes in the batch.
+
+    Parameters:
+    - batch_boxes (Tensor): A tensor of shape [N, 4] representing bounding boxes,
+                            where each box is [top, left, bottom, right].
+
+    Returns:
+    - Tensor: A tensor representing the enclosing bounding box.
+    """
+    # Separate the coordinates
+    tops, lefts, bottoms, rights = (
+        batch_boxes[:, 0],
+        batch_boxes[:, 1],
+        batch_boxes[:, 2],
+        batch_boxes[:, 3],
+    )
+
+    # Find the minimum top-left and maximum bottom-right coordinates
+    min_top, min_left = torch.min(tops), torch.min(lefts)
+    max_bottom, max_right = torch.max(bottoms), torch.max(rights)
+
+    # Create the enclosing box
+    enclosing_box = torch.tensor([min_top, min_left, max_bottom, max_right])
+
+    return enclosing_box
+
+
+def scale_box_at_same_center(box: torch.Tensor, scale_factor):
+    """
+    Scale a bounding box by a given factor while maintaining the same center.
+
+    Parameters:
+    - bbox (Tensor): A tensor representing a single bounding box [top, left, bottom, right].
+    - scale_factor (float): The scaling factor.
+
+    Returns:
+    - Tensor: The scaled bounding box.
+    """
+    top, left, bottom, right = box
+
+    # Calculate the center of the bounding box
+    center_x = (left + right) / 2
+    center_y = (top + bottom) / 2
+
+    # Calculate the width and height of the bounding box
+    width = right - left
+    height = bottom - top
+
+    # Scale the width and height
+    new_width = width * scale_factor
+    new_height = height * scale_factor
+
+    # Calculate new top-left and bottom-right coordinates
+    new_left = center_x - new_width / 2
+    new_right = center_x + new_width / 2
+    new_top = center_y - new_height / 2
+    new_bottom = center_y + new_height / 2
+
+    return torch.tensor([new_top, new_left, new_bottom, new_right])
 
 
 # def scale_box_to_fit(

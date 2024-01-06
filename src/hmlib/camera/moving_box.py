@@ -39,6 +39,7 @@ from hmlib.utils.box_functions import (
     scale_box,
     is_box_edge_on_or_outside_other_box_edge,
     check_for_box_overshoot,
+    move_box_to_center,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -217,7 +218,7 @@ class ResizingBox(BasicBox):
             ):
                 self._size_is_frozen = False
 
-            #print(f"frozen size={self._size_is_frozen}")
+            # print(f"frozen size={self._size_is_frozen}")
 
         #
         # END size threshhold
@@ -344,33 +345,13 @@ class MovingBox(ResizingBox):
         super().draw(img=img, draw_threasholds=draw_threasholds)
         draw_box = self.bounding_box()
         img = vis.plot_rectangle(
-            vis.to_cv2(img),
+            img,
             draw_box,
             color=self._color if not self._translation_is_frozen else (128, 128, 128),
             thickness=self._thickness,
             label=self._make_label(),
             text_scale=2,
         )
-        # if self._size_is_frozen:
-        #     # draw_box += self._line_thickness_tensor
-        #     vis.plot_rectangle(
-        #         img,
-        #         draw_box - self._line_thickness_tensor,
-        #         color=(0, 255, 0),
-        #         thickness=self._thickness,
-        #         label=self._make_label(),
-        #         text_scale=2,
-        #     )
-        # if self._translation_is_frozen:
-        #     #draw_box += self._line_thickness_tensor * 2
-        #     vis.plot_rectangle(
-        #         img,
-        #         draw_box,
-        #         color=(128, 128, 128),
-        #         thickness=self._thickness//2,
-        #         label=self._make_label(),
-        #         text_scale=2,
-        #     )
         if draw_threasholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
             cl = [int(i) for i in center(self.bounding_box())]
@@ -389,9 +370,19 @@ class MovingBox(ResizingBox):
                 thickness=3,
             )
             if self._following_box is not None:
+                follwoing_bbox = self._following_box.bounding_box()
+                follwoing_bbox_center = center(follwoing_bbox)
+                # dashed box representing the following box inscribed at our center
+                inscribed = move_box_to_center(
+                    follwoing_bbox.clone(), center(self.bounding_box())
+                )
+                img = vis.draw_dashed_rectangle(
+                    img, box=inscribed, color=(255, 255, 255), thickness=1
+                )
+
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
-                co = [int(i) for i in center(self._following_box.bounding_box())]
+                co = [int(i) for i in follwoing_bbox_center]
                 vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=3)
                 cv2.circle(
                     img,
@@ -408,104 +399,26 @@ class MovingBox(ResizingBox):
                     thickness=cv2.FILLED,
                 )
 
-                # plot the box we're following inscribed at our
-                # center at its current size
-                # draw_box = self.bounding_box()
-                # w = width(draw_box)
-                # h = height(draw_box)
-                # w_outer = w +
-                # current_following_box_center_inside = make_box_at_center(
-                #     center(draw_box),
-                #     width(self._following_box.bounding_box()),
-                #     height(self._following_box.bounding_box()),
-                # )
-                # vis.draw_dashed_rectangle(
-                #     img,
-                #     current_following_box_center_inside,
-                #     color=(128, 128, 128) if not self._size_is_frozen else (0, 0, 0),
-                #     thickness=self._thickness * 2,
-                # )
-                # stickiness = self._get_sticky_resize_sizes()
-                # sticky_wh = stickiness[0:2] / 2
-                # unsticky_wh = stickiness[2:4] / 2
-                # # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
-                # draw_box[0] += unsticky_wh[0]
-                # draw_box[2] -= unsticky_wh[0]
-                # draw_box[1] += unsticky_wh[1]
-                # draw_box[3] -= unsticky_wh[1]
-                # vis.draw_dashed_rectangle(
-                #     img,
-                #     draw_box,
-                #     color=(255, 255, 255),
-                #     thickness=self._thickness // 2,
-                # )
-                # draw_box = self.bounding_box()
-                # # stickiness is [sticky_size_w, sticky_size_h, unsticky_size_w, unsticky_size_h]
-                # draw_box[0] += sticky_wh[0]
-                # draw_box[2] -= sticky_wh[0]
-                # draw_box[1] += sticky_wh[1]
-                # draw_box[3] -= sticky_wh[1]
-                # vis.draw_dashed_rectangle(
-                #     img,
-                #     draw_box,
-                #     color=(0, 128, 0),
-                #     thickness=self._thickness // 2,
-                # )
-
         return img
 
-    # def _get_inner_and_outer_resize_boxes(self, validate: bool = True):
-    #     stickiness = self._get_sticky_resize_sizes()
-    #     unsticky_wh = stickiness[2:4] / 2
-    #     outer_box = self.bounding_box()
-    #     outer_box[0] += unsticky_wh[0]
-    #     outer_box[2] -= unsticky_wh[0]
-    #     outer_box[1] += unsticky_wh[1]
-    #     outer_box[3] -= unsticky_wh[1]
-    #     sticky_wh = stickiness[0:2] / 2
-    #     inner_box = self.bounding_box()
-    #     inner_box[0] += sticky_wh[0]
-    #     inner_box[2] -= sticky_wh[0]
-    #     inner_box[1] += sticky_wh[1]
-    #     inner_box[3] -= sticky_wh[1]
-    #     if validate:
-    #         assert width(inner_box) < width(outer_box)
-    #         assert height(inner_box) < height(outer_box)
-    #     return inner_box, outer_box
-
-    def _get_sticky_translation_sizes(self):
+    def get_gaussian_y_about_width_center(self, x):
         if self._horizontal_image_gaussian_distribution is None:
-            gaussian_factor = 1.0
+            return 1.0
         else:
             gaussian_factor = self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
-                center(self.bounding_box())[0]
+                x
             )
+
+    def _get_sticky_translation_sizes(self):
+        gaussian_factor = self.get_gaussian_y_about_width_center(
+            center(self.bounding_box())[0]
+        )
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
         # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
         sticky_size = self._max_speed_x * 6 + gaussian_add
         unsticky_size = sticky_size * 3 / 4
         return sticky_size, unsticky_size
-
-    # def _get_sticky_resize_sizes(self):
-    #     if self._horizontal_image_gaussian_distribution is None:
-    #         gaussian_factor = 1.0
-    #     else:
-    #         gaussian_factor = self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
-    #             center(self.bounding_box())[0]
-    #         )
-    #     gaussian_mult = 6
-    #     gaussian_add = gaussian_factor * gaussian_mult
-    #     # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
-    #     sticky_size_w = self._width_change_threshold + gaussian_add
-    #     unsticky_size_w = self._width_change_threshold_low + gaussian_add
-    #     sticky_size_h = self._height_change_threshold + gaussian_add
-    #     unsticky_size_h = self._height_change_threshold_low + gaussian_add
-    #     return torch.tensor(
-    #         [sticky_size_w, sticky_size_h, -unsticky_size_w, -unsticky_size_h],
-    #         dtype=torch.float32,
-    #         device=self.device,
-    #     )
 
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
@@ -649,7 +562,8 @@ class MovingBox(ResizingBox):
             arena_box = self._arena_box
         if self._following_box is not None:
             self.set_destination(
-                dest_box=self._following_box.bounding_box(), stop_on_dir_change=True
+                dest_box=self._following_box.bounding_box(),
+                stop_on_dir_change=True,
             )
 
         # BEGIN Sticky
