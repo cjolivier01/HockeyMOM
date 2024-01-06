@@ -455,7 +455,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+                    #clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     preproc=ValTransform(
                         rgb_means=(0.485, 0.456, 0.406),

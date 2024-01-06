@@ -102,7 +102,14 @@ class StitchDataset:
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
+
+        # Optimize the roi box
+        if image_roi is not None:
+            if isinstance(image_roi, (list, tuple)):
+                if not any(item is not None for item in image_roi):
+                    image_roi = None
         self._image_roi = image_roi
+
         self._fps = None
         self._bitrate = None
         self._auto_configure = auto_configure
@@ -336,6 +343,7 @@ class StitchDataset:
             if image.shape[2] == 4:
                 image = image[:, :, :3]
         else:
+            image_roi = fix_clip_box(image_roi, image.shape[:2])
             image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
         if show_image:
             cv2.imshow("online_im", image)
@@ -430,3 +438,23 @@ class StitchDataset:
 
     def __len__(self):
         return self._total_number_of_frames
+
+
+def is_none(val):
+    if isinstance(val, str) and val == "None":
+        return True
+    return val is None
+
+
+def fix_clip_box(clip_box, hw: List[int]):
+    if isinstance(clip_box, list):
+        if is_none(clip_box[0]):
+            clip_box[0] = 0
+        if is_none(clip_box[1]):
+            clip_box[1] = 0
+        if is_none(clip_box[2]):
+            clip_box[2] = hw[1]
+        if is_none(clip_box[3]):
+            clip_box[3] = hw[0]
+        clip_box = np.array(clip_box, dtype=np.int64)
+    return clip_box

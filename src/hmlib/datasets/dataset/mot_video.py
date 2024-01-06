@@ -1,7 +1,7 @@
 import traceback
 import multiprocessing
 import threading
-import numpy as nd
+import numpy as np
 from typing import List
 
 import cv2
@@ -230,7 +230,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 raise StopIteration()
 
             if self.clip_original is not None:
-                self.clip_original = _fix_clip_box(self.clip_original, img0.shape[:2])
+                self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
                 img0 = img0[
                     self.clip_original[1] : self.clip_original[3],
                     self.clip_original[0] : self.clip_original[2],
@@ -342,21 +342,21 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         return self.vn  # number of frames
 
 
-def _is_none(val):
+def is_none(val):
     if isinstance(val, str) and val == "None":
         return True
     return val is None
 
 
-def _fix_clip_box(clip_box, hw: List[int]):
+def fix_clip_box(clip_box, hw: List[int]):
     if isinstance(clip_box, list):
-        if _is_none(clip_box[0]):
+        if is_none(clip_box[0]):
             clip_box[0] = 0
-        if _is_none(clip_box[1]):
+        if is_none(clip_box[1]):
             clip_box[1] = 0
-        if _is_none(clip_box[2]):
+        if is_none(clip_box[2]):
             clip_box[2] = hw[1]
-        if _is_none(clip_box[3]):
+        if is_none(clip_box[3]):
             clip_box[3] = hw[0]
-        clip_box = nd.array(clip_box, dtype=nd.int64)
+        clip_box = np.array(clip_box, dtype=np.int64)
     return clip_box
