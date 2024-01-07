@@ -439,7 +439,7 @@ def main(exp, args, num_gpu):
                     right_frame_offset=args.rfo,
                 )
                 # Create the stitcher data loader
-                output_stitched_video_file = os.path.join(".", "stitched_output.avi")
+                output_stitched_video_file = os.path.join(".", f"stitched_output-{args.expn}.avi")
                 stitched_dataset = StitchDataset(
                     video_file_1=os.path.join(dir_name, video_left),
                     video_file_2=os.path.join(dir_name, video_right),
@@ -447,7 +447,7 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    # output_stitched_video_file=output_stitched_video_file,
+                    output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
                     num_workers=1,
                     blend_thread_count=2,

@@ -5,9 +5,9 @@ game:
   away: "Tri-Valley Blue Devils 10BB"
 
   stitching:
-    offsets: null
+    offsets: [15.39277049481131, 0]
 
-  clip_box: [null, 280, null, null]
+  # clip_box: [null, 280, null, null]
   boundaries:
     upper:
       - [100, 907, 721, 670]
