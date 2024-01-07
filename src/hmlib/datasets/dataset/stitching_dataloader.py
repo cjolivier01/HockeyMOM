@@ -86,7 +86,6 @@ class StitchDataset:
         self._start_frame_number = start_frame_number
         self._device = device
         self._output_stitched_video_file = output_stitched_video_file
-        self._output_video = None
         self._video_1_offset_frame = video_1_offset_frame
         self._video_2_offset_frame = video_2_offset_frame
         self._video_file_1 = video_file_1
@@ -230,27 +229,6 @@ class StitchDataset:
             self._video_output.stop()
             self._video_output = None
 
-    def _maybe_write_output(self, output_img):
-        if self._output_stitched_video_file:
-            if self._output_video is None:
-                fps = self.fps
-                fourcc = cv2.VideoWriter_fourcc(*"XVID")
-                # Write lossless Huffyuv codec
-                # fourcc = cv2.VideoWriter_fourcc(*"HFYU")
-                final_video_size = (output_img.shape[1], output_img.shape[0])
-                self._output_video = cv2.VideoWriter(
-                    filename=self._output_stitched_video_file,
-                    fourcc=fourcc,
-                    fps=fps,
-                    frameSize=final_video_size,
-                    isColor=True,
-                )
-                assert self._output_video.isOpened()
-                print(f"OUPUT VIDEO BITRATE: {self.bitrate}")
-                self._output_video.set(cv2.CAP_PROP_BITRATE, self.bitrate)
-
-            self._output_video.write(output_img)
-
     def _prepare_next_frame(self, frame_id: int):
         # INFO(f"_prepare_next_frame( {frame_id} )")
         self._prepare_next_frame_timer.tic()
@@ -296,7 +274,7 @@ class StitchDataset:
                 (stitched_frame.shape[1], stitched_frame.shape[0]), dtype=torch.int32
             )
             self._video_output_box = torch.tensor(
-                (0, 0, self._video_output_size[0] - 1, self._video_output_size[1] - 1),
+                (0, 0, self._video_output_size[0], self._video_output_size[1]),
                 dtype=torch.float32,
             )
             # Not doing anything fancy, so don't waste time copy to and from the GPU
@@ -306,8 +284,9 @@ class StitchDataset:
                 output_frame_width=self._video_output_size[0],
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
-                device=None,
+                device="cpu",
             )
+
         image_proc_data = ImageProcData(
             frame_id=frame_id,
             img=stitched_frame,
@@ -423,7 +402,7 @@ class StitchDataset:
         # self._next_timer.tic()
         stitched_frame = self.get_next_frame()
 
-        # Code doesn't handle strides channbels efficiently
+        # Code doesn't handle strided chanbels efficiently
         stitched_frame = self.prepare_frame_for_video(
             stitched_frame,
             image_roi=self._image_roi,
@@ -432,7 +411,6 @@ class StitchDataset:
         self._send_frame_to_video_out(frame_id=frame_id, stitched_frame=stitched_frame)
 
         self._current_frame += 1
-        self._maybe_write_output(stitched_frame)
         self._next_timer.toc()
         return stitched_frame
 

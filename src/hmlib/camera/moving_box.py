@@ -2,55 +2,35 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# from numba import njit
-
-import time
-import os
 import cv2
-import argparse
-import numpy as np
-import traceback
-from typing import Tuple
-import multiprocessing
-import queue
 
-from pathlib import Path
+import numpy as np
+
+from typing import Tuple
 
 import torch
-import torchvision as tv
-
-from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
+
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 from hmlib.utils.box_functions import (
     width,
     height,
     center,
-    # center_x_distance,
-    # center_distance,
     clamp_box,
     aspect_ratio,
     make_box_at_center,
     shift_box_to_edge,
     scale_box,
-    # is_box_edge_on_or_outside_other_box_edge,
     check_for_box_overshoot,
     move_box_to_center,
 )
 
-from hmlib.utils.box_functions import tlwh_centers
 
-from pt_autograph import pt_function
-
-from hockeymom import core
-
-
-class BasicBox:
+class BasicBox: # (torch.nn.Module):
     def __init__(self, bbox: torch.Tensor, device: str = None):
+        #super(BasicBox, self).__init__()
         self.device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self.device
@@ -240,7 +220,13 @@ class ResizingBox(BasicBox):
             if stop_on_dir_change:
                 dh = self._zero.clone()
                 # self._size_is_frozen = True
-        self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
+
+        # Growing is allowed at a higher speed than shrinking
+        resize_larger_scale = 2.0
+        dw_dh = torch.tensor([dw, dh])
+        dw_dh = torch.where(dw_dh > 0, dw_dh * resize_larger_scale, dw_dh)
+
+        self._adjust_size(accel_w=dw_dh[0], accel_h=dw_dh[1], use_constraints=True)
 
 
 class MovingBox(ResizingBox):
@@ -620,9 +606,12 @@ class MovingBox(ResizingBox):
             stop_on_dir_change=stop_on_dir_change,
         )
 
-    def next_position(self, arena_box: torch.Tensor = None):
-        if arena_box is None:
-            arena_box = self._arena_box
+    def forward(self, dest_box: torch.Tensor, stop_on_dir_change: bool):
+        return self.set_destination(dest_box=dest_box, stop_on_dir_change=stop_on_dir_change)
+
+    def next_position(self):
+        # if arena_box is None:
+        arena_box = self._arena_box
         if self._following_box is not None:
             self.set_destination(
                 dest_box=self._following_box.bounding_box(),
