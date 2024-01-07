@@ -4,22 +4,16 @@ Experiments in stitching
 import os
 import time
 import argparse
-import yaml
-import numpy as np
-from typing import Tuple
 import cv2
 
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 
-from pathlib import Path
-from hmlib.opts import opts
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.ui.mousing import draw_box_with_mouse
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.config import get_clip_box, get_game_config
+from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
 
 from hmlib.stitch_synchronize import (

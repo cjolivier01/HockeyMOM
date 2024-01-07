@@ -15,6 +15,9 @@ import PIL
 from typing import List, Tuple
 
 from pathlib import Path
+#import collections.abc.Sequence as Sequence
+import collections
+#from collections import deque
 
 import torch
 import torchvision as tv
@@ -220,9 +223,9 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
-        fourcc="XVID",
-        # fourcc="HEVC",
-        # fourcc="X264",
+        #fourcc="XVID",
+        #fourcc="HEVC",
+        fourcc="X264",
         # fourcc="H264",
         # fourcc = "HFYU",
         save_frame_dir: str = None,
@@ -388,20 +391,27 @@ class VideoOutput:
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None:
-            # is_cuda = self._device.startswith("cuda")
+            #is_cuda = str(self._device).startswith("cuda")
             # I think it crashes if the size is off by even one pixed between frames?
             is_cuda = False
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             if not is_cuda:
+                # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
+                #params = Sequence()
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_video_path,
+                    #apiPreference=cv2.CAP_FFMPEG,
+                    apiPreference=cv2.CAP_GSTREAMER,
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
                         int(self._output_frame_width),
                         int(self._output_frame_height),
                     ),
-                    isColor=True,
+                    params=[
+                        cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+                        #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
+                    ],
                 )
                 assert self._output_video.isOpened()
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
@@ -534,25 +544,11 @@ class VideoOutput:
                 if image_height(online_im) != int(
                     self._output_frame_height
                 ) or image_width(online_im) != int(self._output_frame_width):
-                    if (
-                        False
-                        and isinstance(online_im, torch.Tensor)
-                        and online_im.device.type == "cuda"
-                    ):
-                        if tv_resizer is None:
-                            tv_resizer = tv.transforms.Resize(
-                                size=(
-                                    int(self._output_frame_width),
-                                    int(self._output_frame_height),
-                                )
-                            )
-                        gpu_image = tv_resizer.forward(online_im)
-                    else:
-                        online_im = resize_image(
-                            img=online_im,
-                            new_width=self._output_frame_width,
-                            new_height=self._output_frame_height,
-                        )
+                    online_im = resize_image(
+                        img=online_im,
+                        new_width=self._output_frame_width,
+                        new_height=self._output_frame_height,
+                    )
                 assert image_height(online_im) == self._output_frame_height_int
                 assert image_width(online_im) == self._output_frame_width_int
 
