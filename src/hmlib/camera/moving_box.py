@@ -28,9 +28,9 @@ from hmlib.utils.box_functions import (
 )
 
 
-class BasicBox: # (torch.nn.Module):
+class BasicBox:  # (torch.nn.Module):
     def __init__(self, bbox: torch.Tensor, device: str = None):
-        #super(BasicBox, self).__init__()
+        # super(BasicBox, self).__init__()
         self.device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self.device
@@ -121,13 +121,22 @@ class ResizingBox(BasicBox):
             return
 
         if use_constraints:
+            # Growing is allowed at a higher rate than shrinking
+            resize_larger_scale = 2.0
+            max_accel_wh = torch.tensor([self._max_accel_w, self._max_accel_h])
+            max_accel_wh = torch.where(
+                torch.tensor([accel_w, accel_h]) > 0,
+                max_accel_wh * resize_larger_scale,
+                max_accel_wh,
+            )
+
             if accel_w is not None:
                 accel_w = torch.clamp(
-                    accel_w, min=-self._max_accel_w, max=self._max_accel_w
+                    accel_w, min=-max_accel_wh[0], max=max_accel_wh[0]
                 )
             if accel_h is not None:
                 accel_h = torch.clamp(
-                    accel_h, min=-self._max_accel_h, max=self._max_accel_h
+                    accel_h, min=-max_accel_wh[1], max=max_accel_wh[1]
                 )
         if accel_w is not None:
             self._current_speed_w += accel_w
@@ -221,12 +230,13 @@ class ResizingBox(BasicBox):
                 dh = self._zero.clone()
                 # self._size_is_frozen = True
 
-        # Growing is allowed at a higher speed than shrinking
-        resize_larger_scale = 2.0
-        dw_dh = torch.tensor([dw, dh])
-        dw_dh = torch.where(dw_dh > 0, dw_dh * resize_larger_scale, dw_dh)
+        # # Growing is allowed at a higher speed than shrinking
+        # resize_larger_scale = 2.0
+        # dw_dh = torch.tensor([dw, dh])
+        # dw_dh = torch.where(dw_dh > 0, dw_dh * resize_larger_scale, dw_dh)
+        # self._adjust_size(accel_w=dw_dh[0], accel_h=dw_dh[1], use_constraints=True)
 
-        self._adjust_size(accel_w=dw_dh[0], accel_h=dw_dh[1], use_constraints=True)
+        self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
 
 class MovingBox(ResizingBox):
@@ -607,7 +617,9 @@ class MovingBox(ResizingBox):
         )
 
     def forward(self, dest_box: torch.Tensor, stop_on_dir_change: bool):
-        return self.set_destination(dest_box=dest_box, stop_on_dir_change=stop_on_dir_change)
+        return self.set_destination(
+            dest_box=dest_box, stop_on_dir_change=stop_on_dir_change
+        )
 
     def next_position(self):
         # if arena_box is None:
