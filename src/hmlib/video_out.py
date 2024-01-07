@@ -232,9 +232,11 @@ class VideoOutput:
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
         device: str = "cuda:1",
+        name: str = "",
     ):
         self._args = args
         self._device = device
+        self._name = name
         self._fps = fps
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
@@ -621,7 +623,7 @@ class VideoOutput:
 
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
-                    "Image Post-Processing frame {} ({:.2f} fps)".format(
+                    "Image Post-Processing {} frame {} ({:.2f} fps)".format(self._name,
                         imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
                     )
                 )

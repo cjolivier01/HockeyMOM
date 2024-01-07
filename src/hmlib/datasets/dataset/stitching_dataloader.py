@@ -285,6 +285,7 @@ class StitchDataset:
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
                 device="cpu",
+                name="STITCH-OUT",
             )
 
         image_proc_data = ImageProcData(

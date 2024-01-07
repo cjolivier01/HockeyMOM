@@ -514,6 +514,7 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         assert self._video_output_campp is None
         self._video_output_campp = VideoOutput(
+            name="TRACKING",
             args=self._args,
             output_video_path=os.path.join(self._save_dir, "tracking_output.avi")
             if self._save_dir is not None
@@ -542,6 +543,7 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         if self._args.crop_output_image and self._save_dir is not None:
             self._video_output_boxtrack = VideoOutput(
+                name="BOXTRACK",
                 args=self._args,
                 output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
                 fps=self._fps,
