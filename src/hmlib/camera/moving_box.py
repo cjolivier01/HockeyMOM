@@ -37,7 +37,7 @@ from hmlib.utils.box_functions import (
     make_box_at_center,
     shift_box_to_edge,
     scale_box,
-    is_box_edge_on_or_outside_other_box_edge,
+    # is_box_edge_on_or_outside_other_box_edge,
     check_for_box_overshoot,
     move_box_to_center,
 )

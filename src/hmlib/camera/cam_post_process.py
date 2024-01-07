@@ -224,14 +224,14 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = True
 
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
 
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
-        # self.plot_frame_number = True
+        self.plot_frame_number = True
 
         self.plot_boundaries = (
             False or basic_debugging or self.plot_individual_player_tracking
