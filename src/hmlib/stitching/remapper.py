@@ -94,6 +94,7 @@ def create_remapper_config(
     batch_size: int,
     source_hw: Tuple[int],
     device: str,
+    interpolation: str = "bilinear",
 ) -> core.RemapperConfig:
     x_file = os.path.join(dir_name, f"{basename}000{image_index}_x.tif")
     y_file = os.path.join(dir_name, f"{basename}000{image_index}_y.tif")
@@ -113,6 +114,7 @@ def create_remapper_config(
     config.col_map = torch.from_numpy(x_map.astype(np.int64))
     config.row_map = torch.from_numpy(y_map.astype(np.int64))
     config.batch_size = batch_size
+    config.interpolation = interpolation
     return config
 
 

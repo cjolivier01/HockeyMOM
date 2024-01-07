@@ -92,11 +92,11 @@ void ImageRemapper::init(std::size_t batch_size) {
   if (!interpolation_.empty()) {
     // Normalize to [-1, 1]
     at::Tensor row_map_normalized =
-        (2.0 * row_map / ((int64_t)working_height_ - 1)) - 1;
+        (2.0 * row_map / ((float)working_height_ - 1.0)) - 1.0;
     at::Tensor col_map_normalized =
-        (2.0 * col_map / ((int64_t)working_width_ - 1)) - 1;
+        (2.0 * col_map / ((float)working_width_ - 1.0)) - 1.0;
     // Create the grid for grid_sample
-    auto grid = at::stack({row_map_normalized, col_map_normalized}, /*dim=*/-1);
+    auto grid = at::stack({col_map_normalized, row_map_normalized}, /*dim=*/-1);
     assert(grid.sizes().size() == 3);
     grid = grid.expand(
         {(int)batch_size, grid.size(0), grid.size(1), grid.size(2)});

@@ -386,11 +386,11 @@ def blend_video(
                                 my_blended.shape[-3] // 2,
                             ),
                         )
-                    # cv2.imshow(
-                    #     "stitched",
-                    #     my_blended[0].contiguous().cpu().numpy(),
-                    # )
-                    # cv2.waitKey(0)
+                    cv2.imshow(
+                        "stitched",
+                        my_blended[0].contiguous().cpu().numpy(),
+                    )
+                    cv2.waitKey(1)
                     cpu_blended_image = my_blended.contiguous().cpu()
                     for i in range(len(cpu_blended_image)):
                         video_out.append(
@@ -444,7 +444,7 @@ def main(args):
             "mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
-            interpolation="",
+            interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
             output_video="stitched_output.avi",

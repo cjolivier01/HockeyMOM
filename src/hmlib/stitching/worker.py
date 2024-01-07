@@ -108,10 +108,10 @@ class StitchingWorker:
         self._batch_size = batch_size
         self._use_pytorch_remap = use_pytorch_remap
         self._device = device
-        
-        #self._remapping_device = remapping_device
-        self._remapping_device = torch.device("cuda", rank)
-        
+
+        self._remapping_device = remapping_device
+        #self._remapping_device = torch.device("cuda", rank)
+
         self._is_cuda = self._device and self._device.startswith("cuda")
         self._start_frame_number = start_frame_number
         self._output_video = None
