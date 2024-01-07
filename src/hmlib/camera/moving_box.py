@@ -64,6 +64,10 @@ class BasicBox:
         self._bbox = bbox
 
     @property
+    def one(self):
+        return self._one_float_tensor.clone()
+
+    @property
     def _zero(self):
         return self._zero_float_tensor.clone()
 
@@ -341,6 +345,47 @@ class MovingBox(ResizingBox):
         self._max_accel_x = max_accel_x
         self._max_accel_y = max_accel_y
 
+        if self._arena_box is not None:
+            self._gaussian_x_clamp = torch.tensor(
+                [self._arena_box[0], self._arena_box[2]]
+            )
+        else:
+            self._gaussian_x_clamp = None
+
+        # Set up some values to help us to efficiently calculate the current zoom level
+        # as well as other rules based upon zoom level (i.e. gaussian wrt center position)
+        self._full_aspect_ratio_size = None
+        if self._arena_box is not None and self._fixed_aspect_ratio:
+            ah = width(self._arena_box)
+            aw = height(self._arena_box)
+            # Figure out which is the constraining edge
+            ar_w = ah * self._fixed_aspect_ratio
+            if ar_w <= aw:
+                ww = ar_w
+                hh = ah
+            else:
+                ww = aw
+                hh = aw / self._fixed_aspect_ratio
+                assert hh <= ah
+            self._full_aspect_ratio_size = torch.tensor([ww, hh])
+            self._full_aspect_ratio_sqrt_area = torch.sqrt(
+                torch.square(ww) + torch.square(hh)
+            )
+            # Gaussian clamp to center x of max aspect ratio box
+            self._gaussian_x_clamp[0] += ww / 2
+            self._gaussian_x_clamp[1] -= ww / 2
+
+    def get_zoom_level(self):
+        """
+        We calculate zoom level as the ratio of sqrt area of
+        ourselves vs that of a max-sized box on the arena for a fixed aspect ratio
+        """
+        if self._full_aspect_ratio_size is None:
+            return self.one
+        bbox = self.bounding_box()
+        zl = torch.sqrt(torch.square(width(bbox) + torch.square(height(bbox))))
+        return zl
+
     def draw(self, img: np.array, draw_threasholds: bool = False):
         super().draw(img=img, draw_threasholds=draw_threasholds)
         draw_box = self.bounding_box()
@@ -415,6 +460,10 @@ class MovingBox(ResizingBox):
         if self._horizontal_image_gaussian_distribution is None:
             return 1.0
         else:
+            if self._gaussian_x_clamp is not None:
+                x = torch.clamp(
+                    min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1]
+                )
             return self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
                 x
             )
@@ -547,9 +596,9 @@ class MovingBox(ResizingBox):
             # else:
             #     print("Translation unfrozen")
 
-                # clamp to max velocities
-                # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
-                # self._current_speed_xy= torch.clamp(self._current_speed_y, -self._max_speed_y, self._max_speed_y)
+            # clamp to max velocities
+            # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
+            # self._current_speed_xy= torch.clamp(self._current_speed_y, -self._max_speed_y, self._max_speed_y)
         # END Sticky Translation
 
         if not self.is_nonstop():
@@ -577,7 +626,6 @@ class MovingBox(ResizingBox):
         if self._following_box is not None:
             self.set_destination(
                 dest_box=self._following_box.bounding_box(),
-
                 stop_on_dir_change=True,
             )
 
