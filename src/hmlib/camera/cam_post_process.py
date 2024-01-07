@@ -804,17 +804,20 @@ class CamTrackPostProcessor(torch.nn.Module):
                     thickness=2,
                 )
 
-            if (
-                self._video_output_boxtrack is not None
-                and self._current_roi is not None
-                and (self._video_output_campp is not None and not self._args.show_image)
-            ):
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=self._current_roi_aspect.bounding_box(),
-                )
-                self._video_output_boxtrack.append(imgproc_data)
+            # if (
+            #     self._video_output_boxtrack is not None
+            #     and self._current_roi is not None
+            #     and (self._video_output_campp is not None and not self._args.show_image)
+            # ):
+            #     imgproc_data = ImageProcData(
+            #         frame_id=frame_id.item(),
+            #         img=online_im,
+            #         current_box=self._current_roi_aspect.bounding_box(),
+            #     )
+            #     self._video_output_boxtrack.append(imgproc_data)
+
+        if True:
+            return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
         # assert width(current_box) <= hockey_mom.video.width
         # assert height(current_box) <= hockey_mom.video.height
