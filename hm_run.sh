@@ -49,7 +49,7 @@ OMP_NUM_THREADS=16 \
   --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
-  --game-id="${GAME_ID}"
+  --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
