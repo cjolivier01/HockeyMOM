@@ -210,7 +210,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
-        "--plot-moving-boxes", action="store_true", help="plot moving camera tracking boxes"
+        "--plot-moving-boxes",
+        action="store_true",
+        help="plot moving camera tracking boxes",
     )
     parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
@@ -439,7 +441,9 @@ def main(exp, args, num_gpu):
                     right_frame_offset=args.rfo,
                 )
                 # Create the stitcher data loader
-                output_stitched_video_file = os.path.join(".", f"stitched_output-{args.expn}.avi")
+                output_stitched_video_file = os.path.join(
+                    ".", f"stitched_output-{args.experiment_name}.avi"
+                )
                 stitched_dataset = StitchDataset(
                     video_file_1=os.path.join(dir_name, video_left),
                     video_file_2=os.path.join(dir_name, video_right),
