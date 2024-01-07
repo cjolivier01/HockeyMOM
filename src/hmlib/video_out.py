@@ -401,17 +401,17 @@ class VideoOutput:
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_video_path,
                     #apiPreference=cv2.CAP_FFMPEG,
-                    apiPreference=cv2.CAP_GSTREAMER,
+                    #apiPreference=cv2.CAP_GSTREAMER,
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
                         int(self._output_frame_width),
                         int(self._output_frame_height),
                     ),
-                    params=[
-                        cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-                        #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-                    ],
+                    # params=[
+                    #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+                    #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
+                    # ],
                 )
                 assert self._output_video.isOpened()
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
