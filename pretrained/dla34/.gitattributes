@@ -1,4 +1,0 @@
-crowdhuman_dla34.pth filter=lfs diff=lfs merge=lfs -binary
-ctdet_coco_dla_2x.pth filter=lfs diff=lfs merge=lfs -binary
-multi_pose_dla_3x.pth filter=lfs diff=lfs merge=lfs -binary
-my_coco_ch_e60.pth filter=lfs diff=lfs merge=lfs -binary
