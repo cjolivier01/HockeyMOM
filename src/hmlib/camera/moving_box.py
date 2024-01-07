@@ -462,7 +462,7 @@ class MovingBox(ResizingBox):
         else:
             if self._gaussian_x_clamp is not None:
                 x = torch.clamp(
-                    min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1]
+                    x, min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1]
                 )
             return self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
                 x
