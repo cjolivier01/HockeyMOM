@@ -210,6 +210,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--plot-moving-boxes", action="store_true", help="plot moving camera tracking boxes"
+    )
+    parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
     parser.add_argument(
@@ -346,6 +349,8 @@ def main(exp, args, num_gpu):
         game_config = get_config(
             game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
         )
+
+        game_config["args"] = vars(args)
 
         if args.lfo is None and args.rfo is None:
             if (
