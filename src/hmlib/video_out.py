@@ -233,10 +233,12 @@ class VideoOutput:
         watermark_image_path: str = None,
         device: str = "cuda:1",
         name: str = "",
+        simple_save: bool = False,
     ):
         self._args = args
         self._device = device
         self._name = name
+        self._simple_save = simple_save
         self._fps = fps
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
@@ -446,12 +448,12 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            if self._device is not None:
+            if self._device is not None and not self._simple_save:
                 if not isinstance(online_im, torch.Tensor):
                     if online_im.shape[-1] not in [3, 4]:
                         online_im = online_im.transpose(1, 2, 0)
                     online_im = torch.from_numpy(online_im)
-                if online_im.device != self._device:
+                if str(online_im.device) != str(self._device):
                     online_im = online_im.to(self._device, non_blocking=True)
 
             src_image_width = image_width(online_im)

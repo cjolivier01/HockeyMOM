@@ -286,6 +286,7 @@ class StitchDataset:
                 fps=self.fps,
                 device="cpu",
                 name="STITCH-OUT",
+                simple_save=True,
             )
 
         image_proc_data = ImageProcData(
