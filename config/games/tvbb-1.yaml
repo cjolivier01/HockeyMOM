@@ -1,11 +1,11 @@
 game:
-  name: "sharksbb1-1"
+  name: "tvbb-1"
   rink: "vallco"
   home: "Cougars"
-  away: "Sharks 10BB-1"
+  away: "Tri-Valley Blue Devils 10BB"
 
   stitching:
-    offsets: [42.63559569682018, 0.0]
+    offsets: null
 
   clip_box: [null, 280, null, null]
   boundaries:

@@ -294,6 +294,11 @@ def main(exp, args, num_gpu):
 
         set_deterministic()
 
+        if not args.experiment_name:
+            args.experiment_name = args.game_id
+        elif args.game_id and args.game_id not in args.experiment_name:
+            args.experiment_name = args.experiment_name + "-" + args.game_id
+
         is_distributed = num_gpu > 1
 
         if args.gpus and isinstance(args.gpus, str):
@@ -342,36 +347,23 @@ def main(exp, args, num_gpu):
             game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
         )
 
-        # rink_config = None
-        # if args.rink:
-        #     rink_config = get_rink_config(rink=args.rink, root_dir=ROOT_DIR)
-
-        # game_config = get_game_config(game_id=args.game_id, root_dir=ROOT_DIR)
-        # if game_config:
-        #     if not args.rink:
-        #         args.rink = game_config["game"]["rink"]
-        #         rink_config = game_config["game"]["rink"]
-        #     else:
-        #         assert args.rink == game_config["game"]["rink"]
-        #         rink_config.update(game_config)
-        #         game_config = rink_config
-        #         rink_config = None
         if args.lfo is None and args.rfo is None:
             if (
                 "stitching" in game_config["game"]
                 and "offsets" in game_config["game"]["stitching"]
             ):
                 offsets = game_config["game"]["stitching"]["offsets"]
-                args.lfo = offsets[0]
-                if len(offsets) == 1:
-                    args.rfo = 0.0
-                else:
-                    assert len(offsets) == 2
-                    args.rfo = offsets[1]
-                if args.lfo < 0:
-                    args.rfo += args.lfo
-                    args.rfo = 0.0
-                assert args.lfo >= 0 and args.rfo >= 0
+                if offsets:
+                    args.lfo = offsets[0]
+                    if len(offsets) == 1:
+                        args.rfo = 0.0
+                    else:
+                        assert len(offsets) == 2
+                        args.rfo = offsets[1]
+                    if args.lfo < 0:
+                        args.rfo += args.lfo
+                        args.rfo = 0.0
+                    assert args.lfo >= 0 and args.rfo >= 0
 
         cam_args = DefaultArguments(
             game_config=game_config,

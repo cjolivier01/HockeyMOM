@@ -13,14 +13,9 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/stockton2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/stockton2/"
-VIDEO="${HOME}/Videos/sharksbb1-1/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/sharksbb1-1"
 
-EXP_NAME="$(basename $0 .sh)"
-
-GAME_ID="--game-id sharksbb1-1"
+#GAME_ID="sharksbb1-1"
+GAME_ID="tvbb2"
 
 #TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
@@ -32,6 +27,7 @@ START_FRAME=0
 #START_FRAME=8730
 #START_FRAME=47000
 #START_FRAME=16890
+START_FRAME=47000
 
 #TRACKER="hm"
 TRACKER="fair"
@@ -46,22 +42,20 @@ OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hmtrack.py \
-  -expn="${EXP_NAME}" \
+  -expn="${GAME_ID}" \
   -f="${EXPERIMENT_FILE}" \
   -c="${PRETRAINED_MODEL}" \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
+  --game-id="${GAME_ID}"
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
-  --rink="vallco" \
   --config=track \
   --cam-ignore-largest \
   --script="${MIXFORMER_SCRIPT}" \
   --input_video="${VIDEO}" \
   $@ \
   tracking
-
-

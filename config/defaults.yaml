@@ -1,3 +1,6 @@
+#
+# Camera type
+#
 camera:
   name: null
   make: null
@@ -7,6 +10,9 @@ camera:
       resolution: null
     - offset_90:
       resolution: null
+#
+# Rink config
+#
 rink:
   name: null
   location:
@@ -31,6 +37,30 @@ rink:
     capacity: null
     price: null
   tracking:
+    #
+    # Some tracking config
+    #
     cam_ignore_largest: false
   camera:
+    #
+    # Rink-related tracking config
+    #
     fixed_edge_scaling_factor: 0.8
+    fixed_edge_rotation_angle: 30
+
+#
+# Game config
+#
+game:
+  name: null
+  rink: null
+  home: null
+  away: null
+
+  stitching:
+    offsets: null
+
+  clip_box: null
+  boundaries:
+    upper:
+    lower:
