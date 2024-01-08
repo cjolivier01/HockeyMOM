@@ -46,6 +46,7 @@ def subprocess_encode_ffmpeg(
     fps: float,
     encoder: str = "h264_nvenc",
     preset: str = "fast",
+    gpu_index: int = 0,
 ):
     # Define the input and output video parameters
     input_video = "input.mp4"
@@ -73,6 +74,8 @@ def subprocess_encode_ffmpeg(
         "-",  # Input comes from a pipe
         "-c:v",
         encoder,  # Encoder to use
+        "-gpu",
+        gpu_index, # Which GPU to use
         "-preset",
         preset,  # Encoding preset
         output_video,
@@ -98,7 +101,7 @@ def subprocess_encode_ffmpeg(
     process.wait()
 
 
-def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid"):
+def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid", gpu_index: int = 0):
     # Video parameters
     width, height = 1920, 1080  # Replace with your video's resolution
 
@@ -113,6 +116,8 @@ def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid"):
         "cuda",  # Output format for compatibility
         "-c:v",
         decoder,  # Specify the NVIDIA decoder for H.264
+        "-gpu",
+        gpu_index, # Which GPU to use
         "-i",
         input_video,  # Input file
         "-f",
