@@ -3,6 +3,7 @@ import os
 import uuid
 import numpy as np
 import subprocess
+from typing import Tuple
 
 
 class BasicVideoInfo:
@@ -75,7 +76,7 @@ def subprocess_encode_ffmpeg(
         "-c:v",
         encoder,  # Encoder to use
         "-gpu",
-        gpu_index, # Which GPU to use
+        gpu_index,  # Which GPU to use
         "-preset",
         preset,  # Encoding preset
         output_video,
@@ -101,7 +102,9 @@ def subprocess_encode_ffmpeg(
     process.wait()
 
 
-def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid", gpu_index: int = 0):
+def subprocess_decode_ffmpeg(
+    input_video: str, decoder: str = "h264_cuvid", gpu_index: int = 0
+):
     # Video parameters
     width, height = 1920, 1080  # Replace with your video's resolution
 
@@ -117,7 +120,7 @@ def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid", gpu_
         "-c:v",
         decoder,  # Specify the NVIDIA decoder for H.264
         "-gpu",
-        gpu_index, # Which GPU to use
+        gpu_index,  # Which GPU to use
         "-i",
         input_video,  # Input file
         "-f",
@@ -188,3 +191,99 @@ def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid", gpu_
 # // ... Code to encode and write frames ...
 
 # // ... Clean-up code ...
+
+# fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
+# if not is_cuda:
+#     # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
+#     # params = Sequence()
+#     self._output_video = cv2.VideoWriter(
+#         filename=self._output_video_path,
+#         # apiPreference=cv2.CAP_FFMPEG,
+#         # apiPreference=cv2.CAP_GSTREAMER,
+#         fourcc=fourcc,
+#         fps=self._fps,
+#         frameSize=(
+#             int(self._output_frame_width),
+#             int(self._output_frame_height),
+#         ),
+#         # params=[
+#         #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+#         #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
+#         # ],
+#     )
+
+
+class VideoWriter:
+    def __init__(
+        self,
+        filename: str,
+        fps: float,
+        frameSize: Tuple[int],
+        isColor: bool = True,
+        encoder: str = "hevc_nvenc",
+        preset: str = "fast",
+        gpu_index: int = 0,
+        fake_write: bool = False,
+    ):
+        self._output_file = filename
+        self._fps = fps
+        self._frame_size = frameSize
+        self._is_color = isColor
+        self._is_openned = False
+        self._preset = preset
+        self._encoder = encoder
+        self._process = None
+        self._gpu_index = gpu_index
+        self._fake_write = fake_write
+        self._open()
+
+    def isOpened(self) -> bool:
+        return self._is_openned
+
+    def _open(self):
+        assert self._process is None
+        # FFmpeg subprocess command with NVENC encoder
+        command = [
+            "ffmpeg",
+            "-y",  # Overwrite output file if it exists
+            "-f",
+            "rawvideo",  # Input format is raw video
+            "-vcodec",
+            "rawvideo",  # Input codec is raw video
+            "-s",
+            f"{self._frame_size[0]}x{self._frame_size[1]}",  # Size of the input frames
+            "-pix_fmt",
+            "bgr24",  # OpenCV's default pixel format
+            "-r",
+            str(self._fps),  # Frame rate
+            "-i",
+            "-",  # Input comes from a pipe
+            "-c:v",
+            self._encoder,  # Encoder to use
+            "-gpu",
+            str(self._gpu_index),  # Which GPU to use
+            "-preset",
+            self._preset,  # Encoding preset
+            self._output_file,
+        ]
+
+        # Open the subprocess
+        self._process = subprocess.Popen(
+            command,
+            cwd=os.getcwd(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+        )
+        self._is_openned = True
+
+    def __del__(self):
+        self.release()
+
+    def write(self, frame: np.array):
+        if not self._fake_write:
+            self._process.stdin.write(frame.tobytes())
+
+    def release(self):
+        if self._process is not None:
+            self._process.stdout.close()
+            self._process.wait()

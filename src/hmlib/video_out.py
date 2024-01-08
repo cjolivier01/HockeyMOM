@@ -31,6 +31,7 @@ from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
+from hmlib.ffmpeg import VideoWriter as FFMPegVideoWriter
 
 from hmlib.utils.box_functions import (
     center,
@@ -402,23 +403,34 @@ class VideoOutput:
             if not is_cuda:
                 # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
                 # params = Sequence()
-                self._output_video = cv2.VideoWriter(
-                    filename=self._output_video_path,
-                    # apiPreference=cv2.CAP_FFMPEG,
-                    # apiPreference=cv2.CAP_GSTREAMER,
-                    fourcc=fourcc,
-                    fps=self._fps,
-                    frameSize=(
-                        int(self._output_frame_width),
-                        int(self._output_frame_height),
-                    ),
-                    # params=[
-                    #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-                    #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-                    # ],
-                )
+                if False:
+                    self._output_video = FFMPegVideoWriter(
+                        filename=self._output_video_path,
+                        fps=self._fps,
+                        frameSize=(
+                            int(self._output_frame_width),
+                            int(self._output_frame_height),
+                        ),
+                        fake_write=False,
+                    )
+                else:
+                    self._output_video = cv2.VideoWriter(
+                        filename=self._output_video_path,
+                        # apiPreference=cv2.CAP_FFMPEG,
+                        # apiPreference=cv2.CAP_GSTREAMER,
+                        fourcc=fourcc,
+                        fps=self._fps,
+                        frameSize=(
+                            int(self._output_frame_width),
+                            int(self._output_frame_height),
+                        ),
+                        # params=[
+                        #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+                        #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
+                        # ],
+                    )
+                    self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
                 assert self._output_video.isOpened()
-                self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
             else:
                 self._output_video = cv2.cudacodec.VideoWriter(
                     filename=self._output_video_path,
