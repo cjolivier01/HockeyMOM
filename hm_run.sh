@@ -13,14 +13,11 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb-1"
+#VIDEO="${HOME}/Videos/tvbb-1"
 
-#GAME_ID="sharksbb1-1"
-GAME_ID="tvbb-1"
+GAME_ID="sharks-bb3-1"
 
-#TEST_SIZE_ARG="--test-size=200x520"
 TEST_SIZE_ARG="--test-size=300x780"
-#TEST_SIZE_ARG="--test-size=400x1040"
 
 START_FRAME=0
 #START_FRAME=1900
@@ -28,7 +25,7 @@ START_FRAME=0
 #START_FRAME=8730
 #START_FRAME=47000
 #START_FRAME=16890
-START_FRAME=25000
+#START_FRAME=25000
 #START_FRAME=47000
 
 #TRACKER="hm"

@@ -255,6 +255,7 @@ def configure_video_stitching(
     left_frame_offset: int = None,
     right_frame_offset: int = None,
     base_frame_offset: int = 800,
+    #base_frame_offset: int = 5580,
     audio_sync_seconds: int = 15,
 ):
     if left_frame_offset is None or right_frame_offset is None:
