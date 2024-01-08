@@ -344,9 +344,7 @@ class VideoOutput:
     def has_args(self):
         return self._args is not None
 
-    def crop_working_image_width(
-        self, image: torch.Tensor, current_box: torch.Tensor, scale: torch.Tensor
-    ):
+    def crop_working_image_width(self, image: torch.Tensor, current_box: torch.Tensor):
         """
         We try to only retain enough image to supply an arbitrary rotation
         about the center of the given bounding box with pixels,
@@ -500,7 +498,7 @@ class VideoOutput:
                 #
                 if True and self._args.crop_output_image:
                     online_im, current_box = self.crop_working_image_width(
-                        image=online_im, current_box=current_box, scale=1.2
+                        image=online_im, current_box=current_box
                     )
                     src_image_width = image_width(online_im)
                     src_image_height = image_height(online_im)
@@ -625,8 +623,10 @@ class VideoOutput:
 
             if imgproc_data.frame_id % 20 == 0:
                 logger.info(
-                    "Image Post-Processing {} frame {} ({:.2f} fps)".format(self._name,
-                        imgproc_data.frame_id, 1.0 / max(1e-5, timer.average_time)
+                    "Image Post-Processing {} frame {} ({:.2f} fps)".format(
+                        self._name,
+                        imgproc_data.frame_id,
+                        1.0 / max(1e-5, timer.average_time),
                     )
                 )
                 # timer = Timer()
