@@ -368,7 +368,7 @@ def main(exp, args, num_gpu):
                         assert len(offsets) == 2
                         args.rfo = offsets[1]
                     if args.lfo < 0:
-                        args.rfo += args.lfo
+                        args.rfo += -args.lfo
                         args.lfo = 0.0
                     assert args.lfo >= 0 and args.rfo >= 0
 
