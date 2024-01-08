@@ -84,10 +84,16 @@ class CMakeBuild(BuildExtension):
         cmake_args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE"]
         cmake_args += ["-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
         
-        cmake_args += ["-DCUDNN_INCLUDE_DIR=/usr/local/cudnn/include"]
-        cmake_args += ["-DCUDNN_INCLUDE_PATH=/usr/local/cudnn/include"]
-        cmake_args += ["-DCUDNN_LIBRARY=/usr/local/cudnn/lib/libcudnn.so"]
-        cmake_args += ["-DCUDNN_LIBRARY_PATH=/usr/local/cudnn/lib/libcudnn.so"]
+        cudnn_base_path = os.path.join(os.environ["HOME"], "cudnn")
+        if not os.path.exists(cudnn_base_path):
+            cudnn_base_path = "/usr/local/cudnn"
+            if not os.path.exists(cudnn_base_path):
+            	cudnn_base_path = "/usr/local/cuda"
+        if os.path.exists(cudnn_base_path):
+            cmake_args += [f"-DCUDNN_INCLUDE_DIR={cudnn_base_path}/include"]
+            cmake_args += [f"-DCUDNN_INCLUDE_PATH={cudnn_base_path}/include"]
+            cmake_args += [f"-DCUDNN_LIBRARY={cudnn_base_path}/lib/libcudnn.so"]
+            cmake_args += [f"-DCUDNN_LIBRARY_PATH={cudnn_base_path}/lib/libcudnn.so"]
 
 #        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
 #        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
