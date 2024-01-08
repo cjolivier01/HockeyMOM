@@ -157,3 +157,34 @@ def subprocess_decode_ffmpeg(input_video: str, decoder: str = "h264_cuvid", gpu_
     cv2.destroyAllWindows()
     process.stdout.close()
     process.wait()
+
+
+# C version
+
+# // ... Initialization code ...
+
+# // Find the hardware decoder
+# const AVCodec* decoder = avcodec_find_decoder_by_name("h264_cuvid");
+
+# // Create a context for the decoder and set any specific options
+# AVCodecContext* decoder_ctx = avcodec_alloc_context3(decoder);
+# // Set options on decoder_ctx as needed, for example, selecting a GPU
+
+# // Open the decoder
+# avcodec_open2(decoder_ctx, decoder, NULL);
+
+# // ... Code to read and decode frames ...
+
+# // Find the hardware encoder
+# const AVCodec* encoder = avcodec_find_decoder_by_name("h264_nvenc");
+
+# // Create a context for the encoder and set it up
+# AVCodecContext* encoder_ctx = avcodec_alloc_context3(encoder);
+# // Set any specific options for the encoder
+
+# // Open the encoder
+# avcodec_open2(encoder_ctx, encoder, NULL);
+
+# // ... Code to encode and write frames ...
+
+# // ... Clean-up code ...
