@@ -259,15 +259,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
     return parser
 
 
-# CLIP_BOXES = {
-#     "lbd3": [120, 360, 3785, 1660],
-#     "stockton2": [10, 375, 3900, 1590],
-#     "sharksbb1-1": [10, 375, 3900, 1590],
-#     "sharksbb1-2": [150, 300, 3800, 1350],
-#     "sharksbb1-2.1": [200, 400, 5400, 2000],
-# }
-
-
 def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
 
@@ -285,7 +276,6 @@ def to_32bit_mul(val):
     return int((val + 31)) & ~31
 
 
-# @logger.catch
 def main(exp, args, num_gpu):
     dataloader = None
     try:
@@ -297,7 +287,7 @@ def main(exp, args, num_gpu):
                 "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
             )
 
-        set_deterministic()
+        #set_deterministic()
 
         if not args.experiment_name:
             args.experiment_name = args.game_id
@@ -500,43 +490,10 @@ def main(exp, args, num_gpu):
                     original_image_only=args.tracker == "centertrack",
                 )
 
-            # from yolox.data import MOTDataset, ValTransform
-
-            # valdataset = MOTDataset(
-            #     data_dir=os.path.join(get_yolox_datadir(), "SportsMOT"),
-            #     json_file=self.val_ann,
-            #     img_size=self.test_size,
-            #     name='val', # change to train when running on training set
-            #     preproc=ValTransform(
-            #         rgb_means=(0.485, 0.456, 0.406),
-            #         std=(0.229, 0.224, 0.225),
-            #     ),
-            #     return_origin_img=return_origin_img,
-            # )
-
-            # if is_distributed:
-            #     #batch_size = batch_size // world_size
-            #     # sampler = torch.utils.data.distributed.DistributedSampler(
-            #     #     dataloader, shuffle=False
-            #     # )
-            #     assert False
-            # else:
-            #     sampler = torch.utils.data.SequentialSampler(dataloader)
-
-            # dataloader_kwargs = {
-            #     "num_workers": 1, # self.data_num_workers,
-            #     "pin_memory": True,
-            #     "sampler": sampler,
-            # }
-            # dataloader_kwargs["batch_size"] = args.batch_size
-            # dataloader = torch.utils.data.DataLoader(dataloader, **dataloader_kwargs)
-
         if dataloader is None:
             dataloader = exp.get_eval_loader(
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
-
-        # print(f"args.gpu_devices={args.gpu_devices}")
 
         if args.game_id:
             detection_device = torch.device("cuda", int(args.gpus[0]))
