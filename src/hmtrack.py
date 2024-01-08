@@ -369,7 +369,7 @@ def main(exp, args, num_gpu):
                         args.rfo = offsets[1]
                     if args.lfo < 0:
                         args.rfo += args.lfo
-                        args.rfo = 0.0
+                        args.lfo = 0.0
                     assert args.lfo >= 0 and args.rfo >= 0
 
         cam_args = DefaultArguments(

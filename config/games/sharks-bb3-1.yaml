@@ -5,7 +5,7 @@ game:
   away: "Sharks 10BB-3"
 
   stitching:
-    offsets: null
+    offsets: [-15.82431174267909, 0.0]
 
   clip_box: null
   boundaries:
