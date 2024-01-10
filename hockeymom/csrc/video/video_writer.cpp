@@ -17,12 +17,12 @@ AVRational make_rational(float value, bool reversed = false) {
   return avr;
 }
 
-AVFrame* tensorToAVFrame(at::Tensor& tensor) {
+unique_frame_ptr tensorToAVFrame(at::Tensor& tensor) {
   // Ensure tensor is in CPU memory and is contiguous
   tensor = tensor.to(at::kCPU).contiguous();
 
   // Create a new AVFrame
-  AVFrame* frame = av_frame_alloc();
+  unique_frame_ptr frame(av_frame_alloc());
   if (!frame) {
     // Handle error
     return nullptr;
@@ -35,9 +35,8 @@ AVFrame* tensorToAVFrame(at::Tensor& tensor) {
   frame->format = AV_PIX_FMT_RGB24; // Or another compatible format
 
   // Allocate buffer for frame data
-  if (av_frame_get_buffer(frame, 0) < 0) {
+  if (av_frame_get_buffer(frame.get(), 0) < 0) {
     // Handle error
-    av_frame_free(&frame);
     return nullptr;
   }
 
@@ -49,17 +48,17 @@ AVFrame* tensorToAVFrame(at::Tensor& tensor) {
   return frame;
 }
 
-struct FrameScope {
-  FrameScope(AVFrame* f) : f_(f) {}
-  ~FrameScope() {
-    if (f_) {
-      av_frame_free(&f_);
-    }
-  }
+// struct FrameScope {
+//   FrameScope(AVFrame* f) : f_(f) {}
+//   ~FrameScope() {
+//     if (f_) {
+//       av_frame_free(&f_);
+//     }
+//   }
 
- private:
-  AVFrame* f_;
-};
+//  private:
+//   AVFrame* f_;
+// };
 
 struct PacketScope {
   PacketScope(AVPacket* p) : p_(p) {}
@@ -173,13 +172,12 @@ absl::Status FFmpegVideoWriter::write(at::Tensor& tensor) {
         absl::StatusCode::kUnavailable, "Video is not open for writing");
   }
 
-  AVFrame* frame = tensorToAVFrame(tensor);
+  unique_frame_ptr frame = tensorToAVFrame(tensor);
   if (!frame) {
     return absl::Status(
         absl::StatusCode::kInternal,
         "Unable to convert tensor to a video frame");
   }
-  FrameScope fs(frame);
   if (frame->width != codec_context_->width ||
       frame->height != codec_context_->height) {
     return absl::Status(
@@ -188,7 +186,7 @@ absl::Status FFmpegVideoWriter::write(at::Tensor& tensor) {
   }
 
   // Send the frame for encoding
-  if (sendFrameToEncoder(frame) < 0) {
+  if (sendFrameToEncoder(frame.get()) < 0) {
     // Handle error
     return absl::Status(
         absl::StatusCode ::kInternal, "Error sending frame to encoder");
