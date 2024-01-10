@@ -101,8 +101,7 @@ target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
 target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
-
-# libtorch_python.so
+target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
 
 set_target_properties(
   hm PROPERTIES 

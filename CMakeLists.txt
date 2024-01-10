@@ -119,6 +119,31 @@ find_package(Threads REQUIRED)
 message(STATUS " CMAKE_THREAD_LIBS_INIT=${CMAKE_THREAD_LIBS_INIT}")
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 
+#
+# FFMpeg
+#
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(AVCODEC REQUIRED libavcodec)
+pkg_check_modules(AVFORMAT REQUIRED libavformat)
+pkg_check_modules(AVUTIL REQUIRED libavutil)
+pkg_check_modules(SWSCALE REQUIRED libswscale)
+
+# Include FFmpeg headers
+include_directories(${AVCODEC_INCLUDE_DIRS})
+include_directories(${AVFORMAT_INCLUDE_DIRS})
+include_directories(${AVUTIL_INCLUDE_DIRS})
+include_directories(${SWSCALE_INCLUDE_DIRS})
+
+set(FFMPEG_LIBS ${AVCODEC_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
+
+
+#
+# FFMpeg-
+#
+
+
+
 link_directories($ENV{CONDA_PREFIX}/lib)
 
 # find_package(
