@@ -1,4 +1,6 @@
 
+set(CMAKE_CXX_STANDARD 17)
+
 # Find the yaml-cpp package
 find_package(yaml-cpp REQUIRED)
 
@@ -20,6 +22,7 @@ set(
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
   csrc/pytorch/image_remap.cpp
+  csrc/video/video_writer.cpp
 )
 
 set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")

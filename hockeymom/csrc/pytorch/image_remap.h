@@ -3,8 +3,13 @@
 #include <ATen/ATen.h>
 
 #include <optional>
+#include <string>
 
 namespace hm {
+
+// template <typename T>
+// using Optional = std::optional<T>;
+
 namespace ops {
 
 struct RemapperConfig {
