@@ -3,7 +3,7 @@
 #include <libavutil/frame.h>
 
 namespace hm {
-
+namespace av {
 namespace {
 AVRational make_rational(float value, bool reversed = false) {
   // Ten decimal places
@@ -112,8 +112,8 @@ absl::Status FFmpegVideoWriter::open(
 
   // Set codec parameters
   codec_context_->bit_rate = 400000;
-  codec_context_->width = frame_size.width;
-  codec_context_->height = frame_size.height;
+  codec_context_->width = frame_size[0];
+  codec_context_->height = frame_size[1];
   codec_context_->time_base = make_rational(fps, /*reversed=*/true);
   codec_context_->framerate = make_rational(fps);
   codec_context_->gop_size = 10;
@@ -203,10 +203,6 @@ absl::Status FFmpegVideoWriter::write(at::Tensor& tensor) {
   return absl::OkStatus();
 }
 
-void FFmpegVideoWriter::flush() {
-  // avcodec_send_frame(nullptr);
-}
-
 int FFmpegVideoWriter::sendFrameToEncoder(AVFrame* frame) {
   int ret = avcodec_send_frame(codec_context_, frame);
   if (ret < 0) {
@@ -245,7 +241,7 @@ bool FFmpegVideoWriter::initializeSwsContext(Size frame_size, bool isColor) {
   return true;
 }
 
-void FFmpegVideoWriter::freeResources() {
+void FFmpegVideoWriter::close() {
   if (isOpened()) {
     sendFrameToEncoder(nullptr);
     writePacketToFile(pkt_);
@@ -268,91 +264,9 @@ void FFmpegVideoWriter::freeResources() {
   pkt_ = nullptr;
 }
 
-/*
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/opt.h>
+void FFmpegVideoWriter::freeResources() {
+  close();
 }
 
-int main() {
-    const char* filename = "output.mp4";
-    const AVCodec* codec;
-    AVCodecContext* c = nullptr;
-    int ret;
-    AVFormatContext* fmt_ctx = nullptr;
-    AVStream* video_st;
-
-    // Register all formats and codecs
-    avformat_network_init();
-
-    // Find the HEVC NVENC encoder
-    codec = avcodec_find_encoder_by_name("hevc_nvenc");
-    if (!codec) {
-        fprintf(stderr, "Codec 'hevc_nvenc' not found\n");
-        exit(1);
-    }
-
-    c = avcodec_alloc_context3(codec);
-    if (!c) {
-        fprintf(stderr, "Could not allocate video codec context\n");
-        exit(1);
-    }
-
-    // Set codec parameters
-    c->bit_rate = 400000;
-    c->width = 1920;
-    c->height = 1080;
-    c->time_base = (AVRational){1, 25};
-    c->framerate = (AVRational){25, 1};
-    c->gop_size = 10;
-    c->max_b_frames = 1;
-    c->pix_fmt = AV_PIX_FMT_CUDA;
-
-    // Open the codec
-    if (avcodec_open2(c, codec, nullptr) < 0) {
-        fprintf(stderr, "Could not open codec\n");
-        exit(1);
-    }
-
-    // Create and initialize a format context
-    avformat_alloc_output_context2(&fmt_ctx, nullptr, nullptr, filename);
-    if (!fmt_ctx) {
-        fprintf(stderr, "Could not create output context\n");
-        exit(1);
-    }
-
-    video_st = avformat_new_stream(fmt_ctx, nullptr);
-    if (!video_st) {
-        fprintf(stderr, "Could not create video stream\n");
-        exit(1);
-    }
-
-    video_st->time_base = c->time_base;
-    video_st->codecpar->codec_id = codec->id;
-    video_st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
-    video_st->codecpar->width = c->width;
-    video_st->codecpar->height = c->height;
-    video_st->codecpar->format = c->pix_fmt;
-
-    // Write file header
-    if (avformat_write_header(fmt_ctx, nullptr) < 0) {
-        fprintf(stderr, "Error occurred when opening output file\n");
-        exit(1);
-    }
-
-    // Here you would write your frames using avcodec_send_frame() and
-avcodec_receive_packet()
-
-    // Write file trailer
-    av_write_trailer(fmt_ctx);
-
-    // Clean up
-    avcodec_free_context(&c);
-    avformat_free_context(fmt_ctx);
-
-    return 0;
-}
-*/
-
+} // namespace av
 } // namespace hm

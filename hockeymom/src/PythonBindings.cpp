@@ -1,9 +1,9 @@
-//#include "hockeymom/csrc/camera/CamProps.h"
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
+#include "hockeymom/csrc/video/video_writer.h"
 
 #include <iostream>
 
@@ -163,6 +163,16 @@ PYBIND11_MODULE(_hockeymom, m) {
 
   using SortedPyArrayUin8Queue =
       hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
+
+  py::class_<
+      hm::av::FFmpegVideoWriter,
+      std::shared_ptr<hm::av::FFmpegVideoWriter>>(m, "FFmpegVideoWriter")
+      .def(py::init<>())
+      .def("open", &hm::av::FFmpegVideoWriter::open)
+      .def("isOpenned", &hm::av::FFmpegVideoWriter::isOpened)
+      .def("release", &hm::av::FFmpegVideoWriter::release)
+      .def("write", &hm::av::FFmpegVideoWriter::write_v);
+  ;
 
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
