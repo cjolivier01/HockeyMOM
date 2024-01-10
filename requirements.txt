@@ -28,9 +28,6 @@ lmdb
 loguru
 thop
 pycocotools
-ffmpeg
-libgstreamer-plugins-bad1.0i-dev
-libgstreamer-plugins-good1.0-dev
 sympy
 python-ipmi
 numba

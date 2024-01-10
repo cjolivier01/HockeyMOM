@@ -1,6 +1,9 @@
 #include "hockeymom/csrc/video/video_writer.h"
 
+extern "C" 
+{
 #include <libavutil/frame.h>
+}
 
 namespace hm {
 namespace av {
