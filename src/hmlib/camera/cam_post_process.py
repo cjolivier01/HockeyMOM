@@ -224,7 +224,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        self.plot_moving_boxes = True
+        # self.plot_moving_boxes = True
 
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
@@ -821,9 +821,6 @@ class CamTrackPostProcessor(torch.nn.Module):
             #     )
             #     self._video_output_boxtrack.append(imgproc_data)
 
-        if True:
-            return frame_id, online_im, self._current_roi_aspect.bounding_box()
-
         # assert width(current_box) <= hockey_mom.video.width
         # assert height(current_box) <= hockey_mom.video.height
 
@@ -893,6 +890,11 @@ class CamTrackPostProcessor(torch.nn.Module):
                 else:
                     print("Skipping modifying group x velocity")
                     pass
+
+
+        if True:
+            return frame_id, online_im, self._current_roi_aspect.bounding_box()
+
 
         #
         # HIJACK CURRENT ROI BOX POSITION

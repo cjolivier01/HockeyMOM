@@ -235,12 +235,14 @@ class VideoOutput:
         device: str = "cuda:1",
         name: str = "",
         simple_save: bool = False,
+        skip_final_save: bool = False,
     ):
         self._args = args
         self._device = device
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
+        self._skip_final_save = skip_final_save
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
         self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
@@ -360,7 +362,6 @@ class VideoOutput:
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
         min_width_per_side = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
-        # min_width_per_side = bbox_w * scale / 2
         clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side)
         clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side)
         image = image[:, int(clip_left) : int(clip_right), :]
@@ -392,10 +393,13 @@ class VideoOutput:
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
-        tv_resizer = None
         # The timer that reocrds the overall throughput
         final_all_timer = None
-        if self._output_video_path and self._output_video is None:
+        if (
+            self._output_video_path
+            and self._output_video is None
+            and not self._skip_final_save
+        ):
             # is_cuda = str(self._device).startswith("cuda")
             # I think it crashes if the size is off by even one pixed between frames?
             is_cuda = False
