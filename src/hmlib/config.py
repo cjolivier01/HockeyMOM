@@ -65,7 +65,7 @@ def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None
         if camera:
             camera_config = get_camera_config(camera=camera["name"], root_dir=root_dir)
     if rink is None:
-        rink = get_nested_value(game_config, "rink.name")
+        rink = get_nested_value(game_config, "game.rink")
         if rink:
             rink_config = get_rink_config(rink=rink, root_dir=root_dir)
     consolidated_config = recursive_update(consolidated_config, camera_config)

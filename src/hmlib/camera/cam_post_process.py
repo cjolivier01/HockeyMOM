@@ -224,7 +224,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = True
 
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
