@@ -2,6 +2,8 @@
 
 #include <ATen/ATen.h>
 
+#include <optional>
+
 namespace hm {
 namespace ops {
 
