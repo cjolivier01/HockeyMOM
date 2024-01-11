@@ -60,6 +60,7 @@ set(
   absl::base
   absl::flags
   absl::stacktrace
+  absl::status
   absl::symbolize
   absl::synchronization
   absl::str_format

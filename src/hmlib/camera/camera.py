@@ -7,14 +7,7 @@ from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
 import matplotlib.pyplot as plt
 
-# import pt_autograph as ptag
-
 import torch
-
-# import pt_autograph
-from pt_autograph import pt_function
-
-# import pt_autograph.flow.runner as runner
 
 from hmlib.utils.box_functions import (
     width,

@@ -496,11 +496,16 @@ def main(exp, args, num_gpu):
             )
 
         if args.game_id:
+            actual_device_count = torch.cuda.device_count()
+            while len(args.gpus) > actual_device_count:
+                del args.gpus[-1]
             detection_device = torch.device("cuda", int(args.gpus[0]))
             track_device = "cpu"
             video_out_device = "cpu"
             if len(args.gpus) > 1:
                 video_out_device = torch.device("cuda", int(args.gpus[1]))
+            else:
+                video_out_device = torch.device("cuda", int(args.gpus[0]))
             # if len(args.gpus) > 2:
             #     track_device = torch.device("cuda", int(args.gpus[2]))
         else:

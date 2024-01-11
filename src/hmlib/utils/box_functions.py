@@ -1,7 +1,5 @@
 import torch
 
-from pt_autograph import pt_function
-
 
 def tlwh_centers(tlwhs: torch.Tensor):
     """
