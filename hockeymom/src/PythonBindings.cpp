@@ -168,7 +168,14 @@ PYBIND11_MODULE(_hockeymom, m) {
       hm::av::FFmpegVideoWriter,
       std::shared_ptr<hm::av::FFmpegVideoWriter>>(m, "FFmpegVideoWriter")
       .def(py::init<>())
-      .def("open", &hm::av::FFmpegVideoWriter::open)
+      .def(
+          "open",
+          &hm::av::FFmpegVideoWriter::open,
+          py::arg("filename"),
+          py::arg("codec_name"),
+          py::arg("fps"),
+          py::arg("frame_size"),
+          py::arg("isColor"))
       .def("isOpenned", &hm::av::FFmpegVideoWriter::isOpened)
       .def("release", &hm::av::FFmpegVideoWriter::release)
       .def("write", &hm::av::FFmpegVideoWriter::write_v);

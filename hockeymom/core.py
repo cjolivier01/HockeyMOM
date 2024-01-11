@@ -21,6 +21,7 @@ from ._hockeymom import (
     ImageRemapper,
     SortedRGBImageQueue,
     SortedPyArrayUin8Queue,
+    FFmpegVideoWriter,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "ImageRemapper",
     "nona_process_images",
     "EnBlender",
+    "FFmpegVideoWriter",
 ]
 
 

@@ -32,6 +32,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
 from hmlib.ffmpeg import VideoWriter as FFMPegVideoWriter
+from hockeymom.core import FFmpegVideoWriter
 
 from hmlib.utils.box_functions import (
     center,
@@ -407,9 +408,10 @@ class VideoOutput:
             if not is_cuda:
                 # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
                 # params = Sequence()
-                if False:
-                    self._output_video = FFMPegVideoWriter(
+                if True:
+                    self._output_video = FFmpegVideoWriter(
                         filename=self._output_video_path,
+                        codec_name="hevc_nvenc",
                         fps=self._fps,
                         frameSize=(
                             int(self._output_frame_width),

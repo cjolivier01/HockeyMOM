@@ -1,6 +1,6 @@
 #include "hockeymom/csrc/video/video_writer.h"
 
-extern "C" 
+extern "C"
 {
 #include <libavutil/frame.h>
 }
@@ -35,7 +35,7 @@ unique_frame_ptr tensorToAVFrame(at::Tensor& tensor) {
   assert(tensor.size(0) == 3);
   frame->width = tensor.size(1); // Assuming tensor shape is [C, H, W]
   frame->height = tensor.size(2);
-  frame->format = AV_PIX_FMT_RGB24; // Or another compatible format
+  frame->format = AV_PIX_FMT_RGB24; // Or another compatible format``
 
   // Allocate buffer for frame data
   if (av_frame_get_buffer(frame.get(), 0) < 0) {
@@ -50,18 +50,6 @@ unique_frame_ptr tensorToAVFrame(at::Tensor& tensor) {
 
   return frame;
 }
-
-// struct FrameScope {
-//   FrameScope(AVFrame* f) : f_(f) {}
-//   ~FrameScope() {
-//     if (f_) {
-//       av_frame_free(&f_);
-//     }
-//   }
-
-//  private:
-//   AVFrame* f_;
-// };
 
 struct PacketScope {
   PacketScope(AVPacket* p) : p_(p) {}
