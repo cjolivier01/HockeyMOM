@@ -392,6 +392,10 @@ def main(exp, args, num_gpu):
                 else:
                     args.input_video = game_video_dir
 
+        actual_device_count = torch.cuda.device_count()
+        while len(args.gpus) > actual_device_count:
+            del args.gpus[-1]
+
         dataloader = None
         postprocessor = None
         if args.input_video:
@@ -496,9 +500,6 @@ def main(exp, args, num_gpu):
             )
 
         if args.game_id:
-            actual_device_count = torch.cuda.device_count()
-            while len(args.gpus) > actual_device_count:
-                del args.gpus[-1]
             detection_device = torch.device("cuda", int(args.gpus[0]))
             track_device = "cpu"
             video_out_device = "cpu"

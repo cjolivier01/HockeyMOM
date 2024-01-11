@@ -542,6 +542,12 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._video_output_campp.start()
 
         if self._args.crop_output_image and self._save_dir is not None:
+            
+            def _vid_out_device():
+                if torch.cuda.device_count() > 1:
+                    return "cuda:1"
+                return "cuda"
+            
             self._video_output_boxtrack = VideoOutput(
                 name="BOXTRACK",
                 args=self._args,
@@ -563,6 +569,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                 )
                 if self._args.use_watermark
                 else None,
+                device=_vid_out_device(),
             )
             self._video_output_boxtrack.start()
 
