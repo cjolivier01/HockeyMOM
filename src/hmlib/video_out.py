@@ -27,6 +27,7 @@ from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
+from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
@@ -39,6 +40,20 @@ from hmlib.utils.box_functions import (
     width,
     height,
 )
+
+
+def make_visible_image(img, enabled: bool = True):
+    if not enabled:
+        return img
+    width = image_width(img)
+    vis_w = get_complete_monitor_width()
+    if vis_w and width and width > vis_w:
+        height = image_height(img)
+        ar = width / height
+        new_w = vis_w * 0.9
+        new_h = vis_w / ar
+        return resize_image(img, new_width=int(new_w), new_height=int(new_h))
+    return img
 
 
 def image_width(img):
@@ -236,7 +251,7 @@ class VideoOutput:
         device: str = "cuda:1",
         name: str = "",
         simple_save: bool = False,
-        skip_final_save: bool = False,
+        skip_final_save: bool = True,
     ):
         self._args = args
         self._device = device
@@ -408,7 +423,7 @@ class VideoOutput:
             if not is_cuda:
                 # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
                 # params = Sequence()
-                if True:
+                if False:
                     self._output_video = FFmpegVideoWriter(
                         filename=self._output_video_path,
                         codec_name="hevc_nvenc",
@@ -617,7 +632,8 @@ class VideoOutput:
                 and imgproc_data.frame_id >= skip_frames_before_show
             ):
                 if imgproc_data.frame_id % show_image_interval == 0:
-                    cv2.imshow("online_im", online_im)
+                    visual = make_visible_image(online_im, enabled=True)
+                    cv2.imshow("online_im", visual)
                     cv2.waitKey(1)
 
             if plot_interias:

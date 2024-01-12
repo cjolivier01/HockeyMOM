@@ -1,5 +1,6 @@
 cython
 numpy==1.23.5
+screeninfo
 yacs
 moviepy
 opencv-python
