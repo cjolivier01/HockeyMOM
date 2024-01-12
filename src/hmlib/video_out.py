@@ -47,7 +47,7 @@ def make_visible_image(img, enabled: bool = True):
     if vis_w and width and width > vis_w:
         height = image_height(img)
         ar = width / height
-        new_w = vis_w * 0.5
+        new_w = vis_w * 0.7
         new_h = new_w / ar
         return resize_image(img, new_width=int(new_w), new_height=int(new_h))
     return img
