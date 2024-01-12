@@ -14,9 +14,6 @@ import queue
 import PIL
 from typing import List, Tuple
 
-from pathlib import Path
-import collections
-
 import torch
 import torchvision as tv
 
@@ -50,8 +47,8 @@ def make_visible_image(img, enabled: bool = True):
     if vis_w and width and width > vis_w:
         height = image_height(img)
         ar = width / height
-        new_w = vis_w * 0.9
-        new_h = vis_w / ar
+        new_w = vis_w * 0.5
+        new_h = new_w / ar
         return resize_image(img, new_width=int(new_w), new_height=int(new_h))
     return img
 

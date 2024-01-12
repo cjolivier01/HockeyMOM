@@ -43,6 +43,7 @@ def to_cv2(image):
 
 
 def resize_image(image, max_size=800):
+    assert False # wth
     if max(image.shape[:2]) > max_size:
         scale = float(max_size) / max(image.shape[:2])
         image = cv2.resize(image, None, fx=scale, fy=scale)
