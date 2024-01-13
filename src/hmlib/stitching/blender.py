@@ -11,7 +11,10 @@ import cv2
 import torch
 import torch.nn.functional as F
 
-from hmlib.stitch_synchronize import get_image_geo_position
+# import torchaudio
+# from torchaudio import StreamWriter
+
+# from hmlib.stitch_synchronize import get_image_geo_position
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
@@ -240,7 +243,12 @@ def blend_video(
     output_video: str = None,
     max_width: int = 7680,
     rotation_angle: int = 0,
+    output_file: str = None,
+    batch_size: int = 8,
+    device: torch.device = torch.device("cuda"),
 ):
+    stream_writer = None
+
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(
@@ -258,9 +266,6 @@ def blend_video(
     else:
         if rfo or start_frame_number:
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
-
-    device = "cuda"
-    batch_size = 8
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -346,14 +351,18 @@ def blend_video(
                     max_width=max_width,
                 )
                 if video_out is None:
-                    video_out = VideoOutput(
-                        args=None,
-                        output_video_path=output_video,
-                        output_frame_width=video_dim_width,
-                        output_frame_height=video_dim_height,
-                        fps=cap_1.get(cv2.CAP_PROP_FPS),
-                        device=blended.device,
-                    )
+                    if False:
+                        video_out = StreamWriter(output_video)
+                        video_out.add_video_stream()
+                    else:
+                        video_out = VideoOutput(
+                            args=None,
+                            output_video_path=output_video,
+                            output_frame_width=video_dim_width,
+                            output_frame_height=video_dim_height,
+                            fps=cap_1.get(cv2.CAP_PROP_FPS),
+                            device=blended.device,
+                        )
                 if (
                     video_dim_height != blended.shape[-2]
                     or video_dim_width != blended.shape[-1]
@@ -448,6 +457,7 @@ def main(args):
             start_frame_number=0,
             output_video="stitched_output.avi",
             rotation_angle=args.rotation_angle,
+            batch_size=1,
         )
 
 
