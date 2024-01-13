@@ -11,10 +11,8 @@ import cv2
 import torch
 import torch.nn.functional as F
 
-# import torchaudio
-# from torchaudio import StreamWriter
-
-# from hmlib.stitch_synchronize import get_image_geo_position
+import torchaudio
+from torchaudio.io import StreamWriter
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
@@ -24,8 +22,6 @@ from hmlib.video_out import make_visible_image
 from hmlib.stitching.remapper import (
     ImageRemapper,
     read_frame_batch,
-    pad_tensor_to_size,
-    pad_tensor_to_size_batched,
 )
 
 ROOT_DIR = os.getcwd()
@@ -351,16 +347,24 @@ def blend_video(
                     max_width=max_width,
                 )
                 if video_out is None:
-                    if False:
+                    fps = cap_1.get(cv2.CAP_PROP_FPS)
+                    if True:
                         video_out = StreamWriter(output_video)
-                        video_out.add_video_stream()
+                        video_out.add_video_stream(
+                            frame_rate=fps,
+                            height=video_dim_height,
+                            width=video_dim_width,
+                            format="rgb24",
+                            encoder="hevc_nvenc",
+                        )
+                        video_f = video_out.open()
                     else:
                         video_out = VideoOutput(
                             args=None,
                             output_video_path=output_video,
                             output_frame_width=video_dim_width,
                             output_frame_height=video_dim_height,
-                            fps=cap_1.get(cv2.CAP_PROP_FPS),
+                            fps=fps,
                             device=blended.device,
                         )
                 if (
@@ -373,20 +377,25 @@ def blend_video(
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
-                        video_out.append(
-                            ImageProcData(
-                                frame_id=frame_id,
-                                img=resized.contiguous().cpu(),
-                                current_box=None,
+                        if isinstance(video_out, StreamWriter):
+                            video_f.write_video_chunk(
+                                i=frame_id,
+                                chunk=resized,
                             )
-                        )
+                        else:
+                            video_out.append(
+                                ImageProcData(
+                                    frame_id=frame_id,
+                                    img=resized.contiguous().cpu(),
+                                    current_box=None,
+                                )
+                            )
                         frame_id += 1
                 else:
                     my_blended = blended.permute(0, 2, 3, 1)
                     if rotation_angle:
                         my_blended = rotate_image(
                             img=my_blended,
-                            # angle=-25,
                             angle=rotation_angle,
                             rotation_point=(
                                 my_blended.shape[-2] // 2,
@@ -402,13 +411,19 @@ def blend_video(
                             cv2.waitKey(1)
                     cpu_blended_image = my_blended.contiguous().cpu()
                     for i in range(len(cpu_blended_image)):
-                        video_out.append(
-                            ImageProcData(
-                                frame_id=frame_id,
-                                img=cpu_blended_image[i],
-                                current_box=None,
+                        if isinstance(video_out, StreamWriter):
+                            video_f.write_video_chunk(
+                                i=frame_id,
+                                chunk=resized,
                             )
-                        )
+                        else:
+                            video_out.append(
+                                ImageProcData(
+                                    frame_id=frame_id,
+                                    img=cpu_blended_image[i],
+                                    current_box=None,
+                                )
+                            )
                         frame_id += 1
             else:
                 pass
@@ -439,7 +454,11 @@ def blend_video(
             timer.tic()
     finally:
         if video_out is not None:
-            video_out.stop()
+            if isinstance(video_out, StreamWriter):
+                video_f.flush()
+                video_f.close()
+            else:
+                video_out.stop()
 
 
 def main(args):
