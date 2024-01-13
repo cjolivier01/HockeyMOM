@@ -47,7 +47,7 @@ SET(BUILD_DOCS OFF)
 SET(BUILD_OPENEXR ON)
 
 # Mine
-SET(CUDA_NVCC_FLAGS "-Xcompiler ,\"-std=c++14\"")
+SET(CUDA_NVCC_FLAGS "-Xcompiler,\"-std=c++14\"")
 
 # SET(CMAKE_C_COMPILER gcc)
 # SET(CMAKE_CXX_COMPILER g++)
