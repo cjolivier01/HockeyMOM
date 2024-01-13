@@ -2,6 +2,8 @@
 
 #include <torch/nn/functional.h>
 
+#include <iostream>
+
 namespace hm {
 namespace ops {
 
