@@ -83,6 +83,8 @@ class ClusterMan:
 
     def calculate_all_clusters(self, center_points: torch.Tensor, ids: torch.Tensor):
         self.reset_clusters()
+        if ids.device != self._device:
+            ids = ids.to(self._device)
         for cluster_snapshot in self.cluster_snapshots.values():
             cluster_snapshot.calculate(center_points=center_points, ids=ids)
 
