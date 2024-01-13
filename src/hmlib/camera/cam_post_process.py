@@ -224,7 +224,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
-        # self.plot_moving_boxes = True
+        self.plot_moving_boxes = True
 
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
@@ -542,12 +542,12 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._video_output_campp.start()
 
         if self._args.crop_output_image and self._save_dir is not None:
-            
+
             def _vid_out_device():
                 if torch.cuda.device_count() > 1:
                     return "cuda:1"
                 return "cuda"
-            
+
             self._video_output_boxtrack = VideoOutput(
                 name="BOXTRACK",
                 args=self._args,

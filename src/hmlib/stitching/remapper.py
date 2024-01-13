@@ -130,7 +130,7 @@ class ImageRemapper:
         channels: int = 3,
         add_alpha_channel: bool = False,
         fake_remapping: bool = False,
-        use_cpp_remap_op: bool = True,
+        use_cpp_remap_op: bool = False,
     ):
         assert len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
@@ -377,7 +377,7 @@ def main(args):
         "mapping_0000",
         # interpolation="bilinear",
         interpolation="",
-        show=False,
+        show=True,
     )
 
 

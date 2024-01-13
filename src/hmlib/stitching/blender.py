@@ -16,6 +16,7 @@ from hmlib.stitch_synchronize import get_image_geo_position
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
+from hmlib.video_out import make_visible_image
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -332,9 +333,6 @@ def blend_video(
                     xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
                 )
                 blender.init()
-                # if show:
-                #     cv2.imshow("blended", blended)
-                #     cv2.waitKey(1)
 
             blended = blender.forward(
                 image_1=destination_tensor_1,
@@ -386,11 +384,13 @@ def blend_video(
                                 my_blended.shape[-3] // 2,
                             ),
                         )
-                    cv2.imshow(
-                        "stitched",
-                        my_blended[0].contiguous().cpu().numpy(),
-                    )
-                    cv2.waitKey(1)
+                    if show:
+                        for img in my_blended:
+                            cv2.imshow(
+                                "stitched",
+                                make_visible_image(img).contiguous().cpu().numpy(),
+                            )
+                            cv2.waitKey(1)
                     cpu_blended_image = my_blended.contiguous().cpu()
                     for i in range(len(cpu_blended_image)):
                         video_out.append(
@@ -402,7 +402,6 @@ def blend_video(
                         )
                         frame_id += 1
             else:
-                # blended.cpu()
                 pass
 
             frame_count += 1
@@ -422,7 +421,7 @@ def blend_video(
                 for i in range(len(blended)):
                     cv2.imshow(
                         "stitched",
-                        make_cv_compatible_tensor(blended[i]),
+                        make_visible_image(make_cv_compatible_tensor(blended[i])),
                     )
                     cv2.waitKey(1)
 
@@ -444,7 +443,7 @@ def main(args):
             "mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
-            interpolation="bilinear",
+            # interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
             output_video="stitched_output.avi",
