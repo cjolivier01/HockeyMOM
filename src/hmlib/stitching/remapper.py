@@ -318,15 +318,14 @@ def remap_video(
     basename: str,
     interpolation: str = None,
     show: bool = False,
+    batch_size: int = 1,
+    device: torch.device = torch.device("cuda"),
 ):
     cap = cv2.VideoCapture(os.path.join(dir_name, video_file))
     if not cap or not cap.isOpened():
         raise AssertionError(
             f"Could not open video file: {os.path.join(dir_name, video_file)}"
         )
-
-    device = "cuda"
-    batch_size = 1
 
     source_tensor = read_frame_batch(cap, batch_size=batch_size)
 
@@ -362,7 +361,8 @@ def remap_video(
         if show:
             for i in range(len(destination_tensor)):
                 cv2.imshow(
-                    "mapped image", destination_tensor[i].permute(1, 2, 0).numpy(),
+                    "mapped image",
+                    destination_tensor[i].permute(1, 2, 0).numpy(),
                 )
                 cv2.waitKey(1)
 
