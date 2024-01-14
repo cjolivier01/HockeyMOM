@@ -245,10 +245,10 @@ class VideoOutput:
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        device: str = "cuda:1",
+        device: str = "cuda:0",
         name: str = "",
         simple_save: bool = False,
-        skip_final_save: bool = True,
+        skip_final_save: bool = False,
     ):
         self._args = args
         self._device = device
