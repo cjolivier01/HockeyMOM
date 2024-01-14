@@ -348,7 +348,7 @@ def blend_video(
                 )
                 if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
-                    if True:
+                    if False:
                         video_out = StreamWriter(output_video)
                         video_out.add_video_stream(
                             frame_rate=fps,
@@ -409,14 +409,18 @@ def blend_video(
                                 make_visible_image(img).contiguous().cpu().numpy(),
                             )
                             cv2.waitKey(1)
-                    cpu_blended_image = my_blended.contiguous().cpu()
-                    for i in range(len(cpu_blended_image)):
+                    cpu_blended_image = None
+                    for i in range(len(my_blended)):
                         if isinstance(video_out, StreamWriter):
                             video_f.write_video_chunk(
-                                i=frame_id,
-                                chunk=resized,
+                                i=0,
+                                chunk=my_blended.permute(0, 3, 1, 2).contiguous().cpu(),
                             )
+                            frame_id += batch_size
+                            break
                         else:
+                            if cpu_blended_image is None:
+                                cpu_blended_image = my_blended.contiguous().cpu()
                             video_out.append(
                                 ImageProcData(
                                     frame_id=frame_id,
