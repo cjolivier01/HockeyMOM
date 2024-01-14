@@ -4,6 +4,9 @@ import numpy as np
 
 import os
 
+import torch
+import torch.nn.functional as F
+
 import numpy as np
 
 from typing import List
@@ -13,6 +16,7 @@ import tifffile
 
 from hockeymom import core
 
+
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ffmpeg import extract_frame_image
 
@@ -20,7 +24,6 @@ from hmlib.ffmpeg import extract_frame_image
 MULTIBLEND_BIN = os.path.join(
     os.environ["HOME"], "src", "multiblend", "src", "multiblend"
 )
-
 
 
 #
@@ -42,7 +45,11 @@ MULTIBLEND_BIN = os.path.join(
 
 
 def synchronize_by_audio(
-    file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False
+    file0_path: str,
+    file1_path: str,
+    seconds: int = 15,
+    create_new_clip: bool = False,
+    device: torch.device = "cpu",
 ):
     # Load the videos
     print("Openning videos...")
@@ -65,8 +72,22 @@ def synchronize_by_audio(
 
     # Calculate the cross-correlation of audio1 and audio2
     print("Calculating cross-correlation...")
-    correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
-    lag = np.argmax(correlation) - len(audio1) + 1
+    if device is None:
+        correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        lag = np.argmax(correlation) - len(audio1) + 1
+    else:
+        audio1 = torch.from_numpy(audio1[:,0]).unsqueeze(0).unsqueeze(0).to(device)
+        audio2 = torch.from_numpy(audio2[:,0]).unsqueeze(0).unsqueeze(0).to(device)
+
+        # Compute correlation using convolution
+        # The 'groups' argument ensures a separate convolution for each batch
+        correlation = F.conv1d(
+            audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1
+        )
+
+        # Remove added dimensions to get the final 1D correlation tensor
+        correlation = correlation.squeeze()
+        lag, idx = torch.argmax(correlation) - len(audio1) + 1
 
     # Calculate the time offset in seconds
     fps = video0.fps
@@ -274,7 +295,7 @@ def configure_video_stitching(
     left_frame_offset: int = None,
     right_frame_offset: int = None,
     base_frame_offset: int = 800,
-    #base_frame_offset: int = 5580,
+    # base_frame_offset: int = 5580,
     audio_sync_seconds: int = 15,
 ):
     if left_frame_offset is None or right_frame_offset is None:
