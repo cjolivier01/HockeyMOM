@@ -22,6 +22,25 @@ MULTIBLEND_BIN = os.path.join(
 )
 
 
+
+#
+# import torch
+# import torch.nn.functional as F
+
+# Assuming audio1 and audio2 are your 1D audio tensors
+# Add batch and channel dimensions (shape: [1, 1, L])
+# audio1 = audio1.unsqueeze(0).unsqueeze(0)
+# audio2 = audio2.unsqueeze(0).unsqueeze(0)
+
+# Compute correlation using convolution
+# The 'groups' argument ensures a separate convolution for each batch
+# correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1)-1, groups=1)
+
+# Remove added dimensions to get the final 1D correlation tensor
+# correlation = correlation.squeeze()
+#
+
+
 def synchronize_by_audio(
     file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False
 ):
