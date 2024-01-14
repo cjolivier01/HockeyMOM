@@ -49,7 +49,7 @@ def synchronize_by_audio(
     file1_path: str,
     seconds: int = 15,
     create_new_clip: bool = False,
-    device: torch.device = "cpu",
+    device: torch.device = None,
 ):
     # Load the videos
     print("Openning videos...")
