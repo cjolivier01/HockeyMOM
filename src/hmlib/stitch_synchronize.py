@@ -1,7 +1,7 @@
 import os
 import moviepy.editor as mp
 import numpy as np
-
+import scipy
 import os
 
 import torch
@@ -73,11 +73,12 @@ def synchronize_by_audio(
     # Calculate the cross-correlation of audio1 and audio2
     print("Calculating cross-correlation...")
     if device is None:
-        correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        # correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        correlation = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
         lag = np.argmax(correlation) - len(audio1) + 1
     else:
-        audio1 = torch.from_numpy(audio1[:,0]).unsqueeze(0).unsqueeze(0).to(device)
-        audio2 = torch.from_numpy(audio2[:,0]).unsqueeze(0).unsqueeze(0).to(device)
+        audio1 = torch.from_numpy(audio1[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+        audio2 = torch.from_numpy(audio2[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
 
         # Compute correlation using convolution
         # The 'groups' argument ensures a separate convolution for each batch
