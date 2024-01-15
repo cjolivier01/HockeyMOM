@@ -449,7 +449,7 @@ def main(exp, args, num_gpu):
                     max_frames=args.max_frames,
                     num_workers=1,
                     blend_thread_count=2,
-                    remap_thread_count=1,
+                    remap_thread_count=4,
                     fork_workers=False,
                     image_roi=None,
                 )
