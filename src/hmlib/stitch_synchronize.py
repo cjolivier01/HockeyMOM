@@ -369,6 +369,6 @@ if __name__ == "__main__":
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/sharks-bb3-1/left.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/sharks-bb3-1/right.mp4",
+        file0_path=f"{os.environ['HOME']}/Videos/jrmocks/left.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/jrmocks/right.mp4",
     )
