@@ -164,6 +164,7 @@ class StitchDataset:
         frame_stride_count: int,
         max_frames: int,
         max_input_queue_size: int,
+        remapping_device: torch.device,
     ):
         stitching_worker = StitchingWorker(
             rank=rank,
@@ -180,6 +181,7 @@ class StitchDataset:
             frame_stride_count=frame_stride_count,
             multiprocessingt_queue=self._fork_workers,
             device=self._device,
+            remapping_device=remapping_device,
         )
         return stitching_worker
 
@@ -351,6 +353,7 @@ class StitchDataset:
                     max_input_queue_size=int(
                         self._max_input_queue_size / self._num_workers + 1
                     ),
+                    remapping_device=torch.device("cuda", 0), # TODO: pass in
                 )
                 self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()

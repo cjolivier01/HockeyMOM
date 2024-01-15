@@ -242,8 +242,8 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     frame->remapped_images.at(1)->set_xy_pos(12, 255);
 #else
     // Timer stuff
-    const bool is_first_timed = remap_inner_.count() == 0;
-    remap_inner_.tic();
+    //const bool is_first_timed = remap_inner_.count() == 0;
+    //remap_inner_.tic();
 
     // The actual work
     if (!frame->torch_input_images.empty()) {
@@ -286,16 +286,16 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
 
     // More timer stuff
     // double outer_remap_fps = 0.0;
-    remap_inner_.toc();
+    //remap_inner_.toc();
     // if (!is_first_timed) {
     //   remap_outer_.toc();
     //   outer_remap_fps = remap_outer_.fps();
     // }
     // remap_outer_.tic();
-    if ((remap_inner_.count() % kPrintInterval) == 0) {
-      std::cout << remap_inner_ << std::endl;
+    //if ((remap_inner_.count() % kPrintInterval) == 0) {
+      //std::cout << remap_inner_ << std::endl;
       //remap_inner_.reset();
-    }
+    //}
     // if (outer_remap_fps != 0.0 &&
     //     (remap_outer_.count() % kPrintInterval) == 0) {
     //   std::cout << remap_outer_ << std::endl;
@@ -303,9 +303,9 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     // }
 
 #endif
-  } catch (...) {
-    std::cerr << "Caught exception" << std::endl;
-    assert(false);
+  } catch (std::exception e) {
+    std::cerr << "Caught exception: " << e.what() << std::endl;
+    throw;
   }
   return frame;
 }
