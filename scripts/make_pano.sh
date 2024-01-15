@@ -18,7 +18,7 @@ autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
 # Remap the images
 #nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
 #nona -m TIFF_m -z NONE --bigtiff -o nona my_project.pto
-nona -m TIFF_m -o nona autooptimiser_out.pto
+
 #nona -m TIFF_m -o nona my_project.pto
 
 #echo "Making mapping files..."
