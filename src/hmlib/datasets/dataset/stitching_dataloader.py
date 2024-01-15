@@ -72,7 +72,7 @@ class StitchDataset:
         video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 50,
+        max_input_queue_size: int = 20,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         max_frames: int = None,
