@@ -1,11 +1,10 @@
 game:
-  name: "jrmocks"
+  name: "queens"
   rink: "orlando_ice_den"
   home: "Queens Something"
   away: "Cougars"
-  clip_box: null  
+  clip_box: null
   boundaries:
-    upper:
+   upper:
    lower:
-
 
