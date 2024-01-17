@@ -25,3 +25,5 @@ rink:
     cam_ignore_largest: false
   camera:
     fixed_edge_scaling_factor: 0.8
+    # Comes in a little yellowish
+    image_channel_adjustment: [0.9, 0.9, 1.0]
