@@ -2,7 +2,7 @@ import traceback
 import multiprocessing
 import threading
 import numpy as np
-from typing import List
+from typing import List, Tuple
 
 import cv2
 import torch
@@ -33,6 +33,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         multi_width_img_info: bool = True,
         embedded_data_loader=None,
         original_image_only: bool = False,
+        image_channel_adjustment: Tuple[float, float, float] = None,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -50,6 +51,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._original_image_only = original_image_only
         self.width_t = None
         self.height_t = None
+        self._image_channel_adjustment = image_channel_adjustment
+        self._scale_color_tensor = None
         self._count = torch.tensor([0], dtype=torch.int32)
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
@@ -74,6 +77,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if isinstance(self.clip_original, (list, tuple)):
                 if not any(item is not None for item in self.clip_original):
                     self.clip_original = None
+
+        if self._image_channel_adjustment:
+            assert len(self._image_channel_adjustment) == 3
 
         self._open_video()
         self._close_video()
@@ -182,6 +188,19 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             except StopIteration:
                 return False, None
 
+    def maybe_scale_image_colors(self, image: torch.Tensor):
+        if not self._image_channel_adjustment:
+            return image
+        if self._scale_color_tensor is None:
+            self._scale_color_tensor = torch.tensor(
+                self._image_channel_adjustment, dtype=torch.float32, device=image.device
+            )
+            self._scale_color_tensor = self._scale_color_tensor.view(1, 2, 3)
+        image = torch.clamp(
+            image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+        ).to(torch.uint8)
+        return image
+
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
         # Offset the boxes
         if self._mapping_offset is None:
@@ -236,6 +255,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
+            img0 = self.maybe_scale_image_colors(image=img0)
 
             if not self._original_image_only:
                 (
