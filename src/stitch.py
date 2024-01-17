@@ -151,7 +151,11 @@ def stitch_videos(
         frame_count += 1
 
         if show:
-            show_image(stitched_image, wait=True)
+            # stitched_image = torch.from_numpy(stitched_image).to(torch.float32)
+            # stitched_image[:,:,0:1] *= 1.2
+            # stitched_image[:,:,1:3] *= 0.8
+            # stitched_image = torch.clamp(stitched_image, min=0, max=255).to(torch.uint8).numpy()
+            show_image(stitched_image, wait=False)
 
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
@@ -308,7 +312,7 @@ def main(args):
             rfo=args.rfo,
             project_file_name=args.project_file,
             game_id=args.game_id,
-            show=False,
+            show=True,
         )
 
 
