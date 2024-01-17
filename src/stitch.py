@@ -312,7 +312,7 @@ def main(args):
             rfo=args.rfo,
             project_file_name=args.project_file,
             game_id=args.game_id,
-            show=True,
+            show=False,
         )
 
 
