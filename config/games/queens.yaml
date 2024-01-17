@@ -1,0 +1,11 @@
+game:
+  name: "jrmocks"
+  rink: "orlando_ice_den"
+  home: "Queens Something"
+  away: "Cougars"
+  clip_box: null  
+  boundaries:
+    upper:
+   lower:
+
+

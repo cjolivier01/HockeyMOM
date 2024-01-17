@@ -15,7 +15,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
 #VIDEO="${HOME}/Videos/tvbb-1"
 
-GAME_ID="jrmocks"
+GAME_ID="queens"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
