@@ -527,6 +527,18 @@ class MovingBox(ResizingBox):
         # if use_constraints:
         #     self._clamp_speed()
 
+    def scale_speed(
+        self,
+        ratio_x: torch.Tensor = None,
+        ratio_y: torch.Tensor = None,
+    ):
+        if ratio_x is not None:
+            self._current_speed_x *= ratio_x
+
+        if ratio_y is not None:
+            self._current_speed_y += ratio_y
+
+
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """
         We try to go to the given box's position, given

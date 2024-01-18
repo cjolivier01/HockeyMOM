@@ -241,7 +241,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        #self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
@@ -754,7 +754,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     thickness=5,
                     device=self._device,
                 )
-                #self._current_roi.eval()
+                # self._current_roi.eval()
 
                 size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
                 size_stick_size = size_unstick_size / 3
@@ -796,9 +796,9 @@ class CamTrackPostProcessor(torch.nn.Module):
                 )
                 self._current_roi = iter(self._current_roi)
                 self._current_roi_aspect = iter(self._current_roi_aspect)
-                #self._current_roi_aspect.eval()
+                # self._current_roi_aspect.eval()
             else:
-                #self._current_roi.set_destination(current_box, stop_on_dir_change=False)
+                # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
                 self._current_roi.forward(current_box, stop_on_dir_change=False)
 
             self._current_roi = next(self._current_roi)
@@ -876,7 +876,14 @@ class CamTrackPostProcessor(torch.nn.Module):
 
             if self._current_roi is not None:
                 roi_center = center(self._current_roi.bounding_box())
-                # vis.plot_line(online_im, edge_center, roi_center, color=(128, 255, 128), thickness=4)
+                if self._args.plot_individual_player_tracking:
+                    vis.plot_line(
+                        online_im,
+                        edge_center,
+                        roi_center,
+                        color=(128, 255, 128),
+                        thickness=4,
+                    )
                 should_adjust_speed = torch.logical_or(
                     torch.logical_and(
                         group_x_velocity > 0, roi_center[0] < edge_center[0]
@@ -895,13 +902,11 @@ class CamTrackPostProcessor(torch.nn.Module):
                         ),
                     )
                 else:
-                    print("Skipping modifying group x velocity")
-                    pass
-
+                    self._current_roi.scale_speed(ratio_x=0.5)
+                    print("Reducing group x velocity due to overshoot")
 
         if True:
             return frame_id, online_im, self._current_roi_aspect.bounding_box()
-
 
         #
         # HIJACK CURRENT ROI BOX POSITION
