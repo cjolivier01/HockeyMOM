@@ -83,6 +83,12 @@ class ClusterMan:
 
     def calculate_all_clusters(self, center_points: torch.Tensor, ids: torch.Tensor):
         self.reset_clusters()
+        if isinstance(ids, list):
+            if not ids:
+                # No items are currently being tracked
+                # This should always be the case when 'ids' is of type 'list'
+                # Allowin it to fall-through in order to catch as an error if it is not empty.
+              return
         if ids.device != self._device:
             ids = ids.to(self._device)
         for cluster_snapshot in self.cluster_snapshots.values():
