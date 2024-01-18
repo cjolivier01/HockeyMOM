@@ -447,7 +447,7 @@ class VideoOutput:
                         #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
                         # ],
                     )
-                    self._output_video.set(cv2.CAP_PROP_BITRATE, 27000 * 1024)
+                    self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
                 assert self._output_video.isOpened()
             else:
                 self._output_video = cv2.cudacodec.VideoWriter(
