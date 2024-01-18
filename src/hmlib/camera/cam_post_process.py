@@ -787,8 +787,12 @@ class CamTrackPostProcessor(torch.nn.Module):
                     # scale_height=1.25,
                     # scale_width=1.8,
                     # scale_height=1.25,
-                    scale_width=1.25,
-                    scale_height=1.25,
+                    scale_width=self._args.game_config["rink"]["camera"][
+                        "follower_box_scale_width"
+                    ],
+                    scale_height=self._args.game_config["rink"]["camera"][
+                        "follower_box_scale_height"
+                    ],
                     fixed_aspect_ratio=self._final_aspect_ratio,
                     color=(255, 0, 255),
                     thickness=5,
@@ -857,13 +861,14 @@ class CamTrackPostProcessor(torch.nn.Module):
         )
         if group_x_velocity:
             # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
-            # cv2.circle(
-            #     online_im,
-            #     [int(i) for i in edge_center],
-            #     radius=30,
-            #     color=(255, 0, 255),
-            #     thickness=20,
-            # )
+            if self._args.plot_individual_player_tracking:
+                cv2.circle(
+                    online_im,
+                    [int(i) for i in edge_center],
+                    radius=30,
+                    color=(255, 0, 255),
+                    thickness=20,
+                )
             edge_center = torch.tensor(
                 edge_center, dtype=torch.float32, device=current_box.device
             )
@@ -902,6 +907,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                         ),
                     )
                 else:
+                    # Cut the speed quickly due to overshoot
                     self._current_roi.scale_speed(ratio_x=0.5)
                     print("Reducing group x velocity due to overshoot")
 
