@@ -26,4 +26,4 @@ rink:
   camera:
     fixed_edge_scaling_factor: 0.8
     # Comes in a little yellowish (BGR)
-    image_channel_adjustment: [1.2, 0.8, 0.8]
+    image_channel_adjustment: [1.25, 0.8, 0.8]
