@@ -192,13 +192,30 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         if not self._image_channel_adjustment:
             return image
         if self._scale_color_tensor is None:
-            self._scale_color_tensor = torch.tensor(
-                self._image_channel_adjustment, dtype=torch.float32, device=image.device
-            )
-            self._scale_color_tensor = self._scale_color_tensor.view(1, 2, 3)
-        image = torch.clamp(
-            image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
-        ).to(torch.uint8)
+            if isinstance(image, torch.Tensor):
+                self._scale_color_tensor = torch.tensor(
+                    self._image_channel_adjustment,
+                    dtype=torch.float32,
+                    device=image.device,
+                )
+                self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
+            else:
+                self._scale_color_tensor = np.array(
+                    self._image_channel_adjustment, dtype=np.float32
+                )
+                self._scale_color_tensor = np.expand_dims(
+                    np.expand_dims(self._scale_color_tensor, 0), 0
+                )
+        if isinstance(image, torch.Tensor):
+            image = torch.clamp(
+                image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+            ).to(torch.uint8)
+        else:
+            image = np.clip(
+                image.astype(np.float32) * self._scale_color_tensor,
+                a_min=0,
+                a_max=255.0,
+            ).astype(np.uint8)
         return image
 
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
