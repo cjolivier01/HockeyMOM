@@ -117,6 +117,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Don't save the output video",
     )
     parser.add_argument(
+        "--skip_final_video_save",
+        "--skip-final-video-save",
+        dest="skip_final_video_save",
+        action="store_true",
+        help="Don't save the output video frames",
+    )
+    parser.add_argument(
         "--speed",
         dest="speed",
         default=False,
@@ -531,6 +538,7 @@ def main(exp, args, num_gpu):
             use_fork=False,
             async_post_processing=True,
         )
+        postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
         evaluator = MOTEvaluator(
             args=args,

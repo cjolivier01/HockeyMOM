@@ -612,16 +612,23 @@ class VideoOutput:
             # Make a numpy image array
             if isinstance(online_im, torch.Tensor) and (
                 # If we're actually going to do something with it
-                (self.has_args() and self._args.plot_frame_number)
-                or self._output_video is not None
-                or self._save_frame_dir
+                not self._skip_final_save
+                and (
+                    (self.has_args() and self._args.plot_frame_number)
+                    or self._output_video is not None
+                    or self._save_frame_dir
+                )
             ):
                 online_im = online_im.detach().contiguous().cpu().numpy()
 
             #
             # Frame Number
             #
-            if self.has_args() and self._args.plot_frame_number:
+            if (
+                self.has_args()
+                and self._args.plot_frame_number
+                and not self._skip_final_save
+            ):
                 online_im = vis.plot_frame_number(
                     online_im,
                     frame_id=frame_id,
@@ -643,7 +650,7 @@ class VideoOutput:
 
             assert int(self._output_frame_width) == online_im.shape[-2]
             assert int(self._output_frame_height) == online_im.shape[-3]
-            if self._output_video is not None:
+            if self._output_video is not None and not self._skip_final_save:
                 self._output_video.write(online_im)
             if self._save_frame_dir:
                 # frame_id should start with 1

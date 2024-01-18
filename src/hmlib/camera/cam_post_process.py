@@ -271,6 +271,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Deprecated
         self.detection_inclusion_box = None
 
+        self.skip_final_video_save = False
+
         #
         # SHARKS ORANGE RINK
         #
@@ -538,6 +540,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             if self._args.use_watermark
             else None,
             device=self._video_out_device,
+            skip_final_save=self._args.skip_final_video_save,
         )
         self._video_output_campp.start()
 
