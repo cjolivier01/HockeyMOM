@@ -610,8 +610,13 @@ class VideoOutput:
                 )
 
             # Make a numpy image array
-            if isinstance(online_im, torch.Tensor):
-                online_im = online_im.cpu().detach().numpy()
+            if isinstance(online_im, torch.Tensor) and (
+                # If we're actually going to do something with it
+                (self.has_args() and self._args.plot_frame_number)
+                or self._output_video is not None
+                or self._save_frame_dir
+            ):
+                online_im = online_im.detach().contiguous().cpu().numpy()
 
             #
             # Frame Number

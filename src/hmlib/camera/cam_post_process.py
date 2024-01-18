@@ -541,37 +541,37 @@ class CamTrackPostProcessor(torch.nn.Module):
         )
         self._video_output_campp.start()
 
-        if self._args.crop_output_image and self._save_dir is not None:
+        # if self._args.crop_output_image and self._save_dir is not None:
 
-            def _vid_out_device():
-                if torch.cuda.device_count() > 1:
-                    return "cuda:1"
-                return "cuda"
+        #     def _vid_out_device():
+        #         if torch.cuda.device_count() > 1:
+        #             return "cuda:1"
+        #         return "cuda"
 
-            self._video_output_boxtrack = VideoOutput(
-                name="BOXTRACK",
-                args=self._args,
-                output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
-                fps=self._fps,
-                use_fork=False,
-                start=False,
-                output_frame_width=self.final_frame_width,
-                output_frame_height=self.final_frame_height,
-                watermark_image_path=os.path.realpath(
-                    os.path.join(
-                        os.path.dirname(os.path.realpath(__file__)),
-                        "..",
-                        "..",
-                        "..",
-                        "images",
-                        "sports_ai_watermark.png",
-                    )
-                )
-                if self._args.use_watermark
-                else None,
-                device=_vid_out_device(),
-            )
-            self._video_output_boxtrack.start()
+        #     self._video_output_boxtrack = VideoOutput(
+        #         name="BOXTRACK",
+        #         args=self._args,
+        #         output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
+        #         fps=self._fps,
+        #         use_fork=False,
+        #         start=False,
+        #         output_frame_width=self.final_frame_width,
+        #         output_frame_height=self.final_frame_height,
+        #         watermark_image_path=os.path.realpath(
+        #             os.path.join(
+        #                 os.path.dirname(os.path.realpath(__file__)),
+        #                 "..",
+        #                 "..",
+        #                 "..",
+        #                 "images",
+        #                 "sports_ai_watermark.png",
+        #             )
+        #         )
+        #         if self._args.use_watermark
+        #         else None,
+        #         device=_vid_out_device(),
+        #     )
+        #     self._video_output_boxtrack.start()
 
         while True:
             online_targets_and_img = self._queue.get()
@@ -783,10 +783,6 @@ class CamTrackPostProcessor(torch.nn.Module):
                     ),
                     sticky_translation=True,
                     sticky_sizing=True,
-                    # scale_width=1.8,
-                    # scale_height=1.25,
-                    # scale_width=1.8,
-                    # scale_height=1.25,
                     scale_width=self._args.game_config["rink"]["camera"][
                         "follower_box_scale_width"
                     ],
