@@ -479,9 +479,9 @@ def main(exp, args, num_gpu):
                     # ),
                     embedded_data_loader=stitched_dataset,
                     original_image_only=args.tracker == "centertrack",
-                    image_channel_adjustment=game_config["rink"]["camera"][
-                        "image_channel_adjustment"
-                    ],
+                    # image_channel_adjustment=game_config["rink"]["camera"][
+                    #     "image_channel_adjustment"
+                    # ],
                 )
             else:
                 assert len(input_video_files) == 1
@@ -502,9 +502,9 @@ def main(exp, args, num_gpu):
                     #     std=(0.229, 0.224, 0.225),
                     # ),
                     original_image_only=args.tracker == "centertrack",
-                    image_channel_adjustment=game_config["rink"]["camera"][
-                        "image_channel_adjustment"
-                    ],
+                    # image_channel_adjustment=game_config["rink"]["camera"][
+                    #     "image_channel_adjustment"
+                    # ],
                 )
 
         if dataloader is None:
