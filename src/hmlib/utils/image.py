@@ -435,6 +435,7 @@ class ImageHorizontalGaussianDistribution:
 class ImageColorScaler:
     def __init__(self, image_channel_adjustment: List[float]):
         self._image_channel_adjustment = image_channel_adjustment
+        self._scale_color_tensor = None
 
     def maybe_scale_image_colors(self, image: torch.Tensor):
         if not self._image_channel_adjustment:

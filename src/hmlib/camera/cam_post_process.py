@@ -541,6 +541,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             else None,
             device=self._video_out_device,
             skip_final_save=self._args.skip_final_video_save,
+            image_channel_adjustment=self._args.game_config["rink"]["camera"]["image_channel_adjustment"],
         )
         self._video_output_campp.start()
 

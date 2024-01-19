@@ -25,7 +25,7 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.visualization import get_complete_monitor_width
-from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorScaler
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
@@ -251,6 +251,7 @@ class VideoOutput:
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
+        image_channel_adjustment: List[float] = None,
     ):
         self._args = args
         self._device = device
@@ -277,6 +278,11 @@ class VideoOutput:
         self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
         self._send_to_video_out_timer = Timer()
+
+        self._image_color_scaler = None
+        if image_channel_adjustment:
+            assert len(image_channel_adjustment) == 3
+            self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
 
         if watermark_image_path:
             self.watermark = cv2.imread(
@@ -609,6 +615,11 @@ class VideoOutput:
                     watermark_mask=self.watermark_mask,
                     x=x,
                     y=y,
+                )
+
+            if self._image_color_scaler is not None:
+                online_im = self._image_color_scaler.maybe_scale_image_colors(
+                    image=online_im
                 )
 
             # Make a numpy image array
