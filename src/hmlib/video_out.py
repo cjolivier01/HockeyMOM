@@ -49,7 +49,9 @@ def make_visible_image(img, enabled: bool = True):
         ar = width / height
         new_w = vis_w * 0.7
         new_h = new_w / ar
-        return resize_image(img, new_width=int(new_w), new_height=int(new_h))
+        img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
+    if isinstance(img, torch.Tensor):
+        img = img.detach().contiguous().cpu().numpy()
     return img
 
 

@@ -272,7 +272,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
-            img0 = self.maybe_scale_image_colors(image=img0)
+            #img0 = self.maybe_scale_image_colors(image=img0)
 
             if not self._original_image_only:
                 (
