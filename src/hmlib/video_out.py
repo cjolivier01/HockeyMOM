@@ -39,6 +39,9 @@ from hmlib.utils.box_functions import (
 )
 
 
+MAGIC_YUV_LOSSLESS = "M8RA"
+
+
 def make_visible_image(img, enabled: bool = True):
     if not enabled:
         return img
@@ -237,7 +240,8 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
-        fourcc="XVID",
+        fourcc=MAGIC_YUV_LOSSLESS,
+        # fourcc="XVID",
         # fourcc="HEVC",
         # fourcc="X264",
         # fourcc="H264",
