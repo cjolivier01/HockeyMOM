@@ -22,10 +22,10 @@ rink:
     capacity: 100
     price: 0 dollars
   tracking:
-    cam_ignore_largest: false
+    cam_ignore_largest: true
   camera:
     fixed_edge_scaling_factor: 0.8
     # Comes in a little yellowish (BGR)
-    image_channel_adjustment: [1.5, 0.8, 0.8]
+    image_channel_adjustment: [1.4, 0.8, 0.8]
     follower_box_scale_width: 1.5
     follower_box_scale_height: 1.5
