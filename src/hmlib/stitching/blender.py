@@ -356,9 +356,10 @@ def blend_video(
                             fps=fps,
                             height=video_dim_height,
                             width=video_dim_width,
-                            # codec="hevc_nvenc",
-                            codec="libx264",
-                            # device=blended.device,
+                            #codec="h264_nvenc",
+                            codec="hevc_nvenc",
+                            #codec="libx264",
+                            device=blended.device,
                         )
                         # video_out = StreamWriter(output_video)
                         # video_out.add_video_stream(
@@ -496,6 +497,7 @@ class FastVideoWriter:
         height: int,
         codec: str,
         format: str = "bgr24",
+        #format: str = "rgb24",
         batch_size: int = 3,
         device: torch.device = None,
     ):
@@ -512,6 +514,8 @@ class FastVideoWriter:
         self._batch_size = batch_size
         self._batch_items = []
         self._in_flush = False
+        #self._codec_config = torchaudio.io.CodecConfig()
+        self._codec_config = None
 
     def __enter__(self):
         if self._video_f is None:
@@ -523,10 +527,10 @@ class FastVideoWriter:
 
     def _make_proper_permute(self, image: torch.Tensor):
         if len(image.shape) == 3:
-            if image.shape[-1] == 3:
+            if image.shape[-1] == 3 and self._device is not None:
                 image = image.permute(2, 0, 1)
         else:
-            if image.shape[-1] == 3:
+            if image.shape[-1] == 3 and self._device is not None:
                 image = image.permute(0, 3, 1, 2)
         return image
 
@@ -542,10 +546,11 @@ class FastVideoWriter:
             # encoder_width=None,
             # encoder_height=None,
             # encoder_format=None,
-            # codec_config={},
+            codec_config=self._codec_config,
             # filter_desc=None,
-            # hw_accel=self._device,
+            hw_accel=str(self._device),
         )
+        print("Video stream added")
 
     def close(self):
         self.flush()
@@ -556,12 +561,12 @@ class FastVideoWriter:
     def flush(self, flush_video_file: bool = True):
         if self._batch_items:
             if len(self._batch_items[0].shape) == 3:
-                image_batch = torch.cat(self._batch_items)
+                image_batch = torch.stack(self._batch_items)
             else:
                 image_batch = torch.cat(self._batch_items, dim=0)
             self._video_f.write_video_chunk(
                 i=0,
-                chunk=image_batch.cpu(),
+                chunk=image_batch,
             )
             self._batch_items.clear()
         if flush_video_file and self._video_f is not None:
