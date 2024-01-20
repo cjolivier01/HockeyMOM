@@ -136,6 +136,33 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         nargs=argparse.REMAINDER,
     )
+    #
+    # GPUs/Devices
+    #
+    parser.add_argument(
+        "--detection-gpu",
+        help="GPU used for detections",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--decoder-gpu",
+        help="GPU used for video decoding",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--encoder-gpu",
+        help="GPU used for video encoding",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--cam-tracking-gpu",
+        help="GPU used for camera tracking trunk (default us CPU)",
+        type=int,
+        default=None,
+    )
     # cam args
     parser.add_argument(
         "-s",
