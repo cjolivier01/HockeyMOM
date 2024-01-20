@@ -43,6 +43,7 @@ from hmlib.utils.box_functions import (
     make_box_at_center,
     remove_largest_bbox,
     get_enclosing_box,
+    tlwh_to_tlbr_single,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -541,7 +542,9 @@ class CamTrackPostProcessor(torch.nn.Module):
             else None,
             device=self._video_out_device,
             skip_final_save=self._args.skip_final_video_save,
-            image_channel_adjustment=self._args.game_config["rink"]["camera"]["image_channel_adjustment"],
+            image_channel_adjustment=self._args.game_config["rink"]["camera"][
+                "image_channel_adjustment"
+            ],
         )
         self._video_output_campp.start()
 
@@ -654,9 +657,13 @@ class CamTrackPostProcessor(torch.nn.Module):
         # print(online_ids)
         # print(online_tlwhs)
 
+        largest_bbox = None
+
         if self._args.cam_ignore_largest and len(online_tlwhs):
             # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask = remove_largest_bbox(online_tlwhs, min_boxes=4)
+            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
+                online_tlwhs, min_boxes=4
+            )
             online_ids = online_ids[mask]
 
         # Exclude detections outside of an optional bounding box
@@ -703,6 +710,14 @@ class CamTrackPostProcessor(torch.nn.Module):
                 speeds=[],
                 line_thickness=2,
             )
+            if largest_bbox is not None:
+                online_im = vis.plot_rectangle(
+                    online_im,
+                    [int(i) for i in tlwh_to_tlbr_single(largest_bbox)],
+                    color=(0, 0, 0),
+                    thickness=1,
+                    label=f"IGNORED",
+                )
 
         if self._args.plot_cluster_tracking:
             cluster_box_colors = {

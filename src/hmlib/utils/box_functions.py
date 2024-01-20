@@ -236,14 +236,15 @@ def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
     :param batch_bboxes: A tensor of shape (N, 4) where N is the batch size,
                          and each bbox is in TLWH format.
     :param secondary_tensor: optional secondary tensor to also mast
-    :return: A tensor of bboxes with one less item, excluding the largest bbox, and the mast used
+    :return: A tensor of bboxes with one less item, excluding the largest bbox,
+             along with the mast and the larges box itself
     """
     # Calculate areas (width * height)
 
     num_boxes = batch_bboxes.shape[0]
     if num_boxes < min_boxes:
         mask = torch.ones(num_boxes, dtype=torch.bool, device=batch_bboxes.device)
-        return batch_bboxes, mask
+        return batch_bboxes, mask, None
 
     areas = batch_bboxes[:, 2] * batch_bboxes[:, 3]
 
@@ -255,7 +256,7 @@ def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
         batch_bboxes.shape[0], dtype=torch.bool, device=batch_bboxes.device
     )
     mask[largest_bbox_idx] = False
-    return batch_bboxes[mask], mask
+    return batch_bboxes[mask], mask, batch_bboxes[largest_bbox_idx]
 
 
 def get_enclosing_box(batch_boxes: torch.Tensor):

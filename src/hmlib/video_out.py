@@ -42,7 +42,7 @@ from hmlib.utils.box_functions import (
 MAGIC_YUV_LOSSLESS = "M8RA"
 
 
-def make_visible_image(img, enabled: bool = True):
+def make_visible_image(img, enabled: bool = False):
     if not enabled:
         return img
     width = image_width(img)
@@ -658,7 +658,7 @@ class VideoOutput:
                 and imgproc_data.frame_id >= skip_frames_before_show
             ):
                 if imgproc_data.frame_id % show_image_interval == 0:
-                    visual = make_visible_image(online_im, enabled=True)
+                    visual = make_visible_image(online_im)
                     cv2.imshow("online_im", visual)
                     cv2.waitKey(1)
 
