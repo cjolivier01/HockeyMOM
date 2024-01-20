@@ -42,8 +42,10 @@ from hmlib.utils.box_functions import (
 MAGIC_YUV_LOSSLESS = "M8RA"
 
 
-def make_visible_image(img, enabled: bool = False):
-    if not enabled:
+def make_visible_image(img, enable_resizing: bool = False):
+    if not enable_resizing:
+        if isinstance(img, torch.Tensor):
+            img = img.contiguous().cpu().numpy()
         return img
     width = image_width(img)
     vis_w = get_complete_monitor_width()
@@ -54,7 +56,7 @@ def make_visible_image(img, enabled: bool = False):
         new_h = new_w / ar
         img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
     if isinstance(img, torch.Tensor):
-        img = img.detach().contiguous().cpu().numpy()
+        img = img.contiguous().cpu().numpy()
     return img
 
 
