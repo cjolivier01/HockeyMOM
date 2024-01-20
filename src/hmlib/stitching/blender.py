@@ -12,7 +12,8 @@ import torch
 import torch.nn.functional as F
 
 import torchaudio
-from torchaudio.io import StreamWriter
+
+# from torchaudio.io import StreamWriter
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
@@ -293,6 +294,7 @@ def blend_video(
     timer = Timer()
     frame_count = 0
     blender = None
+    video_f = None
     frame_id = start_frame_number
     try:
         while True:
@@ -348,16 +350,29 @@ def blend_video(
                 )
                 if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
-                    if False:
-                        video_out = StreamWriter(output_video)
-                        video_out.add_video_stream(
-                            frame_rate=fps,
+                    if True:
+                        video_out = FastVideoWriter(
+                            filename=output_video,
+                            fps=fps,
                             height=video_dim_height,
                             width=video_dim_width,
-                            format="rgb24",
-                            encoder="hevc_nvenc",
+                            # codec="hevc_nvenc",
+                            codec="libx264",
+                            # device=blended.device,
                         )
-                        video_f = video_out.open()
+                        # video_out = StreamWriter(output_video)
+                        # video_out.add_video_stream(
+                        #     frame_rate=fps,
+                        #     height=video_dim_height,
+                        #     width=video_dim_width,
+                        #     #format="rgb24",
+                        #     encoder="hevc_nvenc",
+                        #     #encoder="libx264",
+                        #     encoder_format="yuv422p",
+                        # )
+                        # video_f = video_out.open()
+                        video_out.open()
+                        assert video_out.isOpened()
                     else:
                         video_out = VideoOutput(
                             args=None,
@@ -371,6 +386,7 @@ def blend_video(
                     video_dim_height != blended.shape[-2]
                     or video_dim_width != blended.shape[-1]
                 ):
+                    assert False  # Why?
                     for i in range(len(blended)):
                         resized = resize_image(
                             img=blended[i].permute(1, 2, 0),
@@ -411,11 +427,12 @@ def blend_video(
                             cv2.waitKey(1)
                     cpu_blended_image = None
                     for i in range(len(my_blended)):
-                        if isinstance(video_out, StreamWriter):
-                            video_f.write_video_chunk(
-                                i=0,
-                                chunk=my_blended.permute(0, 3, 1, 2).contiguous().cpu(),
-                            )
+                        if isinstance(video_out, FastVideoWriter):
+                            video_out.append(my_blended)
+                            # video_f.write_video_chunk(
+                            #     i=0,
+                            #     chunk=my_blended.permute(0, 3, 1, 2).contiguous().cpu(),
+                            # )
                             frame_id += batch_size
                             break
                         else:
@@ -433,6 +450,11 @@ def blend_video(
                 pass
 
             frame_count += 1
+
+            if frame_count > 300:
+                print("BREAKING EARLY FOR TESTING")
+                break
+
             if frame_count != 1:
                 timer.toc()
 
@@ -458,11 +480,112 @@ def blend_video(
             timer.tic()
     finally:
         if video_out is not None:
-            if isinstance(video_out, StreamWriter):
-                video_f.flush()
-                video_f.close()
+            if isinstance(video_out, FastVideoWriter):
+                video_out.flush()
+                video_out.close()
             else:
                 video_out.stop()
+
+
+class FastVideoWriter:
+    def __init__(
+        self,
+        filename: str,
+        fps: float,
+        width: int,
+        height: int,
+        codec: str,
+        format: str = "bgr24",
+        batch_size: int = 3,
+        device: torch.device = None,
+    ):
+        self._filename = filename
+        self._fps = fps
+        self._width = width
+        self._height = height
+        self._codec = codec
+        self._format = format
+        self._video_out = None
+        self._video_f = None
+        self._device = device
+        assert batch_size >= 1
+        self._batch_size = batch_size
+        self._batch_items = []
+        self._in_flush = False
+
+    def __enter__(self):
+        if self._video_f is None:
+            self.open()
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
+    def _make_proper_permute(self, image: torch.Tensor):
+        if len(image.shape) == 3:
+            if image.shape[-1] == 3:
+                image = image.permute(2, 0, 1)
+        else:
+            if image.shape[-1] == 3:
+                image = image.permute(0, 3, 1, 2)
+        return image
+
+    def _add_stream(self):
+        self._video_out.add_video_stream(
+            frame_rate=self._fps,
+            height=self._height,
+            width=self._width,
+            format=self._format,
+            encoder=self._codec,
+            # encoder_option={},
+            # encoder_frame_rate=None,
+            # encoder_width=None,
+            # encoder_height=None,
+            # encoder_format=None,
+            # codec_config={},
+            # filter_desc=None,
+            # hw_accel=self._device,
+        )
+
+    def close(self):
+        self.flush()
+        if self._video_f is not None:
+            self._video_f.close()
+            self._video_f = None
+
+    def flush(self, flush_video_file: bool = True):
+        if self._batch_items:
+            if len(self._batch_items[0].shape) == 3:
+                image_batch = torch.cat(self._batch_items)
+            else:
+                image_batch = torch.cat(self._batch_items, dim=0)
+            self._video_f.write_video_chunk(
+                i=0,
+                chunk=image_batch.cpu(),
+            )
+            self._batch_items.clear()
+        if flush_video_file and self._video_f is not None:
+            self._video_f.flush()
+
+    def isOpened(self):
+        return self._video_f is not None
+
+    def open(self):
+        assert self._video_f is None
+        self._video_out = torchaudio.io.StreamWriter(dst=self._filename)
+        self._add_stream()
+        self._video_f = self._video_out.open()
+
+    def set(self, key: int, value: any):
+        pass
+
+    def get(self, key: int) -> any:
+        return None
+
+    def append(self, images: torch.Tensor):
+        self._batch_items.append(self._make_proper_permute(images))
+        if len(self._batch_items) >= self._batch_size:
+            self.flush(flush_video_file=False)
 
 
 def main(args):

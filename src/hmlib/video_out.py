@@ -32,14 +32,31 @@ from hmlib.tracker.multitracker import torch_device
 from hmlib.ffmpeg import VideoWriter as FFMPegVideoWriter
 from hockeymom.core import FFmpegVideoWriter
 
+from torchvision.io import write_video
+
 from hmlib.utils.box_functions import (
     center,
     width,
     height,
 )
 
+from torchaudio.utils import ffmpeg_utils
 
-MAGIC_YUV_LOSSLESS = "M8RA"
+
+def print_ffmpeg_info():
+    print("Library versions:")
+    print(ffmpeg_utils.get_versions())
+    print("\nBuild config:")
+    print(ffmpeg_utils.get_build_config())
+    print("\nDecoders:")
+    print([k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k])
+    print("\nEncoders:")
+    print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
+
+print_ffmpeg_info()
+
+#MAGIC_YUV_LOSSLESS = "M8RA"
+MAGIC_YUV_LOSSLESS = "M8Y0"
 
 
 def make_visible_image(img, enable_resizing: bool = False):
@@ -429,50 +446,37 @@ class VideoOutput:
         ):
             # is_cuda = str(self._device).startswith("cuda")
             # I think it crashes if the size is off by even one pixed between frames?
-            is_cuda = False
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-            if not is_cuda:
-                # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
-                # params = Sequence()
-                if False:
-                    self._output_video = FFmpegVideoWriter(
-                        filename=self._output_video_path,
-                        codec_name="hevc_nvenc",
-                        fps=self._fps,
-                        frameSize=(
-                            int(self._output_frame_width),
-                            int(self._output_frame_height),
-                        ),
-                        fake_write=False,
-                    )
-                else:
-                    self._output_video = cv2.VideoWriter(
-                        filename=self._output_video_path,
-                        # apiPreference=cv2.CAP_FFMPEG,
-                        # apiPreference=cv2.CAP_GSTREAMER,
-                        fourcc=fourcc,
-                        fps=self._fps,
-                        frameSize=(
-                            int(self._output_frame_width),
-                            int(self._output_frame_height),
-                        ),
-                        # params=[
-                        #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-                        #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-                        # ],
-                    )
-                    self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
-                assert self._output_video.isOpened()
-            else:
-                self._output_video = cv2.cudacodec.VideoWriter(
+            # params = Sequence()
+            if True:
+                self._output_video = FFmpegVideoWriter(
                     filename=self._output_video_path,
+                    codec_name="hevc_nvenc",
+                    fps=self._fps,
+                    frameSize=(
+                        int(self._output_frame_width),
+                        int(self._output_frame_height),
+                    ),
+                    fake_write=False,
+                )
+            else:
+                self._output_video = cv2.VideoWriter(
+                    filename=self._output_video_path,
+                    # apiPreference=cv2.CAP_FFMPEG,
+                    # apiPreference=cv2.CAP_GSTREAMER,
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
                         int(self._output_frame_width),
                         int(self._output_frame_height),
                     ),
+                    # params=[
+                    #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+                    #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
+                    # ],
                 )
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
+                assert self._output_video.isOpened()
 
         seen_frames = set()
         while True:
