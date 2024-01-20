@@ -1,10 +1,8 @@
 #!/bin/bash
 
-GAME_ID="queens"
+GAME_ID="wolves"
 
 VIDEO_DIR="${HOME}/Videos/${GAME_ID}"
-
-#OFFSETS="--lfo=0 --rfo=0.627263892570015"
 
 OMP_NUM_THREADS=16 \
 	PYTHONPATH=$(pwd):$(pwd)/models/mixsort \
