@@ -452,7 +452,7 @@ def blend_video(
 
             frame_count += 1
 
-            if frame_count >= 30:
+            if frame_count >= 300:
                 print("BREAKING EARLY FOR TESTING")
                 break
 
@@ -497,7 +497,6 @@ class FastVideoWriter:
         height: int,
         codec: str,
         format: str = "bgr24",
-        # format: str = "rgb24",
         batch_size: int = 30,
         device: torch.device = None,
     ):
@@ -542,17 +541,10 @@ class FastVideoWriter:
             height=self._height,
             width=self._width,
             format=self._format,
-            # format="yuv444p",
             encoder=self._codec,
-            # encoder_option={},
-            # encoder_frame_rate=None,
-            # encoder_width=640,
-            # encoder_height=480,
-            encoder_format="yuv444p",
-            # codec_config=self._codec_config,
-            # filter_desc=None,
-            # hw_accel=str(self._device),
-            hw_accel="cuda:0",
+            encoder_format="bgr0",
+            codec_config=self._codec_config,
+            hw_accel=str(self._device),
         )
         print("Video stream added")
 
@@ -576,25 +568,25 @@ class FastVideoWriter:
                 image_batch = torch.cat(self._batch_items, dim=0)
             #image_batch = self.bgr_to_rgb(batch=image_batch)
             frame_count = len(image_batch)
-            # self._video_out.write_video_chunk(
-            #     i=0,
-            #     chunk=image_batch,
-            # )
+            self._video_out.write_video_chunk(
+                i=0,
+                chunk=image_batch,
+            )
             self._frame_counter += frame_count
             self._batch_items.clear()
 
-            w = torchaudio.io.StreamWriter("badvid.mp4", format="mp4")
-            w.add_video_stream(
-                frame_rate=self._fps,
-                height=self._height,
-                width=self._width,
-                format="bgr24",
-                encoder="hevc_nvenc",
-                encoder_format="bgr0",
-                hw_accel="cuda:0",
-            )
-            with w.open():
-                w.write_video_chunk(0, image_batch.to(torch.device("cuda:0")))
+            # w = torchaudio.io.StreamWriter("badvid.mp4", format="mp4")
+            # w.add_video_stream(
+            #     frame_rate=self._fps,
+            #     height=self._height,
+            #     width=self._width,
+            #     format="bgr24",
+            #     encoder="hevc_nvenc",
+            #     encoder_format="bgr0",
+            #     hw_accel="cuda:0",
+            # )
+            # with w.open():
+            #     w.write_video_chunk(0, image_batch.to(torch.device("cuda:0")))
 
         if flush_video_file and self._video_f is not None:
             self._video_f.flush()
@@ -604,9 +596,9 @@ class FastVideoWriter:
 
     def open(self):
         assert self._video_f is None
-        # self._video_out = torchaudio.io.StreamWriter(dst=self._filename, format="avi")
-        # self._add_stream()
-        # self._video_f = self._video_out.open()
+        self._video_out = torchaudio.io.StreamWriter(dst=self._filename + ".mp4", format="mp4")
+        self._add_stream()
+        self._video_f = self._video_out.open()
 
     def set(self, key: int, value: any):
         pass
