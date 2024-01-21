@@ -29,7 +29,6 @@ from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorSca
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
-from hockeymom.core import FFmpegVideoWriter
 
 from torchvision.io import write_video
 
@@ -447,7 +446,7 @@ class VideoOutput:
             # I think it crashes if the size is off by even one pixed between frames?
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             # params = Sequence()
-            if True:
+            if False:
                 self._output_video = FFmpegVideoWriter(
                     filename=self._output_video_path,
                     codec_name="hevc_nvenc",
