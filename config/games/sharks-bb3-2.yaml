@@ -39,6 +39,9 @@ game:
       - [6036, 354, 6861, 364]
 
 rink:
+  tracking:
+    cam_ignore_largest: true
+
   camera:
     fixed_edge_scaling_factor: 1.25
     fixed_edge_rotation_angle: 40
