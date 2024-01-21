@@ -497,7 +497,7 @@ class FastVideoWriter:
         height: int,
         codec: str,
         format: str = "bgr24",
-        batch_size: int = 30,
+        batch_size: int = 10,
         bit_rate: int = 44000,
         device: torch.device = None,
     ):
@@ -514,7 +514,9 @@ class FastVideoWriter:
         self._batch_size = batch_size
         self._batch_items = []
         self._in_flush = False
-        self._codec_config = torchaudio.io.CodecConfig()
+        self._codec_config = torchaudio.io.CodecConfig(
+            bit_rate=5000*1024,
+        )
         self._codec_config.bit_rate = bit_rate
         self._codec_config = None
         self._frame_counter = 0
@@ -545,6 +547,11 @@ class FastVideoWriter:
             format=self._format,
             encoder=self._codec,
             encoder_format="bgr0",
+            encoder_option={
+                "preset": "slow",
+                "maxrate": "10M",
+                "b:v": "50000k",
+            },
             codec_config=self._codec_config,
             hw_accel=str(self._device),
         )
@@ -568,6 +575,7 @@ class FastVideoWriter:
                 image_batch = torch.stack(self._batch_items)
             else:
                 image_batch = torch.cat(self._batch_items, dim=0)
+            self._batch_items.clear()
             #image_batch = self.bgr_to_rgb(batch=image_batch)
             frame_count = len(image_batch)
             self._video_out.write_video_chunk(
@@ -575,7 +583,6 @@ class FastVideoWriter:
                 chunk=image_batch,
             )
             self._frame_counter += frame_count
-            self._batch_items.clear()
 
             # w = torchaudio.io.StreamWriter("badvid.mp4", format="mp4")
             # w.add_video_stream(
