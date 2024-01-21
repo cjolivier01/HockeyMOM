@@ -1,0 +1,17 @@
+game:
+  name: "sharks-bb3-1"
+  rink: "sharks_orange"
+  home: "Cougars"
+  away: "Sharks 10BB-3"
+
+  # stitching:
+  #   offsets:
+
+  clip_box: null
+  boundaries:
+    upper:
+    lower:
+rink:
+  camera:
+    fixed_edge_scaling_factor: 1.25
+    fixed_edge_rotation_angle: 40
