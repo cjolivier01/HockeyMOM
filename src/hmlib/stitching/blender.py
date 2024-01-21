@@ -357,9 +357,7 @@ def blend_video(
                             fps=fps,
                             height=video_dim_height,
                             width=video_dim_width,
-                            # codec="h264_nvenc",
                             codec="hevc_nvenc",
-                            # codec="libx264",
                             device=blended.device,
                         )
                         # video_out = StreamWriter(output_video)

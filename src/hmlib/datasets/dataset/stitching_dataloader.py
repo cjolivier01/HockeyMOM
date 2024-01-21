@@ -81,10 +81,12 @@ class StitchDataset:
         fork_workers: bool = False,
         image_roi: List[int] = None,
         device: torch.device = "cpu",
+        encoder_device: torch.device = torch.device("cuda:2"),
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
         self._device = device
+        self._encoder_device = encoder_device
         self._output_stitched_video_file = output_stitched_video_file
         self._video_1_offset_frame = video_1_offset_frame
         self._video_2_offset_frame = video_2_offset_frame
@@ -286,7 +288,7 @@ class StitchDataset:
                 output_frame_width=self._video_output_size[0],
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
-                device="cpu",
+                device=self._encoder_device,
                 name="STITCH-OUT",
                 simple_save=True,
             )
@@ -353,7 +355,7 @@ class StitchDataset:
                     max_input_queue_size=int(
                         self._max_input_queue_size / self._num_workers + 1
                     ),
-                    remapping_device=torch.device("cuda", 0), # TODO: pass in
+                    remapping_device=torch.device("cuda", 0),  # TODO: pass in
                 )
                 self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()

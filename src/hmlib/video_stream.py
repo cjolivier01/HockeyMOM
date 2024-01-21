@@ -15,7 +15,7 @@ class VideoStreamWriter:
         bit_rate: int = 44000,
         device: torch.device = None,
         lossless: bool = True,
-        #container_type: str = "mkv",
+        # container_type: str = "mkv",
         container_type: str = "mp4",
     ):
         self._filename = filename
@@ -90,6 +90,9 @@ class VideoStreamWriter:
             self._video_f.close()
             self._video_f = None
 
+    def release(self):
+        self.close()
+
     def flush(self, flush_video_file: bool = True):
         if self._batch_items:
             if len(self._batch_items[0].shape) == 3:
@@ -130,3 +133,6 @@ class VideoStreamWriter:
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
             self.flush(flush_video_file=False)
+
+    def write(self, images: torch.Tensor):
+         return self.append(images)

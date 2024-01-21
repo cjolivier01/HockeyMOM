@@ -73,6 +73,12 @@ def make_parser():
         type=str,
         help="Game ID",
     )
+    parser.add_argument(
+        "--max-frames",
+        default=None,
+        type=int,
+        help="Maximum number of frames to process",
+    )
     return parser
 
 
@@ -98,6 +104,8 @@ def stitch_videos(
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.avi"),
 ):
+    if dir_name is None and game_id:
+        dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
     left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
     right_vid = BasicVideoInfo(os.path.join(dir_name, video_right))
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
@@ -313,6 +321,7 @@ def main(args):
             project_file_name=args.project_file,
             game_id=args.game_id,
             show=False,
+            max_frames=args.max_frames,
         )
 
 

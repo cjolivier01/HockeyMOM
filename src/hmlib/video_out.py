@@ -30,6 +30,8 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.tracker.multitracker import torch_device
 
+from .video_stream import VideoStreamWriter
+
 from torchvision.io import write_video
 
 from hmlib.utils.box_functions import (
@@ -54,7 +56,7 @@ def print_ffmpeg_info():
 print_ffmpeg_info()
 
 #MAGIC_YUV_LOSSLESS = "M8RA"
-MAGIC_YUV_LOSSLESS = "M8Y0"
+#MAGIC_YUV_LOSSLESS = "M8Y0"
 
 
 def make_visible_image(img, enable_resizing: bool = False):
@@ -378,6 +380,10 @@ class VideoOutput:
             print(ex)
             traceback.print_exc()
             raise
+        finally:
+            if self._output_video is not None:
+                self._output_video.release()
+                self._output_video = None
 
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
@@ -446,17 +452,16 @@ class VideoOutput:
             # I think it crashes if the size is off by even one pixed between frames?
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             # params = Sequence()
-            if False:
-                self._output_video = FFmpegVideoWriter(
+            if True:
+                self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
-                    codec_name="hevc_nvenc",
                     fps=self._fps,
-                    frameSize=(
-                        int(self._output_frame_width),
-                        int(self._output_frame_height),
-                    ),
-                    fake_write=False,
+                    width=int(self._output_frame_width),
+                    height=int(self._output_frame_height),
+                    codec="hevc_nvenc",
+                    device=self._device,
                 )
+                self._output_video.open()
             else:
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_video_path,
@@ -474,7 +479,7 @@ class VideoOutput:
                     # ],
                 )
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
-                assert self._output_video.isOpened()
+            assert self._output_video.isOpened()
 
         seen_frames = set()
         while True:
@@ -482,6 +487,7 @@ class VideoOutput:
             if imgproc_data is None:
                 if self._output_video is not None:
                     self._output_video.release()
+                    self._output_video = None
                 break
             frame_id = imgproc_data.frame_id
             assert frame_id not in seen_frames
@@ -631,7 +637,12 @@ class VideoOutput:
                 )
 
             # Make a numpy image array
-            if isinstance(online_im, torch.Tensor) and (
+            if str(self._device).startswith("cuda"):
+                if not isinstance(online_im, torch.Tensor):
+                    online_im = torch.from_numpy(online_im)
+                if online_im.device.type == "cpu":
+                    online_im = online_im.to(self._device, non_blocking=True)
+            elif isinstance(online_im, torch.Tensor) and (
                 # If we're actually going to do something with it
                 not self._skip_final_save
                 and (
@@ -694,6 +705,12 @@ class VideoOutput:
                     )
                 )
                 # timer = Timer()
+
+            if frame_id > 300:
+                print("DONE AT LEAST FOR WRITER")
+                break
+            else:
+                print(frame_id)
 
             if True:
                 # Overall FPS
