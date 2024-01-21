@@ -590,7 +590,7 @@ class FastVideoWriter:
                 width=self._width,
                 format="rgb24",
                 encoder="hevc_nvenc",
-                #encoder_format="rgb24",
+                encoder_format="rgb0",
                 hw_accel="cuda:0",
             )
             with w.open():
