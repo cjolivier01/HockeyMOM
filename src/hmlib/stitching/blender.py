@@ -574,7 +574,7 @@ class FastVideoWriter:
                 image_batch = torch.stack(self._batch_items)
             else:
                 image_batch = torch.cat(self._batch_items, dim=0)
-            image_batch = self.bgr_to_rgb(batch=image_batch)
+            #image_batch = self.bgr_to_rgb(batch=image_batch)
             frame_count = len(image_batch)
             # self._video_out.write_video_chunk(
             #     i=0,
@@ -588,9 +588,9 @@ class FastVideoWriter:
                 frame_rate=self._fps,
                 height=self._height,
                 width=self._width,
-                format="rgb24",
+                format="bgr24",
                 encoder="hevc_nvenc",
-                encoder_format="rgb0",
+                encoder_format="bgr0",
                 hw_accel="cuda:0",
             )
             with w.open():
