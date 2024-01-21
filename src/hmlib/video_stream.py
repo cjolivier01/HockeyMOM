@@ -14,7 +14,7 @@ class VideoStreamWriter:
         batch_size: int = 10,
         bit_rate: int = 44000,
         device: torch.device = None,
-        lossless: bool = False,
+        lossless: bool = True,
         # container_type: str = "mkv",
         container_type: str = "mp4",
     ):
@@ -64,6 +64,13 @@ class VideoStreamWriter:
         else:
             preset = "slow"
             rate_control = "cbr"
+        options = {
+                "preset": preset,
+                "rc": rate_control,
+        }
+        if self._lossless:
+            options["qp"] = "0"
+
         self._video_out.add_video_stream(
             frame_rate=self._fps,
             height=self._height,
@@ -71,10 +78,7 @@ class VideoStreamWriter:
             format=self._format,
             encoder=self._codec,
             encoder_format="bgr0",
-            encoder_option={
-                "preset": preset,
-                "rc": rate_control,
-            },
+            encoder_option=options,
             codec_config=self._codec_config,
             hw_accel=str(self._device),
         )

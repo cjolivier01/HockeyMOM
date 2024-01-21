@@ -452,7 +452,7 @@ class VideoOutput:
             # I think it crashes if the size is off by even one pixed between frames?
             fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
             # params = Sequence()
-            if True:
+            if False:
                 self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
                     fps=self._fps,
@@ -707,9 +707,9 @@ class VideoOutput:
                 )
                 # timer = Timer()
 
-            # if frame_id > 300:
-            #     print("DONE AT LEAST FOR WRITER")
-            #     break
+            if frame_id > 300:
+                print("DONE AT LEAST FOR WRITER")
+                break
 
             if True:
                 # Overall FPS
