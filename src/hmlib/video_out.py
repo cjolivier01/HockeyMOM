@@ -641,7 +641,8 @@ class VideoOutput:
                 if not isinstance(online_im, torch.Tensor):
                     online_im = torch.from_numpy(online_im)
                 if online_im.device.type == "cpu":
-                    online_im = online_im.to(self._device, non_blocking=True)
+                    #online_im = online_im.to(self._device, non_blocking=True)
+                    online_im = online_im.to(self._device)
             elif isinstance(online_im, torch.Tensor) and (
                 # If we're actually going to do something with it
                 not self._skip_final_save

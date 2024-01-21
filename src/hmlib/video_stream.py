@@ -14,7 +14,7 @@ class VideoStreamWriter:
         batch_size: int = 10,
         bit_rate: int = 44000,
         device: torch.device = None,
-        lossless: bool = True,
+        lossless: bool = False,
         # container_type: str = "mkv",
         container_type: str = "mp4",
     ):
@@ -34,7 +34,7 @@ class VideoStreamWriter:
         self._batch_items = []
         self._in_flush = False
         self._codec_config = torchaudio.io.CodecConfig(
-            bit_rate=int(5e6),
+            bit_rate=5000000,
         )
         self._codec_config.bit_rate = bit_rate
         self._codec_config = None
@@ -59,7 +59,7 @@ class VideoStreamWriter:
 
     def _add_stream(self):
         if self._lossless:
-            preset = "losslesshp"
+            preset = "lossless"
             rate_control = "constqp"
         else:
             preset = "slow"
