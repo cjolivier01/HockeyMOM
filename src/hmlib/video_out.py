@@ -637,13 +637,24 @@ class VideoOutput:
                 )
 
             # Make a numpy image array
-            if str(self._device).startswith("cuda"):
-                if not isinstance(online_im, torch.Tensor):
-                    online_im = torch.from_numpy(online_im)
-                if online_im.device.type == "cpu":
-                    #online_im = online_im.to(self._device, non_blocking=True)
-                    online_im = online_im.to(self._device)
-            elif isinstance(online_im, torch.Tensor) and (
+            # if str(self._device).startswith("cuda"):
+            #     if not isinstance(online_im, torch.Tensor):
+            #         online_im = torch.from_numpy(online_im)
+            #     if online_im.device.type == "cpu":
+            #         #online_im = online_im.to(self._device, non_blocking=True)
+            #         online_im = online_im.to(self._device)
+            # elif isinstance(online_im, torch.Tensor) and (
+            #     # If we're actually going to do something with it
+            #     not self._skip_final_save
+            #     and (
+            #         (self.has_args() and self._args.plot_frame_number)
+            #         or self._output_video is not None
+            #         or self._save_frame_dir
+            #     )
+            # ):
+            #     online_im = online_im.detach().contiguous().cpu().numpy()
+
+            if isinstance(online_im, torch.Tensor) and (
                 # If we're actually going to do something with it
                 not self._skip_final_save
                 and (
