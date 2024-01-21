@@ -14,9 +14,12 @@ class VideoStreamWriter:
         batch_size: int = 10,
         bit_rate: int = 44000,
         device: torch.device = None,
-        lossless: bool = False,
+        lossless: bool = True,
+        #container_type: str = "mkv",
+        container_type: str = "mp4",
     ):
         self._filename = filename
+        self._container_type = container_type
         self._fps = fps
         self._width = width
         self._height = height
@@ -55,10 +58,8 @@ class VideoStreamWriter:
         return image
 
     def _add_stream(self):
-        # encoder="h264_nvenc", encoder_format="yuv444p", hw_accel="cuda:0"
         if self._lossless:
             preset = "losslesshp"
-            #preset = "lossless"
             rate_control = "constqp"
         else:
             preset = "slow"
@@ -85,7 +86,6 @@ class VideoStreamWriter:
         return batch[:, [2, 1, 0], :, :]
 
     def close(self):
-        # self.flush()
         if self._video_f is not None:
             self._video_f.close()
             self._video_f = None
@@ -97,7 +97,6 @@ class VideoStreamWriter:
             else:
                 image_batch = torch.cat(self._batch_items, dim=0)
             self._batch_items.clear()
-            #image_batch = self.bgr_to_rgb(batch=image_batch)
             frame_count = len(image_batch)
             self._video_out.write_video_chunk(
                 i=0,
@@ -113,7 +112,11 @@ class VideoStreamWriter:
 
     def open(self):
         assert self._video_f is None
-        self._video_out = torchaudio.io.StreamWriter(dst=self._filename + ".mp4", format="mp4")
+        if not self._filename.endswith("." + self._container_type):
+            self._filename += "." + self._container_type
+        self._video_out = torchaudio.io.StreamWriter(
+            dst=self._filename, format=self._container_type
+        )
         self._add_stream()
         self._video_f = self._video_out.open()
 
@@ -127,5 +130,3 @@ class VideoStreamWriter:
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
             self.flush(flush_video_file=False)
-
-
