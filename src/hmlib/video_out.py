@@ -707,9 +707,9 @@ class VideoOutput:
                 )
                 # timer = Timer()
 
-            if frame_id > 300:
-                print("DONE AT LEAST FOR WRITER")
-                break
+            # if frame_id > 300:
+            #     print("DONE AT LEAST FOR WRITER")
+            #     break
 
             if True:
                 # Overall FPS
