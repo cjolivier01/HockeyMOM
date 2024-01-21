@@ -452,7 +452,7 @@ def blend_video(
 
             frame_count += 1
 
-            if frame_count >= 300:
+            if frame_count >= 100:
                 print("BREAKING EARLY FOR TESTING")
                 break
 
@@ -498,6 +498,7 @@ class FastVideoWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 30,
+        bit_rate: int = 44000,
         device: torch.device = None,
     ):
         self._filename = filename
@@ -513,7 +514,8 @@ class FastVideoWriter:
         self._batch_size = batch_size
         self._batch_items = []
         self._in_flush = False
-        # self._codec_config = torchaudio.io.CodecConfig()
+        self._codec_config = torchaudio.io.CodecConfig()
+        self._codec_config.bit_rate = bit_rate
         self._codec_config = None
         self._frame_counter = 0
 
