@@ -81,7 +81,8 @@ class StitchDataset:
         fork_workers: bool = False,
         image_roi: List[int] = None,
         device: torch.device = "cpu",
-        encoder_device: torch.device = torch.device("cuda:2"),
+        encoder_device: torch.device = torch.device("cpu"),
+        #encoder_device: torch.device = torch.device("cuda:2"),
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
