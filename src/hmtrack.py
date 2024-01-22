@@ -117,6 +117,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Don't save the output video",
     )
     parser.add_argument(
+        "--no_save_stitched",
+        "--no-save-stitched",
+        dest="no_save_stitched",
+        action="store_true",
+        help="Don't save the output video",
+    )
+    parser.add_argument(
         "--skip_final_video_save",
         "--skip-final-video-save",
         dest="skip_final_video_save",
@@ -469,8 +476,10 @@ def main(exp, args, num_gpu):
                     right_frame_offset=args.rfo,
                 )
                 # Create the stitcher data loader
-                output_stitched_video_file = os.path.join(
-                    ".", f"stitched_output-{args.experiment_name}.avi"
+                output_stitched_video_file = (
+                    os.path.join(".", f"stitched_output-{args.experiment_name}.avi")
+                    if not args.no_save_stitched
+                    else None
                 )
                 stitched_dataset = StitchDataset(
                     video_file_1=os.path.join(dir_name, video_left),
