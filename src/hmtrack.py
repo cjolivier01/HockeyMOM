@@ -406,7 +406,6 @@ def main(exp, args, num_gpu):
         cam_args = DefaultArguments(
             game_config=game_config,
             basic_debugging=args.debug,
-            show_image=args.show_image,
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
@@ -679,6 +678,7 @@ if __name__ == "__main__":
     opts_2 = opts_fair.opts(parser=parser)
     parser = opts_2.parser
     args = parser.parse_args()
+
     if args.tracker == "centertrack":
         opts = centertrack_opts.opts()
         opts.parser = make_parser(opts.parser)

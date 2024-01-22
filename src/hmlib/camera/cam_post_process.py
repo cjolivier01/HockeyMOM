@@ -183,7 +183,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         self,
         game_config: dict(),
         basic_debugging: bool = BASIC_DEBUGGING,
-        show_image: bool = False,
     ):
         # basic_debugging = False
 
@@ -192,8 +191,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.game_config = game_config
 
         # Display the image every frame (slow)
-        self.show_image = show_image or basic_debugging
-        # self.show_image = True
+        self.show_image = self.show_image or basic_debugging
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging

@@ -5,7 +5,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #
 # Models
 #
-PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
+PRETRAINED_MODEL="./pretrained/dla34/my_coco_ch_e60.pth"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
@@ -39,12 +39,17 @@ BATCH_SIZE=16
 
 echo "Experiment name: ${EXP_NAME}"
 
+if [ ! -z "${VIDEO}" ]; then
+  VIDEO="--input_video=${VIDEO}"
+fi
+
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   python src/hmtrack.py \
   -expn="${GAME_ID}" \
   -f="${EXPERIMENT_FILE}" \
+  --script="${MIXFORMER_SCRIPT}" \
   -c="${PRETRAINED_MODEL}" \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2 \
@@ -52,11 +57,7 @@ OMP_NUM_THREADS=16 \
   --tracker=${TRACKER} \
   --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \
-  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${GAME_ID} ${TEST_SIZE_ARG} \
+  ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
   --config=track \
-  --cam-ignore-largest \
-  --script="${MIXFORMER_SCRIPT}" \
-  --input_video="${VIDEO}" \
-  $@ \
-  tracking
+  ${VIDEO} $@ tracking
