@@ -659,13 +659,6 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         largest_bbox = None
 
-        if self._args.cam_ignore_largest and len(online_tlwhs):
-            # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
-                online_tlwhs, min_boxes=4
-            )
-            online_ids = online_ids[mask]
-
         # Exclude detections outside of an optional bounding box
         online_tlwhs, online_ids = prune_by_inclusion_box(
             online_tlwhs,
@@ -673,6 +666,13 @@ class CamTrackPostProcessor(torch.nn.Module):
             self._args.detection_inclusion_box,
             boundaries=self._boundaries,
         )
+
+        if self._args.cam_ignore_largest and len(online_tlwhs):
+            # Don't remove unless we have at least 4 online items being tracked
+            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
+                online_tlwhs, min_boxes=4
+            )
+            online_ids = online_ids[mask]
 
         # info_imgs = online_targets_and_img[3]
         original_img = online_targets_and_img[5]
