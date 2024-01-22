@@ -82,7 +82,7 @@ class StitchDataset:
         image_roi: List[int] = None,
         device: torch.device = "cpu",
         encoder_device: torch.device = torch.device("cpu"),
-        #encoder_device: torch.device = torch.device("cuda:2"),
+        # encoder_device: torch.device = torch.device("cuda:2"),
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -311,10 +311,14 @@ class StitchDataset:
                     break
                 frame_id = int(command)
                 self._prepare_next_frame(frame_id)
-                self._from_coordinator_queue.put(("ok", next_requested_frame))
+                if next_requested_frame < self._start_frame_number + self._max_frames:
+                    self._from_coordinator_queue.put(("ok", next_requested_frame))
+                else:
+                    # print(f"Not requesting frame {next_requested_frame}")
+                    pass
                 frame_count += 1
                 next_requested_frame += 1
-            self._from_coordinator_queue.put(StopIteration())
+            safe_put_queue(self._from_coordinator_queue, StopIteration())
         except Exception as ex:
             if not isinstance(ex, StopIteration):
                 print(ex)
@@ -362,9 +366,10 @@ class StitchDataset:
             self._start_coordinator_thread()
         return self
 
-    def get_next_frame(self):
+    def get_next_frame(self, frame_id: int):
         self._next_frame_timer.tic()
-
+        assert frame_id == self._current_frame
+        # INFO(f"Dequeing frame id: {self._current_frame}...")
         stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
 
         # INFO(f"Locally dequeued frame id: {self._current_frame}")
@@ -375,20 +380,17 @@ class StitchDataset:
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
         else:
-            INFO(
-                f"Next frame {self._next_requested_frame} would be above the max allowed frame, so not queueing"
-            )
+            # We were pre-requesting future frames, but we're past the
+            # frames we want, so don't ask for anymore and just return these
+            # (running out what's in the queue)
+            # INFO(
+            #     f"Next frame {self._next_requested_frame} would be above the max allowed frames, so not queueing"
+            # )
             pass
 
-        self._next_frame_timer.toc()
-        self._next_frame_counter += 1
-        # if self._next_frame_counter % 20 == 0:
-        #     logger.info(
-        #         "Stitch on-demand next-frame delivery speed: {:.2f} fps".format(
-        #             1.0 / max(1e-5, self._next_frame_timer.average_time)
-        #         )
-        #     )
-        #     self._next_frame_timer = Timer()
+        if stitched_frame is not None:
+            self._next_frame_timer.toc()
+            self._next_frame_counter += 1
 
         return stitched_frame
 
@@ -408,7 +410,10 @@ class StitchDataset:
             assert frame_id == self._current_frame
 
         # self._next_timer.tic()
-        stitched_frame = self.get_next_frame()
+        stitched_frame = self.get_next_frame(frame_id=frame_id)
+        if stitched_frame is None:
+            self.close()
+            raise StopIteration()
 
         # Code doesn't handle strided chanbels efficiently
         stitched_frame = self.prepare_frame_for_video(
