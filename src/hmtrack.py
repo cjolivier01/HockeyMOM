@@ -34,7 +34,7 @@ from hmlib.datasets.dataset.stitching_dataloader import (
 
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
-from hmlib.config import get_clip_box, get_config
+from hmlib.config import get_clip_box, get_config, set_nested_value
 
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
@@ -317,6 +317,16 @@ def to_32bit_mul(val):
     return int((val + 31)) & ~31
 
 
+def configure_model(config: dict, args: argparse.Namespace):
+    args.det_thres = set_nested_value(
+        dct=config, key_str="model.tracker.det_thres", set_to=args.det_thres
+    )
+    args.conf_thres = set_nested_value(
+        dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
+    )
+    return args
+
+
 def main(exp, args, num_gpu):
     dataloader = None
     try:
@@ -382,6 +392,8 @@ def main(exp, args, num_gpu):
         game_config = get_config(
             game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
         )
+
+        args = configure_model(config=game_config, args=args)
 
         game_config["args"] = vars(args)
 

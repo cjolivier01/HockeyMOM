@@ -21,8 +21,8 @@ def load_config_file(
     return {} if not merge_into_config else merge_into_config
 
 
-def default_config(root_dir: str):
-    return load_config_file(root_dir=root_dir, config_type=".", config_name="defaults")
+def baseline_config(root_dir: str):
+    return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
 
 def get_game_config(game_id: str, root_dir: str):
@@ -50,7 +50,7 @@ def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None
     Direct parameters override parameters whihc are in the higher-level yaml
     (i.e. a specified 'rink' to this function overrides the 'rink' in the game config)
     """
-    consolidated_config = default_config(root_dir=root_dir)
+    consolidated_config = baseline_config(root_dir=root_dir)
     game_config = dict()
     rink_config = dict()
     camera_config = dict()
@@ -121,3 +121,23 @@ def get_nested_value(dct, key_str, default_value=None):
             return default_value
 
     return current
+
+
+def set_nested_value(dct, key_str, set_to, noset_value=None):
+    if noset_value is None and set_to is None:
+        return get_nested_value(dct, key_str, set_to)
+    if set_to == noset_value:
+        return get_nested_value(dct, key_str, noset_value)
+
+    keys = key_str.split(".")
+    current = dct
+
+    for i, key in enumerate(keys):
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            if i == len(keys) - 1:
+                current[key] = set_to
+            else:
+                current[key] = dict()
+    return get_nested_value(dct, key_str)

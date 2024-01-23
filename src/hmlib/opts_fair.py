@@ -241,13 +241,15 @@ class opts(object):
         self.parser.add_argument(
             "--conf_thres",
             type=float,
-            default=0.4,
+            # default=0.4,
+            default=None,
             help="confidence thresh for tracking",
         )
         self.parser.add_argument(
             "--det_thres",
             type=float,
-            default=0.3,
+            # default=0.3,
+            default=None,
             help="confidence thresh for detection",
         )
         self.parser.add_argument(
