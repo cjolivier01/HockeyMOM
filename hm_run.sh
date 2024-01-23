@@ -6,6 +6,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 # Models
 #
 PRETRAINED_MODEL="./pretrained/dla34/my_coco_ch_e60.pth"
+#PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
@@ -26,7 +27,7 @@ START_FRAME=0
 #START_FRAME=47000
 #START_FRAME=16890
 #START_FRAME=25000
-#START_FRAME=54500
+START_FRAME=46200
 
 #TRACKER="hm"
 TRACKER="fair"
