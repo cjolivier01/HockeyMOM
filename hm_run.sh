@@ -38,7 +38,7 @@ BATCH_SIZE=16
 
 #STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
 
-CONFIDENCE="--conf_thres=0.25"
+#CONFIDENCE="--conf_thres=0.25"
 
 echo "Experiment name: ${EXP_NAME}"
 

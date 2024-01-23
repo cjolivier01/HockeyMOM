@@ -47,6 +47,15 @@ rink:
     fixed_edge_rotation_angle: 40
 
 #
+# Model config
+#
+model:
+  tracker:
+    type: fair
+    conf_thres: 0.25
+
+
+#
 # Problems
 #
 # Bad tracking to right at 25:40
