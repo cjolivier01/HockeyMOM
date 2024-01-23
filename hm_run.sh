@@ -38,6 +38,8 @@ BATCH_SIZE=16
 
 #STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
 
+CONFIDENCE="--conf_thres=0.25"
+
 echo "Experiment name: ${EXP_NAME}"
 
 if [ ! -z "${VIDEO}" ]; then
@@ -56,6 +58,7 @@ OMP_NUM_THREADS=16 \
   --gpus=0,1,2 \
   --infer \
   --tracker=${TRACKER} \
+  ${CONFIDENCE} \
   --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
