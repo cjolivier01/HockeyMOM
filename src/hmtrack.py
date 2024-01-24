@@ -445,6 +445,8 @@ def main(exp, args, num_gpu):
                     args.input_video = game_video_dir
 
         actual_device_count = torch.cuda.device_count()
+        if not actual_device_count:
+            raise Exception("At leats one GPU is required for this application")
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
