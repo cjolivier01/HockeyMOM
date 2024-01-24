@@ -16,6 +16,7 @@ Pillow-simd
 psutil
 tensorboard
 filterpy
+screeninfo
 gast
 astunparse
 fvcore
