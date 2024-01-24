@@ -17,9 +17,9 @@ class VideoStreamWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 10,
-        bit_rate: int = 5000000,
+        bit_rate: int = 100000,
         device: torch.device = None,
-        lossless: bool = True,
+        lossless: bool = False,
         container_type: str = "matroska",
     ):
         self._filename = filename
@@ -63,10 +63,12 @@ class VideoStreamWriter:
 
     def _add_stream(self):
         if self._lossless:
+            assert False
             preset = "lossless"
             rate_control = "constqp"
         else:
-            preset = "slow"
+            #preset = "slow"
+            preset = "p5"
             rate_control = "cbr"
         options = {
             "preset": preset,
