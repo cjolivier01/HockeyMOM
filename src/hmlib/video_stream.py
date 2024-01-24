@@ -2,6 +2,11 @@ import torch
 import torchaudio
 
 
+_EXTENSION_MAPPING = {
+    "matroska": "mkv",
+}
+
+
 class VideoStreamWriter:
     def __init__(
         self,
@@ -12,11 +17,10 @@ class VideoStreamWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 10,
-        bit_rate: int = 44000,
+        bit_rate: int = 5000000,
         device: torch.device = None,
         lossless: bool = True,
-        # container_type: str = "mkv",
-        container_type: str = "mp4",
+        container_type: str = "matroska",
     ):
         self._filename = filename
         self._container_type = container_type
@@ -34,7 +38,7 @@ class VideoStreamWriter:
         self._batch_items = []
         self._in_flush = False
         self._codec_config = torchaudio.io.CodecConfig(
-            bit_rate=5000000,
+            bit_rate=bit_rate,
         )
         self._codec_config.bit_rate = bit_rate
         self._codec_config = None
@@ -65,8 +69,8 @@ class VideoStreamWriter:
             preset = "slow"
             rate_control = "cbr"
         options = {
-                "preset": preset,
-                "rc": rate_control,
+            "preset": preset,
+            "rc": rate_control,
         }
         if self._lossless:
             options["qp"] = "0"
@@ -90,6 +94,7 @@ class VideoStreamWriter:
         return batch[:, [2, 1, 0], :, :]
 
     def close(self):
+        self.flush()
         if self._video_f is not None:
             self._video_f.close()
             self._video_f = None
@@ -119,8 +124,9 @@ class VideoStreamWriter:
 
     def open(self):
         assert self._video_f is None
-        if not self._filename.endswith("." + self._container_type):
-            self._filename += "." + self._container_type
+        ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
+        if not self._filename.endswith("." + ext):
+            self._filename += "." + ext
         self._video_out = torchaudio.io.StreamWriter(
             dst=self._filename, format=self._container_type
         )
@@ -139,4 +145,4 @@ class VideoStreamWriter:
             self.flush(flush_video_file=False)
 
     def write(self, images: torch.Tensor):
-         return self.append(images)
+        return self.append(images)

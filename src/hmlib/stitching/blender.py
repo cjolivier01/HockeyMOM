@@ -217,8 +217,10 @@ def make_seam_and_xor_masks(
     return seam_tensor, xor_tensor
 
 
-def get_dims_for_output_video(height: int, width: int, max_width: int):
-    if max_width and width > max_width:
+def get_dims_for_output_video(
+    height: int, width: int, max_width: int, allow_resize: bool = True
+):
+    if allow_resize and max_width and width > max_width:
         hh = float(height)
         ww = float(width)
         ar = ww / hh
@@ -245,8 +247,6 @@ def blend_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
 ):
-    stream_writer = None
-
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(
@@ -295,7 +295,6 @@ def blend_video(
     timer = Timer()
     frame_count = 0
     blender = None
-    video_f = None
     frame_id = start_frame_number
     try:
         while True:
@@ -359,20 +358,9 @@ def blend_video(
                             width=video_dim_width,
                             codec="hevc_nvenc",
                             device=blended.device,
+                            batch_size=2,
                         )
-                        # video_out = StreamWriter(output_video)
-                        # video_out.add_video_stream(
-                        #     frame_rate=fps,
-                        #     height=video_dim_height,
-                        #     width=video_dim_width,
-                        #     #format="rgb24",
-                        #     encoder="hevc_nvenc",
-                        #     #encoder="libx264",
-                        #     encoder_format="yuv422p",
-                        # )
-                        # video_f = video_out.open()
                         video_out.open()
-                        #assert video_out.isOpened()
                     else:
                         video_out = VideoOutput(
                             args=None,
@@ -386,27 +374,33 @@ def blend_video(
                     video_dim_height != blended.shape[-2]
                     or video_dim_width != blended.shape[-1]
                 ):
-                    assert False  # Why?
-                    for i in range(len(blended)):
-                        resized = resize_image(
-                            img=blended[i].permute(1, 2, 0),
+                    if isinstance(video_out, VideoStreamWriter):
+                        blended = resize_image(
+                            img=blended.contiguous(),
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
-                        if isinstance(video_out, StreamWriter):
-                            video_f.write_video_chunk(
-                                i=frame_id,
-                                chunk=resized,
+                        video_out.append(blended)
+                        frame_id += batch_size
+                    else:
+                        for i in range(len(blended)):
+                            resized = resize_image(
+                                img=blended[i].permute(1, 2, 0),
+                                new_width=video_dim_width,
+                                new_height=video_dim_height,
                             )
-                        else:
-                            video_out.append(
-                                ImageProcData(
-                                    frame_id=frame_id,
-                                    img=resized.contiguous().cpu(),
-                                    current_box=None,
+                            if isinstance(video_out, VideoStreamWriter):
+                                video_out.append(my_blended)
+                                frame_id += batch_size
+                            else:
+                                video_out.append(
+                                    ImageProcData(
+                                        frame_id=frame_id,
+                                        img=resized.contiguous().cpu(),
+                                        current_box=None,
+                                    )
                                 )
-                            )
-                        frame_id += 1
+                            frame_id += 1
                 else:
                     my_blended = blended.permute(0, 2, 3, 1)
                     if rotation_angle:
@@ -429,10 +423,6 @@ def blend_video(
                     for i in range(len(my_blended)):
                         if isinstance(video_out, VideoStreamWriter):
                             video_out.append(my_blended)
-                            # video_f.write_video_chunk(
-                            #     i=0,
-                            #     chunk=my_blended.permute(0, 3, 1, 2).contiguous().cpu(),
-                            # )
                             frame_id += batch_size
                             break
                         else:
@@ -450,10 +440,6 @@ def blend_video(
                 pass
 
             frame_count += 1
-
-            if frame_count >= 100:
-                print("BREAKING EARLY FOR TESTING")
-                break
 
             if frame_count != 1:
                 timer.toc()
@@ -500,9 +486,9 @@ def main(args):
             # interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.avi",
+            output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
-            batch_size=1,
+            batch_size=8,
         )
 
 

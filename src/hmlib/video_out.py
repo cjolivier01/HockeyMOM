@@ -169,10 +169,10 @@ def resize_image(
             if permuted:
                 # H, W, C -> C, W, H
                 img = img.permute(0, 3, 2, 1)
-            assert img.shape[1] == 2 or img.shape[1] == 3
+            assert img.shape[1] == 3 or img.shape[1] == 4
             img = F.resize(
                 img=img,
-                size=(w, h),
+                size=(w, h) if permuted else (h, w),
                 interpolation=mode,
             )
             if permuted:
