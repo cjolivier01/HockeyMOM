@@ -358,7 +358,7 @@ def blend_video(
                             width=video_dim_width,
                             codec="hevc_nvenc",
                             device=blended.device,
-                            batch_size=2,
+                            batch_size=1,
                         )
                         video_out.open()
                     else:

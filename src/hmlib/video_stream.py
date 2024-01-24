@@ -94,7 +94,6 @@ class VideoStreamWriter:
         return batch[:, [2, 1, 0], :, :]
 
     def close(self):
-        self.flush()
         if self._video_f is not None:
             self._video_f.close()
             self._video_f = None
