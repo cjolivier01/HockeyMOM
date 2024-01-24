@@ -55,9 +55,6 @@ def print_ffmpeg_info():
 
 print_ffmpeg_info()
 
-#MAGIC_YUV_LOSSLESS = "M8RA"
-#MAGIC_YUV_LOSSLESS = "M8Y0"
-
 
 def make_visible_image(img, enable_resizing: bool = False):
     if not enable_resizing:
@@ -260,7 +257,8 @@ class VideoOutput:
         output_frame_height: int,
         fps: float,
         # fourcc=MAGIC_YUV_LOSSLESS,
-        fourcc="XVID",
+        fourcc="hevc_nvenc",
+        #fourcc="XVID",
         # fourcc="HEVC",
         # fourcc="X264",
         # fourcc="H264",
@@ -382,7 +380,11 @@ class VideoOutput:
             raise
         finally:
             if self._output_video is not None:
-                self._output_video.release()
+                if isinstance(self._output_video, VideoStreamWriter):
+                    self._output_video.flush()
+                    self._output_video.close()
+                else:
+                    self._output_video.release()
                 self._output_video = None
 
     def _get_gaussian(self, image_width: int):
@@ -450,33 +452,27 @@ class VideoOutput:
         ):
             # is_cuda = str(self._device).startswith("cuda")
             # I think it crashes if the size is off by even one pixed between frames?
-            fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-            # params = Sequence()
-            if False:
+            if "_nvenc" in self._fourcc:
                 self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
                     fps=self._fps,
-                    width=int(self._output_frame_width),
                     height=int(self._output_frame_height),
+                    width=int(self._output_frame_width),
                     codec="hevc_nvenc",
                     device=self._device,
+                    batch_size=1,
                 )
                 self._output_video.open()
             else:
+                fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
                 self._output_video = cv2.VideoWriter(
                     filename=self._output_video_path,
-                    # apiPreference=cv2.CAP_FFMPEG,
-                    # apiPreference=cv2.CAP_GSTREAMER,
                     fourcc=fourcc,
                     fps=self._fps,
                     frameSize=(
                         int(self._output_frame_width),
                         int(self._output_frame_height),
                     ),
-                    # params=[
-                    #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-                    #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-                    # ],
                 )
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
             assert self._output_video.isOpened()
@@ -654,29 +650,31 @@ class VideoOutput:
             # ):
             #     online_im = online_im.detach().contiguous().cpu().numpy()
 
-            if isinstance(online_im, torch.Tensor) and (
-                # If we're actually going to do something with it
-                not self._skip_final_save
-                and (
-                    (self.has_args() and self._args.plot_frame_number)
-                    or self._output_video is not None
-                    or self._save_frame_dir
-                )
-            ):
-                online_im = online_im.detach().contiguous().cpu().numpy()
-
-            #
-            # Frame Number
-            #
-            if (
-                self.has_args()
-                and self._args.plot_frame_number
-                and not self._skip_final_save
-            ):
-                online_im = vis.plot_frame_number(
-                    online_im,
-                    frame_id=frame_id,
-                )
+            if not isinstance(self._output_video, VideoStreamWriter):
+                if isinstance(online_im, torch.Tensor) and (
+                    # If we're actually going to do something with it
+                    not self._skip_final_save
+                    and (
+                        (self.has_args() and self._args.plot_frame_number)
+                        or self._output_video is not None
+                        or self._save_frame_dir
+                    )
+                ):
+                    online_im = online_im.detach().contiguous().cpu().numpy()
+                #
+                # Frame Number
+                #
+                if (
+                    self.has_args()
+                    and self._args.plot_frame_number
+                    and not self._skip_final_save
+                ):
+                    online_im = vis.plot_frame_number(
+                        online_im,
+                        frame_id=frame_id,
+                    )
+                if plot_interias:
+                    vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
             # Output (and maybe show) the final image
             if (
@@ -688,9 +686,6 @@ class VideoOutput:
                     visual = make_visible_image(online_im)
                     cv2.imshow("online_im", visual)
                     cv2.waitKey(1)
-
-            if plot_interias:
-                vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
             assert int(self._output_frame_width) == online_im.shape[-2]
             assert int(self._output_frame_height) == online_im.shape[-3]
