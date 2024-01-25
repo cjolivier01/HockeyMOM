@@ -73,6 +73,13 @@ def make_parser():
         help="Right frame offset",
     )
     parser.add_argument(
+        "--skip_final_video_save",
+        "--skip-final-video-save",
+        dest="skip_final_video_save",
+        action="store_true",
+        help="Don't save the output video frames",
+    )
+    parser.add_argument(
         "--rotation_angle",
         default=0,
         type=int,
@@ -243,9 +250,9 @@ def blend_video(
     output_video: str = None,
     max_width: int = 7680,
     rotation_angle: int = 0,
-    output_file: str = None,
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
+    skip_final_video_save: bool = False,
 ):
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
@@ -348,7 +355,7 @@ def blend_video(
                     width=blended.shape[-1],
                     max_width=max_width,
                 )
-                if video_out is None:
+                if not skip_final_video_save and video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
                     if True:
                         video_out = VideoStreamWriter(
@@ -369,6 +376,7 @@ def blend_video(
                             output_frame_height=video_dim_height,
                             fps=fps,
                             device=blended.device,
+                            skip_final_save=skip_final_video_save,
                         )
                 if (
                     video_dim_height != blended.shape[-2]
@@ -380,7 +388,8 @@ def blend_video(
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
-                        video_out.append(blended)
+                        if not skip_final_video_save:
+                            video_out.append(blended)
                         frame_id += batch_size
                     else:
                         for i in range(len(blended)):
@@ -422,7 +431,8 @@ def blend_video(
                     cpu_blended_image = None
                     for i in range(len(my_blended)):
                         if isinstance(video_out, VideoStreamWriter):
-                            video_out.append(my_blended)
+                            if not skip_final_video_save:
+                                video_out.append(my_blended)
                             frame_id += batch_size
                             break
                         else:
@@ -483,13 +493,14 @@ def main(args):
             "mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
-            # interpolation="bilinear",
+            interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
             output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=2,
-            max_width=4096,
+            # max_width=4096,
+            skip_final_video_save=True,
         )
 
 
