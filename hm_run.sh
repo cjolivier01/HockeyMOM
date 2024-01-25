@@ -5,8 +5,8 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #
 # Models
 #
-PRETRAINED_MODEL="./pretrained/dla34/my_coco_ch_e60.pth"
-#PRETRAINED_MODEL="./pretrained/dla34/crowdhuman_dla34.pth"
+#PRETRAINED_MODEL="-c=./pretrained/dla34/my_coco_ch_e60.pth"
+#PRETRAINED_MODEL="-c=./pretrained/dla34/crowdhuman_dla34.pth"
 
 MIXFORMER_SCRIPT="mixformer_deit_hockey"
 
@@ -30,13 +30,13 @@ START_FRAME=0
 #START_FRAME=25000
 #START_FRAME=46200
 
-#TRACKER="hm"
-TRACKER="fair"
+#TRACKER="--tracker=hm"
+#TRACKER="--tracker=fair"
 #BATCH_SIZE=32
 #BATCH_SIZE=16
 #BATCH_SIZE=16
 #BATCH_SIZE=8
-BATCH_SIZE=1
+BATCH_SIZE=2
 
 #STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
 
@@ -55,11 +55,11 @@ OMP_NUM_THREADS=16 \
   -expn="${GAME_ID}" \
   -f="${EXPERIMENT_FILE}" \
   --script="${MIXFORMER_SCRIPT}" \
-  -c="${PRETRAINED_MODEL}" \
+  ${PRETRAINED_MODEL} \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2 \
   --infer \
-  --tracker=${TRACKER} \
+  ${TRACKER} \
   ${CONFIDENCE} \
   --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \

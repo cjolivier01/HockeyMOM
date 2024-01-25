@@ -324,6 +324,16 @@ def configure_model(config: dict, args: argparse.Namespace):
     args.conf_thres = set_nested_value(
         dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
     )
+    if config["model"]["backbone"]["pretrained"]:
+        args.load_model = set_nested_value(
+            dct=config,
+            key_str="model.backbone.pretrained_path",
+            set_to=args.load_model,
+            noset_value="",
+        )
+    args.tracker = set_nested_value(
+        dct=config, key_str="model.tracker.type", set_to=args.tracker
+    )
     return args
 
 
