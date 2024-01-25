@@ -55,10 +55,16 @@ class VideoStreamWriter:
     def _make_proper_permute(self, image: torch.Tensor):
         if len(image.shape) == 3:
             if image.shape[-1] == 3 and self._device is not None:
-                image = image.permute(2, 0, 1)
+                if isinstance(image, torch.Tensor):
+                    image = image.permute(2, 0, 1)
+                else:
+                    image = image.transpose(2, 0, 1)
         else:
             if image.shape[-1] == 3 and self._device is not None:
-                image = image.permute(0, 3, 1, 2)
+                if isinstance(image, torch.Tensor):
+                    image = image.permute(0, 3, 1, 2)
+                else:
+                    image = image.transpose(0, 3, 1, 2)
         return image
 
     def _add_stream(self):
@@ -67,7 +73,7 @@ class VideoStreamWriter:
             preset = "lossless"
             rate_control = "constqp"
         else:
-            #preset = "slow"
+            # preset = "slow"
             preset = "p5"
             rate_control = "cbr"
         options = {
