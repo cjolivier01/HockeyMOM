@@ -435,7 +435,7 @@ def main(exp, args, num_gpu):
         if not args.input_video and args.game_id:
             game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
             if os.path.isdir(game_video_dir):
-                pre_stitched_file_name = "stitched_output-with-audio.avi"
+                pre_stitched_file_name = "stitched_output-with-audio.mkv"
                 pre_stitched_file_path = os.path.join(
                     game_video_dir, pre_stitched_file_name
                 )
@@ -490,7 +490,7 @@ def main(exp, args, num_gpu):
                 )
                 # Create the stitcher data loader
                 output_stitched_video_file = (
-                    os.path.join(".", f"stitched_output-{args.experiment_name}.avi")
+                    os.path.join(".", f"stitched_output-{args.experiment_name}.mkv")
                     if not args.no_save_stitched
                     else None
                 )

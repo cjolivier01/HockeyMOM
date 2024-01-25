@@ -517,7 +517,7 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._video_output_campp = VideoOutput(
             name="TRACKING",
             args=self._args,
-            output_video_path=os.path.join(self._save_dir, "tracking_output.avi")
+            output_video_path=os.path.join(self._save_dir, "tracking_output.mkv")
             if self._save_dir is not None
             else None,
             fps=self._fps,
@@ -556,7 +556,7 @@ class CamTrackPostProcessor(torch.nn.Module):
         #     self._video_output_boxtrack = VideoOutput(
         #         name="BOXTRACK",
         #         args=self._args,
-        #         output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
+        #         output_video_path=os.path.join(self._save_dir, "boxtrack_output.mkv"),
         #         fps=self._fps,
         #         use_fork=False,
         #         start=False,
