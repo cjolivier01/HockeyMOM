@@ -392,13 +392,15 @@ def main(exp, args, num_gpu):
         elif args.tsize is not None:
             exp.test_size = (args.tsize, args.tsize)
 
-        game_config = get_config(
-            game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
-        )
+        game_config = args.game_config
 
-        args = configure_model(config=game_config, args=args)
+        # game_config = get_config(
+        #     game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
+        # )
 
-        game_config["args"] = vars(args)
+        # args = configure_model(config=game_config, args=args)
+
+        # game_config["args"] = vars(args)
 
         if args.lfo is None and args.rfo is None:
             if (
@@ -417,6 +419,13 @@ def main(exp, args, num_gpu):
                         args.rfo += -args.lfo
                         args.lfo = 0.0
                     assert args.lfo >= 0 and args.rfo >= 0
+
+        model = None
+        if args.tracker not in ["fair", "centertrack"]:
+            model = exp.get_model()
+            logger.info(
+                "Model Summary: {}".format(get_model_info(model, exp.test_size))
+            )
 
         cam_args = DefaultArguments(
             game_config=game_config,
@@ -452,13 +461,6 @@ def main(exp, args, num_gpu):
             raise Exception("At leats one GPU is required for this application")
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
-
-        model = None
-        if args.tracker not in ["fair", "centertrack"]:
-            model = exp.get_model()
-            logger.info(
-                "Model Summary: {}".format(get_model_info(model, exp.test_size))
-            )
 
         dataloader = None
         postprocessor = None
@@ -702,6 +704,14 @@ if __name__ == "__main__":
     opts_2 = opts_fair.opts(parser=parser)
     parser = opts_2.parser
     args = parser.parse_args()
+
+    args.game_config = get_config(
+        game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
+    )
+
+    args = configure_model(config=args.game_config, args=args)
+
+    args.game_config["args"] = vars(args)
 
     if args.tracker == "centertrack":
         opts = centertrack_opts.opts()
