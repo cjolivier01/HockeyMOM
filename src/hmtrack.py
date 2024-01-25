@@ -392,13 +392,6 @@ def main(exp, args, num_gpu):
         elif args.tsize is not None:
             exp.test_size = (args.tsize, args.tsize)
 
-        model = None
-        if args.tracker not in ["fair", "centertrack"]:
-            model = exp.get_model()
-            logger.info(
-                "Model Summary: {}".format(get_model_info(model, exp.test_size))
-            )
-
         game_config = get_config(
             game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
         )
@@ -459,6 +452,13 @@ def main(exp, args, num_gpu):
             raise Exception("At leats one GPU is required for this application")
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
+
+        model = None
+        if args.tracker not in ["fair", "centertrack"]:
+            model = exp.get_model()
+            logger.info(
+                "Model Summary: {}".format(get_model_info(model, exp.test_size))
+            )
 
         dataloader = None
         postprocessor = None
