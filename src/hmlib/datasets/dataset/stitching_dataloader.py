@@ -290,6 +290,11 @@ class StitchDataset:
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
                 device=self._encoder_device,
+                fourcc=(
+                    "hevc_nvenc"
+                    if str(self._encoder_device).startswith("cuda")
+                    else "XVID"
+                ),
                 name="STITCH-OUT",
                 simple_save=True,
             )
