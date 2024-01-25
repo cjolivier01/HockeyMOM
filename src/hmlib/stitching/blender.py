@@ -355,7 +355,7 @@ def blend_video(
                     width=blended.shape[-1],
                     max_width=max_width,
                 )
-                if not skip_final_video_save and video_out is None:
+                if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
                     if True:
                         video_out = VideoStreamWriter(
@@ -388,8 +388,7 @@ def blend_video(
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
-                        if not skip_final_video_save:
-                            video_out.append(blended)
+                        video_out.append(blended)
                         frame_id += batch_size
                     else:
                         for i in range(len(blended)):
@@ -500,7 +499,7 @@ def main(args):
             rotation_angle=args.rotation_angle,
             batch_size=2,
             # max_width=4096,
-            skip_final_video_save=True,
+            # cskip_final_video_save=True,
         )
 
 
