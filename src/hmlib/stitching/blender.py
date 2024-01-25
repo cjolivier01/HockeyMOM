@@ -248,7 +248,7 @@ def blend_video(
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
-    max_width: int = 7680,
+    max_width: int = 8192,
     rotation_angle: int = 0,
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
