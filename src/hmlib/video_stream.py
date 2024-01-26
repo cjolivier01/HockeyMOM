@@ -180,9 +180,10 @@ class VideoStreamReader:
         self._height = None
         self._batch_size = batch_size
         self._debug = device
+        self._device = device
         self._video_in = None
-        self._video_f = None
         self._video_info = None
+        self._iter = None
         self.open()
 
     @property
@@ -213,10 +214,17 @@ class VideoStreamReader:
         return self.frame_count
 
     def _add_stream(self):
-        pass
+        self._video_in.add_basic_video_stream(
+            frames_per_chunk=self._batch_size,
+            stream_index=0,
+            decoder_option={},
+            #format="yuv420p",
+            format="yuvj420p",
+            hw_accel=str(self._device),
+        )
 
     def isOpened(self):
-        return self._video_f is not None
+        return self._iter is not None
 
     def seek(self, timestamp: float = None, frame_number: int = None):
         assert timestamp is None or frame_number is None
@@ -234,16 +242,23 @@ class VideoStreamReader:
         return None
 
     def open(self):
-        assert self._video_f is None
+        assert self._video_in is None
         self._video_info = BasicVideoInfo(video_file=self._filename)
         if self._codec is None:
             self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
         self._video_in = torchaudio.io.StreamReader(src=self._filename)
         self._add_stream()
-        self._video_f = self._video_out.open()
+        self._iter = self._video_in.stream()
 
     def close(self):
+        if self._video_in is not None:
+            self._video_in.remove_stream(0)
+            self._video_in = None
+            self._iter = None
         return
 
     def read(self):
-        return Non
+        next_data = next(self._iter)
+        if next_data is None:
+            return False, None
+        return True, next_data

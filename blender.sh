@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VIDEO_DIR="/home/colivier-local/Videos/tvbb"
+VIDEO_DIR="/home/colivier-local/Videos/sharks-bb3-2"
 #ROTATION="--rotation_angle=-25"
 
 OMP_NUM_THREADS=16 \
