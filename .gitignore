@@ -13,6 +13,7 @@ __pycache__
 /build
 /*.mov
 /*.aac
+/*.mkv
 /my_venv
 pybind11_project_example.egg-info
 compile_commands.json
