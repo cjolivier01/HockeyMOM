@@ -2,7 +2,6 @@
 Experiments in stitching
 """
 import os
-import time
 import argparse
 import numpy as np
 from typing import Tuple, List
@@ -10,10 +9,6 @@ import cv2
 
 import torch
 import torch.nn.functional as F
-
-import torchaudio
-
-# from torchaudio.io import StreamWriter
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
