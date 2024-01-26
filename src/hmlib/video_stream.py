@@ -1,9 +1,18 @@
 import torch
 import torchaudio
 
+from .ffmpeg import BasicVideoInfo
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
+}
+
+_FOURCC_TO_CODEC = {
+    "HEVC": "hevc_cuvid",
+    "H264": "h264_cuvid",
+    "MJPEG": "mjpeg_cuvid",
+    "XVID": "mpeg4_cuvid",
+    "MP4V": "mpeg4_cuvid",
 }
 
 
@@ -159,7 +168,7 @@ class VideoStreamReader:
     def __init__(
         self,
         filename: str,
-        codec: str,
+        codec: str = None,
         batch_size: int = 10,
         device: torch.device = None,
     ):
@@ -170,22 +179,52 @@ class VideoStreamReader:
         self._height = None
         self._batch_size = batch_size
         self._debug = device
+        self._video_in = None
+        self._video_f = None
+        self._video_info = None
         pass
 
     @property
     def fps(self):
-        return self._fps
+        return self._video_info.fps
 
     @property
     def width(self):
-        return self._width
+        return self._video_info.width
 
     @property
     def height(self):
-        return self._height
+        return self._video_info.height
+
+    @property
+    def bit_rate(self):
+        return self._video_info.bitrate
+
+    @property
+    def frame_count(self):
+        return self._video_info.frame_count
+
+    @property
+    def codec(self):
+        return self._video_info.codec
+
+    def __len__(self):
+        return self.frame_count
+
+    def _add_stream(self):
+        pass
+
+    def isOpened(self):
+        return self._video_f is not None
 
     def open(self):
-        return
+        assert self._video_f is None
+        self._video_info = BasicVideoInfo(video_file=self._filename)
+        if self._codec is None:
+            self.codec = _FOURCC_TO_CODEC[self._video_info.codec]
+        self._video_in = torchaudio.io.StreamReader(src=self._filename)
+        self._add_stream()
+        self._video_f = self._video_out.open()
 
     def close(self):
         return
