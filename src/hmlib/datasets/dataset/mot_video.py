@@ -59,6 +59,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._max_frames = max_frames
         self._batch_size = batch_size
         self._timer = None
+        self._timer_counter = 0
         self._to_worker_queue = multiprocessing.Queue()
         self._from_worker_queue = multiprocessing.Queue()
         self.vn = None
@@ -366,12 +367,15 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             raise results
         self._timer.toc()
 
+        self._timer_counter += self._batch_size
         if self._next_counter and self._next_counter % 20 == 0:
             logger.info(
                 "Dataset delivery frame {} ({:.2f} fps)".format(
-                    self._count + 1, 1.0 / max(1e-5, self._timer.average_time)
+                    self._timer_counter, 1.0 / max(1e-5, self._timer.average_time)
                 )
             )
+            self._timer = Timer()
+            self._timer_counter = 0
         self._next_counter += 1
         return results
 
