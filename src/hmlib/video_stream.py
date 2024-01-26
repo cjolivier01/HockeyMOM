@@ -1,3 +1,4 @@
+import cv2
 import torch
 import torchaudio
 
@@ -182,7 +183,7 @@ class VideoStreamReader:
         self._video_in = None
         self._video_f = None
         self._video_info = None
-        pass
+        self.open()
 
     @property
     def fps(self):
@@ -217,11 +218,26 @@ class VideoStreamReader:
     def isOpened(self):
         return self._video_f is not None
 
+    def seek(self, timestamp: float = None, frame_number: int = None):
+        assert timestamp is None or frame_number is None
+        if frame_number is not None:
+            timestamp = float(frame_number) / self._video_in.info.framerate
+        self._video_in.seek(timestamp=timestamp, precise=True)
+
+    def set(self, prop: int, value: any):
+        if prop == cv2.CAP_PROP_POS_FRAMES:
+            self.seek(frame_number=value)
+        else:
+            assert False and f"Unsupported property: {prop}"
+
+    def get(self, prop: int):
+        return None
+
     def open(self):
         assert self._video_f is None
         self._video_info = BasicVideoInfo(video_file=self._filename)
         if self._codec is None:
-            self.codec = _FOURCC_TO_CODEC[self._video_info.codec]
+            self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
         self._video_in = torchaudio.io.StreamReader(src=self._filename)
         self._add_stream()
         self._video_f = self._video_out.open()
@@ -230,4 +246,4 @@ class VideoStreamReader:
         return
 
     def read(self):
-        return None
+        return Non

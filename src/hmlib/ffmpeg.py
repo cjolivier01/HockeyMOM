@@ -16,8 +16,8 @@ class BasicVideoInfo:
         self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
-        self.fourcc = cap.get(cv2.CAP_PROP_FOURCC)
-        self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)])
+        self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
         cap.release()
 
 

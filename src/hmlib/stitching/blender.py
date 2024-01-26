@@ -14,7 +14,7 @@ import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 from hmlib.video_out import make_visible_image
-from hmlib.video_stream import VideoStreamWriter
+from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -249,7 +249,8 @@ def blend_video(
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
 ):
-    cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
+    cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1))
+    #cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(
             f"Could not open video file: {os.path.join(dir_name, video_file_1)}"
@@ -258,7 +259,8 @@ def blend_video(
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
-    cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
+    cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    #cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(
             f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
