@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VIDEO_DIR="${HOME}/Videos/jrmocks"
+VIDEO_DIR="/home/colivier-local/Videos/tvbb"
 #ROTATION="--rotation_angle=-25"
 
 OMP_NUM_THREADS=16 \

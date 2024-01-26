@@ -1,6 +1,6 @@
 #!/bin/bash
 
-GAME_ID="sharks-bb3-2"
+GAME_ID="tvbb"
 
 VIDEO_DIR="${HOME}/Videos/${GAME_ID}"
 
