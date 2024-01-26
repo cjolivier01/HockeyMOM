@@ -153,3 +153,42 @@ class VideoStreamWriter:
 
     def write(self, images: torch.Tensor):
         return self.append(images)
+
+
+class VideoStreamReader:
+    def __init__(
+        self,
+        filename: str,
+        codec: str,
+        batch_size: int = 10,
+        device: torch.device = None,
+    ):
+        self._filename = filename
+        self._codec = codec
+        self._fps = None
+        self._width = None
+        self._height = None
+        self._batch_size = batch_size
+        self._debug = device
+        pass
+
+    @property
+    def fps(self):
+        return self._fps
+
+    @property
+    def width(self):
+        return self._width
+
+    @property
+    def height(self):
+        return self._height
+
+    def open(self):
+        return
+
+    def close(self):
+        return
+
+    def read(self):
+        return None
