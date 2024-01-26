@@ -188,37 +188,38 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             except StopIteration:
                 return False, None
 
-    def maybe_scale_image_colors(self, image: torch.Tensor):
-        if not self._image_channel_adjustment:
-            return image
-        if self._scale_color_tensor is None:
-            if isinstance(image, torch.Tensor):
-                self._scale_color_tensor = torch.tensor(
-                    self._image_channel_adjustment,
-                    dtype=torch.float32,
-                    device=image.device,
-                )
-                self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
-            else:
-                self._scale_color_tensor = np.array(
-                    self._image_channel_adjustment, dtype=np.float32
-                )
-                self._scale_color_tensor = np.expand_dims(
-                    np.expand_dims(self._scale_color_tensor, 0), 0
-                )
-        if isinstance(image, torch.Tensor):
-            image = torch.clamp(
-                image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
-            ).to(torch.uint8)
-        else:
-            image = np.clip(
-                image.astype(np.float32) * self._scale_color_tensor,
-                a_min=0,
-                a_max=255.0,
-            ).astype(np.uint8)
-        return image
+    # def maybe_scale_image_colors(self, image: torch.Tensor):
+    #     if not self._image_channel_adjustment:
+    #         return image
+    #     if self._scale_color_tensor is None:
+    #         if isinstance(image, torch.Tensor):
+    #             self._scale_color_tensor = torch.tensor(
+    #                 self._image_channel_adjustment,
+    #                 dtype=torch.float32,
+    #                 device=image.device,
+    #             )
+    #             self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
+    #         else:
+    #             self._scale_color_tensor = np.array(
+    #                 self._image_channel_adjustment, dtype=np.float32
+    #             )
+    #             self._scale_color_tensor = np.expand_dims(
+    #                 np.expand_dims(self._scale_color_tensor, 0), 0
+    #             )
+    #     if isinstance(image, torch.Tensor):
+    #         image = torch.clamp(
+    #             image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+    #         ).to(torch.uint8)
+    #     else:
+    #         image = np.clip(
+    #             image.astype(np.float32) * self._scale_color_tensor,
+    #             a_min=0,
+    #             a_max=255.0,
+    #         ).astype(np.uint8)
+    #     return image
 
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
+        assert False
         # Offset the boxes
         if self._mapping_offset is None:
             device = yolox_detections[0].device
@@ -266,6 +267,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 raise StopIteration()
 
             if self.clip_original is not None:
+                assert False
                 self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
                 img0 = img0[
                     self.clip_original[1] : self.clip_original[3],
@@ -277,7 +279,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             if not self._original_image_only:
                 (
                     img,
-                    inscribed_image,
+                    _, #inscribed_image,
                     self.letterbox_ratio,
                     self.letterbox_dw,
                     self.letterbox_dh,
@@ -294,19 +296,20 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
 
             if not self._original_image_only:
-                frames_inscribed_images.append(
-                    torch.from_numpy(inscribed_image.transpose(2, 0, 1))
-                )
+                # frames_inscribed_images.append(
+                #     torch.from_numpy(inscribed_image.transpose(2, 0, 1))
+                # )
                 frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
 
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
 
         if not self._original_image_only:
-            inscribed_image = torch.stack(frames_inscribed_images, dim=0)
+            # inscribed_image = torch.stack(frames_inscribed_images, dim=0)
             img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
 
-        original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
+        #original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
+        original_img = torch.stack(frames_original_imgs, dim=0)
         # Does this need to be in imgs_info this way as an array?
         ids = torch.cat(ids, dim=0)
         # frame_sizes = torch.stack(frame_sizes, dim=0)
@@ -324,31 +327,32 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         ]
 
         # TODO: remove ascontiguousarray?
-        if not self._original_image_only:
-            img /= 255.0
+        # if not self._original_image_only:
+        #     img /= 255.0
 
-            # Set up scaling on the first pass
-            if self._scale_inscribed_to_original is None:
-                self._scale_inscribed_to_original = torch.tensor(
-                    (inscribed_image.shape[3], inscribed_image.shape[2]),
-                    dtype=torch.float32,
-                ) / torch.tensor(
-                    (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
-                )
-                self._scale_inscribed_to_original = torch.cat(
-                    (
-                        self._scale_inscribed_to_original,
-                        self._scale_inscribed_to_original,
-                    ),
-                    dim=0,
-                )
+        #     # Set up scaling on the first pass
+        #     if self._scale_inscribed_to_original is None:
+        #         self._scale_inscribed_to_original = torch.tensor(
+        #             (inscribed_image.shape[3], inscribed_image.shape[2]),
+        #             dtype=torch.float32,
+        #         ) / torch.tensor(
+        #             (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
+        #         )
+        #         self._scale_inscribed_to_original = torch.cat(
+        #             (
+        #                 self._scale_inscribed_to_original,
+        #                 self._scale_inscribed_to_original,
+        #             ),
+        #             dim=0,
+        #         )
 
         self._count += self._batch_size
         # self._timer.toc()
         if self._original_image_only:
             return original_img, None, None, imgs_info, ids
         else:
-            return original_img, img, inscribed_image, imgs_info, ids
+            #return original_img, img, inscribed_image, imgs_info, ids
+            return original_img, img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
