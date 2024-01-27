@@ -47,7 +47,7 @@ rink:
 
   camera:
     fixed_edge_scaling_factor: 1.25
-    fixed_edge_rotation_angle: 40
+    fixed_edge_rotation_angle: 35
 
 #
 # Model config
