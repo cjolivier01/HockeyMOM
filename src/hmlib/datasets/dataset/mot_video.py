@@ -278,8 +278,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         ):
             raise StopIteration
 
-        #ALL_NON_BLOCKING = True
-        ALL_NON_BLOCKING = False
+        ALL_NON_BLOCKING = True
+        #ALL_NON_BLOCKING = False
 
         # frames_inscribed_images = []
         frames_imgs = []
@@ -352,9 +352,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
         self._count += self._batch_size
         if self._original_image_only:
-            return original_img, None, None, imgs_info, ids
+            return original_img.cpu(), None, None, imgs_info, ids
         else:
-            return original_img, img, None, imgs_info, ids
+            return original_img.cpu(), img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
