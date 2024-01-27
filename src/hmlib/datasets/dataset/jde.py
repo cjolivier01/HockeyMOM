@@ -535,7 +535,9 @@ def letterbox(img, height, width, color=(127.5, 127.5, 127.5)):
     return letterbox_img, resized_img, ratio, dw, dh
 
 
-def copy_make_border_pytorch_batch(images, top, bottom, left, right, border_type, value):
+def copy_make_border_pytorch_batch(
+    images, top, bottom, left, right, border_type, value
+):
     """
     Mimics cv2.copyMakeBorder function in PyTorch for a batch of images.
 
@@ -548,15 +550,15 @@ def copy_make_border_pytorch_batch(images, top, bottom, left, right, border_type
     Returns:
     - Tensor: Padded batch of image tensors.
     """
-    if border_type == 'constant':
+    if border_type == "constant":
         # Adding constant border
         padding = (left, right, top, bottom)
-        return F.pad(images, padding, 'constant', value)
+        return F.pad(images, padding, "constant", value)
 
-    elif border_type == 'replicate':
+    elif border_type == "replicate":
         # Adding replicated border
         padding = (left, right, top, bottom)
-        return F.pad(images, padding, 'replicate')
+        return F.pad(images, padding, "replicate")
 
     else:
         raise ValueError("Unsupported border type. Use 'constant' or 'replicate'.")
@@ -569,12 +571,7 @@ def py_letterbox(img, height, width, color=127.5):
 
     top, bottom = round(dh - 0.1), round(dh + 0.1)
     left, right = round(dw - 0.1), round(dw + 0.1)
-    resized_image = resize_image(
-        img,
-        new_width=new_shape[0],
-        new_height=new_shape[1],
-        mode=tv.transforms.InterpolationMode.BILINEAR,
-    )
+    resized_image = F.interpolate(img, size=(new_shape[1], new_shape[0]), mode="area")
     letterbox_img = copy_make_border_pytorch_batch(
         resized_image, top, bottom, left, right, "constant", value=color
     )
