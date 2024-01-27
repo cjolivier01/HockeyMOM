@@ -27,7 +27,7 @@ class VideoStreamWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 10,
-        bit_rate: int = 100000,
+        bit_rate: int = int(5e6),
         device: torch.device = None,
         lossless: bool = False,
         container_type: str = "matroska",
@@ -83,12 +83,15 @@ class VideoStreamWriter:
             preset = "lossless"
             rate_control = "constqp"
         else:
-            # preset = "slow"
-            preset = "p5"
+            preset = "slow"
+            # preset = "p5"
             rate_control = "cbr"
         options = {
             "preset": preset,
             "rc": rate_control,
+            "minrate": "5M",
+            "maxrate": "5M",
+            "bufsize": "2M",
         }
         if self._lossless:
             options["qp"] = "0"
