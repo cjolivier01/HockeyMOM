@@ -292,11 +292,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             original_img0 = img0.clone()
             img0 = img0.to(self._device, non_blocking=True)
 
-            if not self._original_image_only:
-                img0 = img0.to(torch.float32, non_blocking=True)
-
             if self.clip_original is not None:
-                assert False  # do this on GPU
+                # assert False  # do this on GPU
                 # Clipping not handled now due to "original_img = img0.clone()" above
                 self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
                 img0 = img0[
@@ -304,6 +301,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
+                original_img0 = img0.to("cpu", non_blocking=True)
+
+            if not self._original_image_only:
+                img0 = img0.to(torch.float32, non_blocking=True)
 
             if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0.unsqueeze(0)))
