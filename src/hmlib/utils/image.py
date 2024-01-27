@@ -468,3 +468,24 @@ class ImageColorScaler:
         return image
 
 
+def make_channels_first(img: torch.Tensor):
+    if len(img.shape) == 4:
+        if img.shape[-1] in [3, 4]:
+            return img.permute(0, 3, 1, 2)
+    else:
+        assert len(img.shape) == 3
+        if img.shape[-1] in [3, 4]:
+            return img.permute(0, 1, 2)
+    return img
+
+
+def make_channels_last(img: torch.Tensor):
+    if len(img.shape) == 4:
+        if img.shape[1] in [3, 4]:
+            return img.permute(0, 2, 3, 1)
+    else:
+        assert len(img.shape) == 3
+        if img.shape[0] in [3, 4]:
+            return img.permute(1, 2, 0)
+    return img
+
