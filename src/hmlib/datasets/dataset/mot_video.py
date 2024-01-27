@@ -277,6 +277,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             self._max_frames and current_count >= self._max_frames
         ):
             raise StopIteration
+
+        #ALL_NON_BLOCKING = True
+        ALL_NON_BLOCKING = False
+
         # frames_inscribed_images = []
         frames_imgs = []
         frames_original_imgs = []
@@ -290,7 +294,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
             img0 = torch.from_numpy(img0)
             original_img0 = img0.clone()
-            img0 = img0.to(self._device, non_blocking=True)
+            img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
             if self.clip_original is not None:
                 # assert False  # do this on GPU
@@ -301,10 +305,11 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
-                original_img0 = img0.to("cpu", non_blocking=True)
+                #original_img0 = img0.to("cpu", non_blocking=True)
+                original_img0 = img0.to("cpu")
 
             if not self._original_image_only:
-                img0 = img0.to(torch.float32, non_blocking=True)
+                img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
 
             if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0.unsqueeze(0)))
@@ -319,7 +324,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 frames_imgs.append(img.squeeze(0).to(torch.float32))
 
             frames_original_imgs.append(
-                make_channels_first(original_img0).to("cpu", non_blocking=True)
+                make_channels_first(original_img0).to("cpu", non_blocking=ALL_NON_BLOCKING)
             )
             ids.append(self._count + 1 + batch_item_number)
 
