@@ -16,6 +16,7 @@ import torch
 
 from typing import List
 
+
 def flip(img):
     return img[:, :, ::-1].copy()
 
@@ -171,7 +172,7 @@ def all_dets_pt_affine_transform(pt, t):
     new_pt = torch.cat((pt, ones), dim=1).unsqueeze(2)
     t = t.unsqueeze(0).repeat(bs, 1, 1)
     result = torch.bmm(t, new_pt)
-    return result.squeeze(2)[:,:2]
+    return result.squeeze(2)[:, :2]
 
 
 def get_3rd_point(a, b):
@@ -468,24 +469,29 @@ class ImageColorScaler:
         return image
 
 
+def _permute(t, *args):
+    if isinstance(t, torch.Tensor):
+        return t.permute(*args)
+    return t.transpose(*args)
+
+
 def make_channels_first(img: torch.Tensor):
     if len(img.shape) == 4:
         if img.shape[-1] in [3, 4]:
-            return img.permute(0, 3, 1, 2)
+            return _permute(img, 0, 3, 1, 2)
     else:
         assert len(img.shape) == 3
         if img.shape[-1] in [3, 4]:
-            return img.permute(0, 1, 2)
+            return _permute(img, 0, 1, 2)
     return img
 
 
 def make_channels_last(img: torch.Tensor):
     if len(img.shape) == 4:
         if img.shape[1] in [3, 4]:
-            return img.permute(0, 2, 3, 1)
+            return _permute(img, 0, 2, 3, 1)
     else:
         assert len(img.shape) == 3
         if img.shape[0] in [3, 4]:
-            return img.permute(1, 2, 0)
+            return _permute(img, 1, 2, 0)
     return img
-
