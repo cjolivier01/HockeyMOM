@@ -328,8 +328,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         ]
 
         # TODO: remove ascontiguousarray?
-        # if not self._original_image_only:
-        #     img /= 255.0
+        if not self._original_image_only:
+            img /= 255.0
 
         #     # Set up scaling on the first pass
         #     if self._scale_inscribed_to_original is None:

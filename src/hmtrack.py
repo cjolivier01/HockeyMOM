@@ -319,11 +319,13 @@ def to_32bit_mul(val):
 
 def configure_model(config: dict, args: argparse.Namespace):
     args.det_thres = set_nested_value(
-        dct=config, key_str="model.tracker.det_thres", set_to=args.det_thres
+        dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
     )
+    assert args.det_thres is not None
     args.conf_thres = set_nested_value(
         dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
     )
+    assert args.conf_thres is not None
     if config["model"]["backbone"]["pretrained"]:
         args.load_model = set_nested_value(
             dct=config,
