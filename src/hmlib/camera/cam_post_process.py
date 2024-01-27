@@ -708,6 +708,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                 speeds=[],
                 line_thickness=2,
             )
+            print(f"Tracking {len(online_ids)} players...")
             if largest_bbox is not None:
                 online_im = vis.plot_rectangle(
                     online_im,
