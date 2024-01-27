@@ -300,14 +300,16 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 # frames_inscribed_images.append(
                 #     torch.from_numpy(inscribed_image.transpose(2, 0, 1))
                 # )
-                frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+                # frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+                frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)))
 
             frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
             ids.append(self._count + 1 + batch_item_number)
 
         if not self._original_image_only:
             # inscribed_image = torch.stack(frames_inscribed_images, dim=0)
-            img = torch.stack(frames_imgs, dim=0).to(torch.float32).contiguous()
+            #img = torch.stack(frames_imgs, dim=0).to(torch.float32)
+            img = torch.stack(frames_imgs, dim=0)
 
         #original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         original_img = torch.stack(frames_original_imgs, dim=0)
@@ -328,8 +330,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         ]
 
         # TODO: remove ascontiguousarray?
-        if not self._original_image_only:
-            img /= 255.0
+        # if not self._original_image_only:
+        #     img /= 255.0
 
         #     # Set up scaling on the first pass
         #     if self._scale_inscribed_to_original is None:
