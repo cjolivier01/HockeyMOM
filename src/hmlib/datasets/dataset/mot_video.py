@@ -8,9 +8,11 @@ import cv2
 import torch
 
 import torch
+
 from hmlib.tracking_utils.timer import Timer
-from hmlib.datasets.dataset.jde import letterbox
+from hmlib.datasets.dataset.jde import letterbox, py_letterbox
 from hmlib.tracking_utils.log import logger
+from hmlib.video_out import make_visible_image
 
 from yolox.data import MOTDataset
 
@@ -248,6 +250,23 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 # Scale the width and height
                 yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
         return yolox_detections
+
+
+    def make_letterbox_images(self, img: torch.Tensor):
+        (
+            img,
+            _,
+            self.letterbox_ratio,
+            self.letterbox_dw,
+            self.letterbox_dh,
+        ) = py_letterbox(
+            img,
+            height=self.process_height,
+            width=self.process_width,
+        )
+        # cv2.imshow("online_im", make_visible_image(img[0]))
+        # cv2.waitKey(1)
+        return img
 
     def _get_next_batch(self):
         current_count = self._count.item()

@@ -53,13 +53,25 @@ def print_ffmpeg_info():
     print("\nEncoders:")
     print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
 
+
 print_ffmpeg_info()
+
+
+def make_showable_type(img: torch.Tensor):
+    if isinstance(img, torch.Tensor):
+        assert len(img.shape) == 3
+        if img.shape[-1] != 3 and img.shape[-1] != 4:
+            img = img.permute(1, 2, 0)
+        if img.dtype in [torch.float16, torch.float32, torch.float64]:
+            img = torch.clamp(img * 255.0, min=0, max=255.0).to(torch.uint8)
+        img = img.contiguous().cpu().numpy()
+    return img
 
 
 def make_visible_image(img, enable_resizing: bool = False):
     if not enable_resizing:
         if isinstance(img, torch.Tensor):
-            img = img.contiguous().cpu().numpy()
+            img = make_showable_type(img)
         return img
     width = image_width(img)
     vis_w = get_complete_monitor_width()
@@ -69,9 +81,7 @@ def make_visible_image(img, enable_resizing: bool = False):
         new_w = vis_w * 0.7
         new_h = new_w / ar
         img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
-    if isinstance(img, torch.Tensor):
-        img = img.contiguous().cpu().numpy()
-    return img
+    return make_showable_type(img)
 
 
 def image_width(img):
@@ -258,7 +268,7 @@ class VideoOutput:
         fps: float,
         # fourcc=MAGIC_YUV_LOSSLESS,
         fourcc="hevc_nvenc",
-        #fourcc="XVID",
+        # fourcc="XVID",
         # fourcc="HEVC",
         # fourcc="X264",
         # fourcc="H264",
