@@ -133,7 +133,7 @@ class CamTrackHead(TrackingHead):
             if i1 is None:
                 return i2.device
             return i1.device
-        
+
         self._counter += 1
         if self._counter % 100 == 0:
             print(f"open file count: {get_open_files_count()}")
@@ -165,6 +165,8 @@ class CamTrackHead(TrackingHead):
         self, frame_id, letterbox_img, original_img, device
     ):
         if self._hockey_mom is None:
+            if len(original_img.shape) == 4:
+                original_img = original_img[0]
             self._hockey_mom = HockeyMOM(
                 image_width=original_img.shape[1],
                 image_height=original_img.shape[0],
