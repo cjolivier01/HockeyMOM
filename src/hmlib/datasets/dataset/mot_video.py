@@ -281,7 +281,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         frames_imgs = []
         frames_original_imgs = []
         ids = []
-        # frame_sizes = []
         for batch_item_number in range(self._batch_size):
             # Read image
             res, img0 = self._read_next_image()
@@ -305,55 +304,30 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
-            # img0 = self.maybe_scale_image_colors(image=img0)
 
             if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0.unsqueeze(0)))
-                # (
-                #     img,
-                #     _,  # inscribed_image,
-                #     self.letterbox_ratio,
-                #     self.letterbox_dw,
-                #     self.letterbox_dh,
-                # ) = letterbox(
-                #     make_channels_first(img0.unsqueeze(0).cpu().numpy()),
-                #     height=self.process_height,
-                #     width=self.process_width,
-                # )
-                # img = torch.from_numpy(img)
             else:
                 img = img0
-            #img = make_channels_last(img.squeeze(0))
+
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
             if not self._original_image_only:
-                # frames_inscribed_images.append(
-                #     torch.from_numpy(inscribed_image.transpose(2, 0, 1))
-                # )
                 frames_imgs.append(img.squeeze(0).to(torch.float32))
-                #frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
-                # frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)))
 
-            # frames_original_imgs.append(
-            #     torch.from_numpy(img0.transpose(2, 0, 1).to("cpu", non_blocking=True))
-            # )
             frames_original_imgs.append(
                 make_channels_first(original_img0).to("cpu", non_blocking=True)
             )
             ids.append(self._count + 1 + batch_item_number)
 
         if not self._original_image_only:
-            # inscribed_image = torch.stack(frames_inscribed_images, dim=0)
             img = torch.stack(frames_imgs, dim=0).to(torch.float32)
-            # img = torch.stack(frames_imgs, dim=0)
 
-        # original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         original_img = torch.stack(frames_original_imgs, dim=0)
         # Does this need to be in imgs_info this way as an array?
         ids = torch.cat(ids, dim=0)
-        # frame_sizes = torch.stack(frame_sizes, dim=0)
 
         imgs_info = [
             self.height_t.repeat(len(ids))
@@ -367,32 +341,13 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             [self._path if self._path is not None else "external"],
         ]
 
-        # TODO: remove ascontiguousarray?
         if not self._original_image_only:
             img /= 255.0
 
-        #     # Set up scaling on the first pass
-        #     if self._scale_inscribed_to_original is None:
-        #         self._scale_inscribed_to_original = torch.tensor(
-        #             (inscribed_image.shape[3], inscribed_image.shape[2]),
-        #             dtype=torch.float32,
-        #         ) / torch.tensor(
-        #             (original_img.shape[3], original_img.shape[2]), dtype=torch.float32
-        #         )
-        #         self._scale_inscribed_to_original = torch.cat(
-        #             (
-        #                 self._scale_inscribed_to_original,
-        #                 self._scale_inscribed_to_original,
-        #             ),
-        #             dim=0,
-        #         )
-
         self._count += self._batch_size
-        # self._timer.toc()
         if self._original_image_only:
             return original_img, None, None, imgs_info, ids
         else:
-            # return original_img, img, inscribed_image, imgs_info, ids
             return original_img, img, None, imgs_info, ids
 
     def __next__(self):
