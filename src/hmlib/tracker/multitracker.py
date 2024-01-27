@@ -294,8 +294,10 @@ class JDETracker(object):
 
         # width = img0.shape[1]
         # height = img0.shape[0]
-        width = img0.shape[2]
-        height = img0.shape[1]
+        # width = img0.shape[2]
+        # height = img0.shape[1]
+        width = img0.shape[-1]
+        height = img0.shape[-2]
         ar = float(width) / height
         inp_height = im_blob.shape[2]
         inp_width = im_blob.shape[3]
