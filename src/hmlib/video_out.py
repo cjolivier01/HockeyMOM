@@ -509,7 +509,7 @@ class VideoOutput:
                     ),
                 )
                 #self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
-                self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
+                self._output_video.set(cv2.CAP_PROP_BITRATE, 80000 * 1024)
             assert self._output_video.isOpened()
 
         seen_frames = set()
