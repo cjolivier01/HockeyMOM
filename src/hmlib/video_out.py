@@ -285,7 +285,7 @@ class VideoOutput:
         fps: float,
         # fourcc=MAGIC_YUV_LOSSLESS,
         fourcc="hevc_nvenc",
-        # fourcc="XVID",
+        #fourcc="XVID",
         # fourcc="HEVC",
         # fourcc="X264",
         # fourcc="H264",
@@ -508,6 +508,7 @@ class VideoOutput:
                         int(self._output_frame_height),
                     ),
                 )
+                #self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
             assert self._output_video.isOpened()
 

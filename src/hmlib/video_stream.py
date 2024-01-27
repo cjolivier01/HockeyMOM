@@ -27,7 +27,7 @@ class VideoStreamWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 10,
-        bit_rate: int = int(5e6),
+        bit_rate: int = int(55e6),
         device: torch.device = None,
         lossless: bool = False,
         container_type: str = "matroska",
@@ -50,8 +50,6 @@ class VideoStreamWriter:
         self._codec_config = torchaudio.io.CodecConfig(
             bit_rate=bit_rate,
         )
-        self._codec_config.bit_rate = bit_rate
-        self._codec_config = None
         self._frame_counter = 0
 
     def __enter__(self):
@@ -83,15 +81,15 @@ class VideoStreamWriter:
             preset = "lossless"
             rate_control = "constqp"
         else:
-            preset = "slow"
-            # preset = "p5"
+            # preset = "slow"
+            preset = "p7"
             rate_control = "cbr"
         options = {
-            "preset": preset,
+            # "preset": preset,
             "rc": rate_control,
-            "minrate": "5M",
-            "maxrate": "5M",
-            "bufsize": "2M",
+            "minrate": "55M",
+            "maxrate": "55M",
+            "bufsize": "55M",
         }
         if self._lossless:
             options["qp"] = "0"
