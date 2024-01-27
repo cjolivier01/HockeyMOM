@@ -873,7 +873,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             group_threshhold=0.5,
         )
         if group_x_velocity:
-            print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 cv2.circle(
                     online_im,
