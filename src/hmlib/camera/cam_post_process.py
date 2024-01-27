@@ -26,7 +26,7 @@ from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.camera.moving_box import MovingBox
-from hmlib.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import ImageProcData, VideoOutput, make_visible_image
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
@@ -675,6 +675,11 @@ class CamTrackPostProcessor(torch.nn.Module):
         # info_imgs = online_targets_and_img[3]
         original_img = online_targets_and_img[5]
 
+        online_im = original_img.clone()
+        if online_im.ndim == 4:
+            assert online_im.shape[0] == 1
+            online_im = online_im.squeeze(0)
+
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
         #
@@ -693,8 +698,6 @@ class CamTrackPostProcessor(torch.nn.Module):
             cluster_enclosing_box = self._hockey_mom._video_frame.bounding_box()
 
         current_box = cluster_enclosing_box
-
-        online_im = original_img
 
         if self._args.plot_boundaries and self._boundaries is not None:
             online_im = self._boundaries.draw(online_im)
