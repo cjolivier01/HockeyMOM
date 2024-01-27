@@ -43,7 +43,7 @@ game:
 
 rink:
   tracking:
-    cam_ignore_largest: true
+    cam_ignore_largest: false
 
   camera:
     fixed_edge_scaling_factor: 1.25
