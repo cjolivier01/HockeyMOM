@@ -13,8 +13,9 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import letterbox, py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.video_out import make_visible_image
-
+from hmlib.utils.image import make_channels_last, make_channels_first
 from yolox.data import MOTDataset
+from hmlib.utils.utils import create_queue
 
 
 class MOTLoadVideoWithOrig(MOTDataset):  # for inference
@@ -36,6 +37,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         embedded_data_loader=None,
         original_image_only: bool = False,
         image_channel_adjustment: Tuple[float, float, float] = None,
+        device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
             data_dir=data_dir,
@@ -45,6 +47,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             return_origin_img=return_origin_img,
         )
         self._path = path
+        # The delivery device of the letterbox image
+        self._device = device
         self._start_frame_number = start_frame_number
         self.clip_original = clip_original
         self.process_height = img_size[0]
@@ -62,8 +66,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._batch_size = batch_size
         self._timer = None
         self._timer_counter = 0
-        self._to_worker_queue = multiprocessing.Queue()
-        self._from_worker_queue = multiprocessing.Queue()
+        self._to_worker_queue = create_queue(mp=False)
+        self._from_worker_queue = create_queue(mp=False)
         self.vn = None
         self.vw = None
         self.vh = None
@@ -251,7 +255,6 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
         return yolox_detections
 
-
     def make_letterbox_images(self, img: torch.Tensor):
         (
             img,
@@ -274,7 +277,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             self._max_frames and current_count >= self._max_frames
         ):
             raise StopIteration
-        frames_inscribed_images = []
+        # frames_inscribed_images = []
         frames_imgs = []
         frames_original_imgs = []
         ids = []
@@ -286,43 +289,59 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
+            img0 = torch.from_numpy(img0)
+            original_img0 = img0.clone()
+            img0 = img0.to(self._device, non_blocking=True)
+
+            if not self._original_image_only:
+                img0 = img0.to(torch.float32, non_blocking=True)
+
             if self.clip_original is not None:
-                assert False
+                assert False  # do this on GPU
+                # Clipping not handled now due to "original_img = img0.clone()" above
                 self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
                 img0 = img0[
                     self.clip_original[1] : self.clip_original[3],
                     self.clip_original[0] : self.clip_original[2],
                     :,
                 ]
-            #img0 = self.maybe_scale_image_colors(image=img0)
+            # img0 = self.maybe_scale_image_colors(image=img0)
 
             if not self._original_image_only:
-                (
-                    img,
-                    _, #inscribed_image,
-                    self.letterbox_ratio,
-                    self.letterbox_dw,
-                    self.letterbox_dh,
-                ) = letterbox(
-                    img0,
-                    height=self.process_height,
-                    width=self.process_width,
-                )
+                img = self.make_letterbox_images(make_channels_first(img0.unsqueeze(0)))
+                # (
+                #     img,
+                #     _,  # inscribed_image,
+                #     self.letterbox_ratio,
+                #     self.letterbox_dw,
+                #     self.letterbox_dh,
+                # ) = letterbox(
+                #     make_channels_first(img0.unsqueeze(0).cpu().numpy()),
+                #     height=self.process_height,
+                #     width=self.process_width,
+                # )
+                # img = torch.from_numpy(img)
             else:
                 img = img0
-
+            #img = make_channels_last(img.squeeze(0))
             if self.width_t is None:
-                self.width_t = torch.tensor([img.shape[1]], dtype=torch.int64)
-                self.height_t = torch.tensor([img.shape[0]], dtype=torch.int64)
+                self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
+                self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
             if not self._original_image_only:
                 # frames_inscribed_images.append(
                 #     torch.from_numpy(inscribed_image.transpose(2, 0, 1))
                 # )
-                frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
+                frames_imgs.append(img.squeeze(0).to(torch.float32))
+                #frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)).float())
                 # frames_imgs.append(torch.from_numpy(img.transpose(2, 0, 1)))
 
-            frames_original_imgs.append(torch.from_numpy(img0.transpose(2, 0, 1)))
+            # frames_original_imgs.append(
+            #     torch.from_numpy(img0.transpose(2, 0, 1).to("cpu", non_blocking=True))
+            # )
+            frames_original_imgs.append(
+                make_channels_first(original_img0).to("cpu", non_blocking=True)
+            )
             ids.append(self._count + 1 + batch_item_number)
 
         if not self._original_image_only:
@@ -330,7 +349,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             img = torch.stack(frames_imgs, dim=0).to(torch.float32)
             # img = torch.stack(frames_imgs, dim=0)
 
-        #original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
+        # original_img = torch.stack(frames_original_imgs, dim=0).contiguous()
         original_img = torch.stack(frames_original_imgs, dim=0)
         # Does this need to be in imgs_info this way as an array?
         ids = torch.cat(ids, dim=0)
@@ -373,7 +392,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         if self._original_image_only:
             return original_img, None, None, imgs_info, ids
         else:
-            #return original_img, img, inscribed_image, imgs_info, ids
+            # return original_img, img, inscribed_image, imgs_info, ids
             return original_img, img, None, imgs_info, ids
 
     def __next__(self):

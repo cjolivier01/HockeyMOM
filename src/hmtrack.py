@@ -464,6 +464,19 @@ def main(exp, args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
+        if args.game_id:
+            detection_device = torch.device("cuda", int(args.gpus[0]))
+            track_device = "cpu"
+            video_out_device = "cpu"
+            if len(args.gpus) > 1:
+                video_out_device = torch.device("cuda", int(args.gpus[1]))
+            else:
+                video_out_device = torch.device("cuda", int(args.gpus[0]))
+            # if len(args.gpus) > 2:
+            #     track_device = torch.device("cuda", int(args.gpus[2]))
+        else:
+            detection_device = torch.device("cuda", int(rank))
+
         dataloader = None
         postprocessor = None
         if args.input_video:
@@ -536,6 +549,8 @@ def main(exp, args, num_gpu):
                     batch_size=args.batch_size,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
+                    device=detection_device,
+                    #device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
                     #     std=(0.229, 0.224, 0.225),
@@ -560,6 +575,8 @@ def main(exp, args, num_gpu):
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     name="val",
+                    device=detection_device,
+                    #device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
                     #     std=(0.229, 0.224, 0.225),
@@ -574,19 +591,6 @@ def main(exp, args, num_gpu):
             dataloader = exp.get_eval_loader(
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
-
-        if args.game_id:
-            detection_device = torch.device("cuda", int(args.gpus[0]))
-            track_device = "cpu"
-            video_out_device = "cpu"
-            if len(args.gpus) > 1:
-                video_out_device = torch.device("cuda", int(args.gpus[1]))
-            else:
-                video_out_device = torch.device("cuda", int(args.gpus[0]))
-            # if len(args.gpus) > 2:
-            #     track_device = torch.device("cuda", int(args.gpus[2]))
-        else:
-            detection_device = torch.device("cuda", int(rank))
 
         postprocessor = CamTrackHead(
             opt=args,

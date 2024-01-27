@@ -28,6 +28,7 @@ from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorScaler
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.utils.image import make_channels_last, make_channels_first
 from hmlib.tracker.multitracker import torch_device
 
 from .video_stream import VideoStreamWriter
@@ -63,7 +64,10 @@ def make_showable_type(img: torch.Tensor):
         if img.shape[-1] != 3 and img.shape[-1] != 4:
             img = img.permute(1, 2, 0)
         if img.dtype in [torch.float16, torch.float32, torch.float64]:
-            img = torch.clamp(img * 255.0, min=0, max=255.0).to(torch.uint8)
+            # max = torch.max(img)
+            # if max < 1.1:
+            #     img *= 255.0
+            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
         img = img.contiguous().cpu().numpy()
     return img
 
@@ -235,15 +239,28 @@ class ImageProcData:
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
-def _to_float(tensor: torch.Tensor):
+def _to_float(tensor: torch.Tensor, apply_scale: bool = True):
     if tensor.dtype == torch.uint8:
-        return tensor.to(torch.float32) / 255.0
+        if apply_scale:
+            return tensor.to(torch.float32) / 255.0
+        else:
+            return tensor.to(torch.float32, non_blocking=True)
+    else:
+        assert torch.is_floating_point(tensor)
     return tensor
 
 
-def _to_uint8(tensor: torch.Tensor):
-    if tensor.dtype == torch.float32:
-        return (tensor * 255).clamp(min=0, max=255.0).to(torch.uint8)
+def _to_uint8(tensor: torch.Tensor, apply_scale: bool = True):
+    if tensor.dtype != torch.uint8:
+        if apply_scale:
+            assert torch.is_floating_point(tensor)
+            return (
+                (tensor * 255)
+                .clamp(min=0, max=255.0)
+                .to(torch.uint8, non_blocking=True)
+            )
+        else:
+            return tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=True)
     return tensor
 
 
@@ -417,14 +434,21 @@ class VideoOutput:
         bbox_w = width(current_box)
         bbox_h = height(current_box)
         bbox_c = center(current_box)
-        assert image.ndim == 3  # No batch dimension
+        assert bbox_w > 10  # Sanity
+        assert bbox_h > 10  # Sanity
+        # assert image.ndim == 3  # No batch dimension
         # make sure we're the expected (albeit arbitrary) channels first
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
         min_width_per_side = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
         clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side)
         clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side)
-        image = image[:, int(clip_left) : int(clip_right), :]
+        if image.ndim == 3:
+            # no batch dimension
+            image = image[:, int(clip_left) : int(clip_right), :]
+        else:
+            # with batch dimension
+            image = image[:, :, int(clip_left) : int(clip_right), :]
         current_box[0] -= clip_left.to(current_box.device)
         current_box[2] -= clip_left.to(current_box.device)
 
@@ -491,9 +515,6 @@ class VideoOutput:
         while True:
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
-                if self._output_video is not None:
-                    self._output_video.release()
-                    self._output_video = None
                 break
             frame_id = imgproc_data.frame_id
             assert frame_id not in seen_frames
@@ -506,9 +527,13 @@ class VideoOutput:
 
             if self._device is not None and not self._simple_save:
                 if not isinstance(online_im, torch.Tensor):
-                    if online_im.shape[-1] not in [3, 4]:
-                        online_im = online_im.transpose(1, 2, 0)
+                    # if online_im.shape[-1] not in [3, 4]:
+                    #     online_im = online_im.transpose(1, 2, 0)
                     online_im = torch.from_numpy(online_im)
+                if online_im.ndim == 4:
+                    assert online_im.shape[0] == 1 # batch size of 1 here only atm
+                    online_im = online_im.squeeze(0)
+                online_im = make_channels_last(online_im)
                 if str(online_im.device) != str(self._device):
                     online_im = online_im.to(self._device, non_blocking=True)
 
@@ -693,8 +718,7 @@ class VideoOutput:
                 and imgproc_data.frame_id >= skip_frames_before_show
             ):
                 if imgproc_data.frame_id % show_image_interval == 0:
-                    visual = make_visible_image(online_im)
-                    cv2.imshow("online_im", visual)
+                    cv2.imshow("online_im", make_visible_image(online_im))
                     cv2.waitKey(1)
 
             assert int(self._output_frame_width) == online_im.shape[-2]
