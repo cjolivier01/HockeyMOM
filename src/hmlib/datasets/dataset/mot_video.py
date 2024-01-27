@@ -365,12 +365,13 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._timer_counter += self._batch_size
         if self._next_counter and self._next_counter % 20 == 0:
             logger.info(
-                "Dataset delivery frame {} ({:.2f} fps)".format(
+                "Video Dataset frame delivery {} ({:.2f} fps)".format(
                     self._timer_counter, 1.0 / max(1e-5, self._timer.average_time)
                 )
             )
-            self._timer = Timer()
-            self._timer_counter = 0
+            if self._next_counter and self._next_counter % 100 == 0:
+                self._timer = Timer()
+                self._timer_counter = 0
         self._next_counter += 1
         return results
 
