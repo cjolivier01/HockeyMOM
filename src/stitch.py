@@ -138,6 +138,7 @@ def stitch_videos(
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
         #device="cuda",
+        encoder_device="cpu",
     )
 
     frame_count = 0
