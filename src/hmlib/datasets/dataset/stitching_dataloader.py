@@ -53,6 +53,11 @@ def distribute_items_detailed(total_item_count, worker_count):
     return distribution
 
 
+def _get_cuda_device():
+    # Use last device
+    return torch.device("cuda", torch.cuda.device_count() - 1)
+
+
 ##
 #   _____ _   _  _        _     _____        _                     _
 #  / ____| | (_)| |      | |   |  __ \      | |                   | |
@@ -81,8 +86,7 @@ class StitchDataset:
         fork_workers: bool = False,
         image_roi: List[int] = None,
         device: torch.device = "cpu",
-        # encoder_device: torch.device = torch.device("cpu"),
-        encoder_device: torch.device = torch.device("cuda:2"),
+        encoder_device: torch.device = _get_cuda_device(),
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number

@@ -285,7 +285,7 @@ class VideoOutput:
         fps: float,
         # fourcc=MAGIC_YUV_LOSSLESS,
         fourcc="hevc_nvenc",
-        #fourcc="XVID",
+        # fourcc="XVID",
         # fourcc="HEVC",
         # fourcc="X264",
         # fourcc="H264",
@@ -508,7 +508,7 @@ class VideoOutput:
                         int(self._output_frame_height),
                     ),
                 )
-                #self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
+                # self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
                 self._output_video.set(cv2.CAP_PROP_BITRATE, 80000 * 1024)
             assert self._output_video.isOpened()
 
@@ -526,13 +526,15 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            if self._device is not None and not self._simple_save:
+            if self._device is not None and (
+                not self._simple_save or "nvenc" in self._fourcc
+            ):
                 if not isinstance(online_im, torch.Tensor):
                     # if online_im.shape[-1] not in [3, 4]:
                     #     online_im = online_im.transpose(1, 2, 0)
                     online_im = torch.from_numpy(online_im)
                 if online_im.ndim == 4:
-                    assert online_im.shape[0] == 1 # batch size of 1 here only atm
+                    assert online_im.shape[0] == 1  # batch size of 1 here only atm
                     online_im = online_im.squeeze(0)
                 online_im = make_channels_last(online_im)
                 if str(online_im.device) != str(self._device):

@@ -102,7 +102,7 @@ def stitch_videos(
     start_frame_number: int = 0,
     max_frames: int = None,
     show: bool = False,
-    output_stitched_video_file: str = os.path.join(".", "stitched_output.avi"),
+    output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
