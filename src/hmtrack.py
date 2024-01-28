@@ -34,7 +34,7 @@ from hmlib.datasets.dataset.stitching_dataloader import (
 
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
-from hmlib.config import get_clip_box, get_config, set_nested_value
+from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_value
 
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
@@ -317,15 +317,33 @@ def to_32bit_mul(val):
     return int((val + 31)) & ~31
 
 
+MAP_ARGS_TO_YAML = {
+    "tracker": "model.tracker.type",
+}
+
+
+def update_from_args(args, arg_name, config, noset_value: any = None):
+    if not hasattr(args, arg_name):
+        return
+    set_nested_value(
+        dct=config,
+        key_str="model.tracker.type",
+        set_to=args.tracker,
+        noset_value=noset_value,
+    )
+
+
 def configure_model(config: dict, args: argparse.Namespace):
-    args.det_thres = set_nested_value(
-        dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
-    )
-    assert args.det_thres is not None
-    args.conf_thres = set_nested_value(
-        dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
-    )
-    assert args.conf_thres is not None
+    if hasattr(args, 'det_thres'):
+        args.det_thres = set_nested_value(
+            dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
+        )
+        assert args.det_thres is not None
+    if hasattr(args, 'conf_thres'):
+        args.conf_thres = set_nested_value(
+            dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
+        )
+        assert args.conf_thres is not None
     if config["model"]["backbone"]["pretrained"]:
         args.load_model = set_nested_value(
             dct=config,
@@ -333,9 +351,11 @@ def configure_model(config: dict, args: argparse.Namespace):
             set_to=args.load_model,
             noset_value="",
         )
-    args.tracker = set_nested_value(
-        dct=config, key_str="model.tracker.type", set_to=args.tracker
-    )
+
+    update_from_args(args, "tracker", config)
+    # set_nested_value(
+    #     dct=config, key_str="model.tracker.type", set_to=args.tracker
+    # )
     return args
 
 
@@ -404,6 +424,8 @@ def main(exp, args, num_gpu):
 
         # game_config["args"] = vars(args)
 
+        tracker = get_nested_value(game_config, "model.tracker.type")
+
         if args.lfo is None and args.rfo is None:
             if (
                 "stitching" in game_config["game"]
@@ -423,7 +445,7 @@ def main(exp, args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
-        if args.tracker not in ["fair", "centertrack"]:
+        if tracker not in ["fair", "centertrack"]:
             model = exp.get_model()
             logger.info(
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
@@ -449,6 +471,7 @@ def main(exp, args, num_gpu):
         if not args.input_video and args.game_id:
             game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
             if os.path.isdir(game_video_dir):
+                # TODO: also look for avi and mp4 files
                 pre_stitched_file_name = "stitched_output-with-audio.mkv"
                 pre_stitched_file_path = os.path.join(
                     game_video_dir, pre_stitched_file_name
@@ -550,13 +573,13 @@ def main(exp, args, num_gpu):
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     device=detection_device,
-                    #device=torch.device("cpu"),
+                    # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
                     #     std=(0.229, 0.224, 0.225),
                     # ),
                     embedded_data_loader=stitched_dataset,
-                    original_image_only=args.tracker == "centertrack",
+                    original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
@@ -576,12 +599,12 @@ def main(exp, args, num_gpu):
                     max_frames=args.max_frames,
                     name="val",
                     device=detection_device,
-                    #device=torch.device("cpu"),
+                    # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
                     #     std=(0.229, 0.224, 0.225),
                     # ),
-                    original_image_only=args.tracker == "centertrack",
+                    original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
@@ -675,8 +698,9 @@ def main(exp, args, num_gpu):
             "deepsort": {"function": evaluator.evaluate_deepsort},
             "motdt": {"function": evaluator.evaluate_motdt},
         }
-        *_, summary = eval_functions[args.tracker]["function"](
+        *_, summary = eval_functions[tracker]["function"](
             model,
+            args.game_config,
             is_distributed,
             args.fp16,
             trt_file,
@@ -711,21 +735,22 @@ if __name__ == "__main__":
     parser = opts_2.parser
     args = parser.parse_args()
 
-    args.game_config = get_config(
+    game_config = get_config(
         game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
     )
 
-    args = configure_model(config=args.game_config, args=args)
+    # args = configure_model(config=game_config, args=args)
 
-    args.game_config["args"] = vars(args)
+    game_config["initial_args"] = vars(args)
+    tracker = get_nested_value(game_config, "model.tracker.type")
 
-    if args.tracker == "centertrack":
+    if tracker == "centertrack":
         opts = centertrack_opts.opts()
         opts.parser = make_parser(opts.parser)
         args = opts.parse()
         args = opts.init()
         exp = get_exp(args.exp_file, args.name)
-    elif args.tracker == "fair":
+    elif tracker == "fair":
         opts_2.parse(opt=args)
         args = opts_2.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
@@ -736,6 +761,9 @@ if __name__ == "__main__":
 
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
+
+    args = configure_model(config=game_config, args=args)
+    args.game_config = game_config
 
     if args.game_id:
         num_gpus = 1

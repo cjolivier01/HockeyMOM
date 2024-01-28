@@ -134,7 +134,10 @@ def set_nested_value(dct, key_str, set_to, noset_value=None):
 
     for i, key in enumerate(keys):
         if isinstance(current, dict) and key in current:
-            current = current[key]
+            if i == len(keys) - 1:
+                current[key] = set_to
+            else:
+                current = current[key]
         else:
             if i == len(keys) - 1:
                 current[key] = set_to
