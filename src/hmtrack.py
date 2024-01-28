@@ -652,10 +652,10 @@ def main(exp, args, num_gpu):
             model.eval()
 
             if not args.speed and not args.trt:
-                if args.ckpt is None:
+                if args.load_model is None:
                     ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
                 else:
-                    ckpt_file = args.ckpt
+                    ckpt_file = args.load_model
                 logger.info("loading checkpoint")
                 loc = "cuda:{}".format(rank)
                 ckpt = torch.load(ckpt_file, map_location=loc)
@@ -731,15 +731,13 @@ if __name__ == "__main__":
 
     parser = make_parser()
 
-    opts_2 = opts_fair.opts(parser=parser)
-    parser = opts_2.parser
+    opts_fair = opts_fair.opts(parser=parser)
+    parser = opts_fair.parser
     args = parser.parse_args()
 
     game_config = get_config(
         game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
     )
-
-    # args = configure_model(config=game_config, args=args)
 
     game_config["initial_args"] = vars(args)
     tracker = get_nested_value(game_config, "model.tracker.type")
@@ -751,8 +749,9 @@ if __name__ == "__main__":
         args = opts.init()
         exp = get_exp(args.exp_file, args.name)
     elif tracker == "fair":
-        opts_2.parse(opt=args)
-        args = opts_2.init(opt=args)
+        args.tracker = tracker
+        opts_fair.parse(opt=args)
+        args = opts_fair.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
         # exp.merge(args.opts) # seems to do nothing
     else:

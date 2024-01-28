@@ -24,7 +24,8 @@ model:
   backbone:
     type: dla34
     pretrained: True
-    pretrained_path: 'pretrained/centertrack/crowdhuman.pth'
+    # pretrained_path: 'pretrained/centertrack/crowdhuman.pth'
+    pretrained_path: 'pretrained/centertrack/coco_pose_tracking.pth'
     det_thres: 0.3
 
     train:

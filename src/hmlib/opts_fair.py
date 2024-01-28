@@ -618,7 +618,7 @@ class opts(object):
 
         # if opt.resume and opt.load_model == "":
         #     opt.load_model = os.path.join(opt.save_dir, "model_last.pth")
-        opt.ckpt = opt.load_model
+        opt.load_model = opt.load_model
 
         return opt
 
@@ -733,8 +733,9 @@ class opts(object):
         return opt
 
     def init(self, args="", opt=None):
+        assert opt.tracker is not None
         if opt.tracker == "fair":
-            opt.cpkt = opt.load_model  # so hacky... need to settle on one
+            # opt.cpkt = opt.load_model  # so hacky... need to settle on one
             if opt.task == "tracking":
                 opt.task = "mot"
             default_dataset_info = {
