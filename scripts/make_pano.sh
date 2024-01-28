@@ -14,7 +14,8 @@ rm -f panorama.tif nona*.tif
 
 # Optimize the project
 #autooptimiser -a -m -l -s -o autooptimiser_out.pto cpfind_out.pto
-autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
+#autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
+autooptimiser -a -m -l -o autooptimiser_out.pto my_project.pto
 
 # Remap the images
 #nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
