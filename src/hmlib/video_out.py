@@ -484,8 +484,6 @@ class VideoOutput:
             and self._output_video is None
             and not self._skip_final_save
         ):
-            # is_cuda = str(self._device).startswith("cuda")
-            # I think it crashes if the size is off by even one pixed between frames?
             if "_nvenc" in self._fourcc:
                 self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
