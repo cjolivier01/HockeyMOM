@@ -251,6 +251,9 @@ def _to_float(tensor: torch.Tensor, apply_scale: bool = True):
 
 
 def _to_uint8(tensor: torch.Tensor, apply_scale: bool = True):
+    if not isinstance(tensor, torch.Tensor):
+        assert tensor.dtype == np.uint8
+        return tensor
     if tensor.dtype != torch.uint8:
         if apply_scale:
             assert torch.is_floating_point(tensor)
