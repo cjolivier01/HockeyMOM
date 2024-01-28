@@ -1,0 +1,31 @@
+rink:
+  name: "orlando_ice_den"
+  location:
+    city: "Orlando"
+    state: "FL"
+    country: "USA"
+  dimensions:
+    length: 180 feet
+    width: 70 feet
+    corner_radius: 20 feet
+  surface_type: "Ice"
+  seating_capacity: 100
+  teams:
+    home_team:
+      name: "Cougars"
+      colors: ["Blue", "Gray"]
+  facilities:
+    locker_rooms: 4
+    concession_stands: 0
+    restrooms: 3
+  parking:
+    capacity: 100
+    price: 0 dollars
+  tracking:
+    cam_ignore_largest: true
+  camera:
+    fixed_edge_scaling_factor: 0.8
+    # Comes in a little yellowish (BGR)
+    image_channel_adjustment: [1.25, 0.85, 0.85]
+    follower_box_scale_width: 1.5
+    follower_box_scale_height: 1.5

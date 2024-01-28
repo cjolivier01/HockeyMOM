@@ -9,6 +9,7 @@
 #include "panodata/Panorama.h"
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -38,7 +39,15 @@ class HmNona {
       std::shared_ptr<hm::MatrixRGB> image1,
       std::shared_ptr<hm::MatrixRGB> image2);
 
+  std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
+  get_control_points() const;
+
+  //std::vector<std::tuple<long, long>> get_image_positions() const;
+
  private:
+
+  void set_ideal_output_size();
+
   std::string project_file_;
   HuginBase::PanoramaOptions opts_;
   HuginBase::Nona::AdvancedOptions adv_options_;
@@ -47,7 +56,8 @@ class HmNona {
   std::size_t image_pair_pass_count_{0};
   std::unique_ptr<AppBase::DummyProgressDisplay> pdisp_;
   std::unique_ptr<HmMultiImageRemapper<ImageType, vigra::BImage>> stitcher_;
-  
+
+  std::mutex nona_init_mu_;
   static inline std::mutex gpu_thread_pool_mu_;
   static inline std::unique_ptr<Eigen::ThreadPool> gpu_thread_pool_;
   static std::size_t nona_count_;

@@ -14,6 +14,8 @@ import cv2
 import random
 import torch
 
+from typing import List
+
 
 def flip(img):
     return img[:, :, ::-1].copy()
@@ -25,6 +27,34 @@ def transform_preds(coords, center, scale, output_size):
     for p in range(coords.shape[0]):
         target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
     return target_coords
+
+
+# def pt_transform_preds(coords, center, scale, output_size):
+#     target_coords = torch.zeros_like(coords)
+#     zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
+#     trans = pt_get_affine_transform(center, scale, zero, output_size, inv=1)
+#     for p in range(coords.shape[0]):
+#         target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
+#     return target_coords
+
+
+def pt_transform_preds(coords, center, scale, output_size, trans):
+    target_coords = torch.zeros_like(coords)
+    zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
+    if trans is None:
+        trans = get_affine_transform(
+            center.cpu().numpy(),
+            scale.cpu().numpy(),
+            zero.cpu().numpy(),
+            output_size.cpu().numpy(),
+            inv=1,
+        )
+        trans = torch.from_numpy(trans).to(torch.float32).to(coords.device)
+    # for p in range(coords.shape[0]):
+    #     target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
+    target_c = all_dets_pt_affine_transform(coords[:, 0:2], trans)
+    target_coords[:, 0:2] = target_c
+    return target_coords, trans
 
 
 def get_affine_transform(
@@ -60,15 +90,101 @@ def get_affine_transform(
     return trans
 
 
+def pt_cv2_get_affine_transform(src, dst):
+    """
+    src, dst: torch.Tensor
+        Source and destination points, shape (3, 2)
+    """
+    ones = torch.ones(3, dtype=torch.float32, device=src.device)
+    src_h = torch.cat(
+        [src, ones.unsqueeze(1)], dim=1
+    )  # Convert to homogeneous coordinates
+    dst_h = dst
+
+    # Solve the system of linear equations
+    transform_matrix = torch.mm(dst_h.t(), torch.inverse(src_h.t()))
+
+    return transform_matrix
+
+
+def pt_get_affine_transform(
+    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
+):
+    if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
+        scale = torch.tensor([scale, scale], dtype=torch.float32, device=scale.device)
+    if isinstance(shift, np.ndarray):
+        shift = torch.from_numpy(shift).to(device=center.device)
+
+    scale_tmp = scale
+    src_w = scale_tmp[0]
+    dst_w = output_size[0]
+    dst_h = output_size[1]
+
+    rot_rad = rot * np.pi / 180
+    src_dir = pt_get_dir(
+        torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad
+    )
+    dst_dir = torch.tensor([0, dst_w * -0.5], dtype=torch.float32, device=dst_w.device)
+
+    src = torch.zeros((3, 2), dtype=torch.float32, device=center.device)
+    dst = torch.zeros((3, 2), dtype=torch.float32, device=center.device)
+    src[0, :] = center + scale_tmp * shift
+    src[1, :] = center + src_dir + scale_tmp * shift
+    dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
+    dst[1, :] = (
+        torch.tensor(
+            [dst_w * 0.5, dst_h * 0.5], dtype=torch.float32, device=dst_w.device
+        )
+        + dst_dir
+    )
+
+    src[2:, :] = pt_get_3rd_point(src[0, :], src[1, :])
+    dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
+
+    if inv:
+        trans = pt_cv2_get_affine_transform(
+            dst.to(torch.float32), src.to(torch.float32)
+        )
+    else:
+        trans = pt_cv2_get_affine_transform(
+            src.to(torch.float32), dst.to(torch.float32)
+        )
+
+    return trans
+
+
 def affine_transform(pt, t):
     new_pt = np.array([pt[0], pt[1], 1.0], dtype=np.float32).T
     new_pt = np.dot(t, new_pt)
     return new_pt[:2]
 
 
+def pt_affine_transform(pt, t):
+    one = torch.tensor(1, dtype=torch.float32, device=pt.device)
+    new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float32, device=pt.device).T
+    new_pt = torch.matmul(t, new_pt)
+    return new_pt[:2]
+
+
+def all_dets_pt_affine_transform(pt, t):
+    bs = pt.shape[0]
+    ones = torch.ones((bs, 1), dtype=pt.dtype, device=pt.device)
+    new_pt = torch.cat((pt, ones), dim=1).unsqueeze(2)
+    t = t.unsqueeze(0).repeat(bs, 1, 1)
+    result = torch.bmm(t, new_pt)
+    return result.squeeze(2)[:, :2]
+
+
 def get_3rd_point(a, b):
     direct = a - b
     return b + np.array([-direct[1], direct[0]], dtype=np.float32)
+
+
+def pt_get_3rd_point(a, b):
+    direct = a - b
+    return b + torch.tensor(
+        [-direct[1], direct[0]], dtype=torch.float32, device=direct.device
+    )
 
 
 def get_dir(src_point, rot_rad):
@@ -77,6 +193,17 @@ def get_dir(src_point, rot_rad):
     src_result = [0, 0]
     src_result[0] = src_point[0] * cs - src_point[1] * sn
     src_result[1] = src_point[0] * sn + src_point[1] * cs
+
+    return src_result
+
+
+def pt_get_dir(src_point, rot_rad):
+    sn, cs = torch.sin(rot_rad), torch.cos(rot_rad)
+
+    src_result = torch.tensor(
+        [src_point[0] * cs - src_point[1] * sn, src_point[0] * sn + src_point[1] * cs],
+        device=src_point.device,
+    )
 
     return src_result
 
@@ -304,3 +431,67 @@ class ImageHorizontalGaussianDistribution:
             import time
 
             time.sleep(1000)
+
+
+class ImageColorScaler:
+    def __init__(self, image_channel_adjustment: List[float]):
+        self._image_channel_adjustment = image_channel_adjustment
+        self._scale_color_tensor = None
+
+    def maybe_scale_image_colors(self, image: torch.Tensor):
+        if not self._image_channel_adjustment:
+            return image
+        if self._scale_color_tensor is None:
+            if isinstance(image, torch.Tensor):
+                self._scale_color_tensor = torch.tensor(
+                    self._image_channel_adjustment,
+                    dtype=torch.float32,
+                    device=image.device,
+                )
+                self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
+            else:
+                self._scale_color_tensor = np.array(
+                    self._image_channel_adjustment, dtype=np.float32
+                )
+                self._scale_color_tensor = np.expand_dims(
+                    np.expand_dims(self._scale_color_tensor, 0), 0
+                )
+        if isinstance(image, torch.Tensor):
+            image = torch.clamp(
+                image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+            ).to(torch.uint8)
+        else:
+            image = np.clip(
+                image.astype(np.float32) * self._scale_color_tensor,
+                a_min=0,
+                a_max=255.0,
+            ).astype(np.uint8)
+        return image
+
+
+def _permute(t, *args):
+    if isinstance(t, torch.Tensor):
+        return t.permute(*args)
+    return t.transpose(*args)
+
+
+def make_channels_first(img: torch.Tensor):
+    if len(img.shape) == 4:
+        if img.shape[-1] in [3, 4]:
+            return _permute(img, 0, 3, 1, 2)
+    else:
+        assert len(img.shape) == 3
+        if img.shape[-1] in [3, 4]:
+            return _permute(img, 0, 1, 2)
+    return img
+
+
+def make_channels_last(img: torch.Tensor):
+    if len(img.shape) == 4:
+        if img.shape[1] in [3, 4]:
+            return _permute(img, 0, 2, 3, 1)
+    else:
+        assert len(img.shape) == 3
+        if img.shape[0] in [3, 4]:
+            return _permute(img, 1, 2, 0)
+    return img

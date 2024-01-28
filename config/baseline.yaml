@@ -1,0 +1,90 @@
+#
+# Camera type
+#
+camera:
+  name: null
+  make: null
+  model: null
+  mount:
+    - offset_80:
+      resolution: null
+    - offset_90:
+      resolution: null
+#
+# Rink config
+#
+rink:
+  name: null
+  location:
+    city: null
+    state: null
+    country: null
+  dimensions:
+    length: null
+    width: null
+    corner_radius: null
+  surface_type: "Ice"
+  seating_capacity: null
+  teams:
+    home_team:
+      name: null
+      colors: null
+  facilities:
+    locker_rooms: null
+    concession_stands: null
+    restrooms: null
+  parking:
+    capacity: null
+    price: null
+  tracking:
+    #
+    # Some tracking config
+    #
+    cam_ignore_largest: false
+  camera:
+    #
+    # Rink-related tracking config
+    #
+    fixed_edge_scaling_factor: 0.8
+    fixed_edge_rotation_angle: 30
+    image_channel_adjustment: null
+    follower_box_scale_width: 1.25
+    follower_box_scale_height: 1.25
+
+#
+# Game config
+#
+game:
+  name: null
+  rink: null
+  home: null
+  away: null
+
+  stitching:
+    offsets: null
+
+  clip_box: null
+  boundaries:
+    upper:
+    lower:
+
+#
+# Model config
+#
+model:
+  backbone:
+    type: dla34
+    pretrained: True
+    pretrained_path: 'pretrained/dla34/crowdhuman_dla34.pth'
+    # pretrained_path: 'pretrained/dla34/my_coco_ch_e60.pth'
+    det_thres: 0.3
+
+    train:
+
+    test:
+
+  tracker:
+    type: fair
+    # type: centertrack
+    conf_thres: 0.4
+

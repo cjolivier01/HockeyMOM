@@ -1,18 +1,13 @@
 import os
 import moviepy.editor as mp
 import numpy as np
-
+import scipy
 import os
 
-# import sys
-# import torch
-# import torch.nn as nn
-import numpy as np
+import torch
+import torch.nn.functional as F
 
-# import time
-# import cv2
-# import threading
-# import multiprocessing
+import numpy as np
 
 from typing import List
 
@@ -21,12 +16,40 @@ import tifffile
 
 from hockeymom import core
 
+
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ffmpeg import extract_frame_image
 
 
+MULTIBLEND_BIN = os.path.join(
+    os.environ["HOME"], "src", "multiblend", "src", "multiblend"
+)
+
+
+#
+# import torch
+# import torch.nn.functional as F
+
+# Assuming audio1 and audio2 are your 1D audio tensors
+# Add batch and channel dimensions (shape: [1, 1, L])
+# audio1 = audio1.unsqueeze(0).unsqueeze(0)
+# audio2 = audio2.unsqueeze(0).unsqueeze(0)
+
+# Compute correlation using convolution
+# The 'groups' argument ensures a separate convolution for each batch
+# correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1)-1, groups=1)
+
+# Remove added dimensions to get the final 1D correlation tensor
+# correlation = correlation.squeeze()
+#
+
+
 def synchronize_by_audio(
-    file0_path: str, file1_path: str, seconds: int = 15, create_new_clip: bool = False
+    file0_path: str,
+    file1_path: str,
+    seconds: int = 15,
+    create_new_clip: bool = False,
+    device: torch.device = None,
 ):
     # Load the videos
     print("Openning videos...")
@@ -37,7 +60,7 @@ def synchronize_by_audio(
     video1 = full_video1.subclip(0, seconds)
 
     video_1_frame_count = video0.fps * video0.duration
-    video_2_frame_count = video1.fps * video0.duration
+    # video_2_frame_count = video1.fps * video0.duration
 
     # Load audio from the videos
     print("Loading audio...")
@@ -45,12 +68,27 @@ def synchronize_by_audio(
     audio2 = video1.audio.to_soundarray()
 
     audio_items_per_frame_1 = audio1.shape[0] / video_1_frame_count
-    audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
+    # audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
 
     # Calculate the cross-correlation of audio1 and audio2
     print("Calculating cross-correlation...")
-    correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
-    lag = np.argmax(correlation) - len(audio1) + 1
+    if device is None:
+        # correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        correlation = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        lag = np.argmax(correlation) - len(audio1) + 1
+    else:
+        audio1 = torch.from_numpy(audio1[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+        audio2 = torch.from_numpy(audio2[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+
+        # Compute correlation using convolution
+        # The 'groups' argument ensures a separate convolution for each batch
+        correlation = F.conv1d(
+            audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1
+        )
+
+        # Remove added dimensions to get the final 1D correlation tensor
+        correlation = correlation.squeeze()
+        lag, idx = torch.argmax(correlation) - len(audio1) + 1
 
     # Calculate the time offset in seconds
     fps = video0.fps
@@ -139,16 +177,18 @@ def extract_frames(
         dir_name, file_name_without_extension + ".png"
     )
 
-    extract_frame_image(
-        os.path.join(dir_name, video_left),
-        frame_number=left_frame_number,
-        dest_image=left_output_image_file,
-    )
-    extract_frame_image(
-        os.path.join(dir_name, video_right),
-        frame_number=right_frame_number,
-        dest_image=right_output_image_file,
-    )
+    if not os.path.exists(left_output_image_file):
+        extract_frame_image(
+            os.path.join(dir_name, video_left),
+            frame_number=left_frame_number,
+            dest_image=left_output_image_file,
+        )
+    if not os.path.exists(right_output_image_file):
+        extract_frame_image(
+            os.path.join(dir_name, video_right),
+            frame_number=right_frame_number,
+            dest_image=right_output_image_file,
+        )
 
     return left_output_image_file, right_output_image_file
 
@@ -160,14 +200,18 @@ def build_stitching_project(
     test_blend: bool = True,
     fov: int = 108,
 ):
+    # TODO: need to fix this function
+    # assert project_file_path.endswith("my_project.pto")
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
-
+    autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
     skip_if_exists = False
 
-    if skip_if_exists and os.path.exists(project_file_path):
+    if skip_if_exists and (
+        os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)
+    ):
         print(
-            f"Project file already exists (skipping project creatio9n): {project_file_path}"
+            f"Project file already exists (skipping project creation): {autooptimiser_out}"
         )
         return True
 
@@ -180,6 +224,8 @@ def build_stitching_project(
         os.chdir(dir_name)
         cmd = [
             "pto_gen",
+            "-p",
+            "1",
             "-o",
             project_file_path,
             "-f",
@@ -198,10 +244,23 @@ def build_stitching_project(
             "-l",
             "-s",
             "-o",
-            project_file_path,
+            autooptimiser_out,
             project_file_path,
         ]
         os.system(" ".join(cmd))
+
+        # Output mapping files
+        cmd = [
+            "nona",
+            "-m",
+            "TIFF_m",
+            "-c",
+            "-o",
+            "mapping_",
+            autooptimiser_out,
+        ]
+        os.system(" ".join(cmd))
+
         if test_blend:
             cmd = [
                 "nona",
@@ -209,15 +268,20 @@ def build_stitching_project(
                 "TIFF_m",
                 "-o",
                 project_file_path,
-                project_file_path,
+                autooptimiser_out,
             ]
             os.system(" ".join(cmd))
-            cmd = [
-                "enblend",
-                "-o",
-                os.path.join(dir_name, "panorama.tif"),
-                os.path.join(dir_name, "my_project*.tif"),
-            ]
+            if os.path.exists(MULTIBLEND_BIN):
+                cmd = [
+                    MULTIBLEND_BIN,
+                    "-o",
+                    os.path.join(dir_name, "panorama.tif"),
+                    os.path.join(dir_name, autooptimiser_out + "*.tif"),
+                ]
+            else:
+                print(
+                    f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}"
+                )
             os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
@@ -232,6 +296,7 @@ def configure_video_stitching(
     left_frame_offset: int = None,
     right_frame_offset: int = None,
     base_frame_offset: int = 800,
+    # base_frame_offset: int = 5580,
     audio_sync_seconds: int = 15,
 ):
     if left_frame_offset is None or right_frame_offset is None:
@@ -281,7 +346,7 @@ def create_stitched_image(
         1,
     )
     core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
-    stitched_frame = core.get_stitched_frame_from_data_loader(stitcher, 0)
+    stitched_frame = stitcher.get_stitched_frame(0)
     return stitched_frame
 
 
@@ -304,6 +369,6 @@ if __name__ == "__main__":
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/sabercats-parts/left-1.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/sabercats-parts/right-1.mp4",
+        file0_path=f"{os.environ['HOME']}/Videos/jrmocks/left.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/jrmocks/right.mp4",
     )

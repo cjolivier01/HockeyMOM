@@ -1,6 +1,5 @@
 #pragma once
 
-#include "hockeymom/csrc/common/Gpu.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
 #include "hockeymom/csrc/stitcher/HmRemappedPanoImage.h"
@@ -10,7 +9,6 @@
 
 #include "unsupported/Eigen/CXX11/ThreadPool"
 
-#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -81,8 +79,6 @@ class HmMultiImageRemapper
     prepareOutputFile(opts, advOptions);
 
     // remap each image and save
-    // int i = 0;
-
     if (pass_ == 1) {
       mod_options_.clear();
       for (UIntSet::const_iterator it = images.begin(); it != images.end();

@@ -1,0 +1,265 @@
+import cv2
+import torch
+import torchaudio
+
+from .ffmpeg import BasicVideoInfo
+
+_EXTENSION_MAPPING = {
+    "matroska": "mkv",
+}
+
+_FOURCC_TO_CODEC = {
+    "HEVC": "hevc_cuvid",
+    "H264": "h264_cuvid",
+    "MJPEG": "mjpeg_cuvid",
+    "XVID": "mpeg4_cuvid",
+    "MP4V": "mpeg4_cuvid",
+}
+
+
+class VideoStreamWriter:
+    def __init__(
+        self,
+        filename: str,
+        fps: float,
+        width: int,
+        height: int,
+        codec: str,
+        format: str = "bgr24",
+        batch_size: int = 10,
+        bit_rate: int = int(55e6),
+        device: torch.device = None,
+        lossless: bool = False,
+        container_type: str = "matroska",
+    ):
+        self._filename = filename
+        self._container_type = container_type
+        self._fps = fps
+        self._width = width
+        self._height = height
+        self._codec = codec
+        self._format = format
+        self._video_out = None
+        self._video_f = None
+        self._device = device
+        self._lossless = lossless
+        assert batch_size >= 1
+        self._batch_size = batch_size
+        self._batch_items = []
+        self._in_flush = False
+        self._codec_config = torchaudio.io.CodecConfig(
+            bit_rate=bit_rate,
+        )
+        self._frame_counter = 0
+
+    def __enter__(self):
+        if self._video_f is None:
+            self.open()
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
+    def _make_proper_permute(self, image: torch.Tensor):
+        if len(image.shape) == 3:
+            if image.shape[-1] == 3 and self._device is not None:
+                if isinstance(image, torch.Tensor):
+                    image = image.permute(2, 0, 1)
+                else:
+                    image = image.transpose(2, 0, 1)
+        else:
+            if image.shape[-1] == 3 and self._device is not None:
+                if isinstance(image, torch.Tensor):
+                    image = image.permute(0, 3, 1, 2)
+                else:
+                    image = image.transpose(0, 3, 1, 2)
+        return image
+
+    def _add_stream(self):
+        if self._lossless:
+            assert False
+            preset = "lossless"
+            rate_control = "constqp"
+        else:
+            # preset = "slow"
+            preset = "p7"
+            rate_control = "cbr"
+        options = {
+            # "preset": preset,
+            "rc": rate_control,
+            "minrate": "55M",
+            "maxrate": "55M",
+            "bufsize": "55M",
+        }
+        if self._lossless:
+            options["qp"] = "0"
+
+        self._video_out.add_video_stream(
+            frame_rate=self._fps,
+            height=self._height,
+            width=self._width,
+            format=self._format,
+            encoder=self._codec,
+            encoder_format="bgr0",
+            encoder_option=options,
+            codec_config=self._codec_config,
+            hw_accel=str(self._device),
+        )
+        print("Video stream added")
+
+    def bgr_to_rgb(self, batch: torch.Tensor):
+        # Assuming batch is a PyTorch tensor of shape [N, C, H, W]
+        # and the channel order is BGR
+        return batch[:, [2, 1, 0], :, :]
+
+    def close(self):
+        if self._video_f is not None:
+            self._video_f.close()
+            self._video_f = None
+
+    def release(self):
+        self.close()
+
+    def flush(self, flush_video_file: bool = True):
+        if self._batch_items:
+            if len(self._batch_items[0].shape) == 3:
+                image_batch = torch.stack(self._batch_items)
+            else:
+                image_batch = torch.cat(self._batch_items, dim=0)
+            self._batch_items.clear()
+            frame_count = len(image_batch)
+            self._video_out.write_video_chunk(
+                i=0,
+                chunk=image_batch,
+            )
+            self._frame_counter += frame_count
+
+        if flush_video_file and self._video_f is not None:
+            self._video_f.flush()
+
+    def isOpened(self):
+        return self._video_f is not None
+
+    def open(self):
+        assert self._video_f is None
+        ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
+        if not self._filename.endswith("." + ext):
+            self._filename += "." + ext
+        self._video_out = torchaudio.io.StreamWriter(
+            dst=self._filename, format=self._container_type
+        )
+        self._add_stream()
+        self._video_f = self._video_out.open()
+
+    def set(self, key: int, value: any):
+        pass
+
+    def get(self, key: int) -> any:
+        return None
+
+    def append(self, images: torch.Tensor):
+        self._batch_items.append(self._make_proper_permute(images))
+        if len(self._batch_items) >= self._batch_size:
+            self.flush(flush_video_file=False)
+
+    def write(self, images: torch.Tensor):
+        return self.append(images)
+
+
+class VideoStreamReader:
+    def __init__(
+        self,
+        filename: str,
+        codec: str = None,
+        batch_size: int = 10,
+        device: torch.device = None,
+    ):
+        self._filename = filename
+        self._codec = codec
+        self._fps = None
+        self._width = None
+        self._height = None
+        self._batch_size = batch_size
+        self._debug = device
+        self._device = device
+        self._video_in = None
+        self._video_info = None
+        self._iter = None
+        self.open()
+
+    @property
+    def fps(self):
+        return self._video_info.fps
+
+    @property
+    def width(self):
+        return self._video_info.width
+
+    @property
+    def height(self):
+        return self._video_info.height
+
+    @property
+    def bit_rate(self):
+        return self._video_info.bitrate
+
+    @property
+    def frame_count(self):
+        return self._video_info.frame_count
+
+    @property
+    def codec(self):
+        return self._video_info.codec
+
+    def __len__(self):
+        return self.frame_count
+
+    def _add_stream(self):
+        self._video_in.add_basic_video_stream(
+            frames_per_chunk=self._batch_size,
+            stream_index=0,
+            decoder_option={},
+            #format="yuv420p",
+            format="yuvj420p",
+            hw_accel=str(self._device),
+        )
+
+    def isOpened(self):
+        return self._iter is not None
+
+    def seek(self, timestamp: float = None, frame_number: int = None):
+        assert timestamp is None or frame_number is None
+        if frame_number is not None:
+            timestamp = float(frame_number) / self._video_in.info.framerate
+        self._video_in.seek(timestamp=timestamp, precise=True)
+
+    def set(self, prop: int, value: any):
+        if prop == cv2.CAP_PROP_POS_FRAMES:
+            self.seek(frame_number=value)
+        else:
+            assert False and f"Unsupported property: {prop}"
+
+    def get(self, prop: int):
+        return None
+
+    def open(self):
+        assert self._video_in is None
+        self._video_info = BasicVideoInfo(video_file=self._filename)
+        if self._codec is None:
+            self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
+        self._video_in = torchaudio.io.StreamReader(src=self._filename)
+        self._add_stream()
+        self._iter = self._video_in.stream()
+
+    def close(self):
+        if self._video_in is not None:
+            self._video_in.remove_stream(0)
+            self._video_in = None
+            self._iter = None
+        return
+
+    def read(self):
+        next_data = next(self._iter)
+        if next_data is None:
+            return False, None
+        return True, next_data

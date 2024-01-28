@@ -1,0 +1,28 @@
+rink:
+  name: "stockton"
+  location:
+    city: "Stockton"
+    state: "CA"
+    country: "USA"
+  dimensions:
+    length: 200 feet
+    width: 85 feet
+    corner_radius: 28 feet
+  surface_type: "Ice"
+  seating_capacity: 200
+  teams:
+    home_team:
+      name: "Colts"
+      colors: ["Green", "Black"]
+  facilities:
+    locker_rooms: 4
+    concession_stands: 1
+    restrooms: 2
+  parking:
+    capacity: 400
+    price: 0 dollars  
+  tracking:
+    cam_ignore_largest: false
+  camera:
+    fixed_edge_scaling_factor: 0.6
+    fixed_edge_rotation_angle: 25.0

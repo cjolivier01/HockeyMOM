@@ -51,12 +51,12 @@ def gen_labels_crowd(data_root, label_root, ann_root):
 
 
 if __name__ == '__main__':
-    data_val = '/home/colivier/src/hockeymom/crowdhuman/images/val'
-    label_val = '/home/colivier/src/hockeymom/crowdhuman/labels_with_ids/val'
-    ann_val = '/home/colivier/src/hockeymom/crowdhuman/annotation_val.odgt'
-    data_train = '/home/colivier/src/hockeymom/crowdhuman/images/train'
-    label_train = '/home/colivier/src/hockeymom/crowdhuman/labels_with_ids/train'
-    ann_train = '/home/colivier/src/hockeymom/crowdhuman/annotation_train.odgt'
+    data_val = '/home/colivier/src/hockeymom/datasets/crowdhuman/images/val'
+    label_val = '/home/colivier/src/hockeymom/datasets/crowdhuman/labels_with_ids/val'
+    ann_val = '/home/colivier/src/hockeymom/datasets/crowdhuman/annotation_val.odgt'
+    data_train = '/home/colivier/src/hockeymom/datasets/crowdhuman/images/train'
+    label_train = '/home/colivier/src/hockeymom/datasets/crowdhuman/labels_with_ids/train'
+    ann_train = '/home/colivier/src/hockeymom/datasets/crowdhuman/annotation_train.odgt'
     gen_labels_crowd(data_train, label_train, ann_train)
     gen_labels_crowd(data_val, label_val, ann_val)
 

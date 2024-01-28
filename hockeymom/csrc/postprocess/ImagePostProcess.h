@@ -59,7 +59,7 @@ struct HMPostprocessConfig {
 
   bool fixed_edge_rotation = false;
 
-  float fixed_edge_rotation_angle = 35.0;
+  //float fixed_edge_rotation_angle = 35.0;
 
   // Use "sticky" panning, where panning occurs in less frequent,
   // but possibly faster, pans rather than a constant
@@ -82,14 +82,6 @@ struct HMPostprocessConfig {
   // particular section of video and being able to reach
   // that portiuon of the video more quickly
   std::size_t stop_at_frame = 0;
-  // bool stop_at_frame = 30*30
-
-  // Make the image the same relative dimensions as the initial image,
-  // such that the highest possible resolution is available when the camera
-  // box is either the same height or width as the original video image
-  // (Slower, but better final quality)
-  bool scale_to_original_image = true;
-  // bool scale_to_original_image = false;
 
   // Crop the final image to the camera window (possibly zoomed)
   bool crop_output_image = true && !BASIC_DEBUGGING;

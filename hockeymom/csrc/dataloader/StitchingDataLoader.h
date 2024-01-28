@@ -2,17 +2,19 @@
 
 #include "hockeymom/csrc/common/JobRunner.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
+#include "hockeymom/csrc/common/Timer.h"
 #include "hockeymom/csrc/mblend/mblend.h"
+#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
-#include <condition_variable>
-#include <cstdint>
-#include <map>
+#include "hockeymom/csrc/mblend/threadpool.h"
+
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
+
+#include <ATen/ATen.h>
 
 namespace hm {
 
@@ -26,9 +28,18 @@ namespace hm {
  *
  */
 struct FrameData {
+  struct TorchImage {
+    at::Tensor tensor;
+    std::vector<int> xy_pos;
+  };
+
   static constexpr std::size_t kInvalidFrameId =
       std::numeric_limits<std::size_t>::max();
   std::size_t frame_id{kInvalidFrameId};
+  // pytorch specific
+  std::vector<TorchImage> torch_input_images;
+  std::vector<TorchImage> torch_remapped_images;
+  // Non-pytorch
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
   std::shared_ptr<MatrixRGB> blended_image;
@@ -47,8 +58,6 @@ struct FrameData {
  */
 /* clang-format on */
 class StitchingDataLoader {
-  static constexpr std::size_t kInputQueueCapacity = 32;
-
  public:
   using FRAME_DATA_TYPE = std::shared_ptr<FrameData>;
 
@@ -63,7 +72,18 @@ class StitchingDataLoader {
       std::size_t blend_thread_count);
   ~StitchingDataLoader();
 
+  void configure_remapper(std::vector<ops::RemapperConfig> remapper_configs);
+
   void add_frame(
+      std::size_t frame_id,
+      std::vector<std::shared_ptr<MatrixRGB>>&& images);
+
+  void add_torch_frame(
+      std::size_t frame_id,
+      at::Tensor images_1,
+      at::Tensor images_2);
+
+  void add_remapped_frame(
       std::size_t frame_id,
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
@@ -71,6 +91,8 @@ class StitchingDataLoader {
 
  private:
   void initialize();
+  const std::shared_ptr<HmNona>& get_nona_worker(std::size_t worker_number);
+  std::shared_ptr<ops::ImageRemapper> get_remapper(std::size_t image_index);
 
   using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
 
@@ -93,9 +115,19 @@ class StitchingDataLoader {
   std::shared_ptr<JobRunnerT::InputQueue> input_queue_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> remap_runner_;
   JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE> blend_runner_;
+  std::mutex nonas_create_mu_;
   std::vector<std::shared_ptr<HmNona>> nonas_;
-  //std::vector<std::shared_ptr<enblend::EnBlender>> enblenders_;
+  std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
+  std::vector<ops::RemapperConfig> remapper_configs_;
+  std::unique_ptr<Eigen::ThreadPool> thread_pool_;
+  std::unique_ptr<HmThreadPool> remap_thread_pool_;
+
+  // Timers
+  Timer remap_inner_;
+  Timer remap_outer_;
+  Timer blend_inner_;
+  Timer blend_outer_;
 };
 
 } // namespace hm

@@ -2,18 +2,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# from numba import njit
-
 import time
 import os
 import cv2
 import argparse
 import numpy as np
 import traceback
-import multiprocessing
-import queue
 
-from pathlib import Path
+# import multiprocessing
+# import queue
+import yaml
+from typing import List
+
+# from pathlib import Path
 
 import torch
 import torchvision as tv
@@ -23,12 +24,13 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.camera.moving_box import MovingBox
-from hmlib.camera.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import ImageProcData, VideoOutput, make_visible_image
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
 from hmlib.tracking_utils.boundaries import BoundaryLines
+from hmlib.config import get_nested_value
 
 from hmlib.utils.box_functions import (
     width,
@@ -40,6 +42,8 @@ from hmlib.utils.box_functions import (
     aspect_ratio,
     make_box_at_center,
     remove_largest_bbox,
+    get_enclosing_box,
+    tlwh_to_tlbr_single,
 )
 
 from hmlib.utils.box_functions import tlwh_centers
@@ -71,80 +75,123 @@ core.hello_world()
 #     # {_REFEREE_CLASS_ID: "referee"},
 # ]
 
+#
+# TODO: Moving to yaml files
+#
 RINK_CONFIG = {
-    "vallco": {
-        "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 35.0,
-        "borders": {
+    "yerba_buena": {
+        "fixed_edge_scaling_factor": 1.5,
+        "fixed_edge_rotation_angle": 25.0,
+        "boundaries": {
             "upper": [],
             "lower": [],
         },
     },
     "dublin": {
-        "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "stockton": {
-        "fixed_edge_scaling_factor": 0.6,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "roseville_2": {
-        "fixed_edge_scaling_factor": 1.6,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "yerba_buena": {
-        "fixed_edge_scaling_factor": 1.5,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [],
-            "lower": [],
+        "boundaries": {
+            "lbd3": {
+                "upper": [
+                    [254, 840, 1071, 598],
+                    [1101, 568, 2688, 588],
+                ],
+                "lower": [
+                    [7, 854, 375, 1082],
+                    [264, 1007, 1188, 1539],
+                    [1229, 1524, 2398, 1572],
+                    [2362, 1517, 3245, 1181],
+                    [3240, 1199, 3536, 1000],
+                    [3370, 1095, 3808, 819],
+                ],
+            },
         },
     },
     "sharks_orange": {
-        "fixed_edge_scaling_factor": 0.8,
-        "fixed_edge_rotation_angle": 25.0,
-        "borders": {
-            "upper": [
-                [2001, 123, 2629, 208],
-                [1283, 117, 1979, 162],
-            ],
-            "lower": [
-                [21, 498, 1664, 878],
-                [1662, 856, 3034, 799],
-                [3044, 800, 3762, 673],
-            ],
+        "boundaries": {
+            "sharksbb2-1": {
+                "upper": [
+                    [2001, 123, 2629, 208],
+                    [1283, 117, 1979, 162],
+                ],
+                "lower": [
+                    [21, 498, 1664, 878],
+                    [1662, 856, 3034, 799],
+                    [3044, 800, 3762, 673],
+                ],
+            },
+            "sharksbb1-2": {
+                "upper": [
+                    [1300, 528, 1848, 467],
+                    [1850, 469, 2478, 455],
+                    [2535, 450, 3050, 500],
+                    [2951, 480, 3735, 725],
+                    [3671, 700, 3757, 809],
+                    [324, 889, 919, 598],
+                    # false positives on upper boards
+                    [1897, 497, 1924, 495],
+                    [1467, 535, 1518, 534],
+                    [1543, 530, 1581, 528],
+                    [2185, 486, 2214, 486],
+                    [1598, 525, 1632, 525],
+                ],
+                "lower": [
+                    [2862, 949, 3831, 733],
+                    [1444, 1102, 2219, 1047],
+                    [631, 998, 1441, 1126],
+                    [12, 577, 342, 900],
+                    [327, 909, 744, 1022],
+                ],
+            },
+            "sharksbb1-2.1": {
+                "upper": [
+                    [2047, 758, 2312, 719],
+                    [2312, 718, 2653, 686],
+                    [2653, 686, 2971, 666],
+                    [2971, 666, 3363, 657],
+                    [3365, 649, 4001, 674],
+                    [4071, 689, 4419, 750],
+                    [4423, 756, 5374, 1063],
+                    [5292, 1049, 5342, 1201],
+                    [396, 1294, 1259, 893],
+                    # false positives on upper boards
+                    [2202, 755, 2247, 752],
+                    [2291, 756, 2333, 756],
+                    [2006, 785, 2042, 781],
+                    [3381, 690, 3418, 691],
+                    [3462, 685, 3502, 689],
+                    [3120, 697, 3177, 697],
+                ],
+                "lower": [
+                    [5319, 975, 5649, 959],
+                    [15, 1188, 470, 1278],
+                    [467, 1299, 1040, 1474],
+                    [1043, 1466, 2546, 1628],
+                    [2546, 1628, 4837, 1243],
+                    [4837, 1243, 5307, 1096],
+                ],
+            },
         },
     },
 }
 
-BASIC_DEBUGGING = True
+BASIC_DEBUGGING = False
+
+# print(yaml.dump(RINK_CONFIG["dublin"]))
 
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
-        rink: str = "vallco",
+        game_config: dict(),
         basic_debugging: bool = BASIC_DEBUGGING,
-        show_image: bool = False,
-        cam_ignore_largest: bool = False,
-        # args: argparse.Namespace = None,
     ):
+        # basic_debugging = False
+
         super().__init__()
+
+        self.game_config = game_config
+
         # Display the image every frame (slow)
-        self.show_image = show_image or basic_debugging
-        # self.show_image = True
+        self.show_image = self.show_image or basic_debugging
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging
@@ -168,17 +215,27 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.apply_fixed_edge_scaling = False
         self.apply_fixed_edge_scaling = True
 
-        self.fixed_edge_scaling_factor = RINK_CONFIG[rink]["fixed_edge_scaling_factor"]
+        self.fixed_edge_scaling_factor = self.game_config["rink"]["camera"][
+            "fixed_edge_scaling_factor"
+        ]
 
         self.plot_camera_tracking = False or basic_debugging
-        # self.plot_camera_tracking = False
+        # self.plot_camera_tracking = True
 
         self.plot_moving_boxes = False or basic_debugging
         # self.plot_moving_boxes = True
 
+        # self.old_tracking_use_new_moving_box = True
+        self.old_tracking_use_new_moving_box = False
+
         # Print each frame number in the upper left corner
         self.plot_frame_number = False or basic_debugging
         # self.plot_frame_number = True
+
+        self.plot_boundaries = (
+            False or basic_debugging or self.plot_individual_player_tracking
+        )
+        # self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
@@ -186,47 +243,22 @@ class DefaultArguments(core.HMPostprocessConfig):
         # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
-        # self.fixed_edge_rotation_angle = 25.0
-        self.fixed_edge_rotation_angle = RINK_CONFIG[rink]["fixed_edge_rotation_angle"]
-        # self.fixed_edge_rotation_angle = 35.0
-        # self.fixed_edge_rotation_angle = 45.0
-
-        # Use "sticky" panning, where panning occurs in less frequent,
-        # but possibly faster, pans rather than a constant
-        # pan (which may appear tpo "wiggle")
-        # self.sticky_pan = True
-        self.sticky_pan = False
+        self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
+            "fixed_edge_rotation_angle"
+        ]
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
+        # self.plot_sticky_camera = True
 
-        # Skip some number of frames before post-processing. Useful for debugging a
-        # particular section of video and being able to reach
-        # that portiuon of the video more quickly
-        self.skip_frame_count = 0
-
-        # Moving right-to-left
-        # self.skip_frame_count = 450
-
-        # Stop at the given frame and (presumably) output the final video.
-        # Useful for debugging a
-        # particular section of video and being able to reach
-        # that portiuon of the video more quickly
-        self.stop_at_frame = 0
-        # self.stop_at_frame = 30*30
-
-        self.cam_ignore_largest = cam_ignore_largest
-
-        # Make the image the same relative dimensions as the initial image,
-        # such that the highest possible resolution is available when the camera
-        # box is either the same height or width as the original video image
-        # (Slower, but better final quality)
-        self.scale_to_original_image = True
-        # self.scale_to_original_image = False
+        # self.cam_ignore_largest = self.game_config["rink"]["tracking"]["cam_ignore_largest"]
+        self.cam_ignore_largest = get_nested_value(
+            self.game_config, "rink.tracking.cam_ignore_largest", default_value=False
+        )
 
         # Crop the final image to the camera window (possibly zoomed)
         self.crop_output_image = True and not basic_debugging
-        # self.crop_output_image = True
+        # self.crop_output_image = False
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
@@ -235,23 +267,24 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.use_watermark = True
         # self.use_watermark = False
 
+        # Deprecated
         self.detection_inclusion_box = None
-        # self.detection_inclusion_box = [None, None, None, None]
-        # self.detection_inclusion_box = [None, 140, None, None]
 
-        # Roseville #2
-        # self.detection_inclusion_box = torch.tensor(
-        # [363, 600, 5388, 1714], dtype=torch.float32
-        # )
-        # print(f"Using Roseville2 inclusion box: {self.detection_inclusion_box}")
-
-        # Above any of these lines, ignmore
+        self.skip_final_video_save = False
 
         #
         # SHARKS ORANGE RINK
         #
-        self.top_border_lines = RINK_CONFIG[rink]["borders"]["upper"]
-        self.bottom_border_lines = RINK_CONFIG[rink]["borders"]["lower"]
+        # self.top_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["upper"]
+        # self.bottom_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["lower"]
+        # self.top_border_lines = self.game_config["game"]["boundaries"]["upper"]
+        # self.bottom_border_lines = self.game_config["game"]["boundaries"]["lower"]
+        self.top_border_lines = get_nested_value(
+            self.game_config, "game.boundaries.upper", []
+        )
+        self.bottom_border_lines = get_nested_value(
+            self.game_config, "game.boundaries.lower", []
+        )
 
 
 def scale_box(box, from_img, to_img):
@@ -299,14 +332,14 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
-class Detection:
-    def __init__(self, track_id, tlwh, history):
-        self.track_id = track_id
-        self.tlwh = tlwh
-        self.history = history
+# class Detection:
+#     def __init__(self, track_id, tlwh, history):
+#         self.track_id = track_id
+#         self.tlwh = tlwh
+#         self.history = history
 
 
-class FramePostProcessor:
+class CamTrackPostProcessor(torch.nn.Module):
     def __init__(
         self,
         hockey_mom,
@@ -316,10 +349,12 @@ class FramePostProcessor:
         save_dir,
         device,
         opt,
+        original_clip_box,
         args: argparse.Namespace,
         save_frame_dir: str = None,
         async_post_processing: bool = False,
         use_fork: bool = False,
+        video_out_device: str = None,
     ):
         self._args = args
         self._start_frame_id = start_frame_id
@@ -339,6 +374,10 @@ class FramePostProcessor:
         self._boundaries = None
         self._timer = Timer()
         self._cluster_man = None
+        self._video_out_device = video_out_device
+
+        if self._video_out_device is None:
+            self._video_out_device = self._device
 
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
@@ -351,7 +390,9 @@ class FramePostProcessor:
 
         if self._args.top_border_lines or self._args.bottom_border_lines:
             self._boundaries = BoundaryLines(
-                self._args.top_border_lines, self._args.bottom_border_lines
+                self._args.top_border_lines,
+                self._args.bottom_border_lines,
+                original_clip_box,
             )
 
         # Persistent state across frames
@@ -366,9 +407,8 @@ class FramePostProcessor:
         self._current_roi_aspect = None
         self._video_output_campp = None
         self._video_output_boxtrack = None
-
-    def get_first_frame_id(self):
-        return self._args.skip_frame_count
+        self._queue_timer = Timer()
+        self._send_to_timer_post_process = Timer()
 
     def start(self):
         if self._use_fork:
@@ -397,16 +437,33 @@ class FramePostProcessor:
     def send(
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
     ):
-        while self._queue.qsize() > 10:
-            time.sleep(0.001)
         try:
-            dets = [
-                Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
-                for d in detections
-            ]
-            if self._async_post_processing:
-                self._queue.put(
-                    (
+            with TimeTracker(
+                "Send to cam post process queue",
+                self._send_to_timer_post_process,
+                print_interval=50,
+            ):
+                while self._queue.qsize() > 10:
+                    # print("Cam post-process queue too large")
+                    time.sleep(0.001)
+                dets = []
+                # dets = [
+                #     Detection(track_id=d.track_id, tlwh=d.tlwh, history=d.history)
+                #     for d in detections
+                # ]
+                if self._async_post_processing:
+                    self._queue.put(
+                        (
+                            online_tlwhs,
+                            online_ids,
+                            dets,
+                            info_imgs,
+                            image,
+                            original_img,
+                        )
+                    )
+                else:
+                    online_targets_and_img = (
                         online_tlwhs,
                         online_ids,
                         dets,
@@ -414,17 +471,7 @@ class FramePostProcessor:
                         image,
                         original_img,
                     )
-                )
-            else:
-                online_targets_and_img = (
-                    online_tlwhs,
-                    online_ids,
-                    dets,
-                    info_imgs,
-                    image,
-                    original_img,
-                )
-                self.cam_postprocess(online_targets_and_img=online_targets_and_img)
+                    self.cam_postprocess(online_targets_and_img=online_targets_and_img)
         except Exception as ex:
             print(ex)
             traceback.print_exc()
@@ -457,6 +504,7 @@ class FramePostProcessor:
         timer = Timer()
 
         if self._args.crop_output_image:
+            # TODO: Does self._hockey_mom.video.height take into account clipping of the stitched frame?
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = (
                 self._hockey_mom.video.height * self._final_aspect_ratio
@@ -467,8 +515,11 @@ class FramePostProcessor:
 
         assert self._video_output_campp is None
         self._video_output_campp = VideoOutput(
+            name="TRACKING",
             args=self._args,
-            output_video_path=os.path.join(self._save_dir, "tracking_output.avi"),
+            output_video_path=os.path.join(self._save_dir, "tracking_output.mkv")
+            if self._save_dir is not None
+            else None,
             fps=self._fps,
             use_fork=False,
             start=False,
@@ -487,38 +538,31 @@ class FramePostProcessor:
             )
             if self._args.use_watermark
             else None,
+            device=self._video_out_device,
+            skip_final_save=self._args.skip_final_video_save,
+            image_channel_adjustment=self._args.game_config["rink"]["camera"][
+                "image_channel_adjustment"
+            ],
         )
         self._video_output_campp.start()
-
-        if self._args.crop_output_image:
-            self._video_output_boxtrack = VideoOutput(
-                args=self._args,
-                output_video_path=os.path.join(self._save_dir, "boxtrack_output.avi"),
-                fps=self._fps,
-                use_fork=False,
-                start=False,
-                output_frame_width=self.final_frame_width,
-                output_frame_height=self.final_frame_height,
-                watermark_image_path=os.path.realpath(
-                    os.path.join(
-                        os.path.dirname(os.path.realpath(__file__)),
-                        "..",
-                        "..",
-                        "..",
-                        "images",
-                        "sports_ai_watermark.png",
-                    )
-                )
-                if self._args.use_watermark
-                else None,
-            )
-            self._video_output_boxtrack.start()
 
         while True:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            self.cam_postprocess(online_targets_and_img=online_targets_and_img)
+
+            frame_id, online_im, current_box = self.forward(
+                online_targets_and_img=online_targets_and_img
+            )
+
+            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+            if self._video_output_campp is not None:
+                imgproc_data = ImageProcData(
+                    frame_id=frame_id.item(),
+                    img=online_im,
+                    current_box=current_box,
+                )
+                self._video_output_campp.append(imgproc_data)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
@@ -531,34 +575,52 @@ class FramePostProcessor:
         return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
         # return self._device
 
-    def cam_postprocess(self, online_targets_and_img):
-        self._timer.tic()
-        max_dx_shrink_size = 100  # ???
+    def get_cluster_boxes(
+        self,
+        online_tlwhs: torch.Tensor,
+        online_ids: torch.Tensor,
+        cluster_counts: List[int] = [3, 2],
+    ):
+        if self._cluster_man is None:
+            self._cluster_man = ClusterMan(
+                sizes=[3, 2], device=self._kmeans_cuda_device()
+            )
 
-        # if frame_id % 20 == 0:
-        #     logger.info(
-        #         "Post-Processing frame {} ({:.2f} fps)".format(
-        #             frame_id, 1.0 / max(1e-5, timer.average_time)
-        #         )
-        #     )
-        #     timer = Timer()
-        # timer.tic()
+        self._cluster_man.calculate_all_clusters(
+            center_points=center_batch(online_tlwhs), ids=online_ids
+        )
+        boxes_map = dict()
+        boxes_list = []
+        for cluster_count in cluster_counts:
+            largest_cluster_ids = self._cluster_man.prune_not_in_largest_cluster(
+                num_clusters=cluster_count, ids=online_ids
+            )
+            if len(largest_cluster_ids):
+                largest_cluster_ids_box = self._hockey_mom.get_current_bounding_box(
+                    largest_cluster_ids
+                )
+                boxes_map[cluster_count] = largest_cluster_ids_box
+                boxes_list.append(largest_cluster_ids_box)
+            else:
+                largest_cluster_ids_box = None
+        if not boxes_map:
+            return {}, None
+        return boxes_map, torch.stack(boxes_list)
+
+    def forward(self, online_targets_and_img):
+        self._timer.tic()
+        # max_dx_shrink_size = 100  # ???
+
         online_tlwhs = online_targets_and_img[0]
         online_ids = online_targets_and_img[1]
-        detections = online_targets_and_img[2]
+        # detections = online_targets_and_img[2]
         info_imgs = online_targets_and_img[3]
 
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
         frame_id = frame_ids[self._frame_counter % len(frame_ids)]
         self._frame_counter += 1
 
-        # print(online_ids)
-        # print(online_tlwhs)
-
-        if self._args.cam_ignore_largest and len(online_tlwhs):
-            # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask = remove_largest_bbox(online_tlwhs, min_boxes=4)
-            online_ids = online_ids[mask]
+        largest_bbox = None
 
         # Exclude detections outside of an optional bounding box
         online_tlwhs, online_ids = prune_by_inclusion_box(
@@ -568,323 +630,241 @@ class FramePostProcessor:
             boundaries=self._boundaries,
         )
 
+        if self._args.cam_ignore_largest and len(online_tlwhs):
+            # Don't remove unless we have at least 4 online items being tracked
+            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
+                online_tlwhs, min_boxes=4
+            )
+            online_ids = online_ids[mask]
+
         # info_imgs = online_targets_and_img[3]
-        img0 = online_targets_and_img[4]
         original_img = online_targets_and_img[5]
+
+        online_im = original_img.clone()
+        if online_im.ndim == 4:
+            assert online_im.shape[0] == 1
+            online_im = online_im.squeeze(0)
 
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
-        if self._cluster_man is None:
-            self._cluster_man = ClusterMan(
-                sizes=[3, 2], device=self._kmeans_cuda_device()
-            )
-
-        # self._cluster_man.reset_clusters()
-
-        # kmeans_device = _kmeans_cuda_device()
-        self._cluster_man.calculate_all_clusters(
-            center_points=center_batch(online_tlwhs), ids=online_ids
+        #
+        # Clusters
+        #
+        cluster_counts = [3, 2]
+        cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
+            online_tlwhs, online_ids, cluster_counts=cluster_counts
         )
-        # self._cluster_man.calculate_clusters(n_clusters=2)
-        # self._cluster_man.calculate_clusters(n_clusters=3)
 
-        # self._hockey_mom.reset_clusters()
+        if cluster_boxes_map:
+            cluster_enclosing_box = get_enclosing_box(cluster_boxes)
+        elif self._previous_cluster_union_box is not None:
+            cluster_enclosing_box = self._previous_cluster_union_box.clone()
+        else:
+            cluster_enclosing_box = self._hockey_mom._video_frame.bounding_box()
 
-        # def _kmeans_cuda_device():
-        #     if self._use_fork:
-        #         return "cpu"
-        #     return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
-        #     # return self._device
+        current_box = cluster_enclosing_box
 
-        # kmeans_device = _kmeans_cuda_device()
-        # self._hockey_mom.calculate_clusters(n_clusters=2, device=kmeans_device)
-        # self._hockey_mom.calculate_clusters(n_clusters=3, device=kmeans_device)
+        if self._args.plot_boundaries and self._boundaries is not None:
+            online_im = self._boundaries.draw(online_im)
 
-        if self._args.show_image or self._save_dir is not None:
-            if self._args.scale_to_original_image:
-                if isinstance(original_img, torch.Tensor):
-                    original_img = original_img.numpy()
-                online_im = original_img
-                del original_img
-            else:
-                online_im = img0
-            online_im = self.prepare_online_image(online_im)
-
-            if self._args.plot_all_detections:
-                online_id_set = set(online_ids)
-                offline_ids = []
-                offline_tlwhs = []
-                skipped_count = 0
-                for det in detections:
-                    if det.track_id not in online_id_set:
-                        tlwh = det.tlwh
-                        vertical = tlwh[2] / tlwh[3] > 1.6
-                        if tlwh[2] * tlwh[3] > self._opt.min_box_area and not vertical:
-                            offline_ids.append(det.track_id)
-                            offline_tlwhs.append(det.tlwh)
-                        else:
-                            skipped_count += 1
-                if skipped_count:
-                    print(f"Skipped {skipped_count} detections")
-
-                if offline_ids:
-                    online_im = vis.plot_tracking(
-                        online_im,
-                        offline_tlwhs,
-                        offline_ids,
-                        frame_id=frame_id,
-                        speeds=[],
-                        line_thickness=1,
-                        box_color=(255, 128, 255),
-                        ignore_frame_id=True,
-                        print_track_id=False,
-                    )
-
-            if self._args.plot_individual_player_tracking:
-                online_im = vis.plot_tracking(
+        if self._args.plot_individual_player_tracking:
+            online_im = vis.plot_tracking(
+                online_im,
+                online_tlwhs,
+                online_ids,
+                frame_id=frame_id,
+                speeds=[],
+                line_thickness=2,
+            )
+            print(f"Tracking {len(online_ids)} players...")
+            if largest_bbox is not None:
+                online_im = vis.plot_rectangle(
                     online_im,
-                    online_tlwhs,
-                    online_ids,
-                    frame_id=frame_id,
-                    speeds=[],
-                    line_thickness=2,
+                    [int(i) for i in tlwh_to_tlbr_single(largest_bbox)],
+                    color=(0, 0, 0),
+                    thickness=1,
+                    label=f"IGNORED",
                 )
 
-            # Examine as 2 clusters
-            largest_cluster_ids_2 = self._cluster_man.prune_not_in_largest_cluster(
-                num_clusters=2, ids=online_ids
-            )
-            if len(largest_cluster_ids_2):
-                largest_cluster_ids_box2 = self._hockey_mom.get_current_bounding_box(
-                    largest_cluster_ids_2
-                )
-                if self._args.plot_cluster_tracking:
-                    vis.plot_rectangle(
+        if self._args.plot_cluster_tracking:
+            cluster_box_colors = {
+                2: (128, 0, 0),  # dark red
+                3: (0, 0, 128),  # dark blue
+            }
+            for cc in cluster_counts:
+                if cc in cluster_boxes_map:
+                    online_im = vis.plot_rectangle(
                         online_im,
-                        largest_cluster_ids_box2,
-                        color=(128, 0, 0),  # dark red
-                        thickness=6,
-                        label="cluster_box2",
+                        cluster_boxes_map[cc],
+                        color=cluster_box_colors[cc],
+                        thickness=1,
+                        label=f"cluster_box_{cc}",
                     )
-            else:
-                largest_cluster_ids_box2 = None
 
-            # Examine as 3 clusters
-            largest_cluster_ids_3 = self._cluster_man.prune_not_in_largest_cluster(
-                num_clusters=3, ids=online_ids
-            )
-            if len(largest_cluster_ids_3):
-                largest_cluster_ids_box3 = self._hockey_mom.get_current_bounding_box(
-                    largest_cluster_ids_3
-                )
-                if self._args.plot_cluster_tracking:
-                    vis.plot_rectangle(
-                        online_im,
-                        largest_cluster_ids_box3,
-                        color=(0, 0, 128),  # dark blue
-                        thickness=6,
-                        label="cluster_box3",
-                    )
-            else:
-                largest_cluster_ids_box3 = None
-
-            if (
-                largest_cluster_ids_box2 is not None
-                and largest_cluster_ids_box3 is not None
-            ):
-                current_box = self._hockey_mom.union_box(
-                    largest_cluster_ids_box2, largest_cluster_ids_box3
-                )
-            elif largest_cluster_ids_box2 is not None:
-                current_box = largest_cluster_ids_box2
-            elif largest_cluster_ids_box3 is not None:
-                current_box = largest_cluster_ids_box3
-            elif self._previous_cluster_union_box is not None:
-                current_box = self._previous_cluster_union_box.clone()
-            else:
-                current_box = self._hockey_mom._video_frame.bounding_box()
-
-            if current_box is None:
-                current_box = self._hockey_mom._video_frame.bounding_box()
-
-            self._previous_cluster_union_box = current_box.clone()
-
-            # Some players may be off-screen, so their box may go over an edge
-            current_box = self._hockey_mom.clamp(current_box)
-
-            if self._args.plot_cluster_tracking:
+            if cluster_boxes_map:
                 # The union of the two cluster boxes
                 online_im = vis.plot_alpha_rectangle(
                     online_im,
-                    current_box,
+                    cluster_enclosing_box,
                     color=(64, 64, 64),  # dark gray
                     label="union_clusters",
                     opacity_percent=25,
                 )
 
-            #
-            # Current ROI box
-            #
-            if True:
-                if self._current_roi is None:
-                    start_box = current_box
-                    self._current_roi = MovingBox(
-                        label="Current ROI",
-                        bbox=start_box,
-                        arena_box=self.get_arena_box(),
-                        max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-                        max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
-                        max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
-                        max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
-                        max_width=self._hockey_mom._video_frame.width,
-                        max_height=self._hockey_mom._video_frame.height,
-                        color=(255, 128, 64),
-                        thickness=5,
-                    )
+        if current_box is None:
+            assert False  # how does this happen?
+            current_box = self._hockey_mom._video_frame.bounding_box()
 
-                    size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-                    size_stick_size = size_unstick_size / 3
+        self._previous_cluster_union_box = current_box.clone()
 
-                    self._current_roi_aspect = MovingBox(
-                        label="AspectRatio",
-                        bbox=self._current_roi,
-                        arena_box=self.get_arena_box(),
-                        max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
-                        max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-                        max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
-                        max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
-                        max_width=self._hockey_mom._video_frame.width,
-                        max_height=self._hockey_mom._video_frame.height,
-                        width_change_threshold=_scalar_like(
-                            size_unstick_size, device=current_box.device
-                        ),
-                        width_change_threshold_low=_scalar_like(
-                            size_stick_size, device=current_box.device
-                        ),
-                        height_change_threshold=_scalar_like(
-                            size_unstick_size, device=current_box.device
-                        ),
-                        height_change_threshold_low=_scalar_like(
-                            size_stick_size, device=current_box.device
-                        ),
-                        sticky_translation=True,
-                        scale_width=1.1,
-                        scale_height=1.1,
-                        fixed_aspect_ratio=self._final_aspect_ratio,
-                        color=(255, 0, 255),
-                        thickness=5,
-                    )
-                    self._current_roi = iter(self._current_roi)
-                    self._current_roi_aspect = iter(self._current_roi_aspect)
-                else:
-                    self._current_roi.set_destination(
-                        current_box, stop_on_dir_change=False
-                    )
+        # Some players may be off-screen, so their box may go over an edge
+        current_box = self._hockey_mom.clamp(current_box)
 
-                self._current_roi = next(self._current_roi)
-                self._current_roi_aspect = next(self._current_roi_aspect)
-                if self._args.plot_moving_boxes:
-                    self._current_roi_aspect.draw(img=online_im, draw_threasholds=True)
-                    self._current_roi.draw(img=online_im)
-                    vis.plot_line(
-                        online_im,
-                        center(self._current_roi.bbox),
-                        center(current_box),
-                        color=(255, 255, 255),
-                        thickness=2,
-                    )
+        #
+        # Current ROI box
+        #
+        if True:
+            if self._current_roi is None:
+                start_box = current_box
+                self._current_roi = MovingBox(
+                    label="Current ROI",
+                    bbox=start_box,
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
+                    max_width=self._hockey_mom._video_frame.width,
+                    max_height=self._hockey_mom._video_frame.height,
+                    color=(255, 128, 64),
+                    thickness=5,
+                    device=self._device,
+                )
+                # self._current_roi.eval()
 
+                size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+                size_stick_size = size_unstick_size / 3
+
+                self._current_roi_aspect = MovingBox(
+                    label="AspectRatio",
+                    bbox=self._current_roi,
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
+                    max_width=self._hockey_mom._video_frame.width,
+                    max_height=self._hockey_mom._video_frame.height,
+                    width_change_threshold=_scalar_like(
+                        size_unstick_size * 2, device=current_box.device
+                    ),
+                    width_change_threshold_low=_scalar_like(
+                        size_stick_size * 2, device=current_box.device
+                    ),
+                    height_change_threshold=_scalar_like(
+                        size_unstick_size * 2, device=current_box.device
+                    ),
+                    height_change_threshold_low=_scalar_like(
+                        size_stick_size * 2, device=current_box.device
+                    ),
+                    sticky_translation=True,
+                    sticky_sizing=True,
+                    scale_width=self._args.game_config["rink"]["camera"][
+                        "follower_box_scale_width"
+                    ],
+                    scale_height=self._args.game_config["rink"]["camera"][
+                        "follower_box_scale_height"
+                    ],
+                    fixed_aspect_ratio=self._final_aspect_ratio,
+                    color=(255, 0, 255),
+                    thickness=5,
+                    device=self._device,
+                )
+                self._current_roi = iter(self._current_roi)
+                self._current_roi_aspect = iter(self._current_roi_aspect)
+                # self._current_roi_aspect.eval()
+            else:
+                # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
+                self._current_roi.forward(current_box, stop_on_dir_change=False)
+
+            self._current_roi = next(self._current_roi)
+            self._current_roi_aspect = next(self._current_roi_aspect)
+            if self._args.plot_moving_boxes:
+                online_im = self._current_roi_aspect.draw(
+                    img=online_im, draw_threasholds=True
+                )
+                online_im = self._current_roi.draw(img=online_im)
+                online_im = vis.plot_line(
+                    online_im,
+                    center(self._current_roi.bbox),
+                    center(current_box),
+                    color=(255, 255, 255),
+                    thickness=2,
+                )
+
+        # outside_expanded_box = (
+        #     current_box + self._outside_box_expansion_for_speed_curtailing
+        # )
+
+        if self._args.plot_camera_tracking:
+            online_im = vis.plot_rectangle(
+                online_im,
+                current_box,
+                color=(128, 0, 128),
+                thickness=2,
+                label="U:2&3",
+            )
+
+        if self._args.plot_speed:
+            vis.plot_frame_id_and_speeds(
+                online_im,
+                -frame_id,
+                *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
+            )
+
+        group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
+            min_considered_velocity=3.0,
+            group_threshhold=0.5,
+        )
+        if group_x_velocity:
+            #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            if self._args.plot_individual_player_tracking:
+                cv2.circle(
+                    online_im,
+                    [int(i) for i in edge_center],
+                    radius=30,
+                    color=(255, 0, 255),
+                    thickness=20,
+                )
+            edge_center = torch.tensor(
+                edge_center, dtype=torch.float32, device=current_box.device
+            )
+            current_box = make_box_at_center(
+                edge_center, width(current_box), height(current_box)
+            )
             # assert width(current_box) <= hockey_mom.video.width
             # assert height(current_box) <= hockey_mom.video.height
+            self._hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
 
-            outside_expanded_box = (
-                current_box + self._outside_box_expansion_for_speed_curtailing
-            )
-
-            if self._args.plot_camera_tracking:
-                vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(128, 0, 128),
-                    thickness=2,
-                    label="U:2&3",
-                )
-
-            if self._args.plot_speed:
-                vis.plot_frame_id_and_speeds(
-                    online_im,
-                    -frame_id,
-                    *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
-                )
-
-            def _apply_temporal(
-                current_box,
-                last_box,
-                scale_speed: float,
-                grays_level: int = 128,
-                verbose: bool = False,
-            ):
-                # assert width(current_box) <= hockey_mom.video.width
-                # assert height(current_box) <= hockey_mom.video.height
-                #
-                # Temporal: Apply velocity and acceleration
-                #
-                # nonlocal current_box, self
-                nonlocal self
-                current_box = self._hockey_mom.get_next_temporal_box(
-                    current_box,
-                    last_box,
-                    scale_speed=scale_speed,
-                    verbose=verbose,
-                )
-                last_box = current_box.clone()
-                if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
+            if self._current_roi is not None:
+                roi_center = center(self._current_roi.bounding_box())
+                if self._args.plot_individual_player_tracking:
+                    vis.plot_line(
                         online_im,
-                        current_box,
-                        color=(grays_level, grays_level, grays_level),
-                        thickness=2,
-                        label="next_temporal_box",
+                        edge_center,
+                        roi_center,
+                        color=(128, 255, 128),
+                        thickness=4,
                     )
-                    # cv2.circle(
-                    #     online_im,
-                    #     [int(i) for i in center(current_box)],
-                    #     radius=25,
-                    #     color=(0, 0, 0),
-                    #     thickness=25,
-                    # )
-                # assert width(current_box) <= hockey_mom.video.width
-                # assert height(current_box) <= hockey_mom.video.height
-                # assert width(last_box) <= hockey_mom.video.width
-                # assert height(last_box) <= hockey_mom.video.height
-                return current_box, last_box
-
-            group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
-                min_considered_velocity=3.5,
-                group_threshhold=0.5,
-                # min_considered_velocity=0.01,
-                # group_threshhold=0.6,
-            )
-            if group_x_velocity:
-                # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
-                # cv2.circle(
-                #     online_im,
-                #     [int(i) for i in edge_center],
-                #     radius=30,
-                #     color=(255, 0, 255),
-                #     thickness=20,
-                # )
-                edge_center = torch.tensor(
-                    edge_center, dtype=torch.float32, device=current_box.device
+                should_adjust_speed = torch.logical_or(
+                    torch.logical_and(
+                        group_x_velocity > 0, roi_center[0] < edge_center[0]
+                    ),
+                    torch.logical_and(
+                        group_x_velocity < 0, roi_center[0] > edge_center[0]
+                    ),
                 )
-                current_box = make_box_at_center(
-                    edge_center, width(current_box), height(current_box)
-                )
-                # assert width(current_box) <= hockey_mom.video.width
-                # assert height(current_box) <= hockey_mom.video.height
-
-                self._hockey_mom._current_camera_box_speed_x += group_x_velocity / 2
-                if self._current_roi is not None:
+                if should_adjust_speed.item():
                     self._current_roi.adjust_speed(
                         accel_x=group_x_velocity / 2,
                         accel_y=None,
@@ -893,373 +873,360 @@ class FramePostProcessor:
                             1, dtype=torch.int64, device=self._device
                         ),
                     )
-
-            # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
-            current_box, self._last_temporal_box = _apply_temporal(
-                current_box, self._last_temporal_box, scale_speed=1.0
-            )
-
-            if not group_x_velocity:
-                self._hockey_mom.curtail_velocity_if_outside_box(
-                    current_box, outside_expanded_box
-                )
-
-            #
-            # HIJACK CURRENT ROI BOX POSITION
-            #
-            # current_box = self._hockey_mom.clamp(
-            #     self._current_roi.bounding_box().clone()
-            # )
-
-            #
-            # Aspect Ratio
-            #
-            # current_box = hockey_mom.clamp(current_box)
-            # if self._args.plot_camera_tracking:
-            #     vis.plot_rectangle(
-            #         online_im,
-            #         current_box,
-            #         color=(0, 0, 0),
-            #         thickness=10,
-            #         label="fine_tracking_box",
-            #     )
-
-            fine_tracking_box = current_box.clone()
-
-            # assert width(current_box) <= hockey_mom.video.width
-            # assert height(current_box) <= hockey_mom.video.height
-
-            current_box = self._hockey_mom.make_box_proper_aspect_ratio(
-                frame_id=frame_id,
-                the_box=current_box,
-                desired_aspect_ratio=self._final_aspect_ratio,
-                max_in_aspec_ratio=self._args.max_in_aspec_ratio,
-            )
-            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-
-            # assert width(current_box) <= hockey_mom.video.width
-            # assert height(current_box) <= hockey_mom.video.height
-
-            current_box = self._hockey_mom.shift_box_to_edge(current_box)
-
-            # assert width(current_box) <= hockey_mom.video.width
-            # assert height(current_box) <= hockey_mom.video.height
-
-            # print(f"shift_box_to_edge ar={aspect_ratio(current_box)}")
-            if self._args.plot_camera_tracking:
-                vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(255, 255, 255),  # White
-                    thickness=1,
-                    label="after-aspect",
-                )
-            if self._args.max_in_aspec_ratio:
-                ZOOM_SHRINK_SIZE_INCREMENT = 1
-                box_is_at_right_edge = self._hockey_mom.is_box_at_right_edge(
-                    current_box
-                )
-                box_is_at_left_edge = self._hockey_mom.is_box_at_left_edge(current_box)
-                cb_center = center(current_box)
-                if box_is_at_right_edge:
-                    lt_center = center(self._last_temporal_box)
-                    # frame_center = center(hockey_mom._video_frame.bounding_box())
-                    if cb_center[0] < lt_center[0]:
-                        self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
-                    elif cb_center[0] > lt_center[0]:
-                        self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
-                elif box_is_at_left_edge:
-                    lt_center = center(self._last_temporal_box)
-                    # frame_center = center(hockey_mom._video_frame.bounding_box())
-                    if cb_center[0] > lt_center[0]:
-                        self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
-                    elif cb_center[0] < lt_center[0]:
-                        self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
                 else:
-                    # When not on edge, decay away the shrink sizes
-                    # TODO: do with min/max
-                    if self._last_dx_shrink_size > 0:
-                        self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT * 1.5
-                        if self._last_dx_shrink_size < 0:
-                            self._last_dx_shrink_size = 0
-                    elif self._last_dx_shrink_size < 0:
-                        self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT * 1.5
-                        if self._last_dx_shrink_size > 0:
-                            self._last_dx_shrink_size = 0
+                    # Cut the speed quickly due to overshoot
+                    self._current_roi.scale_speed(ratio_x=0.5)
+                    print("Reducing group x velocity due to overshoot")
 
-                if self._last_dx_shrink_size > max_dx_shrink_size:
-                    self._last_dx_shrink_size = max_dx_shrink_size
-                elif self._last_dx_shrink_size < -max_dx_shrink_size:
-                    self._last_dx_shrink_size = -max_dx_shrink_size
-                if True:  # self._last_dx_shrink_size:
-                    # print(f"Shrink width: {self._last_dx_shrink_size}")
-                    w = width(current_box)
-                    w -= self._last_dx_shrink_size
-                    w = min(w, self._hockey_mom.video.width)
-                    if box_is_at_right_edge:
-                        self._center_dx_shift += 2
-                        if self._center_dx_shift > self._last_dx_shrink_size:
-                            self._center_dx_shift = self._last_dx_shrink_size
-                        cb_center[0] += self._center_dx_shift
-                    elif box_is_at_left_edge:
-                        self._center_dx_shift -= 2
-                        if self._center_dx_shift < -self._last_dx_shrink_size:
-                            self._center_dx_shift = -self._last_dx_shrink_size
-                    else:
-                        if self._center_dx_shift < 0:
-                            self._center_dx_shift += 2
-                            if self._center_dx_shift > 0:
-                                self._center_dx_shift = 0
-                        elif self._center_dx_shift > 0:
-                            self._center_dx_shift -= 2
-                            if self._center_dx_shift < 0:
-                                self._center_dx_shift = 0
-                    cb_center[0] += self._center_dx_shift
-                    h = w / self._final_aspect_ratio
-                    h -= 1
-                    w -= 1
-                    current_box = torch.tensor(
-                        (
-                            cb_center[0] - (w / 2.0),
-                            cb_center[1] - (h / 2.0),
-                            cb_center[0] + (w / 2.0),
-                            cb_center[1] + (h / 2.0),
-                        ),
-                        dtype=torch.float32,
-                        device=cb_center.device,
-                    )
-                    # assert width(current_box) <= hockey_mom.video.width
-                    # assert height(current_box) <= hockey_mom.video.height
-                    current_box = self._hockey_mom.shift_box_to_edge(current_box)
-                if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
-                        online_im,
-                        current_box,
-                        color=(60, 60, 60),  # Gray
-                        thickness=6,
-                        label="after-aspect",
-                    )
+        if True:
+            return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
-            # assert width(current_box) <= hockey_mom.video.width
-            # assert height(current_box) <= hockey_mom.video.height
+        # #
+        # # HIJACK CURRENT ROI BOX POSITION
+        # #
+        # if self._args.old_tracking_use_new_moving_box:
+        #     current_box = self._hockey_mom.clamp(
+        #         self._current_roi.bounding_box().clone()
+        #     )
 
-            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+        # # current_box = hockey_mom.smooth_resize_box(current_box, self._last_temporal_box)
 
-            def _fix_aspect_ratio(box):
-                # assert width(box) <= hockey_mom.video.width
-                # assert height(box) <= hockey_mom.video.height
-                box = self._hockey_mom.make_box_proper_aspect_ratio(
-                    frame_id=frame_id,
-                    the_box=box,
-                    desired_aspect_ratio=self._final_aspect_ratio,
-                    max_in_aspec_ratio=False,
-                )
-                # assert width(box) <= hockey_mom.video.width
-                # assert height(box) <= hockey_mom.video.height
-                return self._hockey_mom.shift_box_to_edge(box)
+        # def _apply_temporal(
+        #     current_box,
+        #     last_box,
+        #     scale_speed: float,
+        #     grays_level: int = 128,
+        #     verbose: bool = False,
+        # ):
+        #     #
+        #     # Temporal: Apply velocity and acceleration
+        #     #
+        #     nonlocal self, online_im
+        #     current_box = self._hockey_mom.get_next_temporal_box(
+        #         current_box,
+        #         last_box,
+        #         scale_speed=scale_speed,
+        #         verbose=verbose,
+        #     )
+        #     last_box = current_box.clone()
+        #     if self._args.plot_camera_tracking:
+        #         online_im = vis.plot_rectangle(
+        #             online_im,
+        #             current_box,
+        #             color=(grays_level, grays_level, grays_level),
+        #             thickness=2,
+        #             label="next_temporal_box",
+        #         )
+        #     return current_box, last_box
 
-            stuck = self._hockey_mom.did_direction_change(
-                dx=True, dy=False, reset=False
-            )
+        # current_box, self._last_temporal_box = _apply_temporal(
+        #     current_box, self._last_temporal_box, scale_speed=1.0
+        # )
 
-            if self._args.max_in_aspec_ratio:
-                if self._last_sticky_temporal_box is not None:
-                    gaussian_factor = self._get_gaussian(
-                        online_im.shape[1]
-                    ).get_gaussian_y_from_image_x_position(
-                        center(self._last_sticky_temporal_box)[0]
-                    )
-                else:
-                    gaussian_factor = 1
-                # gaussian_mult = 10
-                gaussian_mult = 6
-                gaussian_add = gaussian_factor * gaussian_mult
-                # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
-                sticky_size = self._hockey_mom._camera_box_max_speed_x * (
-                    6 + gaussian_add
-                )
-                unsticky_size = sticky_size * 3 / 4
-            else:
-                sticky_size = self._hockey_mom._camera_box_max_speed_x * 5
-                unsticky_size = sticky_size / 2
+        # if not group_x_velocity:
+        #     self._hockey_mom.curtail_velocity_if_outside_box(
+        #         current_box, outside_expanded_box
+        #     )
 
-            if self._last_sticky_temporal_box is not None:
-                # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
-                # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
+        # fine_tracking_box = current_box.clone()
 
-                if self._args.plot_sticky_camera:
-                    vis.plot_rectangle(
-                        online_im,
-                        self._last_sticky_temporal_box,
-                        color=(255, 255, 255),
-                        thickness=6,
-                    )
-                    # sticky circle
-                    cc = center(fine_tracking_box)
-                    cl = center(self._last_sticky_temporal_box)
+        # # assert width(current_box) <= hockey_mom.video.width
+        # # assert height(current_box) <= hockey_mom.video.height
 
-                    def _to_int(vals):
-                        return [int(i) for i in vals]
+        # current_box = self._hockey_mom.make_box_proper_aspect_ratio(
+        #     frame_id=frame_id,
+        #     the_box=current_box,
+        #     desired_aspect_ratio=self._final_aspect_ratio,
+        #     max_in_aspec_ratio=self._args.max_in_aspec_ratio,
+        # )
+        # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-                    cv2.circle(
-                        online_im,
-                        _to_int(cl),
-                        radius=int(sticky_size),
-                        color=(255, 0, 0) if stuck else (255, 255, 255),
-                        thickness=3,
-                    )
-                    cv2.circle(
-                        online_im,
-                        _to_int(cl),
-                        radius=int(unsticky_size),
-                        color=(0, 255, 255) if stuck else (128, 128, 255),
-                        thickness=2,
-                    )
-                    vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
-                    vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
-                    vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
+        # # assert width(current_box) <= hockey_mom.video.width
+        # # assert height(current_box) <= hockey_mom.video.height
 
-                    # current velocity vector
-                    vis.plot_line(
-                        online_im,
-                        cl,
-                        [
-                            cl[0] + self._hockey_mom._current_camera_box_speed_x,
-                            cl[1] + self._hockey_mom._current_camera_box_speed_y,
-                        ],
-                        color=(0, 0, 0),
-                        thickness=2,
-                    )
-            else:
-                self._last_sticky_temporal_box = current_box.clone()
+        # current_box = self._hockey_mom.shift_box_to_edge(current_box)
 
-            if self._args.apply_fixed_edge_scaling:
-                cdist = center_x_distance(current_box, self._last_sticky_temporal_box)
-            else:
-                cdist = center_distance(current_box, self._last_sticky_temporal_box)
+        # # assert width(current_box) <= hockey_mom.video.width
+        # # assert height(current_box) <= hockey_mom.video.height
 
-            # if stuck and (center_distance(current_box, self._last_sticky_temporal_box) > 30 or hockey_mom.is_fast(speed=10)):
-            if stuck and (
-                # center_distance(current_box, self._last_sticky_temporal_box) > 30
-                # Past some distance of number of frames at max speed
-                cdist
-                > sticky_size
-            ):
-                self._hockey_mom.control_speed(
-                    self._hockey_mom._camera_box_max_speed_x / 6,
-                    self._hockey_mom._camera_box_max_speed_y / 6,
-                    # set_speed_x=True,
-                    set_speed_x=False,
-                )
-                self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
-                stuck = False
-            elif cdist < unsticky_size:
-                stuck = self._hockey_mom.set_direction_changed(dx=True, dy=True)
+        # # print(f"shift_box_to_edge ar={aspect_ratio(current_box)}")
+        # if self._args.plot_camera_tracking:
+        #     online_im = vis.plot_rectangle(
+        #         online_im,
+        #         current_box,
+        #         color=(255, 255, 255),  # White
+        #         thickness=1,
+        #         label="after-aspect",
+        #     )
+        # if self._args.max_in_aspec_ratio:
+        #     ZOOM_SHRINK_SIZE_INCREMENT = 1
+        #     box_is_at_right_edge = self._hockey_mom.is_box_at_right_edge(current_box)
+        #     box_is_at_left_edge = self._hockey_mom.is_box_at_left_edge(current_box)
+        #     cb_center = center(current_box)
+        #     if box_is_at_right_edge:
+        #         lt_center = center(self._last_temporal_box)
+        #         if cb_center[0] < lt_center[0]:
+        #             self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
+        #         elif cb_center[0] > lt_center[0]:
+        #             self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
+        #     elif box_is_at_left_edge:
+        #         lt_center = center(self._last_temporal_box)
+        #         if cb_center[0] > lt_center[0]:
+        #             self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT
+        #         elif cb_center[0] < lt_center[0]:
+        #             self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT
+        #     else:
+        #         # When not on edge, decay away the shrink sizes
+        #         # TODO: do with min/max
+        #         if self._last_dx_shrink_size > 0:
+        #             self._last_dx_shrink_size -= ZOOM_SHRINK_SIZE_INCREMENT * 1.5
+        #             if self._last_dx_shrink_size < 0:
+        #                 self._last_dx_shrink_size = 0
+        #         elif self._last_dx_shrink_size < 0:
+        #             self._last_dx_shrink_size += ZOOM_SHRINK_SIZE_INCREMENT * 1.5
+        #             if self._last_dx_shrink_size > 0:
+        #                 self._last_dx_shrink_size = 0
 
-            if not stuck:
-                # xx0 = center(current_box)[0]
-                current_box, self._last_sticky_temporal_box = _apply_temporal(
-                    current_box,
-                    self._last_sticky_temporal_box,
-                    scale_speed=1.0,
-                    verbose=True,
-                )
+        #     if self._last_dx_shrink_size > max_dx_shrink_size:
+        #         self._last_dx_shrink_size = max_dx_shrink_size
+        #     elif self._last_dx_shrink_size < -max_dx_shrink_size:
+        #         self._last_dx_shrink_size = -max_dx_shrink_size
+        #     if True:  # self._last_dx_shrink_size:
+        #         # print(f"Shrink width: {self._last_dx_shrink_size}")
+        #         w = width(current_box)
+        #         w -= self._last_dx_shrink_size
+        #         w = min(w, self._hockey_mom.video.width)
+        #         if box_is_at_right_edge:
+        #             self._center_dx_shift += 2
+        #             if self._center_dx_shift > self._last_dx_shrink_size:
+        #                 self._center_dx_shift = self._last_dx_shrink_size
+        #             cb_center[0] += self._center_dx_shift
+        #         elif box_is_at_left_edge:
+        #             self._center_dx_shift -= 2
+        #             if self._center_dx_shift < -self._last_dx_shrink_size:
+        #                 self._center_dx_shift = -self._last_dx_shrink_size
+        #         else:
+        #             if self._center_dx_shift < 0:
+        #                 self._center_dx_shift += 2
+        #                 if self._center_dx_shift > 0:
+        #                     self._center_dx_shift = 0
+        #             elif self._center_dx_shift > 0:
+        #                 self._center_dx_shift -= 2
+        #                 if self._center_dx_shift < 0:
+        #                     self._center_dx_shift = 0
+        #         cb_center[0] += self._center_dx_shift
+        #         h = w / self._final_aspect_ratio
+        #         h -= 1
+        #         w -= 1
+        #         current_box = torch.tensor(
+        #             (
+        #                 cb_center[0] - (w / 2.0),
+        #                 cb_center[1] - (h / 2.0),
+        #                 cb_center[0] + (w / 2.0),
+        #                 cb_center[1] + (h / 2.0),
+        #             ),
+        #             dtype=torch.float32,
+        #             device=cb_center.device,
+        #         )
+        #         current_box = self._hockey_mom.shift_box_to_edge(current_box)
+        #     if self._args.plot_camera_tracking:
+        #         online_im = vis.plot_rectangle(
+        #             online_im,
+        #             current_box,
+        #             color=(60, 60, 60),  # Gray
+        #             thickness=6,
+        #             label="after-aspect",
+        #         )
 
-                # xx1 = center(current_box)[0]
-                # print(f'A final temporal x change: {xx1 - xx0}')
-                current_box = _fix_aspect_ratio(current_box)
-                assert torch.isclose(
-                    aspect_ratio(current_box), self._final_aspect_ratio
-                )
-                self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
-            elif self._last_sticky_temporal_box is None:
-                self._last_sticky_temporal_box = current_box.clone()
-                # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
-                # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
-                assert torch.isclose(
-                    aspect_ratio(current_box), self._final_aspect_ratio
-                )
-            else:
-                # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
-                # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
+        # # assert width(current_box) <= hockey_mom.video.width
+        # # assert height(current_box) <= hockey_mom.video.height
 
-                current_box = self._last_sticky_temporal_box.clone()
-                current_box = _fix_aspect_ratio(current_box)
-                assert torch.isclose(
-                    aspect_ratio(current_box), self._final_aspect_ratio
-                )
+        # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
 
-            if self._args.apply_fixed_edge_scaling:
-                current_box = self._hockey_mom.apply_fixed_edge_scaling(
-                    current_box,
-                    edge_scaling_factor=self._args.fixed_edge_scaling_factor,
-                )
-                if self._args.plot_camera_tracking:
-                    vis.plot_rectangle(
-                        online_im,
-                        current_box,
-                        color=(255, 0, 255),
-                        thickness=5,
-                        label="edge-scaled",
-                    )
+        # def _fix_aspect_ratio(box):
+        #     # assert width(box) <= hockey_mom.video.width
+        #     # assert height(box) <= hockey_mom.video.height
+        #     box = self._hockey_mom.make_box_proper_aspect_ratio(
+        #         frame_id=frame_id,
+        #         the_box=box,
+        #         desired_aspect_ratio=self._final_aspect_ratio,
+        #         max_in_aspec_ratio=False,
+        #     )
+        #     # assert width(box) <= hockey_mom.video.width
+        #     # assert height(box) <= hockey_mom.video.height
+        #     return self._hockey_mom.shift_box_to_edge(box)
 
-            if stuck and self._args.plot_camera_tracking:
-                vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(0, 160, 255),
-                    thickness=10,
-                    label="stuck",
-                )
-            elif self._args.plot_camera_tracking:
-                vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(160, 160, 255),
-                    thickness=6,
-                    label="post-sticky",
-                )
+        # stuck = self._hockey_mom.did_direction_change(dx=True, dy=False, reset=False)
 
-            # Plot the trajectories
-            if self._args.plot_individual_player_tracking:
-                online_im = vis.plot_trajectory(
-                    online_im,
-                    self._hockey_mom.get_image_tracking(online_ids),
-                    online_ids,
-                )
+        # if self._args.max_in_aspec_ratio:
+        #     if self._last_sticky_temporal_box is not None:
+        #         gaussian_factor = self._get_gaussian(
+        #             online_im.shape[1]
+        #         ).get_gaussian_y_from_image_x_position(
+        #             center(self._last_sticky_temporal_box)[0]
+        #         )
+        #     else:
+        #         gaussian_factor = 1
+        #     # gaussian_mult = 10
+        #     gaussian_mult = 6
+        #     gaussian_add = gaussian_factor * gaussian_mult
+        #     # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+        #     sticky_size = self._hockey_mom._camera_box_max_speed_x * (6 + gaussian_add)
+        #     unsticky_size = sticky_size * 3 / 4
+        # else:
+        #     sticky_size = self._hockey_mom._camera_box_max_speed_x * 5
+        #     unsticky_size = sticky_size / 2
 
-            # kmeans = KMeans(n_clusters=3)
-            # kmeans.fit(hockey_mom.online_image_center_points)
-            # plt.scatter(x, y, c=kmeans.labels_)
-            # plt.show()
+        # if self._last_sticky_temporal_box is not None:
+        #     # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
+        #     # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
 
-            self._timer.toc()
-            if frame_id.item() % 20 == 0:
-                logger.info(
-                    "Camera Processing frame {} ({:.2f} fps)".format(
-                        frame_id.item(), 1.0 / max(1e-5, self._timer.average_time)
-                    )
-                )
-                self._timer = Timer()
+        #     if self._args.plot_sticky_camera:
+        #         online_im = vis.plot_rectangle(
+        #             online_im,
+        #             self._last_sticky_temporal_box,
+        #             color=(255, 255, 255),
+        #             thickness=6,
+        #         )
+        #         # sticky circle
+        #         cc = center(fine_tracking_box)
+        #         cl = center(self._last_sticky_temporal_box)
 
-            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            if self._video_output_campp is not None:
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
-                    img=online_im,
-                    current_box=current_box,
-                )
-                self._video_output_campp.append(imgproc_data)
-            # if (
-            #     self._video_output_boxtrack is not None
-            #     and self._current_roi is not None
-            # ):
-            #     imgproc_data = ImageProcData(
-            #         frame_id=frame_id.item(),
-            #         img=online_im,
-            #         current_box=self._current_roi_aspect.bounding_box(),
-            #     )
-            #     self._video_output_boxtrack.append(imgproc_data)
+        #         def _to_int(vals):
+        #             return [int(i) for i in vals]
+
+        #         cv2.circle(
+        #             online_im,
+        #             _to_int(cl),
+        #             radius=int(sticky_size),
+        #             color=(255, 0, 0) if stuck else (255, 255, 255),
+        #             thickness=3,
+        #         )
+        #         cv2.circle(
+        #             online_im,
+        #             _to_int(cl),
+        #             radius=int(unsticky_size),
+        #             color=(0, 255, 255) if stuck else (128, 128, 255),
+        #             thickness=2,
+        #         )
+        #         vis.plot_point(online_im, cl, color=(0, 0, 255), thickness=10)
+        #         vis.plot_point(online_im, cc, color=(0, 255, 0), thickness=6)
+        #         vis.plot_line(online_im, cl, cc, color=(255, 255, 255), thickness=2)
+
+        #         # current velocity vector
+        #         vis.plot_line(
+        #             online_im,
+        #             cl,
+        #             [
+        #                 cl[0] + self._hockey_mom._current_camera_box_speed_x,
+        #                 cl[1] + self._hockey_mom._current_camera_box_speed_y,
+        #             ],
+        #             color=(0, 0, 0),
+        #             thickness=2,
+        #         )
+        # else:
+        #     self._last_sticky_temporal_box = current_box.clone()
+
+        # if self._args.apply_fixed_edge_scaling:
+        #     cdist = center_x_distance(current_box, self._last_sticky_temporal_box)
+        # else:
+        #     cdist = center_distance(current_box, self._last_sticky_temporal_box)
+
+        # if stuck and (cdist > sticky_size):
+        #     self._hockey_mom.control_speed(
+        #         self._hockey_mom._camera_box_max_speed_x / 6,
+        #         self._hockey_mom._camera_box_max_speed_y / 6,
+        #         # set_speed_x=True,
+        #         set_speed_x=False,
+        #     )
+        #     self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
+        #     stuck = False
+        # elif cdist < unsticky_size:
+        #     stuck = self._hockey_mom.set_direction_changed(dx=True, dy=True)
+
+        # if not stuck:
+        #     current_box, self._last_sticky_temporal_box = _apply_temporal(
+        #         current_box,
+        #         self._last_sticky_temporal_box,
+        #         scale_speed=1.0,
+        #         verbose=True,
+        #     )
+
+        #     # print(f'A final temporal x change: {xx1 - xx0}')
+        #     current_box = _fix_aspect_ratio(current_box)
+        #     assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+        #     self._hockey_mom.did_direction_change(dx=True, dy=True, reset=True)
+        # elif self._last_sticky_temporal_box is None:
+        #     self._last_sticky_temporal_box = current_box.clone()
+        #     # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
+        #     # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
+        #     assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+        # else:
+        #     # assert width(self._last_sticky_temporal_box) <= hockey_mom.video.width
+        #     # assert height(self._last_sticky_temporal_box) <= hockey_mom.video.height
+
+        #     current_box = self._last_sticky_temporal_box.clone()
+        #     current_box = _fix_aspect_ratio(current_box)
+        #     assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+
+        # if self._args.apply_fixed_edge_scaling:
+        #     current_box = self._hockey_mom.apply_fixed_edge_scaling(
+        #         current_box,
+        #         edge_scaling_factor=self._args.fixed_edge_scaling_factor,
+        #     )
+        #     if self._args.plot_camera_tracking:
+        #         online_im = vis.plot_rectangle(
+        #             online_im,
+        #             current_box,
+        #             color=(255, 0, 255),
+        #             thickness=5,
+        #             label="edge-scaled",
+        #         )
+
+        # if stuck and self._args.plot_camera_tracking:
+        #     online_im = vis.plot_rectangle(
+        #         online_im,
+        #         current_box,
+        #         color=(0, 160, 255),
+        #         thickness=10,
+        #         label="stuck",
+        #     )
+        # elif self._args.plot_camera_tracking:
+        #     online_im = vis.plot_rectangle(
+        #         online_im,
+        #         current_box,
+        #         color=(160, 160, 255),
+        #         thickness=6,
+        #         label="post-sticky",
+        #     )
+
+        # # Plot the trajectories
+        # if self._args.plot_individual_player_tracking:
+        #     online_im = vis.plot_trajectory(
+        #         online_im,
+        #         self._hockey_mom.get_image_tracking(online_ids),
+        #         online_ids,
+        #     )
+
+        # self._timer.toc()
+        # if frame_id.item() % 20 == 0:
+        #     logger.info(
+        #         "Camera Processing frame {} ({:.2f} fps)".format(
+        #             frame_id.item(), 1.0 / max(1e-5, self._timer.average_time)
+        #         )
+        #     )
+        #     self._timer = Timer()
+
+        # # assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+        # # if self._video_output_campp is not None:
+        # #     imgproc_data = ImageProcData(
+        # #         frame_id=frame_id.item(),
+        # #         img=online_im,
+        # #         current_box=current_box,
+        # #     )
+        # #     self._video_output_campp.append(imgproc_data)
+
+        # return frame_id, online_im, current_box
 
 
 def _scalar_like(v, device):

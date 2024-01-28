@@ -1,0 +1,25 @@
+game:
+  name: "sharks-bb3-1"
+  rink: "vallco"
+  home: "Cougars"
+  away: "Sharks 10BB-3"
+
+  stitching:
+    offsets: [-15.82431174267909, 0.0]
+
+  clip_box: null
+  boundaries:
+    upper:
+      - [29, 1258, 975, 939]
+      - [986, 939, 1837, 736]
+      - [1780, 671, 3160, 470]
+      - [4852, 767, 6211, 1294]
+      - [6179, 2230, 6449, 2225]
+    lower:
+      - [16, 1076, 187, 1100]
+      - [183, 1113, 844, 2210]
+      - [5500, 2230, 6447, 1170]
+rink:
+  camera:
+    fixed_edge_scaling_factor: 1.25
+    fixed_edge_rotation_angle: 40

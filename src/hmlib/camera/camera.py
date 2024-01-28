@@ -7,14 +7,7 @@ from typing import Dict, List, Tuple
 from fast_pytorch_kmeans import KMeans
 import matplotlib.pyplot as plt
 
-# import pt_autograph as ptag
-
 import torch
-
-# import pt_autograph
-from pt_autograph import pt_function
-
-# import pt_autograph.flow.runner as runner
 
 from hmlib.utils.box_functions import (
     width,
@@ -89,6 +82,7 @@ class VideoFrame(object):
         # Make sure shape indexes haven't been screwed up
         assert bool(image_width > 10)
         assert bool(image_height > 10)
+        assert bool(image_height < image_width) # Usually the case, but not required
         self._image_width = _as_scalar(image_width)
         self._image_height = _as_scalar(image_height)
         self._vertical_center = self._image_height / 2

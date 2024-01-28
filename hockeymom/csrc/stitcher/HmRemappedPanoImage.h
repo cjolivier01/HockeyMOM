@@ -230,7 +230,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
     if (useGPU) {
       ManualResetGate gate;
       gpu_thread_pool.Schedule([&]() {
-        check_cuda_opengl();
+        assert(check_cuda_opengl());
         // auto start = get_tick_count_ms();
         transformImageAlphaGPU(
             srcImg,
@@ -288,7 +288,7 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
 
         ManualResetGate gate;
         gpu_thread_pool.Schedule([&]() {
-          check_cuda_opengl();
+          assert(check_cuda_opengl());
           // std::unique_lock<std::mutex> lk(gpu_mutex_);
           // auto start = get_tick_count_ms();
           transformImageAlphaGPU(
@@ -311,9 +311,10 @@ void HmRemappedPanoImage<RemapImage, AlphaImage>::remapImage(
       } else {
         ManualResetGate gate;
         gpu_thread_pool.Schedule([&]() {
-          check_cuda_opengl();
+          assert(check_cuda_opengl());
           // std::unique_lock<std::mutex> lk(gpu_mutex_);
           // auto start = get_tick_count_ms();
+          auto& base_image = Base::m_image;
           transformImageGPU(
               srcImg,
               destImageRange(Base::m_image),

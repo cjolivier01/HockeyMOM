@@ -1,0 +1,9 @@
+camera:
+  name: "GoPro"
+  make: "GoPro"
+  model: "Hero Black 11"
+  mount:
+    - offset_80:
+      resolution: 5k
+    - offset_90:
+      resolution: 5k

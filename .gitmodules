@@ -14,15 +14,9 @@
 [submodule "external/opencv-python"]
 	path = external/opencv-python
 	url = ssh://git@github.com/cjolivier01/opencv-python
-[submodule "models/centrack"]
-	path = models/centrack
-	url = ssh://git@github.com/cjolivier01/CenterTrack
 [submodule "models/deft"]
 	path = models/deft
 	url = ssh://git@github.com/cjolivier01/DEFT
-[submodule "models/mixsort"]
-	path = models/mixsort
-	url = ssh://git@github.com/cjolivier01/MixSort
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
@@ -53,3 +47,12 @@
 [submodule "models/MixFormer"]
 	path = models/MixFormer
 	url = ssh://git@github.com/cjolivier01/MixFormer
+[submodule "models/mixsort"]
+	path = models/mixsort
+	url = ssh://git@github.com/cjolivier01/HmMixSort
+[submodule "models/centerpoint"]
+	path = models/centerpoint
+	url = ssh://git@github.com/cjolivier01/CenterPoint
+[submodule "models/centertrack"]
+	path = models/centertrack
+	url = ssh://git@github.com/cjolivier01/centertrack

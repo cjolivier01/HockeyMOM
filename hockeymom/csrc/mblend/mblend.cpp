@@ -176,9 +176,9 @@ class Blender {
   ImageType output_type = ImageType::MB_NONE;
   int jpeg_quality = -1;
   int compression = -1;
-  char* seamsave_filename = NULL;
+  std::string seamsave_filename;
   char* seamload_filename = NULL;
-  char* xor_filename = NULL;
+  std::string xor_filename;
   char* output_filename = NULL;
   int output_bpp = 0;
 
@@ -215,13 +215,16 @@ class Blender {
   /**
    * @brief State data to reproduce a particular blend context
    */
-  struct BlenderState {
-
-  };
+  struct BlenderState {};
 
  public:
   Blender();
   ~Blender();
+
+  // Like a null check
+  static inline bool is(const std::string& s) {
+    return !s.empty();
+  }
 
   static Eigen::ThreadPool* gtp() {
     return thread_pool_.get();
@@ -582,9 +585,9 @@ class Blender {
       die("Error: Bad PNG compression quality setting\n");
     }
 
-    if (output_type == ImageType::MB_NONE && !seamsave_filename)
+    if (output_type == ImageType::MB_NONE && seamsave_filename.empty())
       die("Error: No output file specified");
-    if (seamload_filename && seamsave_filename)
+    if (seamload_filename && !seamsave_filename.empty())
       die("Error: Cannot load and save seams at the same time");
     if (wrap == 3)
       die("Error: Wrapping in both directions is not currently supported");
@@ -622,16 +625,16 @@ class Blender {
 
     if (n_images == 0)
       die("Error: No input files specified");
-    if (seamsave_filename && n_images > 256) {
-      seamsave_filename = NULL;
+    if (!seamsave_filename.empty() && n_images > 256) {
+      seamsave_filename.clear();
       Output(0, "Warning: seam saving not possible with more than 256 images");
     }
     if (seamload_filename && n_images > 256) {
       seamload_filename = NULL;
       Output(0, "Warning: seam loading not possible with more than 256 images");
     }
-    if (xor_filename && n_images > 255) {
-      xor_filename = NULL;
+    if (is(xor_filename) && n_images > 255) {
+      xor_filename.clear();
       Output(
           0, "Warning: XOR map saving not possible with more than 255 images");
     }
@@ -847,15 +850,15 @@ class Blender {
     // timer.Start();
 
     // Output(1, "Seaming");
-    switch (((!!seamsave_filename) << 1) | !!xor_filename) {
+    switch (((!seamsave_filename.empty()) << 1) | !!is(xor_filename)) {
       case 1:
-        // Output(1, " (saving XOR map)");
+        Output(1, " (saving XOR map)");
         break;
       case 2:
-        // Output(1, " (saving seam map)");
+        Output(1, " (saving seam map)");
         break;
       case 3:
-        // Output(1, " (saving XOR and seam maps)");
+        Output(1, " (saving XOR and seam maps)");
         break;
     }
     // Output(1, "...\n");
@@ -886,6 +889,7 @@ class Blender {
     ThreadPool threadpool(ThreadPool::get_base_thread_pool());
     int n_threads = std::max(2, (int)threadpool.GetNThreads());
     n_threads = std::min((int)kMaxThreadPyramidLineThreads, n_threads);
+    std::cout << "Pyramid thread count: " << n_threads << std::endl;
     uint64_t** thread_lines = new uint64_t*[n_threads];
 
     if (!seamload_filename) {
@@ -926,8 +930,7 @@ class Blender {
         x = width - 1;
 
         { // make sure the last compression thread to use this chunk of memory
-          // is
-          // finished
+          // is finished
           std::unique_lock<std::mutex> mlock(*flex_mutex_p);
           flex_cond_p->wait(mlock, [&seam_flex, y, n_threads, this] {
             return seam_flex->y > (height - 1) - y - n_threads;
@@ -1119,17 +1122,18 @@ class Blender {
           std::make_shared<Flex>(width, height));
     }
 
-    Pnger* xor_map = xor_filename
+    Pnger* xor_map = is(xor_filename)
         ? new Pnger(
-              xor_filename, "XOR map", width, height, PNG_COLOR_TYPE_PALETTE)
+              xor_filename.c_str(), "XOR map", width, height, PNG_COLOR_TYPE_PALETTE)
         : NULL;
-    Pnger* seam_map = seamsave_filename ? new Pnger(
-                                              seamsave_filename,
-                                              "Seam map",
-                                              width,
-                                              height,
-                                              PNG_COLOR_TYPE_PALETTE)
-                                        : NULL;
+    Pnger* seam_map = !seamsave_filename.empty()
+        ? new Pnger(
+              seamsave_filename.c_str(),
+              "Seam map",
+              width,
+              height,
+              PNG_COLOR_TYPE_PALETTE)
+        : NULL;
 
     /***********************************************************************
      * Forward distance transform
@@ -1140,15 +1144,10 @@ class Blender {
 
     prev_line = thread_lines[1];
 
-    // uint64_t total_pixels = 0;
-    // uint64_t channel_totals[3] = {0};
-
     full_mask_ptr_ = std::make_unique<Flex>(width, height);
     xor_mask_ptr_ = std::make_unique<Flex>(width, height);
     Flex& full_mask = *full_mask_ptr_;
     Flex& xor_mask = *xor_mask_ptr_;
-    // Flex full_mask(width, height);
-    // Flex xor_mask(width, height);
 
     bool alpha = false;
 
@@ -2406,17 +2405,19 @@ int enblend_main(
 }
 
 EnBlender::EnBlender(std::vector<std::string> args) {
-  if (args.empty()) {
-    args.push_back("python");
-    args.push_back("--no-output");
-    args.push_back("--all-threads");
+  std::vector<std::string> full_args{"python"};
+  for (const auto& arg : args) {
+    full_args.emplace_back(arg);
   }
-  int argc = args.size();
+  full_args.emplace_back("--all-threads");
+  // --no-output must be last
+  full_args.emplace_back("--no-output");
+  int argc = full_args.size();
   char** argv = new char*[argc];
 
   for (int i = 0; i < argc; ++i) {
-    argv[i] = new char[args[i].length() + 1];
-    std::strcpy(argv[i], args[i].c_str());
+    argv[i] = new char[full_args[i].length() + 1];
+    std::strcpy(argv[i], full_args[i].c_str());
   }
 
   blender_ = std::make_unique<Blender>();
@@ -2467,61 +2468,6 @@ std::unique_ptr<MatrixRGB> EnBlender::blend_images(
   }
   assert(result == EXIT_SUCCESS);
   return output_image;
-}
-
-static std::mutex reusable_blender_mu;
-static std::unique_ptr<Blender> reusable_blender;
-
-std::unique_ptr<MatrixRGB> enblend(MatrixRGB& image1, MatrixRGB& image2) {
-  std::unique_lock<std::mutex> lk(reusable_blender_mu);
-
-  std::vector<std::string> args;
-  args.push_back("python");
-  args.push_back("--no-output");
-
-  int argc = args.size();
-  char** argv = new char*[argc];
-
-  for (int i = 0; i < argc; ++i) {
-    argv[i] = new char[args[i].length() + 1];
-    std::strcpy(argv[i], args[i].c_str());
-  }
-
-  std::vector<std::reference_wrapper<hm::MatrixRGB>> images;
-  images.push_back(image1);
-  images.push_back(image2);
-  std::unique_ptr<MatrixRGB> output_image;
-
-  BlenderImageState* current_state = nullptr;
-  static BlenderImageState persistent_blender_image_state;
-
-  int result = EXIT_SUCCESS;
-  if (!reusable_blender) {
-    reusable_blender = std::make_unique<Blender>();
-
-    result = reusable_blender->multiblend_main(
-        argc, argv, persistent_blender_image_state);
-    result = result ||
-        reusable_blender->process_images(persistent_blender_image_state);
-    result = result ||
-        reusable_blender->process_inputs(
-            persistent_blender_image_state, &output_image);
-  } else {
-    BlenderImageState current_image_state;
-    current_image_state.init_from_image_state(
-        persistent_blender_image_state, images);
-    result = result ||
-        reusable_blender->process_inputs(current_image_state, &output_image);
-  }
-  // Clean up the allocated memory
-  for (int i = 0; i < argc; ++i) {
-    delete[] argv[i];
-  }
-  delete[] argv;
-
-  assert(!result);
-
-  return std::move(output_image);
 }
 
 } // namespace enblend

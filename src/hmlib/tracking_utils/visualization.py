@@ -3,9 +3,18 @@ import numpy as np
 import math
 import cv2
 from typing import List, Tuple
+import torch
 
-# import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
+
+from screeninfo import get_monitors
+
+
+def get_complete_monitor_width():
+    width = 0
+    for monitor in get_monitors():
+        width += monitor.width
+    return width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -24,7 +33,17 @@ def get_color(idx):
     return color
 
 
+def to_cv2(image):
+    # OpenCV likes [Height, Width, Channels]
+    if isinstance(image, torch.Tensor):
+        image = image.cpu().numpy()
+    if image.shape[0] in [3, 4]:
+        image = image.transpose(1, 2, 0)
+    return np.ascontiguousarray(image)
+
+
 def resize_image(image, max_size=800):
+    assert False # wth
     if max(image.shape[:2]) > max_size:
         scale = float(max_size) / max(image.shape[:2])
         image = cv2.resize(image, None, fx=scale, fy=scale)
@@ -39,6 +58,18 @@ def plot_rectangle(
     label: str = None,
     text_scale: int = 1,
 ):
+    if False and isinstance(img, torch.Tensor):
+        return plot_torch_rectangle(
+            image_tensor=img,
+            tlbr=box,
+            color=color,
+            thickness=thickness,
+            label=label,
+            text_scale=text_scale,
+        )
+    # if isinstance(img, torch.Tensor):
+    #     img = img.permute(2, 0, 1).contiguous().cpu().numpy()
+    img = to_cv2(img)
     intbox = [int(i) for i in box]
     cv2.rectangle(
         img,
@@ -66,6 +97,7 @@ def plot_alpha_rectangle(
     img,
     box: List[int],
     color: Tuple[int, int, int],
+    thickness: int = 1,
     label: str = None,
     text_scale: int = 1,
     opacity_percent: int = 100,
@@ -99,22 +131,99 @@ def plot_alpha_rectangle(
     return rectangled_image
 
 
+def plot_torch_rectangle(
+    image_tensor: torch.Tensor,
+    tlbr: torch.Tensor,
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+    label: str = None,
+    text_scale: float = 1,
+):
+    """
+    Draw a light purple box with a touch of green on the image tensor.
+
+    :param image_tensor: A PyTorch tensor of shape (3, H, W) representing an RGB image.
+    :param top_left: A tuple (x, y) representing the top left coordinate of the box.
+    :param bottom_right: A tuple (x, y) representing the bottom right coordinate of the box.
+    :return: Modified image tensor with the light purple-green box.
+    """
+    # Light purple with a touch of green color in RGB
+    color_value = torch.tensor(
+        color, dtype=image_tensor.dtype, device=image_tensor.device
+    )
+    # Unpack coordinates
+    top_x, top_y = tlbr[:2].to(torch.int64)
+    # top_x -= (thickness + 1) // 2
+    # top_y -= (thickness + 1) // 2
+
+    bottom_x, bottom_y = tlbr[2:].to(torch.int64)
+    # bottom_x += thickness // 2
+    # bottom_y += thickness // 2
+
+    # Draw top and bottom lines of the box
+    image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
+        1
+    )
+    image_tensor[
+        :, bottom_y : bottom_y + thickness, top_x:bottom_x
+    ] = color_value.unsqueeze(1)
+
+    # Draw left and right lines of the box
+    image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
+    image_tensor[top_y:bottom_y, bottom_x + thickness, :] = color_value.unsqueeze(1)
+
+    return image_tensor
+
+
+def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
+    """
+    Draw a dashed-line rectangle on an image.
+
+    Parameters:
+    img (numpy.ndarray): The image.
+    top_left (tuple): The top-left corner of the rectangle (x, y).
+    bottom_right (tuple): The bottom-right corner of the rectangle (x, y).
+    color (tuple): Color of the rectangle (B, G, R).
+    thickness (int): Thickness of the rectangle lines.
+    dash_length (int): Length of each dash.
+    """
+    x1, y1 = int(box[0]), int(box[1])
+    x2, y2 = int(box[2]), int(box[3])
+
+    img = to_cv2(img)
+
+    # Draw top and bottom sides
+    for x in range(x1, x2, dash_length * 2):
+        cv2.line(img, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
+        cv2.line(img, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
+
+    # Draw left and right sides
+    for y in range(y1, y2, dash_length * 2):
+        cv2.line(img, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
+        cv2.line(img, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
+    return img
+
+
 def _to_int(vals):
     return [int(i) for i in vals]
 
 
 def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
+    img = to_cv2(img)
     cv2.line(
         img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
     )
+    return img
 
 
 def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
+    img = to_cv2(img)
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
     cv2.circle(
         img, [x, y], radius=int((thickness + 1) // 2), color=color, thickness=thickness
     )
+    return img
 
 
 last_frame_id = -1
@@ -127,6 +236,8 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
     y_delta = int(15 * text_scale)
     text_y_offset = y_delta
+
+    im = to_cv2(im)
 
     cv2.putText(
         im,
@@ -181,12 +292,14 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
         (0, 0, 255),
         thickness=2,
     )
+    return im
 
 
 def plot_frame_number(image, frame_id):
     text_scale = max(4, image.shape[1] / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
+    image = to_cv2(image)
     cv2.putText(
         image,
         f"F: {frame_id}",
@@ -214,6 +327,7 @@ def plot_tracking(
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
 ):
+    image = to_cv2(image)
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame

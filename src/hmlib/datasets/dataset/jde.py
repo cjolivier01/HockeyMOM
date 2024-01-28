@@ -4,25 +4,23 @@ import os
 import os.path as osp
 import random
 import time
-import multiprocessing
-import threading
 from collections import OrderedDict
 from typing import List
 
 import cv2
-import json
 import numpy as np
 import torch
 import copy
 
 import torch
-from torch.utils.data import Dataset
-from torchvision.transforms import transforms as T
-from cython_bbox import bbox_overlaps as bbox_ious
-from hmlib.opts import opts
+import torch.nn.functional as F
+import torchvision as tv
+
 from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from hmlib.utils.utils import xyxy2xywh, generate_anchors, xywh2xyxy, encode_delta
-from .stitching import StitchDataset
+from hmlib.utils.utils import xyxy2xywh
+from .stitching_dataloader import StitchDataset
+
+from hmlib.video_out import resize_image
 
 
 def warp_rectilinear_to_cylindrical(img, focal_length):
@@ -47,19 +45,20 @@ def warp_rectilinear_to_cylindrical(img, focal_length):
     v = focal_length * h + H // 2
 
     # Clip out-of-bounds coordinates
-    u = torch.clamp(u, 0, W-1)
-    v = torch.clamp(v, 0, H-1)
+    u = torch.clamp(u, 0, W - 1)
+    v = torch.clamp(v, 0, H - 1)
 
     # Sample from the source image
     cylindrical_img = torch.nn.functional.grid_sample(
         img.unsqueeze(0),
         torch.stack([u, v], dim=-1).unsqueeze(0),
-        mode='bilinear',
-        padding_mode='border',
-        align_corners=True
+        mode="bilinear",
+        padding_mode="border",
+        align_corners=True,
     ).squeeze(0)
 
     return cylindrical_img
+
 
 class Images:
     def __init__(self, img, img0, original_img):
@@ -266,7 +265,9 @@ class LoadVideoWithOrig:  # for inference
         # img0 = cv2.resize(img0, (self.w, self.h))
 
         # Padded resize
-        letterbox_image, inscribed_image, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+        letterbox_image, inscribed_image, _, _, _ = letterbox(
+            img0, height=self.height, width=self.width
+        )
 
         # Normalize RGB
         letterbox_image = letterbox_image[:, :, ::-1].transpose(2, 0, 1)
@@ -284,6 +285,7 @@ class LoadAutoStitchedVideoWithOrig:  # for inference
     """
     Not used
     """
+
     def __init__(
         self,
         path_video_1,
@@ -433,7 +435,7 @@ class LoadImagesAndLabels:  # for training
             cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)
 
         h, w, _ = img.shape
-        img, ratio, padw, padh = letterbox(img, height=height, width=width)
+        img, _, ratio, padw, padh = letterbox(img, height=height, width=width)
 
         # Load labels
         if os.path.isfile(label_path):
@@ -506,18 +508,74 @@ def calculate_letterbox(shape: List[int], height: int, width: int):
     return new_shape, ratio, dw, dh
 
 
-def letterbox(
-    img, height, width, color=(127.5, 127.5, 127.5)
-):
-    new_shape, ratio, dw, dh = calculate_letterbox(shape=img.shape[:2], height=height, width=width)
+def py_calculate_letterbox(shape: List[int], height: int, width: int):
+    ratio = min(float(height) / shape[0], float(width) / shape[1])
+    new_shape = (
+        round(shape[1] * ratio),
+        round(shape[0] * ratio),
+    )  # new_shape = [width, height]
+    dw = (width - new_shape[0]) / 2  # width padding
+    dh = (height - new_shape[1]) / 2  # height padding
+    return new_shape, ratio, dw, dh
+
+
+def letterbox(img, height, width, color=(127.5, 127.5, 127.5)):
+    new_shape, ratio, dw, dh = calculate_letterbox(
+        shape=img.shape[:2], height=height, width=width
+    )
 
     top, bottom = round(dh - 0.1), round(dh + 0.1)
     left, right = round(dw - 0.1), round(dw + 0.1)
-    resized_img = cv2.resize(img, new_shape, interpolation=cv2.INTER_AREA)  # resized, no border
+    resized_img = cv2.resize(
+        img, new_shape, interpolation=cv2.INTER_AREA
+    )  # resized, no border
     letterbox_img = cv2.copyMakeBorder(
         resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
     )  # padded rectangular
     return letterbox_img, resized_img, ratio, dw, dh
+
+
+def copy_make_border_pytorch_batch(
+    images, top, bottom, left, right, border_type, value
+):
+    """
+    Mimics cv2.copyMakeBorder function in PyTorch for a batch of images.
+
+    Args:
+    - images (Tensor): The input batch of image tensors of shape (B, C, H, W).
+    - top, bottom, left, right (int): The number of pixels to add in each direction.
+    - border_type (str): Type of border ('constant' or 'replicate').
+    - value (int or tuple): Value for constant border; ignored for replicate border.
+
+    Returns:
+    - Tensor: Padded batch of image tensors.
+    """
+    if border_type == "constant":
+        # Adding constant border
+        padding = (left, right, top, bottom)
+        return F.pad(images, padding, "constant", value)
+
+    elif border_type == "replicate":
+        # Adding replicated border
+        padding = (left, right, top, bottom)
+        return F.pad(images, padding, "replicate")
+
+    else:
+        raise ValueError("Unsupported border type. Use 'constant' or 'replicate'.")
+
+
+def py_letterbox(img, height, width, color=127.5):
+    new_shape, ratio, dw, dh = py_calculate_letterbox(
+        shape=img.shape[2:], height=height, width=width
+    )
+
+    top, bottom = round(dh - 0.1), round(dh + 0.1)
+    left, right = round(dw - 0.1), round(dw + 0.1)
+    resized_image = F.interpolate(img, size=(new_shape[1], new_shape[0]), mode="area")
+    letterbox_img = copy_make_border_pytorch_batch(
+        resized_image, top, bottom, left, right, "constant", value=color
+    )
+    return letterbox_img, resized_image, ratio, dw, dh
 
 
 def random_affine(

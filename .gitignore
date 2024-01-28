@@ -13,6 +13,7 @@ __pycache__
 /build
 /*.mov
 /*.aac
+/*.mkv
 /my_venv
 pybind11_project_example.egg-info
 compile_commands.json
@@ -21,3 +22,4 @@ hockeymom.egg-info
 stitched_output.avi
 YOLOX_outputs
 debug_tensorboard
+/*.pth.tar

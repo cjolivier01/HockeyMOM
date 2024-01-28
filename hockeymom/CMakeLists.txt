@@ -1,4 +1,6 @@
 
+set(CMAKE_CXX_STANDARD 17)
+
 # Find the yaml-cpp package
 find_package(yaml-cpp REQUIRED)
 
@@ -19,7 +21,11 @@ set(
   csrc/common/Gpu.cpp
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
+  csrc/pytorch/image_remap.cpp
+  csrc/video/video_writer.cpp
 )
+
+set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
 
 # set(
 #   PROTO_FILES
@@ -34,18 +40,18 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 
 add_library(hm SHARED ${SOURCES} ${PROTO_SRCS})
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math -Ofast")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread -ffast-math")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wpedantic")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread")
 
-#target_link_libraries(hm PRIVATE mblend)
-
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
+elseif(CMAKE_BUILD_TYPE STREQUAL "ReleaseWithDebugInfo")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -O0 -g")
+endif()
 
 add_link_options(-lm -lpng -ltiff -ljpeg -lstdc++)
 
@@ -54,12 +60,22 @@ set(
   absl::base
   absl::flags
   absl::stacktrace
+  absl::status
   absl::symbolize
   absl::synchronization
   absl::str_format
   absl::time
   absl::strings
 )
+
+#
+# PyTorch
+#
+
+#find_package(Torch REQUIRED)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+#include_directories(${TORCH_INCLUDE_DIRS})
+
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
 target_link_libraries(hm PRIVATE yaml-cpp)
@@ -78,11 +94,21 @@ target_link_libraries(hm PRIVATE yaml-cpp)
 
 set(CMAKE_INSTALL_RPATH "$ORIGIN")
 
+set(TORCH_PYTHON_LIBS torch_python)
+
 target_include_directories(hm PUBLIC ./include)
 set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
+target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
+target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
+
+set_target_properties(
+  hm PROPERTIES 
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
 include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
@@ -95,6 +121,18 @@ pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
 target_link_libraries(_hockeymom PUBLIC hm)
 target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
-set_target_properties(_hockeymom PROPERTIES INSTALL_RPATH "$ORIGIN")
+target_link_libraries(_hockeymom PRIVATE ${TORCH_LIBRARIES})
+target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
+#message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
+set_target_properties(
+  _hockeymom PROPERTIES 
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
 
+# Set the RPATH
+# set_target_properties(_hockeymom PROPERTIES
+#     INSTALL_RPATH "/path/to/pytorch/lib"
+#     BUILD_WITH_INSTALL_RPATH TRUE
+# )
 add_subdirectory(csrc)
