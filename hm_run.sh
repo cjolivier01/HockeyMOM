@@ -17,7 +17,7 @@ MIXFORMER_SCRIPT="mixformer_deit_hockey"
 #VIDEO="${HOME}/Videos/tvbb-1"
 
 #GAME_ID="tvbb2"
-GAME_ID="onehockey-sharks10a"
+GAME_ID="sharks-bb1-2"
 #GAME_ID="sharks-bb3-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
