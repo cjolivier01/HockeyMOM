@@ -427,6 +427,15 @@ class VideoOutput:
     def has_args(self):
         return self._args is not None
 
+    def calculate_desired_bitrate(self, width: int, height: int):
+        # 4K @ 55M
+        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
+        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
+        print(
+            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
+        )
+        return desired_bit_rate
+
     def crop_working_image_width(self, image: torch.Tensor, current_box: torch.Tensor):
         """
         We try to only retain enough image to supply an arbitrary rotation
@@ -510,7 +519,13 @@ class VideoOutput:
                     ),
                 )
                 # self._output_video.set(cv2.CAP_PROP_BITRATE, 52000 * 1024)
-                self._output_video.set(cv2.CAP_PROP_BITRATE, 80000 * 1024)
+                # self._output_video.set(cv2.CAP_PROP_BITRATE, 80000 * 1024)
+                self._output_video.set(
+                    cv2.CAP_PROP_BITRATE,
+                    self.calculate_desired_bitrate(
+                        width=self._output_frame_width, height=self._output_frame_height
+                    ),
+                )
             assert self._output_video.isOpened()
 
         seen_frames = set()
