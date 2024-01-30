@@ -54,6 +54,7 @@ def F_transform(img, kernel):
 
 def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300):
     if min_width and image_width(img) < min_width:
+        print("Increasing image size for viewing...")
         ar = float(image_width(img)) / image_height(img)
         w = min_width
         h = min_width / ar
@@ -87,7 +88,7 @@ def create_laplacian_pyramid(x, kernel, levels):
         laplacian = current_x - upsample(down)
         pyramids.append(laplacian)
         small_gaussian_blurred.append(down)
-        show("img", down, wait=True)
+        show("img", down, wait=True, min_width=None)
         current_x = down
     pyramids.append(current_x)
     return pyramids, small_gaussian_blurred
