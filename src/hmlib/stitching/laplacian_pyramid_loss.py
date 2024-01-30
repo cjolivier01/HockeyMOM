@@ -239,10 +239,10 @@ if __name__ == "__main__":
 
     img = mask
 
-    mask_small_gaussian_blurred = [mask]
+    mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
     for _ in range(levels + 1):
         img = one_level_gaussian_pyramid(img, mask_gaussian_kernel)
-        mask_small_gaussian_blurred.append(img.unsqueeze(0).unsqueeze(0))
+        mask_small_gaussian_blurred.append(img.squeeze(0).squeeze(0))
 
     img = mask_small_gaussian_blurred[-1]
     # show("mask", img[0])
