@@ -314,7 +314,7 @@ print("MAX_COLS = ", MAX_COLS)
 
 G = gaussian_kernel
 apple_G_small_gaussian_blurred = []
-apple_F_upsampled = []
+#apple_F_upsampled = []
 apple_L_laplace = []
 
 # Load Images
@@ -330,7 +330,7 @@ img = apple
 for i in range(4):
     small_A, upsampled_A, laplace_A = one_level_laplacian(img, G)
     apple_G_small_gaussian_blurred.append(small_A)
-    apple_F_upsampled.append(upsampled_A)
+    #apple_F_upsampled.append(upsampled_A)
     apple_L_laplace.append(laplace_A)
     img = small_A
 
@@ -358,7 +358,7 @@ for i in reversed(range(0, 4)):
 
 G = gaussian_kernel
 orange_G_small_gaussian_blurred = []
-orange_F_upsampled = []
+#orange_F_upsampled = []
 orange_L_laplace = []
 
 # # Load Images
@@ -372,7 +372,7 @@ img = orange.clone()
 for i in range(4):
     small_A, upsampled_A, laplace_A = one_level_laplacian(img, G)
     orange_G_small_gaussian_blurred.append(small_A)
-    orange_F_upsampled.append(upsampled_A)
+    #orange_F_upsampled.append(upsampled_A)
     orange_L_laplace.append(laplace_A)
     img = small_A
 
