@@ -88,7 +88,6 @@ def create_laplacian_pyramid(x, kernel, levels):
         laplacian = current_x - upsample(down)
         pyramids.append(laplacian)
         small_gaussian_blurred.append(down)
-        show("img", down, wait=True, min_width=None)
         current_x = down
     pyramids.append(current_x)
     return pyramids, small_gaussian_blurred
@@ -270,6 +269,8 @@ if __name__ == "__main__":
         mask_small_gaussian_blurred[i] = mask_small_gaussian_blurred[i] / torch.max(
             mask_small_gaussian_blurred[i]
         )
+        show("img", mask_small_gaussian_blurred[i], wait=True, min_width=None)
+
     # show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
     # plt.imshow(mask_small_gaussian_blurred[-1][0])
 

@@ -67,9 +67,11 @@ print_ffmpeg_info()
 
 def make_showable_type(img: torch.Tensor):
     if isinstance(img, torch.Tensor):
+        if img.ndim == 2:
+            # 2D grayscale
+            img = img.unsqueeze(0).repeat(3, 1, 1)
         assert len(img.shape) == 3
-        if img.shape[-1] != 3 and img.shape[-1] != 4:
-            img = img.permute(1, 2, 0)
+        img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.float32, torch.float64]:
             max = torch.max(img)
             if max < 1.1:
