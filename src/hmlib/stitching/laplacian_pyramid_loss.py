@@ -2,7 +2,7 @@ import cv2
 import torch
 import numpy as np
 import torch.nn.functional as F
-
+import matplotlib.pyplot as plt
 from hmlib.utils.image import make_channels_first
 from hmlib.video_out import make_visible_image
 
@@ -240,13 +240,14 @@ if __name__ == "__main__":
         mask_small_gaussian_blurred.append(img)
 
     img = mask_small_gaussian_blurred[-1]
-    show("mask", img[0])
+    #show("mask", img[0])
 
-    # TODO: as stacked batch
+    # TODO: as stacked batch (makes max element of 1.0)
     for i in range(len(mask_small_gaussian_blurred)):
         mask_small_gaussian_blurred[i] = mask_small_gaussian_blurred[i] / torch.max(
             mask_small_gaussian_blurred[i]
         )
-    show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
+    #show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
+    #plt.imshow(mask_small_gaussian_blurred[-1][0])
 
     print("Done.")
