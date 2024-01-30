@@ -1,9 +1,10 @@
 import cv2
 import torch
+import torchvision as tv
 import numpy as np
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from hmlib.utils.image import make_channels_first
+from hmlib.utils.image import make_channels_first, image_width, image_height, resize_image
 from hmlib.video_out import make_visible_image
 
 
@@ -51,9 +52,24 @@ def F_transform(img, kernel):
     return upsampled
 
 
-def show(label: str, img: torch.Tensor, wait: bool = True):
-    cv2.imshow(label, make_visible_image(img))
-    cv2.waitKey(1 if not wait else 0)
+def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300):
+    if min_width and image_width(img) < min_width:
+        ar = float(image_width(img)) / image_height(img)
+        w = min_width
+        h = min_width / ar
+        img = resize_image(
+            img,
+            new_width=w,
+            new_height=h,
+            mode=tv.transforms.InterpolationMode.BILINEAR,
+        )
+    if img.ndim == 4:
+        for i in img:
+            cv2.imshow(label, make_visible_image(i))
+            cv2.waitKey(1 if not wait else 0)
+    else:
+        cv2.imshow(label, make_visible_image(img))
+        cv2.waitKey(1 if not wait else 0)
 
 
 def create_laplacian_pyramid(x, kernel, levels):
@@ -71,6 +87,7 @@ def create_laplacian_pyramid(x, kernel, levels):
         laplacian = current_x - upsample(down)
         pyramids.append(laplacian)
         small_gaussian_blurred.append(down)
+        show("img", down, wait=True)
         current_x = down
     pyramids.append(current_x)
     return pyramids, small_gaussian_blurred
@@ -264,5 +281,10 @@ if __name__ == "__main__":
     for i in orange_laplacian:
         print(i.shape)
     print("")
+
+    #
+    # Perform the Laplacian blending
+    #
+    # mask_apple_1d =
 
     print("Done.")

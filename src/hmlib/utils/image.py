@@ -13,6 +13,8 @@ import numpy as np
 import cv2
 import random
 import torch
+import torchvision as tv
+from torchvision.transforms import functional as F
 
 from typing import List
 
@@ -495,3 +497,91 @@ def make_channels_last(img: torch.Tensor):
         if img.shape[0] in [3, 4]:
             return _permute(img, 1, 2, 0)
     return img
+
+
+def image_width(img):
+    if isinstance(img, torch.Tensor):
+        if img.ndim == 4:
+            if img.shape[-1] in [3, 4]:
+                return img.shape[-2]
+            else:
+                assert img.shape[1] in [3, 4]
+                return img.shape[-1]
+        else:
+            assert img.ndim == 3
+            if img.shape[-1] in [3, 4]:
+                return img.shape[-1]
+            else:
+                assert img.shape[0] in [3, 4]
+                return img.shape[-2]
+    assert img.shape[-1] == 3
+    if len(img.shape) == 4:
+        return img.shape[2]
+    return img.shape[1]
+
+
+def image_height(img):
+    if isinstance(img, torch.Tensor):
+        if img.ndim == 4:
+            if img.shape[-1] in [3, 4]:
+                return img.shape[-3]
+            else:
+                assert img.shape[1] in [3, 4]
+                return img.shape[-2]
+        else:
+            assert img.ndim == 3
+            if img.shape[-1] in [3, 4]:
+                return img.shape[-2]
+            else:
+                assert img.shape[0] in [3, 4]
+                return img.shape[-3]
+    assert img.shape[-1] == 3
+    if len(img.shape) == 4:
+        return img.shape[1]
+    return img.shape[0]
+
+
+def crop_image(img, left, top, right, bottom):
+    if isinstance(img, PIL.Image.Image):
+        return img.crop((left, top, right, bottom))
+    return img[top : bottom + 1, left : right + 1, 0:3]
+
+
+def resize_image(
+    img, new_width: int, new_height: int, mode=None,
+):
+    w = int(new_width)
+    h = int(new_height)
+    if isinstance(img, torch.Tensor):
+        if img.dim() == 4:
+            # Probably doesn't work
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(0, 3, 2, 1)
+            assert img.shape[1] == 3 or img.shape[1] == 4
+            img = F.resize(
+                img=img,
+                size=(w, h) if permuted else (h, w),
+                interpolation=mode,
+            )
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(0, 3, 2, 1)
+        else:
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(2, 1, 0)
+            img = F.resize(
+                img=img,
+                size=(w, h),
+                interpolation=mode,
+            )
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(2, 1, 0)
+        return img
+    elif isinstance(img, PIL.Image.Image):
+        return img.resize((w, h))
+    return cv2.resize(img, dsize=(w, h), interpolation=cv2.INTER_CUBIC)

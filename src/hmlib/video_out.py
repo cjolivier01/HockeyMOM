@@ -28,7 +28,14 @@ from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorScaler
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.utils.image import make_channels_last, make_channels_first
+from hmlib.utils.image import (
+    make_channels_last,
+    make_channels_first,
+    image_width,
+    image_height,
+    resize_image,
+    crop_image,
+)
 from hmlib.tracker.multitracker import torch_device
 
 from .video_stream import VideoStreamWriter
@@ -88,34 +95,6 @@ def make_visible_image(img, enable_resizing: bool = False):
     return make_showable_type(img)
 
 
-def image_width(img):
-    if isinstance(img, torch.Tensor):
-        assert img.shape[-1] == 3
-        if len(img.shape) == 4:
-            return img.shape[2]
-        return img.shape[1]
-    elif isinstance(img, PIL.Image.Image):
-        return img.size[0]
-    assert img.shape[-1] == 3
-    if len(img.shape) == 4:
-        return img.shape[2]
-    return img.shape[1]
-
-
-def image_height(img):
-    if isinstance(img, torch.Tensor):
-        assert img.shape[-1] == 3
-        if len(img.shape) == 4:
-            return img.shape[1]
-        return img.shape[0]
-    elif isinstance(img, PIL.Image.Image):
-        return img.size[1]
-    assert img.shape[-1] == 3
-    if len(img.shape) == 4:
-        return img.shape[1]
-    return img.shape[0]
-
-
 _ANGLE = 0.0
 
 
@@ -160,52 +139,6 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             img, rotation_matrix, (image_width(img), image_height(img))
         )
     return img
-
-
-def crop_image(img, left, top, right, bottom):
-    if isinstance(img, PIL.Image.Image):
-        return img.crop((left, top, right, bottom))
-    return img[top : bottom + 1, left : right + 1, 0:3]
-
-
-def resize_image(
-    img, new_width: int, new_height: int, mode=tv.transforms.InterpolationMode.BILINEAR
-):
-    w = int(new_width)
-    h = int(new_height)
-    if isinstance(img, torch.Tensor):
-        if img.dim() == 4:
-            # Probably doesn't work
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(0, 3, 2, 1)
-            assert img.shape[1] == 3 or img.shape[1] == 4
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=mode,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(0, 3, 2, 1)
-        else:
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(2, 1, 0)
-            img = F.resize(
-                img=img,
-                size=(w, h),
-                interpolation=mode,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(2, 1, 0)
-        return img
-    elif isinstance(img, PIL.Image.Image):
-        return img.resize((w, h))
-    return cv2.resize(img, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
 
 
 def paste_watermark_at_position(
