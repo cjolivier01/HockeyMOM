@@ -220,12 +220,13 @@ if __name__ == "__main__":
     # mask = make_channels_first(mask).repeat(1, 3, 1, 1)
     mask = torch.zeros_like(orange)
     mask[:, :, :, : mask.shape[-1] // 2] = 255.0
-    show("mask", mask[0])
+    #show("mask", mask[0])
 
     _, mask_small_gaussian_blurred = create_laplacian_pyramid(
-        x=mask, kernel=gaussian_kernel, levels=levels + 1
+        x=mask, kernel=gaussian_kernel, levels=levels
     )
     img = mask_small_gaussian_blurred[-1]
+    show("mask", mask[0])
 
     # TODO: as stacked batch
     for i in range(len(mask_small_gaussian_blurred)):
