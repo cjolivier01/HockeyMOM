@@ -7,7 +7,7 @@ from hmlib.utils.image import make_channels_first
 from hmlib.video_out import make_visible_image
 
 
-def gaussian_kernel(
+def create_gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
 ):
     # Create Gaussian Kernel. In Numpy
@@ -96,7 +96,7 @@ class LaplacianPyramidLoss(torch.nn.Module):
     ):
         super(LaplacianPyramidLoss, self).__init__()
         self.max_levels = max_levels
-        self.kernel = gaussian_kernel(
+        self.kernel = create_gaussian_kernel(
             size=kernel_size, channels=channels, sigma=sigma, dtype=dtype
         )
 
@@ -111,11 +111,11 @@ class LaplacianPyramidLoss(torch.nn.Module):
 
 def test():
     # Test Gaussian Convolution
-    kernel = gaussian_kernel(size=3)
+    kernel = create_gaussian_kernel(size=3)
     x = torch.ones(1, 3, 3, 3)
     y = gaussian_conv2d(x, kernel)
     print("Gaussian  kernel of size 3, sigma=1")
-    print(gaussian_kernel(size=3))
+    print(create_gaussian_kernel(size=3))
     print("\n")
     print("A 3x3 image of ones convoluted with above filter:")
     print(y)
@@ -176,7 +176,8 @@ def read_image_as_float(path: str):
 if __name__ == "__main__":
     # test()
 
-    gaussian_kernel = gaussian_kernel(size=5)
+    gaussian_kernel = create_gaussian_kernel(size=5)
+    mask_gaussian_kernel = create_gaussian_kernel(size=5, channels=1)
 
     levels = 4
 
@@ -226,8 +227,12 @@ if __name__ == "__main__":
     # new_mask[: ncols // 2, :] = 255
     # mask = new_mask.unsqueeze(0).unsqueeze(0)
     # mask = make_channels_first(mask).repeat(1, 3, 1, 1)
-    mask = torch.zeros_like(orange)
-    mask[:, :, :, : mask.shape[-1] // 2] = 255.0
+
+    # TODO: we don't need anything but rows and cols in the mask
+    # mask = torch.zeros_like(orange)
+    mask = torch.zeros(orange.shape[-2:], dtype=orange.dtype, device=orange.device)
+    mask[:, : mask.shape[-1] // 2] = 255.0
+    mask = mask.unsqueeze(0).unsqueeze(0)
     # show("mask", mask[0])
 
     # I guess here we just blur the mask seam?
@@ -236,18 +241,28 @@ if __name__ == "__main__":
 
     mask_small_gaussian_blurred = [mask]
     for _ in range(levels + 1):
-        img = one_level_gaussian_pyramid(img, gaussian_kernel)
+        img = one_level_gaussian_pyramid(img, mask_gaussian_kernel)
         mask_small_gaussian_blurred.append(img)
 
     img = mask_small_gaussian_blurred[-1]
-    #show("mask", img[0])
+    # show("mask", img[0])
 
     # TODO: as stacked batch (makes max element of 1.0)
     for i in range(len(mask_small_gaussian_blurred)):
         mask_small_gaussian_blurred[i] = mask_small_gaussian_blurred[i] / torch.max(
             mask_small_gaussian_blurred[i]
         )
-    #show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
-    #plt.imshow(mask_small_gaussian_blurred[-1][0])
+    # show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
+    # plt.imshow(mask_small_gaussian_blurred[-1][0])
+
+    for i in mask_small_gaussian_blurred:
+        print(i.shape)
+    print("")
+    for i in orange_small_gaussian_blurred:
+        print(i.shape)
+    print("")
+    for i in orange_laplacian:
+        print(i.shape)
+    print("")
 
     print("Done.")
