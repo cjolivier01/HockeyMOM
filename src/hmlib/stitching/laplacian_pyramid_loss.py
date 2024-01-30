@@ -76,6 +76,14 @@ def create_laplacian_pyramid(x, kernel, levels):
     return pyramids, small_gaussian_blurred
 
 
+def one_level_gaussian_pyramid(img, kernel):
+    # Gaussian blur on img
+    gauss_filtered_x = gaussian_conv2d(img, kernel)
+    # Downsample blurred A
+    down = downsample(gauss_filtered_x)
+    return down
+
+
 class LaplacianPyramidLoss(torch.nn.Module):
     def __init__(
         self,
@@ -220,19 +228,25 @@ if __name__ == "__main__":
     # mask = make_channels_first(mask).repeat(1, 3, 1, 1)
     mask = torch.zeros_like(orange)
     mask[:, :, :, : mask.shape[-1] // 2] = 255.0
-    #show("mask", mask[0])
+    # show("mask", mask[0])
 
-    _, mask_small_gaussian_blurred = create_laplacian_pyramid(
-        x=mask, kernel=gaussian_kernel, levels=levels
-    )
+    # I guess here we just blur the mask seam?
+
+    img = mask
+
+    mask_small_gaussian_blurred = []
+    for _ in range(levels + 1):
+        img = one_level_gaussian_pyramid(img, gaussian_kernel)
+        mask_small_gaussian_blurred.append(img)
+
     img = mask_small_gaussian_blurred[-1]
-    show("mask", mask[0])
+    show("mask", img[0])
 
     # TODO: as stacked batch
     for i in range(len(mask_small_gaussian_blurred)):
         mask_small_gaussian_blurred[i] = mask_small_gaussian_blurred[i] / torch.max(
             mask_small_gaussian_blurred[i]
         )
-    show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1])
+    show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
 
     print("Done.")
