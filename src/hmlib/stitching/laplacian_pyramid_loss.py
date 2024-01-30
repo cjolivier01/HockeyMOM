@@ -1,13 +1,16 @@
+import cv2
 import torch
 import numpy as np
 import torch.nn.functional as F
 
+from hmlib.utils.image import make_channels_first
+from hmlib.video_out import make_visible_image
 
 def gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
 ):
     # Create Gaussian Kernel. In Numpy
-    interval = (2 * sigma + 1) / (size)
+    # interval = (2 * sigma + 1) / (size)
     ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
     xx, yy = np.meshgrid(ax, ax)
     kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sigma))
@@ -38,11 +41,16 @@ def downsample(x):
     return x[:, :, ::2, ::2]
 
 
+def show(label: str, img: torch.Tensor, wait: bool = True):
+    cv2.imshow(label, make_visible_image(img))
+    cv2.waitKey(1 if not wait else 0)
+
 def create_laplacian_pyramid(x, kernel, levels):
     upsample = torch.nn.Upsample(
         scale_factor=2
     )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
     pyramids = []
+
     current_x = x
     for level in range(0, levels):
         gauss_filtered_x = gaussian_conv2d(current_x, kernel)
@@ -81,7 +89,7 @@ class LaplacianPyramidLoss(torch.nn.Module):
         )
 
 
-if __name__ == "__main__":
+def test():
     # Test Gaussian Convolution
     kernel = gaussian_kernel(size=3)
     x = torch.ones(1, 3, 3, 3)
@@ -134,3 +142,27 @@ if __name__ == "__main__":
         lap_loss.backward()
         optimizer.step()
         print(f"Loss: {lap_loss}", end="\r")
+
+
+def read_image_as_float(path: str):
+    return make_channels_first(
+        torch.from_numpy(
+            cv2.imread(path)
+        ).unsqueeze(0)
+    ).to(torch.float32) / 255.0
+
+
+if __name__ == "__main__":
+    # test()
+    apple_G_small_gaussian_blurred = []
+    apple_F_upsampled = []
+    apple_L_laplace = []
+
+    # Load Images
+    apple = read_image_as_float("/home/colivier/src/laplacian_blend/apple.png")
+    orange = read_image_as_float("/home/colivier/src/laplacian_blend/orange.png")
+    show("apple", apple[0])
+    show("orange", orange[0])
+
+
+    print("Done.")

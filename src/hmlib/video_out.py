@@ -64,9 +64,9 @@ def make_showable_type(img: torch.Tensor):
         if img.shape[-1] != 3 and img.shape[-1] != 4:
             img = img.permute(1, 2, 0)
         if img.dtype in [torch.float16, torch.float32, torch.float64]:
-            # max = torch.max(img)
-            # if max < 1.1:
-            #     img *= 255.0
+            max = torch.max(img)
+            if max < 1.1:
+                img = img * 255.0
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
         img = img.contiguous().cpu().numpy()
     return img
