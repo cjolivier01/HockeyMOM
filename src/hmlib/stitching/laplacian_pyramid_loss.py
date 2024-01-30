@@ -234,7 +234,7 @@ if __name__ == "__main__":
 
     img = mask
 
-    mask_small_gaussian_blurred = []
+    mask_small_gaussian_blurred = [mask]
     for _ in range(levels + 1):
         img = one_level_gaussian_pyramid(img, gaussian_kernel)
         mask_small_gaussian_blurred.append(img)
