@@ -8,8 +8,9 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
-from pslib import *
+
+# from PIL import Image
+# from pslib import *
 import torchvision as tv
 from torchvision.io import read_image
 import torch
@@ -84,14 +85,12 @@ def convolution(img, kernel):
     if not isinstance(img, torch.Tensor):
         img = torch.from_numpy(img)
     img = img.to(torch.float32)
-    #print(torch.min(img))
-    #print(torch.max(img))
-    #img = img.unsqueeze(0)
+    # print(torch.min(img))
+    # print(torch.max(img))
+    # img = img.unsqueeze(0)
     # cv2.imshow("", showable(img[0]))
     # cv2.waitKey(0)
-    convolved = F.conv2d(
-        img, kernel, padding=kernel_size // 2, groups=3
-    )
+    convolved = F.conv2d(img, kernel, padding=kernel_size // 2, groups=3)
     print(torch.min(img))
     print(torch.max(img))
     # cv2.imshow("", showable(convolved[0]))
@@ -269,7 +268,9 @@ def gamma_decode(img):
 # In[63]:
 
 
-img = torch.from_numpy(cv2.imread("/home/colivier/src/laplacian_blend/apple.png")).unsqueeze(0)
+img = torch.from_numpy(
+    cv2.imread("/home/colivier/src/laplacian_blend/apple.png")
+).unsqueeze(0)
 # plt.imshow(img)
 # plt.show()
 # cv2.imshow("", img.numpy())
@@ -398,7 +399,7 @@ for i in reversed(range(0, 4)):
 # In[ ]:
 
 
-#mask = read_image("/home/colivier/src/laplacian_blend/mask.png")
+# mask = read_image("/home/colivier/src/laplacian_blend/mask.png")
 mask = cv2.imread("/home/colivier/src/laplacian_blend/mask.png")
 mask = torch.from_numpy(mask).permute(2, 1, 0)
 
@@ -516,7 +517,7 @@ def one_layer_convolution(img, kernel):
     MAX_COLS = img.shape[1]
     kernel_size = kernel.shape[0]
     #     pad_amount = int(kernel_size/2)
-    gaussian_convolved_img = np.zeros(img.shape)
+    gaussian_convolved_img = torch.zeros(img.shape)
     #     zero_padded = np.pad(img[:,:], pad_amount, pad_with, padder=0)
     for r in range(0, MAX_ROWS):
         for c in range(0, MAX_COLS):
@@ -532,17 +533,25 @@ def one_layer_convolution(img, kernel):
                 if c + kernel_size <= MAX_COLS
                 else kernel_size - ((c + kernel_size) - MAX_COLS)
             )
-            new_kernel = kernel[0:kernel_r_upper, 0:kernel_c_upper] / np.sum(
+            new_kernel = kernel[0:kernel_r_upper, 0:kernel_c_upper] / torch.sum(
                 kernel[0:kernel_r_upper, 0:kernel_c_upper]
             )
-            conv = np.multiply(
-                img[
-                    r : min(MAX_ROWS, r + kernel_size),
-                    c : min(MAX_COLS, c + kernel_size),
-                ],
-                new_kernel,
-            )
-            conv = np.sum(conv)
+            the_slice = img[
+                r : min(MAX_ROWS, r + kernel_size),
+                c : min(MAX_COLS, c + kernel_size),
+            ]
+            kern = new_kernel[
+                    : min(MAX_ROWS, r + kernel_size), : min(MAX_COLS, c + kernel_size)
+                ]
+            conv = the_slice * kern
+            # conv = torch.multiply(
+            #     img[
+            #         r : min(MAX_ROWS, r + kernel_size),
+            #         c : min(MAX_COLS, c + kernel_size),
+            #     ],
+            #     new_kernel,
+            # )
+            conv = torch.sum(conv)
             gaussian_convolved_img[r, c] = float(conv)
     return gaussian_convolved_img
 
@@ -567,7 +576,7 @@ def one_layer_down_sample(img, factor=2):
 
 def one_level_gaussian_pyramid(img, G):
     # generate Gaussian pyramid for img
-    A = img.copy()
+    A = img.clone()
 
     # Gaussian blur on img
     blurred_A = one_layer_convolution(A, G)
