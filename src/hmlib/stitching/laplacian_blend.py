@@ -60,7 +60,6 @@ def show(label: str, img: torch.Tensor, wait: bool = True):
 
 def create_laplacian_pyramid(x, kernel, levels):
     pyramids = []
-    small_gaussian_blurred = []
     current_x = x
     for level in range(0, levels):
         gauss_filtered_x = gaussian_conv2d(current_x, kernel)

@@ -30,7 +30,6 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.image import (
     make_channels_last,
-    make_channels_first,
     image_width,
     image_height,
     resize_image,
