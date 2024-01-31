@@ -549,7 +549,7 @@ def main(args):
             start_frame_number=0,
             # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
-            batch_size=1,
+            batch_size=4,
             skip_final_video_save=args.skip_final_video_save,
             # max_width=4096,
         )
