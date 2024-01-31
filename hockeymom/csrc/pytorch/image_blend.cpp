@@ -70,8 +70,6 @@ ImageBlender::ImageBlender(
     at::Tensor xor_map,
     std::optional<std::string> interpolation)
     : levels_(levels),
-      src_width_(src_width),
-      src_height_(src_height),
       seam_(seam),
       xor_map_(xor_map),
       interpolation_(interpolation ? *interpolation : "") {}
@@ -91,7 +89,7 @@ void ImageBlender::to(std::string device) {
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     at::Tensor image_1,
     at::Tensor image_2) const {
-  int h1 = image_1.shape[2];
+  //int h1 = image_1.shape[2];
   return {};
 }
 
