@@ -255,7 +255,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         auto remapper = get_remapper(i);
         assert(remapper);
         local_pool.Schedule([this, frame, index = i, img, r = remapper]() {
-          at::Tensor remapped = remappers_.at(index)->remap(
+          at::Tensor remapped = remappers_.at(index)->forward(
               img.tensor.to(remapper_configs_.at(index).device));
 
           // Prepare layout for blending
