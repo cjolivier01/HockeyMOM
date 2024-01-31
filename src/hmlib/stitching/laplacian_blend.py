@@ -1,15 +1,7 @@
 import cv2
 import torch
-import torchvision as tv
 import numpy as np
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
-from hmlib.utils.image import (
-    make_channels_first,
-    image_width,
-    image_height,
-    resize_image,
-)
 from hmlib.video_out import make_visible_image
 
 
@@ -52,21 +44,10 @@ def upsample(image, size):
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
 
-def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300):
+def show(label: str, img: torch.Tensor, wait: bool = True):
     if img.ndim == 2:
         # grayscale
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
-    if min_width and image_width(img) < min_width:
-        print("Increasing image size for viewing...")
-        ar = float(image_width(img)) / image_height(img)
-        w = min_width
-        h = min_width / ar
-        img = resize_image(
-            img,
-            new_width=w,
-            new_height=h,
-            mode=tv.transforms.InterpolationMode.BILINEAR,
-        )
     if img.ndim == 4:
         for i in img:
             cv2.imshow(label, make_visible_image(i))
@@ -99,32 +80,32 @@ def one_level_gaussian_pyramid(img, kernel):
     return down
 
 
-def pad_to_multiple_of(tensor, mult: int, left: bool):
-    # Calculate the desired height and width after padding
-    height, width = tensor.size(2), tensor.size(3)
-    new_height = ((height - 1) // int(mult) + 1) * int(mult)
-    new_width = ((width - 1) // int(mult) + 1) * int(mult)
+# def pad_to_multiple_of(tensor, mult: int, left: bool):
+#     # Calculate the desired height and width after padding
+#     height, width = tensor.size(2), tensor.size(3)
+#     new_height = ((height - 1) // int(mult) + 1) * int(mult)
+#     new_width = ((width - 1) // int(mult) + 1) * int(mult)
 
-    # Calculate the amount of padding needed
-    pad_height = new_height - height
-    pad_width = new_width - width
+#     # Calculate the amount of padding needed
+#     pad_height = new_height - height
+#     pad_width = new_width - width
 
-    # Apply padding to the tensor
-    if left:
-        padded_tensor = torch.nn.functional.pad(
-            tensor, (0, pad_width, pad_height, 0), mode="constant"
-        )
-    elif left is not None:
-        padded_tensor = torch.nn.functional.pad(
-            tensor, (0, pad_width, 0, pad_height), mode="constant"
-        )
-    else:
-        ww = pad_width // 2
-        # hh = pad_height // 2
-        padded_tensor = torch.nn.functional.pad(
-            tensor, (pad_width - ww, ww, 0, pad_height), mode="replicate"
-        )
-    return padded_tensor
+#     # Apply padding to the tensor
+#     if left:
+#         padded_tensor = torch.nn.functional.pad(
+#             tensor, (0, pad_width, pad_height, 0), mode="constant"
+#         )
+#     elif left is not None:
+#         padded_tensor = torch.nn.functional.pad(
+#             tensor, (0, pad_width, 0, pad_height), mode="constant"
+#         )
+#     else:
+#         ww = pad_width // 2
+#         # hh = pad_height // 2
+#         padded_tensor = torch.nn.functional.pad(
+#             tensor, (pad_width - ww, ww, 0, pad_height), mode="replicate"
+#         )
+#     return padded_tensor
 
 
 def to_float(img: torch.Tensor, scale_variance: bool = False):

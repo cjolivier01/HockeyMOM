@@ -15,7 +15,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
-from hmlib.stitching.laplacian_blend import LaplacianBlend, pad_to_multiple_of
+from hmlib.stitching.laplacian_blend import LaplacianBlend
 from hmlib.stitching.laplacian_blend import show as show_image
 from hmlib.stitching.synchronize import synchronize_by_audio
 
@@ -480,6 +480,7 @@ def blend_video(
                             )
                         )
                         frame_id += 1
+                del my_blended
             else:
                 pass
 
