@@ -257,10 +257,10 @@ class LaplacianBlend(torch.nn.Module):
                 F_1 = upsample(F_2, size=mask_1d.shape[-2:])
                 upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
-                L_a = left_laplacian[this_level]
-                L_o = right_laplacian[this_level]
+                L_left = left_laplacian[this_level]
+                L_right = right_laplacian[this_level]
 
-                L_c = (mask_left * L_a) + (mask_right * L_o)
+                L_c = (mask_left * L_left) + (mask_right * L_right)
                 F_2 = L_c + upsampled_F1
 
             return F_2
