@@ -414,7 +414,7 @@ def blend_video(
                 )
                 if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
-                    if True:
+                    if False:
                         video_out = VideoStreamWriter(
                             filename=output_video,
                             fps=fps,
@@ -434,11 +434,14 @@ def blend_video(
                             fps=fps,
                             device=blended.device,
                             skip_final_save=skip_final_video_save,
+                            # fourcc="hevc_nvenc",
+                            fourcc="XVID",
                         )
                 if (
                     video_dim_height != blended.shape[-2]
                     or video_dim_width != blended.shape[-1]
                 ):
+                    assert False # why is this?
                     if isinstance(video_out, VideoStreamWriter):
                         blended = resize_image(
                             img=blended.contiguous(),
@@ -480,7 +483,7 @@ def blend_video(
                     if show:
                         for img in my_blended:
                             show_image("stitched", img, wait=False)
-                    cpu_blended_image = None
+                    # cpu_blended_image = None
                     for i in range(len(my_blended)):
                         if isinstance(video_out, VideoStreamWriter):
                             if not skip_final_video_save:
@@ -489,12 +492,12 @@ def blend_video(
                             frame_id += batch_size
                             break
                         else:
-                            if cpu_blended_image is None:
-                                cpu_blended_image = my_blended.contiguous().cpu()
+                            # if cpu_blended_image is None:
+                            #     cpu_blended_image = my_blended.contiguous().cpu()
                             video_out.append(
                                 ImageProcData(
                                     frame_id=frame_id,
-                                    img=cpu_blended_image[i],
+                                    img=my_blended[i],
                                     current_box=None,
                                 )
                             )
