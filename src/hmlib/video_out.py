@@ -12,7 +12,7 @@ import traceback
 import multiprocessing
 import queue
 import PIL
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 import torchvision as tv
@@ -84,7 +84,25 @@ def get_gpu_capabilities():
     return gpu_info
 
 
+def get_gpu_with_highest_compute_capability() -> Tuple[int, Dict]:
+    caps = get_gpu_capabilities()
+    if caps is None:
+        return None
+    highest = 0
+    gpu_index = None
+    for index, gpu in enumerate(caps):
+        this_compute = float(gpu["compute_capability"])
+        if this_compute > highest:
+            highest = this_compute
+            gpu_index = index
+    return gpu_index, caps[gpu_index]
+
+
 def get_best_codec(gpu_number: int, width: int, height: int):
+    highest_index, highest_cap = get_gpu_with_highest_compute_capability()
+    print(
+        f"GPU with highest compute capability: \"cuda:{highest_index}\" with compute: {highest_cap['compute_capability']}"
+    )
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if (
