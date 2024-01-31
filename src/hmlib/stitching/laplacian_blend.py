@@ -224,7 +224,7 @@ class LaplacianBlend(torch.nn.Module):
         self.create_masks(input_shape=input_shape, device=device)
         self._initialized = True
 
-    def forward(self, left, right):
+    def forward(self, left, right, make_full_fn: callable = None):
         if not self._initialized:
             self.initialize(input_shape=left.shape, device=left.device)
         if False:
@@ -243,6 +243,14 @@ class LaplacianBlend(torch.nn.Module):
             mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
             mask_left = mask_1d
             mask_right = self.ONE - mask_1d
+
+            if make_full_fn is not None:
+                (
+                    left_small_gaussian_blurred,
+                    right_small_gaussian_blurred,
+                ) = make_full_fn(
+                    left_small_gaussian_blurred, right_small_gaussian_blurred
+                )
 
             F_2 = (
                 left_small_gaussian_blurred * mask_left

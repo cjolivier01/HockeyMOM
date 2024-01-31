@@ -208,7 +208,9 @@ class ImageBlender:
                 left=full_left / 255.0, right=full_right / 255.0
             )
             # canvas = self._laplacian_blend.forward(
-            #     left=image_1 / 255.0, right=image_2 / 255.0, _make_full
+            #     left=image_1 / 255.0,
+            #     right=image_2 / 255.0,
+            #     make_full_fn=_make_full,
             # )
         else:
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
