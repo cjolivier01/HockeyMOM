@@ -266,6 +266,7 @@ class LaplacianBlend(torch.nn.Module):
 
                 L_c = (mask_left * L_a) + (mask_right * L_o)
                 F_2 = L_c + upsampled_F1
+
             return F_2
 
     #
@@ -279,7 +280,9 @@ class LaplacianBlend(torch.nn.Module):
         pyramid1 = self.build_laplacian_pyramid(image1)
         pyramid2 = self.build_laplacian_pyramid(image2)
 
-        # Blend the pyramids using the seam mask and XOR mask
+        mask_1d = self.mask_small_gaussian_blurred[self.max_levels].repeat(3, 1, 1)
+
+        # Blend the pyramids using the seam mask
         blended_pyramid = []
         for level in range(self.max_levels):
             seam_mask = self.mask_small_gaussian_blurred[level]
