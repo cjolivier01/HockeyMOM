@@ -266,6 +266,7 @@ class VideoOutput:
         simple_save: bool = False,
         skip_final_save: bool = False,
         image_channel_adjustment: List[float] = None,
+        print_interval: int = 50,
     ):
         self._args = args
         self._device = (
@@ -287,6 +288,7 @@ class VideoOutput:
         self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
+        self._print_interval = print_interval
         self._output_video = None
 
         if fourcc == "auto":
@@ -716,7 +718,10 @@ class VideoOutput:
                 )
             timer.toc()
 
-            if imgproc_data.frame_id % 20 == 0:
+            if (
+                self._print_interval
+                and imgproc_data.frame_id % self._print_interval == 0
+            ):
                 logger.info(
                     "Image Post-Processing {} frame {} ({:.2f} fps)".format(
                         self._name,
@@ -739,7 +744,10 @@ class VideoOutput:
                     final_all_timer.toc()
                     final_all_timer.tic()
 
-                if imgproc_data.frame_id % 100 == 0:
+                if (
+                    self._print_interval
+                    and imgproc_data.frame_id % (self._print_interval * 4) == 0
+                ):
                     logger.info(
                         "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
                             imgproc_data.frame_id,
