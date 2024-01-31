@@ -254,7 +254,7 @@ class LaplacianBlend(torch.nn.Module):
             )
 
             for this_level in reversed(range(self.max_levels)):
-                mask_1d = self.mask_small_gaussian_blurred[this_level].repeat(3, 1, 1)
+                mask_1d = self.mask_small_gaussian_blurred[this_level]
                 mask_left = mask_1d
                 mask_right = self.ONE - mask_1d
 
