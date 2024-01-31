@@ -425,6 +425,7 @@ def blend_video(
                 if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
                     video_out = VideoOutput(
+                        name="StitchedOutput",
                         args=None,
                         output_video_path=output_video,
                         output_frame_width=video_dim_width,

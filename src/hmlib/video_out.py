@@ -300,7 +300,9 @@ class VideoOutput:
                 )
             else:
                 self._fourcc = "XVID"
-            print(f"Output video {self._name} will use codec: {self._fourcc}")
+            print(
+                f"Output video {self._name} {int(self._output_frame_width)}x{int(self._output_frame_height)} will use codec: {self._fourcc}"
+            )
         else:
             self._fourcc = fourcc
 
