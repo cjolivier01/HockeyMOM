@@ -189,21 +189,27 @@ class ImageBlender:
             y2 = 0
         assert x1 == 0 or x2 == 0  # for now this is the case
 
-        img1 = image_1[:, :, 0:h1, 0:w1]
-        # full_left = torch.zeros_like(canvas)
-        full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
+        def _make_full(img_1, img_2):
+            img1 = img_1[:, :, 0:h1, 0:w1]
+            # full_left = torch.zeros_like(canvas)
+            full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
 
-        img2 = image_2[:, :, 0:h2, 0:w2]
-        # full_right = full_left.clone()
-        full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
+            img2 = img_2[:, :, 0:h2, 0:w2]
+            # full_right = full_left.clone()
+            full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
+            return full_left, full_right
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
             # full_left = pad_to_multiple_of(full_left, mult=64, left=True)
             # full_right = pad_to_multiple_of(full_right, mult=64, left=False)
+            full_left, full_right = _make_full(image_1, image_2)
             canvas = self._laplacian_blend.forward(
                 left=full_left / 255.0, right=full_right / 255.0
             )
+            # canvas = self._laplacian_blend.forward(
+            #     left=image_1 / 255.0, right=image_2 / 255.0, _make_full
+            # )
         else:
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
