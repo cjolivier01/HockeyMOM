@@ -123,7 +123,7 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
         assert len(img.shape) == 3
         img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.float32, torch.float64]:
-            max = torch.max(img)
+            # max = torch.max(img)
             if scale_elements and scale_elements != 1:
                 img = img * 255.0
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)

@@ -21,6 +21,7 @@ def create_gaussian_kernel(
 
 
 def gaussian_conv2d(x, g_kernel, dtype=torch.float):
+    assert x.dtype != torch.uint8
     # Assumes input of x is of shape: (minibatch, depth, height, width)
     # Infer depth automatically based on the shape
     channels = g_kernel.shape[0]
@@ -50,10 +51,10 @@ def show(label: str, img: torch.Tensor, wait: bool = True):
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
     if img.ndim == 4:
         for i in img:
-            cv2.imshow(label, make_visible_image(i))
+            cv2.imshow(label, make_visible_image(i, scale_elements=None))
             cv2.waitKey(1 if not wait else 0)
     else:
-        cv2.imshow(label, make_visible_image(img))
+        cv2.imshow(label, make_visible_image(img, scale_elements=None))
         cv2.waitKey(1 if not wait else 0)
 
 
@@ -189,6 +190,8 @@ class LaplacianBlend(torch.nn.Module):
         self._initialized = True
 
     def forward(self, left, right, make_full_fn: callable = None):
+        left = to_float(left, scale_variance=False)
+        right = to_float(right, scale_variance=False)
         if not self._initialized:
             self.initialize(input_shape=left.shape, device=left.device)
         if False:
