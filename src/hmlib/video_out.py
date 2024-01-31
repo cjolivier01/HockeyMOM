@@ -64,6 +64,20 @@ def print_ffmpeg_info():
 print_ffmpeg_info()
 
 
+from contextlib import contextmanager
+
+@contextmanager
+def optional_with(resource):
+    """A context manager that works even if the resource is None."""
+    if resource is None:
+        # If the resource is None, yield nothing but still enter the with block
+        yield None
+    else:
+        # If the resource is not None, use it as a normal context manager
+        with resource as r:
+            yield r
+
+
 def get_gpu_capabilities():
     if not torch.cuda.is_available():
         return None
@@ -284,6 +298,7 @@ class VideoOutput:
         skip_final_save: bool = False,
         image_channel_adjustment: List[float] = None,
         print_interval: int = 50,
+        cuda_stream: torch.cuda.Stream = None,
     ):
         self._args = args
         self._device = (
@@ -292,6 +307,7 @@ class VideoOutput:
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
+        self._cuda_stream = cuda_stream
         self._skip_final_save = skip_final_save
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
@@ -401,20 +417,21 @@ class VideoOutput:
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
-        try:
-            self._final_image_processing()
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
-        finally:
-            if self._output_video is not None:
-                if isinstance(self._output_video, VideoStreamWriter):
-                    self._output_video.flush()
-                    self._output_video.close()
-                else:
-                    self._output_video.release()
-                self._output_video = None
+        with optional_with(self._cuda_stream):
+            try:
+                self._final_image_processing()
+            except Exception as ex:
+                print(ex)
+                traceback.print_exc()
+                raise
+            finally:
+                if self._output_video is not None:
+                    if isinstance(self._output_video, VideoStreamWriter):
+                        self._output_video.flush()
+                        self._output_video.close()
+                    else:
+                        self._output_video.release()
+                    self._output_video = None
 
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
@@ -695,6 +712,8 @@ class VideoOutput:
                         or self._save_frame_dir
                     )
                 ):
+                    if self._cuda_stream is not None:
+                        self._cuda_stream.synchronize()
                     online_im = online_im.detach().contiguous().cpu().numpy()
                 #
                 # Frame Number
@@ -718,6 +737,8 @@ class VideoOutput:
                 and imgproc_data.frame_id >= skip_frames_before_show
             ):
                 if imgproc_data.frame_id % show_image_interval == 0:
+                    if self._cuda_stream is not None:
+                        self._cuda_stream.synchronize()
                     cv2.imshow("online_im", make_visible_image(online_im))
                     cv2.waitKey(1)
 
