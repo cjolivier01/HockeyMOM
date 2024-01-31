@@ -15,7 +15,7 @@ class LaplacianBlendWithMasks(nn.Module):
         # Blend the pyramids using the seam mask and XOR mask
         blended_pyramid = []
         for level in range(self.levels):
-            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (1 - seam_mask) + xor_mask * (pyramid1[level] ^ pyramid2[level])
+            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (1 - seam_mask)
             blended_pyramid.append(blended_level)
 
         # Reconstruct the blended image from the blended pyramid

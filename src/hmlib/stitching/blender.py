@@ -199,8 +199,8 @@ class ImageBlender:
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
-            # full_left = pad_to_multiple_of(full_left, mult=64, left=True)
-            # full_right = pad_to_multiple_of(full_right, mult=64, left=False)
+            full_left = pad_to_multiple_of(full_left, mult=64, left=True)
+            full_right = pad_to_multiple_of(full_right, mult=64, left=False)
             canvas = self._laplacian_blend.forward(
                 left=full_left / 255.0, right=full_right / 255.0
             )

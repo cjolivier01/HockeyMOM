@@ -114,7 +114,7 @@ def one_level_gaussian_pyramid(img, kernel):
     gauss_filtered_x = gaussian_conv2d(img, kernel)
     # Downsample blurred A
     down = downsample(gauss_filtered_x)
-    #print(down.shape)
+    # print(down.shape)
     return down
 
 
@@ -234,33 +234,84 @@ class LaplacianBlend(torch.nn.Module):
     def forward(self, left, right):
         if not self._initialized:
             self.initialize(input_shape=left.shape, device=left.device)
-        left_laplacian, left_small_gaussian_blurred = create_laplacian_pyramid(
-            x=left, kernel=self.gaussian_kernel, levels=self.max_levels
-        )
-        right_laplacian, right_small_gaussian_blurred = create_laplacian_pyramid(
-            x=right, kernel=self.gaussian_kernel, levels=self.max_levels
-        )
+        if False:
+            return self.gpt_forward(left, right)
+        else:
+            left_laplacian, left_small_gaussian_blurred = create_laplacian_pyramid(
+                x=left, kernel=self.gaussian_kernel, levels=self.max_levels
+            )
+            right_laplacian, right_small_gaussian_blurred = create_laplacian_pyramid(
+                x=right, kernel=self.gaussian_kernel, levels=self.max_levels
+            )
 
-        mask_1d = self.mask_small_gaussian_blurred[self.max_levels].repeat(3, 1, 1)
-        mask_left = mask_1d
-        mask_right = self.ONE - mask_1d
-
-        F_2 = (
-            left_small_gaussian_blurred[self.max_levels - 1] * mask_left
-            + right_small_gaussian_blurred[self.max_levels - 1] * mask_right
-        )
-
-        for this_level in reversed(range(self.max_levels)):
-            mask_1d = self.mask_small_gaussian_blurred[this_level].repeat(3, 1, 1)
+            mask_1d = self.mask_small_gaussian_blurred[self.max_levels].repeat(3, 1, 1)
             mask_left = mask_1d
             mask_right = self.ONE - mask_1d
 
-            F_1 = upsample(F_2, size=mask_1d.shape[-2:])
-            upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
+            F_2 = (
+                left_small_gaussian_blurred[self.max_levels - 1] * mask_left
+                + right_small_gaussian_blurred[self.max_levels - 1] * mask_right
+            )
 
-            L_a = left_laplacian[this_level]
-            L_o = right_laplacian[this_level]
+            for this_level in reversed(range(self.max_levels)):
+                mask_1d = self.mask_small_gaussian_blurred[this_level].repeat(3, 1, 1)
+                mask_left = mask_1d
+                mask_right = self.ONE - mask_1d
 
-            L_c = (mask_left * L_a) + (mask_right * L_o)
-            F_2 = L_c + upsampled_F1
-        return F_2
+                F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+                upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
+
+                L_a = left_laplacian[this_level]
+                L_o = right_laplacian[this_level]
+
+                L_c = (mask_left * L_a) + (mask_right * L_o)
+                F_2 = L_c + upsampled_F1
+            return F_2
+
+    #
+    # GPT
+    #
+    def gpt_forward(self, image1, image2):
+        if not self._initialized:
+            self.initialize(input_shape=image1.shape, device=image1.device)
+
+        # Build Laplacian pyramids for both images
+        pyramid1 = self.build_laplacian_pyramid(image1)
+        pyramid2 = self.build_laplacian_pyramid(image2)
+
+        # Blend the pyramids using the seam mask and XOR mask
+        blended_pyramid = []
+        for level in range(self.max_levels):
+            seam_mask = self.mask_small_gaussian_blurred[level]
+            assert seam_mask.shape[-2:] == pyramid1[level].shape[-2:]
+            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (
+                1 - seam_mask
+            )
+            blended_pyramid.append(blended_level)
+
+        # Reconstruct the blended image from the blended pyramid
+        blended_image = self.reconstruct_laplacian_pyramid(blended_pyramid)
+
+        return blended_image
+
+    def build_laplacian_pyramid(self, image):
+        pyramid = []
+        for _ in range(self.max_levels):
+            blurred = F.avg_pool2d(image, kernel_size=2)
+            upsampled = F.interpolate(
+                blurred, scale_factor=2, mode="bilinear", align_corners=False
+            )
+            residual = image - upsampled
+            pyramid.append(residual)
+            image = blurred
+        pyramid.append(image)  # Low-pass residual image
+        return pyramid
+
+    def reconstruct_laplacian_pyramid(self, pyramid):
+        image = pyramid[-1]
+        for i in range(self.max_levels - 2, -1, -1):
+            upsampled = F.interpolate(
+                image, scale_factor=2, mode="bilinear", align_corners=False
+            )
+            image = upsampled + pyramid[i]
+        return image
