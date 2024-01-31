@@ -19,12 +19,12 @@ autooptimiser -a -m -l -o autooptimiser_out.pto my_project.pto
 
 # Remap the images
 #nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
-nona -m TIFF_m -z NONE --bigtiff -o nona autooptimiser_out.pto
+nona --bigtiff -m TIFF_m -z NONE --bigtiff -o nona autooptimiser_out.pto
 
 #nona -m TIFF_m -o nona my_project.pto
 
 #echo "Making mapping files..."
-nona -m TIFF_m -c -o mapping_ autooptimiser_out.pto
+nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 
 # Blend the images to create the panorama
 #enblend -o panorama.tif nona*.tif

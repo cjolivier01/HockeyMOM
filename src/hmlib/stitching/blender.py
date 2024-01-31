@@ -165,8 +165,8 @@ class ImageBlender:
                 dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
                 device=self._seam_mask.device,
             )
-            full_left = torch.zeros_like(canvas)
-            full_right = torch.zeros_like(canvas)
+            # full_left = torch.zeros_like(canvas)
+            # full_right = torch.zeros_like(canvas)
         else:
             # full_left = torch.zeros(
             #     size=(
@@ -264,6 +264,7 @@ class ImageBlender:
             #     make_full_fn=_make_full,
             # )
         else:
+            full_left, full_right = _make_full(image_1, image_2)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]
@@ -438,7 +439,8 @@ def blend_video(
                     ],
                     seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
                     xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-                    laplacian_blend=True,
+                    #laplacian_blend=True,
+                    laplacian_blend=False,
                 )
                 blender.init()
 
@@ -567,7 +569,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            # output_video="stitched_output.mkv",
+            output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
