@@ -293,45 +293,79 @@ if __name__ == "__main__":
     #
     # Perform the Laplacian blending
     #
-    mask_apple_1d = mask_small_gaussian_blurred[-2]
-    mask_orange_1d = ONE - mask_small_gaussian_blurred[-2]
+    # mask_apple_1d = mask_small_gaussian_blurred[-2]
+    # mask_orange_1d = ONE - mask_small_gaussian_blurred[-2]
 
-    mask_apple = mask_apple_1d.repeat(3, 1, 1)
-    mask_orange = mask_orange_1d.repeat(3, 1, 1)
+    # mask_apple = mask_apple_1d.repeat(3, 1, 1)
+    # mask_orange = mask_orange_1d.repeat(3, 1, 1)
 
-    G_c = (
-        apple_small_gaussian_blurred[-1] * mask_apple
-        + orange_small_gaussian_blurred[-1] * mask_orange
-    )
+    # G_c = (
+    #     apple_small_gaussian_blurred[-1] * mask_apple
+    #     + orange_small_gaussian_blurred[-1] * mask_orange
+    # )
 
     up_sample = torch.nn.Upsample(
         scale_factor=2
     )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
 
+    # F_1 = up_sample(G_c)
+    # upsampled_F1 = gaussian_conv2d(F_1, gaussian_kernel)
+
+    # mask_apple_1d = mask_small_gaussian_blurred[-3]
+    # mask_orange_1d = ONE - mask_small_gaussian_blurred[-3]
+
+    # mask_apple = mask_apple_1d.repeat(3, 1, 1)
+    # mask_orange = mask_orange_1d.repeat(3, 1, 1)
+
+    # # show("mask_apple", mask_apple, wait=True)
+    # # show("mask_orange", mask_orange, wait=True)
+
+    # L_a = apple_laplacian[-1]
+    # L_o = apple_laplacian[-1]
+
+    # L_c = (mask_apple * L_a) + (mask_orange * L_o)
+
+    # F_2 = L_c + upsampled_F1
+    # print(upsampled_F1.shape)
+
+    # # show("upsampled_F1", upsampled_F1, wait=True)
+
+    # new_L_c = L_c + (ONE - L_c)
+    # F_2 = L_c + upsampled_F1
+
+    # show("F_2", F_2, wait=True)
+
+    #
+    # Start over for some reason fucking illustrative purposes or something
+    # Need to make a loop
+    #
+    reconstructed_imgs = []
+
+    this_level = levels - 1 # 4
+
+    # TODO: do math before repeated
+    mask_1d = mask_small_gaussian_blurred[this_level + 1].repeat(3, 1, 1)
+    mask_apple = mask_1d
+    mask_orange = ONE - mask_1d
+
+    G_c = (
+        apple_small_gaussian_blurred[this_level] * mask_apple
+        + orange_small_gaussian_blurred[this_level] * mask_orange
+    )
+
     F_1 = up_sample(G_c)
     upsampled_F1 = gaussian_conv2d(F_1, gaussian_kernel)
 
-    mask_apple_1d = mask_small_gaussian_blurred[-3]
-    mask_orange_1d = ONE - mask_small_gaussian_blurred[-3]
+    mask_1d = mask_small_gaussian_blurred[this_level].repeat(3, 1, 1)
+    mask_apple = mask_1d
+    mask_orange = ONE - mask_1d
 
-    mask_apple = mask_apple_1d.repeat(3, 1, 1)
-    mask_orange = mask_orange_1d.repeat(3, 1, 1)
-
-    # show("mask_apple", mask_apple, wait=True)
-    # show("mask_orange", mask_orange, wait=True)
-
-    L_a = apple_laplacian[-1]
-    L_o = apple_laplacian[-1]
+    L_a = apple_laplacian[this_level]
+    L_o = orange_laplacian[this_level]
 
     L_c = (mask_apple * L_a) + (mask_orange * L_o)
-
     F_2 = L_c + upsampled_F1
-    print(upsampled_F1.shape)
-
-    show("upsampled_F1", upsampled_F1, wait=True)
-
-    new_L_c = L_c + (ONE - L_c)
-    F_2 = L_c + upsampled_F1
+    reconstructed_imgs.append(F_2)
 
     show("F_2", F_2, wait=True)
 
