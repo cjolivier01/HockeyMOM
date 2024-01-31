@@ -207,20 +207,55 @@ class ImageBlender:
             y2 = 0
         assert x1 == 0 or x2 == 0  # for now this is the case
 
-        def _make_full(img_1, img_2):
-            img1 = img_1[:, :, 0:h1, 0:w1]
-            full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
+        # def _make_full(img_1, img_2):
+        #     img1 = img_1[:, :, 0:h1, 0:w1]
+        #     full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
 
-            img2 = img_2[:, :, 0:h2, 0:w2]
-            full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
+        #     img2 = img_2[:, :, 0:h2, 0:w2]
+        #     full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
+        #     return full_left, full_right
+
+        def _make_full(img_1, img_2):
+            assert h1 == img_1.shape[2]
+            assert w1 == img_1.shape[3]
+            # img1 = img_1[:, :, 0:h1, 0:w1]
+            # full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img_1
+
+            full_left = torch.nn.functional.pad(
+                img_1,
+                (
+                    x1,
+                    self._seam_mask.shape[1] - x1 - w1,
+                    y1,
+                    self._seam_mask.shape[0] - y1 - h1,
+                ),
+                mode="constant",
+            )
+
+            assert h2 == img_2.shape[2]
+            assert w2 == img_2.shape[3]
+            # img2 = img_2[:, :, 0:h2, 0:w2]
+
+            # full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img_2
+
+            full_right = torch.nn.functional.pad(
+                img_2,
+                (
+                    x2,
+                    self._seam_mask.shape[1] - x2 - w2,
+                    y2,
+                    self._seam_mask.shape[0] - y2 - h2,
+                ),
+                mode="constant",
+            )
+
             return full_left, full_right
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
             full_left, full_right = _make_full(image_1, image_2)
             canvas = self._laplacian_blend.forward(
-                left=full_left / 255.0,
-                right=full_right / 255.0
+                left=full_left / 255.0, right=full_right / 255.0
             )
             # canvas = self._laplacian_blend.forward(
             #     left=image_1 / 255.0,
@@ -531,7 +566,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,

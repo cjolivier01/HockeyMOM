@@ -7,8 +7,6 @@ import argparse
 import cv2
 
 import torch
-import torch.nn.functional as F
-import torchvision.transforms as transforms
 
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
