@@ -288,11 +288,13 @@ if __name__ == "__main__":
         print(i.shape)
     print("")
 
+    ONE = torch.tensor(1.0, dtype=torch.float, device=img.device)
+
     #
     # Perform the Laplacian blending
     #
     mask_apple_1d = mask_small_gaussian_blurred[-2]
-    mask_orange_1d = 1 - mask_small_gaussian_blurred[-2]
+    mask_orange_1d = ONE - mask_small_gaussian_blurred[-2]
 
     mask_apple = mask_apple_1d.repeat(3, 1, 1)
     mask_orange = mask_orange_1d.repeat(3, 1, 1)
@@ -310,15 +312,27 @@ if __name__ == "__main__":
     upsampled_F1 = gaussian_conv2d(F_1, gaussian_kernel)
 
     mask_apple_1d = mask_small_gaussian_blurred[-3]
-    mask_orange_1d = 1 - mask_small_gaussian_blurred[-3]
+    mask_orange_1d = ONE - mask_small_gaussian_blurred[-3]
 
     mask_apple = mask_apple_1d.repeat(3, 1, 1)
     mask_orange = mask_orange_1d.repeat(3, 1, 1)
 
-    show("mask_apple", mask_apple, wait=True)
-    show("mask_orange", mask_orange, wait=True)
+    # show("mask_apple", mask_apple, wait=True)
+    # show("mask_orange", mask_orange, wait=True)
 
     L_a = apple_laplacian[-1]
     L_o = apple_laplacian[-1]
+
+    L_c = (mask_apple * L_a) + (mask_orange * L_o)
+
+    F_2 = L_c + upsampled_F1
+    print(upsampled_F1.shape)
+
+    # show("upsampled_F1", upsampled_F1, wait=True)
+
+    new_L_c = L_c + (ONE - L_c)
+    F_2 = L_c + upsampled_F1
+
+    show("F_2", F_2, wait=True)
 
     print("Done.")
