@@ -421,7 +421,7 @@ def blend_video(
                         for img in my_blended:
                             cv2.imshow(
                                 "stitched",
-                                make_visible_image(img).contiguous().cpu().numpy(),
+                                make_visible_image(img),
                             )
                             cv2.waitKey(1)
                     cpu_blended_image = None
@@ -502,6 +502,5 @@ def main(args):
 
 if __name__ == "__main__":
     args = make_parser().parse_args()
-
     main(args)
     print("Done.")
