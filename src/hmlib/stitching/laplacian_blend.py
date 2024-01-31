@@ -44,16 +44,24 @@ def gaussian_conv2d(x, g_kernel, dtype=torch.float):
 
 def downsample(x):
     # Downsamples along  image (H,W). Takes every 2 pixels. output (H, W) = input (H/2, W/2)
-    return x[:, :, ::2, ::2]
+    # return x[:, :, ::2, ::2]
+    downsample = F.avg_pool2d(x, kernel_size=2)
+    return downsample
 
 
-def F_transform(img, kernel):
-    upsample = torch.nn.Upsample(
-        scale_factor=2
-    )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
-    large = upsample(img)
-    upsampled = gaussian_conv2d(large, kernel)
-    return upsampled
+def upsample(image, size):
+    # upsampled = F.interpolate(blurred, scale_factor=2, mode='bilinear', align_corners=False)
+    # print(f"upsample {image.shape[-2:]} -> {size}")
+    return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
+
+
+# def F_transform(img, kernel, size):
+#     # upsample = torch.nn.Upsample(
+#     #     scale_factor=2
+#     # )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
+#     large = upsample(img, size)
+#     upsampled = gaussian_conv2d(large, kernel)
+#     return upsampled
 
 
 def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300):
@@ -81,18 +89,19 @@ def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300)
 
 
 def create_laplacian_pyramid(x, kernel, levels):
-    upsample = torch.nn.Upsample(
-        scale_factor=2
-    )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
+    # upsample = torch.nn.Upsample(
+    #     scale_factor=2
+    # )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
     pyramids = []
     small_gaussian_blurred = []
     current_x = x
     for level in range(0, levels):
         gauss_filtered_x = gaussian_conv2d(current_x, kernel)
         down = downsample(gauss_filtered_x)
+        # print(down.shape)
         # Original Algorithm does indeed: L_i  = G_i  - expand(G_i+1), with L_i as current laplacian layer, and G_i as current gaussian filtered image, and G_i+1 the next.
         # Some implementations skip expand(G_i+1) and use gaussian_conv(G_i). We decided to use expand, as is the original algorithm
-        laplacian = current_x - upsample(down)
+        laplacian = current_x - upsample(down, size=gauss_filtered_x.shape[-2:])
         pyramids.append(laplacian)
         small_gaussian_blurred.append(down)
         current_x = down
@@ -105,6 +114,7 @@ def one_level_gaussian_pyramid(img, kernel):
     gauss_filtered_x = gaussian_conv2d(img, kernel)
     # Downsample blurred A
     down = downsample(gauss_filtered_x)
+    #print(down.shape)
     return down
 
 
@@ -120,11 +130,30 @@ def pad_to_multiple_of(tensor, mult: int, left: bool):
 
     # Apply padding to the tensor
     if left:
-        padded_tensor = torch.nn.functional.pad(tensor, (0, pad_width, pad_height, 0))
+        padded_tensor = torch.nn.functional.pad(
+            tensor, (0, pad_width, pad_height, 0), mode="constant"
+        )
+    elif left is not None:
+        padded_tensor = torch.nn.functional.pad(
+            tensor, (0, pad_width, 0, pad_height), mode="constant"
+        )
     else:
-        padded_tensor = torch.nn.functional.pad(tensor, (0, pad_width, 0, pad_height))
-
+        ww = pad_width // 2
+        # hh = pad_height // 2
+        padded_tensor = torch.nn.functional.pad(
+            tensor, (pad_width - ww, ww, 0, pad_height), mode="replicate"
+        )
     return padded_tensor
+
+
+def to_float(img: torch.Tensor, scale_variance: bool = True):
+    if img is None:
+        return None
+    if img.dtype == torch.uint8:
+        img = img.to(torch.float)
+        # if scale_variance:
+        #     img /= 255.0
+    return img
 
 
 class LaplacianBlend(torch.nn.Module):
@@ -142,13 +171,16 @@ class LaplacianBlend(torch.nn.Module):
         self.kernel_size = kernel_size
         self.channels = channels
         self.sigma = sigma
-        self.seam_mask = seam_mask
-        self.xor_mask = xor_mask
+        if seam_mask is not None:
+            self.register_buffer("seam_mask", to_float(seam_mask))
+        else:
+            self.seam_mask = None
+        if xor_mask is not None:
+            self.register_buffer("xor_mask", to_float(xor_mask))
+        else:
+            self.seam_mask = None
         self.register_buffer("ONE", torch.tensor(1.0, dtype=torch.float))
         self.mask_small_gaussian_blurred = []
-        self.up_sample = torch.nn.Upsample(
-            scale_factor=2
-        )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
         self._initialized = False
 
     def create_masks(self, input_shape: torch.Size, device: torch.device):
@@ -159,7 +191,14 @@ class LaplacianBlend(torch.nn.Module):
             mask = mask.unsqueeze(0).unsqueeze(0)
             # show("mask", mask[0].repeat(3, 1, 1))
         else:
-            mask = self.seam_mask
+            mask = self.seam_mask.unsqueeze(0).unsqueeze(0)
+            unique_values = torch.unique(mask)
+            assert len(unique_values) == 2
+            left_value = unique_values[0]
+            right_value = unique_values[1]
+            mask[mask == left_value] = 0
+            mask[mask == right_value] = 1.0
+            mask = pad_to_multiple_of(mask, 64, left=None)  # this pad will be bad
 
         img = mask
 
@@ -212,12 +251,12 @@ class LaplacianBlend(torch.nn.Module):
         )
 
         for this_level in reversed(range(self.max_levels)):
-            F_1 = self.up_sample(F_2)
-            upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
-
             mask_1d = self.mask_small_gaussian_blurred[this_level].repeat(3, 1, 1)
             mask_left = mask_1d
             mask_right = self.ONE - mask_1d
+
+            F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+            upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
             L_a = left_laplacian[this_level]
             L_o = right_laplacian[this_level]
