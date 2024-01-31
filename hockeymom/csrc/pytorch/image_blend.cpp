@@ -61,19 +61,22 @@ namespace {
 } // namespace
 
 ImageBlender::ImageBlender(
-    std::size_t src_width,
-    std::size_t src_height,
+    std::size_t levels,
+    int x_pos_1,
+    int y_pos_1,
+    int x_pos_2,
+    int y_pos_2,
     at::Tensor seam,
     at::Tensor xor_map,
     std::optional<std::string> interpolation)
-    : src_width_(src_width),
+    : levels_(levels),
+      src_width_(src_width),
       src_height_(src_height),
       seam_(seam),
       xor_map_(xor_map),
-      interpolation_(interpolation ? *interpolation : "") {
-}
+      interpolation_(interpolation ? *interpolation : "") {}
 
-void ImageBlender::init(std::size_t batch_size) {
+void ImageBlender::init() {
   initialized_ = false;
 
   initialized_ = true;
@@ -85,8 +88,23 @@ void ImageBlender::to(std::string device) {
   xor_map_ = xor_map_.to(device);
 }
 
+std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
+    at::Tensor image_1,
+    at::Tensor image_2) const {
+  int h1 = image_1.shape[2];
+  return {};
+}
+
+at::Tensor ImageBlender::hard_seam_blend(at::Tensor image_1, at::Tensor image_2)
+    const {
+  return image_1;
+}
+
 at::Tensor ImageBlender::forward(at::Tensor image_1, at::Tensor image_2) const {
   assert(initialized_);
+  if (!levels_) {
+    return hard_seam_blend(image_1, image_2);
+  }
   return image_1.clone();
 }
 
