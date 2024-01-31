@@ -16,7 +16,7 @@ from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_ima
 from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend
-from hmlib.stitching.laplacian_blend import show as show_image
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.stitching.synchronize import synchronize_by_audio
 
 from hmlib.stitching.remapper import (
@@ -124,13 +124,15 @@ class ImageBlender:
         seam_mask: torch.Tensor,
         xor_mask: torch.Tensor,
         laplacian_blend: False,
+        max_levels: int = 4,
     ):
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
+        self.max_levels = max_levels
         if laplacian_blend:
             self._laplacian_blend = LaplacianBlend(
-                max_levels=4,
+                max_levels=self.max_levels,
                 channels=3,
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
@@ -197,6 +199,16 @@ class ImageBlender:
             # )
             pass
 
+        H1 = 0
+        W1 = 1
+        X1 = 2
+        Y1 = 3
+
+        H2 = 0
+        W2 = 1
+        X2 = 2
+        Y2 = 3
+
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
         x1 = self._images_info[0].xpos
@@ -205,6 +217,22 @@ class ImageBlender:
         w2 = image_2.shape[3]
         x2 = self._images_info[1].xpos
         y2 = self._images_info[1].ypos
+
+        ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
+        ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
+        canvas_dims = torch.tensor([self._seam_mask.shape[0], self._seam_mask.shape[1]], dtype=torch.int64)
+
+        level_ainfo_1 = [ainfo_1]
+        level_ainfo_2 = [ainfo_2]
+        level_canvas_dims = [canvas_dims]
+
+        for _ in range(self.max_levels):
+            ainfo_1 = ainfo_1 // 2
+            ainfo_2 = ainfo_2 // 2
+            canvas_dims = canvas_dims // 2
+            level_ainfo_1.append(ainfo_1)
+            level_ainfo_2.append(ainfo_2)
+            level_canvas_dims.append(canvas_dims)
 
         assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
         if y1 < y2:
@@ -223,25 +251,39 @@ class ImageBlender:
         #     full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
         #     return full_left, full_right
 
-        def _make_full(img_1, img_2):
-            assert h1 == img_1.shape[2]
-            assert w1 == img_1.shape[3]
+        def _make_full(img_1, img_2, level):
+            # assert h1 == img_1.shape[2]
+            # assert w1 == img_1.shape[3]
             # img1 = img_1[:, :, 0:h1, 0:w1]
             # full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img_1
+
+            ainfo_1 = level_ainfo_1[level]
+            ainfo_2 = level_ainfo_2[level]
+
+            h1 = ainfo_1[H1]
+            w1 = ainfo_1[W1]
+            x1 = ainfo_1[X1]
+            y1 = ainfo_1[Y1]
+            h2 = ainfo_2[H2]
+            w2 = ainfo_2[W2]
+            x2 = ainfo_2[X2]
+            y2 = ainfo_2[Y2]
+
+            canvas_dims = level_canvas_dims[level]
 
             full_left = torch.nn.functional.pad(
                 img_1,
                 (
                     x1,
-                    self._seam_mask.shape[1] - x1 - w1,
+                    canvas_dims[1] - x1 - w1,
                     y1,
-                    self._seam_mask.shape[0] - y1 - h1,
+                    canvas_dims[0] - y1 - h1,
                 ),
                 mode="constant",
             )
 
-            assert h2 == img_2.shape[2]
-            assert w2 == img_2.shape[3]
+            # assert h2 == img_2.shape[2]
+            # assert w2 == img_2.shape[3]
             # img2 = img_2[:, :, 0:h2, 0:w2]
 
             # full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img_2
@@ -250,9 +292,9 @@ class ImageBlender:
                 img_2,
                 (
                     x2,
-                    self._seam_mask.shape[1] - x2 - w2,
+                    canvas_dims[1] - x2 - w2,
                     y2,
-                    self._seam_mask.shape[0] - y2 - h2,
+                    canvas_dims[0] - y2 - h2,
                 ),
                 mode="constant",
             )
@@ -261,14 +303,13 @@ class ImageBlender:
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
-            full_left, full_right = _make_full(image_1, image_2)
-            # full_left = full_left.contiguous
-            # full_left /= 255.0
-            # full_right /= 255.0
+
+            full_left, full_right = _make_full(image_1, image_2, level=0)
             canvas = self._laplacian_blend.forward(left=full_left, right=full_right)
+
             # canvas = self._laplacian_blend.forward(
-            #     left=image_1 / 255.0,
-            #     right=image_2 / 255.0,
+            #     left=image_1,
+            #     right=image_2,
             #     make_full_fn=_make_full,
             # )
         else:
@@ -346,7 +387,7 @@ def blend_video(
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
-    #max_width: int = 8192,
+    # max_width: int = 8192,
     max_width: int = 9999,
     rotation_angle: int = 0,
     batch_size: int = 8,
@@ -546,8 +587,7 @@ def blend_video(
 
             if show:
                 for i in range(len(blended)):
-                    show_image("stitched", blended[i])
-                    cv2.waitKey(1)
+                    show_image("stitched", blended[i], wait=False)
 
             source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
             source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
@@ -574,7 +614,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,

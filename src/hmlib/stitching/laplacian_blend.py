@@ -45,7 +45,7 @@ def upsample(image, size):
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
 
-def show(label: str, img: torch.Tensor, wait: bool = True):
+def show_image(label: str, img: torch.Tensor, wait: bool = True):
     if img.ndim == 2:
         # grayscale
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
@@ -215,13 +215,16 @@ class LaplacianBlend(torch.nn.Module):
                     left_small_gaussian_blurred,
                     right_small_gaussian_blurred,
                 ) = make_full_fn(
-                    left_small_gaussian_blurred, right_small_gaussian_blurred
+                    left_small_gaussian_blurred,
+                    right_small_gaussian_blurred,
+                    level=self.max_levels,
                 )
 
             F_2 = (
                 left_small_gaussian_blurred * mask_left
                 + right_small_gaussian_blurred * mask_right
             )
+            # show_image("F_2", F_2)
 
             for this_level in reversed(range(self.max_levels)):
                 mask_1d = self.mask_small_gaussian_blurred[this_level]
@@ -234,9 +237,14 @@ class LaplacianBlend(torch.nn.Module):
                 L_left = left_laplacian[this_level]
                 L_right = right_laplacian[this_level]
 
+                if make_full_fn is not None:
+                    L_left, L_right = make_full_fn(L_left, L_right, level=this_level)
+                    assert L_left.shape[-2:] == mask_left.shape
+                    assert L_right.shape[-2:] == mask_right.shape
+
                 L_c = (mask_left * L_left) + (mask_right * L_right)
                 F_2 = L_c + upsampled_F1
-
+                # show_image("F_2", F_2)
             return F_2
 
     #
