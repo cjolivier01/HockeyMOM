@@ -15,6 +15,8 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
+from hmlib.stitching.laplacian_blend import LaplacianBlend, pad_to_multiple_of
+from hmlib.stitching.laplacian_blend import show as show_image
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -104,10 +106,15 @@ class ImageBlender:
         images_info: List[BlendImageInfo],
         seam_mask: torch.Tensor,
         xor_mask: torch.Tensor,
+        laplacian_blend: False,
     ):
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
+        if laplacian_blend:
+            self._laplacian_blend = LaplacianBlend(max_levels=4, channels=3)
+        else:
+            self._laplacian_blend = None
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
         assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
 
@@ -131,16 +138,33 @@ class ImageBlender:
         # )
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
-        canvas = torch.empty(
-            size=(
-                batch_size,
-                channels,
-                self._seam_mask.shape[0],
-                self._seam_mask.shape[1],
-            ),
-            dtype=torch.uint8,
-            device=self._seam_mask.device,
-        )
+
+        if self._laplacian_blend is None:
+            canvas = torch.empty(
+                size=(
+                    batch_size,
+                    channels,
+                    self._seam_mask.shape[0],
+                    self._seam_mask.shape[1],
+                ),
+                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+                device=self._seam_mask.device,
+            )
+            full_left = torch.zeros_like(canvas)
+            full_right = torch.zeros_like(canvas)
+        else:
+            full_left = torch.zeros(
+                size=(
+                    batch_size,
+                    channels,
+                    self._seam_mask.shape[0],
+                    self._seam_mask.shape[1],
+                ),
+                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+                device=self._seam_mask.device,
+            )
+            full_right = full_left.clone()
+
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
         x1 = self._images_info[0].xpos
@@ -160,22 +184,25 @@ class ImageBlender:
         assert x1 == 0 or x2 == 0  # for now this is the case
 
         img1 = image_1[:, :, 0:h1, 0:w1]
-        full_left = torch.zeros_like(canvas)
+        #full_left = torch.zeros_like(canvas)
         full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
 
         img2 = image_2[:, :, 0:h2, 0:w2]
-        full_right = torch.zeros_like(canvas)
+        #full_right = full_left.clone()
         full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
 
-        canvas[:, :, self._seam_mask == self._left_value] = full_left[
-            :, :, self._seam_mask == self._left_value
-        ]
-        canvas[:, :, self._seam_mask == self._right_value] = full_right[
-            :, :, self._seam_mask == self._right_value
-        ]
-
-        # cv2.imshow("...", make_cv_compatible_tensor(canvas[0]))
-        # cv2.waitKey(0)
+        if self._laplacian_blend is not None:
+            # TODO: Can get rid of canvas creation up top for this path
+            full_left = pad_to_multiple_of(full_left, mult=64, left=True)
+            full_right = pad_to_multiple_of(full_right, mult=64, left=False)
+            canvas = self._laplacian_blend.forward(left=full_left / 255.0, right=full_right / 255.0)
+        else:
+            canvas[:, :, self._seam_mask == self._left_value] = full_left[
+                :, :, self._seam_mask == self._left_value
+            ]
+            canvas[:, :, self._seam_mask == self._right_value] = full_right[
+                :, :, self._seam_mask == self._right_value
+            ]
 
         return canvas
 
@@ -249,7 +276,7 @@ def blend_video(
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
 ):
-    #cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
+    # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
     cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(
@@ -259,7 +286,7 @@ def blend_video(
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
-    #cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
     cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(
@@ -321,6 +348,10 @@ def blend_video(
                         ),
                     ],
                 )
+
+                # show_image("seam_tensor", torch.from_numpy(seam_tensor))
+                # show_image("xor_tensor", torch.from_numpy(xor_tensor))
+
                 blender = ImageBlender(
                     images_info=[
                         BlendImageInfo(
@@ -338,6 +369,7 @@ def blend_video(
                     ],
                     seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
                     xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
+                    laplacian_blend=True,
                 )
                 blender.init()
 
@@ -345,6 +377,8 @@ def blend_video(
                 image_1=destination_tensor_1,
                 image_2=destination_tensor_2,
             )
+
+            # show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(
@@ -419,11 +453,7 @@ def blend_video(
                         )
                     if show:
                         for img in my_blended:
-                            cv2.imshow(
-                                "stitched",
-                                make_visible_image(img),
-                            )
-                            cv2.waitKey(1)
+                            show_image("stitched", img, wait=False)
                     cpu_blended_image = None
                     for i in range(len(my_blended)):
                         if isinstance(video_out, VideoStreamWriter):
@@ -492,11 +522,11 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            #output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
-            batch_size=2,
+            batch_size=1,
+            skip_final_video_save=args.skip_final_video_save,
             # max_width=4096,
-            # cskip_final_video_save=True,
         )
 
 
