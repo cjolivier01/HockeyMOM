@@ -422,8 +422,8 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::ops::ImageRemapper::is_initialized,
           py::call_guard<py::gil_scoped_release>())
       .def(
-          "remap",
-          &hm::ops::ImageRemapper::remap,
+          "forward",
+          &hm::ops::ImageRemapper::forward,
           py::arg("source_tensor"),
           py::call_guard<py::gil_scoped_release>());
 }

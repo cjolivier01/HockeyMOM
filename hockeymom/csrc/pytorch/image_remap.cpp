@@ -133,7 +133,7 @@ void ImageRemapper::to(std::string device) {
   }
 }
 
-at::Tensor ImageRemapper::remap(at::Tensor source_tensor) const {
+at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
   assert(initialized_);
   source_tensor = pad_tensor_to_size_batched(
       source_tensor, working_width_, working_height_, (uint8_t)0);
