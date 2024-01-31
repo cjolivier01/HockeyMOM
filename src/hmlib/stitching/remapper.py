@@ -11,7 +11,7 @@ import cv2
 import torch
 import torch.nn.functional as F
 
-from hmlib.stitch_synchronize import get_image_geo_position
+from hmlib.stitching.synchronize import get_image_geo_position
 
 # from hmlib.async_worker import AsyncWorker
 

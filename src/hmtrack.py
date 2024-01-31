@@ -24,9 +24,7 @@ from yolox.utils import (
 from yolox.evaluators import MOTEvaluator
 from yolox.data import get_yolox_datadir
 
-from hmlib.stitch_synchronize import (
-    configure_video_stitching,
-)
+from hmlib.stitching.synchronize import configure_video_stitching
 
 from hmlib.datasets.dataset.stitching_dataloader import (
     StitchDataset,
@@ -334,12 +332,12 @@ def update_from_args(args, arg_name, config, noset_value: any = None):
 
 
 def configure_model(config: dict, args: argparse.Namespace):
-    if hasattr(args, 'det_thres'):
+    if hasattr(args, "det_thres"):
         args.det_thres = set_nested_value(
             dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
         )
         assert args.det_thres is not None
-    if hasattr(args, 'conf_thres'):
+    if hasattr(args, "conf_thres"):
         args.conf_thres = set_nested_value(
             dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
         )

@@ -134,12 +134,16 @@ class LaplacianBlend(torch.nn.Module):
         channels=3,
         kernel_size=5,
         sigma=1,
+        seam_mask: torch.Tensor = None,
+        xor_mask: torch.Tensor = None,
     ):
         super(LaplacianBlend, self).__init__()
         self.max_levels = max_levels
         self.kernel_size = kernel_size
         self.channels = channels
         self.sigma = sigma
+        self.seam_mask = seam_mask
+        self.xor_mask = xor_mask
         self.register_buffer("ONE", torch.tensor(1.0, dtype=torch.float))
         self.mask_small_gaussian_blurred = []
         self.up_sample = torch.nn.Upsample(
@@ -148,10 +152,14 @@ class LaplacianBlend(torch.nn.Module):
         self._initialized = False
 
     def create_masks(self, input_shape: torch.Size, device: torch.device):
-        mask = torch.zeros(input_shape[-2:], dtype=torch.float, device=device)
-        mask[:, : mask.shape[-1] // 2] = 255.0
-        mask = mask.unsqueeze(0).unsqueeze(0)
-        # show("mask", mask[0].repeat(3, 1, 1))
+        if self.seam_mask is None:
+            mask = torch.zeros(input_shape[-2:], dtype=torch.float, device=device)
+            # mask[:, : mask.shape[-1] // 2] = 255.0
+            mask[:, : mask.shape[-1] // 2] = 1.0
+            mask = mask.unsqueeze(0).unsqueeze(0)
+            # show("mask", mask[0].repeat(3, 1, 1))
+        else:
+            mask = self.seam_mask
 
         img = mask
 

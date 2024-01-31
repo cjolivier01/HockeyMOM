@@ -17,6 +17,7 @@ from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, pad_to_multiple_of
 from hmlib.stitching.laplacian_blend import show as show_image
+from hmlib.stitching.synchronize import synchronize_by_audio
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -112,7 +113,12 @@ class ImageBlender:
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
         if laplacian_blend:
-            self._laplacian_blend = LaplacianBlend(max_levels=4, channels=3)
+            self._laplacian_blend = LaplacianBlend(
+                max_levels=4,
+                channels=3,
+                # seam_mask=self._seam_mask,
+                # xor_mask=self._xor_mask,
+            )
         else:
             self._laplacian_blend = None
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
@@ -184,18 +190,20 @@ class ImageBlender:
         assert x1 == 0 or x2 == 0  # for now this is the case
 
         img1 = image_1[:, :, 0:h1, 0:w1]
-        #full_left = torch.zeros_like(canvas)
+        # full_left = torch.zeros_like(canvas)
         full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
 
         img2 = image_2[:, :, 0:h2, 0:w2]
-        #full_right = full_left.clone()
+        # full_right = full_left.clone()
         full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
             full_left = pad_to_multiple_of(full_left, mult=64, left=True)
             full_right = pad_to_multiple_of(full_right, mult=64, left=False)
-            canvas = self._laplacian_blend.forward(left=full_left / 255.0, right=full_right / 255.0)
+            canvas = self._laplacian_blend.forward(
+                left=full_left / 255.0, right=full_right / 255.0
+            )
         else:
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
@@ -265,8 +273,8 @@ def blend_video(
     basename_1: str,
     basename_2: str,
     interpolation: str = None,
-    lfo: float = 0,
-    rfo: float = 0,
+    lfo: float = None,
+    rfo: float = None,
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
@@ -276,22 +284,24 @@ def blend_video(
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
 ):
+    video_file_1 = os.path.join(dir_name, video_file_1)
+    video_file_2 = os.path.join(dir_name, video_file_2)
+
+    if lfo is None or rfo is None:
+        lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
+
     # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
-    cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
+    cap_1 = cv2.VideoCapture(video_file_1)
     if not cap_1 or not cap_1.isOpened():
-        raise AssertionError(
-            f"Could not open video file: {os.path.join(dir_name, video_file_1)}"
-        )
+        raise AssertionError(f"Could not open video file: {video_file_1}")
     else:
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
     # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
-    cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
+    cap_2 = cv2.VideoCapture(video_file_2)
     if not cap_2 or not cap_2.isOpened():
-        raise AssertionError(
-            f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
-        )
+        raise AssertionError(f"Could not open video file: {video_file_2}")
     else:
         if rfo or start_frame_number:
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
@@ -522,7 +532,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            #output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=1,
             skip_final_video_save=args.skip_final_video_save,
