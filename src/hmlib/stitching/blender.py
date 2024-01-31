@@ -66,6 +66,13 @@ def make_parser():
         help="Video directory to find 'left.mp4' and 'right.mp4'",
     )
     parser.add_argument(
+        "--laplacian-blend",
+        "--laplacian_blend",
+        default=1,
+        type=int,
+        help="Use Laplacian blending rather than a hard stitch",
+    )
+    parser.add_argument(
         "--lfo",
         "--left_frame_offset",
         default=None,
@@ -345,6 +352,7 @@ def blend_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
+    laplacian_blend: bool = True,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -441,8 +449,7 @@ def blend_video(
                     ],
                     seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
                     xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-                    laplacian_blend=True,
-                    # laplacian_blend=False,
+                    laplacian_blend=laplacian_blend,
                 )
                 blender.init()
 
@@ -567,10 +574,11 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            # output_video="stitched_output.mkv",
+            output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
+            laplacian_blend=args.laplacian_blend,
         )
 
 
