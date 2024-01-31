@@ -65,6 +65,38 @@ def print_ffmpeg_info():
 print_ffmpeg_info()
 
 
+def get_gpu_capabilities():
+    if not torch.cuda.is_available():
+        return None
+    num_gpus = torch.cuda.device_count()
+    gpu_info = []
+    for i in range(num_gpus):
+        properties = torch.cuda.get_device_properties(i)
+        gpu_info.append(
+            {
+                "name": properties.name,
+                "compute_capability": f"{properties.major}.{properties.minor}",
+                "total_memory": properties.total_memory
+                / (1024**3),  # Convert bytes to GB
+                "properties": properties,
+            }
+        )
+    return gpu_info
+
+
+def get_best_codec(gpu_number: int, width: int, height: int):
+    caps = get_gpu_capabilities()
+    compute = float(caps[gpu_number]["compute_capability"])
+    if (
+        compute >= 7 and width <= 9900
+    ):  # FIXME: I forget what the max is? 99-thousand-something
+        return "hevc_nvenc"
+    elif compute >= 6.5 and width <= 4096:
+        return "hevc_nvenc"
+    else:
+        return "XVID"
+
+
 def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
     if isinstance(img, torch.Tensor):
         if img.ndim == 2:
@@ -81,7 +113,9 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
     return img
 
 
-def make_visible_image(img, enable_resizing: bool = False, scale_elements: float = 255.0):
+def make_visible_image(
+    img, enable_resizing: bool = False, scale_elements: float = 255.0
+):
     if not enable_resizing:
         if isinstance(img, torch.Tensor):
             img = make_showable_type(img, scale_elements)
@@ -221,20 +255,22 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
-        fourcc="hevc_nvenc",
+        fourcc="auto",
         save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
         max_queue_backlog: int = 25,
         watermark_image_path: str = None,
-        device: str = "cuda:0",
+        device: torch.device = torch.device("cuda", 0),
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
         image_channel_adjustment: List[float] = None,
     ):
         self._args = args
-        self._device = device
+        self._device = (
+            device if isinstance(device, torch.device) else torch.device(device)
+        )
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
@@ -252,7 +288,20 @@ class VideoOutput:
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._output_video = None
-        self._fourcc = fourcc
+
+        if fourcc == "auto":
+            if self._device.type == "cuda":
+                self._fourcc = get_best_codec(
+                    device.index,
+                    width=int(output_frame_width),
+                    height=int(output_frame_height),
+                )
+            else:
+                self._fourcc = "XVID"
+            print(f"Output video {self._name} will use codec: {self._fourcc}")
+        else:
+            self._fourcc = fourcc
+
         self._horizontal_image_gaussian_distribution = None
         self._zero_f32 = torch.tensor(0, dtype=torch.float32, device=device)
         self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)

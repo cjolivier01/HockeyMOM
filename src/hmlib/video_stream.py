@@ -219,7 +219,7 @@ class VideoStreamReader:
             frames_per_chunk=self._batch_size,
             stream_index=0,
             decoder_option={},
-            #format="yuv420p",
+            # format="yuv420p",
             format="yuvj420p",
             hw_accel=str(self._device),
         )

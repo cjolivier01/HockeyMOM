@@ -51,6 +51,15 @@ def make_parser():
         help="Use project file as input to stitcher",
     )
     parser.add_argument(
+        "-b",
+        "--batch-size",
+        "--batch_size",
+        dest="batch_size",
+        default=1,
+        type=int,
+        help="Batch size",
+    )
+    parser.add_argument(
         "--video_dir",
         default=None,
         type=str,
@@ -212,8 +221,9 @@ class ImageBlender:
             # full_right = pad_to_multiple_of(full_right, mult=64, left=False)
             full_left, full_right = _make_full(image_1, image_2)
             canvas = self._laplacian_blend.forward(
-                left=full_left / 255.0, right=full_right / 255.0
-                #left=full_left, right=full_right
+                left=full_left / 255.0,
+                right=full_right / 255.0
+                # left=full_left, right=full_right
             )
             # canvas = self._laplacian_blend.forward(
             #     left=image_1 / 255.0,
@@ -414,61 +424,41 @@ def blend_video(
                 )
                 if video_out is None:
                     fps = cap_1.get(cv2.CAP_PROP_FPS)
-                    if False:
-                        video_out = VideoStreamWriter(
-                            filename=output_video,
-                            fps=fps,
-                            height=video_dim_height,
-                            width=video_dim_width,
-                            codec="hevc_nvenc",
-                            device=blended.device,
-                            batch_size=1,
-                        )
-                        video_out.open()
-                    else:
-                        video_out = VideoOutput(
-                            args=None,
-                            output_video_path=output_video,
-                            output_frame_width=video_dim_width,
-                            output_frame_height=video_dim_height,
-                            fps=fps,
-                            device=blended.device,
-                            skip_final_save=skip_final_video_save,
-                            # fourcc="hevc_nvenc",
-                            fourcc="XVID",
-                        )
+                    video_out = VideoOutput(
+                        args=None,
+                        output_video_path=output_video,
+                        output_frame_width=video_dim_width,
+                        output_frame_height=video_dim_height,
+                        fps=fps,
+                        device=blended.device,
+                        skip_final_save=skip_final_video_save,
+                        # fourcc="hevc_nvenc",
+                        # fourcc="XVID",
+                        fourcc="auto",
+                    )
                 if (
                     video_dim_height != blended.shape[-2]
                     or video_dim_width != blended.shape[-1]
                 ):
-                    assert False # why is this?
-                    if isinstance(video_out, VideoStreamWriter):
-                        blended = resize_image(
-                            img=blended.contiguous(),
+                    assert False  # why is this?
+                    for i in range(len(blended)):
+                        resized = resize_image(
+                            img=blended[i].permute(1, 2, 0),
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
-                        video_out.append(blended)
-                        frame_id += batch_size
-                    else:
-                        for i in range(len(blended)):
-                            resized = resize_image(
-                                img=blended[i].permute(1, 2, 0),
-                                new_width=video_dim_width,
-                                new_height=video_dim_height,
-                            )
-                            if isinstance(video_out, VideoStreamWriter):
-                                video_out.append(my_blended)
-                                frame_id += batch_size
-                            else:
-                                video_out.append(
-                                    ImageProcData(
-                                        frame_id=frame_id,
-                                        img=resized.contiguous().cpu(),
-                                        current_box=None,
-                                    )
+                        if isinstance(video_out, VideoStreamWriter):
+                            video_out.append(my_blended)
+                            frame_id += batch_size
+                        else:
+                            video_out.append(
+                                ImageProcData(
+                                    frame_id=frame_id,
+                                    img=resized.contiguous().cpu(),
+                                    current_box=None,
                                 )
-                            frame_id += 1
+                            )
+                        frame_id += 1
                 else:
                     my_blended = blended.permute(0, 2, 3, 1)
                     if rotation_angle:
@@ -483,24 +473,14 @@ def blend_video(
                     if show:
                         for img in my_blended:
                             show_image("stitched", img, wait=False)
-                    # cpu_blended_image = None
                     for i in range(len(my_blended)):
-                        if isinstance(video_out, VideoStreamWriter):
-                            if not skip_final_video_save:
-                                my_blended = torch.clamp(my_blended, min=0, max=255).to(torch.uint8)
-                                video_out.append(my_blended)
-                            frame_id += batch_size
-                            break
-                        else:
-                            # if cpu_blended_image is None:
-                            #     cpu_blended_image = my_blended.contiguous().cpu()
-                            video_out.append(
-                                ImageProcData(
-                                    frame_id=frame_id,
-                                    img=my_blended[i],
-                                    current_box=None,
-                                )
+                        video_out.append(
+                            ImageProcData(
+                                frame_id=frame_id,
+                                img=my_blended[i],
+                                current_box=None,
                             )
+                        )
                         frame_id += 1
             else:
                 pass
@@ -554,7 +534,7 @@ def main(args):
             start_frame_number=0,
             output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
-            batch_size=2,
+            batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             # max_width=4096,
         )
