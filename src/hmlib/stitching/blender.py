@@ -168,26 +168,27 @@ class ImageBlender:
             full_left = torch.zeros_like(canvas)
             full_right = torch.zeros_like(canvas)
         else:
-            full_left = torch.zeros(
-                size=(
-                    batch_size,
-                    channels,
-                    self._seam_mask.shape[0],
-                    self._seam_mask.shape[1],
-                ),
-                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
-                device=self._seam_mask.device,
-            )
-            full_right = torch.zeros(
-                size=(
-                    batch_size,
-                    channels,
-                    self._seam_mask.shape[0],
-                    self._seam_mask.shape[1],
-                ),
-                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
-                device=self._seam_mask.device,
-            )
+            # full_left = torch.zeros(
+            #     size=(
+            #         batch_size,
+            #         channels,
+            #         self._seam_mask.shape[0],
+            #         self._seam_mask.shape[1],
+            #     ),
+            #     dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+            #     device=self._seam_mask.device,
+            # )
+            # full_right = torch.zeros(
+            #     size=(
+            #         batch_size,
+            #         channels,
+            #         self._seam_mask.shape[0],
+            #         self._seam_mask.shape[1],
+            #     ),
+            #     dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+            #     device=self._seam_mask.device,
+            # )
+            pass
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
