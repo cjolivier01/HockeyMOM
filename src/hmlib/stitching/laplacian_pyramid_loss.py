@@ -485,7 +485,6 @@ if __name__ == "__main__":
 
             L_c = (mask_apple * L_a) + (mask_orange * L_o)
             F_2 = L_c + upsampled_F1
-            show("F_2", F_2, wait=True)
 
     show("F_2", F_2, wait=True)
 
