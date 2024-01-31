@@ -11,6 +11,7 @@ import numpy as np
 import traceback
 import multiprocessing
 import queue
+from contextlib import contextmanager
 import PIL
 from typing import Dict, List, Tuple
 
@@ -63,8 +64,6 @@ def print_ffmpeg_info():
 
 print_ffmpeg_info()
 
-
-from contextlib import contextmanager
 
 @contextmanager
 def optional_with(resource):
