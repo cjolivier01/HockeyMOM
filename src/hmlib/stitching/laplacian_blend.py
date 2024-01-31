@@ -103,10 +103,11 @@ def create_laplacian_pyramid(x, kernel, levels):
         # Some implementations skip expand(G_i+1) and use gaussian_conv(G_i). We decided to use expand, as is the original algorithm
         laplacian = current_x - upsample(down, size=gauss_filtered_x.shape[-2:])
         pyramids.append(laplacian)
-        small_gaussian_blurred.append(down)
+        # small_gaussian_blurred.append(down)
         current_x = down
     pyramids.append(current_x)
-    return pyramids, small_gaussian_blurred
+    # return pyramids, small_gaussian_blurred
+    return pyramids, down
 
 
 def one_level_gaussian_pyramid(img, kernel):
@@ -248,9 +249,14 @@ class LaplacianBlend(torch.nn.Module):
             mask_left = mask_1d
             mask_right = self.ONE - mask_1d
 
+            # F_2 = (
+            #     left_small_gaussian_blurred[self.max_levels - 1] * mask_left
+            #     + right_small_gaussian_blurred[self.max_levels - 1] * mask_right
+            # )
+
             F_2 = (
-                left_small_gaussian_blurred[self.max_levels - 1] * mask_left
-                + right_small_gaussian_blurred[self.max_levels - 1] * mask_right
+                left_small_gaussian_blurred * mask_left
+                + right_small_gaussian_blurred * mask_right
             )
 
             for this_level in reversed(range(self.max_levels)):
