@@ -484,6 +484,7 @@ def blend_video(
                     for i in range(len(my_blended)):
                         if isinstance(video_out, VideoStreamWriter):
                             if not skip_final_video_save:
+                                my_blended = torch.clamp(my_blended, min=0, max=255).to(torch.uint8)
                                 video_out.append(my_blended)
                             frame_id += batch_size
                             break
@@ -548,7 +549,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            # output_video="stitched_output.mkv",
+            output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=2,
             skip_final_video_save=args.skip_final_video_save,
