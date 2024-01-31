@@ -328,7 +328,7 @@ if __name__ == "__main__":
     F_2 = L_c + upsampled_F1
     print(upsampled_F1.shape)
 
-    # show("upsampled_F1", upsampled_F1, wait=True)
+    show("upsampled_F1", upsampled_F1, wait=True)
 
     new_L_c = L_c + (ONE - L_c)
     F_2 = L_c + upsampled_F1
