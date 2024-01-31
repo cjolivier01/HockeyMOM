@@ -16,7 +16,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
 
-from hmlib.stitch_synchronize import (
+from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 

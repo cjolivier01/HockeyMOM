@@ -16,7 +16,7 @@ from hockeymom import core
 
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.stitch_synchronize import (
+from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 
