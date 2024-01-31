@@ -65,7 +65,7 @@ def print_ffmpeg_info():
 print_ffmpeg_info()
 
 
-def make_showable_type(img: torch.Tensor):
+def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
     if isinstance(img, torch.Tensor):
         if img.ndim == 2:
             # 2D grayscale
@@ -74,7 +74,7 @@ def make_showable_type(img: torch.Tensor):
         img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.float32, torch.float64]:
             max = torch.max(img)
-            if max < 1.1:
+            if scale_elements and scale_elements != 1:
                 img = img * 255.0
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
         img = img.contiguous().cpu().numpy()
