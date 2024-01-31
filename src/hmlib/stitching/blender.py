@@ -125,10 +125,12 @@ class ImageBlender:
         xor_mask: torch.Tensor,
         laplacian_blend: False,
         max_levels: int = 4,
+        cuda_stream: torch.cuda.Stream = None,
     ):
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
+        self._cuda_stream = cuda_stream
         self.max_levels = max_levels
         if laplacian_blend:
             self._laplacian_blend = LaplacianBlend(
@@ -153,7 +155,22 @@ class ImageBlender:
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    def forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
+    def synchronize(self):
+        if self._cuda_stream is not None:
+            self._cuda_stream.synchronize()
+
+    def forward(
+        self, image_1: torch.Tensor, image_2: torch.Tensor, synchronize: bool = False
+    ):
+        if self._cuda_stream is not None:
+            with torch.cuda.stream(self._cuda_stream):
+                results = self._forward(image_1, image_2)
+                if synchronize:
+                    self.synchronize()
+                return results
+        return self._forward(image_1, image_2)
+
+    def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
         # print(
         #     f"1={image_1.shape} @ {self._images_info[0].xpos}, {self._images_info[0].ypos}"
         # )
@@ -220,7 +237,9 @@ class ImageBlender:
 
         ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
         ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
-        canvas_dims = torch.tensor([self._seam_mask.shape[0], self._seam_mask.shape[1]], dtype=torch.int64)
+        canvas_dims = torch.tensor(
+            [self._seam_mask.shape[0], self._seam_mask.shape[1]], dtype=torch.int64
+        )
 
         level_ainfo_1 = [ainfo_1]
         level_ainfo_2 = [ainfo_2]
