@@ -89,25 +89,17 @@ def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300)
 
 
 def create_laplacian_pyramid(x, kernel, levels):
-    # upsample = torch.nn.Upsample(
-    #     scale_factor=2
-    # )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
     pyramids = []
     small_gaussian_blurred = []
     current_x = x
     for level in range(0, levels):
         gauss_filtered_x = gaussian_conv2d(current_x, kernel)
         down = downsample(gauss_filtered_x)
-        # print(down.shape)
-        # Original Algorithm does indeed: L_i  = G_i  - expand(G_i+1), with L_i as current laplacian layer, and G_i as current gaussian filtered image, and G_i+1 the next.
-        # Some implementations skip expand(G_i+1) and use gaussian_conv(G_i). We decided to use expand, as is the original algorithm
         laplacian = current_x - upsample(down, size=gauss_filtered_x.shape[-2:])
         pyramids.append(laplacian)
-        # small_gaussian_blurred.append(down)
         current_x = down
     pyramids.append(current_x)
-    # return pyramids, small_gaussian_blurred
-    return pyramids, down
+    return pyramids
 
 
 def one_level_gaussian_pyramid(img, kernel):
@@ -238,21 +230,19 @@ class LaplacianBlend(torch.nn.Module):
         if False:
             return self.gpt_forward(left, right)
         else:
-            left_laplacian, left_small_gaussian_blurred = create_laplacian_pyramid(
+            left_laplacian = create_laplacian_pyramid(
                 x=left, kernel=self.gaussian_kernel, levels=self.max_levels
             )
-            right_laplacian, right_small_gaussian_blurred = create_laplacian_pyramid(
+            right_laplacian = create_laplacian_pyramid(
                 x=right, kernel=self.gaussian_kernel, levels=self.max_levels
             )
 
-            mask_1d = self.mask_small_gaussian_blurred[self.max_levels].repeat(3, 1, 1)
+            left_small_gaussian_blurred = left_laplacian[-1]
+            right_small_gaussian_blurred = right_laplacian[-1]
+
+            mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
             mask_left = mask_1d
             mask_right = self.ONE - mask_1d
-
-            # F_2 = (
-            #     left_small_gaussian_blurred[self.max_levels - 1] * mask_left
-            #     + right_small_gaussian_blurred[self.max_levels - 1] * mask_right
-            # )
 
             F_2 = (
                 left_small_gaussian_blurred * mask_left
