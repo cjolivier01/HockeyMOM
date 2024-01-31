@@ -22,6 +22,7 @@ set(
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
   csrc/pytorch/image_remap.cpp
+  csrc/pytorch/image_blend.cpp
   csrc/video/video_writer.cpp
 )
 
