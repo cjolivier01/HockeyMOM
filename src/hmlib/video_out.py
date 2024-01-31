@@ -81,10 +81,10 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
     return img
 
 
-def make_visible_image(img, enable_resizing: bool = False):
+def make_visible_image(img, enable_resizing: bool = False, scale_elements: float = 255.0):
     if not enable_resizing:
         if isinstance(img, torch.Tensor):
-            img = make_showable_type(img)
+            img = make_showable_type(img, scale_elements)
         return img
     width = image_width(img)
     vis_w = get_complete_monitor_width()

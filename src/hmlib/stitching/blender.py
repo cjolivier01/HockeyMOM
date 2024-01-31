@@ -213,6 +213,7 @@ class ImageBlender:
             full_left, full_right = _make_full(image_1, image_2)
             canvas = self._laplacian_blend.forward(
                 left=full_left / 255.0, right=full_right / 255.0
+                #left=full_left, right=full_right
             )
             # canvas = self._laplacian_blend.forward(
             #     left=image_1 / 255.0,
