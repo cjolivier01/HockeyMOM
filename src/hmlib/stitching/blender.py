@@ -169,7 +169,16 @@ class ImageBlender:
                 dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
                 device=self._seam_mask.device,
             )
-            full_right = full_left.clone()
+            full_right = torch.zeros(
+                size=(
+                    batch_size,
+                    channels,
+                    self._seam_mask.shape[0],
+                    self._seam_mask.shape[1],
+                ),
+                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+                device=self._seam_mask.device,
+            )
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
@@ -191,11 +200,9 @@ class ImageBlender:
 
         def _make_full(img_1, img_2):
             img1 = img_1[:, :, 0:h1, 0:w1]
-            # full_left = torch.zeros_like(canvas)
             full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
 
             img2 = img_2[:, :, 0:h2, 0:w2]
-            # full_right = full_left.clone()
             full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
             return full_left, full_right
 
