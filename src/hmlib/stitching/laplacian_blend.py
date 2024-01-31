@@ -133,6 +133,7 @@ def to_float(img: torch.Tensor, scale_variance: bool = False):
     if img.dtype == torch.uint8:
         img = img.to(torch.float)
         if scale_variance:
+            assert False
             img /= 255.0
     return img
 

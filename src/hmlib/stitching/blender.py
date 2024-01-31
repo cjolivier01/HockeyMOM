@@ -217,13 +217,10 @@ class ImageBlender:
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
-            # full_left = pad_to_multiple_of(full_left, mult=64, left=True)
-            # full_right = pad_to_multiple_of(full_right, mult=64, left=False)
             full_left, full_right = _make_full(image_1, image_2)
             canvas = self._laplacian_blend.forward(
                 left=full_left / 255.0,
                 right=full_right / 255.0
-                # left=full_left, right=full_right
             )
             # canvas = self._laplacian_blend.forward(
             #     left=image_1 / 255.0,
@@ -533,7 +530,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
