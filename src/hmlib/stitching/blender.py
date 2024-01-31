@@ -125,8 +125,8 @@ class ImageBlender:
             self._laplacian_blend = LaplacianBlend(
                 max_levels=4,
                 channels=3,
-                # seam_mask=self._seam_mask,
-                # xor_mask=self._xor_mask,
+                seam_mask=self._seam_mask,
+                xor_mask=self._xor_mask,
             )
         else:
             self._laplacian_blend = None

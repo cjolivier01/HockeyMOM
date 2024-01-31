@@ -479,22 +479,22 @@ def _permute(t, *args):
 
 def make_channels_first(img: torch.Tensor):
     if len(img.shape) == 4:
-        if img.shape[-1] in [3, 4]:
+        if img.shape[-1] in [1, 3, 4]:
             return _permute(img, 0, 3, 1, 2)
     else:
         assert len(img.shape) == 3
-        if img.shape[-1] in [3, 4]:
+        if img.shape[-1] in [1, 3, 4]:
             return _permute(img, 0, 1, 2)
     return img
 
 
 def make_channels_last(img: torch.Tensor):
     if len(img.shape) == 4:
-        if img.shape[1] in [3, 4]:
+        if img.shape[1] in [1, 3, 4]:
             return _permute(img, 0, 2, 3, 1)
     else:
         assert len(img.shape) == 3
-        if img.shape[0] in [3, 4]:
+        if img.shape[0] in [1, 3, 4]:
             return _permute(img, 1, 2, 0)
     return img
 
@@ -502,17 +502,17 @@ def make_channels_last(img: torch.Tensor):
 def image_width(img):
     if isinstance(img, torch.Tensor):
         if img.ndim == 4:
-            if img.shape[-1] in [3, 4]:
+            if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-2]
             else:
-                assert img.shape[1] in [3, 4]
+                assert img.shape[1] in [1, 3, 4]
                 return img.shape[-1]
         else:
             assert img.ndim == 3
-            if img.shape[-1] in [3, 4]:
+            if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-2]
             else:
-                assert img.shape[0] in [3, 4]
+                assert img.shape[0] in [1, 3, 4]
                 return img.shape[-1]
     assert img.shape[-1] == 3
     if len(img.shape) == 4:
@@ -523,17 +523,17 @@ def image_width(img):
 def image_height(img):
     if isinstance(img, torch.Tensor):
         if img.ndim == 4:
-            if img.shape[-1] in [3, 4]:
+            if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-3]
             else:
-                assert img.shape[1] in [3, 4]
+                assert img.shape[1] in [1, 3, 4]
                 return img.shape[-2]
         else:
             assert img.ndim == 3
-            if img.shape[-1] in [3, 4]:
+            if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-3]
             else:
-                assert img.shape[0] in [3, 4]
+                assert img.shape[0] in [1, 3, 4]
                 return img.shape[-2]
     assert img.shape[-1] == 3
     if len(img.shape) == 4:
@@ -548,7 +548,10 @@ def crop_image(img, left, top, right, bottom):
 
 
 def resize_image(
-    img, new_width: int, new_height: int, mode=None,
+    img,
+    new_width: int,
+    new_height: int,
+    mode=None,
 ):
     w = int(new_width)
     h = int(new_height)

@@ -43,25 +43,13 @@ def gaussian_conv2d(x, g_kernel, dtype=torch.float):
 
 
 def downsample(x):
-    # Downsamples along  image (H,W). Takes every 2 pixels. output (H, W) = input (H/2, W/2)
-    # return x[:, :, ::2, ::2]
     downsample = F.avg_pool2d(x, kernel_size=2)
     return downsample
 
 
 def upsample(image, size):
-    # upsampled = F.interpolate(blurred, scale_factor=2, mode='bilinear', align_corners=False)
     # print(f"upsample {image.shape[-2:]} -> {size}")
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
-
-
-# def F_transform(img, kernel, size):
-#     # upsample = torch.nn.Upsample(
-#     #     scale_factor=2
-#     # )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
-#     large = upsample(img, size)
-#     upsampled = gaussian_conv2d(large, kernel)
-#     return upsampled
 
 
 def show(label: str, img: torch.Tensor, wait: bool = True, min_width: int = 300):
@@ -139,13 +127,13 @@ def pad_to_multiple_of(tensor, mult: int, left: bool):
     return padded_tensor
 
 
-def to_float(img: torch.Tensor, scale_variance: bool = True):
+def to_float(img: torch.Tensor, scale_variance: bool = False):
     if img is None:
         return None
     if img.dtype == torch.uint8:
         img = img.to(torch.float)
-        # if scale_variance:
-        #     img /= 255.0
+        if scale_variance:
+            img /= 255.0
     return img
 
 
@@ -179,28 +167,22 @@ class LaplacianBlend(torch.nn.Module):
     def create_masks(self, input_shape: torch.Size, device: torch.device):
         if self.seam_mask is None:
             mask = torch.zeros(input_shape[-2:], dtype=torch.float, device=device)
-            # mask[:, : mask.shape[-1] // 2] = 255.0
             mask[:, : mask.shape[-1] // 2] = 1.0
             mask = mask.unsqueeze(0).unsqueeze(0)
-            # show("mask", mask[0].repeat(3, 1, 1))
         else:
             mask = self.seam_mask.unsqueeze(0).unsqueeze(0)
             unique_values = torch.unique(mask)
             assert len(unique_values) == 2
             left_value = unique_values[0]
             right_value = unique_values[1]
-            mask[mask == left_value] = 0
-            mask[mask == right_value] = 1.0
-            mask = pad_to_multiple_of(mask, 64, left=None)  # this pad will be bad
+            mask[mask == left_value] = 1.0
+            mask[mask == right_value] = 0
 
-        img = mask
-
+        mask_img = mask
         self.mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
         for _ in range(self.max_levels + 1):
-            img = one_level_gaussian_pyramid(img, self.mask_gaussian_kernel)
-            self.mask_small_gaussian_blurred.append(img.squeeze(0).squeeze(0))
-
-        img = self.mask_small_gaussian_blurred[-1]
+            mask_img = one_level_gaussian_pyramid(mask_img, self.mask_gaussian_kernel)
+            self.mask_small_gaussian_blurred.append(mask_img.squeeze(0).squeeze(0))
 
         for i in range(len(self.mask_small_gaussian_blurred)):
             self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[
