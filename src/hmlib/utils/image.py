@@ -510,10 +510,10 @@ def image_width(img):
         else:
             assert img.ndim == 3
             if img.shape[-1] in [3, 4]:
-                return img.shape[-1]
+                return img.shape[-2]
             else:
                 assert img.shape[0] in [3, 4]
-                return img.shape[-2]
+                return img.shape[-1]
     assert img.shape[-1] == 3
     if len(img.shape) == 4:
         return img.shape[2]
@@ -531,10 +531,10 @@ def image_height(img):
         else:
             assert img.ndim == 3
             if img.shape[-1] in [3, 4]:
-                return img.shape[-2]
+                return img.shape[-3]
             else:
                 assert img.shape[0] in [3, 4]
-                return img.shape[-3]
+                return img.shape[-2]
     assert img.shape[-1] == 3
     if len(img.shape) == 4:
         return img.shape[1]

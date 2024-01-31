@@ -4,7 +4,12 @@ import torchvision as tv
 import numpy as np
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from hmlib.utils.image import make_channels_first, image_width, image_height, resize_image
+from hmlib.utils.image import (
+    make_channels_first,
+    image_width,
+    image_height,
+    resize_image,
+)
 from hmlib.video_out import make_visible_image
 
 
@@ -269,7 +274,6 @@ if __name__ == "__main__":
         mask_small_gaussian_blurred[i] = mask_small_gaussian_blurred[i] / torch.max(
             mask_small_gaussian_blurred[i]
         )
-        show("img", mask_small_gaussian_blurred[i], wait=True, min_width=None)
 
     # show("mask_G_small_gaussian_blurred", mask_small_gaussian_blurred[-1][0])
     # plt.imshow(mask_small_gaussian_blurred[-1][0])
@@ -287,6 +291,34 @@ if __name__ == "__main__":
     #
     # Perform the Laplacian blending
     #
-    # mask_apple_1d =
+    mask_apple_1d = mask_small_gaussian_blurred[-2]
+    mask_orange_1d = 1 - mask_small_gaussian_blurred[-2]
+
+    mask_apple = mask_apple_1d.repeat(3, 1, 1)
+    mask_orange = mask_orange_1d.repeat(3, 1, 1)
+
+    G_c = (
+        apple_small_gaussian_blurred[-1] * mask_apple
+        + orange_small_gaussian_blurred[-1] * mask_orange
+    )
+
+    up_sample = torch.nn.Upsample(
+        scale_factor=2
+    )  # Default mode is nearest: [[1 2],[3 4]] -> [[1 1 2 2],[3 3 4 4]]
+
+    F_1 = up_sample(G_c)
+    upsampled_F1 = gaussian_conv2d(F_1, gaussian_kernel)
+
+    mask_apple_1d = mask_small_gaussian_blurred[-3]
+    mask_orange_1d = 1 - mask_small_gaussian_blurred[-3]
+
+    mask_apple = mask_apple_1d.repeat(3, 1, 1)
+    mask_orange = mask_orange_1d.repeat(3, 1, 1)
+
+    show("mask_apple", mask_apple, wait=True)
+    show("mask_orange", mask_orange, wait=True)
+
+    L_a = apple_laplacian[-1]
+    L_o = apple_laplacian[-1]
 
     print("Done.")
