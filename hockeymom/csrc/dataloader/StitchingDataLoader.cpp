@@ -144,9 +144,10 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
 
 std::shared_ptr<ops::ImageBlender> StitchingDataLoader::get_blender() {
   std::scoped_lock lk(nonas_create_mu_);
-  if (blender_config_.mode == "hard_seam" ||
-      blender_config_.mode == "laplacian") {
-    ops::ImageBlender::Mode mode = blender_config_.mode == "laplacian"
+  if (blender_config_.mode == kBlendModeGpuHardSeam ||
+      blender_config_.mode == kBlendModeGpuLaplacian) {
+    ops::ImageBlender::Mode mode =
+        blender_config_.mode == kBlendModeGpuLaplacian
         ? ops::ImageBlender::Mode::Laplacian
         : ops::ImageBlender::Mode::HardSeam;
     if (!blender_) {
@@ -162,6 +163,11 @@ std::shared_ptr<ops::ImageBlender> StitchingDataLoader::get_blender() {
       blender_ = blender;
     }
     return blender_;
+  } else if (
+      !blender_config_.mode.empty() &&
+      blender_config_.mode != kBlendModeMultiblend) {
+    // This is meant to throw back up to python
+    throw std::runtime_error("Invalid blending mode: " + blender_config_.mode);
   }
   return nullptr;
 }
@@ -313,7 +319,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         frame->remapped_images.emplace_back(std::move(r));
       }
     }
-
+#ifndef FAKE_BLEND
     if (!frame->torch_remapped_images.empty()) {
       // Blend immediately on the GPU since some or all of the relevant data is
       // probably in the GPU's memory/cache already
@@ -322,6 +328,8 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         auto remapped = std::move(frame->torch_remapped_images);
         auto& t1 = remapped.at(0);
         auto& t2 = remapped.at(1);
+        // TODO: different worker threads get their own?
+        std::scoped_lock lk(blender_mu_);
         frame->torch_blended_image = blender->forward(
             std::move(t1.tensor),
             std::move(t1.xy_pos),
@@ -329,6 +337,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
             std::move(t2.xy_pos));
       }
     }
+#endif
     // More timer stuff
     // double outer_remap_fps = 0.0;
     // remap_inner_.toc();
@@ -355,19 +364,33 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
   return frame;
 }
 
+StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::record_stats(
+    FRAME_DATA_TYPE&& frame) {
+  std::scoped_lock lk(stats_mu_);
+  ++total_frame_count_;
+  total_frame_duration_us_ += frame->duration_us();
+  return std::move(frame);
+}
+
+float StitchingDataLoader::fps() const {
+  std::scoped_lock lk(stats_mu_);
+  return static_cast<float>((
+      double(total_frame_count_) / double(total_frame_duration_us_) / 1000000));
+}
+
 StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     std::size_t worker_index,
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
     if (frame->torch_blended_image.defined()) {
       // Was already blended, remapped images should be gone
-      return frame;
+      return record_stats(std::move(frame));
     }
 
     if (frame->remapped_images.empty()) {
       // Shutting down, make sure that blended_image is null
       frame->blended_image.reset();
-      return frame;
+      return record_stats(std::move(frame));
     }
 
     auto blender = enblender_;
@@ -379,22 +402,22 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     frame->blended_image = frame->remapped_images[0];
 #else
     // Timer stuff
-    blend_inner_.tic();
+    // blend_inner_.tic();
 
     frame->blended_image = blender->blend_images(frame->remapped_images);
 
     // More timer stuff
-    blend_inner_.toc();
-    if ((blend_inner_.count() % kPrintInterval) == 0) {
-      std::cout << blend_inner_ << std::endl;
-      // blend_inner_.reset();
-    }
+    // blend_inner_.toc();
+    // if ((blend_inner_.count() % kPrintInterval) == 0) {
+    //   std::cout << blend_inner_ << std::endl;
+    //   // blend_inner_.reset();
+    // }
 #endif
   } catch (...) {
     std::cerr << "Caught exception" << std::endl;
     assert(false);
   }
-  return frame;
+  return record_stats(std::move(frame));
 }
 
 } // namespace hm

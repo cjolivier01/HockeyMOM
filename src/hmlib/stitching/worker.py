@@ -18,9 +18,8 @@ from hockeymom import core
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 
-from hmlib.stitching.remapper import (
-    create_remapper_config,
-)
+from hmlib.stitching.remapper import create_remapper_config
+from hmlib.stitching.blender import create_blender_config
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128
@@ -101,6 +100,7 @@ class StitchingWorker:
         multiprocessingt_queue: bool = False,
         image_roi: List[int] = None,
         use_pytorch_remap: bool = True,
+        blend_mode: str = "multiblend",
     ):
         assert max_input_queue_size > 0
 
@@ -110,9 +110,8 @@ class StitchingWorker:
         self._device = device
 
         self._remapping_device = remapping_device
-        #self._remapping_device = torch.device("cuda", rank)
+        self._blend_mode = blend_mode
 
-        self._is_cuda = self._device and self._device.startswith("cuda")
         self._start_frame_number = start_frame_number
         self._output_video = None
         self._video_1_offset_frame = video_1_offset_frame
@@ -227,34 +226,18 @@ class StitchingWorker:
         self._start_frame_number += self._rank
 
     def _open_videos(self):
-        if self._is_cuda:
-            first_frame_1 = 0
-            first_frame_2 = 0
-            if self._start_frame_number or self._video_1_offset_frame:
-                first_frame_1 = self._start_frame_number + self._video_1_offset_frame
-            if self._start_frame_number or self._video_2_offset_frame:
-                first_frame_2 = (self._start_frame_number + self._video_2_offset_frame,)
-            self._video1 = cv2.cudacodec.createVideoReader(self._video_file_1)
-            self._video2 = cv2.cudacodec.createVideoReader(self._video_file_2)
-            self._video1.setVideoReaderProps(
-                cv2.cudacodec.VideoReaderProps_PROP_DECODED_FRAME_IDX, first_frame_1
+        self._video1 = cv2.VideoCapture(self._video_file_1)
+        self._video2 = cv2.VideoCapture(self._video_file_2)
+        if self._start_frame_number or self._video_1_offset_frame:
+            self._video1.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_1_offset_frame,
             )
-            self._video2.setVideoReaderProps(
-                cv2.cudacodec.VideoReaderProps_PROP_DECODED_FRAME_IDX, first_frame_2
+        if self._start_frame_number or self._video_2_offset_frame:
+            self._video2.set(
+                cv2.CAP_PROP_POS_FRAMES,
+                self._start_frame_number + self._video_2_offset_frame,
             )
-        else:
-            self._video1 = cv2.VideoCapture(self._video_file_1)
-            self._video2 = cv2.VideoCapture(self._video_file_2)
-            if self._start_frame_number or self._video_1_offset_frame:
-                self._video1.set(
-                    cv2.CAP_PROP_POS_FRAMES,
-                    self._start_frame_number + self._video_1_offset_frame,
-                )
-            if self._start_frame_number or self._video_2_offset_frame:
-                self._video2.set(
-                    cv2.CAP_PROP_POS_FRAMES,
-                    self._start_frame_number + self._video_2_offset_frame,
-                )
 
         self._stitcher = core.StitchingDataLoader(
             0,
@@ -278,7 +261,6 @@ class StitchingWorker:
                 ),
                 batch_size=1,
                 device=self._remapping_device,
-                #device=torch.device("cuda", 0),
             )
 
             self._remapper_config_2 = create_remapper_config(
@@ -291,7 +273,6 @@ class StitchingWorker:
                 ),
                 batch_size=1,
                 device=self._remapping_device,
-                #device=torch.device("cuda", 1),
             )
             self._stitcher.configure_remapper(
                 remapper_config=[
@@ -300,20 +281,24 @@ class StitchingWorker:
                 ]
             )
 
+        if self._blend_mode != "multiblend":
+            self._blender_config = create_blender_config(
+                mode=self._blend_mode,
+                dir_name=os.path.dirname(self._video_file_1),
+                basename="mapping_",
+                device=self._remapping_device,
+                levels=4,
+                interpolation="bilinear",
+            )
+            self._stitcher.configure_blender(blenderr_config=self._blender_config)
+
         self._initialize_from_initial_frame()
 
         # TODO: adjust max frames based on this
-        if self._is_cuda:
-            ok, f1 = self._video1.get(cv2.CAP_PROP_FRAME_COUNT)
-            assert ok
-            ok, f2 = self._video2.get(cv2.CAP_PROP_FRAME_COUNT)
-            assert ok
-            self._total_num_frames = int(min(f1, f2))
-        else:
-            self._total_num_frames = min(
-                int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
-                int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
-            )
+        self._total_num_frames = min(
+            int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
+            int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
+        )
         max_frames = min(
             self._max_frames, self._total_num_frames // self._frame_stride_count
         )
@@ -340,14 +325,9 @@ class StitchingWorker:
             self._shutdown_barrier.wait()
 
     def _read_next_frame_from_video(self):
-        if self._is_cuda:
-            ret1, img1 = self._video1.nextFrame()
-            # Read the corresponding frame from the second video
-            ret2, img2 = self._video2.nextFrame()
-        else:
-            ret1, img1 = self._video1.read()
-            # Read the corresponding frame from the second video
-            ret2, img2 = self._video2.read()
+        ret1, img1 = self._video1.read()
+        # Read the corresponding frame from the second video
+        ret2, img2 = self._video2.read()
         return ret1, img1, ret2, img2
 
     def _feed_next_frame(self, frame_id: int) -> bool:
@@ -403,7 +383,7 @@ class StitchingWorker:
                 break
             if isinstance(stitched_frame, torch.Tensor):
                 stitched_frame = stitched_frame.numpy()
-            #print(stitched_frame.shape)
+            # print(stitched_frame.shape)
             assert self._in_queue > 0
             self._in_queue -= 1
             pull_timer.toc()

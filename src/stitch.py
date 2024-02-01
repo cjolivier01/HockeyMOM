@@ -36,6 +36,13 @@ def make_parser():
         "-d", "--devices", default=None, type=int, help="device for training"
     )
     parser.add_argument(
+        "-m",
+        "--mode",
+        default="multiblend",
+        type=str,
+        help="Blending mode (multiblend|gpu-hard-seam|gpu-laplacian)",
+    )
+    parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
     )
     parser.add_argument(
@@ -97,6 +104,7 @@ def stitch_videos(
     rfo: int = None,
     game_id: str = None,
     project_file_name: str = "my_project.pto",
+    mode: str = "multiblend",
     start_frame_number: int = 0,
     max_frames: int = None,
     show: bool = False,
@@ -130,12 +138,12 @@ def stitch_videos(
         num_workers=1,
         remap_thread_count=2,
         blend_thread_count=10,
-        #remap_thread_count=1,
-        #blend_thread_count=1,
-        #fork_workers=True,
+        # remap_thread_count=1,
+        # blend_thread_count=1,
+        # fork_workers=True,
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
-        #device="cuda",
+        # device="cuda",
         encoder_device="cpu",
     )
 
@@ -321,6 +329,8 @@ def main(args):
             game_id=args.game_id,
             show=False,
             max_frames=args.max_frames,
+            mode=args.mode,
+            # mode="gpu-hard=seam",
         )
 
 

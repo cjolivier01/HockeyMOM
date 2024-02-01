@@ -127,13 +127,6 @@ void HmNona::set_ideal_output_size() {
   };
 }
 
-// std::vector<std::tuple<long, long>> HmNona::get_image_positions() const {
-//   std::vector<std::tuple<long, long>> results;
-//   const HuginBase::Panorama& pano = pano_;
-//   auto var_map = pano.getSrcImage(0).getVariableMap();
-//   return results;
-// }
-
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(
     std::shared_ptr<hm::MatrixRGB> image1,
     std::shared_ptr<hm::MatrixRGB> image2) {

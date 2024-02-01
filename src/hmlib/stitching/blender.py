@@ -17,7 +17,7 @@ from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.synchronize import synchronize_by_audio
+from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -389,6 +389,43 @@ def make_seam_and_xor_masks(
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
     xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
     return seam_tensor, xor_tensor
+
+
+def create_blender_config(
+    mode: str,
+    dir_name: str,
+    basename: str,
+    device: torch.device,
+    levels: int = 4,
+    interpolation: str = "bilinear",
+) -> core.RemapperConfig:
+    config = core.BlenderConfig()
+    if not mode or mode == "multiblend":
+        # Nothing needed for legacy multiblend mode
+        return config
+
+    left_file = os.path.join(dir_name, f"{basename}0000.tif")
+    right_file = os.path.join(dir_name, f"{basename}0001.tif")
+    left_pos = get_image_geo_position(tiff_image_file=left_file)
+    right_pos = get_image_geo_position(tiff_image_file=right_file)
+
+    left_img = torch.from_numpy(cv2.imread(left_file))
+    right_img = torch.from_numpy(cv2.imread(left_file))
+    assert left_img is not None and right_img is not None
+
+    config.levels = levels
+    config.device = str(device)
+    config.seam, config.xor_mask = make_seam_and_xor_masks(
+        dir_name=dir_name,
+        images_and_positions=[
+            ImageAndPos(image=left_img, xpos=left_pos[0], ypos=left_pos[1]),
+            ImageAndPos(image=right_img, xpos=right_pos[0], ypos=right_pos[1]),
+        ],
+    )
+    config.seam = torch.from_numpy(config.seam)
+    config.xor_map = torch.from_numpy(config.xor_map)
+    config.interpolation = interpolation
+    return config
 
 
 def get_dims_for_output_video(

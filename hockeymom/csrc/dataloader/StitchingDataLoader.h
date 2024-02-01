@@ -4,8 +4,8 @@
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/common/Timer.h"
 #include "hockeymom/csrc/mblend/mblend.h"
-#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
+#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include "hockeymom/csrc/mblend/threadpool.h"
@@ -45,7 +45,18 @@ struct FrameData {
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
   std::shared_ptr<MatrixRGB> blended_image;
+  std::chrono::time_point<std::chrono::high_resolution_clock> start{
+      std::chrono::high_resolution_clock::now()};
+  std::size_t duration_us() const {
+    std::chrono::nanoseconds duration =
+        std::chrono::high_resolution_clock::now() - start;
+    return duration.count();
+  }
 };
+
+constexpr const char* kBlendModeMultiblend = "multiblend";
+constexpr const char* kBlendModeGpuHardSeam = "gpu-hard-seam";
+constexpr const char* kBlendModeGpuLaplacian = "gpu-laplacian";
 
 /* clang-format off */
 /**
@@ -92,6 +103,8 @@ class StitchingDataLoader {
 
   std::shared_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
 
+  float fps() const;
+
  private:
   void initialize();
   const std::shared_ptr<HmNona>& get_nona_worker(std::size_t worker_number);
@@ -106,6 +119,8 @@ class StitchingDataLoader {
   FRAME_DATA_TYPE blend_worker(
       std::size_t worker_index,
       FRAME_DATA_TYPE&& frame);
+
+  FRAME_DATA_TYPE record_stats(FRAME_DATA_TYPE&& frame);
 
   void shutdown();
   std::string project_file_;
@@ -125,6 +140,8 @@ class StitchingDataLoader {
   std::shared_ptr<enblend::EnBlender> enblender_;
   std::vector<ops::RemapperConfig> remapper_configs_;
   ops::BlenderConfig blender_config_;
+  
+  std::mutex blender_mu_;
   std::shared_ptr<ops::ImageBlender> blender_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
@@ -134,6 +151,11 @@ class StitchingDataLoader {
   Timer remap_outer_;
   Timer blend_inner_;
   Timer blend_outer_;
+
+  // TODO: track frame times
+  mutable std::mutex stats_mu_;
+  std::size_t total_frame_count_{0};
+  std::size_t total_frame_duration_us_{0};
 };
 
 } // namespace hm

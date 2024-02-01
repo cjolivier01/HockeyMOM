@@ -1,8 +1,8 @@
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
-#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
+#include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/video/video_writer.h"
 
@@ -76,6 +76,7 @@ PYBIND11_MODULE(_hockeymom, m) {
   py::class_<hm::ops::BlenderConfig, std::shared_ptr<hm::ops::BlenderConfig>>(
       m, "BlenderConfig")
       .def(py::init<>())
+      .def_readwrite("mode", &hm::ops::BlenderConfig::mode)
       .def_readwrite("levels", &hm::ops::BlenderConfig::levels)
       .def_readwrite("seam", &hm::ops::BlenderConfig::seam)
       .def_readwrite("xor_map", &hm::ops::BlenderConfig::xor_map)
@@ -93,10 +94,16 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t,
            std::size_t,
            std::size_t>())
+      .def("fps", &hm::StitchingDataLoader::fps)
       .def(
           "configure_remapper",
           &hm::StitchingDataLoader::configure_remapper,
           py::arg("remapper_config"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "configure_blender",
+          &hm::StitchingDataLoader::configure_blender,
+          py::arg("blender_config"),
           py::call_guard<py::gil_scoped_release>())
       .def(
           "add_frame",
