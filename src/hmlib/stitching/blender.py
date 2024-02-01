@@ -235,6 +235,9 @@ class ImageBlender:
         x2 = self._images_info[1].xpos
         y2 = self._images_info[1].ypos
 
+        min_x = min(x1, x2)
+        min_y = min(y1, y2)
+
         ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
         ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
         canvas_dims = torch.tensor(
@@ -260,7 +263,7 @@ class ImageBlender:
         elif y2 < y1:
             y1 -= y2
             y2 = 0
-        assert x1 == 0 or x2 == 0  # for now this is the case
+        #assert x1 == 0 or x2 == 0  # for now this is the case
 
         # def _make_full(img_1, img_2):
         #     img1 = img_1[:, :, 0:h1, 0:w1]
@@ -332,7 +335,7 @@ class ImageBlender:
             #     make_full_fn=_make_full,
             # )
         else:
-            full_left, full_right = _make_full(image_1, image_2)
+            full_left, full_right = _make_full(image_1, image_2, level=0)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]

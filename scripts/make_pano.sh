@@ -13,7 +13,6 @@ cpfind --linearmatch my_project.pto -o my_project.pto
 #cpfind --linearmatch --celeste my_project.pto -o my_project.pto
 
 # Optimize the project
-#autooptimiser -a -m -l -s -o autooptimiser_out.pto cpfind_out.pto
 #autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
 autooptimiser -a -m -l -o autooptimiser_out.pto my_project.pto
 
