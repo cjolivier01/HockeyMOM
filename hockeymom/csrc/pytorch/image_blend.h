@@ -51,6 +51,10 @@ class ImageBlender {
 
   bool initialized_{false};
   std::size_t levels_;
+  int x_pos_1_;
+  int y_pos_1_;
+  int x_pos_2_;
+  int y_pos_2_;
   std::size_t src_width_;
   std::size_t src_height_;
 
