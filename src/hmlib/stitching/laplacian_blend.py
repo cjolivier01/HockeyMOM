@@ -9,7 +9,6 @@ def create_gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
 ):
     # Create Gaussian Kernel. In Numpy
-    # interval = (2 * sigma + 1) / (size)
     ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
     xx, yy = np.meshgrid(ax, ax)
     kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sigma))
@@ -80,34 +79,6 @@ def one_level_gaussian_pyramid(img, kernel):
     return down
 
 
-# def pad_to_multiple_of(tensor, mult: int, left: bool):
-#     # Calculate the desired height and width after padding
-#     height, width = tensor.size(2), tensor.size(3)
-#     new_height = ((height - 1) // int(mult) + 1) * int(mult)
-#     new_width = ((width - 1) // int(mult) + 1) * int(mult)
-
-#     # Calculate the amount of padding needed
-#     pad_height = new_height - height
-#     pad_width = new_width - width
-
-#     # Apply padding to the tensor
-#     if left:
-#         padded_tensor = torch.nn.functional.pad(
-#             tensor, (0, pad_width, pad_height, 0), mode="constant"
-#         )
-#     elif left is not None:
-#         padded_tensor = torch.nn.functional.pad(
-#             tensor, (0, pad_width, 0, pad_height), mode="constant"
-#         )
-#     else:
-#         ww = pad_width // 2
-#         # hh = pad_height // 2
-#         padded_tensor = torch.nn.functional.pad(
-#             tensor, (pad_width - ww, ww, 0, pad_height), mode="replicate"
-#         )
-#     return padded_tensor
-
-
 def to_float(img: torch.Tensor, scale_variance: bool = False):
     if img is None:
         return None
@@ -142,7 +113,6 @@ class LaplacianBlend(torch.nn.Module):
             self.register_buffer("xor_mask", to_float(xor_mask))
         else:
             self.seam_mask = None
-        self.register_buffer("ONE", torch.tensor(1.0, dtype=torch.float))
         self.mask_small_gaussian_blurred = []
         self._initialized = False
 
@@ -208,7 +178,7 @@ class LaplacianBlend(torch.nn.Module):
 
             mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
             mask_left = mask_1d
-            mask_right = self.ONE - mask_1d
+            mask_right = 1 - mask_1d
 
             if make_full_fn is not None:
                 (
@@ -229,7 +199,7 @@ class LaplacianBlend(torch.nn.Module):
             for this_level in reversed(range(self.max_levels)):
                 mask_1d = self.mask_small_gaussian_blurred[this_level]
                 mask_left = mask_1d
-                mask_right = self.ONE - mask_1d
+                mask_right = 1 - mask_1d
 
                 F_1 = upsample(F_2, size=mask_1d.shape[-2:])
                 upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
