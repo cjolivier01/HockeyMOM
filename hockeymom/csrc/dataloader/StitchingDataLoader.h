@@ -5,6 +5,7 @@
 #include "hockeymom/csrc/common/Timer.h"
 #include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
+#include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 
 #include "hockeymom/csrc/mblend/threadpool.h"
@@ -39,6 +40,7 @@ struct FrameData {
   // pytorch specific
   std::vector<TorchImage> torch_input_images;
   std::vector<TorchImage> torch_remapped_images;
+  at::Tensor torch_blended_image;
   // Non-pytorch
   std::vector<std::shared_ptr<MatrixRGB>> input_images;
   std::vector<std::shared_ptr<MatrixRGB>> remapped_images;
@@ -73,6 +75,7 @@ class StitchingDataLoader {
   ~StitchingDataLoader();
 
   void configure_remapper(std::vector<ops::RemapperConfig> remapper_configs);
+  void configure_blender(ops::BlenderConfig blender_config);
 
   void add_frame(
       std::size_t frame_id,
@@ -93,6 +96,7 @@ class StitchingDataLoader {
   void initialize();
   const std::shared_ptr<HmNona>& get_nona_worker(std::size_t worker_number);
   std::shared_ptr<ops::ImageRemapper> get_remapper(std::size_t image_index);
+  std::shared_ptr<ops::ImageBlender> get_blender();
 
   using JobRunnerT = JobRunner<FRAME_DATA_TYPE, FRAME_DATA_TYPE>;
 
@@ -120,6 +124,8 @@ class StitchingDataLoader {
   std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
   std::vector<ops::RemapperConfig> remapper_configs_;
+  ops::BlenderConfig blender_config_;
+  std::shared_ptr<ops::ImageBlender> blender_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
 

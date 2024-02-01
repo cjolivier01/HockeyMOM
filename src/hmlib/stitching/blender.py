@@ -235,9 +235,6 @@ class ImageBlender:
         x2 = self._images_info[1].xpos
         y2 = self._images_info[1].ypos
 
-        min_x = min(x1, x2)
-        min_y = min(y1, y2)
-
         ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
         ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
         canvas_dims = torch.tensor(
@@ -263,6 +260,12 @@ class ImageBlender:
         elif y2 < y1:
             y1 -= y2
             y2 = 0
+        if x1 < x2:
+            x2 -= x1
+            x1 = 0
+        elif x2 < x1:
+            x1 -= x2
+            x2 = 0
 
         # If these hit, you may have not passed "-s" to autotoptimiser
         assert x1 == 0 or x2 == 0  # for now this is the case

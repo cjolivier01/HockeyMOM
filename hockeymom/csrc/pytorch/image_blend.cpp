@@ -10,19 +10,13 @@ namespace ops {
 namespace {} // namespace
 
 ImageBlender::ImageBlender(
+    Mode mode,
     std::size_t levels,
-    int x_pos_1,
-    int y_pos_1,
-    int x_pos_2,
-    int y_pos_2,
     at::Tensor seam,
     at::Tensor xor_map,
     std::optional<std::string> interpolation)
-    : levels_(levels),
-      x_pos_1_(x_pos_1),
-      y_pos_1_(x_pos_1),
-      x_pos_2_(x_pos_2),
-      y_pos_2_(y_pos_2),
+    : mode_(mode),
+      levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
       interpolation_(interpolation ? *interpolation : "") {}
@@ -38,18 +32,19 @@ void ImageBlender::to(std::string device) {
   seam_ = seam_.to(device);
   xor_map_ = xor_map_.to(device);
 }
-
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
-    at::Tensor image_1,
-    at::Tensor image_2) const {
+    const at::Tensor& image_1,
+    const std::vector<int>& xy_pos_1,
+    const at::Tensor& image_2,
+    const std::vector<int>& xy_pos_2) const {
   int h1 = image_1.size(2);
   int w1 = image_1.size(3);
-  int x1 = x_pos_1_;
-  int y1 = y_pos_1_;
+  int x1 = xy_pos_1.at(0);
+  int y1 = xy_pos_1.at(1);
   int h2 = image_2.size(2);
   int w2 = image_2.size(3);
-  int x2 = x_pos_2_;
-  int y2 = y_pos_2_;
+  int x2 = xy_pos_2.at(0);
+  int y2 = xy_pos_2.at(1);
 
   int canvas_w = seam_.size(1);
   int canvas_h = seam_.size(0);
@@ -92,16 +87,53 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   return {std::move(full_left), std::move(full_right)};
 }
 
-at::Tensor ImageBlender::hard_seam_blend(at::Tensor image_1, at::Tensor image_2)
-    const {
-  return image_1;
+at::Tensor ImageBlender::hard_seam_blend(
+    at::Tensor&& image_1,
+    std::vector<int> xy_pos_1,
+    at::Tensor&& image_2,
+    std::vector<int> xy_pos_2) const {
+  auto [full_left, full_right] =
+      make_full(image_1, xy_pos_1, image_2, xy_pos_2);
+
+  int channels = image_1.size(1);
+  assert(channels == 3 || channels == 4);
+  at::TensorOptions options;
+  options = options.dtype(image_1.dtype()).device(image_1.device());
+  at::Tensor canvas = at::empty(
+      {image_1.size(0), // batch size
+       channels,
+       seam_.size(0),
+       seam_.size(1)},
+      options);
+
+  // canvas[:, :, self._seam_mask == self._left_value] = full_left[
+  //     :, :, self._seam_mask == self._left_value
+  // ]
+  // canvas[:, :, self._seam_mask == self._right_value] = full_right[
+  //     :, :, self._seam_mask == self._right_value
+  // ]
+  at::Tensor condition_left = seam_ == left_seam_value_;
+  canvas.index_put_({condition_left}, full_left.index({condition_left}));
+  at::Tensor condition_right = seam_ == right_seam_value_;
+  canvas.index_put_({condition_right}, full_left.index({condition_right}));
+
+  return canvas;
 }
 
-at::Tensor ImageBlender::forward(at::Tensor image_1, at::Tensor image_2) const {
+at::Tensor ImageBlender::forward(
+    at::Tensor&& image_1,
+    std::vector<int> xy_pos_1,
+    at::Tensor&& image_2,
+    std::vector<int> xy_pos_2) const {
   assert(initialized_);
   if (!levels_) {
-    return hard_seam_blend(image_1, image_2);
+    return hard_seam_blend(
+        std::move(image_1),
+        std::move(xy_pos_1),
+        std::move(image_2),
+        std::move(xy_pos_2));
   }
+  assert(false);
   return image_1.clone();
 }
 
