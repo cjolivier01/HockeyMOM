@@ -1,8 +1,6 @@
 #!/bin/bash
 
-VIDEO_DIR="/home/colivier-local/Videos/sharksbb1-1"
-#VIDEO_DIR="/home/colivier-local/Videos/tvbb"
-#ROTATION="--rotation_angle=-25"
+VIDEO_DIR="/home/colivier-local/Videos/sharks-bb1-2"
 
 OMP_NUM_THREADS=16 \
 	PYTHONPATH=$(pwd):$(pwd)/src:$(pwd)/models/mixsort \
