@@ -37,12 +37,14 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     const std::vector<int>& xy_pos_1,
     const at::Tensor& image_2,
     const std::vector<int>& xy_pos_2) const {
-  int h1 = image_1.size(2);
-  int w1 = image_1.size(3);
+  assert(image_1.dim() == 3);
+  assert(image_1.size(2) == 3 || image_1.size(2) == 4);
+  int h1 = image_1.size-(0);
+  int w1 = image_1.size(1);
   int x1 = xy_pos_1.at(0);
   int y1 = xy_pos_1.at(1);
-  int h2 = image_2.size(2);
-  int w2 = image_2.size(3);
+  int h2 = image_2.size(0);
+  int w2 = image_2.size(1);
   int x2 = xy_pos_2.at(0);
   int y2 = xy_pos_2.at(1);
 

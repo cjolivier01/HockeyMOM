@@ -235,6 +235,20 @@ class ImageBlender:
         x2 = self._images_info[1].xpos
         y2 = self._images_info[1].ypos
 
+        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+        if y1 < y2:
+            y2 -= y1
+            y1 = 0
+        elif y2 < y1:
+            y1 -= y2
+            y2 = 0
+        if x1 < x2:
+            x2 -= x1
+            x1 = 0
+        elif x2 < x1:
+            x1 -= x2
+            x2 = 0
+
         ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
         ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
         canvas_dims = torch.tensor(
@@ -252,24 +266,6 @@ class ImageBlender:
             level_ainfo_1.append(ainfo_1)
             level_ainfo_2.append(ainfo_2)
             level_canvas_dims.append(canvas_dims)
-
-        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-        if y1 < y2:
-            y2 -= y1
-            y1 = 0
-        elif y2 < y1:
-            y1 -= y2
-            y2 = 0
-        if x1 < x2:
-            x2 -= x1
-            x1 = 0
-        elif x2 < x1:
-            x1 -= x2
-            x2 = 0
-
-        # If these hit, you may have not passed "-s" to autotoptimiser
-        assert x1 == 0 or x2 == 0  # for now this is the case
-        assert y1 == 0 or y2 == 0  # for now this is the case
 
         # def _make_full(img_1, img_2):
         #     img1 = img_1[:, :, 0:h1, 0:w1]
@@ -296,6 +292,10 @@ class ImageBlender:
             w2 = ainfo_2[W2]
             x2 = ainfo_2[X2]
             y2 = ainfo_2[Y2]
+
+            # If these hit, you may have not passed "-s" to autotoptimiser
+            assert x1 == 0 or x2 == 0  # for now this is the case
+            assert y1 == 0 or y2 == 0  # for now this is the case
 
             canvas_dims = level_canvas_dims[level]
 
@@ -412,18 +412,18 @@ def create_blender_config(
     left_img = torch.from_numpy(cv2.imread(left_file))
     right_img = torch.from_numpy(cv2.imread(left_file))
     assert left_img is not None and right_img is not None
-
+    config.mode = mode
     config.levels = levels
     config.device = str(device)
-    config.seam, config.xor_mask = make_seam_and_xor_masks(
+    seam, xor_map = make_seam_and_xor_masks(
         dir_name=dir_name,
         images_and_positions=[
             ImageAndPos(image=left_img, xpos=left_pos[0], ypos=left_pos[1]),
             ImageAndPos(image=right_img, xpos=right_pos[0], ypos=right_pos[1]),
         ],
     )
-    config.seam = torch.from_numpy(config.seam)
-    config.xor_map = torch.from_numpy(config.xor_map)
+    config.seam = torch.from_numpy(seam)
+    config.xor_map = torch.from_numpy(xor_map)
     config.interpolation = interpolation
     return config
 

@@ -89,6 +89,7 @@ class StitchDataset:
         image_roi: List[int] = None,
         device: torch.device = "cpu",
         encoder_device: torch.device = _get_cuda_device(),
+        blend_mode: str = "multiblend",
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -103,6 +104,7 @@ class StitchDataset:
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
+        self._blend_mode = blend_mode
         self._max_frames = (
             max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         )
@@ -191,6 +193,7 @@ class StitchDataset:
             multiprocessingt_queue=self._fork_workers,
             device=self._device,
             remapping_device=remapping_device,
+            blend_mode=self._blend_mode,
         )
         return stitching_worker
 

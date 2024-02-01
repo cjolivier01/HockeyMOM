@@ -154,7 +154,9 @@ std::shared_ptr<ops::ImageBlender> StitchingDataLoader::get_blender() {
       std::shared_ptr<ops::ImageBlender> blender =
           std::make_shared<ops::ImageBlender>(
               mode,
-              blender_config_.levels,
+              blender_config_.mode == kBlendModeGpuLaplacian
+                  ? blender_config_.levels
+                  : 0,
               blender_config_.seam,
               blender_config_.xor_map,
               blender_config_.interpolation);
@@ -176,6 +178,7 @@ void StitchingDataLoader::shutdown() {
   remap_runner_.stop();
   blend_runner_.stop();
   nonas_.clear();
+  blender_.reset();
 }
 
 void StitchingDataLoader::initialize() {

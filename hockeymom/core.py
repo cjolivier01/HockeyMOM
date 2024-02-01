@@ -18,6 +18,7 @@ from ._hockeymom import (
     EnBlender,
     StitchingDataLoader,
     RemapperConfig,
+    BlenderConfig,
     ImageRemapper,
     SortedRGBImageQueue,
     SortedPyArrayUin8Queue,
@@ -31,6 +32,7 @@ __all__ = [
     "StitchingDataLoader",
     "RemapperConfig",
     "ImageRemapper",
+    "BlenderConfig"
     "nona_process_images",
     "EnBlender",
     "FFmpegVideoWriter",

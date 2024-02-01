@@ -37,7 +37,9 @@ def make_parser():
     )
     parser.add_argument(
         "-m",
-        "--mode",
+        "--blend-mode",
+        "--blend_mode",
+        dest="blend_mode",
         default="multiblend",
         type=str,
         help="Blending mode (multiblend|gpu-hard-seam|gpu-laplacian)",
@@ -104,7 +106,7 @@ def stitch_videos(
     rfo: int = None,
     game_id: str = None,
     project_file_name: str = "my_project.pto",
-    mode: str = "multiblend",
+    blend_mode: str = "multiblend",
     start_frame_number: int = 0,
     max_frames: int = None,
     show: bool = False,
@@ -145,6 +147,7 @@ def stitch_videos(
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
         # device="cuda",
         encoder_device="cpu",
+        blend_mode=blend_mode,
     )
 
     frame_count = 0
@@ -329,8 +332,8 @@ def main(args):
             game_id=args.game_id,
             show=False,
             max_frames=args.max_frames,
-            mode=args.mode,
-            # mode="gpu-hard=seam",
+            blend_mode=args.mode,
+            #blend_mode="gpu-hard-seam",
         )
 
 

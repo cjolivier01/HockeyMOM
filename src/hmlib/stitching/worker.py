@@ -247,7 +247,9 @@ class StitchingWorker:
             self._save_seams_and_masks,
             self._max_input_queue_size,
             self._remap_thread_count,
-            self._blend_thread_count,
+            self._blend_thread_count
+            if (not self._blend_mode or self._blend_mode == "multiblend")
+            else 1,
         )
 
         if self._use_pytorch_remap:
@@ -290,7 +292,7 @@ class StitchingWorker:
                 levels=4,
                 interpolation="bilinear",
             )
-            self._stitcher.configure_blender(blenderr_config=self._blender_config)
+            self._stitcher.configure_blender(blender_config=self._blender_config)
 
         self._initialize_from_initial_frame()
 
