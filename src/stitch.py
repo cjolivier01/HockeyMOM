@@ -332,8 +332,8 @@ def main(args):
             game_id=args.game_id,
             show=False,
             max_frames=args.max_frames,
-            blend_mode=args.mode,
-            #blend_mode="gpu-hard-seam",
+            #blend_mode=args.blend_mode,
+            blend_mode="gpu-hard-seam",
         )
 
 

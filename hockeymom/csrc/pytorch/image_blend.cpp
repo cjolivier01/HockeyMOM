@@ -23,13 +23,20 @@ ImageBlender::ImageBlender(
 
 void ImageBlender::init() {
   initialized_ = false;
-
+  auto unique_results = at::_unique(seam_, /*sorted=*/true);
+  torch::Tensor unique_elements = std::get<0>(unique_results);
+  assert(unique_elements.size(0) == 2);
+  assert(unique_elements.dim() == 1);
+  left_seam_value_ = unique_elements[0];
+  right_seam_value_ = unique_elements[1];
   initialized_ = true;
 }
 
 void ImageBlender::to(std::string device) {
   assert(initialized_);
   seam_ = seam_.to(device);
+  left_seam_value_ = left_seam_value_.to(device);
+  right_seam_value_ = right_seam_value_.to(device);
   xor_map_ = xor_map_.to(device);
 }
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
@@ -37,14 +44,14 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     const std::vector<int>& xy_pos_1,
     const at::Tensor& image_2,
     const std::vector<int>& xy_pos_2) const {
-  assert(image_1.dim() == 3);
-  assert(image_1.size(2) == 3 || image_1.size(2) == 4);
-  int h1 = image_1.size-(0);
-  int w1 = image_1.size(1);
+  assert(image_1.dim() == 4);
+  assert(image_1.size(1) == 3 || image_1.size(0) == 4);
+  int h1 = image_1.size(2);
+  int w1 = image_1.size(3);
   int x1 = xy_pos_1.at(0);
   int y1 = xy_pos_1.at(1);
-  int h2 = image_2.size(0);
-  int w2 = image_2.size(1);
+  int h2 = image_2.size(2);
+  int w2 = image_2.size(3);
   int x2 = xy_pos_2.at(0);
   int y2 = xy_pos_2.at(1);
 
@@ -114,9 +121,17 @@ at::Tensor ImageBlender::hard_seam_blend(
   // canvas[:, :, self._seam_mask == self._right_value] = full_right[
   //     :, :, self._seam_mask == self._right_value
   // ]
-  at::Tensor condition_left = seam_ == left_seam_value_;
-  canvas.index_put_({condition_left}, full_left.index({condition_left}));
-  at::Tensor condition_right = seam_ == right_seam_value_;
+  std::cout << seam_.sizes() << ", " << seam_.dtype() << std::endl;
+  std::cout << left_seam_value_.sizes() << ", " << left_seam_value_.dtype()
+            << std::endl;
+  at::Tensor condition_left = at::eq(seam_, left_seam_value_);
+  canvas.index_put_(
+      {torch::indexing::Slice(), torch::indexing::Slice(), condition_left},
+      full_left.index(
+          {torch::indexing::Slice(),
+           torch::indexing::Slice(),
+           condition_left}));
+  at::Tensor condition_right = at::eq(seam_, right_seam_value_);
   canvas.index_put_({condition_right}, full_left.index({condition_right}));
 
   return canvas;

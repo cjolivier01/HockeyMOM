@@ -331,6 +331,11 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         auto remapped = std::move(frame->torch_remapped_images);
         auto& t1 = remapped.at(0);
         auto& t2 = remapped.at(1);
+        // Make channels last
+        assert(t1.tensor.dim() == 3);
+        assert(t1.tensor.size(2) == 3 || t1.tensor.size(2) == 4);
+        t1.tensor = t1.tensor.permute({2, 1, 0}).unsqueeze(0);
+        t2.tensor = t2.tensor.permute({2, 1, 0}).unsqueeze(0);
         // TODO: different worker threads get their own?
         std::scoped_lock lk(blender_mu_);
         frame->torch_blended_image = blender->forward(
