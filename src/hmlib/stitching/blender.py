@@ -263,7 +263,10 @@ class ImageBlender:
         elif y2 < y1:
             y1 -= y2
             y2 = 0
-        #assert x1 == 0 or x2 == 0  # for now this is the case
+
+        # If these hit, you may have not passed "-s" to autotoptimiser
+        assert x1 == 0 or x2 == 0  # for now this is the case
+        assert y1 == 0 or y2 == 0  # for now this is the case
 
         # def _make_full(img_1, img_2):
         #     img1 = img_1[:, :, 0:h1, 0:w1]
