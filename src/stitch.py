@@ -337,7 +337,7 @@ def main(args):
             max_frames=args.max_frames,
             # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
-            remapping_device="cpu",
+            #remapping_device="cpu",
         )
 
 
