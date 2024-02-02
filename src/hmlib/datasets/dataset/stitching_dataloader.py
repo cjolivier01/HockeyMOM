@@ -194,7 +194,6 @@ class StitchDataset:
             max_frames=max_frames,
             frame_stride_count=frame_stride_count,
             multiprocessingt_queue=self._fork_workers,
-            device=self._device,
             remapping_device=remapping_device,
             blend_mode=self._blend_mode,
         )
