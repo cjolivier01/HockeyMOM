@@ -121,9 +121,9 @@ at::Tensor ImageBlender::hard_seam_blend(
   // canvas[:, :, self._seam_mask == self._right_value] = full_right[
   //     :, :, self._seam_mask == self._right_value
   // ]
-  std::cout << seam_.sizes() << ", " << seam_.dtype() << std::endl;
-  std::cout << left_seam_value_.sizes() << ", " << left_seam_value_.dtype()
-            << std::endl;
+  // std::cout << seam_.sizes() << ", " << seam_.dtype() << std::endl;
+  // std::cout << left_seam_value_.sizes() << ", " << left_seam_value_.dtype()
+  //           << std::endl;
   at::Tensor condition_left = at::eq(seam_, left_seam_value_);
   canvas.index_put_(
       {torch::indexing::Slice(), torch::indexing::Slice(), condition_left},
@@ -132,7 +132,12 @@ at::Tensor ImageBlender::hard_seam_blend(
            torch::indexing::Slice(),
            condition_left}));
   at::Tensor condition_right = at::eq(seam_, right_seam_value_);
-  canvas.index_put_({condition_right}, full_left.index({condition_right}));
+  canvas.index_put_(
+      {torch::indexing::Slice(), torch::indexing::Slice(), condition_right},
+      full_left.index(
+          {torch::indexing::Slice(),
+           torch::indexing::Slice(),
+           condition_right}));
 
   return canvas;
 }

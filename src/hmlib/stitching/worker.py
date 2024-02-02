@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import cv2
 import threading
@@ -95,8 +96,7 @@ class StitchingWorker:
         max_frames: int = None,
         frame_stride_count: int = 1,
         save_seams_and_masks: bool = True,
-        device: str = torch.device,
-        remapping_device: torch.device = torch.device("cuda", 2),
+        remapping_device: torch.device = torch.device("cuda", 0),
         multiprocessingt_queue: bool = False,
         image_roi: List[int] = None,
         use_pytorch_remap: bool = True,
@@ -107,7 +107,6 @@ class StitchingWorker:
         self._rank = rank
         self._batch_size = batch_size
         self._use_pytorch_remap = use_pytorch_remap
-        self._device = device
 
         self._remapping_device = remapping_device
         self._blend_mode = blend_mode
@@ -246,10 +245,16 @@ class StitchingWorker:
             os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png",
             self._save_seams_and_masks,
             self._max_input_queue_size,
-            self._remap_thread_count,
-            self._blend_thread_count
-            if (not self._blend_mode or self._blend_mode == "multiblend")
-            else 1,
+            (
+                self._remap_thread_count
+                if (not self._blend_mode or self._blend_mode == "multiblend")
+                else 1
+            ),
+            (
+                self._blend_thread_count
+                if (not self._blend_mode or self._blend_mode == "multiblend")
+                else 1
+            ),
         )
 
         if self._use_pytorch_remap:

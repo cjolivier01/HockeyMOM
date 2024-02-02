@@ -299,7 +299,7 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
           // Prepare layout for blending
           assert(remapped.size(0) == 1); // batch dimensions
           remapped = remapped.squeeze(0).permute({1, 2, 0});
-          remapped = remapped.contiguous().cpu();
+          //remapped = remapped.contiguous().cpu();
 
           frame->torch_remapped_images.at(index) = FrameData::TorchImage{
               .tensor = remapped,

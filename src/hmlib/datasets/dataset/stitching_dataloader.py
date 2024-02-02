@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import cv2
 import threading
@@ -90,10 +91,12 @@ class StitchDataset:
         device: torch.device = "cpu",
         encoder_device: torch.device = _get_cuda_device(),
         blend_mode: str = "multiblend",
+        remapping_device: torch.device = torch.device("cuda", 0),
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
         self._device = device
+        self._remapping_device = remapping_device
         self._encoder_device = encoder_device
         self._output_stitched_video_file = output_stitched_video_file
         self._video_1_offset_frame = video_1_offset_frame
@@ -374,7 +377,7 @@ class StitchDataset:
                     max_input_queue_size=int(
                         self._max_input_queue_size / self._num_workers + 1
                     ),
-                    remapping_device=torch.device("cuda", 0),  # TODO: pass in
+                    remapping_device=self._remapping_device,
                 )
                 self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()

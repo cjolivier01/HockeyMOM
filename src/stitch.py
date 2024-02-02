@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import time
 import argparse
@@ -111,6 +112,7 @@ def stitch_videos(
     max_frames: int = None,
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
+    remapping_device: torch.device = torch.device("cuda", 0),
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -148,6 +150,7 @@ def stitch_videos(
         # device="cuda",
         encoder_device="cpu",
         blend_mode=blend_mode,
+        remapping_device=remapping_device,
     )
 
     frame_count = 0
@@ -332,8 +335,9 @@ def main(args):
             game_id=args.game_id,
             show=False,
             max_frames=args.max_frames,
-            #blend_mode=args.blend_mode,
+            # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
+            remapping_device="cpu",
         )
 
 

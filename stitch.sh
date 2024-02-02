@@ -1,6 +1,6 @@
 #!/bin/bash
 
-GAME_ID="sharks-bb1-2"
+GAME_ID="jrmocks"
 
 VIDEO_DIR="${HOME}/Videos/${GAME_ID}"
 
