@@ -553,10 +553,12 @@ def main(exp, args, num_gpu):
                     max_frames=args.max_frames,
                     max_input_queue_size=4,
                     num_workers=1,
-                    blend_thread_count=8,
-                    remap_thread_count=2,
+                    blend_thread_count=1,
+                    remap_thread_count=1,
                     fork_workers=False,
                     image_roi=None,
+                    #blend_mode="multiblend",
+                    blend_mode="gpu-hard-seam",
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
