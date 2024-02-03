@@ -51,7 +51,7 @@ void ImageBlender::init() {
   initialized_ = true;
 }
 
-void ImageBlender::to(std::string device) {
+void ImageBlender::to(at::Device device) {
   seam_ = seam_.to(device);
   xor_map_ = xor_map_.to(device);
   if (initialized_) {

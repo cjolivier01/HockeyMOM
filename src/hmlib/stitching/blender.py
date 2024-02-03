@@ -30,6 +30,7 @@ def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
     parser.add_argument(
         "--show",
+        default=False,
         action="store_true",
         help="Show images",
     )
@@ -481,9 +482,9 @@ def blend_video(
         if rfo or start_frame_number:
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
 
-    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
-
+    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
+    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
+    
     remapper_1 = ImageRemapper(
         dir_name=dir_name,
         basename=basename_1,
@@ -514,8 +515,8 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1)
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2)
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
 
             if frame_count == 0:
                 seam_tensor, xor_tensor = make_seam_and_xor_masks(
@@ -544,6 +545,7 @@ def blend_video(
                         xor_map=torch.from_numpy(xor_tensor),
                         interpolation="bilinear",
                     )
+                    blender.to(device)
                 else:
                     blender = PtImageBlender(
                         images_info=[
@@ -566,7 +568,6 @@ def blend_video(
                     )
                 #blender.init()
 
-            # blended = destination_tensor_1
             blended = blender.forward(
                 image_1=destination_tensor_1,
                 xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
@@ -574,7 +575,7 @@ def blend_video(
                 xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
             )
 
-            show_image("blended", blended, wait=False)
+            # show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(

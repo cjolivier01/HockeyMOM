@@ -33,7 +33,7 @@ class ImageBlender {
       at::Tensor seam,
       at::Tensor xor_map,
       std::optional<std::string> interpolation);
-  void to(std::string device);
+  void to(at::Device device);
   at::Tensor forward(
       at::Tensor&& image_1,
       std::vector<int> xy_pos_1,
