@@ -337,7 +337,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 #     :,
                 # ]
                 # original_img0 = img0.to("cpu", non_blocking=True)
-                #original_img0 = img0.to("cpu")
+                # original_img0 = img0.to("cpu")
                 original_img0 = img0.clone()
 
             if not self._original_image_only:
@@ -401,7 +401,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
         self._count += self._batch_size
         if self._original_image_only:
-            #return original_img.cpu(), None, None, imgs_info, ids
+            # return original_img.cpu(), None, None, imgs_info, ids
             return original_img, None, None, imgs_info, ids
         else:
             return original_img, img, None, imgs_info, ids
@@ -422,7 +422,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         if self._next_counter and self._next_counter % 20 == 0:
             logger.info(
                 "Video Dataset frame delivery {} ({:.2f} fps)".format(
-                    self._timer_counter, 1.0 / max(1e-5, self._timer.average_time)
+                    self._timer_counter,
+                    self._batch_size * 1.0 / max(1e-5, self._timer.average_time),
                 )
             )
             if self._next_counter and self._next_counter % 100 == 0:
