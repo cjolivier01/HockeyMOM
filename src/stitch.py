@@ -335,7 +335,6 @@ def main(args):
             output_stitched_video_file=None,
             # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
-            # remapping_device="cpu",
             remapping_device=torch.device("cuda", 0),
         )
 
