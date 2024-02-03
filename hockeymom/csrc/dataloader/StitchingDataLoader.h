@@ -58,6 +58,18 @@ constexpr const char* kBlendModeMultiblend = "multiblend";
 constexpr const char* kBlendModeGpuHardSeam = "gpu-hard-seam";
 constexpr const char* kBlendModeGpuLaplacian = "gpu-laplacian";
 
+struct BlenderConfig {
+  /**
+   * @brief Modes: multiblend, hard_seam, laplacian
+   */
+  std::string mode = std::string(kBlendModeMultiblend);
+  int levels{0};
+  at::Tensor seam;
+  at::Tensor xor_map;
+  std::string interpolation;
+  std::string device = std::string("cpu");
+};
+
 /* clang-format off */
 /**
  *   _____ _   _  _        _     _             _____        _         _                      _
@@ -86,7 +98,7 @@ class StitchingDataLoader {
   ~StitchingDataLoader();
 
   void configure_remapper(std::vector<ops::RemapperConfig> remapper_configs);
-  void configure_blender(ops::BlenderConfig blender_config);
+  void configure_blender(BlenderConfig blender_config);
 
   void add_frame(
       std::size_t frame_id,
@@ -105,6 +117,8 @@ class StitchingDataLoader {
   at::Tensor get_stitched_pytorch_frame(std::size_t frame_id);
 
   float fps() const;
+
+  void finish();
 
  private:
   void initialize();
@@ -140,8 +154,8 @@ class StitchingDataLoader {
   std::vector<std::shared_ptr<ops::ImageRemapper>> remappers_;
   std::shared_ptr<enblend::EnBlender> enblender_;
   std::vector<ops::RemapperConfig> remapper_configs_;
-  ops::BlenderConfig blender_config_;
-  
+  BlenderConfig blender_config_;
+
   std::mutex blender_mu_;
   std::shared_ptr<ops::ImageBlender> blender_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;

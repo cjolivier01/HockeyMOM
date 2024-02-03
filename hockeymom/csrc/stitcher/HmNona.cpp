@@ -91,40 +91,40 @@ HmNona::get_control_points() const {
 
 void HmNona::set_ideal_output_size() {
   // MPEG-4 can't save videos > 8K
-  constexpr std::size_t kBelowMaxOffsetSafetyFactor = 0;
-  constexpr std::size_t kMaxStitchedWidth = 7680 - kBelowMaxOffsetSafetyFactor;
-  constexpr std::size_t kMaxStitchedHeight = 4320 - kBelowMaxOffsetSafetyFactor;
+  // constexpr std::size_t kBelowMaxOffsetSafetyFactor = 0;
+  // constexpr std::size_t kMaxStitchedWidth = 7680 - kBelowMaxOffsetSafetyFactor;
+  // constexpr std::size_t kMaxStitchedHeight = 4320 - kBelowMaxOffsetSafetyFactor;
 
-  auto new_opt = pano_.getOptions();
-  if (new_opt.fovCalcSupported(new_opt.getProjection())) {
-    // calc optimal size of pano, only if projection is supported
-    // otherwise use current width as start point
-    long opt_width = hugin_utils::roundi(
-        HuginBase::CalculateOptimalScale::calcOptimalScale(pano_) *
-        new_opt.getWidth());
-    // double sizeFactor = HUGIN_ASS_PANO_DOWNSIZE_FACTOR;
-    double sizeFactor = 1.0;
-    new_opt.setWidth(hugin_utils::floori(sizeFactor * opt_width), true);
-    bool changed = false;
-    // Now enforce maximums
-    double w = new_opt.getWidth();
-    double h = new_opt.getHeight();
-    double aspect_ratio = w / h;
-    if (w > kMaxStitchedWidth) {
-      w = kMaxStitchedWidth;
-      h = w / aspect_ratio;
-    }
-    if (h > kMaxStitchedHeight) {
-      h = kMaxStitchedHeight;
-      w = h * aspect_ratio;
-    }
-    new_opt.setHeight(hugin_utils::floori(h));
-    new_opt.setWidth(hugin_utils::floori(w), true);
-    std::cout << "Final stitched size: " << new_opt.getWidth() << " x "
-              << new_opt.getHeight() << std::endl;
-    pano_.setOptions(new_opt);
-    opts_ = new_opt;
-  };
+  // auto new_opt = pano_.getOptions();
+  // if (new_opt.fovCalcSupported(new_opt.getProjection())) {
+  // // calc optimal size of pano, only if projection is supported
+  // // otherwise use current width as start point
+  // long opt_width = hugin_utils::roundi(
+  // HuginBase::CalculateOptimalScale::calcOptimalScale(pano_) *
+  // new_opt.getWidth());
+  // // double sizeFactor = HUGIN_ASS_PANO_DOWNSIZE_FACTOR;
+  // double sizeFactor = 1.0;
+  // new_opt.setWidth(hugin_utils::floori(sizeFactor * opt_width), true);
+  // bool changed = false;
+  // // Now enforce maximums
+  // double w = new_opt.getWidth();
+  // double h = new_opt.getHeight();
+  // double aspect_ratio = w / h;
+  // if (w > kMaxStitchedWidth) {
+  // w = kMaxStitchedWidth;
+  // h = w / aspect_ratio;
+  // }
+  //   if (h > kMaxStitchedHeight) {
+  // h = kMaxStitchedHeight;
+  // w = h * aspect_ratio;
+  // }
+  //   new_opt.setHeight(hugin_utils::floori(h));
+  // new_opt.setWidth(hugin_utils::floori(w), true);
+  // std::cout << "Final stitched size: " << new_opt.getWidth() << " x "
+  // << new_opt.getHeight() << std::endl;
+  // pano_.setOptions(new_opt);
+  // opts_ = new_opt;
+  // };
 }
 
 std::vector<std::unique_ptr<hm::MatrixRGB>> HmNona::remap_images(

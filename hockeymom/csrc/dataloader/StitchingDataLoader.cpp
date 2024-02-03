@@ -71,6 +71,24 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
   return rgb;
 }
 
+// at::Tensor make_channels_last(at::Tensor tensor) {
+//   TORCH_CHECK(
+//       tensor.dim() == 3 || tensor.dim() == 4,
+//       "Invalid number of tensor dimensions");
+//   if (tensor.dim() == 3) {
+//     int sz0 = tensor.size(0);
+//     if (sz0 == 3 || sz0 == 4) {
+//       return tensor.permute({1, 2, 0});
+//     }
+//     return tensor;
+//   }
+//   int sz1 = tensor.size(1);
+//   if (sz1 == 3 || sz1 == 4) {
+//     return tensor.permute({0, 2, 3, 1});
+//   }
+//   return tensor;
+// }
+
 } // namespace
 
 StitchingDataLoader::StitchingDataLoader(
@@ -125,7 +143,7 @@ void StitchingDataLoader::configure_remapper(
   remappers_.clear();
 }
 
-void StitchingDataLoader::configure_blender(ops::BlenderConfig blender_config) {
+void StitchingDataLoader::configure_blender(BlenderConfig blender_config) {
   blender_config_ = std::move(blender_config);
   blender_.reset();
 }
@@ -207,7 +225,7 @@ void StitchingDataLoader::initialize() {
     // args.emplace_back(seam_file_);
   }
   if (!xor_mask_file_.empty() && save_seam_and_xor_mask_) {
-    // args.emplace_back(std::string("--save-xor=") + xor_mask_file_);
+    //args.emplace_back(std::string("--save-xor=") + xor_mask_file_);
   }
   enblender_ = std::make_shared<enblend::EnBlender>(args);
 #endif
@@ -279,6 +297,10 @@ void StitchingDataLoader::add_remapped_frame(
   blend_runner_.inputs()->enqueue(frame_id, std::move(frame_info));
 }
 
+void StitchingDataLoader::finish() {
+  assert(false); // implement me?
+}
+
 const std::shared_ptr<HmNona>& StitchingDataLoader::get_nona_worker(
     std::size_t worker_index) {
   std::scoped_lock lk(nonas_create_mu_);
@@ -314,30 +336,40 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
     // The actual work
     if (!frame->torch_input_images.empty()) {
       HmThreadPool local_pool(thread_pool_.get());
+      const bool is_multiblend = blender_config_.mode.empty() ||
+          blender_config_.mode == kBlendModeMultiblend;
       frame->torch_remapped_images.resize(frame->torch_input_images.size());
-      frame->remapped_images.resize(frame->torch_input_images.size());
+      if (is_multiblend) {
+        frame->remapped_images.resize(frame->torch_input_images.size());
+      }
       for (std::size_t i = 0; i < frame->torch_input_images.size(); ++i) {
         auto img = frame->torch_input_images[i];
         auto remapper = get_remapper(i);
         assert(remapper);
-        local_pool.Schedule([this, frame, index = i, img, r = remapper]() {
+        local_pool.Schedule([this,
+                             is_multiblend,
+                             frame,
+                             index = i,
+                             img,
+                             r = remapper]() {
           at::Tensor remapped = remappers_.at(index)->forward(
               img.tensor.to(remapper_configs_.at(index).device));
 
           // Prepare layout for blending
-          assert(remapped.size(0) == 1); // batch dimensions
-          remapped = remapped.squeeze(0).permute({1, 2, 0});
-          if (blender_config_.mode == kBlendModeMultiblend) {
+          if (is_multiblend) {
+            TORCH_CHECK(
+                remapped.size(0) == 1,
+                "Multi-blend must have a batch size of 1"); // batch dimensions
+            remapped = remapped.squeeze(0).permute({1, 2, 0});
             remapped = remapped.contiguous().cpu();
+            frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
+                frame->torch_remapped_images.at(index).tensor,
+                frame->torch_remapped_images.at(index).xy_pos);
           }
-
           frame->torch_remapped_images.at(index) = FrameData::TorchImage{
               .tensor = remapped,
               .xy_pos = img.xy_pos,
           };
-          frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
-              frame->torch_remapped_images.at(index).tensor,
-              frame->torch_remapped_images.at(index).xy_pos);
         });
         local_pool.join_all();
       }
@@ -362,10 +394,8 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
         auto& t1 = remapped.at(0);
         auto& t2 = remapped.at(1);
         // Make channels last
-        assert(t1.tensor.dim() == 3);
-        assert(t1.tensor.size(2) == 3 || t1.tensor.size(2) == 4);
-        t1.tensor = t1.tensor.permute({2, 1, 0}).unsqueeze(0);
-        t2.tensor = t2.tensor.permute({2, 1, 0}).unsqueeze(0);
+        // t1.tensor = make_channels_last(t1.tensor);
+        // t2.tensor = make_channels_last(t2.tensor);
         // TODO: different worker threads get their own?
         std::scoped_lock lk(blender_mu_);
         frame->torch_blended_image = blender->forward(

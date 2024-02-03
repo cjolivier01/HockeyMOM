@@ -1,5 +1,4 @@
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
-#include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
@@ -73,15 +72,15 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("batch_size", &hm::ops::RemapperConfig::batch_size)
       .def_readwrite("device", &hm::ops::RemapperConfig::device);
 
-  py::class_<hm::ops::BlenderConfig, std::shared_ptr<hm::ops::BlenderConfig>>(
+  py::class_<hm::BlenderConfig, std::shared_ptr<hm::BlenderConfig>>(
       m, "BlenderConfig")
       .def(py::init<>())
-      .def_readwrite("mode", &hm::ops::BlenderConfig::mode)
-      .def_readwrite("levels", &hm::ops::BlenderConfig::levels)
-      .def_readwrite("seam", &hm::ops::BlenderConfig::seam)
-      .def_readwrite("xor_map", &hm::ops::BlenderConfig::xor_map)
-      .def_readwrite("interpolation", &hm::ops::BlenderConfig::interpolation)
-      .def_readwrite("device", &hm::ops::BlenderConfig::device);
+      .def_readwrite("mode", &hm::BlenderConfig::mode)
+      .def_readwrite("levels", &hm::BlenderConfig::levels)
+      .def_readwrite("seam", &hm::BlenderConfig::seam)
+      .def_readwrite("xor_map", &hm::BlenderConfig::xor_map)
+      .def_readwrite("interpolation", &hm::BlenderConfig::interpolation)
+      .def_readwrite("device", &hm::BlenderConfig::device);
 
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")

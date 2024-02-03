@@ -2,25 +2,12 @@
 
 #include <ATen/ATen.h>
 
-#include <mutex>
 #include <optional>
 #include <string>
 
 namespace hm {
 
 namespace ops {
-
-struct BlenderConfig {
-  /**
-   * @brief Modes: multiblend, hard_seam, laplacian
-   */
-  std::string mode = std::string("multiblend");
-  int levels{0};
-  at::Tensor seam;
-  at::Tensor xor_map;
-  std::string interpolation;
-  std::string device = std::string("cpu");
-};
 
 class ImageBlender {
  public:

@@ -96,6 +96,11 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     x2 = 0;
   }
 
+  // std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
+  //           << std::endl;
+  // std::cout << "image_1 size=" << image_1.sizes()
+  //           << "\nimage_2 size=" << image_2.sizes() << std::endl;
+
   TORCH_CHECK(x1 == 0 || x2 == 0, "Images not aligned to left edge of canvas");
   TORCH_CHECK(y1 == 0 || y2 == 0, "Images not aligned to top edge of canvas");
   TORCH_CHECK(x1 + w1 <= canvas_w, "First image overflows the canvas width");
@@ -103,15 +108,10 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   TORCH_CHECK(x2 + w2 <= canvas_w, "Second image overflows the canvas width");
   TORCH_CHECK(y2 + h2 <= canvas_h, "Second image overflows the canvas height");
 
-  // std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
-  //           << std::endl;
-  // std::cout << "image_1 size=" << image_1.sizes()
-  //           << "\nimage_2 size=" << image_2.sizes() << std::endl;
-
   TORCH_CHECK(x1 <= w1, "Invalid x1: " + std::to_string(x1));
   TORCH_CHECK(x1 <= h1, "Invalid y1: " + std::to_string(y1));
   TORCH_CHECK(x2 <= w2, "Invalid x2:" + std::to_string(x2));
-  TORCH_CHECK(x2 <= h2, "Invalid y2: " + std::to_string(y2));
+  TORCH_CHECK(y2 <= h2, "Invalid y2: " + std::to_string(y2));
 
   at::Tensor full_left = at::constant_pad_nd(
       image_1,
