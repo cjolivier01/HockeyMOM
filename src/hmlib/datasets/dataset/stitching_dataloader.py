@@ -352,9 +352,7 @@ class StitchDataset:
             safe_put_queue(self._from_coordinator_queue, ex)
 
     @staticmethod
-    def prepare_frame_for_video(
-        image: np.array, image_roi: np.array, show: bool = False
-    ):
+    def prepare_frame_for_video(image: np.array, image_roi: np.array):
         image = make_channels_last(image)
         if not image_roi:
             if image.shape[-1] == 4:
@@ -368,14 +366,13 @@ class StitchDataset:
             )
             if len(image.shape) == 4:
                 image = image[
-                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
-                ]
-            else:
-                image = image[
                     :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
                 ]
-        if show:
-            show_image("clipped", image, wait=False)
+            else:
+                assert len(image.shape) == 3
+                image = image[
+                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
         return image
 
     def __iter__(self):
