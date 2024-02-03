@@ -14,7 +14,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
-
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
@@ -88,15 +88,6 @@ def make_parser():
         help="Maximum number of frames to process",
     )
     return parser
-
-
-def show_image(image, label: str = "Image", wait: bool = False):
-    if image is not None:
-        if isinstance(image, torch.Tensor):
-            image = image.cpu().numpy()
-        cv2.imshow(label, image)
-    if wait is not None:
-        cv2.waitKey(0 if wait else 1)
 
 
 def stitch_videos(
@@ -176,7 +167,7 @@ def stitch_videos(
             # stitched_image[:,:,0:1] *= 1.2
             # stitched_image[:,:,1:3] *= 0.8
             # stitched_image = torch.clamp(stitched_image, min=0, max=255).to(torch.uint8).numpy()
-            show_image(stitched_image, wait=False)
+            show_image("stitched_image", stitched_image, wait=False)
 
         if i == 1:
             # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
@@ -293,7 +284,7 @@ def remap_video(
             blend_timer.toc()
 
             if show:
-                show_image(blended, wait=False)
+                show_image("blended", blended, wait=False)
 
         if frame_count % 20 == 0:
             print(
@@ -333,12 +324,12 @@ def main(args):
             rfo=args.rfo,
             project_file_name=args.project_file,
             game_id=args.game_id,
-            show=False,
+            show=True,
             max_frames=args.max_frames,
             output_stitched_video_file=None,
             # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
-            #remapping_device="cpu",
+            # remapping_device="cpu",
             remapping_device=torch.device("cuda", 0),
         )
 

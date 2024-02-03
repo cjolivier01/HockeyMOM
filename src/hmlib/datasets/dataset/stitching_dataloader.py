@@ -23,6 +23,12 @@ from hmlib.stitching.synchronize import (
 
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.video_out import VideoOutput, ImageProcData
+from hmlib.utils.image import (
+    make_channels_last,
+    make_channels_first,
+    image_height,
+    image_width,
+)
 
 
 def _get_dir_name(path):
@@ -347,17 +353,29 @@ class StitchDataset:
 
     @staticmethod
     def prepare_frame_for_video(
-        image: np.array, image_roi: np.array, show_image: bool = False
+        image: np.array, image_roi: np.array, show: bool = False
     ):
+        image = make_channels_last(image)
         if not image_roi:
-            if image.shape[2] == 4:
-                image = image[:, :, :3]
+            if image.shape[-1] == 4:
+                if len(image.shape) == 4:
+                    image = image[:, :, :, :3]
+                else:
+                    image = image[:, :, :3]
         else:
-            image_roi = fix_clip_box(image_roi, image.shape[:2])
-            image = image[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
-        if show_image:
-            cv2.imshow("online_im", image)
-            cv2.waitKey(1)
+            image_roi = fix_clip_box(
+                image_roi, [image_height(image), image_width(image)]
+            )
+            if len(image.shape) == 4:
+                image = image[
+                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
+            else:
+                image = image[
+                    :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
+        if show:
+            show_image("clipped", image, wait=False)
         return image
 
     def __iter__(self):
