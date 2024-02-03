@@ -7,12 +7,24 @@
 #include <pybind11/pybind11.h>
 #include <torch/torch.h>
 
+//#include <opencv2/opencv.hpp>
+
 namespace hm {
 
 //#define FAKE_REMAP // ~4 fps
 //#define FAKE_BLEND // ~10 fps
 
 namespace {
+
+// void show_image(at::Tensor tensor, bool wait) {
+//   cv::Mat image(
+//       tensor.size(2), tensor.size(3), CV_32FC3, tensor.data_ptr<float>());
+//   image *= 255.0;
+//   image.convertTo(image, CV_8UC3);
+//   cv::imshow("PyTorch Tensor as Image", image);
+//   cv::waitKey(0);
+// }
+
 constexpr std::size_t kPrintInterval = 50;
 
 std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(

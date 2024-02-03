@@ -104,6 +104,7 @@ target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 target_link_libraries(hm PRIVATE glfw)
 target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
 target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
+#target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs)
 
 set_target_properties(
   hm PROPERTIES 
