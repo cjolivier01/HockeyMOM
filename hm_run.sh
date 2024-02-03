@@ -43,6 +43,8 @@ BATCH_SIZE=8
 
 #CONFIDENCE="--conf_thres=0.25"
 
+STITCHING_ARGS="--no-save-stitched"
+
 echo "Experiment name: ${EXP_NAME}"
 
 if [ ! -z "${VIDEO}" ]; then
@@ -60,6 +62,7 @@ OMP_NUM_THREADS=16 \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2 \
   --infer \
+  ${STITCHING_ARGS} \
   ${TRACKER} \
   ${CONFIDENCE} \
   --game-id="${GAME_ID}" \
