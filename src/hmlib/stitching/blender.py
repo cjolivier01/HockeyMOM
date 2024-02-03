@@ -542,6 +542,7 @@ def blend_video(
                         levels=0,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
+                        interpolation="bilinear",
                     )
                 else:
                     blender = PtImageBlender(
