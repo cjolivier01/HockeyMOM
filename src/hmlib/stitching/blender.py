@@ -574,7 +574,7 @@ def blend_video(
                 xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
             )
 
-            # show_image("blended", blended, wait=False)
+            show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(
