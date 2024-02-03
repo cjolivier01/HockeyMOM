@@ -15,8 +15,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
-from hmlib.stitching.laplacian_blend import LaplacianBlend
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 
 from hmlib.stitching.remapper import (
@@ -117,7 +116,7 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-class ImageBlender:
+class PtImageBlender:
     def __init__(
         self,
         images_info: List[BlendImageInfo],
@@ -537,26 +536,33 @@ def blend_video(
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
-
-                blender = ImageBlender(
-                    images_info=[
-                        BlendImageInfo(
-                            width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
-                            height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                            xpos=remapper_1.xpos,
-                            ypos=remapper_1.ypos,
-                        ),
-                        BlendImageInfo(
-                            width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
-                            height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                            xpos=remapper_2.xpos,
-                            ypos=remapper_2.ypos,
-                        ),
-                    ],
-                    seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
-                    xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-                    laplacian_blend=laplacian_blend,
-                )
+                if True:
+                    blender = core.ImageBlender(
+                        mode=core.ImageBlenderMode.HardSeam,
+                        levels=0,
+                        seam=torch.from_numpy(seam_tensor),
+                        xor_map=torch.from_numpy(xor_tensor),
+                    )
+                else:
+                    blender = PtImageBlender(
+                        images_info=[
+                            BlendImageInfo(
+                                width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
+                                height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                                xpos=remapper_1.xpos,
+                                ypos=remapper_1.ypos,
+                            ),
+                            BlendImageInfo(
+                                width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
+                                height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                                xpos=remapper_2.xpos,
+                                ypos=remapper_2.ypos,
+                            ),
+                        ],
+                        seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
+                        xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
+                        laplacian_blend=laplacian_blend,
+                    )
                 blender.init()
 
             # blended = destination_tensor_1

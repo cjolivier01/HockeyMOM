@@ -46,18 +46,18 @@ class ImageBlender {
       at::Tensor&& image_2,
       std::vector<int> xy_pos_2) const;
 
+  std::pair<at::Tensor, at::Tensor> make_full(
+      const at::Tensor& image_1,
+      const std::vector<int>& xy_pos_1,
+      const at::Tensor& image_2,
+      const std::vector<int>& xy_pos_2) const;
+
  private:
   at::Tensor hard_seam_blend(
       at::Tensor&& image_1,
       std::vector<int> xy_pos_1,
       at::Tensor&& image_2,
       std::vector<int> xy_pos_2) const;
-
-  std::pair<at::Tensor, at::Tensor> make_full(
-      const at::Tensor& image_1,
-      const std::vector<int>& xy_pos_1,
-      const at::Tensor& image_2,
-      const std::vector<int>& xy_pos_2) const;
 
   bool initialized_{false};
   Mode mode_;

@@ -21,6 +21,7 @@ from hmlib.tracking_utils.timer import Timer
 
 from hmlib.stitching.remapper import create_remapper_config
 from hmlib.stitching.blender import create_blender_config
+from hmlib.stitching.laplacian_blend import show_image
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128
@@ -196,15 +197,6 @@ class StitchingWorker:
         # INFO(f"{self._rp_str()} GOT StitchingWorker.receive_image {fid}")
         assert fid == expected_frame_id
         self._receive_timer.toc()
-        # if self._receive_count and (self._receive_count % 20) == 0:
-        #     logger.info(
-        #         "Received frame frame {} from stitching worker {} ({:.2f} fps)".format(
-        #             fid,
-        #             self._rank,
-        #             1.0 / max(1e-5, self._receive_timer.average_time),
-        #         )
-        #     )
-        #     self._receive_timer = Timer()
         self._receive_count += 1
         return image
 
@@ -389,6 +381,7 @@ class StitchingWorker:
                 stitched_frame = self._stitcher.get_stitched_frame(frame_id)
             else:
                 stitched_frame = self._stitcher.get_stitched_pytorch_frame(frame_id)
+            show_image("stitched_frameXX", stitched_frame, wait=True)
             if stitched_frame is None:
                 break
             # if isinstance(stitched_frame, torch.Tensor):

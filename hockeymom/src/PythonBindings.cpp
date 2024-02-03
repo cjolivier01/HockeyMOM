@@ -484,4 +484,54 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::ops::ImageRemapper::forward,
           py::arg("source_tensor"),
           py::call_guard<py::gil_scoped_release>());
+
+  py::enum_<hm::ops::ImageBlender::Mode>(m, "ImageBlenderMode")
+      .value("HardSeam", hm::ops::ImageBlender::Mode::HardSeam)
+      .value("Laplacian", hm::ops::ImageBlender::Mode::Laplacian)
+      .export_values();
+
+  py::class_<hm::ops::ImageBlender, std::shared_ptr<hm::ops::ImageBlender>>(
+      m, "ImageBlender")
+      .def(
+          py::init<
+              hm::ops::ImageBlender::Mode,
+              std::size_t,
+              at::Tensor,
+              at::Tensor,
+              std::optional<std::string>>(),
+          py::arg("mode"),
+          py::arg("levels"),
+          py::arg("seam"),
+          py::arg("xor_map"),
+          py::arg("interpolation"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "init",
+          &hm::ops::ImageBlender::init,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "to",
+          &hm::ops::ImageBlender::to,
+          py::arg("device"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "is_initialized",
+          &hm::ops::ImageBlender::is_initialized,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "make_full",
+          &hm::ops::ImageBlender::forward,
+          py::arg("image_1"),
+          py::arg("xy_pos_1"),
+          py::arg("image_2"),
+          py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "forward",
+          &hm::ops::ImageBlender::forward,
+          py::arg("image_1"),
+          py::arg("xy_pos_1"),
+          py::arg("image_2"),
+          py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>());
 }
