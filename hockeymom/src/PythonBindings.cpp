@@ -506,17 +506,9 @@ PYBIND11_MODULE(_hockeymom, m) {
           py::arg("interpolation"),
           py::call_guard<py::gil_scoped_release>())
       .def(
-          "init",
-          &hm::ops::ImageBlender::init,
-          py::call_guard<py::gil_scoped_release>())
-      .def(
           "to",
           &hm::ops::ImageBlender::to,
           py::arg("device"),
-          py::call_guard<py::gil_scoped_release>())
-      .def(
-          "is_initialized",
-          &hm::ops::ImageBlender::is_initialized,
           py::call_guard<py::gil_scoped_release>())
       .def(
           "make_full",

@@ -172,7 +172,6 @@ std::shared_ptr<ops::ImageBlender> StitchingDataLoader::get_blender() {
               blender_config_.seam,
               blender_config_.xor_map,
               blender_config_.interpolation);
-      blender->init();
       blender->to(blender_config_.device);
       blender_ = blender;
     }

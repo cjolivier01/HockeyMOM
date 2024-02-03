@@ -33,11 +33,7 @@ class ImageBlender {
       at::Tensor seam,
       at::Tensor xor_map,
       std::optional<std::string> interpolation);
-  void init();
   void to(std::string device);
-  bool is_initialized() const {
-    return initialized_;
-  }
   at::Tensor forward(
       at::Tensor&& image_1,
       std::vector<int> xy_pos_1,
@@ -51,6 +47,7 @@ class ImageBlender {
       const std::vector<int>& xy_pos_2) const;
 
  private:
+  void init();
   at::Tensor hard_seam_blend(
       at::Tensor&& image_1,
       std::vector<int> xy_pos_1,
