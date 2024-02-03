@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import argparse
 import numpy as np
@@ -379,7 +380,7 @@ def make_seam_and_xor_masks(
             xor_filename,
         ]
     )
-
+    # Blend one image to create the seam file
     _ = blender.blend_images(
         left_image=make_cv_compatible_tensor(images_and_positions[0].image),
         left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
@@ -410,7 +411,7 @@ def create_blender_config(
     right_pos = get_image_geo_position(tiff_image_file=right_file)
 
     left_img = torch.from_numpy(cv2.imread(left_file))
-    right_img = torch.from_numpy(cv2.imread(left_file))
+    right_img = torch.from_numpy(cv2.imread(right_file))
     assert left_img is not None and right_img is not None
     config.mode = mode
     config.levels = levels
@@ -484,7 +485,7 @@ def blend_video(
 
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
-    
+
     remapper_1 = ImageRemapper(
         dir_name=dir_name,
         basename=basename_1,
@@ -515,8 +516,12 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+                device
+            )
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+                device
+            )
 
             if frame_count == 0:
                 seam_tensor, xor_tensor = make_seam_and_xor_masks(
@@ -566,7 +571,7 @@ def blend_video(
                         xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
                         laplacian_blend=laplacian_blend,
                     )
-                #blender.init()
+                # blender.init()
 
             blended = blender.forward(
                 image_1=destination_tensor_1,
