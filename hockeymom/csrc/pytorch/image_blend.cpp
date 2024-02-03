@@ -2,7 +2,7 @@
 
 #include <torch/nn/functional.h>
 
-#include <iostream>
+//#include <iostream>
 
 namespace hm {
 namespace ops {
@@ -103,10 +103,10 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   TORCH_CHECK(x2 + w2 <= canvas_w, "Second image overflows the canvas width");
   TORCH_CHECK(y2 + h2 <= canvas_h, "Second image overflows the canvas height");
 
-  std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
-            << std::endl;
-  std::cout << "image_1 size=" << image_1.sizes()
-            << "\nimage_2 size=" << image_2.sizes() << std::endl;
+  // std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
+  //           << std::endl;
+  // std::cout << "image_1 size=" << image_1.sizes()
+  //           << "\nimage_2 size=" << image_2.sizes() << std::endl;
 
   TORCH_CHECK(x1 <= w1, "Invalid x1: " + std::to_string(x1));
   TORCH_CHECK(x1 <= h1, "Invalid y1: " + std::to_string(y1));
@@ -133,8 +133,8 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
       },
       0.0);
 
-  std::cout << "full_left size=" << full_left.sizes()
-            << "\nfull_right size=" << full_right.sizes() << std::endl;
+  // std::cout << "full_left size=" << full_left.sizes()
+  //           << "\nfull_right size=" << full_right.sizes() << std::endl;
 
   TORCH_CHECK(full_left.size(2) == canvas_h);
   TORCH_CHECK(full_left.size(3) == canvas_w);
@@ -164,19 +164,14 @@ at::Tensor ImageBlender::hard_seam_blend(
        seam_.size(1)},
       options);
 
-  std::cout << "seam size=" << seam_.sizes() << std::endl;
-  std::cout << "canvas size=" << canvas.sizes() << std::endl;
+  // std::cout << "seam size=" << seam_.sizes() << std::endl;
+  // std::cout << "canvas size=" << canvas.sizes() << std::endl;
 
-  // canvas[:, :, self._seam_mask == self._left_value] = full_left[
-  //     :, :, self._seam_mask == self._left_value
-  // ]
-  // canvas[:, :, self._seam_mask == self._right_value] = full_right[
-  //     :, :, self._seam_mask == self._right_value
-  // ]
   // std::cout << seam_.sizes() << ", " << seam_.dtype() << std::endl;
   // std::cout << seam_.sizes() << ", " << seam_.dtype() << std::endl;
   // std::cout << left_seam_value_.sizes() << ", " << left_seam_value_.dtype()
   //           << std::endl;
+
   canvas.index_put_(
       {torch::indexing::Slice(), torch::indexing::Slice(), condition_left_},
       full_left.index(
