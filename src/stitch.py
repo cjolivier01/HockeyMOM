@@ -332,7 +332,7 @@ def main(args):
             game_id=args.game_id,
             show=args.show,
             max_frames=args.max_frames,
-            output_stitched_video_file=None,
+            # output_stitched_video_file=None,
             # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
             remapping_device=torch.device("cuda", 0),
