@@ -98,6 +98,7 @@ class StitchDataset:
         encoder_device: torch.device = _get_cuda_device(),
         blend_mode: str = "multiblend",
         remapping_device: torch.device = torch.device("cuda", 0),
+        
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
