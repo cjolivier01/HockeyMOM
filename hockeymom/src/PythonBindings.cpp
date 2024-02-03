@@ -191,9 +191,6 @@ PYBIND11_MODULE(_hockeymom, m) {
           },
           py::arg("frame_id"));
 
-  using SortedPyArrayUin8Queue =
-      hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
-
   py::class_<
       hm::av::FFmpegVideoWriter,
       std::shared_ptr<hm::av::FFmpegVideoWriter>>(m, "FFmpegVideoWriter")
@@ -211,6 +208,8 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def("write", &hm::av::FFmpegVideoWriter::write_v);
   ;
 
+  using SortedPyArrayUin8Queue =
+      hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
       .def(py::init<>())
@@ -300,6 +299,35 @@ PYBIND11_MODULE(_hockeymom, m) {
               matrix = sq->dequeue_smallest_key(&key);
             }
             return std::make_tuple(key, matrix->to_py_array());
+          });
+
+  using SortedTensorQueue = hm::SortedQueue<std::size_t, at::Tensor>;
+  py::class_<SortedTensorQueue, std::shared_ptr<SortedTensorQueue>>(
+      m, "SortedTensorQueue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedTensorQueue>& sq,
+             std::size_t key,
+             at::Tensor tensor) -> void {
+            sq->enqueue(key, std::move(tensor));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedTensorQueue>& sq,
+             std::size_t key) -> at::Tensor {
+            py::gil_scoped_release release;
+            return sq->dequeue_key(key);
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedTensorQueue>& sq)
+              -> std::tuple<std::size_t, at::Tensor> {
+            std::size_t key = ~0;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
+            py::gil_scoped_release release;
+            auto tensor = sq->dequeue_smallest_key(&key);
+            return std::make_tuple(key, tensor);
           });
 
   py::class_<hm::enblend::EnBlender, std::shared_ptr<hm::enblend::EnBlender>>(

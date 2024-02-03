@@ -22,6 +22,7 @@ from ._hockeymom import (
     ImageRemapper,
     SortedRGBImageQueue,
     SortedPyArrayUin8Queue,
+    SortedTensorQueue,
     FFmpegVideoWriter,
 )
 
@@ -32,7 +33,8 @@ __all__ = [
     "StitchingDataLoader",
     "RemapperConfig",
     "ImageRemapper",
-    "BlenderConfig"
+    "BlenderConfig",
+    "SortedTensorQueue",
     "nona_process_images",
     "EnBlender",
     "FFmpegVideoWriter",
@@ -65,4 +67,3 @@ def add_to_stitching_data_loader(
     image_right: np.array,
 ) -> int:
     return _add_to_stitching_data_loader(data_loader, frame_id, image_left, image_right)
-

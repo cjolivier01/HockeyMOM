@@ -213,27 +213,27 @@ void StitchingDataLoader::add_frame(
 
 std::shared_ptr<MatrixRGB> StitchingDataLoader::get_stitched_frame(
     std::size_t frame_id) {
-  std::cout << "Waiting for frame: " << frame_id << "..." << std::endl;
+  // std::cout << "Waiting for frame: " << frame_id << "..." << std::endl;
   auto final_frame = blend_runner_.outputs()->dequeue_key(frame_id);
   if (!final_frame) {
-    std::cout << "Exiting at (before) " << frame_id << std::endl;
-    // Closing down
+    // std::cout << "Exiting at (before) " << frame_id << std::endl;
+    //  Closing down
     return nullptr;
   }
-  std::cout << "Delivering frame: " << frame_id << "..." << std::endl;
+  // std::cout << "Delivering frame: " << frame_id << "..." << std::endl;
   return std::move(final_frame->blended_image);
 }
 
 at::Tensor StitchingDataLoader::get_stitched_pytorch_frame(
     std::size_t frame_id) {
-  std::cout << "Waiting for frame: " << frame_id << "..." << std::endl;
+  // std::cout << "Waiting for frame: " << frame_id << "..." << std::endl;
   auto final_frame = blend_runner_.outputs()->dequeue_key(frame_id);
   if (!final_frame) {
-    std::cout << "Exiting at (before) " << frame_id << std::endl;
-    // Closing down
+    // std::cout << "Exiting at (before) " << frame_id << std::endl;
+    //  Closing down
     return at::Tensor();
   }
-  std::cout << "Delivering frame: " << frame_id << "..." << std::endl;
+  // std::cout << "Delivering frame: " << frame_id << "..." << std::endl;
   return std::move(final_frame->torch_blended_image);
 }
 
@@ -241,7 +241,7 @@ void StitchingDataLoader::add_torch_frame(
     std::size_t frame_id,
     at::Tensor image_1,
     at::Tensor image_2) {
-  std::cout << "Adding torch inputs for frame: " << frame_id << std::endl;
+  // std::cout << "Adding torch inputs for frame: " << frame_id << std::endl;
   auto frame_info = std::make_shared<FrameData>();
   frame_info->frame_id = frame_id;
   frame_info->torch_input_images = {
@@ -410,8 +410,9 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::blend_worker(
     StitchingDataLoader::FRAME_DATA_TYPE&& frame) {
   try {
     if (frame->torch_blended_image.defined()) {
-      std::cout << "Finished blending frame: " << frame->frame_id << std::endl;
-      // Was already blended, remapped images should be gone
+      // std::cout << "Finished blending frame: " << frame->frame_id <<
+      // std::endl;
+      //  Was already blended, remapped images should be gone
       return record_stats(std::move(frame));
     }
 
