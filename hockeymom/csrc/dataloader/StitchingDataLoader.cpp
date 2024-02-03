@@ -362,14 +362,19 @@ StitchingDataLoader::FRAME_DATA_TYPE StitchingDataLoader::remap_worker(
                 "Multi-blend must have a batch size of 1"); // batch dimensions
             remapped = remapped.squeeze(0).permute({1, 2, 0});
             remapped = remapped.contiguous().cpu();
+            frame->torch_remapped_images.at(index) = FrameData::TorchImage{
+                .tensor = remapped,
+                .xy_pos = img.xy_pos,
+            };
             frame->remapped_images.at(index) = tensor_to_matrix_rgb_image(
                 frame->torch_remapped_images.at(index).tensor,
                 frame->torch_remapped_images.at(index).xy_pos);
+          } else {
+            frame->torch_remapped_images.at(index) = FrameData::TorchImage{
+                .tensor = remapped,
+                .xy_pos = img.xy_pos,
+            };
           }
-          frame->torch_remapped_images.at(index) = FrameData::TorchImage{
-              .tensor = remapped,
-              .xy_pos = img.xy_pos,
-          };
         });
         local_pool.join_all();
       }

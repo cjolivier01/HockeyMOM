@@ -15,6 +15,7 @@ import random
 import torch
 import torchvision as tv
 from torchvision.transforms import functional as F
+import PIL
 
 from typing import List
 
@@ -551,7 +552,7 @@ def resize_image(
     img,
     new_width: int,
     new_height: int,
-    mode=None,
+    mode=PIL.Image.BILINEAR,
 ):
     w = int(new_width)
     h = int(new_height)
