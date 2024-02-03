@@ -2,13 +2,11 @@
 
 #include <ATen/ATen.h>
 
+#include <mutex>
 #include <optional>
 #include <string>
 
 namespace hm {
-
-// template <typename T>
-// using Optional = std::optional<T>;
 
 namespace ops {
 
@@ -68,7 +66,9 @@ class ImageBlender {
   at::Tensor seam_;
   at::Tensor xor_map_;
   at::Tensor left_seam_value_;
+  at::Tensor condition_left_;
   at::Tensor right_seam_value_;
+  at::Tensor condition_right_;
   std::vector<at::Tensor> seam_masks_;
   std::string interpolation_;
 };

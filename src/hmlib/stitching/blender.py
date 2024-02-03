@@ -564,7 +564,7 @@ def blend_video(
                         xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
                         laplacian_blend=laplacian_blend,
                     )
-                blender.init()
+                #blender.init()
 
             # blended = destination_tensor_1
             blended = blender.forward(
