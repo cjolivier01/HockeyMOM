@@ -569,7 +569,9 @@ def blend_video(
             # blended = destination_tensor_1
             blended = blender.forward(
                 image_1=destination_tensor_1,
+                xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
                 image_2=destination_tensor_2,
+                xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
             )
 
             # show_image("blended", blended, wait=False)
