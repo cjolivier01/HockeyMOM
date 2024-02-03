@@ -176,7 +176,20 @@ PYBIND11_MODULE(_hockeymom, m) {
               }
               return stitched_image->to_tensor();
             }
-          });
+          })
+      .def(
+          "get_stitched_pytorch_frame",
+          [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+             std::size_t frame_id) -> std::optional<at::Tensor> {
+            py::gil_scoped_release release_gil;
+            at::Tensor stitched_image =
+                data_loader->get_stitched_pytorch_frame(frame_id);
+            if (!stitched_image.defined()) {
+              return std::nullopt;
+            }
+            return stitched_image;
+          },
+          py::arg("frame_id"));
 
   using SortedPyArrayUin8Queue =
       hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;

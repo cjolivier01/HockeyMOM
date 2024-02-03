@@ -385,11 +385,14 @@ class StitchingWorker:
                 break
             pull_timer.tic()
             self._waiting_for_frame_id = frame_id
-            stitched_frame = self._stitcher.get_stitched_frame(frame_id)
+            if not self._blend_mode or self._blend_mode == "multiblend":
+                stitched_frame = self._stitcher.get_stitched_frame(frame_id)
+            else:
+                stitched_frame = self._stitcher.get_stitched_pytorch_frame(frame_id)
             if stitched_frame is None:
                 break
-            if isinstance(stitched_frame, torch.Tensor):
-                stitched_frame = stitched_frame.numpy()
+            # if isinstance(stitched_frame, torch.Tensor):
+            #     stitched_frame = stitched_frame.numpy()
             # print(stitched_frame.shape)
             assert self._in_queue > 0
             self._in_queue -= 1

@@ -102,6 +102,7 @@ class StitchingDataLoader {
       std::vector<std::shared_ptr<MatrixRGB>>&& images);
 
   std::shared_ptr<MatrixRGB> get_stitched_frame(std::size_t frame_id);
+  at::Tensor get_stitched_pytorch_frame(std::size_t frame_id);
 
   float fps() const;
 

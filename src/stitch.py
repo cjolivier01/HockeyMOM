@@ -140,10 +140,10 @@ def stitch_videos(
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         num_workers=1,
-        remap_thread_count=2,
-        blend_thread_count=10,
-        # remap_thread_count=1,
-        # blend_thread_count=1,
+        # remap_thread_count=2,
+        # blend_thread_count=10,
+        remap_thread_count=1,
+        blend_thread_count=1,
         # fork_workers=True,
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
@@ -335,9 +335,11 @@ def main(args):
             game_id=args.game_id,
             show=False,
             max_frames=args.max_frames,
+            output_stitched_video_file=None,
             # blend_mode=args.blend_mode,
             blend_mode="gpu-hard-seam",
             #remapping_device="cpu",
+            remapping_device=torch.device("cuda", 0),
         )
 
 
