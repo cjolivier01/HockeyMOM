@@ -121,7 +121,7 @@ def get_best_codec(gpu_number: int, width: int, height: int):
         compute >= 7 and width <= 9900
     ):  # FIXME: I forget what the max is? 99-thousand-something
         return "hevc_nvenc"
-    elif compute >= 6.5 and width <= 4096:
+    elif compute >= 6 and width <= 4096:
         return "hevc_nvenc"
     else:
         return "XVID"

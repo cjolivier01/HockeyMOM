@@ -337,7 +337,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 #     :,
                 # ]
                 # original_img0 = img0.to("cpu", non_blocking=True)
-                original_img0 = img0.to("cpu")
+                #original_img0 = img0.to("cpu")
+                original_img0 = img0.clone()
 
             if not self._original_image_only:
                 img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
@@ -357,9 +358,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                 frames_imgs.append(img.to(torch.float32))
 
             frames_original_imgs.append(
-                make_channels_first(original_img0).to(
-                    "cpu", non_blocking=ALL_NON_BLOCKING
-                )
+                make_channels_first(original_img0)
+                # make_channels_first(original_img0).to(
+                #     "cpu", non_blocking=ALL_NON_BLOCKING
+                # )
             )
             for _ in range(inner_batch_size):
                 self._next_frame_id += 1
@@ -399,9 +401,10 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
         self._count += self._batch_size
         if self._original_image_only:
-            return original_img.cpu(), None, None, imgs_info, ids
+            #return original_img.cpu(), None, None, imgs_info, ids
+            return original_img, None, None, imgs_info, ids
         else:
-            return original_img.cpu(), img, None, imgs_info, ids
+            return original_img, img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
