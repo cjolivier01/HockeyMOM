@@ -19,6 +19,32 @@ int constrain_index(int max_index, int calculated_index) {
   // return final_index;
 }
 
+inline at::Tensor scalar_float(const float& val) {
+  return torch::tensor({val});
+}
+
+at::Tensor create_gaussian_kernel(
+    int kernel_size,
+    int channels,
+    float sigma = 1.0,
+    at::ScalarType dtype = at::ScalarType::Float) {
+  // Create Gaussian Kernel. In Numpy
+  at::Tensor ax = at::linspace(
+      -double(kernel_size - 1) / 2.0,
+      double(kernel_size - 1) / 2.0,
+      kernel_size);
+  auto xx_and_yy = at::meshgrid({ax, ax});
+  at::Tensor& xx = xx_and_yy.at(0);
+  at::Tensor& yy = xx_and_yy.at(1);
+  at::Tensor kernel_tensor = at::exp(
+      -0.5 * (at::square(xx) + at::square(yy)) /
+      at::square(scalar_float(sigma)));
+  kernel_tensor = at::div(kernel_tensor, at::sum(kernel_tensor));
+  // # Reshapes to (channels, 1, size, size)
+  kernel_tensor = kernel_tensor.repeat({channels, 1, 1, 1});
+  return kernel_tensor;
+}
+
 } // namespace
 
 ImageBlender::ImageBlender(
@@ -147,9 +173,9 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
 
 at::Tensor ImageBlender::hard_seam_blend(
     at::Tensor&& image_1,
-    std::vector<int> xy_pos_1,
+    const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
-    std::vector<int> xy_pos_2) const {
+    const std::vector<int>& xy_pos_2) const {
   auto [full_left, full_right] =
       make_full(image_1, xy_pos_1, image_2, xy_pos_2);
 
@@ -190,19 +216,28 @@ at::Tensor ImageBlender::hard_seam_blend(
 
 at::Tensor ImageBlender::forward(
     at::Tensor&& image_1,
-    std::vector<int> xy_pos_1,
+    const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
-    std::vector<int> xy_pos_2) const {
+    const std::vector<int>& xy_pos_2) const {
   assert(initialized_);
   if (!levels_) {
     return hard_seam_blend(
-        std::move(image_1),
-        std::move(xy_pos_1),
-        std::move(image_2),
-        std::move(xy_pos_2));
+        std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
   }
-  assert(false);
-  return image_1.clone();
+  return laplacian_pyramid_blend(
+      std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
+}
+
+at::Tensor ImageBlender::laplacian_pyramid_blend(
+    at::Tensor&& image_1,
+    const std::vector<int>& xy_pos_1,
+    at::Tensor&& image_2,
+    const std::vector<int>& xy_pos_2) const {
+  // std::vector<at::Tensor>
+  auto [full_left, full_right] =
+      make_full(image_1, xy_pos_1, image_2, xy_pos_2);
+
+  return std::move(image_1);
 }
 
 } // namespace ops

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <torch/torch.h>
 
 #include <optional>
 #include <string>
@@ -23,9 +24,9 @@ class ImageBlender {
   void to(at::Device device);
   at::Tensor forward(
       at::Tensor&& image_1,
-      std::vector<int> xy_pos_1,
+      const std::vector<int>& xy_pos_1,
       at::Tensor&& image_2,
-      std::vector<int> xy_pos_2) const;
+      const std::vector<int>& xy_pos_2) const;
 
   std::pair<at::Tensor, at::Tensor> make_full(
       const at::Tensor& image_1,
@@ -37,9 +38,15 @@ class ImageBlender {
   void init();
   at::Tensor hard_seam_blend(
       at::Tensor&& image_1,
-      std::vector<int> xy_pos_1,
+      const std::vector<int>& xy_pos_1,
       at::Tensor&& image_2,
-      std::vector<int> xy_pos_2) const;
+      const std::vector<int>& xy_pos_2) const;
+
+  at::Tensor laplacian_pyramid_blend(
+      at::Tensor&& image_1,
+      const std::vector<int>& xy_pos_1,
+      at::Tensor&& image_2,
+      const std::vector<int>& xy_pos_2) const;
 
   bool initialized_{false};
   Mode mode_;
@@ -54,6 +61,12 @@ class ImageBlender {
   at::Tensor right_seam_value_;
   at::Tensor condition_right_;
   std::vector<at::Tensor> seam_masks_;
+
+  // Laplacian pyramid persistent tensors
+  at::Tensor gussian_kernel;
+  at::Tensor mask_gussian_kernel;
+  //torch::nn::Conv2d gaussian_conv_;
+
   std::string interpolation_;
 };
 
