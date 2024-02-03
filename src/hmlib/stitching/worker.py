@@ -381,7 +381,7 @@ class StitchingWorker:
                 stitched_frame = self._stitcher.get_stitched_frame(frame_id)
             else:
                 stitched_frame = self._stitcher.get_stitched_pytorch_frame(frame_id)
-            show_image("stitched_frameXX", stitched_frame, wait=True)
+            #show_image("stitched_frameXX", stitched_frame, wait=True)
             if stitched_frame is None:
                 break
             # if isinstance(stitched_frame, torch.Tensor):

@@ -87,6 +87,12 @@ def make_parser():
         type=int,
         help="Maximum number of frames to process",
     )
+    parser.add_argument(
+        "--show",
+        default=False,
+        action="store_true",
+        help="Show images",
+    )
     return parser
 
 
@@ -324,7 +330,7 @@ def main(args):
             rfo=args.rfo,
             project_file_name=args.project_file,
             game_id=args.game_id,
-            show=True,
+            show=args.show,
             max_frames=args.max_frames,
             output_stitched_video_file=None,
             # blend_mode=args.blend_mode,
