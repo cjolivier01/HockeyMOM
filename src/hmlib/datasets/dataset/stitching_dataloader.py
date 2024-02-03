@@ -20,7 +20,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
-
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.video_out import VideoOutput, ImageProcData
 from hmlib.utils.image import (
@@ -446,6 +446,7 @@ class StitchDataset:
 
         # self._next_timer.tic()
         stitched_frame = self.get_next_frame(frame_id=frame_id)
+        #show_image("stitched_frame", stitched_frame, wait=True)
         if stitched_frame is None:
             self.close()
             raise StopIteration()
