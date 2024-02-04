@@ -287,6 +287,7 @@ class StitchingWorker:
                 basename="mapping_",
                 device=self._remapping_device,
                 levels=4,
+                lazy_init=True,
                 interpolation="bilinear",
             )
             self._stitcher.configure_blender(blender_config=self._blender_config)

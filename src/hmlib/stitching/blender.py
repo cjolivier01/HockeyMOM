@@ -410,6 +410,7 @@ def create_blender_config(
     basename: str,
     device: torch.device,
     levels: int = 4,
+    lazy_init: bool = False,
     interpolation: str = "bilinear",
 ) -> core.RemapperConfig:
     config = core.BlenderConfig()
@@ -437,6 +438,7 @@ def create_blender_config(
     )
     config.seam = torch.from_numpy(seam)
     config.xor_map = torch.from_numpy(xor_map)
+    config.lazy_init = lazy_init
     config.interpolation = interpolation
     return config
 

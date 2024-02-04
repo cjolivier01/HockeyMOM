@@ -79,6 +79,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("levels", &hm::BlenderConfig::levels)
       .def_readwrite("seam", &hm::BlenderConfig::seam)
       .def_readwrite("xor_map", &hm::BlenderConfig::xor_map)
+      .def_readwrite("lazy_init", &hm::BlenderConfig::lazy_init)
       .def_readwrite("interpolation", &hm::BlenderConfig::interpolation)
       .def_readwrite("device", &hm::BlenderConfig::device);
 
