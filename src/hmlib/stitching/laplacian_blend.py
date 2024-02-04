@@ -161,6 +161,7 @@ class LaplacianBlend(torch.nn.Module):
     def forward(self, left, right, make_full_fn: callable = None):
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
+        assert left.size == right.size # They should be "full" already
         if not self._initialized:
             self.initialize(input_shape=left.shape, device=left.device)
         if False:

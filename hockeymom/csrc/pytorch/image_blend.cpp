@@ -137,15 +137,17 @@ at::Tensor ImageBlender::downsample(const at::Tensor& x) {
   return avg_pooling_->forward(x);
 }
 
-at::Tensor ImageBlender::upsample(at::Tensor& x, const at::IntArrayRef size) {
+at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) {
   return torch::upsample_bilinear2d(x, size, /*align_corners=*/false);
 }
 
-std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(at::Tensor& x) {
+std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
+    at::Tensor& x,
+    torch::nn::Conv2d& conv) {
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
-    at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, *gaussian_conv_);
+    at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, conv);
     at::Tensor down = downsample(gauss_filtered_x);
     at::Tensor laplacian = current_x -
         upsample(down,
@@ -156,6 +158,13 @@ std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(at::Tensor& x) {
   }
   pyramids.emplace_back(current_x);
   return pyramids;
+}
+
+at::Tensor ImageBlender::one_level_gaussian_pyramid(
+    at::Tensor& x,
+    torch::nn::Conv2d& conv) {
+  at::Tensor gauss_filtered_x = gaussian_conv2d(x, conv);
+  return downsample(gauss_filtered_x);
 }
 
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(

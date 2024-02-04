@@ -11,6 +11,7 @@ namespace hm {
 namespace ops {
 
 class ImageBlender {
+  using SizeRef = at::IntArrayRef;
  public:
   enum class Mode { HardSeam, Laplacian };
 
@@ -49,8 +50,10 @@ class ImageBlender {
       const std::vector<int>& xy_pos_2) const;
 
   at::Tensor downsample(const at::Tensor& x);
-  at::Tensor upsample(at::Tensor& x, const at::IntArrayRef size);
-  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x);
+  at::Tensor upsample(at::Tensor& x, const SizeRef size);
+  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
+  at::Tensor one_level_gaussian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
+  void create_masks(const SizeRef input_shape);
 
   bool initialized_{false};
   Mode mode_;
@@ -72,7 +75,7 @@ class ImageBlender {
   std::unique_ptr<torch::nn::Conv2d> gaussian_conv_;
   std::unique_ptr<torch::nn::Conv2d> mask_gaussian_conv_;
   torch::nn::AvgPool2d avg_pooling_;
-
+  std::vector<at::Tensor> mask_small_gaussian_blurred_;
 
   std::string interpolation_;
 };
