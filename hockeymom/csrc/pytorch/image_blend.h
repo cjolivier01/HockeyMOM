@@ -27,7 +27,7 @@ class ImageBlender {
       at::Tensor&& image_1,
       const std::vector<int>& xy_pos_1,
       at::Tensor&& image_2,
-      const std::vector<int>& xy_pos_2) const;
+      const std::vector<int>& xy_pos_2);
 
   std::pair<at::Tensor, at::Tensor> make_full(
       const at::Tensor& image_1,
@@ -47,12 +47,12 @@ class ImageBlender {
       at::Tensor&& image_1,
       const std::vector<int>& xy_pos_1,
       at::Tensor&& image_2,
-      const std::vector<int>& xy_pos_2) const;
+      const std::vector<int>& xy_pos_2);
 
   at::Tensor downsample(const at::Tensor& x);
-  at::Tensor upsample(at::Tensor& x, const SizeRef size);
-  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
-  at::Tensor one_level_gaussian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
+  at::Tensor upsample(at::Tensor& x, const SizeRef size) const;
+  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, const torch::nn::Conv2d& conv);
+  at::Tensor one_level_gaussian_pyramid(at::Tensor& x, const torch::nn::Conv2d& conv);
   void create_masks();
 
   bool initialized_{false};

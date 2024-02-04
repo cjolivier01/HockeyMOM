@@ -137,13 +137,13 @@ at::Tensor ImageBlender::downsample(const at::Tensor& x) {
   return avg_pooling_->forward(x);
 }
 
-at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) {
+at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) const {
   return torch::upsample_bilinear2d(x, size, /*align_corners=*/false);
 }
 
 std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
     at::Tensor& x,
-    torch::nn::Conv2d& conv) {
+    const torch::nn::Conv2d& conv) {
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
@@ -322,7 +322,7 @@ at::Tensor ImageBlender::forward(
     at::Tensor&& image_1,
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
-    const std::vector<int>& xy_pos_2) const {
+    const std::vector<int>& xy_pos_2) {
   assert(initialized_);
   if (!levels_) {
     return hard_seam_blend(
@@ -336,10 +336,15 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     at::Tensor&& image_1,
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
-    const std::vector<int>& xy_pos_2) const {
+    const std::vector<int>& xy_pos_2) {
   // std::vector<at::Tensor>
   auto [full_left, full_right] =
       make_full(image_1, xy_pos_1, image_2, xy_pos_2);
+
+  std::vector<at::Tensor> left_laplacian =
+      create_laplacian_pyramid(full_left, *gaussian_conv_);
+  std::vector<at::Tensor> right_laplacian =
+      create_laplacian_pyramid(full_right, *gaussian_conv_);
 
   return std::move(image_1);
 }
