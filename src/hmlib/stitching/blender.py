@@ -161,7 +161,12 @@ class PtImageBlender:
             self._cuda_stream.synchronize()
 
     def forward(
-        self, image_1: torch.Tensor, image_2: torch.Tensor, synchronize: bool = False
+        self,
+        image_1: torch.Tensor,
+        xy_pos_1: List[int],
+        image_2: torch.Tensor,
+        xy_pos_2: List[int],
+        synchronize: bool = False,
     ):
         if self._cuda_stream is not None:
             with torch.cuda.stream(self._cuda_stream):
@@ -368,25 +373,27 @@ def make_cv_compatible_tensor(tensor):
 def make_seam_and_xor_masks(
     dir_name: str,
     images_and_positions: List[ImageAndPos],
+    force: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
-    blender = core.EnBlender(
-        args=[
-            f"--save-seams",
-            seam_filename,
-            f"--save-xor",
-            xor_filename,
-        ]
-    )
-    # Blend one image to create the seam file
-    _ = blender.blend_images(
-        left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-        left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-        right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-        right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-    )
+    if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
+        blender = core.EnBlender(
+            args=[
+                f"--save-seams",
+                seam_filename,
+                f"--save-xor",
+                xor_filename,
+            ]
+        )
+        # Blend one image to create the seam file
+        _ = blender.blend_images(
+            left_image=make_cv_compatible_tensor(images_and_positions[0].image),
+            left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+            right_image=make_cv_compatible_tensor(images_and_positions[1].image),
+            right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+        )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
     xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
     return seam_tensor, xor_tensor
@@ -542,14 +549,14 @@ def blend_video(
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
-                if True:
+                if False:
                     blender = core.ImageBlender(
-                        #mode=core.ImageBlenderMode.HardSeam,
+                        # mode=core.ImageBlenderMode.HardSeam,
                         mode=core.ImageBlenderMode.Laplacian,
                         levels=4,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
-                        #lazy_init=True,
+                        # lazy_init=True,
                         lazy_init=False,
                         interpolation="bilinear",
                     )
