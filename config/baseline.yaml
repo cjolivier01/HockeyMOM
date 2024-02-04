@@ -66,7 +66,9 @@ game:
   clip_box: null
   boundaries:
     upper:
+    upper_tune_position: null
     lower:
+    lower_tune_position: null
 
 #
 # Model config

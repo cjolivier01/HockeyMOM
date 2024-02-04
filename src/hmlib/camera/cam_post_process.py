@@ -285,6 +285,26 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.bottom_border_lines = get_nested_value(
             self.game_config, "game.boundaries.lower", []
         )
+        upper_tune_position = get_nested_value(
+            self.game_config, "game.boundaries.upper_tune_position", []
+        )
+        lower_tune_position = get_nested_value(
+            self.game_config, "game.boundaries.lower_tune_position", []
+        )
+        if self.top_border_lines and upper_tune_position:
+            for i in range(len(self.top_border_lines)):
+                self.top_border_lines[i][0] += upper_tune_position[0]
+                self.top_border_lines[i][2] += upper_tune_position[0]
+                self.top_border_lines[i][1] += upper_tune_position[1]
+                self.top_border_lines[i][3] += upper_tune_position[1]
+
+        if self.bottom_border_lines and lower_tune_position:
+            for i in range(len(self.top_border_lines)):
+                self.bottom_border_lines[i][0] += lower_tune_position[0]
+                self.bottom_border_lines[i][2] += lower_tune_position[0]
+                self.bottom_border_lines[i][1] += lower_tune_position[1]
+                self.bottom_border_lines[i][3] += lower_tune_position[1]
+
 
 
 def scale_box(box, from_img, to_img):
@@ -517,27 +537,31 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._video_output_campp = VideoOutput(
             name="TRACKING",
             args=self._args,
-            output_video_path=os.path.join(self._save_dir, "tracking_output.mkv")
-            if self._save_dir is not None
-            else None,
+            output_video_path=(
+                os.path.join(self._save_dir, "tracking_output.mkv")
+                if self._save_dir is not None
+                else None
+            ),
             fps=self._fps,
             use_fork=False,
             start=False,
             output_frame_width=self.final_frame_width,
             output_frame_height=self.final_frame_height,
             save_frame_dir=self._save_frame_dir,
-            watermark_image_path=os.path.realpath(
-                os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)),
-                    "..",
-                    "..",
-                    "..",
-                    "images",
-                    "sports_ai_watermark.png",
+            watermark_image_path=(
+                os.path.realpath(
+                    os.path.join(
+                        os.path.dirname(os.path.realpath(__file__)),
+                        "..",
+                        "..",
+                        "..",
+                        "images",
+                        "sports_ai_watermark.png",
+                    )
                 )
-            )
-            if self._args.use_watermark
-            else None,
+                if self._args.use_watermark
+                else None
+            ),
             device=self._video_out_device,
             skip_final_save=self._args.skip_final_video_save,
             image_channel_adjustment=self._args.game_config["rink"]["camera"][
@@ -827,7 +851,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             group_threshhold=0.5,
         )
         if group_x_velocity:
-            #print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 cv2.circle(
                     online_im,
