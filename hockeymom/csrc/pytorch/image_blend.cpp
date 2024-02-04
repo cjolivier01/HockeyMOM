@@ -2,10 +2,103 @@
 
 #include <torch/nn/functional.h>
 
+#include <pybind11/embed.h> // This header is required for embedding Python
+#include <pybind11/pybind11.h>
+
 namespace hm {
 namespace ops {
 
 namespace {
+
+void prettyPrintTensor(const torch::Tensor& tensor) {
+  auto sizes = tensor.sizes();
+  int ndim = tensor.dim();
+
+  // Check if the tensor is empty
+  if (ndim == 0) {
+    std::cout << "Tensor is empty" << std::endl;
+    return;
+  }
+
+  // Check if the tensor is a scalar
+  if (ndim == 1 && sizes[0] == 1) {
+    std::cout << tensor.item<float>() << std::endl;
+    return;
+  }
+
+  // Check if the tensor is a 1D vector
+  if (ndim == 1) {
+    std::cout << "[ ";
+    for (int i = 0; i < sizes[0]; ++i) {
+      std::cout << tensor[i].item<float>();
+      if (i < sizes[0] - 1)
+        std::cout << ", ";
+    }
+    std::cout << " ]" << std::endl;
+    return;
+  }
+
+  // For tensors with more dimensions
+  for (int i = 0; i < ndim; ++i) {
+    std::cout << "Dimension " << i << ": " << sizes[i] << " elements"
+              << std::endl;
+    int sz_at_dim = sizes[i];
+    for (int j = 0; j < sz_at_dim; ++j) {
+      std::cout << "  ";
+      prettyPrintTensor(tensor[j]);
+    }
+  }
+}
+
+torch::Tensor gaussian_conv2d(
+    const torch::Tensor& x,
+    const torch::Tensor& g_kernel) {
+  // Check if x has a dtype different from torch::kUInt8
+  if (x.dtype() == torch::kUInt8) {
+    throw std::runtime_error("Input tensor cannot have dtype torch::kUInt8");
+  }
+
+  // Infer depth automatically based on the shape of g_kernel
+  int64_t channels = g_kernel.size(0);
+  int64_t padding =
+      g_kernel.size(-1) / 2; // Kernel size needs to be an odd number
+
+  // Check if x has the expected shape (batch, depth, height, width)
+  if (x.dim() != 4) {
+    throw std::runtime_error(
+        "Expected input tensor to be of shape: (batch, depth, height, width)");
+  }
+
+  // Perform the convolution operation
+  // aten::conv2d(Tensor input, Tensor weight, Tensor? bias=None, int[2]
+  // stride=1, int[2] padding=0, int[2] dilation=1, int groups=1) -> Tensor
+  torch::Tensor y = torch::conv2d(
+      /*input=*/x,
+      /*weight=*/g_kernel,
+      /*bias=*/c10::nullopt,
+      /*stride=*/1,
+      /*padding=*/padding,
+      /*dilation=*/1,
+      /*groups=*/channels);
+
+  return y;
+}
+
+void show_image(at::Tensor image, bool wait) {
+  namespace py = pybind11;
+
+  // Initialize the Python interpreter (if not already done)
+  py::scoped_interpreter guard{};
+
+  // Acquire the GIL
+  py::gil_scoped_acquire acquire;
+
+  // Import the Python module containing your function
+  py::module my_module = py::module::import("hmlib.stitching.laplacian_blend");
+
+  // Call the Python function
+  py::object result = my_module.attr("show_image")(image, wait);
+}
 
 int constrain_index(int max_index, int calculated_index) {
   return calculated_index;
@@ -37,17 +130,10 @@ at::Tensor create_gaussian_kernel(
   at::Tensor kernel_tensor = at::exp(
       -0.5 * (at::square(xx) + at::square(yy)) /
       at::square(scalar_float(sigma)));
-  kernel_tensor = at::div(kernel_tensor, at::sum(kernel_tensor));
+  kernel_tensor /= at::sum(kernel_tensor);
   // # Reshapes to (channels, 1, size, size)
   kernel_tensor = kernel_tensor.repeat({channels, 1, 1, 1});
   return kernel_tensor;
-}
-
-at::Tensor gaussian_conv2d(at::Tensor& x, torch::nn::Conv2d& conv) {
-  TORCH_CHECK(
-      x.dim() == 4,
-      "Expected input tensor to be of shape: (batch, depth, height, width)");
-  return conv->forward(x);
 }
 
 } // namespace
@@ -82,9 +168,7 @@ void ImageBlender::init() {
   assert(unique_elements.size(0) == 2);
   assert(unique_elements.dim() == 1);
   left_seam_value_ = unique_elements[0];
-  condition_left_ = at::eq(seam_, left_seam_value_);
   right_seam_value_ = unique_elements[1];
-  condition_right_ = at::eq(seam_, right_seam_value_);
 
   if (mode_ == Mode::Laplacian) {
     gussian_kernel_ = create_gaussian_kernel(
@@ -98,31 +182,45 @@ void ImageBlender::init() {
         /*sigma=*/1.0,
         /*dtype=*/at::ScalarType::Float);
 
-    // Make the image conv op
-    int channels = gussian_kernel_.size(0);
-    int padding = gussian_kernel_.size(gussian_kernel_.dim() - 1) / 2;
-    gaussian_conv_ = std::make_unique<torch::nn::Conv2d>(
-        torch::nn::Conv2dOptions(channels, channels, gussian_kernel_.size(0))
-            .stride(1)
-            .padding(padding)
-            .groups(channels));
-    (*gaussian_conv_)->weight.set_data(gussian_kernel_);
-    (*gaussian_conv_)->to(current_device);
-
-    // Make the mask conv op
-    channels = mask_gussian_kernel_.size(0);
-    padding = mask_gussian_kernel_.size(mask_gussian_kernel_.dim() - 1) / 2;
-    mask_gaussian_conv_ = std::make_unique<torch::nn::Conv2d>(
-        torch::nn::Conv2dOptions(channels, channels, gussian_kernel_.size(0))
-            .stride(1)
-            .padding(padding)
-            .groups(channels));
-    (*mask_gaussian_conv_)->weight.set_data(mask_gussian_kernel_);
-    (*mask_gaussian_conv_)->to(current_device);
     create_masks();
+  } else {
+    condition_left_ = at::eq(seam_, left_seam_value_);
+    condition_right_ = at::eq(seam_, right_seam_value_);
   }
 
   initialized_ = true;
+}
+
+void ImageBlender::create_masks() {
+  at::Tensor mask = seam_.unsqueeze(0).unsqueeze(0);
+
+  at::Tensor condition_left =
+      at::eq(seam_, left_seam_value_).unsqueeze(0).unsqueeze(0);
+  at::Tensor condition_right =
+      at::eq(seam_, right_seam_value_).unsqueeze(0).unsqueeze(0);
+
+  mask.index_put_({condition_left}, 1);
+  mask.index_put_({condition_right}, 0);
+  mask = mask.to(at::ScalarType::Float);
+  at::Tensor mask_img = mask.clone();
+  mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
+  for (int l = 0; l < levels_ + 1; ++l) {
+    mask_img = one_level_gaussian_pyramid(mask_img, mask_gussian_kernel_);
+    mask_small_gaussian_blurred_.emplace_back(mask_img.squeeze(0).squeeze(0));
+  }
+  for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
+    at::Tensor max_mask_val = at::max(mask_small_gaussian_blurred_[i]);
+    std::cout << "mask[" << i
+              << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
+              << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+              << std::endl;
+    mask_small_gaussian_blurred_[i] =
+        mask_small_gaussian_blurred_[i] / max_mask_val;
+    std::cout << "mask[" << i
+              << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
+              << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+              << std::endl;
+  }
 }
 
 void ImageBlender::to(at::Device device) {
@@ -130,18 +228,19 @@ void ImageBlender::to(at::Device device) {
   xor_map_ = xor_map_.to(device);
   if (initialized_) {
     left_seam_value_ = left_seam_value_.to(device);
-    condition_left_ = condition_left_.to(device);
     right_seam_value_ = right_seam_value_.to(device);
-    condition_right_ = condition_right_.to(device);
+    gussian_kernel_ = gussian_kernel_.to(device);
+    mask_gussian_kernel_ = mask_gussian_kernel_.to(device);
     if (mode_ == Mode::Laplacian) {
-      (*gaussian_conv_)->to(device);
-      (*mask_gaussian_conv_)->to(device);
       avg_pooling_->to(device);
       for (std::size_t i = 0, n = mask_small_gaussian_blurred_.size(); i < n;
            ++i) {
         mask_small_gaussian_blurred_[i] =
             mask_small_gaussian_blurred_[i].to(device);
       }
+    } else {
+      condition_left_ = condition_left_.to(device);
+      condition_right_ = condition_right_.to(device);
     }
   }
 }
@@ -156,21 +255,16 @@ at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) const {
 
 std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
     at::Tensor& x,
-    torch::nn::Conv2d& conv) {
+    at::Tensor& kernel) {
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
-    // std::cout << "current_x size: " << current_x.sizes() << std::endl;
-    at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, conv);
-    // std::cout << "gauss_filtered_x size: " << gauss_filtered_x.sizes()
-    //           << std::endl;
+    at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, kernel);
     at::Tensor down = downsample(gauss_filtered_x);
-    // std::cout << "down size: " << down.sizes() << std::endl;
     at::Tensor laplacian = current_x -
         upsample(down,
                  {gauss_filtered_x.size(gauss_filtered_x.dim() - 2),
                   gauss_filtered_x.size(gauss_filtered_x.dim() - 1)});
-    // std::cout << "laplacian size: " << laplacian.sizes() << std::endl;
     pyramids.emplace_back(laplacian);
     current_x = down;
   }
@@ -180,37 +274,13 @@ std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
 
 at::Tensor ImageBlender::one_level_gaussian_pyramid(
     at::Tensor& x,
-    torch::nn::Conv2d& conv) {
-  at::Tensor gauss_filtered_x = gaussian_conv2d(x, conv);
-  return downsample(gauss_filtered_x);
-}
+    at::Tensor& kernel) {
+  at::Tensor gauss_filtered_x;
+  gauss_filtered_x = gaussian_conv2d(x, kernel);
+  std::cout << "NEW gauss_filtered_x: min=" << at::min(gauss_filtered_x).item()
+            << ", max=" << at::max(gauss_filtered_x) << std::endl;
 
-void ImageBlender::create_masks() {
-  at::Tensor mask = seam_.unsqueeze(0).unsqueeze(0);
-  at::Tensor unique_values = std::get<0>(at::_unique(mask, /*sorted=*/true));
-  TORCH_CHECK(
-      unique_values.dim() == 1 and unique_values.size(0) == 2,
-      "Need 2 unique values in the mask");
-  at::Tensor left_value = unique_values[0];
-  at::Tensor right_value = unique_values[1];
-  mask.index_put_({mask == left_value}, 1.0);
-  mask.index_put_({mask == right_value}, 0.0);
-  mask = mask.to(at::ScalarType::Float);
-  at::Tensor mask_img = mask;
-  mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
-  for (int l = 0; l < levels_ + 1; ++l) {
-    auto prev_size = mask_img.sizes();
-    mask_img = one_level_gaussian_pyramid(mask_img, *mask_gaussian_conv_);
-    // std::cout << "mask " << prev_size << " -> " << mask_img.sizes()
-    //           << std::endl;
-    mask_small_gaussian_blurred_.emplace_back(mask_img.squeeze(0).squeeze(0));
-    std::cout << "mask max [" << l
-              << "] = " << at::max(*mask_small_gaussian_blurred_.rbegin())
-              << std::endl;
-  }
-  for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
-    mask_small_gaussian_blurred_[i] /= at::max(mask_small_gaussian_blurred_[i]);
-  }
+  return downsample(gauss_filtered_x);
 }
 
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
@@ -371,9 +441,9 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   //           << "\nfull_right size=" << full_right.sizes() << std::endl;
 
   std::vector<at::Tensor> left_laplacian =
-      create_laplacian_pyramid(full_left, *gaussian_conv_);
+      create_laplacian_pyramid(full_left, gussian_kernel_);
   std::vector<at::Tensor> right_laplacian =
-      create_laplacian_pyramid(full_right, *gaussian_conv_);
+      create_laplacian_pyramid(full_right, gussian_kernel_);
 
   // std::cout << "left_laplacian size=" << left_laplacian.sizes()
   //           << "\nright_laplacian size=" << right_laplacian.sizes() <<
@@ -396,7 +466,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     at::Tensor F_1 = upsample(
         F_2,
         {mask_1d.size(mask_1d.dim() - 2), mask_1d.size(mask_1d.dim() - 1)});
-    at::Tensor upsampled_F1 = gaussian_conv2d(F_1, *gaussian_conv_);
+    at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
     at::Tensor L_left = left_laplacian.at(this_level);
     at::Tensor L_right = right_laplacian.at(this_level);
     at::Tensor L_c = (mask_left * L_left) + (mask_right * L_right);

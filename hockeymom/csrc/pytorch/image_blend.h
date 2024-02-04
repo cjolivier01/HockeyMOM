@@ -53,8 +53,8 @@ class ImageBlender {
 
   at::Tensor downsample(const at::Tensor& x);
   at::Tensor upsample(at::Tensor& x, const SizeRef size) const;
-  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
-  at::Tensor one_level_gaussian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
+  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, at::Tensor& kernel);
+  at::Tensor one_level_gaussian_pyramid(at::Tensor& x, at::Tensor& kernel);
   void create_masks();
 
   Mode mode_;
@@ -74,8 +74,6 @@ class ImageBlender {
   // Laplacian pyramid persistent tensors
   at::Tensor gussian_kernel_;
   at::Tensor mask_gussian_kernel_;
-  std::unique_ptr<torch::nn::Conv2d> gaussian_conv_;
-  std::unique_ptr<torch::nn::Conv2d> mask_gaussian_conv_;
   torch::nn::AvgPool2d avg_pooling_;
   std::vector<at::Tensor> mask_small_gaussian_blurred_;
 

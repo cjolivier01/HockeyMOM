@@ -95,6 +95,11 @@ def make_parser():
         help="Don't save the output video frames",
     )
     parser.add_argument(
+        "--python",
+        action="store_true",
+        help="Python blending path",
+    )
+    parser.add_argument(
         "--rotation_angle",
         default=0,
         type=int,
@@ -457,6 +462,7 @@ def blend_video(
     interpolation: str = None,
     lfo: float = None,
     rfo: float = None,
+    python_blend: bool = False,
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
@@ -549,7 +555,7 @@ def blend_video(
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
-                if False:
+                if not python_blend:
                     blender = core.ImageBlender(
                         # mode=core.ImageBlenderMode.HardSeam,
                         mode=core.ImageBlenderMode.Laplacian,
@@ -701,6 +707,7 @@ def main(args):
             "mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
+            python_blend=args.python,
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,

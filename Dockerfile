@@ -52,6 +52,7 @@ RUN apt-get install -y \
     nvidia-utils-535 \
     nvidia-cuda-dev \
     nvidia-cuda-toolkit \
+    libffmpeg-nvenc-dev \
     && apt-get clean
 
 # Install FFmpeg build dependencies
