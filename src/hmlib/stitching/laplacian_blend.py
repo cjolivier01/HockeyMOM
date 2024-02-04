@@ -19,7 +19,7 @@ def create_gaussian_kernel(
     return kernel_tensor.to(device)
 
 
-def gaussian_conv2d(x, g_kernel, dtype=torch.float):
+def gaussian_conv2d(x, g_kernel):
     assert x.dtype != torch.uint8
     # Assumes input of x is of shape: (minibatch, depth, height, width)
     # Infer depth automatically based on the shape

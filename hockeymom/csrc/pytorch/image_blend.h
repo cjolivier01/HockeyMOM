@@ -48,6 +48,9 @@ class ImageBlender {
       at::Tensor&& image_2,
       const std::vector<int>& xy_pos_2) const;
 
+  at::Tensor downsize(const at::Tensor& x);
+  at::Tensor upsample(at::Tensor& x, const at::IntArrayRef size);
+
   bool initialized_{false};
   Mode mode_;
   std::size_t levels_;
@@ -63,9 +66,12 @@ class ImageBlender {
   std::vector<at::Tensor> seam_masks_;
 
   // Laplacian pyramid persistent tensors
-  at::Tensor gussian_kernel;
-  at::Tensor mask_gussian_kernel;
-  //torch::nn::Conv2d gaussian_conv_;
+  at::Tensor gussian_kernel_;
+  at::Tensor mask_gussian_kernel_;
+  std::unique_ptr<torch::nn::Conv2d> gaussian_conv_;
+  std::unique_ptr<torch::nn::Conv2d> mask_gaussian_conv_;
+  torch::nn::AvgPool2d avg_pooling_;
+
 
   std::string interpolation_;
 };

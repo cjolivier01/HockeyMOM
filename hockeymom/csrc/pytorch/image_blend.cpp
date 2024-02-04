@@ -45,6 +45,13 @@ at::Tensor create_gaussian_kernel(
   return kernel_tensor;
 }
 
+at::Tensor gaussian_conv2d(at::Tensor& x, torch::nn::Conv2d& conv) {
+  TORCH_CHECK(
+      x.dim() == 4,
+      "Expected input tensor to be of shape: (batch, depth, height, width)");
+  return conv->forward(x);
+}
+
 } // namespace
 
 ImageBlender::ImageBlender(
@@ -57,7 +64,8 @@ ImageBlender::ImageBlender(
       levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
-      interpolation_(interpolation ? *interpolation : "") {
+      interpolation_(interpolation ? *interpolation : ""),
+      avg_pooling_(torch::nn::AvgPool2dOptions(/*kernel_size=*/2)) {
   init();
 }
 
@@ -74,6 +82,40 @@ void ImageBlender::init() {
   condition_left_ = at::eq(seam_, left_seam_value_);
   right_seam_value_ = unique_elements[1];
   condition_right_ = at::eq(seam_, right_seam_value_);
+
+  if (mode_ == Mode::Laplacian) {
+    gussian_kernel_ = create_gaussian_kernel(
+        /*kernel_size=*/5,
+        /*channels=*/3,
+        /*sigma=*/1.0,
+        /*dtype=*/at::ScalarType::Float);
+    mask_gussian_kernel_ = create_gaussian_kernel(
+        /*kernel_size=*/5,
+        /*channels=*/1,
+        /*sigma=*/1.0,
+        /*dtype=*/at::ScalarType::Float);
+
+    // Make the image conv op
+    int channels = gussian_kernel_.size(0);
+    int padding = gussian_kernel_.size(gussian_kernel_.dim() - 1) / 2;
+    gaussian_conv_ = std::make_unique<torch::nn::Conv2d>(
+        torch::nn::Conv2dOptions(channels, channels, gussian_kernel_.size(0))
+            .stride(1)
+            .padding(padding)
+            .groups(channels));
+    (*gaussian_conv_)->weight.set_data(gussian_kernel_);
+
+    // Make the mask conv op
+    channels = mask_gussian_kernel_.size(0);
+    padding = mask_gussian_kernel_.size(mask_gussian_kernel_.dim() - 1) / 2;
+    mask_gaussian_conv_ = std::make_unique<torch::nn::Conv2d>(
+        torch::nn::Conv2dOptions(channels, channels, gussian_kernel_.size(0))
+            .stride(1)
+            .padding(padding)
+            .groups(channels));
+    (*mask_gaussian_conv_)->weight.set_data(mask_gussian_kernel_);
+  }
+
   initialized_ = true;
 }
 
@@ -85,7 +127,18 @@ void ImageBlender::to(at::Device device) {
     condition_left_ = condition_left_.to(device);
     right_seam_value_ = right_seam_value_.to(device);
     condition_right_ = condition_right_.to(device);
+    (*gaussian_conv_)->to(device);
+    (*mask_gaussian_conv_)->to(device);
+    avg_pooling_->to(device);
   }
+}
+
+at::Tensor ImageBlender::downsize(const at::Tensor& x) {
+  return avg_pooling_->forward(x);
+}
+
+at::Tensor ImageBlender::upsample(at::Tensor& x, const at::IntArrayRef size) {
+  return torch::upsample_bilinear2d(x, size, /*align_corners=*/false);
 }
 
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
