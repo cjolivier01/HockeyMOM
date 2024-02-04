@@ -89,6 +89,7 @@ class StitchDataset:
         max_input_queue_size: int = 20,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
+        batch_size: int = 1,
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
@@ -102,6 +103,7 @@ class StitchDataset:
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
+        self._batch_size = batch_size
         self._device = device
         self._remapping_device = remapping_device
         self._encoder_device = encoder_device
@@ -199,6 +201,7 @@ class StitchDataset:
             video_1_offset_frame=self._video_1_offset_frame,
             video_2_offset_frame=self._video_2_offset_frame,
             start_frame_number=start_frame_number,
+            batch_size=self._batch_size,
             max_input_queue_size=max_input_queue_size,
             remap_thread_count=self._remap_thread_count,
             blend_thread_count=self._blend_thread_count,

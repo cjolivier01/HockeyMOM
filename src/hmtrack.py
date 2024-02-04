@@ -563,6 +563,7 @@ def main(exp, args, num_gpu):
                     remap_thread_count=2,
                     fork_workers=False,
                     image_roi=None,
+                    batch_size=args.batch_size,
                     #blend_mode="multiblend",
                     blend_mode="gpu-hard-seam",
                 )
@@ -575,7 +576,8 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
-                    batch_size=args.batch_size,
+                    #batch_size=args.batch_size,
+                    batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     device=detection_device,

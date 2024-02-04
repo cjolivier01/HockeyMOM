@@ -208,7 +208,7 @@ class StitchingWorker:
         # TODO: Pass first frame through stitcher in order
         #       to init all blenders from the same image
 
-        for _ in range(self._rank):
+        for _ in range(self._rank * self._batch_size):
             # print(f"rank {self._rank} pre-reading frame {i}")
             res1, _ = self._video1.read()
             res2, _ = self._video2.read()
@@ -258,7 +258,7 @@ class StitchingWorker:
                     int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 ),
-                batch_size=1,
+                batch_size=self._batch_size,
                 device=self._remapping_device,
             )
 
@@ -270,7 +270,7 @@ class StitchingWorker:
                     int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 ),
-                batch_size=1,
+                batch_size=self._batch_size,
                 device=self._remapping_device,
             )
             self._stitcher.configure_remapper(
@@ -323,6 +323,19 @@ class StitchingWorker:
         if self._shutdown_barrier is not None:
             self._shutdown_barrier.wait()
 
+    def _read_frame_batch(self):
+        frames_1 = []
+        frames_2 = []
+        for _ in range(self._batch_size):
+            ret1, img1, ret2, img2 = self._read_next_frame_from_video()
+            if not ret1 or not ret2:
+                return False, None, False, None
+            frames_1.append(torch.from_numpy(img1))
+            frames_2.append(torch.from_numpy(img2))
+        frames_1 = torch.stack(frames_1)
+        frames_2 = torch.stack(frames_2)
+        return True, frames_1, True, frames_2
+
     def _read_next_frame_from_video(self):
         ret1, img1 = self._video1.read()
         # Read the corresponding frame from the second video
@@ -331,7 +344,7 @@ class StitchingWorker:
 
     def _feed_next_frame(self, frame_id: int) -> bool:
         for _ in range(self._frame_stride_count):
-            ret1, img1, ret2, img2 = self._read_next_frame_from_video()
+            ret1, img1, ret2, img2 = self._read_frame_batch()
             if not ret1 or not ret2:
                 return False
 
@@ -349,14 +362,21 @@ class StitchingWorker:
         # print(f"rank {self._rank} feeding LR frame {frame_id}")
 
         if self._use_pytorch_remap:
+            if isinstance(img1, torch.Tensor):
+                # Channels first
+                image_1 = img1.permute(0, 3, 1, 2)
+                image_2 = img2.permute(0, 3, 1, 2)
+            else:
+                image_1 = torch.from_numpy(
+                    np.expand_dims(img1.transpose(2, 0, 1), axis=0)
+                )
+                image_2 = torch.from_numpy(
+                    np.expand_dims(img2.transpose(2, 0, 1), axis=0)
+                )
             self._stitcher.add_torch_frame(
                 frame_id=frame_id,
-                image_1=torch.from_numpy(
-                    np.expand_dims(img1.transpose(2, 0, 1), axis=0)
-                ),
-                image_2=torch.from_numpy(
-                    np.expand_dims(img2.transpose(2, 0, 1), axis=0)
-                ),
+                image_1=image_1,
+                image_2=image_2,
             )
         else:
             core.add_to_stitching_data_loader(
@@ -381,7 +401,7 @@ class StitchingWorker:
                 stitched_frame = self._stitcher.get_stitched_frame(frame_id)
             else:
                 stitched_frame = self._stitcher.get_stitched_pytorch_frame(frame_id)
-            #show_image("stitched_frameXX", stitched_frame, wait=True)
+            # show_image("stitched_frameXX", stitched_frame, wait=True)
             if stitched_frame is None:
                 break
             # if isinstance(stitched_frame, torch.Tensor):

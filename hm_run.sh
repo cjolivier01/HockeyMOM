@@ -22,8 +22,8 @@ GAME_ID="sharks-bb1-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
-BLEND_MODE="--blend-mode=laplacian"
-#BLEND_MODE="--gpu-hard-seam"
+#BLEND_MODE="--blend-mode=laplacian"
+BLEND_MODE="--blend-mode=gpu-hard-seam"
 
 START_FRAME=0
 #START_FRAME=1900
@@ -32,7 +32,7 @@ START_FRAME=0
 #START_FRAME=47000
 #START_FRAME=16890
 #START_FRAME=25000
-#START_FRAME=46200
+START_FRAME=46200
 
 #TRACKER="--tracker=hm"
 #TRACKER="--tracker=fair"
