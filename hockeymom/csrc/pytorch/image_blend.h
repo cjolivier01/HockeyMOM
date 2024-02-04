@@ -53,7 +53,7 @@ class ImageBlender {
   at::Tensor upsample(at::Tensor& x, const SizeRef size);
   std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
   at::Tensor one_level_gaussian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
-  void create_masks(const SizeRef input_shape);
+  void create_masks();
 
   bool initialized_{false};
   Mode mode_;

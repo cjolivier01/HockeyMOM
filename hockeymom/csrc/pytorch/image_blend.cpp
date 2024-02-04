@@ -167,6 +167,31 @@ at::Tensor ImageBlender::one_level_gaussian_pyramid(
   return downsample(gauss_filtered_x);
 }
 
+void ImageBlender::create_masks() {
+  at::Tensor mask = seam_.unsqueeze(0).unsqueeze(0);
+  at::Tensor unique_values = std::get<0>(at::_unique(mask, /*sorted=*/true));
+  TORCH_CHECK(
+      unique_values.dim() == 1 and unique_values.size(0) == 2,
+      "Need 2 unique values in the mask");
+  at::Tensor left_value = unique_values[0];
+  at::Tensor right_value = unique_values[1];
+  mask.index_put_(
+      {torch::indexing::Slice(), torch::indexing::Slice(), mask == left_value},
+      1.0);
+  mask.index_put_(
+      {torch::indexing::Slice(), torch::indexing::Slice(), mask == right_value},
+      0.0);
+  at::Tensor mask_img = mask;
+  mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
+  for (int l = 0; l < levels_ + 1; ++l) {
+    mask_img = one_level_gaussian_pyramid(mask_img, *mask_gaussian_conv_);
+    mask_small_gaussian_blurred_.emplace_back(mask_img.squeeze(0).squeeze(0));
+  }
+  for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
+    mask_small_gaussian_blurred_[i] /= at::max(mask_small_gaussian_blurred_[i]);
+  }
+}
+
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     const at::Tensor& image_1,
     const std::vector<int>& xy_pos_1,
