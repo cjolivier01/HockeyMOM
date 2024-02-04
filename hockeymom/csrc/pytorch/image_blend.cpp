@@ -210,16 +210,16 @@ void ImageBlender::create_masks() {
   }
   for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
     at::Tensor max_mask_val = at::max(mask_small_gaussian_blurred_[i]);
-    std::cout << "mask[" << i
-              << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
-              << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
-              << std::endl;
+    // std::cout << "mask[" << i
+    //           << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
+    //           << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+    //           << std::endl;
     mask_small_gaussian_blurred_[i] =
         mask_small_gaussian_blurred_[i] / max_mask_val;
-    std::cout << "mask[" << i
-              << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
-              << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
-              << std::endl;
+    // std::cout << "mask[" << i
+    //           << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
+    //           << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+    //           << std::endl;
   }
 }
 
