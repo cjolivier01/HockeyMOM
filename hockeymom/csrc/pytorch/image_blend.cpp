@@ -101,6 +101,7 @@ void show_image(at::Tensor image, bool wait) {
 }
 
 int constrain_index(int max_index, int calculated_index) {
+  TORCH_CHECK(calculated_index <= max_index, "Calculated index is too large");
   return calculated_index;
   // int final_index = calculated_index;
   // if (final_index < 0) {
@@ -321,10 +322,10 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     x2 = 0;
   }
 
-  // std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
-  //           << std::endl;
-  // std::cout << "image_1 size=" << image_1.sizes()
-  //           << "\nimage_2 size=" << image_2.sizes() << std::endl;
+  std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
+            << std::endl;
+  std::cout << "image_1 size=" << image_1.sizes()
+            << "\nimage_2 size=" << image_2.sizes() << std::endl;
 
   TORCH_CHECK(x1 == 0 || x2 == 0, "Images not aligned to left edge of canvas");
   TORCH_CHECK(y1 == 0 || y2 == 0, "Images not aligned to top edge of canvas");
@@ -366,9 +367,9 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
       image_1,
       {
           x1,
-          constrain_index(canvas_w, canvas_w - (w1 - x1)),
+          constrain_index(canvas_w, canvas_w - (w1 + x1)),
           y1,
-          constrain_index(canvas_h, canvas_h - (h1 - y1)),
+          constrain_index(canvas_h, canvas_h - (h1 + y1)),
       },
       0.0);
 
