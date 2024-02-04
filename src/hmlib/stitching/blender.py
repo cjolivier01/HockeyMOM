@@ -544,9 +544,9 @@ def blend_video(
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
                 if True:
                     blender = core.ImageBlender(
-                        mode=core.ImageBlenderMode.HardSeam,
-                        #mode=core.ImageBlenderMode.Laplacian,
-                        levels=0,
+                        #mode=core.ImageBlenderMode.HardSeam,
+                        mode=core.ImageBlenderMode.Laplacian,
+                        levels=4,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
                         interpolation="bilinear",

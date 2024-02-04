@@ -326,7 +326,7 @@ at::Tensor ImageBlender::forward(
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) {
   assert(initialized_);
-  if (!levels_) {
+  if (mode_ == Mode::HardSeam) {
     return hard_seam_blend(
         std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
   }
