@@ -57,14 +57,18 @@ ImageBlender::ImageBlender(
     std::size_t levels,
     at::Tensor seam,
     at::Tensor xor_map,
+    bool lazy_init,
     std::optional<std::string> interpolation)
     : mode_(mode),
       levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
       interpolation_(interpolation ? *interpolation : ""),
-      avg_pooling_(torch::nn::AvgPool2dOptions(/*kernel_size=*/2)) {
-  init();
+      avg_pooling_(torch::nn::AvgPool2dOptions(/*kernel_size=*/2)),
+      lazy_init_(lazy_init) {
+  if (!lazy_init_) {
+    init();
+  }
 }
 
 void ImageBlender::init() {
@@ -74,6 +78,7 @@ void ImageBlender::init() {
       "Seam tensor should be two dimensions only (h, w)");
   auto unique_results = at::_unique(seam_, /*sorted=*/true);
   torch::Tensor unique_elements = std::get<0>(unique_results);
+  at::Device current_device = unique_elements.device();
   assert(unique_elements.size(0) == 2);
   assert(unique_elements.dim() == 1);
   left_seam_value_ = unique_elements[0];
@@ -102,6 +107,7 @@ void ImageBlender::init() {
             .padding(padding)
             .groups(channels));
     (*gaussian_conv_)->weight.set_data(gussian_kernel_);
+    (*gaussian_conv_)->to(current_device);
 
     // Make the mask conv op
     channels = mask_gussian_kernel_.size(0);
@@ -112,6 +118,7 @@ void ImageBlender::init() {
             .padding(padding)
             .groups(channels));
     (*mask_gaussian_conv_)->weight.set_data(mask_gussian_kernel_);
+    (*mask_gaussian_conv_)->to(current_device);
     create_masks();
   }
 
@@ -197,6 +204,9 @@ void ImageBlender::create_masks() {
     // std::cout << "mask " << prev_size << " -> " << mask_img.sizes()
     //           << std::endl;
     mask_small_gaussian_blurred_.emplace_back(mask_img.squeeze(0).squeeze(0));
+    std::cout << "mask max [" << l
+              << "] = " << at::max(*mask_small_gaussian_blurred_.rbegin())
+              << std::endl;
   }
   for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
     mask_small_gaussian_blurred_[i] /= at::max(mask_small_gaussian_blurred_[i]);
@@ -334,6 +344,9 @@ at::Tensor ImageBlender::forward(
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) {
+  if (lazy_init_ && !initialized_) {
+    init();
+  }
   assert(initialized_);
   if (mode_ == Mode::HardSeam) {
     return hard_seam_blend(

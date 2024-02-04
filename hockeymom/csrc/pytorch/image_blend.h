@@ -3,6 +3,7 @@
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -21,6 +22,7 @@ class ImageBlender {
       std::size_t levels,
       at::Tensor seam,
       at::Tensor xor_map,
+      bool lazy_init,
       std::optional<std::string> interpolation);
   void to(at::Device device);
   at::Tensor forward(
@@ -55,7 +57,6 @@ class ImageBlender {
   at::Tensor one_level_gaussian_pyramid(at::Tensor& x, torch::nn::Conv2d& conv);
   void create_masks();
 
-  bool initialized_{false};
   Mode mode_;
   std::size_t levels_;
   std::size_t src_width_;
@@ -68,6 +69,7 @@ class ImageBlender {
   at::Tensor right_seam_value_;
   at::Tensor condition_right_;
   std::vector<at::Tensor> seam_masks_;
+  std::string interpolation_;
 
   // Laplacian pyramid persistent tensors
   at::Tensor gussian_kernel_;
@@ -77,7 +79,8 @@ class ImageBlender {
   torch::nn::AvgPool2d avg_pooling_;
   std::vector<at::Tensor> mask_small_gaussian_blurred_;
 
-  std::string interpolation_;
+  bool lazy_init_;
+  bool initialized_{false};
 };
 
 } // namespace ops

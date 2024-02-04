@@ -549,6 +549,8 @@ def blend_video(
                         levels=4,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
+                        #lazy_init=True,
+                        lazy_init=False,
                         interpolation="bilinear",
                     )
                     blender.to(device)

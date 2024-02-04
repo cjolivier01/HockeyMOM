@@ -66,6 +66,7 @@ struct BlenderConfig {
   int levels{0};
   at::Tensor seam;
   at::Tensor xor_map;
+  bool lazy_init{false};
   std::string interpolation;
   std::string device = std::string("cpu");
 };

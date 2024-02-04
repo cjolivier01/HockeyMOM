@@ -497,11 +497,13 @@ PYBIND11_MODULE(_hockeymom, m) {
               std::size_t,
               at::Tensor,
               at::Tensor,
+              bool,
               std::optional<std::string>>(),
           py::arg("mode"),
           py::arg("levels"),
           py::arg("seam"),
           py::arg("xor_map"),
+          py::arg("lazy_init"),
           py::arg("interpolation"),
           py::call_guard<py::gil_scoped_release>())
       .def(
