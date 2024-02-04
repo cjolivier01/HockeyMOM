@@ -2,9 +2,6 @@
 
 #include <torch/nn/functional.h>
 
-#include <pybind11/embed.h> // This header is required for embedding Python
-#include <pybind11/pybind11.h>
-
 namespace hm {
 namespace ops {
 
@@ -84,31 +81,9 @@ torch::Tensor gaussian_conv2d(
   return y;
 }
 
-void show_image(at::Tensor image, bool wait) {
-  namespace py = pybind11;
-
-  // Initialize the Python interpreter (if not already done)
-  py::scoped_interpreter guard{};
-
-  // Acquire the GIL
-  py::gil_scoped_acquire acquire;
-
-  // Import the Python module containing your function
-  py::module my_module = py::module::import("hmlib.stitching.laplacian_blend");
-
-  // Call the Python function
-  py::object result = my_module.attr("show_image")(image, wait);
-}
-
 int constrain_index(int max_index, int calculated_index) {
   TORCH_CHECK(calculated_index <= max_index, "Calculated index is too large");
   return calculated_index;
-  // int final_index = calculated_index;
-  // if (final_index < 0) {
-  //   final_index = max_index + final_index;
-  // }
-  // TORCH_CHECK(final_index <= max_index, "Calculated index is too large");
-  // return final_index;
 }
 
 inline at::Tensor scalar_float(const float& val) {
@@ -125,7 +100,7 @@ at::Tensor create_gaussian_kernel(
       -double(kernel_size - 1) / 2.0,
       double(kernel_size - 1) / 2.0,
       kernel_size);
-  auto xx_and_yy = at::meshgrid({ax, ax});
+  auto xx_and_yy = at::meshgrid({ax, ax}, /*indexing=*/"ij");
   at::Tensor& xx = xx_and_yy.at(0);
   at::Tensor& yy = xx_and_yy.at(1);
   at::Tensor kernel_tensor = at::exp(
@@ -340,6 +315,7 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   TORCH_CHECK(y2 <= h2, "Invalid y2: " + std::to_string(y2));
 
 #if 0
+  // This way is slower
   at::Tensor full_left = at::zeros(
       {image_1.size(0), image_1.size(1), canvas_h, canvas_w},
       at::TensorOptions().dtype(image_1.dtype()).device(image_1.device()));
