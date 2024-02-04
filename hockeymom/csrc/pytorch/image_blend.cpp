@@ -146,18 +146,18 @@ void ImageBlender::init() {
   left_seam_value_ = unique_elements[0];
   right_seam_value_ = unique_elements[1];
 
-  if (mode_ == Mode::Laplacian) {
-    gussian_kernel_ = create_gaussian_kernel(
-        /*kernel_size=*/5,
-        /*channels=*/3,
-        /*sigma=*/1.0,
-        /*dtype=*/at::ScalarType::Float);
-    mask_gussian_kernel_ = create_gaussian_kernel(
-        /*kernel_size=*/5,
-        /*channels=*/1,
-        /*sigma=*/1.0,
-        /*dtype=*/at::ScalarType::Float);
+  gussian_kernel_ = create_gaussian_kernel(
+      /*kernel_size=*/5,
+      /*channels=*/3,
+      /*sigma=*/1.0,
+      /*dtype=*/at::ScalarType::Float);
+  mask_gussian_kernel_ = create_gaussian_kernel(
+      /*kernel_size=*/5,
+      /*channels=*/1,
+      /*sigma=*/1.0,
+      /*dtype=*/at::ScalarType::Float);
 
+  if (mode_ == Mode::Laplacian) {
     create_masks();
   } else {
     condition_left_ = at::eq(seam_, left_seam_value_);

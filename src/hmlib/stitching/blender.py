@@ -557,8 +557,11 @@ def blend_video(
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
                 if not python_blend:
                     blender = core.ImageBlender(
-                        # mode=core.ImageBlenderMode.HardSeam,
-                        mode=core.ImageBlenderMode.Laplacian,
+                        mode=(
+                            core.ImageBlenderMode.Laplacian
+                            if laplacian_blend
+                            else core.ImageBlenderMode.HardSeam
+                        ),
                         levels=4,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
@@ -711,7 +714,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            #output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
