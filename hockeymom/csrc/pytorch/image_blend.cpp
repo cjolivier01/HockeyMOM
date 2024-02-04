@@ -127,9 +127,11 @@ void ImageBlender::to(at::Device device) {
     condition_left_ = condition_left_.to(device);
     right_seam_value_ = right_seam_value_.to(device);
     condition_right_ = condition_right_.to(device);
-    (*gaussian_conv_)->to(device);
-    (*mask_gaussian_conv_)->to(device);
-    avg_pooling_->to(device);
+    if (mode_ == Mode::Laplacian) {
+      (*gaussian_conv_)->to(device);
+      (*mask_gaussian_conv_)->to(device);
+      avg_pooling_->to(device);
+    }
   }
 }
 

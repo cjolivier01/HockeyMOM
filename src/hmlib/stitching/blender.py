@@ -545,6 +545,7 @@ def blend_video(
                 if True:
                     blender = core.ImageBlender(
                         mode=core.ImageBlenderMode.HardSeam,
+                        #mode=core.ImageBlenderMode.Laplacian,
                         levels=0,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
