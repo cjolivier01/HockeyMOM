@@ -1,5 +1,6 @@
 # Use Ubuntu 22.04 as the base image
-FROM ubuntu:22.04
+#FROM ubuntu:22.04
+FROM nvidia/cuda:11.6.2-base-ubuntu20.04
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,10 +15,41 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && apt-get clean
 
+# Install Vigra/Hugin dependencies
+RUN apt-get install -y \
+	ccache \
+	libpano13-dev \
+	libglew-dev \
+	libexiv2-dev \
+	libopenexr-dev \
+	libilmbase-dev \
+	liblcms2-dev \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev \
+	libsqlite3-dev \
+	libavformat-dev \
+  liblapack-dev \
+	gettext \
+	libyaml-cpp-dev \
+	liblapack-dev \
+	libglfw3-dev \
+	libfftw3-dev \
+	libglew-dev \
+	libgl-dev \
+  libjpeg-turbo8-dev \
+  libtiff-dev \
+  libopus-dev \
+  libboost-all-dev \
+  libprotobuf-dev \
+  libpng-dev \
+  libopenblas-dev \
+  libomp-dev
+
+
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 RUN apt-get install -y \
-    nvidia-driver-533 \
-    nvidia-utils-533 \
+    nvidia-driver-535 \
+    nvidia-utils-535 \
     nvidia-cuda-dev \
     nvidia-cuda-toolkit \
     && apt-get clean
@@ -31,6 +63,8 @@ RUN apt-get install -y \
     libass-dev \
     libfreetype6-dev \
     libsdl2-dev \
+    libx264-dev \
+    libx265-dev \
     libtheora-dev \
     libva-dev \
     libvdpau-dev \
@@ -45,7 +79,7 @@ RUN apt-get install -y \
 
 # Download FFmpeg source code
 WORKDIR /root
-RUN https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && make install
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && make install
 RUN git clone https://github.com/FFmpeg/FFmpeg.git && cd FFmpeg && git checkout release/5.0
 
 # Configure FFmpeg with the desired codecs and options
