@@ -114,6 +114,7 @@ void ImageBlender::init() {
             .padding(padding)
             .groups(channels));
     (*mask_gaussian_conv_)->weight.set_data(mask_gussian_kernel_);
+    create_masks();
   }
 
   initialized_ = true;
@@ -149,12 +150,17 @@ std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
+    std::cout << "current_x size: " << current_x.sizes() << std::endl;
     at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, conv);
+    std::cout << "gauss_filtered_x size: " << gauss_filtered_x.sizes()
+              << std::endl;
     at::Tensor down = downsample(gauss_filtered_x);
+    std::cout << "down size: " << down.sizes() << std::endl;
     at::Tensor laplacian = current_x -
         upsample(down,
                  {gauss_filtered_x.size(gauss_filtered_x.dim() - 2),
                   gauss_filtered_x.size(gauss_filtered_x.dim() - 1)});
+    std::cout << "laplacian size: " << laplacian.sizes() << std::endl;
     pyramids.emplace_back(laplacian);
     current_x = down;
   }
@@ -177,12 +183,9 @@ void ImageBlender::create_masks() {
       "Need 2 unique values in the mask");
   at::Tensor left_value = unique_values[0];
   at::Tensor right_value = unique_values[1];
-  mask.index_put_(
-      {torch::indexing::Slice(), torch::indexing::Slice(), mask == left_value},
-      1.0);
-  mask.index_put_(
-      {torch::indexing::Slice(), torch::indexing::Slice(), mask == right_value},
-      0.0);
+  mask.index_put_({mask == left_value}, 1.0);
+  mask.index_put_({mask == right_value}, 0.0);
+  mask = mask.to(at::ScalarType::Float);
   at::Tensor mask_img = mask;
   mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
   for (int l = 0; l < levels_ + 1; ++l) {
@@ -342,10 +345,20 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   auto [full_left, full_right] =
       make_full(image_1, xy_pos_1, image_2, xy_pos_2);
 
+  full_left = full_left.to(at::ScalarType::Float);
+  full_right = full_right.to(at::ScalarType::Float);
+
+  std::cout << "full_left size=" << full_left.sizes()
+            << "\nfull_right size=" << full_right.sizes() << std::endl;
+
   std::vector<at::Tensor> left_laplacian =
       create_laplacian_pyramid(full_left, *gaussian_conv_);
   std::vector<at::Tensor> right_laplacian =
       create_laplacian_pyramid(full_right, *gaussian_conv_);
+
+  // std::cout << "left_laplacian size=" << left_laplacian.sizes()
+  //           << "\nright_laplacian size=" << right_laplacian.sizes() <<
+  //           std::endl;
 
   at::Tensor left_small_gaussian_blurred = *left_laplacian.rbegin();
   at::Tensor right_small_gaussian_blurred = *right_laplacian.rbegin();
