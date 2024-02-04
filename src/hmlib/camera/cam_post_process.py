@@ -75,108 +75,8 @@ core.hello_world()
 #     # {_REFEREE_CLASS_ID: "referee"},
 # ]
 
-#
-# TODO: Moving to yaml files
-#
-RINK_CONFIG = {
-    "yerba_buena": {
-        "fixed_edge_scaling_factor": 1.5,
-        "fixed_edge_rotation_angle": 25.0,
-        "boundaries": {
-            "upper": [],
-            "lower": [],
-        },
-    },
-    "dublin": {
-        "boundaries": {
-            "lbd3": {
-                "upper": [
-                    [254, 840, 1071, 598],
-                    [1101, 568, 2688, 588],
-                ],
-                "lower": [
-                    [7, 854, 375, 1082],
-                    [264, 1007, 1188, 1539],
-                    [1229, 1524, 2398, 1572],
-                    [2362, 1517, 3245, 1181],
-                    [3240, 1199, 3536, 1000],
-                    [3370, 1095, 3808, 819],
-                ],
-            },
-        },
-    },
-    "sharks_orange": {
-        "boundaries": {
-            "sharksbb2-1": {
-                "upper": [
-                    [2001, 123, 2629, 208],
-                    [1283, 117, 1979, 162],
-                ],
-                "lower": [
-                    [21, 498, 1664, 878],
-                    [1662, 856, 3034, 799],
-                    [3044, 800, 3762, 673],
-                ],
-            },
-            "sharksbb1-2": {
-                "upper": [
-                    [1300, 528, 1848, 467],
-                    [1850, 469, 2478, 455],
-                    [2535, 450, 3050, 500],
-                    [2951, 480, 3735, 725],
-                    [3671, 700, 3757, 809],
-                    [324, 889, 919, 598],
-                    # false positives on upper boards
-                    [1897, 497, 1924, 495],
-                    [1467, 535, 1518, 534],
-                    [1543, 530, 1581, 528],
-                    [2185, 486, 2214, 486],
-                    [1598, 525, 1632, 525],
-                ],
-                "lower": [
-                    [2862, 949, 3831, 733],
-                    [1444, 1102, 2219, 1047],
-                    [631, 998, 1441, 1126],
-                    [12, 577, 342, 900],
-                    [327, 909, 744, 1022],
-                ],
-            },
-            "sharksbb1-2.1": {
-                "upper": [
-                    [2047, 758, 2312, 719],
-                    [2312, 718, 2653, 686],
-                    [2653, 686, 2971, 666],
-                    [2971, 666, 3363, 657],
-                    [3365, 649, 4001, 674],
-                    [4071, 689, 4419, 750],
-                    [4423, 756, 5374, 1063],
-                    [5292, 1049, 5342, 1201],
-                    [396, 1294, 1259, 893],
-                    # false positives on upper boards
-                    [2202, 755, 2247, 752],
-                    [2291, 756, 2333, 756],
-                    [2006, 785, 2042, 781],
-                    [3381, 690, 3418, 691],
-                    [3462, 685, 3502, 689],
-                    [3120, 697, 3177, 697],
-                ],
-                "lower": [
-                    [5319, 975, 5649, 959],
-                    [15, 1188, 470, 1278],
-                    [467, 1299, 1040, 1474],
-                    [1043, 1466, 2546, 1628],
-                    [2546, 1628, 4837, 1243],
-                    [4837, 1243, 5307, 1096],
-                ],
-            },
-        },
-    },
-}
 
 BASIC_DEBUGGING = False
-
-# print(yaml.dump(RINK_CONFIG["dublin"]))
-
 
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
@@ -273,12 +173,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.skip_final_video_save = False
 
         #
-        # SHARKS ORANGE RINK
+        # Detection boundaries
         #
-        # self.top_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["upper"]
-        # self.bottom_border_lines = RINK_CONFIG[rink]["boundaries"][game_id]["lower"]
-        # self.top_border_lines = self.game_config["game"]["boundaries"]["upper"]
-        # self.bottom_border_lines = self.game_config["game"]["boundaries"]["lower"]
         self.top_border_lines = get_nested_value(
             self.game_config, "game.boundaries.upper", []
         )
@@ -700,7 +596,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                 speeds=[],
                 line_thickness=2,
             )
-            print(f"Tracking {len(online_ids)} players...")
+            # print(f"Tracking {len(online_ids)} players...")
             if largest_bbox is not None:
                 online_im = vis.plot_rectangle(
                     online_im,
