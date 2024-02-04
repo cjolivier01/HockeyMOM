@@ -2,8 +2,6 @@
 
 #include <torch/nn/functional.h>
 
-//#include <iostream>
-
 namespace hm {
 namespace ops {
 
@@ -135,7 +133,7 @@ void ImageBlender::to(at::Device device) {
       for (std::size_t i = 0, n = mask_small_gaussian_blurred_.size(); i < n;
            ++i) {
         mask_small_gaussian_blurred_[i] =
-            mask_small_gaussian_blurred_[0].to(device);
+            mask_small_gaussian_blurred_[i].to(device);
       }
     }
   }
@@ -155,17 +153,17 @@ std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
-    std::cout << "current_x size: " << current_x.sizes() << std::endl;
+    // std::cout << "current_x size: " << current_x.sizes() << std::endl;
     at::Tensor gauss_filtered_x = gaussian_conv2d(current_x, conv);
-    std::cout << "gauss_filtered_x size: " << gauss_filtered_x.sizes()
-              << std::endl;
+    // std::cout << "gauss_filtered_x size: " << gauss_filtered_x.sizes()
+    //           << std::endl;
     at::Tensor down = downsample(gauss_filtered_x);
-    std::cout << "down size: " << down.sizes() << std::endl;
+    // std::cout << "down size: " << down.sizes() << std::endl;
     at::Tensor laplacian = current_x -
         upsample(down,
                  {gauss_filtered_x.size(gauss_filtered_x.dim() - 2),
                   gauss_filtered_x.size(gauss_filtered_x.dim() - 1)});
-    std::cout << "laplacian size: " << laplacian.sizes() << std::endl;
+    // std::cout << "laplacian size: " << laplacian.sizes() << std::endl;
     pyramids.emplace_back(laplacian);
     current_x = down;
   }
@@ -194,7 +192,10 @@ void ImageBlender::create_masks() {
   at::Tensor mask_img = mask;
   mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
   for (int l = 0; l < levels_ + 1; ++l) {
+    auto prev_size = mask_img.sizes();
     mask_img = one_level_gaussian_pyramid(mask_img, *mask_gaussian_conv_);
+    // std::cout << "mask " << prev_size << " -> " << mask_img.sizes()
+    //           << std::endl;
     mask_small_gaussian_blurred_.emplace_back(mask_img.squeeze(0).squeeze(0));
   }
   for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
@@ -353,8 +354,8 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   full_left = full_left.to(at::ScalarType::Float);
   full_right = full_right.to(at::ScalarType::Float);
 
-  std::cout << "full_left size=" << full_left.sizes()
-            << "\nfull_right size=" << full_right.sizes() << std::endl;
+  // std::cout << "full_left size=" << full_left.sizes()
+  //           << "\nfull_right size=" << full_right.sizes() << std::endl;
 
   std::vector<at::Tensor> left_laplacian =
       create_laplacian_pyramid(full_left, *gaussian_conv_);
