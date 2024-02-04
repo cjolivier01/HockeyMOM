@@ -211,14 +211,18 @@ void ImageBlender::create_masks() {
   for (int i = 0; i < mask_small_gaussian_blurred_.size(); ++i) {
     at::Tensor max_mask_val = at::max(mask_small_gaussian_blurred_[i]);
     // std::cout << "mask[" << i
-    //           << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
-    //           << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+    //           << "] min = " <<
+    //           at::min(mask_small_gaussian_blurred_[i]).item()
+    //           << ", max = " <<
+    //           at::max(mask_small_gaussian_blurred_[i]).item()
     //           << std::endl;
     mask_small_gaussian_blurred_[i] =
         mask_small_gaussian_blurred_[i] / max_mask_val;
     // std::cout << "mask[" << i
-    //           << "] min = " << at::min(mask_small_gaussian_blurred_[i]).item()
-    //           << ", max = " << at::max(mask_small_gaussian_blurred_[i]).item()
+    //           << "] min = " <<
+    //           at::min(mask_small_gaussian_blurred_[i]).item()
+    //           << ", max = " <<
+    //           at::max(mask_small_gaussian_blurred_[i]).item()
     //           << std::endl;
   }
 }
@@ -277,9 +281,9 @@ at::Tensor ImageBlender::one_level_gaussian_pyramid(
     at::Tensor& kernel) {
   at::Tensor gauss_filtered_x;
   gauss_filtered_x = gaussian_conv2d(x, kernel);
-  std::cout << "NEW gauss_filtered_x: min=" << at::min(gauss_filtered_x).item()
-            << ", max=" << at::max(gauss_filtered_x) << std::endl;
-
+  // std::cout << "NEW gauss_filtered_x: min=" <<
+  // at::min(gauss_filtered_x).item()
+  //           << ", max=" << at::max(gauss_filtered_x) << std::endl;
   return downsample(gauss_filtered_x);
 }
 
@@ -334,6 +338,30 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   TORCH_CHECK(x2 <= w2, "Invalid x2:" + std::to_string(x2));
   TORCH_CHECK(y2 <= h2, "Invalid y2: " + std::to_string(y2));
 
+#if 0
+  at::Tensor full_left = at::zeros(
+      {image_1.size(0), image_1.size(1), canvas_h, canvas_w},
+      at::TensorOptions().dtype(image_1.dtype()).device(image_1.device()));
+
+  full_left.index_put_(
+      {torch::indexing::Slice(),
+       torch::indexing::Slice(),
+       torch::indexing::Slice(y1, y1 + h1 + y1),
+       torch::indexing::Slice(x1, x1 + w1)},
+      image_1);
+
+  at::Tensor full_right = at::zeros(
+      {image_1.size(0), image_1.size(1), canvas_h, canvas_w},
+      at::TensorOptions().dtype(image_1.dtype()).device(image_1.device()));
+
+  full_right.index_put_(
+      {torch::indexing::Slice(),
+       torch::indexing::Slice(),
+       torch::indexing::Slice(y2, y2 + h2 + y2),
+       torch::indexing::Slice(x2, x2 + w2)},
+      image_2);
+
+#else
   at::Tensor full_left = at::constant_pad_nd(
       image_1,
       {
@@ -353,7 +381,7 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
           constrain_index(canvas_h, canvas_h - (h2 + y2)),
       },
       0.0);
-
+#endif
   // std::cout << "full_left size=" << full_left.sizes()
   //           << "\nfull_right size=" << full_right.sizes() << std::endl;
 
@@ -463,6 +491,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     at::Tensor mask_1d = mask_small_gaussian_blurred_.at(this_level);
     at::Tensor mask_left = mask_1d;
     at::Tensor mask_right = 1 - mask_1d;
+
     at::Tensor F_1 = upsample(
         F_2,
         {mask_1d.size(mask_1d.dim() - 2), mask_1d.size(mask_1d.dim() - 1)});

@@ -156,7 +156,6 @@ def get_image_geo_position(tiff_image_file: str):
         y_resolution = get_tiff_tag_value(tags.get("YResolution"))
         xpos = int(x_position * x_resolution + 0.5)
         ypos = int(y_position * y_resolution + 0.5)
-        print(f"x={xpos}, y={ypos}")
     return xpos, ypos
 
 
