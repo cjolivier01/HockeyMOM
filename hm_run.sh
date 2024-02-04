@@ -22,6 +22,9 @@ GAME_ID="sharks-bb1-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
+BLEND_MODE="--blend-mode=laplacian"
+#BLEND_MODE="--gpu-hard-seam"
+
 START_FRAME=0
 #START_FRAME=1900
 #START_FRAME=2900
@@ -65,6 +68,7 @@ OMP_NUM_THREADS=16 \
   ${STITCHING_ARGS} \
   ${TRACKER} \
   ${CONFIDENCE} \
+  ${BLEND_MODE} \
   --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \

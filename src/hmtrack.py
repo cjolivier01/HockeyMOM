@@ -108,6 +108,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
     parser.add_argument(
+        "--blend-mode",
+        default="laplacian",
+        type=str,
+        help="Blend mode (multiblend|laplacian|gpu-hard-deam)",
+    )
+    parser.add_argument(
         "--no_save_video",
         "--no-save-video",
         dest="no_save_video",
