@@ -132,6 +132,11 @@ void ImageBlender::to(at::Device device) {
       (*gaussian_conv_)->to(device);
       (*mask_gaussian_conv_)->to(device);
       avg_pooling_->to(device);
+      for (std::size_t i = 0, n = mask_small_gaussian_blurred_.size(); i < n;
+           ++i) {
+        mask_small_gaussian_blurred_[i] =
+            mask_small_gaussian_blurred_[0].to(device);
+      }
     }
   }
 }
