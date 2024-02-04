@@ -143,7 +143,7 @@ at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) const {
 
 std::vector<at::Tensor> ImageBlender::create_laplacian_pyramid(
     at::Tensor& x,
-    const torch::nn::Conv2d& conv) {
+    torch::nn::Conv2d& conv) {
   std::vector<at::Tensor> pyramids;
   at::Tensor current_x = x;
   for (int level = 0; level < levels_; ++level) {
@@ -337,7 +337,6 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) {
-  // std::vector<at::Tensor>
   auto [full_left, full_right] =
       make_full(image_1, xy_pos_1, image_2, xy_pos_2);
 
@@ -346,7 +345,31 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   std::vector<at::Tensor> right_laplacian =
       create_laplacian_pyramid(full_right, *gaussian_conv_);
 
-  return std::move(image_1);
+  at::Tensor left_small_gaussian_blurred = *left_laplacian.rbegin();
+  at::Tensor right_small_gaussian_blurred = *right_laplacian.rbegin();
+
+  at::Tensor mask_1d = mask_small_gaussian_blurred_.at(levels_);
+  at::Tensor mask_left = mask_1d;
+  at::Tensor mask_right = 1 - mask_1d;
+
+  at::Tensor F_2 = left_small_gaussian_blurred * mask_left +
+      right_small_gaussian_blurred * mask_right;
+
+  for (int this_level = levels_ - 1; this_level >= 0; this_level--) {
+    at::Tensor mask_1d = mask_small_gaussian_blurred_.at(this_level);
+    at::Tensor mask_left = mask_1d;
+    at::Tensor mask_right = 1 - mask_1d;
+    at::Tensor F_1 = upsample(
+        F_2,
+        {mask_1d.size(mask_1d.dim() - 2), mask_1d.size(mask_1d.dim() - 1)});
+    at::Tensor upsampled_F1 = gaussian_conv2d(F_1, *gaussian_conv_);
+    at::Tensor L_left = left_laplacian.at(this_level);
+    at::Tensor L_right = right_laplacian.at(this_level);
+    at::Tensor L_c = (mask_left * L_left) + (mask_right * L_right);
+    F_2 = L_c + upsampled_F1;
+  }
+
+  return F_2;
 }
 
 } // namespace ops
