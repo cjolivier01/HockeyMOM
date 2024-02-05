@@ -14,7 +14,8 @@ import time
 # set fan in peripheral zone to 25%: ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x16
 #
 
-PERIPHERAL_FAST_FAN_TEMP = 75
+PERIPHERAL_FAST_FAN_TEMP = 77
+PERIPHERAL_MID_FAN_TEMP = 72
 PERIPHERAL_SLOW_FAN_TEMP = 65
 PERIPHERAL_SUPER_SLOW_FAN_TEMP = 47
 
@@ -78,10 +79,14 @@ def manage_temp(ipmi: pyipmi.Ipmi, match_str: str, zone: int, current_mode: str)
         if current_mode != "slow":
             set_zone_fan_speed(speed_percent=40, zone=zone)
             current_mode = "slow"
-    elif max_temp <= PERIPHERAL_FAST_FAN_TEMP:
+    elif max_temp <= PERIPHERAL_MID_FAN_TEMP:
         if current_mode != "medium":
             set_zone_fan_speed(speed_percent=60, zone=zone)
             current_mode = "medium"
+    elif max_temp <= PERIPHERAL_FAST_FAN_TEMP:
+        if current_mode != "medium-x":
+            set_zone_fan_speed(speed_percent=75, zone=zone)
+            current_mode = "medium-x"
     else:
         if current_mode != "fast":
             set_zone_fan_speed(speed_percent=100, zone=zone)
