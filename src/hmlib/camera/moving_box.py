@@ -465,14 +465,20 @@ class MovingBox(ResizingBox):
             )
 
     def _get_sticky_translation_sizes(self):
-        gaussian_factor = self.get_gaussian_y_about_width_center(
+        gaussian_factor = 1 - self.get_gaussian_y_about_width_center(
             center(self.bounding_box())[0]
         )
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
         # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
-        sticky_size = self._max_speed_x * 6 + gaussian_add
+
+        max_sticky_size = self._max_speed_x * 5 + gaussian_add
+        sticky_size = width(self.bounding_box()) / 10
+        sticky_size = min(sticky_size, max_sticky_size)
+
+        # max_sticky_size = self._max_speed_x * 6 + gaussian_add
         unsticky_size = sticky_size * 3 / 4
+
         return sticky_size, unsticky_size
 
     def _make_label(self):
@@ -538,7 +544,6 @@ class MovingBox(ResizingBox):
         if ratio_y is not None:
             self._current_speed_y += ratio_y
 
-
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """
         We try to go to the given box's position, given
@@ -553,7 +558,7 @@ class MovingBox(ResizingBox):
         total_diff = center_dest - center_current
 
         # If both the dest box and our current box are on an edge, we zero-out
-        # the magnitude in the direction fo that edge so that the size
+        # the magnitude in the direction of that edge so that the size
         # differences of the box don't keep us in the un-stuck mode,
         # even though we can't move anymore in that direction
         # TODO: do cleverly with pytorch tensors
@@ -584,6 +589,12 @@ class MovingBox(ResizingBox):
             s1 = torch.sign(total_diff)
             s2 = torch.sign(velocity)
             changed_direction = s1 * s2
+            # if self._following_box is not None:
+            #     if changed_direction[0] or changed_direction[1]:
+            #         print(f"Changed direction: {changed_direction}")
+            #     else:
+            #         print(f"Same direction")
+
             # Reduce velocity on axes that changed direction
             # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
             velocity = torch.where(changed_direction < 0, self._zero, velocity)
@@ -622,9 +633,10 @@ class MovingBox(ResizingBox):
             accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
         )
         super(MovingBox, self).set_destination(
-            dest_box=scale_box(
-                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
-            ),
+            # dest_box=scale_box(
+            #     dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+            # ),
+            dest_box=dest_box,
             stop_on_dir_change=stop_on_dir_change,
         )
 
@@ -637,8 +649,12 @@ class MovingBox(ResizingBox):
         # if arena_box is None:
         arena_box = self._arena_box
         if self._following_box is not None:
+            dest_box = self._following_box.bounding_box()
+            dest_box = scale_box(
+                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+            )
             self.set_destination(
-                dest_box=self._following_box.bounding_box(),
+                dest_box=dest_box,
                 stop_on_dir_change=True,
             )
 

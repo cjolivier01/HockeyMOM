@@ -69,6 +69,9 @@ game:
     upper_tune_position: null
     lower:
     lower_tune_position: null
+    # For scaling to a new stitched size
+    scale_width: null
+    scale_height: null
 
 #
 # Model config

@@ -174,6 +174,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         #
         # Detection boundaries
+        # TODO: Somehow move into boundaries class like witht he clip stuff
         #
         self.top_border_lines = get_nested_value(
             self.game_config, "game.boundaries.upper", []
@@ -187,8 +188,20 @@ class DefaultArguments(core.HMPostprocessConfig):
         lower_tune_position = get_nested_value(
             self.game_config, "game.boundaries.lower_tune_position", []
         )
+        boundary_scale_width = get_nested_value(
+            self.game_config, "game.boundaries.scale_width", 1.0
+        )
+        boundary_scale_height = get_nested_value(
+            self.game_config, "game.boundaries.scale_width", 1.0
+        )
         if self.top_border_lines and upper_tune_position:
             for i in range(len(self.top_border_lines)):
+                if boundary_scale_width:
+                    self.top_border_lines[i][0] *= boundary_scale_width
+                    self.top_border_lines[i][1] *= boundary_scale_width
+                if boundary_scale_height:
+                    self.top_border_lines[i][2] *= boundary_scale_height
+                    self.top_border_lines[i][3] *= boundary_scale_height
                 self.top_border_lines[i][0] += upper_tune_position[0]
                 self.top_border_lines[i][2] += upper_tune_position[0]
                 self.top_border_lines[i][1] += upper_tune_position[1]
@@ -196,6 +209,12 @@ class DefaultArguments(core.HMPostprocessConfig):
 
         if self.bottom_border_lines and lower_tune_position:
             for i in range(len(self.top_border_lines)):
+                if boundary_scale_width:
+                    self.bottom_border_lines[i][0] *= boundary_scale_width
+                    self.bottom_border_lines[i][1] *= boundary_scale_width
+                if boundary_scale_height:
+                    self.bottom_border_lines[i][3] *= boundary_scale_height
+                    self.bottom_border_lines[i][2] *= boundary_scale_height
                 self.bottom_border_lines[i][0] += lower_tune_position[0]
                 self.bottom_border_lines[i][2] += lower_tune_position[0]
                 self.bottom_border_lines[i][1] += lower_tune_position[1]

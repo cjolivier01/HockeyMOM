@@ -21,7 +21,7 @@ game:
       - [4848, 1045, 5710, 1113]
       - [6758, 1388, 7124, 1546]
       - [7115, 1493, 7861, 1493]
-    upper_tune_position: [0, 25]
+    upper_tune_position: [0, 35]
     lower:
       - [1016, 1528, 1833, 1832]
       - [1817, 1837, 2926, 2082]
@@ -45,5 +45,5 @@ rink:
     # Rink-related tracking config
     #
     fixed_edge_rotation_angle: 35
-    follower_box_scale_width: 1.10
-    follower_box_scale_height: 1.10
+    follower_box_scale_width: 1.25
+    follower_box_scale_height: 1.25
