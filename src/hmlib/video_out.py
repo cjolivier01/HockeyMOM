@@ -557,6 +557,9 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
+            # if self._cuda_stream is None:
+            #     self._cuda_stream = torch.cuda.stream()
+
             if self._device is not None and (
                 not self._simple_save or "nvenc" in self._fourcc
             ):
