@@ -14,8 +14,8 @@ GAME_ID="sharks-bb1-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
-#BLEND_MODE="--blend-mode=laplacian"
-BLEND_MODE="--blend-mode=gpu-hard-seam"
+BLEND_MODE="--blend-mode=laplacian"
+#BLEND_MODE="--blend-mode=gpu-hard-seam"
 
 START_FRAME=0
 #START_FRAME=1900
@@ -32,8 +32,8 @@ START_FRAME=0
 #BATCH_SIZE=32
 #BATCH_SIZE=16
 #BATCH_SIZE=16
-#BATCH_SIZE=2
-BATCH_SIZE=8
+BATCH_SIZE=2
+#BATCH_SIZE=8
 
 #STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
 
