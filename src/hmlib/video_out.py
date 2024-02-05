@@ -714,20 +714,23 @@ class VideoOutput:
                     if self._cuda_stream is not None:
                         self._cuda_stream.synchronize()
                     online_im = online_im.detach().contiguous().cpu().numpy()
-                #
-                # Frame Number
-                #
-                if (
-                    self.has_args()
-                    and self._args.plot_frame_number
-                    and not self._skip_final_save
-                ):
-                    online_im = vis.plot_frame_number(
-                        online_im,
-                        frame_id=frame_id,
-                    )
-                if plot_interias:
-                    vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
+
+            #
+            # Frame Number
+            #
+            if (
+                self.has_args()
+                and self._args.plot_frame_number
+            ):
+                prev_device = online_im.device
+                online_im = vis.plot_frame_number(
+                    online_im,
+                    frame_id=frame_id,
+                )
+                online_im = torch.from_numpy(online_im).to(prev_device)
+
+            # if plot_interias:
+            #     vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
 
             # Output (and maybe show) the final image
             if (
