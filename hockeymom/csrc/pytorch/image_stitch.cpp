@@ -75,7 +75,6 @@ at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
   //     r->init(batch_size);
   //   }
   // }
-  int device_index 
   at::cuda::CUDAStream current_stream =
       at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
   current_stream.synchronize();
