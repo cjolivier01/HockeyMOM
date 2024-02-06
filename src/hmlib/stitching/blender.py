@@ -475,7 +475,7 @@ def blend_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
-    laplacian_blend: bool = True,
+    blend_mode: str = "laplacian",
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -562,7 +562,7 @@ def blend_video(
                     blender = core.ImageBlender(
                         mode=(
                             core.ImageBlenderMode.Laplacian
-                            if laplacian_blend
+                            if blend_mode == "laplacian"
                             else core.ImageBlenderMode.HardSeam
                         ),
                         levels=4,
@@ -591,7 +591,7 @@ def blend_video(
                         ],
                         seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
                         xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-                        laplacian_blend=laplacian_blend,
+                        laplacian_blend=blend_mode == "laplacian",
                     )
                 # blender.init()
 
@@ -962,7 +962,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            #output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
