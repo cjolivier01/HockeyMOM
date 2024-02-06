@@ -766,30 +766,6 @@ def stitch_video(
     source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
 
-    # xpos_1, ypos_1 = get_image_geo_position(
-    #     os.path.join(dir_name, f"{basename_1}.tif")
-    # )
-    # xpos_2, ypos_2 = get_image_geo_position(
-    #     os.path.join(dir_name, f"{basename_2}.tif")
-    # )
-
-
-    # seam_tensor, xor_tensor = make_seam_and_xor_masks(
-    #     dir_name=dir_name,
-    #     images_and_positions=[
-    #         ImageAndPos(
-    #             image=destination_tensor_1[0],
-    #             xpos=remapper_1.xpos,
-    #             ypos=remapper_1.ypos,
-    #         ),
-    #         ImageAndPos(
-    #             image=destination_tensor_2[0],
-    #             xpos=remapper_2.xpos,
-    #             ypos=remapper_2.ypos,
-    #         ),
-    #     ],
-    # )
-
     blender_config = create_blender_config(
         mode="laplacian",
         dir_name=dir_name,
@@ -827,28 +803,6 @@ def stitch_video(
     )
     stitcher.to(device)
 
-    # remapper_1 = ImageRemapper(
-    #     dir_name=dir_name,
-    #     basename=basename_1,
-    #     source_hw=source_tensor_1.shape[-2:],
-    #     channels=source_tensor_1.shape[1],
-    #     interpolation=interpolation,
-    #     add_alpha_channel=False,
-    # )
-    # remapper_1.init(batch_size=batch_size)
-    # remapper_1.to(device=device)
-
-    # remapper_2 = ImageRemapper(
-    #     dir_name=dir_name,
-    #     basename=basename_2,
-    #     source_hw=source_tensor_2.shape[-2:],
-    #     channels=source_tensor_2.shape[1],
-    #     interpolation=interpolation,
-    #     add_alpha_channel=False,
-    # )
-    # remapper_2.init(batch_size=batch_size)
-    # remapper_2.to(device=device)
-
     video_out = None
 
     timer = Timer()
@@ -857,76 +811,6 @@ def stitch_video(
     frame_id = start_frame_number
     try:
         while True:
-            # destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
-            #     device
-            # )
-            # destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
-            #     device
-            # )
-
-            # if frame_count == 0:
-            #     # seam_tensor, xor_tensor = make_seam_and_xor_masks(
-            #     #     dir_name=dir_name,
-            #     #     images_and_positions=[
-            #     #         ImageAndPos(
-            #     #             image=destination_tensor_1[0],
-            #     #             xpos=remapper_1.xpos,
-            #     #             ypos=remapper_1.ypos,
-            #     #         ),
-            #     #         ImageAndPos(
-            #     #             image=destination_tensor_2[0],
-            #     #             xpos=remapper_2.xpos,
-            #     #             ypos=remapper_2.ypos,
-            #     #         ),
-            #     #     ],
-            #     # )
-
-            #     # show_image("seam_tensor", torch.from_numpy(seam_tensor))
-            #     # show_image("xor_tensor", torch.from_numpy(xor_tensor))
-            #     if not python_blend:
-            #         blender = core.ImageBlender(
-            #             mode=(
-            #                 core.ImageBlenderMode.Laplacian
-            #                 if laplacian_blend
-            #                 else core.ImageBlenderMode.HardSeam
-            #             ),
-            #             levels=4,
-            #             seam=torch.from_numpy(seam_tensor),
-            #             xor_map=torch.from_numpy(xor_tensor),
-            #             # lazy_init=True,
-            #             lazy_init=False,
-            #             interpolation="bilinear",
-            #         )
-            #         blender.to(device)
-            #     else:
-            #         blender = PtImageBlender(
-            #             images_info=[
-            #                 BlendImageInfo(
-            #                     width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
-            #                     height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
-            #                     xpos=remapper_1.xpos,
-            #                     ypos=remapper_1.ypos,
-            #                 ),
-            #                 BlendImageInfo(
-            #                     width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
-            #                     height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
-            #                     xpos=remapper_2.xpos,
-            #                     ypos=remapper_2.ypos,
-            #                 ),
-            #             ],
-            #             seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
-            #             xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-            #             laplacian_blend=laplacian_blend,
-            #         )
-            #     # blender.init()
-
-            # blended = blender.forward(
-            #     image_1=destination_tensor_1,
-            #     xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
-            #     image_2=destination_tensor_2,
-            #     xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
-            # )
-
             sinfo_1 = core.StitchImageInfo()
             sinfo_1.image = source_tensor_1.to(torch.float)
             sinfo_1.xy_pos = [xpos_1, ypos_1]
@@ -940,7 +824,8 @@ def stitch_video(
             )
 
             blended = blended_stream_tensor.get()
-            show_image("blended", blended, wait=False)
+            if show:
+                show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(
@@ -1029,8 +914,8 @@ def stitch_video(
                 for i in range(len(blended)):
                     show_image("stitched", blended[i], wait=False)
 
-            source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-            source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
+            source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
+            source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
             timer.tic()
     finally:
         if video_out is not None:
