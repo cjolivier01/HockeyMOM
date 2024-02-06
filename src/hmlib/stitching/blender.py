@@ -739,7 +739,7 @@ def stitch_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
-    laplacian_blend: bool = True,
+    blend_mode: str = "laplacian",
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -767,7 +767,7 @@ def stitch_video(
     source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
 
     blender_config = create_blender_config(
-        mode="laplacian",
+        mode=blend_mode,
         dir_name=dir_name,
         basename="nona",
         device=device,
@@ -807,7 +807,6 @@ def stitch_video(
 
     timer = Timer()
     frame_count = 0
-    # blender = None
     frame_id = start_frame_number
     try:
         while True:
@@ -824,8 +823,6 @@ def stitch_video(
             )
 
             blended = blended_stream_tensor.get()
-            if show:
-                show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(
@@ -943,9 +940,10 @@ def main(args):
             start_frame_number=0,
             # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
+            #batch_size=args.batch_size,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
-            laplacian_blend=args.laplacian_blend,
+            blend_mode="laplacian",
         )
 
 
