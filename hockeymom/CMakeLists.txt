@@ -23,6 +23,7 @@ set(
   csrc/postprocess/ImagePostProcess.cpp
   csrc/pytorch/image_remap.cpp
   csrc/pytorch/image_blend.cpp
+  csrc/pytorch/image_stitch.cpp
   csrc/video/video_writer.cpp
 )
 

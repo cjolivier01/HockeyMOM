@@ -6,10 +6,10 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/sharks-bb1-2"
+VIDEO="${HOME}/Videos/tvbb"
 
-#GAME_ID="tvbb2"
-GAME_ID="sharks-bb1-2"
+GAME_ID="tvbb"
+#GAME_ID="sharks-bb1-2"
 #GAME_ID="sharks-bb3-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
@@ -46,7 +46,7 @@ echo "Experiment name: ${EXP_NAME}"
 if [ ! -z "${VIDEO}" ]; then
   VIDEO="--input_video=${VIDEO}"
 fi
-
+set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \

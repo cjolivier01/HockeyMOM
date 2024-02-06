@@ -16,8 +16,8 @@ namespace hm {
 HmThreadPool::HmThreadPool(Eigen::ThreadPool* thread_pool)
     : thread_pool_(thread_pool) {}
 
-HmThreadPool::HmThreadPool(const HmThreadPool& thread_pool_group)
-    : thread_pool_(thread_pool_group.get_internal_thread_pool()) {}
+HmThreadPool::HmThreadPool(const HmThreadPool& hm_thread_pool)
+    : thread_pool_(hm_thread_pool.get_internal_thread_pool()) {}
 
 HmThreadPool& HmThreadPool::operator=(Eigen::ThreadPool* thread_pool) {
   thread_pool_ = thread_pool;

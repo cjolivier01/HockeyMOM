@@ -35,7 +35,7 @@ class ImageRemapper {
       bool add_alpha_channel,
       std::optional<std::string> interpolation);
   void init(std::size_t batch_size);
-  void to(std::string device);
+  void to(at::Device device);
   bool is_initialized() const {
     return initialized_;
   }

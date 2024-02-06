@@ -3,13 +3,16 @@
 #include "unsupported/Eigen/CXX11/ThreadPool"
 
 #include <atomic>
-//#include <condition_variable>
-//#include <deque>
 #include <functional>
-//#include <mutex>
+#include <unordered_set>
+
 #ifdef _WIN32
 #include <Windows.h>
 #endif
+
+#include "absl/time/time.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/base/thread_annotations.h"
 
 namespace hm {
 
@@ -62,7 +65,7 @@ namespace hm {
 class HmThreadPool {
  public:
   HmThreadPool(Eigen::ThreadPool* thread_pool);
-  HmThreadPool(const HmThreadPool& thread_pool_group);
+  HmThreadPool(const HmThreadPool& hm_thread_pool);
 
   ~HmThreadPool();
 

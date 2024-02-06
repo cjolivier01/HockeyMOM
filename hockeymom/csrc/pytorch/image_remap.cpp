@@ -120,7 +120,7 @@ void ImageRemapper::init(std::size_t batch_size) {
   initialized_ = true;
 }
 
-void ImageRemapper::to(std::string device) {
+void ImageRemapper::to(at::Device device) {
   assert(initialized_);
   col_map_ = col_map_.to(device);
   row_map_ = row_map_.to(device);
