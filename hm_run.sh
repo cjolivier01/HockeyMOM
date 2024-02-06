@@ -6,7 +6,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb"
+#VIDEO="${HOME}/Videos/tvbb"
 
 GAME_ID="tvbb"
 #GAME_ID="sharks-bb1-2"
@@ -27,7 +27,7 @@ START_FRAME=0
 #START_FRAME=50000
 #START_FRAME=46200
 
-#TRACKER="--tracker=hm"
+#TRACKER="--tracker=centertrack"
 #TRACKER="--tracker=fair"
 #BATCH_SIZE=32
 #BATCH_SIZE=16
