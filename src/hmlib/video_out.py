@@ -570,6 +570,8 @@ class VideoOutput:
 
             timer.tic()
 
+            #torch.cuda.synchronize()
+
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
@@ -580,12 +582,12 @@ class VideoOutput:
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
             batch_size = online_im.size(0)
 
-            if cuda_stream is None and (
-                online_im.device.type == "cuda"
-                or self._device.type == "cuda"
-                or "nvenc" in self._fourcc
-            ):
-                cuda_stream = torch.cuda.Stream(device=self._device)
+            # if cuda_stream is None and (
+            #     online_im.device.type == "cuda"
+            #     or self._device.type == "cuda"
+            #     or "nvenc" in self._fourcc
+            # ):
+            #     cuda_stream = torch.cuda.Stream(device=self._device)
 
             with optional_with(
                 torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
