@@ -27,12 +27,9 @@ at::Tensor StreamTensor::get() {
 }
 
 struct HmCudaStreamGuard {
- HmCudaStreamGuard(cudaStream_t stream) : stream_(stream) {
+  HmCudaStreamGuard(cudaStream_t stream) : stream_(stream) {}
+  ~HmCudaStreamGuard() {}
 
- }
- ~HmCudaStreamGuard() {
-
- }
  private:
   cudaStream_t stream_;
 };
@@ -71,14 +68,17 @@ void ImageStitcher::to(at::Device device) {
   blender_->to(device);
 }
 
-at::Tensor ImageStitcher::forward(
-    std::vector<StitchImageInfo> inputs) {
+at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
   // if (!initialized_) {
   //   int batch_size = inputs.at(0).image.size(0);
   //   for (auto& r : remappers_) {
   //     r->init(batch_size);
   //   }
   // }
+  int device_index 
+  at::cuda::CUDAStream current_stream =
+      at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
+  current_stream.synchronize();
   HmThreadPool thread_pool(*remap_thread_pool_);
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
@@ -105,7 +105,7 @@ at::Tensor ImageStitcher::forward(
       std::move(remap_tensors.at(0).get()),
       inputs.at(1).xy_pos);
 
-  //return std::make_shared<StreamTensor>(stream, stitched_tensor);
+  // return std::make_shared<StreamTensor>(stream, stitched_tensor);
   return stitched_tensor;
 }
 
