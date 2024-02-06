@@ -46,6 +46,7 @@ ImageStitcher::ImageStitcher(
         remap_info.row_map,
         remap_info.add_alpha_channel,
         interpolation));
+    remappers_.rbegin()->init();
   }
   blender_ = std::make_unique<ImageBlender>(
       blender_mode, levels, seam, xor_map, lazy_init, interpolation);

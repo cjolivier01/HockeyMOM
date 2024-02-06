@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.image import image_width, image_height
 from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
 from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
@@ -803,19 +804,19 @@ def stitch_video(
     xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
 
     remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = cap_1.get(cv2.CAP_PROP_FRAME_WIDTH)
-    remap_info_1.src_height = cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    remap_info_1.src_width = int(image_width(source_tensor_1))
+    remap_info_1.src_height = int(image_height(source_tensor_1))
     remap_info_1.col_map = col_map_1
     remap_info_1.row_map = row_map_1
-    
+
     remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = cap_2.get(cv2.CAP_PROP_FRAME_WIDTH)
-    remap_info_2.src_height = cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    remap_info_2.src_width = int(image_width(source_tensor_2))
+    remap_info_2.src_height = int(image_height(source_tensor_2))
     remap_info_2.col_map = col_map_2
     remap_info_2.row_map = row_map_2
 
     stitcher = core.ImageStitcher(
-        remap_image_indo=[remap_info_1, remap_info_2],
+        remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
         levels=blender_config.levels,
         seam=blender_config.seam,
@@ -850,81 +851,94 @@ def stitch_video(
 
     timer = Timer()
     frame_count = 0
-    blender = None
+    # blender = None
     frame_id = start_frame_number
     try:
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
-                device
-            )
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
-                device
-            )
+            # destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+            #     device
+            # )
+            # destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+            #     device
+            # )
 
-            if frame_count == 0:
-                # seam_tensor, xor_tensor = make_seam_and_xor_masks(
-                #     dir_name=dir_name,
-                #     images_and_positions=[
-                #         ImageAndPos(
-                #             image=destination_tensor_1[0],
-                #             xpos=remapper_1.xpos,
-                #             ypos=remapper_1.ypos,
-                #         ),
-                #         ImageAndPos(
-                #             image=destination_tensor_2[0],
-                #             xpos=remapper_2.xpos,
-                #             ypos=remapper_2.ypos,
-                #         ),
-                #     ],
-                # )
+            # if frame_count == 0:
+            #     # seam_tensor, xor_tensor = make_seam_and_xor_masks(
+            #     #     dir_name=dir_name,
+            #     #     images_and_positions=[
+            #     #         ImageAndPos(
+            #     #             image=destination_tensor_1[0],
+            #     #             xpos=remapper_1.xpos,
+            #     #             ypos=remapper_1.ypos,
+            #     #         ),
+            #     #         ImageAndPos(
+            #     #             image=destination_tensor_2[0],
+            #     #             xpos=remapper_2.xpos,
+            #     #             ypos=remapper_2.ypos,
+            #     #         ),
+            #     #     ],
+            #     # )
 
-                # show_image("seam_tensor", torch.from_numpy(seam_tensor))
-                # show_image("xor_tensor", torch.from_numpy(xor_tensor))
-                if not python_blend:
-                    blender = core.ImageBlender(
-                        mode=(
-                            core.ImageBlenderMode.Laplacian
-                            if laplacian_blend
-                            else core.ImageBlenderMode.HardSeam
-                        ),
-                        levels=4,
-                        seam=torch.from_numpy(seam_tensor),
-                        xor_map=torch.from_numpy(xor_tensor),
-                        # lazy_init=True,
-                        lazy_init=False,
-                        interpolation="bilinear",
-                    )
-                    blender.to(device)
-                else:
-                    blender = PtImageBlender(
-                        images_info=[
-                            BlendImageInfo(
-                                width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
-                                height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                                xpos=remapper_1.xpos,
-                                ypos=remapper_1.ypos,
-                            ),
-                            BlendImageInfo(
-                                width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
-                                height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
-                                xpos=remapper_2.xpos,
-                                ypos=remapper_2.ypos,
-                            ),
-                        ],
-                        seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
-                        xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
-                        laplacian_blend=laplacian_blend,
-                    )
-                # blender.init()
+            #     # show_image("seam_tensor", torch.from_numpy(seam_tensor))
+            #     # show_image("xor_tensor", torch.from_numpy(xor_tensor))
+            #     if not python_blend:
+            #         blender = core.ImageBlender(
+            #             mode=(
+            #                 core.ImageBlenderMode.Laplacian
+            #                 if laplacian_blend
+            #                 else core.ImageBlenderMode.HardSeam
+            #             ),
+            #             levels=4,
+            #             seam=torch.from_numpy(seam_tensor),
+            #             xor_map=torch.from_numpy(xor_tensor),
+            #             # lazy_init=True,
+            #             lazy_init=False,
+            #             interpolation="bilinear",
+            #         )
+            #         blender.to(device)
+            #     else:
+            #         blender = PtImageBlender(
+            #             images_info=[
+            #                 BlendImageInfo(
+            #                     width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
+            #                     height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
+            #                     xpos=remapper_1.xpos,
+            #                     ypos=remapper_1.ypos,
+            #                 ),
+            #                 BlendImageInfo(
+            #                     width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
+            #                     height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
+            #                     xpos=remapper_2.xpos,
+            #                     ypos=remapper_2.ypos,
+            #                 ),
+            #             ],
+            #             seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
+            #             xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
+            #             laplacian_blend=laplacian_blend,
+            #         )
+            #     # blender.init()
 
-            blended = blender.forward(
-                image_1=destination_tensor_1,
-                xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
-                image_2=destination_tensor_2,
-                xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
+            # blended = blender.forward(
+            #     image_1=destination_tensor_1,
+            #     xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
+            #     image_2=destination_tensor_2,
+            #     xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
+            # )
+
+            sinfo_1 = core.StitchImageInfo()
+            sinfo_1.image = source_tensor_1.to(torch.float)
+            sinfo_1.xy_pos = [xpos_1, ypos_1]
+
+            sinfo_2 = core.StitchImageInfo()
+            sinfo_2.image = source_tensor_2.to(torch.float)
+            sinfo_2.xy_pos = [xpos_2, ypos_2]
+
+            blended_stream_tensor = stitcher.forward(
+                inputs=[sinfo_1, sinfo_2]
             )
 
             # show_image("blended", blended, wait=False)
+            return 
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(
