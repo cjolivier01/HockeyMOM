@@ -772,11 +772,13 @@ class VideoOutput:
                 #
                 if self.has_args() and self._args.plot_frame_number:
                     prev_device = online_im.device
+                    if cuda_stream is not None:
+                        cuda_stream.synchronize()
                     online_im = vis.plot_frame_number(
                         online_im,
                         frame_id=frame_id,
                     )
-                    online_im = torch.from_numpy(online_im).to(prev_device)
+                    online_im = torch.from_numpy(online_im).to(prev_device, non_blocking=True)
 
                 # if plot_interias:
                 #     vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
@@ -790,8 +792,14 @@ class VideoOutput:
                     if imgproc_data.frame_id % show_image_interval == 0:
                         if self._cuda_stream is not None:
                             self._cuda_stream.synchronize()
+                        if cuda_stream is not None:
+                            cuda_stream.synchronize()
                         cv2.imshow("online_im", make_visible_image(online_im))
                         cv2.waitKey(1)
+
+                # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
+                if cuda_stream is not None:
+                    cuda_stream.synchronize()
 
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
