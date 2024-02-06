@@ -68,6 +68,7 @@ class ImageStitcher {
   std::unique_ptr<ImageBlender> blender_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
+  bool initialized_{false};
 };
 
 } // namespace ops

@@ -46,7 +46,6 @@ ImageStitcher::ImageStitcher(
         remap_info.row_map,
         remap_info.add_alpha_channel,
         interpolation));
-    (*remappers_.rbegin())->init();
   }
   blender_ = std::make_unique<ImageBlender>(
       blender_mode, levels, seam, xor_map, lazy_init, interpolation);
@@ -61,6 +60,12 @@ void ImageStitcher::to(at::Device device) {
 
 std::shared_ptr<StreamTensor> ImageStitcher::forward(
     std::vector<StitchImageInfo> inputs) {
+  if (!initialized_) {
+    int batch_size = inputs.at(0).image.size(0);
+    for (auto& r : remappers_) {
+      r->init(batch_size);
+    }
+  }
   HmThreadPool thread_pool(*remap_thread_pool_);
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
