@@ -26,6 +26,17 @@ at::Tensor StreamTensor::get() {
   return tensor_;
 }
 
+struct HmCudaStreamGuard {
+ HmCudaStreamGuard(cudaStream_t stream) : stream_(stream) {
+
+ }
+ ~HmCudaStreamGuard() {
+
+ }
+ private:
+  cudaStream_t stream_;
+};
+
 ImageStitcher::ImageStitcher(
     std::size_t batch_size,
     std::vector<RemapImageInfo> remap_image_info,
@@ -60,7 +71,7 @@ void ImageStitcher::to(at::Device device) {
   blender_->to(device);
 }
 
-std::shared_ptr<StreamTensor> ImageStitcher::forward(
+at::Tensor ImageStitcher::forward(
     std::vector<StitchImageInfo> inputs) {
   // if (!initialized_) {
   //   int batch_size = inputs.at(0).image.size(0);
@@ -72,7 +83,10 @@ std::shared_ptr<StreamTensor> ImageStitcher::forward(
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
     thread_pool.Schedule([this, i, &remap_tensors, &inputs]() {
-      c10::cuda::CUDAStream remap_stream = at::cuda::getStreamFromPool();
+      StitchImageInfo& img_info = inputs.at(i);
+      c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
+          ? std::move(img_info.cuda_stream.value())
+          : at::cuda::getStreamFromPool();
       // Set the current stream
       c10::cuda::CUDAStreamGuard stream_guard(remap_stream);
       at::Tensor remapped_tensor =
@@ -81,8 +95,8 @@ std::shared_ptr<StreamTensor> ImageStitcher::forward(
     });
   }
   thread_pool.join_all();
-  c10::cuda::CUDAStream stream = c10::cuda::getStreamFromPool();
-  c10::cuda::CUDAStreamGuard stream_guard(stream);
+  // c10::cuda::CUDAStream stream = c10::cuda::getStreamFromPool();
+  // c10::cuda::CUDAStreamGuard stream_guard(stream);
   assert(remap_tensors.size() == 2);
   at::Tensor stitched_tensor = blender_->forward(
       std::move(remap_tensors.at(0).get()),
@@ -90,7 +104,8 @@ std::shared_ptr<StreamTensor> ImageStitcher::forward(
       std::move(remap_tensors.at(0).get()),
       inputs.at(1).xy_pos);
 
-  return std::make_shared<StreamTensor>(stream, stitched_tensor);
+  //return std::make_shared<StreamTensor>(stream, stitched_tensor);
+  return stitched_tensor;
 }
 
 } // namespace ops

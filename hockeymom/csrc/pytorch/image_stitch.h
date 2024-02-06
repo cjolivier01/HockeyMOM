@@ -44,6 +44,8 @@ struct RemapImageInfo {
 struct StitchImageInfo {
   at::Tensor image;
   std::vector<int> xy_pos;
+  //std::optional<cudaStream_t> cuda_stream;
+  //std::optional<torch::cuda::Stream> cuda_stream;
 };
 
 class ImageStitcher {
@@ -61,7 +63,7 @@ class ImageStitcher {
       bool lazy_init,
       std::optional<std::string> interpolation);
   void to(at::Device device);
-  std::shared_ptr<StreamTensor> forward(std::vector<StitchImageInfo> inputs);
+  at::Tensor forward(std::vector<StitchImageInfo> inputs);
 
  private:
   std::vector<RemapImageInfo> remap_image_infos_;

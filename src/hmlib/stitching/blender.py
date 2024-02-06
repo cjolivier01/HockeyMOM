@@ -763,8 +763,12 @@ def stitch_video(
         if rfo or start_frame_number:
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
 
-    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
-    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
+    main_stream = torch.cuda.Stream(device=device)
+    # stream_1 = torch.cuda.Stream(device=device)
+    # stream_2 = torch.cuda.Stream(device=device)
+
+    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device, non_blocking=True)
+    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device, non_blocking=True)
 
     blender_config = create_blender_config(
         mode=blend_mode,
@@ -801,126 +805,132 @@ def stitch_video(
         lazy_init=False,
         interpolation=interpolation,
     )
-    stitcher.to(device)
 
-    video_out = None
+    with torch.cuda.stream(main_stream):
+        stitcher.to(device)
 
-    timer = Timer()
-    frame_count = 0
-    frame_id = start_frame_number
-    try:
-        while True:
-            sinfo_1 = core.StitchImageInfo()
-            sinfo_1.image = source_tensor_1.to(torch.float)
-            sinfo_1.xy_pos = [xpos_1, ypos_1]
+        video_out = None
 
-            sinfo_2 = core.StitchImageInfo()
-            sinfo_2.image = source_tensor_2.to(torch.float)
-            sinfo_2.xy_pos = [xpos_2, ypos_2]
+        timer = Timer()
+        frame_count = 0
+        frame_id = start_frame_number
+        try:
+            while True:
+                sinfo_1 = core.StitchImageInfo()
+                sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
+                sinfo_1.xy_pos = [xpos_1, ypos_1]
+                #sinfo_1.cuda_stream = stream_1
 
-            blended_stream_tensor = stitcher.forward(
-                inputs=[sinfo_1, sinfo_2]
-            )
+                sinfo_2 = core.StitchImageInfo()
+                sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
+                sinfo_2.xy_pos = [xpos_2, ypos_2]
+                #sinfo_2.cuda_stream = stream_2
 
-            blended = blended_stream_tensor.get()
-
-            if output_video:
-                video_dim_height, video_dim_width = get_dims_for_output_video(
-                    height=blended.shape[-2],
-                    width=blended.shape[-1],
-                    max_width=max_width,
+                main_stream.synchronize()
+                blended_stream_tensor = stitcher.forward(
+                    inputs=[sinfo_1, sinfo_2]
                 )
-                if video_out is None:
-                    fps = cap_1.get(cv2.CAP_PROP_FPS)
-                    video_out = VideoOutput(
-                        name="StitchedOutput",
-                        args=None,
-                        output_video_path=output_video,
-                        output_frame_width=video_dim_width,
-                        output_frame_height=video_dim_height,
-                        fps=fps,
-                        device=blended.device,
-                        skip_final_save=skip_final_video_save,
-                        fourcc="auto",
+
+                #blended = blended_stream_tensor.get()
+                blended = blended_stream_tensor
+
+                if output_video:
+                    video_dim_height, video_dim_width = get_dims_for_output_video(
+                        height=blended.shape[-2],
+                        width=blended.shape[-1],
+                        max_width=max_width,
                     )
-                if (
-                    video_dim_height != blended.shape[-2]
-                    or video_dim_width != blended.shape[-1]
-                ):
-                    assert False  # why is this?
-                    for i in range(len(blended)):
-                        resized = resize_image(
-                            img=blended[i].permute(1, 2, 0),
-                            new_width=video_dim_width,
-                            new_height=video_dim_height,
+                    if video_out is None:
+                        fps = cap_1.get(cv2.CAP_PROP_FPS)
+                        video_out = VideoOutput(
+                            name="StitchedOutput",
+                            args=None,
+                            output_video_path=output_video,
+                            output_frame_width=video_dim_width,
+                            output_frame_height=video_dim_height,
+                            fps=fps,
+                            device=blended.device,
+                            skip_final_save=skip_final_video_save,
+                            fourcc="auto",
                         )
-                        if isinstance(video_out, VideoStreamWriter):
-                            video_out.append(my_blended)
-                            frame_id += batch_size
-                        else:
+                    if (
+                        video_dim_height != blended.shape[-2]
+                        or video_dim_width != blended.shape[-1]
+                    ):
+                        assert False  # why is this?
+                        for i in range(len(blended)):
+                            resized = resize_image(
+                                img=blended[i].permute(1, 2, 0),
+                                new_width=video_dim_width,
+                                new_height=video_dim_height,
+                            )
+                            if isinstance(video_out, VideoStreamWriter):
+                                video_out.append(my_blended)
+                                frame_id += batch_size
+                            else:
+                                video_out.append(
+                                    ImageProcData(
+                                        frame_id=frame_id,
+                                        img=resized.contiguous().cpu(),
+                                        current_box=None,
+                                    )
+                                )
+                            frame_id += 1
+                    else:
+                        my_blended = blended.permute(0, 2, 3, 1)
+                        if rotation_angle:
+                            my_blended = rotate_image(
+                                img=my_blended,
+                                angle=rotation_angle,
+                                rotation_point=(
+                                    my_blended.shape[-2] // 2,
+                                    my_blended.shape[-3] // 2,
+                                ),
+                            )
+                        if show:
+                            for img in my_blended:
+                                show_image("stitched", img, wait=False)
+                        for i in range(len(my_blended)):
                             video_out.append(
                                 ImageProcData(
                                     frame_id=frame_id,
-                                    img=resized.contiguous().cpu(),
+                                    img=my_blended[i],
                                     current_box=None,
                                 )
                             )
-                        frame_id += 1
+                            frame_id += 1
+                    del my_blended
                 else:
-                    my_blended = blended.permute(0, 2, 3, 1)
-                    if rotation_angle:
-                        my_blended = rotate_image(
-                            img=my_blended,
-                            angle=rotation_angle,
-                            rotation_point=(
-                                my_blended.shape[-2] // 2,
-                                my_blended.shape[-3] // 2,
-                            ),
+                    pass
+
+                frame_count += 1
+
+                if frame_count != 1:
+                    timer.toc()
+
+                if frame_count % 20 == 0:
+                    print(
+                        "Stitching: {:.2f} fps".format(
+                            batch_size * 1.0 / max(1e-5, timer.average_time)
                         )
-                    if show:
-                        for img in my_blended:
-                            show_image("stitched", img, wait=False)
-                    for i in range(len(my_blended)):
-                        video_out.append(
-                            ImageProcData(
-                                frame_id=frame_id,
-                                img=my_blended[i],
-                                current_box=None,
-                            )
-                        )
-                        frame_id += 1
-                del my_blended
-            else:
-                pass
-
-            frame_count += 1
-
-            if frame_count != 1:
-                timer.toc()
-
-            if frame_count % 20 == 0:
-                print(
-                    "Stitching: {:.2f} fps".format(
-                        batch_size * 1.0 / max(1e-5, timer.average_time)
                     )
-                )
-                if frame_count % 50 == 0:
-                    timer = Timer()
+                    if frame_count % 50 == 0:
+                        timer = Timer()
 
-            if show:
-                for i in range(len(blended)):
-                    show_image("stitched", blended[i], wait=False)
+                if show:
+                    for i in range(len(blended)):
+                        show_image("stitched", blended[i], wait=False)
 
-            source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
-            source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
-            timer.tic()
-    finally:
-        if video_out is not None:
-            if isinstance(video_out, VideoStreamWriter):
-                video_out.flush()
-                video_out.close()
-            else:
-                video_out.stop()
+                source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device, non_blocking=True)
+                source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device, non_blocking=True)
+                timer.tic()
+        finally:
+            if video_out is not None:
+                if isinstance(video_out, VideoStreamWriter):
+                    video_out.flush()
+                    video_out.close()
+                else:
+                    video_out.stop()
 
 
 def main(args):

@@ -535,7 +535,8 @@ PYBIND11_MODULE(_hockeymom, m) {
       std::shared_ptr<hm::ops::StitchImageInfo>>(m, "StitchImageInfo")
       .def(py::init<>())
       .def_readwrite("image", &hm::ops::StitchImageInfo::image)
-      .def_readwrite("xy_pos", &hm::ops::StitchImageInfo::xy_pos);
+      .def_readwrite("xy_pos", &hm::ops::StitchImageInfo::xy_pos)
+      .def_readwrite("cuda_stream", &hm::ops::StitchImageInfo::cuda_stream);
 
   py::class_<hm::ops::StreamTensor, std::shared_ptr<hm::ops::StreamTensor>>(
       m, "StreamTensor")
@@ -559,7 +560,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "ImageStitcher")
       .def(
           py::init<
-              std::size_t,  
+              std::size_t,
               std::vector<hm::ops::RemapImageInfo>,
               hm::ops::ImageBlender::Mode,
               std::size_t,
