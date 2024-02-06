@@ -812,8 +812,13 @@ def stitch_video(
         video_out = None
 
         timer = Timer()
-        frame_count = 0
+        batch_count = 0
         frame_id = start_frame_number
+        frame_ids = list()
+        for i in range(batch_size):
+            frame_ids.append(i)
+        frame_ids = torch.tensor(frame_ids, dtype=torch.int64, device=device)
+        frame_ids = frame_ids + frame_id
         try:
             while True:
                 sinfo_1 = core.StitchImageInfo()
@@ -890,31 +895,40 @@ def stitch_video(
                         if show:
                             for img in my_blended:
                                 show_image("stitched", img, wait=False)
-                        for i in range(len(my_blended)):
-                            video_out.append(
-                                ImageProcData(
-                                    frame_id=frame_id,
-                                    img=my_blended[i],
-                                    current_box=None,
-                                )
+                        main_stream.synchronize()
+                        video_out.append(
+                            ImageProcData(
+                                frame_id=frame_ids,
+                                img=my_blended,
+                                current_box=None,
                             )
-                            frame_id += 1
+                        )
+                        frame_ids = frame_ids + batch_size
+                        # for i in range(len(my_blended)):
+                        #     video_out.append(
+                        #         ImageProcData(
+                        #             frame_id=frame_ids,
+                        #             img=my_blended[i],
+                        #             current_box=None,
+                        #         )
+                        #     )
+                        #     frame_ids += 1
                     del my_blended
                 else:
                     pass
 
-                frame_count += 1
+                batch_count += 1
 
-                if frame_count != 1:
+                if batch_count != 1:
                     timer.toc()
 
-                if frame_count % 20 == 0:
+                if batch_count % 20 == 0:
                     print(
                         "Stitching: {:.2f} fps".format(
                             batch_size * 1.0 / max(1e-5, timer.average_time)
                         )
                     )
-                    if frame_count % 50 == 0:
+                    if batch_count % 50 == 0:
                         timer = Timer()
 
                 if show:

@@ -224,10 +224,14 @@ class ImageProcData:
         self.img = img
         if current_box is None:
             self.current_box = torch.tensor(
-                (0, 0, img.shape[-1], img.shape[-2]),
+                (0, 0, image_width(img), image_height(img)),
                 dtype=torch.int64,
                 device=img.device,
             )
+            if img.ndim == 4:
+                # batched
+                assert self.current_box.ndim == 1
+                self.current_box = self.current_box.unsqueeze(0).repeat(img.size(0), 1)
         else:
             self.current_box = current_box.clone()
 
@@ -249,7 +253,9 @@ def _to_float(tensor: torch.Tensor, apply_scale: bool = True):
     return tensor
 
 
-def _to_uint8(tensor: torch.Tensor, apply_scale: bool = True):
+def _to_uint8(
+    tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
+):
     if not isinstance(tensor, torch.Tensor):
         assert tensor.dtype == np.uint8
         return tensor
@@ -259,10 +265,12 @@ def _to_uint8(tensor: torch.Tensor, apply_scale: bool = True):
             return (
                 (tensor * 255)
                 .clamp(min=0, max=255.0)
-                .to(torch.uint8, non_blocking=True)
+                .to(torch.uint8, non_blocking=non_blocking)
             )
         else:
-            return tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=True)
+            return tensor.clamp(min=0, max=255.0).to(
+                torch.uint8, non_blocking=non_blocking
+            )
     return tensor
 
 
@@ -542,19 +550,24 @@ class VideoOutput:
 
         cuda_stream = None
 
-        seen_frames = set()
+        batch_count = 0
+
+        # seen_frames = set()
         while True:
+            batch_count += 1
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
                 break
-            frame_id = imgproc_data.frame_id
-            assert frame_id not in seen_frames
-            seen_frames.add(frame_id)
+            # frame_id = imgproc_data.frame_id
+            # assert frame_id not in seen_frames
+            # seen_frames.add(frame_id)
 
             timer.tic()
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+
+            batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
 
             if cuda_stream is None and (
                 online_im.device.type == "cuda"
@@ -574,8 +587,9 @@ class VideoOutput:
                         #     online_im = online_im.transpose(1, 2, 0)
                         online_im = torch.from_numpy(online_im)
                     if online_im.ndim == 4:
-                        assert online_im.shape[0] == 1  # batch size of 1 here only atm
-                        online_im = online_im.squeeze(0)
+                        # assert online_im.shape[0] == 1  # batch size of 1 here only atm
+                        # online_im = online_im.squeeze(0)
+                        pass
                     online_im = make_channels_last(online_im)
                     if str(online_im.device) != str(self._device):
                         online_im = online_im.to(self._device, non_blocking=True)
@@ -691,7 +705,7 @@ class VideoOutput:
                 #
                 # Watermark
                 #
-                online_im = _to_uint8(online_im)
+                online_im = _to_uint8(online_im, non_blocking=True)
                 if self.has_args() and self._args.use_watermark:
                     y = int(online_im.shape[0] - self.watermark_height)
                     x = int(
@@ -768,18 +782,15 @@ class VideoOutput:
                     )
                 timer.toc()
 
-                if (
-                    self._print_interval
-                    and imgproc_data.frame_id % self._print_interval == 0
-                ):
+                if self._print_interval and batch_count % self._print_interval == 0:
                     logger.info(
                         "Image Post-Processing {} frame {} ({:.2f} fps)".format(
                             self._name,
-                            imgproc_data.frame_id,
-                            1.0 / max(1e-5, timer.average_time),
+                            imgproc_data.frame_id[0],
+                            batch_size * 1.0 / max(1e-5, timer.average_time),
                         )
                     )
-                    # timer = Timer()
+                    timer = Timer()
 
                 # if frame_id > 300:
                 #     print("DONE AT LEAST FOR WRITER")
@@ -796,12 +807,14 @@ class VideoOutput:
 
                     if (
                         self._print_interval
-                        and imgproc_data.frame_id % (self._print_interval * 4) == 0
+                        and batch_count % (self._print_interval * 4) == 0
                     ):
                         logger.info(
                             "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
-                                imgproc_data.frame_id,
-                                1.0 / max(1e-5, final_all_timer.average_time),
+                                imgproc_data.frame_id[0],
+                                batch_size
+                                * 1.0
+                                / max(1e-5, final_all_timer.average_time),
                                 get_open_files_count(),
                             )
                         )
