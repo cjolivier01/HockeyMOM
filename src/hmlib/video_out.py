@@ -210,10 +210,11 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
 def paste_watermark_at_position(
     dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int
 ):
+    assert dest_image.ndim == 4
     watermark_height = image_height(watermark_rgb_channels)
     watermark_width = image_width(watermark_rgb_channels)
-    dest_image[y : y + watermark_height, x : x + watermark_width] = dest_image[
-        y : y + watermark_height, x : x + watermark_width
+    dest_image[:, y : y + watermark_height, x : x + watermark_width] = dest_image[
+        :, y : y + watermark_height, x : x + watermark_width
     ] * (1 - watermark_mask / 255.0) + watermark_rgb_channels * (watermark_mask / 255.0)
     return dest_image
 
@@ -234,6 +235,9 @@ class ImageProcData:
                 self.current_box = self.current_box.unsqueeze(0).repeat(img.size(0), 1)
         else:
             self.current_box = current_box.clone()
+        if not isinstance(self.frame_id, torch.Tensor):
+            assert img.ndim == 3
+            self.frame_id = torch.tensor([self.frame_id], dtype=torch.int64)
 
     def dump(self):
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
@@ -242,12 +246,14 @@ class ImageProcData:
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
-def _to_float(tensor: torch.Tensor, apply_scale: bool = True):
+def _to_float(
+    tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
+):
     if tensor.dtype == torch.uint8:
         if apply_scale:
-            return tensor.to(torch.float32) / 255.0
+            return tensor.to(torch.float32, non_blocking=non_blocking) / 255.0
         else:
-            return tensor.to(torch.float32, non_blocking=True)
+            return tensor.to(torch.float32, non_blocking=non_blocking)
     else:
         assert torch.is_floating_point(tensor)
     return tensor
@@ -567,7 +573,12 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
+            if online_im.ndim == 3:
+                online_im = online_im.unsqueeze(0)
+                current_box = current_box.unsqueeze(0)
+
+            # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
+            batch_size = online_im.size(0)
 
             if cuda_stream is None and (
                 online_im.device.type == "cuda"
@@ -601,102 +612,118 @@ class VideoOutput:
                 # Perspective rotation
                 #
                 if self.has_args() and self._args.fixed_edge_rotation:
-                    online_im = _to_float(online_im)
-                    # start = time.time()
-                    rotation_point = [int(i) for i in center(current_box)]
-                    width_center = src_image_width / 2
-                    if rotation_point[0] < width_center:
-                        mult = -1
-                    else:
-                        mult = 1
-
-                    gaussian = 1 - self._get_gaussian(
-                        src_image_width
-                    ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
-
-                    fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
-                    if isinstance(fixed_edge_rotation_angle, (list, tuple)):
-                        assert len(fixed_edge_rotation_angle) == 2
-                        if rotation_point[0] < src_image_width // 2:
-                            fixed_edge_rotation_angle = int(
-                                self._args.fixed_edge_rotation_angle[0]
-                            )
+                    online_im = _to_float(online_im, non_blocking=True)
+                    rotated_images = []
+                    current_boxes = []
+                    for img, bbox in zip(online_im, current_box):
+                        # start = time.time()
+                        rotation_point = [int(i) for i in center(bbox)]
+                        width_center = src_image_width / 2
+                        if rotation_point[0] < width_center:
+                            mult = -1
                         else:
-                            fixed_edge_rotation_angle = int(
-                                self._args.fixed_edge_rotation_angle[1]
-                            )
+                            mult = 1
 
-                    # print(f"gaussian={gaussian}")
-                    angle = (
-                        fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
-                    )
-                    angle *= mult
-
-                    # BEGIN PERFORMANCE HACK
-                    #
-                    # Chop off edges of image that won't be visible after a final crop
-                    # before we rotate in order to reduce the computation necessary
-                    # for the rotation (as well as other subsequent operations)
-                    #
-                    if True and self._args.crop_output_image:
-                        online_im, current_box = self.crop_working_image_width(
-                            image=online_im, current_box=current_box
+                        gaussian = 1 - self._get_gaussian(
+                            src_image_width
+                        ).get_gaussian_y_from_image_x_position(
+                            rotation_point[0], wide=True
                         )
-                        src_image_width = image_width(online_im)
-                        src_image_height = image_height(online_im)
-                        rotation_point = center(current_box)
-                    #
-                    # END PERFORMANCE HACK
-                    #
 
-                    # print(f"angle={angle}")
-                    online_im = rotate_image(
-                        img=online_im, angle=angle, rotation_point=rotation_point
-                    )
+                        fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
+                        if isinstance(fixed_edge_rotation_angle, (list, tuple)):
+                            assert len(fixed_edge_rotation_angle) == 2
+                            if rotation_point[0] < src_image_width // 2:
+                                fixed_edge_rotation_angle = int(
+                                    self._args.fixed_edge_rotation_angle[0]
+                                )
+                            else:
+                                fixed_edge_rotation_angle = int(
+                                    self._args.fixed_edge_rotation_angle[1]
+                                )
+
+                        # print(f"gaussian={gaussian}")
+                        angle = (
+                            fixed_edge_rotation_angle
+                            - fixed_edge_rotation_angle * gaussian
+                        )
+                        angle *= mult
+
+                        # BEGIN PERFORMANCE HACK
+                        #
+                        # Chop off edges of image that won't be visible after a final crop
+                        # before we rotate in order to reduce the computation necessary
+                        # for the rotation (as well as other subsequent operations)
+                        #
+                        if True and self._args.crop_output_image:
+                            img, bbox = self.crop_working_image_width(
+                                image=img, current_box=bbox
+                            )
+                            src_image_width = image_width(img)
+                            src_image_height = image_height(img)
+                            rotation_point = center(bbox)
+                        #
+                        # END PERFORMANCE HACK
+                        #
+
+                        # print(f"angle={angle}")
+                        img = rotate_image(
+                            img=img,
+                            angle=angle,
+                            rotation_point=rotation_point,
+                        )
+                        rotated_images.append(img)
+                        current_boxes.append(bbox)
                     # duration = time.time() - start
                     # print(f"rotate image took {duration} seconds")
+                    online_im = torch.stack(rotated_images)
+                    current_box = torch.stack(current_boxes)
 
                 #
                 # Crop to output video frame image
                 #
                 if self.has_args() and self._args.crop_output_image:
-                    online_im = _to_float(online_im)
+                    online_im = _to_float(online_im, non_blocking=True)
                     # assert torch.isclose(
                     #     aspect_ratio(current_box), self._output_aspect_ratio,
                     # )
                     # print(f"crop ar={aspect_ratio(current_box)}")
-                    intbox = [int(i) for i in current_box]
-                    x1 = intbox[0]
-                    y1 = intbox[1]
-                    y2 = intbox[3]
-                    x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
-                    assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                    if y1 >= src_image_height or y2 >= src_image_height:
-                        print(
-                            f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
-                        )
-                        # assert y1 < online_im.shape[0] and y2 < online_im.shape[0]
-                        y1 = min(y1, src_image_height)
-                        y2 = min(y2, src_image_height)
-                    if x1 >= src_image_width or x2 >= src_image_width:
-                        print(
-                            f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
-                        )
-                        # assert x1 < online_im.shape[1] and x2 < online_im.shape[1]
-                        x1 = min(x1, src_image_width)
-                        x2 = min(x2, src_image_width)
+                    cropped_images = []
+                    for img, bbox in zip(online_im, current_box):
+                        intbox = [int(i) for i in bbox]
+                        x1 = intbox[0]
+                        y1 = intbox[1]
+                        y2 = intbox[3]
+                        x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
+                        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+                        if y1 >= src_image_height or y2 >= src_image_height:
+                            print(
+                                f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
+                            )
+                            # assert y1 < img.shape[0] and y2 < img.shape[0]
+                            y1 = min(y1, src_image_height)
+                            y2 = min(y2, src_image_height)
+                        if x1 >= src_image_width or x2 >= src_image_width:
+                            print(
+                                f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
+                            )
+                            # assert x1 < img.shape[1] and x2 < img.shape[1]
+                            x1 = min(x1, src_image_width)
+                            x2 = min(x2, src_image_width)
 
-                    online_im = crop_image(online_im, x1, y1, x2, y2)
-                    if image_height(online_im) != int(
-                        self._output_frame_height
-                    ) or image_width(online_im) != int(self._output_frame_width):
-                        online_im = resize_image(
-                            img=online_im,
-                            new_width=self._output_frame_width,
-                            new_height=self._output_frame_height,
-                        )
-                    assert image_height(online_im) == self._output_frame_height_int
-                    assert image_width(online_im) == self._output_frame_width_int
+                        img = crop_image(img, x1, y1, x2, y2)
+                        if image_height(img) != int(
+                            self._output_frame_height
+                        ) or image_width(img) != int(self._output_frame_width):
+                            img = resize_image(
+                                img=img,
+                                new_width=self._output_frame_width,
+                                new_height=self._output_frame_height,
+                            )
+                        assert image_height(img) == self._output_frame_height_int
+                        assert image_width(img) == self._output_frame_width_int
+                        cropped_images.append(img)
+                    online_im = torch.stack(cropped_images)
 
                 # Numpy array after here
                 if isinstance(online_im, PIL.Image.Image):
@@ -707,9 +734,9 @@ class VideoOutput:
                 #
                 online_im = _to_uint8(online_im, non_blocking=True)
                 if self.has_args() and self._args.use_watermark:
-                    y = int(online_im.shape[0] - self.watermark_height)
+                    y = int(image_height(online_im) - self.watermark_height)
                     x = int(
-                        online_im.shape[1]
+                        image_width(online_im)
                         - self.watermark_width
                         - self.watermark_width / 10
                     )
