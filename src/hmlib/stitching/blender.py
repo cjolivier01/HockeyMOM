@@ -824,6 +824,7 @@ def stitch_video(
         lazy_init=False,
         interpolation=interpolation,
     )
+    stitcher.to(device)
 
     # remapper_1 = ImageRemapper(
     #     dir_name=dir_name,
