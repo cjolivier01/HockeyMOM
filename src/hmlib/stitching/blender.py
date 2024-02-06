@@ -701,10 +701,334 @@ def blend_video(
             else:
                 video_out.stop()
 
+def get_mapping(dir_name: str, basename: str):
+    x_file = os.path.join(dir_name, f"{basename}_x.tif")
+    y_file = os.path.join(dir_name, f"{basename}_y.tif")
+    xpos, ypos = get_image_geo_position(
+        os.path.join(dir_name, f"{basename}.tif")
+    )
+
+    x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+    y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+    if x_map is None:
+        raise AssertionError(f"Could not read mapping file: {x_file}")
+    if y_map is None:
+        raise AssertionError(f"Could not read mapping file: {y_file}")
+    col_map = torch.from_numpy(x_map.astype(np.int64))
+    row_map = torch.from_numpy(y_map.astype(np.int64))
+    return xpos, ypos, col_map, row_map
+
+
+def stitch_video(
+    video_file_1: str,
+    video_file_2: str,
+    dir_name: str,
+    basename_1: str,
+    basename_2: str,
+    interpolation: str = None,
+    lfo: float = None,
+    rfo: float = None,
+    python_blend: bool = False,
+    show: bool = False,
+    start_frame_number: int = 0,
+    output_video: str = None,
+    # max_width: int = 8192,
+    max_width: int = 9999,
+    rotation_angle: int = 0,
+    batch_size: int = 8,
+    device: torch.device = torch.device("cuda"),
+    skip_final_video_save: bool = False,
+    laplacian_blend: bool = True,
+):
+    video_file_1 = os.path.join(dir_name, video_file_1)
+    video_file_2 = os.path.join(dir_name, video_file_2)
+
+    if lfo is None or rfo is None:
+        lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
+
+    # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
+    cap_1 = cv2.VideoCapture(video_file_1)
+    if not cap_1 or not cap_1.isOpened():
+        raise AssertionError(f"Could not open video file: {video_file_1}")
+    else:
+        if lfo or start_frame_number:
+            cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
+
+    # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    cap_2 = cv2.VideoCapture(video_file_2)
+    if not cap_2 or not cap_2.isOpened():
+        raise AssertionError(f"Could not open video file: {video_file_2}")
+    else:
+        if rfo or start_frame_number:
+            cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
+
+    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
+    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
+
+    # xpos_1, ypos_1 = get_image_geo_position(
+    #     os.path.join(dir_name, f"{basename_1}.tif")
+    # )
+    # xpos_2, ypos_2 = get_image_geo_position(
+    #     os.path.join(dir_name, f"{basename_2}.tif")
+    # )
+
+
+    # seam_tensor, xor_tensor = make_seam_and_xor_masks(
+    #     dir_name=dir_name,
+    #     images_and_positions=[
+    #         ImageAndPos(
+    #             image=destination_tensor_1[0],
+    #             xpos=remapper_1.xpos,
+    #             ypos=remapper_1.ypos,
+    #         ),
+    #         ImageAndPos(
+    #             image=destination_tensor_2[0],
+    #             xpos=remapper_2.xpos,
+    #             ypos=remapper_2.ypos,
+    #         ),
+    #     ],
+    # )
+
+    blender_config = create_blender_config(
+        mode="laplacian",
+        dir_name=dir_name,
+        basename="nona",
+        device=device,
+        levels=4,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
+
+    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
+    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
+
+    remap_info_1 = core.RemapImageInfo()
+    remap_info_1.src_width = cap_1.get(cv2.CAP_PROP_FRAME_WIDTH)
+    remap_info_1.src_height = cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    remap_info_1.col_map = col_map_1
+    remap_info_1.row_map = row_map_1
+    
+    remap_info_2 = core.RemapImageInfo()
+    remap_info_2.src_width = cap_2.get(cv2.CAP_PROP_FRAME_WIDTH)
+    remap_info_2.src_height = cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    remap_info_2.col_map = col_map_2
+    remap_info_2.row_map = row_map_2
+
+    stitcher = core.ImageStitcher(
+        remap_image_indo=[remap_info_1, remap_info_2],
+        blender_mode=core.ImageBlenderMode.Laplacian,
+        levels=blender_config.levels,
+        seam=blender_config.seam,
+        xor_map=blender_config.xor_map,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
+
+    # remapper_1 = ImageRemapper(
+    #     dir_name=dir_name,
+    #     basename=basename_1,
+    #     source_hw=source_tensor_1.shape[-2:],
+    #     channels=source_tensor_1.shape[1],
+    #     interpolation=interpolation,
+    #     add_alpha_channel=False,
+    # )
+    # remapper_1.init(batch_size=batch_size)
+    # remapper_1.to(device=device)
+
+    # remapper_2 = ImageRemapper(
+    #     dir_name=dir_name,
+    #     basename=basename_2,
+    #     source_hw=source_tensor_2.shape[-2:],
+    #     channels=source_tensor_2.shape[1],
+    #     interpolation=interpolation,
+    #     add_alpha_channel=False,
+    # )
+    # remapper_2.init(batch_size=batch_size)
+    # remapper_2.to(device=device)
+
+    video_out = None
+
+    timer = Timer()
+    frame_count = 0
+    blender = None
+    frame_id = start_frame_number
+    try:
+        while True:
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+                device
+            )
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+                device
+            )
+
+            if frame_count == 0:
+                # seam_tensor, xor_tensor = make_seam_and_xor_masks(
+                #     dir_name=dir_name,
+                #     images_and_positions=[
+                #         ImageAndPos(
+                #             image=destination_tensor_1[0],
+                #             xpos=remapper_1.xpos,
+                #             ypos=remapper_1.ypos,
+                #         ),
+                #         ImageAndPos(
+                #             image=destination_tensor_2[0],
+                #             xpos=remapper_2.xpos,
+                #             ypos=remapper_2.ypos,
+                #         ),
+                #     ],
+                # )
+
+                # show_image("seam_tensor", torch.from_numpy(seam_tensor))
+                # show_image("xor_tensor", torch.from_numpy(xor_tensor))
+                if not python_blend:
+                    blender = core.ImageBlender(
+                        mode=(
+                            core.ImageBlenderMode.Laplacian
+                            if laplacian_blend
+                            else core.ImageBlenderMode.HardSeam
+                        ),
+                        levels=4,
+                        seam=torch.from_numpy(seam_tensor),
+                        xor_map=torch.from_numpy(xor_tensor),
+                        # lazy_init=True,
+                        lazy_init=False,
+                        interpolation="bilinear",
+                    )
+                    blender.to(device)
+                else:
+                    blender = PtImageBlender(
+                        images_info=[
+                            BlendImageInfo(
+                                width=cap_1.get(cv2.CAP_PROP_FRAME_WIDTH),
+                                height=cap_1.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                                xpos=remapper_1.xpos,
+                                ypos=remapper_1.ypos,
+                            ),
+                            BlendImageInfo(
+                                width=cap_2.get(cv2.CAP_PROP_FRAME_WIDTH),
+                                height=cap_2.get(cv2.CAP_PROP_FRAME_HEIGHT),
+                                xpos=remapper_2.xpos,
+                                ypos=remapper_2.ypos,
+                            ),
+                        ],
+                        seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
+                        xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
+                        laplacian_blend=laplacian_blend,
+                    )
+                # blender.init()
+
+            blended = blender.forward(
+                image_1=destination_tensor_1,
+                xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
+                image_2=destination_tensor_2,
+                xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
+            )
+
+            # show_image("blended", blended, wait=False)
+
+            if output_video:
+                video_dim_height, video_dim_width = get_dims_for_output_video(
+                    height=blended.shape[-2],
+                    width=blended.shape[-1],
+                    max_width=max_width,
+                )
+                if video_out is None:
+                    fps = cap_1.get(cv2.CAP_PROP_FPS)
+                    video_out = VideoOutput(
+                        name="StitchedOutput",
+                        args=None,
+                        output_video_path=output_video,
+                        output_frame_width=video_dim_width,
+                        output_frame_height=video_dim_height,
+                        fps=fps,
+                        device=blended.device,
+                        skip_final_save=skip_final_video_save,
+                        fourcc="auto",
+                    )
+                if (
+                    video_dim_height != blended.shape[-2]
+                    or video_dim_width != blended.shape[-1]
+                ):
+                    assert False  # why is this?
+                    for i in range(len(blended)):
+                        resized = resize_image(
+                            img=blended[i].permute(1, 2, 0),
+                            new_width=video_dim_width,
+                            new_height=video_dim_height,
+                        )
+                        if isinstance(video_out, VideoStreamWriter):
+                            video_out.append(my_blended)
+                            frame_id += batch_size
+                        else:
+                            video_out.append(
+                                ImageProcData(
+                                    frame_id=frame_id,
+                                    img=resized.contiguous().cpu(),
+                                    current_box=None,
+                                )
+                            )
+                        frame_id += 1
+                else:
+                    my_blended = blended.permute(0, 2, 3, 1)
+                    if rotation_angle:
+                        my_blended = rotate_image(
+                            img=my_blended,
+                            angle=rotation_angle,
+                            rotation_point=(
+                                my_blended.shape[-2] // 2,
+                                my_blended.shape[-3] // 2,
+                            ),
+                        )
+                    if show:
+                        for img in my_blended:
+                            show_image("stitched", img, wait=False)
+                    for i in range(len(my_blended)):
+                        video_out.append(
+                            ImageProcData(
+                                frame_id=frame_id,
+                                img=my_blended[i],
+                                current_box=None,
+                            )
+                        )
+                        frame_id += 1
+                del my_blended
+            else:
+                pass
+
+            frame_count += 1
+
+            if frame_count != 1:
+                timer.toc()
+
+            if frame_count % 20 == 0:
+                print(
+                    "Stitching: {:.2f} fps".format(
+                        batch_size * 1.0 / max(1e-5, timer.average_time)
+                    )
+                )
+                if frame_count % 50 == 0:
+                    timer = Timer()
+
+            if show:
+                for i in range(len(blended)):
+                    show_image("stitched", blended[i], wait=False)
+
+            source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
+            source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
+            timer.tic()
+    finally:
+        if video_out is not None:
+            if isinstance(video_out, VideoStreamWriter):
+                video_out.flush()
+                video_out.close()
+            else:
+                video_out.stop()
+
 
 def main(args):
     with torch.no_grad():
-        blend_video(
+        stitch_video(
+        #blend_video(
             "left.mp4",
             "right.mp4",
             args.video_dir,

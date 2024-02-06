@@ -24,7 +24,7 @@ namespace ops {
 
 class StreamTensor {
  public:
-  StreamTensor();
+  StreamTensor() = default;
   StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor);
   at::Tensor get();
 
