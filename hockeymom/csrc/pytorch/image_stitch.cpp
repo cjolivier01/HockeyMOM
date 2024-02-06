@@ -84,9 +84,10 @@ at::Tensor ImageStitcher::forward(
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
     thread_pool.Schedule([this, i, &remap_tensors, &inputs]() {
       StitchImageInfo& img_info = inputs.at(i);
-      c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
-          ? std::move(img_info.cuda_stream.value())
-          : at::cuda::getStreamFromPool();
+      c10::cuda::CUDAStream remap_stream = at::cuda::getStreamFromPool();
+      // c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
+      //     ? std::move(img_info.cuda_stream.value())
+      //     : at::cuda::getStreamFromPool();
       // Set the current stream
       c10::cuda::CUDAStreamGuard stream_guard(remap_stream);
       at::Tensor remapped_tensor =
