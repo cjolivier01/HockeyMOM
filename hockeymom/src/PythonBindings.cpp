@@ -536,7 +536,8 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(py::init<>())
       .def_readwrite("image", &hm::ops::StitchImageInfo::image)
       .def_readwrite("xy_pos", &hm::ops::StitchImageInfo::xy_pos)
-      .def_readwrite("cuda_stream", &hm::ops::StitchImageInfo::cuda_stream);
+      //.def_readwrite("cuda_stream", &hm::ops::StitchImageInfo::cuda_stream)
+      ;
 
   py::class_<hm::ops::StreamTensor, std::shared_ptr<hm::ops::StreamTensor>>(
       m, "StreamTensor")
