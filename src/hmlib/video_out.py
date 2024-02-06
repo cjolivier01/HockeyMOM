@@ -409,7 +409,7 @@ class VideoOutput:
             "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
         ):
             while self._imgproc_queue.qsize() > self._max_queue_backlog:
-                # print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+                print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.01)
             self._imgproc_queue.put(img_proc_data)
 
@@ -556,12 +556,12 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            # if cuda_stream is None and (
-            #     online_im.device.type == "cuda"
-            #     or self._device.type == "cuda"
-            #     or "nvenc" in self._fourcc
-            # ):
-            #     cuda_stream = torch.cuda.Stream(device=self._device)
+            if cuda_stream is None and (
+                online_im.device.type == "cuda"
+                or self._device.type == "cuda"
+                or "nvenc" in self._fourcc
+            ):
+                cuda_stream = torch.cuda.Stream(device=self._device)
 
             with optional_with(
                 torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
