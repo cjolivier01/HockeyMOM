@@ -34,12 +34,11 @@ class StreamTensor {
 };
 
 struct RemapImageInfo {
-  std::size_t src_width;
-  std::size_t src_height;
+  std::size_t src_width{0};
+  std::size_t src_height{0};
   at::Tensor col_map;
   at::Tensor row_map;
-  bool add_alpha_channel;
-  cudaStream_t cuda_stream{nullptr};
+  bool add_alpha_channel{false};
 };
 
 struct StitchImageInfo {
@@ -61,11 +60,9 @@ class ImageStitcher {
       bool lazy_init,
       std::optional<std::string> interpolation);
   void to(at::Device device);
-  StreamTensor forward(std::vector<StitchImageInfo> inputs);
+  std::shared_ptr<StreamTensor> forward(std::vector<StitchImageInfo> inputs);
 
  private:
-  void init();
-  absl::Mutex mu_;
   std::vector<RemapImageInfo> remap_image_infos_;
   std::vector<std::unique_ptr<ImageRemapper>> remappers_;
   std::unique_ptr<ImageBlender> blender_;

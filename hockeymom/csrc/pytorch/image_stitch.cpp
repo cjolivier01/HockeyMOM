@@ -51,8 +51,6 @@ ImageStitcher::ImageStitcher(
       blender_mode, levels, seam, xor_map, lazy_init, interpolation);
 }
 
-void ImageStitcher::init() {}
-
 void ImageStitcher::to(at::Device device) {
   for (auto& m : remappers_) {
     m->to(device);
@@ -60,7 +58,8 @@ void ImageStitcher::to(at::Device device) {
   blender_->to(device);
 }
 
-StreamTensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
+std::shared_ptr<StreamTensor> ImageStitcher::forward(
+    std::vector<StitchImageInfo> inputs) {
   HmThreadPool thread_pool(*remap_thread_pool_);
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
@@ -82,7 +81,7 @@ StreamTensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
       std::move(remap_tensors.at(0).get()),
       inputs.at(1).xy_pos);
 
-  return StreamTensor(stream, stitched_tensor);
+  return std::make_shared<StreamTensor>(stream, stitched_tensor);
 }
 
 } // namespace ops

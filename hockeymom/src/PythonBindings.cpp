@@ -2,6 +2,7 @@
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
+#include "hockeymom/csrc/pytorch/image_stitch.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/video/video_writer.h"
 
@@ -527,5 +528,60 @@ PYBIND11_MODULE(_hockeymom, m) {
           py::arg("xy_pos_1"),
           py::arg("image_2"),
           py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>());
+
+  py::class_<
+      hm::ops::StitchImageInfo,
+      std::shared_ptr<hm::ops::StitchImageInfo>>(m, "StitchImageInfo")
+      .def(py::init<>())
+      .def_readwrite("image", &hm::ops::StitchImageInfo::image)
+      .def_readwrite("xy_pos", &hm::ops::StitchImageInfo::xy_pos);
+
+  py::class_<hm::ops::StreamTensor, std::shared_ptr<hm::ops::StreamTensor>>(
+      m, "StreamTensor")
+      .def(py::init<>())
+      .def(
+          "get",
+          &hm::ops::StreamTensor::get,
+          py::call_guard<py::gil_scoped_release>());
+
+  py::class_<hm::ops::RemapImageInfo, std::shared_ptr<hm::ops::RemapImageInfo>>(
+      m, "RemapImageInfo")
+      .def(py::init<>())
+      .def_readwrite("src_width", &hm::ops::RemapImageInfo::src_width)
+      .def_readwrite("src_height", &hm::ops::RemapImageInfo::src_height)
+      .def_readwrite("col_map", &hm::ops::RemapImageInfo::col_map)
+      .def_readwrite("row_map", &hm::ops::RemapImageInfo::row_map)
+      .def_readwrite(
+          "add_alpha_channel", &hm::ops::RemapImageInfo::add_alpha_channel);
+
+  py::class_<hm::ops::ImageStitcher, std::shared_ptr<hm::ops::ImageStitcher>>(
+      m, "ImageStitcher")
+      .def(
+          py::init<
+              std::vector<hm::ops::RemapImageInfo>,
+              hm::ops::ImageBlender::Mode,
+              std::size_t,
+              at::Tensor,
+              at::Tensor,
+              bool,
+              std::optional<std::string>>(),
+          py::arg("remap_image_info"),
+          py::arg("blender_mode"),
+          py::arg("levels"),
+          py::arg("seam"),
+          py::arg("xor_map"),
+          py::arg("lazy_init"),
+          py::arg("interpolation") = "bilinear",
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "to",
+          &hm::ops::ImageStitcher::to,
+          py::arg("device"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "forward",
+          &hm::ops::ImageStitcher::forward,
+          py::arg("inputs"),
           py::call_guard<py::gil_scoped_release>());
 }
