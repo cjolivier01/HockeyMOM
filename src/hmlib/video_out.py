@@ -425,6 +425,7 @@ class VideoOutput:
             while self._imgproc_queue.qsize() > self._max_queue_backlog:
                 print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.01)
+            torch.cuda.current_stream(img_proc_data.img.device).synchronize()
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
@@ -570,7 +571,7 @@ class VideoOutput:
 
             timer.tic()
 
-            #torch.cuda.synchronize()
+            # torch.cuda.synchronize()
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
@@ -582,6 +583,7 @@ class VideoOutput:
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
             batch_size = online_im.size(0)
 
+            # torch.cuda.synchronize()
             # if cuda_stream is None and (
             #     online_im.device.type == "cuda"
             #     or self._device.type == "cuda"
@@ -765,8 +767,6 @@ class VideoOutput:
                             or self._save_frame_dir
                         )
                     ):
-                        if self._cuda_stream is not None:
-                            self._cuda_stream.synchronize()
                         online_im = online_im.detach().contiguous().cpu().numpy()
 
                 #
@@ -792,8 +792,6 @@ class VideoOutput:
                     and imgproc_data.frame_id >= skip_frames_before_show
                 ):
                     if imgproc_data.frame_id % show_image_interval == 0:
-                        if self._cuda_stream is not None:
-                            self._cuda_stream.synchronize()
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
                         cv2.imshow("online_im", make_visible_image(online_im))
@@ -802,6 +800,8 @@ class VideoOutput:
                 # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
                 if cuda_stream is not None:
                     cuda_stream.synchronize()
+
+                # torch.cuda.synchronize()
 
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
