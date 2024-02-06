@@ -27,6 +27,7 @@ at::Tensor StreamTensor::get() {
 }
 
 ImageStitcher::ImageStitcher(
+    std::size_t batch_size,
     std::vector<RemapImageInfo> remap_image_info,
     ImageBlender::Mode blender_mode,
     std::size_t levels,
@@ -46,6 +47,7 @@ ImageStitcher::ImageStitcher(
         remap_info.row_map,
         remap_info.add_alpha_channel,
         interpolation));
+    (*remappers_.rbegin())->init(batch_size);
   }
   blender_ = std::make_unique<ImageBlender>(
       blender_mode, levels, seam, xor_map, lazy_init, interpolation);
@@ -60,12 +62,12 @@ void ImageStitcher::to(at::Device device) {
 
 std::shared_ptr<StreamTensor> ImageStitcher::forward(
     std::vector<StitchImageInfo> inputs) {
-  if (!initialized_) {
-    int batch_size = inputs.at(0).image.size(0);
-    for (auto& r : remappers_) {
-      r->init(batch_size);
-    }
-  }
+  // if (!initialized_) {
+  //   int batch_size = inputs.at(0).image.size(0);
+  //   for (auto& r : remappers_) {
+  //     r->init(batch_size);
+  //   }
+  // }
   HmThreadPool thread_pool(*remap_thread_pool_);
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
@@ -80,6 +82,7 @@ std::shared_ptr<StreamTensor> ImageStitcher::forward(
   }
   thread_pool.join_all();
   c10::cuda::CUDAStream stream = c10::cuda::getStreamFromPool();
+  c10::cuda::CUDAStreamGuard stream_guard(stream);
   assert(remap_tensors.size() == 2);
   at::Tensor stitched_tensor = blender_->forward(
       std::move(remap_tensors.at(0).get()),

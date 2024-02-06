@@ -816,6 +816,7 @@ def stitch_video(
     remap_info_2.row_map = row_map_2
 
     stitcher = core.ImageStitcher(
+        batch_size=batch_size,
         remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
         levels=blender_config.levels,
@@ -938,8 +939,8 @@ def stitch_video(
                 inputs=[sinfo_1, sinfo_2]
             )
 
-            # show_image("blended", blended, wait=False)
-            return 
+            blended = blended_stream_tensor.get()
+            show_image("blended", blended, wait=False)
 
             if output_video:
                 video_dim_height, video_dim_width = get_dims_for_output_video(

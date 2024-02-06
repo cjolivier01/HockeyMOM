@@ -559,6 +559,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       m, "ImageStitcher")
       .def(
           py::init<
+              std::size_t,  
               std::vector<hm::ops::RemapImageInfo>,
               hm::ops::ImageBlender::Mode,
               std::size_t,
@@ -566,6 +567,7 @@ PYBIND11_MODULE(_hockeymom, m) {
               at::Tensor,
               bool,
               std::optional<std::string>>(),
+          py::arg("batch_size"),
           py::arg("remap_image_info"),
           py::arg("blender_mode"),
           py::arg("levels"),

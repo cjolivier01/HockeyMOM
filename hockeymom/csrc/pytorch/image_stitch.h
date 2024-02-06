@@ -52,6 +52,7 @@ class ImageStitcher {
  public:
   // levels=0 = quick, hard seam
   ImageStitcher(
+      std::size_t batch_size,
       std::vector<RemapImageInfo> remap_image_info,
       ImageBlender::Mode blender_mode,
       std::size_t levels,
