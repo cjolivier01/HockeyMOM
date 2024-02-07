@@ -702,12 +702,11 @@ def blend_video(
             else:
                 video_out.stop()
 
+
 def get_mapping(dir_name: str, basename: str):
     x_file = os.path.join(dir_name, f"{basename}_x.tif")
     y_file = os.path.join(dir_name, f"{basename}_y.tif")
-    xpos, ypos = get_image_geo_position(
-        os.path.join(dir_name, f"{basename}.tif")
-    )
+    xpos, ypos = get_image_geo_position(os.path.join(dir_name, f"{basename}.tif"))
 
     x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
     y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
@@ -718,6 +717,58 @@ def get_mapping(dir_name: str, basename: str):
     col_map = torch.from_numpy(x_map.astype(np.int64))
     row_map = torch.from_numpy(y_map.astype(np.int64))
     return xpos, ypos, col_map, row_map
+
+
+def create_stitcher(
+    dir_name: str,
+    batch_size: int,
+    device: torch.device,
+    mapping_basename_1: str = "mapping_0000",
+    mapping_basename_2: str = "mapping_0001",
+    remapped_basename: str = "nona",
+    blend_mode: str = "laplacian",
+    interpolation: str = "bilinear",
+    levels: int = 4,
+):
+    blender_config = create_blender_config(
+        mode=blend_mode,
+        dir_name=dir_name,
+        basename=remapped_basename,
+        device=device,
+        levels=levels,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
+
+    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
+    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
+
+    source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
+    source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
+
+    remap_info_1 = core.RemapImageInfo()
+    remap_info_1.src_width = int(image_width(source_tensor_1))
+    remap_info_1.src_height = int(image_height(source_tensor_1))
+    remap_info_1.col_map = col_map_1
+    remap_info_1.row_map = row_map_1
+
+    remap_info_2 = core.RemapImageInfo()
+    remap_info_2.src_width = int(image_width(source_tensor_2))
+    remap_info_2.src_height = int(image_height(source_tensor_2))
+    remap_info_2.col_map = col_map_2
+    remap_info_2.row_map = row_map_2
+
+    stitcher = core.ImageStitcher(
+        batch_size=batch_size,
+        remap_image_info=[remap_info_1, remap_info_2],
+        blender_mode=core.ImageBlenderMode.Laplacian,
+        levels=blender_config.levels,
+        seam=blender_config.seam,
+        xor_map=blender_config.xor_map,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
+    return stitcher, [xpos_1, ypos_1], [xpos_2, ypos_2]
 
 
 def stitch_video(
@@ -767,44 +818,54 @@ def stitch_video(
     # stream_1 = torch.cuda.Stream(device=device)
     # stream_2 = torch.cuda.Stream(device=device)
 
-    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device, non_blocking=True)
-    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device, non_blocking=True)
-
-    blender_config = create_blender_config(
-        mode=blend_mode,
+    stitcher, xy_pos_1, xy_pos_2 = create_stitcher(
         dir_name=dir_name,
-        basename="nona",
-        device=device,
-        levels=4,
-        lazy_init=False,
-        interpolation=interpolation,
-    )
-
-    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
-    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
-
-    remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = int(image_width(source_tensor_1))
-    remap_info_1.src_height = int(image_height(source_tensor_1))
-    remap_info_1.col_map = col_map_1
-    remap_info_1.row_map = row_map_1
-
-    remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = int(image_width(source_tensor_2))
-    remap_info_2.src_height = int(image_height(source_tensor_2))
-    remap_info_2.col_map = col_map_2
-    remap_info_2.row_map = row_map_2
-
-    stitcher = core.ImageStitcher(
         batch_size=batch_size,
-        remap_image_info=[remap_info_1, remap_info_2],
-        blender_mode=core.ImageBlenderMode.Laplacian,
-        levels=blender_config.levels,
-        seam=blender_config.seam,
-        xor_map=blender_config.xor_map,
-        lazy_init=False,
-        interpolation=interpolation,
+        device=device,   
     )
+
+    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
+        device, non_blocking=True
+    )
+    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
+        device, non_blocking=True
+    )
+
+    # blender_config = create_blender_config(
+    #     mode=blend_mode,
+    #     dir_name=dir_name,
+    #     basename="nona",
+    #     device=device,
+    #     levels=4,
+    #     lazy_init=False,
+    #     interpolation=interpolation,
+    # )
+
+    # xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
+    # xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
+
+    # remap_info_1 = core.RemapImageInfo()
+    # remap_info_1.src_width = int(image_width(source_tensor_1))
+    # remap_info_1.src_height = int(image_height(source_tensor_1))
+    # remap_info_1.col_map = col_map_1
+    # remap_info_1.row_map = row_map_1
+
+    # remap_info_2 = core.RemapImageInfo()
+    # remap_info_2.src_width = int(image_width(source_tensor_2))
+    # remap_info_2.src_height = int(image_height(source_tensor_2))
+    # remap_info_2.col_map = col_map_2
+    # remap_info_2.row_map = row_map_2
+
+    # stitcher = core.ImageStitcher(
+    #     batch_size=batch_size,
+    #     remap_image_info=[remap_info_1, remap_info_2],
+    #     blender_mode=core.ImageBlenderMode.Laplacian,
+    #     levels=blender_config.levels,
+    #     seam=blender_config.seam,
+    #     xor_map=blender_config.xor_map,
+    #     lazy_init=False,
+    #     interpolation=interpolation,
+    # )
 
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
@@ -823,20 +884,18 @@ def stitch_video(
             while True:
                 sinfo_1 = core.StitchImageInfo()
                 sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
-                sinfo_1.xy_pos = [xpos_1, ypos_1]
-                #sinfo_1.cuda_stream = stream_1
+                sinfo_1.xy_pos = xy_pos_1
+                # sinfo_1.cuda_stream = stream_1
 
                 sinfo_2 = core.StitchImageInfo()
                 sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
-                sinfo_2.xy_pos = [xpos_2, ypos_2]
-                #sinfo_2.cuda_stream = stream_2
+                sinfo_2.xy_pos = xy_pos_2
+                # sinfo_2.cuda_stream = stream_2
 
                 main_stream.synchronize()
-                blended_stream_tensor = stitcher.forward(
-                    inputs=[sinfo_1, sinfo_2]
-                )
+                blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
-                #blended = blended_stream_tensor.get()
+                # blended = blended_stream_tensor.get()
                 blended = blended_stream_tensor
 
                 if output_video:
@@ -935,8 +994,12 @@ def stitch_video(
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
 
-                source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device, non_blocking=True)
-                source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device, non_blocking=True)
+                source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
+                    device, non_blocking=True
+                )
+                source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
+                    device, non_blocking=True
+                )
                 timer.tic()
         finally:
             if video_out is not None:
@@ -950,7 +1013,7 @@ def stitch_video(
 def main(args):
     with torch.no_grad():
         stitch_video(
-        #blend_video(
+            # blend_video(
             "left.mp4",
             "right.mp4",
             args.video_dir,
@@ -962,7 +1025,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show,
             start_frame_number=0,
-            #output_video="stitched_output.mkv",
+            # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
