@@ -691,9 +691,9 @@ def blend_video(
                 for i in range(len(blended)):
                     show_image("stitched", blended[i], wait=False)
 
+            timer.tic()
             source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
             source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
-            timer.tic()
     finally:
         if video_out is not None:
             if isinstance(video_out, VideoStreamWriter):
@@ -882,21 +882,20 @@ def stitch_video(
         frame_ids = frame_ids + frame_id
         try:
             while True:
-                sinfo_1 = core.StitchImageInfo()
-                sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
-                sinfo_1.xy_pos = xy_pos_1
-                # sinfo_1.cuda_stream = stream_1
+                # sinfo_1 = core.StitchImageInfo()
+                # sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
+                # sinfo_1.xy_pos = xy_pos_1
+                # # sinfo_1.cuda_stream = stream_1
 
-                sinfo_2 = core.StitchImageInfo()
-                sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
-                sinfo_2.xy_pos = xy_pos_2
-                # sinfo_2.cuda_stream = stream_2
+                # sinfo_2 = core.StitchImageInfo()
+                # sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
+                # sinfo_2.xy_pos = xy_pos_2
+                # # sinfo_2.cuda_stream = stream_2
 
-                main_stream.synchronize()
-                blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                # main_stream.synchronize()
+                # blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
-                # blended = blended_stream_tensor.get()
-                blended = blended_stream_tensor
+                # blended = blended_stream_tensor
 
                 if output_video:
                     video_dim_height, video_dim_width = get_dims_for_output_video(
@@ -994,13 +993,14 @@ def stitch_video(
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
 
+                timer.tic()
                 source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
                 source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
-                timer.tic()
+                #timer.tic()
         finally:
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriter):

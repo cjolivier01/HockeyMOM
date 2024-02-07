@@ -236,7 +236,7 @@ class ImageProcData:
         else:
             self.current_box = current_box.clone()
         if not isinstance(self.frame_id, torch.Tensor):
-            assert img.ndim == 3
+            assert img.ndim == 3 or img.size(0) == 1  # single image only
             self.frame_id = torch.tensor([self.frame_id], dtype=torch.int64)
 
     def dump(self):
@@ -780,7 +780,9 @@ class VideoOutput:
                         online_im,
                         frame_id=frame_id,
                     )
-                    online_im = torch.from_numpy(online_im).to(prev_device, non_blocking=True)
+                    online_im = torch.from_numpy(online_im).to(
+                        prev_device, non_blocking=True
+                    )
 
                 # if plot_interias:
                 #     vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
@@ -794,8 +796,12 @@ class VideoOutput:
                     if imgproc_data.frame_id % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
-                        cv2.imshow("online_im", make_visible_image(online_im))
-                        cv2.waitKey(1)
+                        show_img = online_im
+                        if show_img.ndim == 3:
+                            show_img = show_img.unsqueeze(0)
+                        for s_img in show_img:
+                            cv2.imshow("online_im", make_visible_image(s_img))
+                            cv2.waitKey(1)
 
                 # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
                 if cuda_stream is not None:

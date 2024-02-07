@@ -19,7 +19,7 @@ from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 
-from hmlib.datasets.dataset.stitching_dataloader import (
+from hmlib.datasets.dataset.stitching_dataloader2 import (
     StitchDataset,
 )
 
@@ -41,7 +41,7 @@ def make_parser():
         "--blend-mode",
         "--blend_mode",
         dest="blend_mode",
-        default="multiblend",
+        default="laplacian",
         type=str,
         help="Blending mode (multiblend|gpu-hard-seam|gpu-laplacian)",
     )
@@ -332,9 +332,9 @@ def main(args):
             game_id=args.game_id,
             show=args.show,
             max_frames=args.max_frames,
-            # output_stitched_video_file=None,
-            # blend_mode=args.blend_mode,
-            blend_mode="gpu-hard-seam",
+            output_stitched_video_file=None,
+            blend_mode=args.blend_mode,
+            #blend_mode="gpu-hard-seam",
             remapping_device=torch.device("cuda", 0),
         )
 

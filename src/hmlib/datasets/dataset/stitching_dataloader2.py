@@ -20,6 +20,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
+from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.video_out import VideoOutput, ImageProcData
@@ -37,7 +38,7 @@ def _get_dir_name(path):
     return Path(path).parent
 
 
-from hmlib.stitching.worker import (
+from hmlib.stitching.stitch_worker import (
     StitchingWorker,
     create_queue,
     safe_put_queue,
@@ -86,7 +87,7 @@ class StitchDataset:
         video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 20,
+        max_input_queue_size: int = 2,
         remap_thread_count: int = 10,
         blend_thread_count: int = 10,
         batch_size: int = 1,
@@ -140,11 +141,12 @@ class StitchDataset:
         self._fork_workers = fork_workers
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
-        self._ordering_queue = (
-            core.SortedPyArrayUin8Queue()
-            if blend_mode == "multiblend"
-            else core.SortedTensorQueue()
-        )
+        # self._ordering_queue = (
+        #     core.SortedPyArrayUin8Queue()
+        #     if blend_mode == "multiblend"
+        #     else core.SortedTensorQueue()
+        # )
+        self._ordering_queue = create_queue(mp=False)
         self._coordinator_thread = None
 
         self._next_frame_timer = Timer()
@@ -263,10 +265,31 @@ class StitchDataset:
         # INFO(f"_prepare_next_frame( {frame_id} )")
         self._prepare_next_frame_timer.tic()
         stitching_worker = self._stitching_workers[self._current_worker]
-        stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
+        
+        pull_timer = Timer()
+        count = 0
+        for _ in range(1000):
+            pull_timer.tic()
+            stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
+            count += 1
+            frame_id += 1
+            pull_timer.toc()
+            if count % 20 == 0:
+                logger.info(
+                    "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
+                        frame_id,
+                        1.0 / max(1e-5, pull_timer.average_time),
+                    )
+                )
+                pull_timer = Timer()
+            #while self._image_response_queue.qsize() > 25:
+                        
+            
+        
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         # INFO(f"Locally enqueing frame {frame_id}")
-        self._ordering_queue.enqueue(frame_id, stitched_frame)
+        #self._ordering_queue.enqueue(frame_id, stitched_frame)
+        self._ordering_queue.put((frame_id, stitched_frame))
         self._prepare_next_frame_timer.toc()
 
     def _start_coordinator_thread(self):
@@ -409,13 +432,15 @@ class StitchDataset:
         self._next_frame_timer.tic()
         assert frame_id == self._current_frame
         # INFO(f"Dequeing frame id: {self._current_frame}...")
-        stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+        #stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+        frame_id,stitched_frame = self._ordering_queue.get()
 
         # INFO(f"Locally dequeued frame id: {self._current_frame}")
         if (
             not self._max_frames
             or self._next_requested_frame < self._start_frame_number + self._max_frames
         ):
+            # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._next_requested_frame += 1
         else:

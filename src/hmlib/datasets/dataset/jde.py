@@ -18,7 +18,7 @@ import torchvision as tv
 
 from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from hmlib.utils.utils import xyxy2xywh
-from .stitching_dataloader import StitchDataset
+from .stitching_dataloader2 import StitchDataset
 
 from hmlib.video_out import resize_image
 

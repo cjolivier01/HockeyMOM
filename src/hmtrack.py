@@ -26,7 +26,7 @@ from yolox.data import get_yolox_datadir
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
-from hmlib.datasets.dataset.stitching_dataloader import (
+from hmlib.datasets.dataset.stitching_dataloader2 import (
     StitchDataset,
 )
 
@@ -557,7 +557,7 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
-                    max_input_queue_size=4,
+                    max_input_queue_size=1,
                     num_workers=1,
                     blend_thread_count=1,
                     remap_thread_count=1,
@@ -566,7 +566,7 @@ def main(exp, args, num_gpu):
                     batch_size=1,
                     #batch_size=args.batch_size,
                     #blend_mode="multiblend",
-                    blend_mode="gpu-hard-seam",
+                    blend_mode="laplacian",
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
