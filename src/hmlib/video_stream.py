@@ -188,8 +188,36 @@ class TVVideoReaderIterator:
             raise StopIteration()
         return next_frame['data']
 
+class TVVideoReaderIterator:
+    def __init__(self, vr: TVVideoReader):
+        self._vr = vr
+
+    def __next__(self):
+        next_frame = next(self._vr)
+        if next_frame is None:
+            raise StopIteration()
+        return next_frame['data']
+
+class TAStreamReaderIterator:
+    def __init__(self, sr: torchaudio.io.StreamReader):
+        self._iter = sr.stream()
+        self._chunk = None
+        self._chunk_position = 0
+
+    def __next__(self):
+        if self._chunk is None or self._chunk_position >= len(self._chunk):
+            next_chunk = next(self._iter)
+            if next_chunk is None:
+                raise StopIteration()
+            assert len(next_chunk) == 1
+            self._chunk = next_chunk[0]
+            self._chunk_position = 0
+        frame = self._chunk[self._chunk_position]
+        self._chunk_position += 1
+        return frame
+
 #
-#
+# VideoStreamReader
 #
 class VideoStreamReader:
     def __init__(
@@ -243,18 +271,28 @@ class VideoStreamReader:
     def __len__(self):
         return self.frame_count
 
+    def __iter__(self):
+        if self._type == "torchaudio":
+            return TAStreamReaderIterator(self._video_in)
+        elif self._type == "torchvision":
+            return TVVideoReaderIterator(self._video_in)
+        elif self._type == "cv2":
+            return CVVideoCaptureIterator(self._video_in)
+        else:
+            assert False
+
     def _add_stream(self):
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,
             decoder_option={},
             # format="yuv420p",
-            # format="yuvj420p",
-            hw_accel=str(self._device),
+            #format="yuvj420p",
+            #hw_accel=str(self._device),
         )
 
     def isOpened(self):
-        return self._iter is not None
+        return self._video_in is not None
 
     def seek(self, timestamp: float = None, frame_number: int = None):
         assert timestamp is None or frame_number is None
@@ -263,7 +301,7 @@ class VideoStreamReader:
         else:
             frame_number = timestamp * self.fps
         if isinstance(self._video_in, torchaudio.io.StreamReader):
-            self._video_in.seek(timestamp=timestamp, precise=True)
+            self._video_in.seek(timestamp=timestamp, mode="precise")
         elif isinstance(self._video_in, TVVideoReader):
             self._video_in.seek(time_s=timestamp)
         elif isinstance(self._video_in, cv2.VideoCapture):
@@ -289,15 +327,14 @@ class VideoStreamReader:
         if self._type == "torchaudio":
             self._video_in = torchaudio.io.StreamReader(src=self._filename)
             self._add_stream()
-            assert self._video_in.info.framerate == self.fps
-            self._iter = self._video_in.stream()
         elif self._type == "torchvision":
             self._video_in = TVVideoReader(src=self._filename, stream="video", num_threads=32)
-            self._iter = TVVideoReaderIterator(self._video_in)
             self._meta = self._video_in.get_metadata()
         elif self._type == "cv2":
             self._video_in = cv2.VideoCapture(self._filename)
-            self._iter = CVVideoCaptureIterator(self._video_in)
+            if not self._video_in.isOpened():
+                self._video_in.release()
+                self._video_in = None
         else:
             assert False
 

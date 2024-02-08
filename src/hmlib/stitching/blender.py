@@ -824,10 +824,13 @@ def stitch_video(
         device=device,   
     )
 
-    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
+    v1_iter = iter(cap_1)
+    v2_iter = iter(cap_2)
+    
+    source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size).to(
         device, non_blocking=True
     )
-    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
+    source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size).to(
         device, non_blocking=True
     )
 
@@ -1008,10 +1011,10 @@ def stitch_video(
                         show_image("stitched", blended[i], wait=False)
 
                 io_timer.tic()
-                source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
+                source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
-                source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
+                source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
                 io_timer.toc()

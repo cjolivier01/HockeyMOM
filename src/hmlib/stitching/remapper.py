@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import time
 import argparse
@@ -71,19 +72,18 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
 
 
 def read_frame_batch(
-    cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu"), non_blocking: bool = False,
+    video_iter,
+    batch_size: int,
+    device: torch.device = torch.device("cpu"),
+    non_blocking: bool = False,
 ):
     frame_list = []
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
+    frame = next(video_iter)
     if not isinstance(frame, torch.Tensor):
         frame = torch.from_numpy(frame.transpose(2, 0, 1))
     frame_list.append(frame.to(device, non_blocking=non_blocking))
     for i in range(batch_size - 1):
-        res, frame = cap.read()
-        if not res or frame is None:
-            raise StopIteration()
+        frame = next(video_iter)
         if not isinstance(frame, torch.Tensor):
             frame = torch.from_numpy(frame.transpose(2, 0, 1))
         frame_list.append(frame.to(device, non_blocking=non_blocking))
