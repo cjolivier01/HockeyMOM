@@ -236,7 +236,7 @@ class ImageProcData:
         else:
             self.current_box = current_box.clone()
         if not isinstance(self.frame_id, torch.Tensor):
-            assert img.ndim == 3
+            assert img.ndim == 3 or img.size(0) == 1  # single image only
             self.frame_id = torch.tensor([self.frame_id], dtype=torch.int64)
 
     def dump(self):
