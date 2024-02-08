@@ -132,7 +132,7 @@ def get_ffmpeg_decoder_process(
         loglevel,
         "-hwaccel",
         "cuda",  # Use CUDA hardware acceleration
-        "-gpu",
+        "-hwaccel_device",
         str(gpu_index),  # Which GPU to use
         "-ss",
         str(time_s),

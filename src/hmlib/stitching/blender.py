@@ -798,7 +798,8 @@ def stitch_video(
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
 
-    cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
+    # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
+    cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device="cuda:1")
     # cap_1 = cv2.VideoCapture(video_file_1)
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_1}")
@@ -806,7 +807,8 @@ def stitch_video(
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
-    cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2), device="cuda:2")
     # cap_2 = cv2.VideoCapture(video_file_2)
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_2}")
@@ -821,12 +823,12 @@ def stitch_video(
     stitcher, xy_pos_1, xy_pos_2 = create_stitcher(
         dir_name=dir_name,
         batch_size=batch_size,
-        device=device,   
+        device=device,
     )
 
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
-    
+
     source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size).to(
         device, non_blocking=True
     )
@@ -1010,12 +1012,12 @@ def stitch_video(
                         show_image("stitched", blended[i], wait=False)
 
                 io_timer.tic()
-                source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size).to(
-                    device, non_blocking=True
-                )
-                source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size).to(
-                    device, non_blocking=True
-                )
+                source_tensor_1 = read_frame_batch(
+                    video_iter=v1_iter, batch_size=batch_size
+                ).to(device, non_blocking=True)
+                source_tensor_2 = read_frame_batch(
+                    video_iter=v2_iter, batch_size=batch_size
+                ).to(device, non_blocking=True)
                 io_timer.toc()
                 if batch_count != 1:
                     all_timer.toc()

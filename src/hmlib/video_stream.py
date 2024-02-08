@@ -264,9 +264,11 @@ class FFmpegVideoReaderIterator:
         #     (self._vid_info.height, self._vid_info.width, self._channels)
         # )
         # frame = torch.from_numpy(frame)
-        frame = torch.frombuffer(
-            buffer=raw_image, dtype=torch.uint8
-        ).to("cuda:0", non_blocking=False).reshape((self._vid_info.height, self._vid_info.width, self._channels))
+        frame = (
+            torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
+            .to("cuda:0", non_blocking=False)
+            .reshape((self._vid_info.height, self._vid_info.width, self._channels))
+        )
         self._count += 1
         # Make channels-first
         return frame.permute(2, 0, 1)
@@ -295,8 +297,9 @@ class VideoStreamReader:
         self._width = None
         self._height = None
         self._batch_size = batch_size
-        self._debug = device
-        self._device = device
+        self._device = (
+            device if isinstance(device, torch.device) else torch.device(device)
+        )
         self._video_in = None
         self._video_info = None
         self._iter = None
@@ -353,11 +356,7 @@ class VideoStreamReader:
             frames_per_chunk=self._batch_size,
             stream_index=0,
             decoder_option={},
-            # decoder="hevc",
-            format="cuda",
-            # format="yuv420p",
-            # format="yuvj420p",
-            # hw_accel=str(self._device),
+            format=self._device.type if self._device is not None else "cuda",
             hw_accel="cuda",
         )
 
