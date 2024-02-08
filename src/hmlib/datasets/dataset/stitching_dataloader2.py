@@ -14,7 +14,9 @@ from typing import List
 from pathlib import Path
 
 from hockeymom import core
+from yolox.data.dataloading import get_yolox_datadir
 
+from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.stitching.synchronize import (
@@ -68,6 +70,37 @@ def _get_cuda_device():
     return torch.device("cuda", torch.cuda.device_count() - 1)
 
 
+class MultiDataLoaderWrapper:
+    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig]):
+        self._dataloaders = dataloaders
+        self._iters = []
+        self._len = None
+
+    def __iter__(self):
+        self._iters = []
+        for dl in self._dataloaders:
+            self._iters.append(iter(dl))
+        return self
+
+    def __next__(self):
+        result = []
+        for it in self._iters:
+            result.append(next(it))
+        if not result:
+            return None
+        elif len(result) == 1:
+            return result[0]
+        else:
+            return result
+
+    def __len__(self):
+        if self._len is None:
+            self._len = -1
+            for dl in self._dataloaders:
+                this_len = len(dl)
+                self._len = this_len if self._len is None else min(self._len, this_len)
+
+
 ##
 #   _____ _   _  _        _     _____        _                     _
 #  / ____| | (_)| |      | |   |  __ \      | |                   | |
@@ -100,7 +133,6 @@ class StitchDataset:
         encoder_device: torch.device = _get_cuda_device(),
         blend_mode: str = "multiblend",
         remapping_device: torch.device = torch.device("cuda", 0),
-        
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
@@ -166,7 +198,7 @@ class StitchDataset:
                 self._video_2_info.frame_count - v2o,
             )
         )
-
+        self._stitcher = None
         self._video_output = None
 
     def __delete__(self):
@@ -194,25 +226,55 @@ class StitchDataset:
         max_frames: int,
         max_input_queue_size: int,
         remapping_device: torch.device,
+        dataset_name: str = "crowdhuman",
     ):
-        stitching_worker = StitchingWorker(
-            rank=rank,
-            video_file_1=self._video_file_1,
-            video_file_2=self._video_file_2,
-            pto_project_file=self._pto_project_file,
-            video_1_offset_frame=self._video_1_offset_frame,
-            video_2_offset_frame=self._video_2_offset_frame,
-            start_frame_number=start_frame_number,
-            batch_size=self._batch_size,
-            max_input_queue_size=max_input_queue_size,
-            remap_thread_count=self._remap_thread_count,
-            blend_thread_count=self._blend_thread_count,
-            max_frames=max_frames,
-            frame_stride_count=frame_stride_count,
-            multiprocessingt_queue=self._fork_workers,
-            remapping_device=remapping_device,
-            blend_mode=self._blend_mode,
+        dataloaders = []
+        dataloaders.append(
+            MOTLoadVideoWithOrig(
+                path=self._video_file_1,
+                data_dir=os.path.join(get_yolox_datadir(), dataset_name),
+                img_size=None,
+                max_frames=max_frames,
+                batch_size=self._batch_size,
+                start_frame_number=start_frame_number,
+                original_image_only=True,
+                device=remapping_device,
+                # device=torch.device("cpu"),
+            )
         )
+        dataloaders.append(
+            MOTLoadVideoWithOrig(
+                path=self._video_file_2,
+                data_dir=os.path.join(get_yolox_datadir(), dataset_name),
+                img_size=None,
+                max_frames=max_frames,
+                batch_size=self._batch_size,
+                start_frame_number=start_frame_number,
+                original_image_only=True,
+                device=remapping_device,
+                # device=torch.device("cpu"),
+            )
+        )
+        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)
+        # stitching_worker = StitchingWorker(
+        #     rank=rank,
+        #     video_file_1=self._video_file_1,
+        #     video_file_2=self._video_file_2,
+        #     pto_project_file=self._pto_project_file,
+        #     video_1_offset_frame=self._video_1_offset_frame,
+        #     video_2_offset_frame=self._video_2_offset_frame,
+        #     start_frame_number=start_frame_number,
+        #     batch_size=self._batch_size,
+        #     max_input_queue_size=max_input_queue_size,
+        #     remap_thread_count=self._remap_thread_count,
+        #     blend_thread_count=self._blend_thread_count,
+        #     max_frames=max_frames,
+        #     frame_stride_count=frame_stride_count,
+        #     multiprocessingt_queue=self._fork_workers,
+        #     remapping_device=remapping_device,
+        #     blend_mode=self._blend_mode,
+        # )
+        # stitching_worker =
         return stitching_worker
 
     def configure_stitching(self):
@@ -264,32 +326,56 @@ class StitchDataset:
     def _prepare_next_frame(self, frame_id: int):
         # INFO(f"_prepare_next_frame( {frame_id} )")
         self._prepare_next_frame_timer.tic()
+
         stitching_worker = self._stitching_workers[self._current_worker]
-        
-        pull_timer = Timer()
-        count = 0
-        for _ in range(1000):
-            pull_timer.tic()
-            stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
-            count += 1
-            frame_id += 1
-            pull_timer.toc()
-            if count % 20 == 0:
-                logger.info(
-                    "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
-                        frame_id,
-                        1.0 / max(1e-5, pull_timer.average_time),
-                    )
-                )
-                pull_timer = Timer()
-            #while self._image_response_queue.qsize() > 25:
-                        
-            
-        
+        images = next(stitching_worker)
+
+        imgs_1 = images[0][0]
+        ids_1 = images[0][-1]
+
+        imgs_2 = images[1][0]
+        ids_2 = images[1][-1]
+
+        assert ids_1 == ids_2
+
+        assert isinstance(images, list)
+        assert len(images) == 2
+
+        sinfo_1 = core.StitchImageInfo()
+        sinfo_1.image = make_channels_first(imgs_1).to(torch.float, non_blocking=True)
+        sinfo_1.xy_pos = self._xy_pos_1
+
+        sinfo_2 = core.StitchImageInfo()
+        sinfo_2.image = make_channels_first(imgs_2).to(torch.float, non_blocking=True)
+        sinfo_2.xy_pos = self._xy_pos_2
+
+        # main_stream.synchronize()
+        # torch.cuda.current_stream().synchronize()
+        # self._cuda_stream.synchronize()
+        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+
+        # pull_timer = Timer()
+        # count = 0
+        # for _ in range(1000):
+        #     pull_timer.tic()
+        #     stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
+        #     count += 1
+        #     frame_id += 1
+        #     pull_timer.toc()
+        #     if count % 20 == 0:
+        #         logger.info(
+        #             "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
+        #                 frame_id,
+        #                 1.0 / max(1e-5, pull_timer.average_time),
+        #             )
+        #         )
+        #         pull_timer = Timer()
+        #     # while self._image_response_queue.qsize() > 25:
+
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         # INFO(f"Locally enqueing frame {frame_id}")
-        #self._ordering_queue.enqueue(frame_id, stitched_frame)
-        self._ordering_queue.put((frame_id, stitched_frame))
+        # self._ordering_queue.enqueue(frame_id, stitched_frame)
+        self._ordering_queue.put((ids_1, blended_stream_tensor))
         self._prepare_next_frame_timer.toc()
 
     def _start_coordinator_thread(self):
@@ -357,6 +443,17 @@ class StitchDataset:
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
+            #
+            # Create the stitcher
+            #
+            assert self._stitcher is None
+            self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
+                dir_name=os.path.dirname(self._video_file_1),
+                batch_size=self._batch_size,
+                device=self._remapping_device,
+            )
+            self._stitcher.to(self._remapping_device)
+
             frame_count = 0
             while frame_count < self._max_frames:
                 command = self._to_coordinator_queue.get()
@@ -414,17 +511,19 @@ class StitchDataset:
                     )[
                         worker_number
                     ]  # TODO: call just once
-                self._stitching_workers[worker_number] = self.create_stitching_worker(
-                    rank=worker_number,
-                    start_frame_number=self._start_frame_number,
-                    frame_stride_count=self._num_workers,
-                    max_frames=max_for_worker,
-                    max_input_queue_size=int(
-                        self._max_input_queue_size / self._num_workers + 1
-                    ),
-                    remapping_device=self._remapping_device,
+                self._stitching_workers[worker_number] = iter(
+                    self.create_stitching_worker(
+                        rank=worker_number,
+                        start_frame_number=self._start_frame_number,
+                        frame_stride_count=self._num_workers,
+                        max_frames=max_for_worker,
+                        max_input_queue_size=int(
+                            self._max_input_queue_size / self._num_workers + 1
+                        ),
+                        remapping_device=self._remapping_device,
+                    )
                 )
-                self._stitching_workers[worker_number].start(fork=self._fork_workers)
+                # self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()
         return self
 
@@ -432,8 +531,8 @@ class StitchDataset:
         self._next_frame_timer.tic()
         assert frame_id == self._current_frame
         # INFO(f"Dequeing frame id: {self._current_frame}...")
-        #stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        frame_id,stitched_frame = self._ordering_queue.get()
+        # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
+        frame_id, stitched_frame = self._ordering_queue.get()
 
         # INFO(f"Locally dequeued frame id: {self._current_frame}")
         if (
@@ -475,7 +574,7 @@ class StitchDataset:
 
         # self._next_timer.tic()
         stitched_frame = self.get_next_frame(frame_id=frame_id)
-        #show_image("stitched_frame", stitched_frame, wait=True)
+        # show_image("stitched_frame", stitched_frame, wait=True)
         if stitched_frame is None:
             self.close()
             raise StopIteration()

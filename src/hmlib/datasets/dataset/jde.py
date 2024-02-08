@@ -18,9 +18,9 @@ import torchvision as tv
 
 from hmlib.utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from hmlib.utils.utils import xyxy2xywh
-from .stitching_dataloader2 import StitchDataset
+#from .stitching_dataloader2 import StitchDataset
 
-from hmlib.video_out import resize_image
+#from hmlib.video_out import resize_image
 
 
 def warp_rectilinear_to_cylindrical(img, focal_length):
@@ -281,104 +281,104 @@ class LoadVideoWithOrig:  # for inference
         return self.vn  # number of files
 
 
-class LoadAutoStitchedVideoWithOrig:  # for inference
-    """
-    Not used
-    """
+# class LoadAutoStitchedVideoWithOrig:  # for inference
+#     """
+#     Not used
+#     """
 
-    def __init__(
-        self,
-        path_video_1,
-        path_video_2,
-        pto_project_file: str = None,
-        video_1_offset_frame=None,
-        video_2_offset_frame=None,
-        img_size=(1088, 608),
-        process_img_size=(1920, 1080),
-        clip_original=None,
-        start_frame_number: int = 0,
-        output_stitched_video_file: str = None,
-        max_frames: int = None,
-    ):
-        self.clip_original = clip_original
-        self.width = img_size[0]
-        self.height = img_size[1]
-        self.count = 0
-        self._last_size = None
+#     def __init__(
+#         self,
+#         path_video_1,
+#         path_video_2,
+#         pto_project_file: str = None,
+#         video_1_offset_frame=None,
+#         video_2_offset_frame=None,
+#         img_size=(1088, 608),
+#         process_img_size=(1920, 1080),
+#         clip_original=None,
+#         start_frame_number: int = 0,
+#         output_stitched_video_file: str = None,
+#         max_frames: int = None,
+#     ):
+#         self.clip_original = clip_original
+#         self.width = img_size[0]
+#         self.height = img_size[1]
+#         self.count = 0
+#         self._last_size = None
 
-        self.w, self.h = process_img_size
-        self._data_loader = StitchDataset(
-            video_file_1=path_video_1,
-            video_file_2=path_video_2,
-            pto_project_file=pto_project_file,
-            video_1_offset_frame=video_1_offset_frame,
-            video_2_offset_frame=video_2_offset_frame,
-            start_frame_number=start_frame_number,
-            output_stitched_video_file=output_stitched_video_file,
-            max_frames=max_frames,
-        )
-        self._stitch_ds_iter = None
-        self.vn = None
-        # print("Lenth of the video: {:d} frames".format(self.vn))
+#         self.w, self.h = process_img_size
+#         self._data_loader = StitchDataset(
+#             video_file_1=path_video_1,
+#             video_file_2=path_video_2,
+#             pto_project_file=pto_project_file,
+#             video_1_offset_frame=video_1_offset_frame,
+#             video_2_offset_frame=video_2_offset_frame,
+#             start_frame_number=start_frame_number,
+#             output_stitched_video_file=output_stitched_video_file,
+#             max_frames=max_frames,
+#         )
+#         self._stitch_ds_iter = None
+#         self.vn = None
+#         # print("Lenth of the video: {:d} frames".format(self.vn))
 
-    def set_frame_number(self, frame_id: int):
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+#     def set_frame_number(self, frame_id: int):
+#         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
 
-    def get_size(self, vw, vh, dw, dh):
-        wa, ha = float(dw) / vw, float(dh) / vh
-        a = min(wa, ha)
-        size = int(vw * a), int(vh * a)
-        if self._last_size is not None:
-            assert size == self._last_size
-        else:
-            self._last_size = size
-        return size
+#     def get_size(self, vw, vh, dw, dh):
+#         wa, ha = float(dw) / vw, float(dh) / vh
+#         a = min(wa, ha)
+#         size = int(vw * a), int(vh * a)
+#         if self._last_size is not None:
+#             assert size == self._last_size
+#         else:
+#             self._last_size = size
+#         return size
 
-    def __iter__(self):
-        if self._stitch_ds_iter is None:
-            self._stitch_ds_iter = iter(self._data_loader)
-        self.count = -1
-        return self
+#     def __iter__(self):
+#         if self._stitch_ds_iter is None:
+#             self._stitch_ds_iter = iter(self._data_loader)
+#         self.count = -1
+#         return self
 
-    def __next__(self):
-        self.count += 1
-        # Read image
-        # res, img0 = self.cap.read()  # BGR
-        img0 = next(self._stitch_ds_iter)
+#     def __next__(self):
+#         self.count += 1
+#         # Read image
+#         # res, img0 = self.cap.read()  # BGR
+#         img0 = next(self._stitch_ds_iter)
 
-        # if self.count == len(self):
-        #     raise StopIteration
-        if img0 is None:
-            print(f"Error loading frame: {self.count}")
-            raise StopIteration()
-        if self.clip_original:
-            img0 = img0[
-                self.clip_original[1] : self.clip_original[3],
-                self.clip_original[0] : self.clip_original[2],
-                :,
-            ]
+#         # if self.count == len(self):
+#         #     raise StopIteration
+#         if img0 is None:
+#             print(f"Error loading frame: {self.count}")
+#             raise StopIteration()
+#         if self.clip_original:
+#             img0 = img0[
+#                 self.clip_original[1] : self.clip_original[3],
+#                 self.clip_original[0] : self.clip_original[2],
+#                 :,
+#             ]
 
-        original_img = img0.copy()
+#         original_img = img0.copy()
 
-        img0 = cv2.resize(img0, (self.w, self.h))
+#         img0 = cv2.resize(img0, (self.w, self.h))
 
-        # Padded resize
-        img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
+#         # Padded resize
+#         img, _, _, _, _ = letterbox(img0, height=self.height, width=self.width)
 
-        # Normalize RGB
-        img = img[:, :, ::-1].transpose(2, 0, 1)
-        img = np.ascontiguousarray(img, dtype=np.float32)
-        img /= 255.0
+#         # Normalize RGB
+#         img = img[:, :, ::-1].transpose(2, 0, 1)
+#         img = np.ascontiguousarray(img, dtype=np.float32)
+#         img /= 255.0
 
-        # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return self.count, img, img0, original_img
+#         # cv2.imwrite(img_path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
+#         return self.count, img, img0, original_img
 
-    @property
-    def fps(self):
-        return self._data_loader.fps
+#     @property
+#     def fps(self):
+#         return self._data_loader.fps
 
-    def __len__(self):
-        return len(self._data_loader)
+#     def __len__(self):
+#         return len(self._data_loader)
 
 
 class LoadImagesAndLabels:  # for training
