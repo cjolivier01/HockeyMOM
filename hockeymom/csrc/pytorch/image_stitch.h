@@ -26,10 +26,11 @@ class StreamTensor {
  public:
   StreamTensor() = default;
   StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor);
+  StreamTensor(at::Tensor tensor);
   at::Tensor get();
 
  private:
-  std::unique_ptr<c10::cuda::CUDAStream> stream_;
+  std::unique_ptr<c10::cuda::CUDAStream> stream_{nullptr};
   at::Tensor tensor_;
 };
 

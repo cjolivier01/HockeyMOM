@@ -352,10 +352,10 @@ class StitchDataset:
         # main_stream.synchronize()
         # torch.cuda.current_stream().synchronize()
         # self._cuda_stream.synchronize()
-        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2]) / 255.0
         
         #blended_stream_tensor = imgs_1.clone()
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
 
         # pull_timer = Timer()
         # count = 0
@@ -582,7 +582,7 @@ class StitchDataset:
             self.close()
             raise StopIteration()
 
-        # Code doesn't handle strided chanbels efficiently
+        # Code doesn't handle strided channels efficiently
         stitched_frame = self.prepare_frame_for_video(
             stitched_frame,
             image_roi=self._image_roi,

@@ -18,6 +18,8 @@ StreamTensor::StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor)
     : stream_(std::make_unique<c10::cuda::CUDAStream>(std::move(stream))),
       tensor_(std::move(tensor)) {}
 
+StreamTensor::StreamTensor(at::Tensor tensor) : tensor_(std::move(tensor)) {}
+
 at::Tensor StreamTensor::get() {
   if (stream_) {
     stream_->synchronize();
@@ -75,28 +77,28 @@ at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
   //     r->init(batch_size);
   //   }
   // }
-  at::cuda::CUDAStream current_stream =
-      at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
-  current_stream.synchronize();
-  HmThreadPool thread_pool(*remap_thread_pool_);
+  // at::cuda::CUDAStream current_stream =
+  //     at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
+  // current_stream.synchronize();
+  // HmThreadPool thread_pool(*remap_thread_pool_);
   std::vector<StreamTensor> remap_tensors(inputs.size());
   for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
-    thread_pool.Schedule([this, i, &remap_tensors, &inputs]() {
-      StitchImageInfo& img_info = inputs.at(i);
-      c10::cuda::CUDAStream remap_stream = at::cuda::getStreamFromPool();
-      // c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
-      //     ? std::move(img_info.cuda_stream.value())
-      //     : at::cuda::getStreamFromPool();
-      // Set the current stream
-      c10::cuda::CUDAStreamGuard stream_guard(remap_stream);
-      at::Tensor remapped_tensor =
-          remappers_.at(i)->forward(inputs.at(i).image);
-      remap_tensors.at(i) = StreamTensor(remap_stream, remapped_tensor);
-    });
+    // thread_pool.Schedule([this, i, &remap_tensors, &inputs]() {
+    StitchImageInfo& img_info = inputs.at(i);
+    // c10::cuda::CUDAStream remap_stream = at::cuda::getStreamFromPool();
+    //  c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
+    //      ? std::move(img_info.cuda_stream.value())
+    //      : at::cuda::getStreamFromPool();
+    //  Set the current stream
+    // c10::cuda::CUDAStreamGuard stream_guard(remap_stream);
+    at::Tensor remapped_tensor = remappers_.at(i)->forward(inputs.at(i).image);
+    // remap_tensors.at(i) = StreamTensor(remap_stream, remapped_tensor);
+    remap_tensors.at(i) = StreamTensor(remapped_tensor);
+    //});
   }
-  thread_pool.join_all();
-  // c10::cuda::CUDAStream stream = c10::cuda::getStreamFromPool();
-  // c10::cuda::CUDAStreamGuard stream_guard(stream);
+  // thread_pool.join_all();
+  //  c10::cuda::CUDAStream stream = c10::cuda::getStreamFromPool();
+  //  c10::cuda::CUDAStreamGuard stream_guard(stream);
   assert(remap_tensors.size() == 2);
   at::Tensor stitched_tensor = blender_->forward(
       std::move(remap_tensors.at(0).get()),

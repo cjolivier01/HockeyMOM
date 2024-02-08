@@ -30,6 +30,7 @@ from hmlib.datasets.dataset.stitching_dataloader2 import (
     StitchDataset,
 )
 
+from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
 from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_value
@@ -564,13 +565,14 @@ def main(exp, args, num_gpu):
                     fork_workers=False,
                     image_roi=None,
                     batch_size=1,
-                    #batch_size=args.batch_size,
-                    #blend_mode="multiblend",
+                    device=detection_device,
+                    # batch_size=args.batch_size,
+                    # blend_mode="multiblend",
                     blend_mode="laplacian",
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
-                dataloader = datasets.MOTLoadVideoWithOrig(
+                dataloader = MOTLoadVideoWithOrig(
                     path=None,
                     img_size=exp.test_size,
                     return_origin_img=True,
@@ -578,7 +580,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    #batch_size=1,
+                    # batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     device=detection_device,
@@ -595,7 +597,7 @@ def main(exp, args, num_gpu):
                 )
             else:
                 assert len(input_video_files) == 1
-                dataloader = datasets.MOTLoadVideoWithOrig(
+                dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
                     return_origin_img=True,

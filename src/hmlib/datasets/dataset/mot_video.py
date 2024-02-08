@@ -372,9 +372,13 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
                     img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
                 else:
                     if self._device is not None:
-                        original_img0 = original_img0.to(
-                            self._device, non_blocking=ALL_NON_BLOCKING
-                        ).to(torch.float, non_blocking=ALL_NON_BLOCKING)
+                        original_img0 = (
+                            original_img0.to(
+                                self._device, non_blocking=ALL_NON_BLOCKING
+                            )
+                            .to(torch.float, non_blocking=ALL_NON_BLOCKING)
+                            .contiguous()
+                        )
 
                 if not self._original_image_only:
                     if img0.ndim != 4:
