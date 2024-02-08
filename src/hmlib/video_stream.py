@@ -266,7 +266,7 @@ class FFmpegVideoReaderIterator:
         # frame = torch.from_numpy(frame)
         frame = (
             torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
-            .to("cuda:0", non_blocking=False)
+            #.to("cuda:0", non_blocking=False)
             .reshape((self._vid_info.height, self._vid_info.width, self._channels))
         )
         self._count += 1

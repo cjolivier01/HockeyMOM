@@ -897,6 +897,10 @@ def stitch_video(
         frame_ids = frame_ids + frame_id
         try:
             while True:
+                
+                source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
+                source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
+                
                 sinfo_1 = core.StitchImageInfo()
                 sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
                 sinfo_1.xy_pos = xy_pos_1
@@ -907,10 +911,11 @@ def stitch_video(
                 sinfo_2.xy_pos = xy_pos_2
                 # sinfo_2.cuda_stream = stream_2
 
-                main_stream.synchronize()
+                #main_stream.synchronize()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
+                #main_stream.synchronize()
 
                 if output_video:
                     video_dim_height, video_dim_width = get_dims_for_output_video(
@@ -1022,11 +1027,15 @@ def stitch_video(
                 io_timer.tic()
                 source_tensor_1 = read_frame_batch(
                     video_iter=v1_iter, batch_size=batch_size
-                ).to(device, non_blocking=True)
+                )
                 source_tensor_2 = read_frame_batch(
                     video_iter=v2_iter, batch_size=batch_size
-                ).to(device, non_blocking=True)
+                )
                 io_timer.toc()
+
+                # source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
+                # source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
+
                 if batch_count != 1:
                     all_timer.toc()
 
