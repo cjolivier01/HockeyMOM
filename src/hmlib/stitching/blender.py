@@ -1004,7 +1004,6 @@ def stitch_video(
                     if batch_count % 50 == 0:
                         stitch_timer = Timer()
                         io_timer = Timer()
-                        all_timer = Timer()
 
                 if show:
                     for i in range(len(blended)):
@@ -1020,6 +1019,9 @@ def stitch_video(
                 io_timer.toc()
                 if batch_count != 1:
                     all_timer.toc()
+
+                if batch_count % 50 == 0:
+                    all_timer = Timer()
 
                 all_timer.tic()
                 stitch_timer.tic()

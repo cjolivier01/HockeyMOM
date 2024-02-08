@@ -260,13 +260,13 @@ class FFmpegVideoReaderIterator:
             raise StopIteration()
 
         # Transform the byte read into a numpy array
-        frame = np.frombuffer(raw_image, np.uint8).reshape(
-            (self._vid_info.height, self._vid_info.width, self._channels)
-        )
-        frame = torch.from_numpy(frame)
-        # frame = torch.frombuffer(
-        #     buffer=raw_image, dtype=torch.uint8
-        # ).to("cuda:0", non_blocking=False).reshape((self._vid_info.height, self._vid_info.width, self._channels))
+        # frame = np.frombuffer(raw_image, np.uint8).reshape(
+        #     (self._vid_info.height, self._vid_info.width, self._channels)
+        # )
+        # frame = torch.from_numpy(frame)
+        frame = torch.frombuffer(
+            buffer=raw_image, dtype=torch.uint8
+        ).to("cuda:0", non_blocking=False).reshape((self._vid_info.height, self._vid_info.width, self._channels))
         self._count += 1
         # Make channels-first
         return frame.permute(2, 0, 1)
