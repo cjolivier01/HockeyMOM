@@ -56,7 +56,7 @@ struct FrameData {
 
 constexpr const char* kBlendModeMultiblend = "multiblend";
 constexpr const char* kBlendModeGpuHardSeam = "gpu-hard-seam";
-constexpr const char* kBlendModeGpuLaplacian = "gpu-laplacian";
+constexpr const char* kBlendModeGpuLaplacian = "laplacian";
 
 struct BlenderConfig {
   /**
