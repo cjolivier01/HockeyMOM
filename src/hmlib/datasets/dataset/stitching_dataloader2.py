@@ -353,6 +353,9 @@ class StitchDataset:
         # torch.cuda.current_stream().synchronize()
         # self._cuda_stream.synchronize()
         blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+        
+        #blended_stream_tensor = imgs_1.clone()
+        torch.cuda.synchronize()
 
         # pull_timer = Timer()
         # count = 0

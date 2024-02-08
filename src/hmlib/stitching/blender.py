@@ -831,41 +831,41 @@ def stitch_video(
         device, non_blocking=True
     )
 
-    # blender_config = create_blender_config(
-    #     mode=blend_mode,
-    #     dir_name=dir_name,
-    #     basename="nona",
-    #     device=device,
-    #     levels=4,
-    #     lazy_init=False,
-    #     interpolation=interpolation,
-    # )
+    blender_config = create_blender_config(
+        mode=blend_mode,
+        dir_name=dir_name,
+        basename="nona",
+        device=device,
+        levels=4,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
 
-    # xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
-    # xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
+    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
+    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
 
-    # remap_info_1 = core.RemapImageInfo()
-    # remap_info_1.src_width = int(image_width(source_tensor_1))
-    # remap_info_1.src_height = int(image_height(source_tensor_1))
-    # remap_info_1.col_map = col_map_1
-    # remap_info_1.row_map = row_map_1
+    remap_info_1 = core.RemapImageInfo()
+    remap_info_1.src_width = int(image_width(source_tensor_1))
+    remap_info_1.src_height = int(image_height(source_tensor_1))
+    remap_info_1.col_map = col_map_1
+    remap_info_1.row_map = row_map_1
 
-    # remap_info_2 = core.RemapImageInfo()
-    # remap_info_2.src_width = int(image_width(source_tensor_2))
-    # remap_info_2.src_height = int(image_height(source_tensor_2))
-    # remap_info_2.col_map = col_map_2
-    # remap_info_2.row_map = row_map_2
+    remap_info_2 = core.RemapImageInfo()
+    remap_info_2.src_width = int(image_width(source_tensor_2))
+    remap_info_2.src_height = int(image_height(source_tensor_2))
+    remap_info_2.col_map = col_map_2
+    remap_info_2.row_map = row_map_2
 
-    # stitcher = core.ImageStitcher(
-    #     batch_size=batch_size,
-    #     remap_image_info=[remap_info_1, remap_info_2],
-    #     blender_mode=core.ImageBlenderMode.Laplacian,
-    #     levels=blender_config.levels,
-    #     seam=blender_config.seam,
-    #     xor_map=blender_config.xor_map,
-    #     lazy_init=False,
-    #     interpolation=interpolation,
-    # )
+    stitcher = core.ImageStitcher(
+        batch_size=batch_size,
+        remap_image_info=[remap_info_1, remap_info_2],
+        blender_mode=core.ImageBlenderMode.Laplacian,
+        levels=blender_config.levels,
+        seam=blender_config.seam,
+        xor_map=blender_config.xor_map,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
 
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
@@ -882,20 +882,20 @@ def stitch_video(
         frame_ids = frame_ids + frame_id
         try:
             while True:
-                # sinfo_1 = core.StitchImageInfo()
-                # sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
-                # sinfo_1.xy_pos = xy_pos_1
-                # # sinfo_1.cuda_stream = stream_1
+                sinfo_1 = core.StitchImageInfo()
+                sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
+                sinfo_1.xy_pos = xy_pos_1
+                # sinfo_1.cuda_stream = stream_1
 
-                # sinfo_2 = core.StitchImageInfo()
-                # sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
-                # sinfo_2.xy_pos = xy_pos_2
-                # # sinfo_2.cuda_stream = stream_2
+                sinfo_2 = core.StitchImageInfo()
+                sinfo_2.image = source_tensor_2.to(torch.float, non_blocking=True)
+                sinfo_2.xy_pos = xy_pos_2
+                # sinfo_2.cuda_stream = stream_2
 
-                # main_stream.synchronize()
-                # blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                main_stream.synchronize()
+                blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
-                # blended = blended_stream_tensor
+                blended = blended_stream_tensor
 
                 if output_video:
                     video_dim_height, video_dim_width = get_dims_for_output_video(
