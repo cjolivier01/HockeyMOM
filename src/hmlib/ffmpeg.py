@@ -117,7 +117,11 @@ def subprocess_encode_ffmpeg(
 
 
 def get_ffmpeg_decoder_process(
-    input_video: str, gpu_index: int, buffer_size=10**8, loglevel: str = "quiet"
+    input_video: str,
+    gpu_index: int,
+    buffer_size=10**8,
+    loglevel: str = "quiet",
+    format: str = "bgr24",
 ):
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
@@ -126,10 +130,6 @@ def get_ffmpeg_decoder_process(
         loglevel,
         "-hwaccel",
         "cuda",  # Use CUDA hardware acceleration
-        # "-hwaccel_output_format",
-        # "cuda",  # Output format for compatibility
-        # "-c:v",
-        # decoder,  # Specify the NVIDIA decoder for H.264
         "-gpu",
         str(gpu_index),  # Which GPU to use
         "-i",
@@ -137,7 +137,7 @@ def get_ffmpeg_decoder_process(
         "-f",
         "image2pipe",  # Output format (pipe)
         "-pix_fmt",
-        "bgr24",  # Pixel format for OpenCV compatibility
+        format,  # Pixel format for OpenCV compatibility
         "-vcodec",
         "rawvideo",  # Output codec (raw video)
         "pipe:1",  # Output to pipe
@@ -145,7 +145,10 @@ def get_ffmpeg_decoder_process(
 
     # Start the FFmpeg subprocess
     process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, bufsize=10**8, preexec_fn=preexec_fn
+        command,
+        stdout=subprocess.PIPE,
+        bufsize=buffer_size,
+        preexec_fn=preexec_fn,
     )
     return process
 
@@ -163,29 +166,6 @@ def subprocess_decode_ffmpeg(
     width = vid_info.width
     height = vid_info.height
     channels = 3
-    # TODO: get w, h with opencv
-
-    # FFmpeg command for using NVIDIA's hardware decoder
-    # command = [
-    #     "ffmpeg",
-    #     "-hwaccel",
-    #     "cuda",  # Use CUDA hardware acceleration
-    #     # "-hwaccel_output_format",
-    #     # "cuda",  # Output format for compatibility
-    #     # "-c:v",
-    #     # decoder,  # Specify the NVIDIA decoder for H.264
-    #     "-gpu",
-    #     str(gpu_index),  # Which GPU to use
-    #     "-i",
-    #     input_video,  # Input file
-    #     "-f",
-    #     "image2pipe",  # Output format (pipe)
-    #     "-pix_fmt",
-    #     "bgr24",  # Pixel format for OpenCV compatibility
-    #     "-vcodec",
-    #     "rawvideo",  # Output codec (raw video)
-    #     "pipe:1",  # Output to pipe
-    # ]
 
     process = get_ffmpeg_decoder_process(
         input_video=input_video, gpu_index=gpu_index, loglevel=loglevel
@@ -219,57 +199,6 @@ def subprocess_decode_ffmpeg(
     cv2.destroyAllWindows()
     process.stdout.close()
     process.wait()
-
-
-# C version
-
-# // ... Initialization code ...
-
-# // Find the hardware decoder
-# const AVCodec* decoder = avcodec_find_decoder_by_name("h264_cuvid");
-
-# // Create a context for the decoder and set any specific options
-# AVCodecContext* decoder_ctx = avcodec_alloc_context3(decoder);
-# // Set options on decoder_ctx as needed, for example, selecting a GPU
-
-# // Open the decoder
-# avcodec_open2(decoder_ctx, decoder, NULL);
-
-# // ... Code to read and decode frames ...
-
-# // Find the hardware encoder
-# const AVCodec* encoder = avcodec_find_decoder_by_name("h264_nvenc");
-
-# // Create a context for the encoder and set it up
-# AVCodecContext* encoder_ctx = avcodec_alloc_context3(encoder);
-# // Set any specific options for the encoder
-
-# // Open the encoder
-# avcodec_open2(encoder_ctx, encoder, NULL);
-
-# // ... Code to encode and write frames ...
-
-# // ... Clean-up code ...
-
-# fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-# if not is_cuda:
-#     # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
-#     # params = Sequence()
-#     self._output_video = cv2.VideoWriter(
-#         filename=self._output_video_path,
-#         # apiPreference=cv2.CAP_FFMPEG,
-#         # apiPreference=cv2.CAP_GSTREAMER,
-#         fourcc=fourcc,
-#         fps=self._fps,
-#         frameSize=(
-#             int(self._output_frame_width),
-#             int(self._output_frame_height),
-#         ),
-#         # params=[
-#         #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-#         #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-#         # ],
-#     )
 
 
 class VideoWriter:

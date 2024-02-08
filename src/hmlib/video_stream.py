@@ -3,7 +3,7 @@ import torch
 import torchaudio
 import torchvision
 
-from .ffmpeg import BasicVideoInfo, subprocess_decode_ffmpeg
+from .ffmpeg import BasicVideoInfo, subprocess_decode_ffmpeg, get_ffmpeg_decoder_process
 #from torchvision.io import VideoReader as VideoReader
 
 _EXTENSION_MAPPING = {
