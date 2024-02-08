@@ -19,6 +19,7 @@ from hmlib.video_out import make_visible_image
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
+from hmlib.utils.utils import create_queue
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -879,6 +880,8 @@ def stitch_video(
         lazy_init=False,
         interpolation=interpolation,
     )
+
+    img_q = create_queue(mp=False)
 
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
