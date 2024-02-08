@@ -4,6 +4,16 @@ import uuid
 import numpy as np
 import subprocess
 from typing import Tuple
+import subprocess
+import ctypes
+import signal
+
+libc = ctypes.CDLL("libc.so.6")
+
+
+def preexec_fn():
+    # Ensure the child process gets SIGTERM if the parent dies
+    libc.prctl(1, signal.SIGTERM)
 
 
 class BasicVideoInfo:
@@ -17,7 +27,9 @@ class BasicVideoInfo:
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
         self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-        self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
+        self.codec = "".join(
+            [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
+        ).upper()
         cap.release()
 
 
@@ -104,25 +116,22 @@ def subprocess_encode_ffmpeg(
     process.wait()
 
 
-def subprocess_decode_ffmpeg(
-    input_video: str, decoder: str = "h264_cuvid", gpu_index: int = 0
+def get_ffmpeg_decoder_process(
+    input_video: str, gpu_index: int, buffer_size=10**8, loglevel: str = "quiet"
 ):
-    # Video parameters
-    width, height = 1920, 1080  # Replace with your video's resolution
-
-    # TODO: get w, h with opencv
-
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
         "ffmpeg",
+        "-loglevel",
+        loglevel,
         "-hwaccel",
         "cuda",  # Use CUDA hardware acceleration
-        "-hwaccel_output_format",
-        "cuda",  # Output format for compatibility
-        "-c:v",
-        decoder,  # Specify the NVIDIA decoder for H.264
+        # "-hwaccel_output_format",
+        # "cuda",  # Output format for compatibility
+        # "-c:v",
+        # decoder,  # Specify the NVIDIA decoder for H.264
         "-gpu",
-        gpu_index,  # Which GPU to use
+        str(gpu_index),  # Which GPU to use
         "-i",
         input_video,  # Input file
         "-f",
@@ -135,17 +144,65 @@ def subprocess_decode_ffmpeg(
     ]
 
     # Start the FFmpeg subprocess
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, bufsize=10**8)
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, bufsize=10**8, preexec_fn=preexec_fn
+    )
+    return process
+
+
+def subprocess_decode_ffmpeg(
+    input_video: str,
+    # decoder: str = "hevc_cuvid",
+    gpu_index: int = 0,
+    loglevel: str = "quiet",
+):
+
+    # Video parameters
+    # width, height = 1920, 1080  # Replace with your video's resolution
+    vid_info = BasicVideoInfo(input_video)
+    width = vid_info.width
+    height = vid_info.height
+    channels = 3
+    # TODO: get w, h with opencv
+
+    # FFmpeg command for using NVIDIA's hardware decoder
+    # command = [
+    #     "ffmpeg",
+    #     "-hwaccel",
+    #     "cuda",  # Use CUDA hardware acceleration
+    #     # "-hwaccel_output_format",
+    #     # "cuda",  # Output format for compatibility
+    #     # "-c:v",
+    #     # decoder,  # Specify the NVIDIA decoder for H.264
+    #     "-gpu",
+    #     str(gpu_index),  # Which GPU to use
+    #     "-i",
+    #     input_video,  # Input file
+    #     "-f",
+    #     "image2pipe",  # Output format (pipe)
+    #     "-pix_fmt",
+    #     "bgr24",  # Pixel format for OpenCV compatibility
+    #     "-vcodec",
+    #     "rawvideo",  # Output codec (raw video)
+    #     "pipe:1",  # Output to pipe
+    # ]
+
+    process = get_ffmpeg_decoder_process(
+        input_video=input_video, gpu_index=gpu_index, loglevel=loglevel
+    )
+
+    # Start the FFmpeg subprocess
+    # process = subprocess.Popen(command, stdout=subprocess.PIPE, bufsize=10**8)
 
     while True:
         # Read the raw video frame from stdout
-        raw_image = process.stdout.read(width * height * 3)
+        raw_image = process.stdout.read(width * height * channels)
 
         if not raw_image:
             break
 
         # Transform the byte read into a numpy array
-        frame = np.frombuffer(raw_image, np.uint8).reshape((height, width, 3))
+        frame = np.frombuffer(raw_image, np.uint8).reshape((height, width, channels))
 
         # Process the frame with OpenCV
         # ...

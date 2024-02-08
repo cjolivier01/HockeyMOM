@@ -1,9 +1,10 @@
 import cv2
 import torch
 import torchaudio
+import torchvision
 
-from .ffmpeg import BasicVideoInfo
-from torchvision.io import VideoReader as TVVideoReader
+from .ffmpeg import BasicVideoInfo, subprocess_decode_ffmpeg
+#from torchvision.io import VideoReader as VideoReader
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
@@ -178,8 +179,8 @@ class CVVideoCaptureIterator:
         return frame
 
 
-class TVVideoReaderIterator:
-    def __init__(self, vr: TVVideoReader):
+class VideoReaderIterator:
+    def __init__(self, vr: torchvision.io.VideoReader):
         self._vr = vr
 
     def __next__(self):
@@ -189,8 +190,8 @@ class TVVideoReaderIterator:
         return next_frame["data"]
 
 
-class TVVideoReaderIterator:
-    def __init__(self, vr: TVVideoReader):
+class VideoReaderIterator:
+    def __init__(self, vr: torchvision.io.VideoReader):
         self._vr = vr
 
     def __next__(self):
@@ -230,9 +231,11 @@ class VideoStreamReader:
         batch_size: int = 10,
         # type: str = "torchaudio",
         # type: str = "torchvision",
-        type: str = "cv2",
+        # type: str = "cv2",
+        type: str = "ffmpeg",
         device: torch.device = None,
     ):
+        subprocess_decode_ffmpeg(filename)
         self._filename = filename
         self._type = type
         self._codec = codec
@@ -278,7 +281,7 @@ class VideoStreamReader:
         if self._type == "torchaudio":
             return TAStreamReaderIterator(self._video_in)
         elif self._type == "torchvision":
-            return TVVideoReaderIterator(self._video_in)
+            return VideoReaderIterator(self._video_in)
         elif self._type == "cv2":
             return CVVideoCaptureIterator(self._video_in)
         else:
@@ -289,9 +292,12 @@ class VideoStreamReader:
             frames_per_chunk=self._batch_size,
             stream_index=0,
             decoder_option={},
+            #decoder="hevc",
+            format="cuda",
             # format="yuv420p",
             # format="yuvj420p",
             # hw_accel=str(self._device),
+            hw_accel="cuda",
         )
 
     def isOpened(self):
@@ -305,7 +311,7 @@ class VideoStreamReader:
             frame_number = timestamp * self.fps
         if isinstance(self._video_in, torchaudio.io.StreamReader):
             self._video_in.seek(timestamp=timestamp, mode="precise")
-        elif isinstance(self._video_in, TVVideoReader):
+        elif isinstance(self._video_in, torchvision.io.VideoReader):
             self._video_in.seek(time_s=timestamp)
         elif isinstance(self._video_in, cv2.VideoCapture):
             self._video_in.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -331,7 +337,7 @@ class VideoStreamReader:
             self._video_in = torchaudio.io.StreamReader(src=self._filename)
             self._add_stream()
         elif self._type == "torchvision":
-            self._video_in = TVVideoReader(
+            self._video_in = torchvision.io.VideoReader(
                 src=self._filename, stream="video", num_threads=32
             )
             self._meta = self._video_in.get_metadata()
@@ -347,7 +353,7 @@ class VideoStreamReader:
         if self._video_in is not None:
             if isinstance(self._video_in, torchaudio.io.StreamReader):
                 self._video_in.remove_stream(0)
-            elif isinstance(self._video_in, TVVideoReader):
+            elif isinstance(self._video_in, torchvision.io.VideoReader):
                 pass
             elif isinstance(self._video_in, cv2.VideoCapture):
                 self._video_in.release()
