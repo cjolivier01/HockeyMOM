@@ -87,6 +87,23 @@ def read_frame_batch(
     return tensor
 
 
+# def read_stream_batch(
+#     cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu")
+# ):
+#     frame_list = []
+#     res, frame = cap.read()
+#     if not res or frame is None:
+#         raise StopIteration()
+#     frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+#     for i in range(batch_size - 1):
+#         res, frame = cap.read()
+#         if not res or frame is None:
+#             raise StopIteration()
+#         frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+#     tensor = torch.stack(frame_list)
+#     return tensor
+
+
 def create_remapper_config(
     dir_name: str,
     basename: str,
