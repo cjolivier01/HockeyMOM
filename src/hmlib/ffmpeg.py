@@ -122,6 +122,8 @@ def get_ffmpeg_decoder_process(
     buffer_size=10**8,
     loglevel: str = "quiet",
     format: str = "bgr24",
+    time_s: float = 0.0,
+    thread_count: int = 1,
 ):
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
@@ -132,8 +134,16 @@ def get_ffmpeg_decoder_process(
         "cuda",  # Use CUDA hardware acceleration
         "-gpu",
         str(gpu_index),  # Which GPU to use
+        "-ss",
+        str(time_s),
         "-i",
         input_video,  # Input file
+    ]
+
+    if thread_count:
+        command += ["-threads", str(thread_count)]
+
+    command += [
         "-f",
         "image2pipe",  # Output format (pipe)
         "-pix_fmt",
