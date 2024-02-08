@@ -123,7 +123,7 @@ def get_ffmpeg_decoder_process(
     loglevel: str = "quiet",
     format: str = "bgr24",
     time_s: float = 0.0,
-    thread_count: int = 1,
+    thread_count: int = 0,
 ):
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
