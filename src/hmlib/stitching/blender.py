@@ -872,7 +872,9 @@ def stitch_video(
 
         video_out = None
 
-        timer = Timer()
+        stitch_timer = Timer()
+        io_timer = Timer()
+        all_timer = Timer()
         batch_count = 0
         frame_id = start_frame_number
         frame_ids = list()
@@ -978,29 +980,46 @@ def stitch_video(
                 batch_count += 1
 
                 if batch_count != 1:
-                    timer.toc()
+                    stitch_timer.toc()
 
                 if batch_count % 20 == 0:
                     print(
-                        "Stitching: {:.2f} fps".format(
-                            batch_size * 1.0 / max(1e-5, timer.average_time)
+                        "\nStitching: {:.2f} fps".format(
+                            batch_size * 1.0 / max(1e-5, stitch_timer.average_time)
+                        )
+                    )
+                    print(
+                        "IO:        {:.2f} fps".format(
+                            batch_size * 1.0 / max(1e-5, io_timer.average_time)
+                        )
+                    )
+                    print(
+                        "Overall:   {:.2f} fps".format(
+                            batch_size * 1.0 / max(1e-5, all_timer.average_time)
                         )
                     )
                     if batch_count % 50 == 0:
-                        timer = Timer()
+                        stitch_timer = Timer()
+                        io_timer = Timer()
+                        all_timer = Timer()
 
                 if show:
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
 
-                timer.tic()
+                io_timer.tic()
                 source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
                 source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(
                     device, non_blocking=True
                 )
-                #timer.tic()
+                io_timer.toc()
+                if batch_count != 1:
+                    all_timer.toc()
+
+                all_timer.tic()
+                stitch_timer.tic()
         finally:
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriter):

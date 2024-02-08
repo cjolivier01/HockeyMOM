@@ -82,8 +82,8 @@ ImageRemapper::ImageRemapper(
 void ImageRemapper::init(std::size_t batch_size) {
   assert(!initialized_);
   initialized_ = false;
-  std::cout << "Padding tensors to size: " << working_width_ << " x "
-            << working_height_ << std::endl;
+  // std::cout << "Padding tensors to size: " << working_width_ << " x "
+  //           << working_height_ << std::endl;
   auto col_map = pad_tensor_to_size(
       col_map_, working_width_, working_height_, kUnmappedPixelValue);
   auto row_map = pad_tensor_to_size(
