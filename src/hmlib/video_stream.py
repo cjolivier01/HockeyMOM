@@ -3,6 +3,7 @@ import torch
 import torchaudio
 
 from .ffmpeg import BasicVideoInfo
+from torchvision.io import VideoReader as TVVideoReader
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
@@ -166,15 +167,43 @@ class VideoStreamWriter:
         return self.append(images)
 
 
+class CVVideoCaptureIterator:
+    def __init__(self, cap: cv2.VideoCapture):
+        self._cap = cap
+
+    def __next__(self):
+        res, frame = self._cap.read()
+        if not res:
+            raise StopIteration()
+        return frame
+
+
+class TVVideoReaderIterator:
+    def __init__(self, vr: TVVideoReader):
+        self._vr = vr
+
+    def __next__(self):
+        next_frame = next(self._vr)
+        if next_frame is None:
+            raise StopIteration()
+        return next_frame['data']
+
+#
+#
+#
 class VideoStreamReader:
     def __init__(
         self,
         filename: str,
         codec: str = None,
         batch_size: int = 10,
+        #type: str = "torchaudio",
+        #type: str = "torchvision",
+        type: str = "cv2",
         device: torch.device = None,
     ):
         self._filename = filename
+        self._type = type
         self._codec = codec
         self._fps = None
         self._width = None
@@ -220,7 +249,7 @@ class VideoStreamReader:
             stream_index=0,
             decoder_option={},
             # format="yuv420p",
-            format="yuvj420p",
+            # format="yuvj420p",
             hw_accel=str(self._device),
         )
 
@@ -230,8 +259,17 @@ class VideoStreamReader:
     def seek(self, timestamp: float = None, frame_number: int = None):
         assert timestamp is None or frame_number is None
         if frame_number is not None:
-            timestamp = float(frame_number) / self._video_in.info.framerate
-        self._video_in.seek(timestamp=timestamp, precise=True)
+            timestamp = float(frame_number) / self.fps
+        else:
+            frame_number = timestamp * self.fps
+        if isinstance(self._video_in, torchaudio.io.StreamReader):
+            self._video_in.seek(timestamp=timestamp, precise=True)
+        elif isinstance(self._video_in, TVVideoReader):
+            self._video_in.seek(time_s=timestamp)
+        elif isinstance(self._video_in, cv2.VideoCapture):
+            self._video_in.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        else:
+            assert False
 
     def set(self, prop: int, value: any):
         if prop == cv2.CAP_PROP_POS_FRAMES:
@@ -240,6 +278,7 @@ class VideoStreamReader:
             assert False and f"Unsupported property: {prop}"
 
     def get(self, prop: int):
+        assert False
         return None
 
     def open(self):
@@ -247,13 +286,31 @@ class VideoStreamReader:
         self._video_info = BasicVideoInfo(video_file=self._filename)
         if self._codec is None:
             self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
-        self._video_in = torchaudio.io.StreamReader(src=self._filename)
-        self._add_stream()
-        self._iter = self._video_in.stream()
+        if self._type == "torchaudio":
+            self._video_in = torchaudio.io.StreamReader(src=self._filename)
+            self._add_stream()
+            assert self._video_in.info.framerate == self.fps
+            self._iter = self._video_in.stream()
+        elif self._type == "torchvision":
+            self._video_in = TVVideoReader(src=self._filename, stream="video", num_threads=32)
+            self._iter = TVVideoReaderIterator(self._video_in)
+            self._meta = self._video_in.get_metadata()
+        elif self._type == "cv2":
+            self._video_in = cv2.VideoCapture(self._filename)
+            self._iter = CVVideoCaptureIterator(self._video_in)
+        else:
+            assert False
 
     def close(self):
         if self._video_in is not None:
-            self._video_in.remove_stream(0)
+            if isinstance(self._video_in, torchaudio.io.StreamReader):
+                self._video_in.remove_stream(0)
+            elif isinstance(self._video_in, TVVideoReader):
+                pass
+            elif isinstance(self._video_in, cv2.VideoCapture):
+                self._video_in.release()
+            else:
+                assert False
             self._video_in = None
             self._iter = None
         return
@@ -263,3 +320,5 @@ class VideoStreamReader:
         if next_data is None:
             return False, None
         return True, next_data
+
+

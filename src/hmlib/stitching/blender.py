@@ -798,16 +798,16 @@ def stitch_video(
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
 
-    # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
-    cap_1 = cv2.VideoCapture(video_file_1)
+    cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
+    # cap_1 = cv2.VideoCapture(video_file_1)
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_1}")
     else:
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
-    # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
-    cap_2 = cv2.VideoCapture(video_file_2)
+    cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
+    # cap_2 = cv2.VideoCapture(video_file_2)
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_2}")
     else:
