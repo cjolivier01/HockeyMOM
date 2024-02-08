@@ -897,10 +897,10 @@ def stitch_video(
                 sinfo_2.xy_pos = xy_pos_2
                 # sinfo_2.cuda_stream = stream_2
 
-                # main_stream.synchronize()
-                # blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                main_stream.synchronize()
+                blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
-                # blended = blended_stream_tensor
+                blended = blended_stream_tensor
 
                 if output_video:
                     video_dim_height, video_dim_width = get_dims_for_output_video(
