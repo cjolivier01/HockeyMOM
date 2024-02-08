@@ -186,7 +186,8 @@ class TVVideoReaderIterator:
         next_frame = next(self._vr)
         if next_frame is None:
             raise StopIteration()
-        return next_frame['data']
+        return next_frame["data"]
+
 
 class TVVideoReaderIterator:
     def __init__(self, vr: TVVideoReader):
@@ -196,7 +197,8 @@ class TVVideoReaderIterator:
         next_frame = next(self._vr)
         if next_frame is None:
             raise StopIteration()
-        return next_frame['data']
+        return next_frame["data"]
+
 
 class TAStreamReaderIterator:
     def __init__(self, sr: torchaudio.io.StreamReader):
@@ -216,6 +218,7 @@ class TAStreamReaderIterator:
         self._chunk_position += 1
         return frame
 
+
 #
 # VideoStreamReader
 #
@@ -225,8 +228,8 @@ class VideoStreamReader:
         filename: str,
         codec: str = None,
         batch_size: int = 10,
-        #type: str = "torchaudio",
-        #type: str = "torchvision",
+        # type: str = "torchaudio",
+        # type: str = "torchvision",
         type: str = "cv2",
         device: torch.device = None,
     ):
@@ -287,8 +290,8 @@ class VideoStreamReader:
             stream_index=0,
             decoder_option={},
             # format="yuv420p",
-            #format="yuvj420p",
-            #hw_accel=str(self._device),
+            # format="yuvj420p",
+            # hw_accel=str(self._device),
         )
 
     def isOpened(self):
@@ -328,7 +331,9 @@ class VideoStreamReader:
             self._video_in = torchaudio.io.StreamReader(src=self._filename)
             self._add_stream()
         elif self._type == "torchvision":
-            self._video_in = TVVideoReader(src=self._filename, stream="video", num_threads=32)
+            self._video_in = TVVideoReader(
+                src=self._filename, stream="video", num_threads=32
+            )
             self._meta = self._video_in.get_metadata()
         elif self._type == "cv2":
             self._video_in = cv2.VideoCapture(self._filename)
@@ -357,5 +362,3 @@ class VideoStreamReader:
         if next_data is None:
             return False, None
         return True, next_data
-
-
