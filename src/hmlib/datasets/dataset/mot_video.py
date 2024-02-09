@@ -15,6 +15,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.video_out import make_visible_image
 from yolox.data import MOTDataset
 from hmlib.utils.utils import create_queue
+from contextlib import contextmanager
 
 from hmlib.utils.image import (
     make_channels_last,
@@ -22,6 +23,18 @@ from hmlib.utils.image import (
     image_height,
     image_width,
 )
+
+
+@contextmanager
+def optional_with(resource):
+    """A context manager that works even if the resource is None."""
+    if resource is None:
+        # If the resource is None, yield nothing but still enter the with block
+        yield None
+    else:
+        # If the resource is not None, use it as a normal context manager
+        with resource as r:
+            yield r
 
 
 class MOTLoadVideoWithOrig(MOTDataset):  # for inference
@@ -58,8 +71,12 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self._start_frame_number = start_frame_number
         self.clip_original = clip_original
         self.calculated_clip_box = None
-        self.process_height = img_size[0]
-        self.process_width = img_size[1]
+        if img_size is None:
+            self.process_height = None
+            self.process_width = None
+        else:
+            self.process_height = img_size[0]
+            self.process_width = img_size[1]
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
         self.width_t = None

@@ -30,7 +30,7 @@ class StreamTensor {
   at::Tensor get();
 
  private:
-  std::unique_ptr<c10::cuda::CUDAStream> stream_;
+  std::unique_ptr<c10::cuda::CUDAStream> stream_{nullptr};
   at::Tensor tensor_;
 };
 

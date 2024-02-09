@@ -41,7 +41,7 @@ def make_parser():
         "--blend-mode",
         "--blend_mode",
         dest="blend_mode",
-        default="multiblend",
+        default="laplacian",
         type=str,
         help="Blending mode (multiblend|gpu-hard-seam|gpu-laplacian)",
     )
@@ -333,9 +333,8 @@ def main(args):
             show=args.show,
             max_frames=args.max_frames,
             output_stitched_video_file=None,
-            # blend_mode=args.blend_mode,
+            blend_mode=args.blend_mode,
             #blend_mode="gpu-hard-seam",
-            blend_mode="laplacian",
             remapping_device=torch.device("cuda", 0),
         )
 

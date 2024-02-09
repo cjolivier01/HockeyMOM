@@ -547,9 +547,10 @@ def main(exp, args, num_gpu):
                     fork_workers=False,
                     image_roi=None,
                     batch_size=1,
+                    device=detection_device,
                     # batch_size=args.batch_size,
                     # blend_mode="multiblend",
-                    blend_mode="gpu-hard-seam",
+                    blend_mode=opts.blend_mode,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

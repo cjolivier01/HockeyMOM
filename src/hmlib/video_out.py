@@ -794,8 +794,12 @@ class VideoOutput:
                     if imgproc_data.frame_id % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
-                        cv2.imshow("online_im", make_visible_image(online_im))
-                        cv2.waitKey(1)
+                        show_img = online_im
+                        if show_img.ndim == 3:
+                            show_img = show_img.unsqueeze(0)
+                        for s_img in show_img:
+                            cv2.imshow("online_im", make_visible_image(s_img))
+                            cv2.waitKey(1)
 
                 # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
                 if cuda_stream is not None:
