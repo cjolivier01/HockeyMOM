@@ -80,7 +80,7 @@ def make_parser():
         "-q",
         "--queue-size",
         dest="queue_size",
-        default=2,
+        default=1,
         type=int,
         help="Queue size",
     )
@@ -804,7 +804,7 @@ def stitch_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
-    queue_size: int = 2,
+    queue_size: int = 1,
     blend_mode: str = "laplacian",
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
