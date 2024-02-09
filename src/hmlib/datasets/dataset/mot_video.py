@@ -14,6 +14,7 @@ from hmlib.datasets.dataset.jde import letterbox, py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.video_out import make_visible_image
 from yolox.data import MOTDataset
+from yolox.data.datasets.datasets_wrapper import Dataset
 from hmlib.utils.utils import create_queue
 from contextlib import contextmanager
 
@@ -37,6 +38,7 @@ def optional_with(resource):
             yield r
 
 
+#class MOTLoadVideoWithOrig(Dataset):  # for inference
 class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     def __init__(
         self,
@@ -58,6 +60,9 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
     ):
+        # super().__init__(
+        #     input_dimension=img_size,
+        # )
         super().__init__(
             data_dir=data_dir,
             json_file=json_file,
