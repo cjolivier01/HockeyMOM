@@ -20,6 +20,7 @@ from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 from hmlib.utils.utils import create_queue
+from hmlib.utils.gpu import StreamTensorToGpu
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -74,6 +75,14 @@ def make_parser():
         default=1,
         type=int,
         help="Use Laplacian blending rather than a hard stitch",
+    )
+    parser.add_argument(
+        "-q",
+        "--queue-size",
+        dest="queue_size",
+        default=2,
+        type=int,
+        help="Queue size",
     )
     parser.add_argument(
         "--lfo",
@@ -795,6 +804,7 @@ def stitch_video(
     batch_size: int = 8,
     device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
+    queue_size: int = 2,
     blend_mode: str = "laplacian",
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
@@ -838,12 +848,18 @@ def stitch_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size).to(
-        device, non_blocking=True
-    )
-    source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size).to(
-        device, non_blocking=True
-    )
+    img_q = create_queue(mp=False)
+
+    for i in range(queue_size):
+        source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size)
+        source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size)
+        if source_tensor_1 is None or source_tensor_2 is None:
+            img_q.put(None)    
+        else:
+            st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)        
+            st2 = StreamTensorToGpu(tensor=source_tensor_2, device=device)
+            img_q.put((st1, st2))
+        
 
     blender_config = create_blender_config(
         mode=blend_mode,
@@ -881,8 +897,6 @@ def stitch_video(
         interpolation=interpolation,
     )
 
-    img_q = create_queue(mp=False)
-
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
 
@@ -902,8 +916,23 @@ def stitch_video(
             while True:
                 stitch_timer.tic()
 
-                source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
-                source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
+                source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size)
+                source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size)
+                if source_tensor_1 is None or source_tensor_2 is None:
+                    img_q.put(None)    
+                else:
+                    st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)        
+                    st2 = StreamTensorToGpu(tensor=source_tensor_2, device=device)
+                    img_q.put((st1, st2))
+
+                tensors = img_q.get()
+                if tensors is None:
+                    break
+                source_tensor_1 = tensors[0].get()
+                source_tensor_2 = tensors[1].get()
+
+                # source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
+                # source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
                 
                 sinfo_1 = core.StitchImageInfo()
                 sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
@@ -915,7 +944,7 @@ def stitch_video(
                 sinfo_2.xy_pos = xy_pos_2
                 # sinfo_2.cuda_stream = stream_2
 
-                main_stream.synchronize()
+                # main_stream.synchronize()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
@@ -1074,6 +1103,7 @@ def main(args):
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
+            queue_size=args.queue_size,
             blend_mode="laplacian",
         )
 
