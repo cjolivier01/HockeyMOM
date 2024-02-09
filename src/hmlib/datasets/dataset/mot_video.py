@@ -38,8 +38,8 @@ def optional_with(resource):
             yield r
 
 
-#class MOTLoadVideoWithOrig(Dataset):  # for inference
-class MOTLoadVideoWithOrig(MOTDataset):  # for inference
+class MOTLoadVideoWithOrig(Dataset):  # for inference
+#class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     def __init__(
         self,
         path,
@@ -60,16 +60,16 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
     ):
-        # super().__init__(
-        #     input_dimension=img_size,
-        # )
         super().__init__(
-            data_dir=data_dir,
-            json_file=json_file,
-            name=name,
-            preproc=preproc,
-            return_origin_img=return_origin_img,
+            input_dimension=img_size,
         )
+        # super().__init__(
+        #     data_dir=data_dir,
+        #     json_file=json_file,
+        #     name=name,
+        #     preproc=preproc,
+        #     return_origin_img=return_origin_img,
+        # )
         self._path = path
         # The delivery device of the letterbox image
         self._device = device
