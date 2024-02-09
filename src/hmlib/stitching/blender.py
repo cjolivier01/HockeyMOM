@@ -21,6 +21,7 @@ from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 from hmlib.utils.utils import create_queue
 from hmlib.utils.gpu import StreamTensorToGpu, StreamTensorToDtype
+from hmlib.hm_opts import hm_opts, copy_opts
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -32,12 +33,7 @@ ROOT_DIR = os.getcwd()
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
-    parser.add_argument(
-        "--show",
-        default=False,
-        action="store_true",
-        help="Show images",
-    )
+    parser = hm_opts.parser(parser)
     parser.add_argument(
         "-o",
         "--output",
@@ -47,13 +43,13 @@ def make_parser():
         default=None,
         help="Show images",
     )
-    parser.add_argument(
-        "--project-file",
-        "--project_file",
-        default="autooptimiser_out.pto",
-        type=str,
-        help="Use project file as input to stitcher",
-    )
+    # parser.add_argument(
+    #     "--project-file",
+    #     "--project_file",
+    #     default="autooptimiser_out.pto",
+    #     type=str,
+    #     help="Use project file as input to stitcher",
+    # )
     parser.add_argument(
         "-b",
         "--batch-size",
@@ -63,19 +59,19 @@ def make_parser():
         type=int,
         help="Batch size",
     )
-    parser.add_argument(
-        "--video_dir",
-        default=None,
-        type=str,
-        help="Video directory to find 'left.mp4' and 'right.mp4'",
-    )
-    parser.add_argument(
-        "--laplacian-blend",
-        "--laplacian_blend",
-        default=1,
-        type=int,
-        help="Use Laplacian blending rather than a hard stitch",
-    )
+    # parser.add_argument(
+    #     "--video_dir",
+    #     default=None,
+    #     type=str,
+    #     help="Video directory to find 'left.mp4' and 'right.mp4'",
+    # )
+    # parser.add_argument(
+    #     "--laplacian-blend",
+    #     "--laplacian_blend",
+    #     default=1,
+    #     type=int,
+    #     help="Use Laplacian blending rather than a hard stitch",
+    # )
     parser.add_argument(
         "-q",
         "--queue-size",
@@ -84,27 +80,27 @@ def make_parser():
         type=int,
         help="Queue size",
     )
-    parser.add_argument(
-        "--lfo",
-        "--left_frame_offset",
-        default=None,
-        type=float,
-        help="Left frame offset",
-    )
-    parser.add_argument(
-        "--rfo",
-        "--right_frame_offset",
-        default=None,
-        type=float,
-        help="Right frame offset",
-    )
-    parser.add_argument(
-        "--skip_final_video_save",
-        "--skip-final-video-save",
-        dest="skip_final_video_save",
-        action="store_true",
-        help="Don't save the output video frames",
-    )
+    # parser.add_argument(
+    #     "--lfo",
+    #     "--left_frame_offset",
+    #     default=None,
+    #     type=float,
+    #     help="Left frame offset",
+    # )
+    # parser.add_argument(
+    #     "--rfo",
+    #     "--right_frame_offset",
+    #     default=None,
+    #     type=float,
+    #     help="Right frame offset",
+    # )
+    # parser.add_argument(
+    #     "--skip_final_video_save",
+    #     "--skip-final-video-save",
+    #     dest="skip_final_video_save",
+    #     action="store_true",
+    #     help="Don't save the output video frames",
+    # )
     parser.add_argument(
         "--python",
         action="store_true",
@@ -738,6 +734,7 @@ def create_stitcher(
     remapped_basename: str = "nona",
     blend_mode: str = "laplacian",
     interpolation: str = "bilinear",
+    remap_on_async_stream: bool = False,
     levels: int = 4,
 ):
     blender_config = create_blender_config(
@@ -773,6 +770,7 @@ def create_stitcher(
         remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
         levels=blender_config.levels,
+        remap_on_async_stream=remap_on_async_stream,
         seam=blender_config.seam,
         xor_map=blender_config.xor_map,
         lazy_init=False,
@@ -786,6 +784,7 @@ def gpu_index(want: int = 1):
 
 
 def stitch_video(
+    opts: object,
     video_file_1: str,
     video_file_2: str,
     dir_name: str,
@@ -802,10 +801,10 @@ def stitch_video(
     max_width: int = 9999,
     rotation_angle: int = 0,
     batch_size: int = 8,
-    device: torch.device = torch.device("cuda"),
+    device: torch.device = torch.device("cuda", 0),
     skip_final_video_save: bool = False,
     queue_size: int = 1,
-    blend_mode: str = "laplacian",
+    remap_on_async_stream: bool = True,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -813,22 +812,23 @@ def stitch_video(
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
 
-    # cap_1 = VideoStreamReader(os.path.join(dir_name, video_file_1), device=device)
     cap_1 = VideoStreamReader(
-        os.path.join(dir_name, video_file_1), device=f"cuda:{gpu_index(want=1)}"
+        os.path.join(dir_name, video_file_1),
+        type=opts.video_stream_decode_method,
+        device=f"cuda:{gpu_index(want=1)}",
     )
-    # cap_1 = cv2.VideoCapture(video_file_1)
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_1}")
     else:
         if lfo or start_frame_number:
             cap_1.set(cv2.CAP_PROP_POS_FRAMES, lfo + start_frame_number)
 
-    # cap_2 = VideoStreamReader(os.path.join(dir_name, video_file_2))
     cap_2 = VideoStreamReader(
-        os.path.join(dir_name, video_file_2), device=f"cuda:{gpu_index(want=2)}"
+        os.path.join(dir_name, video_file_2),
+        type=opts.video_stream_decode_method,
+        device=f"cuda:{gpu_index(want=2)}",
     )
-    # cap_2 = cv2.VideoCapture(video_file_2)
+
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_2}")
     else:
@@ -841,6 +841,8 @@ def stitch_video(
         dir_name=dir_name,
         batch_size=batch_size,
         device=device,
+        blend_mode=opts.blend_mode,
+        remap_on_async_stream=remap_on_async_stream,
     )
 
     v1_iter = iter(cap_1)
@@ -854,45 +856,15 @@ def stitch_video(
         if source_tensor_1 is None or source_tensor_2 is None:
             img_q.put(None)
         else:
-            st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)
-            st2 = StreamTensorToGpu(tensor=source_tensor_2, device=device)
+            st1 = StreamTensorToDtype(
+                tensor=StreamTensorToGpu(tensor=source_tensor_1, device=device),
+                dtype=torch.float,
+            )
+            st2 = StreamTensorToDtype(
+                tensor=StreamTensorToGpu(tensor=source_tensor_2, device=device),
+                dtype=torch.float,
+            )
             img_q.put((st1, st2))
-
-    blender_config = create_blender_config(
-        mode=blend_mode,
-        dir_name=dir_name,
-        basename="nona",
-        device=device,
-        levels=4,
-        lazy_init=False,
-        interpolation=interpolation,
-    )
-
-    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, basename_1)
-    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, basename_2)
-
-    remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = int(image_width(source_tensor_1))
-    remap_info_1.src_height = int(image_height(source_tensor_1))
-    remap_info_1.col_map = col_map_1
-    remap_info_1.row_map = row_map_1
-
-    remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = int(image_width(source_tensor_2))
-    remap_info_2.src_height = int(image_height(source_tensor_2))
-    remap_info_2.col_map = col_map_2
-    remap_info_2.row_map = row_map_2
-
-    stitcher = core.ImageStitcher(
-        batch_size=batch_size,
-        remap_image_info=[remap_info_1, remap_info_2],
-        blender_mode=core.ImageBlenderMode.Laplacian,
-        levels=blender_config.levels,
-        seam=blender_config.seam,
-        xor_map=blender_config.xor_map,
-        lazy_init=False,
-        interpolation=interpolation,
-    )
 
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
@@ -937,9 +909,6 @@ def stitch_video(
                 source_tensor_1 = tensors[0].get()
                 source_tensor_2 = tensors[1].get()
                 io_timer.toc()
-
-                # source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
-                # source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
 
                 stitch_timer.tic()
                 sinfo_1 = core.StitchImageInfo()
@@ -1092,14 +1061,16 @@ def stitch_video(
 
 
 def main(args):
+    opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     with torch.no_grad():
         stitch_video(
             # blend_video(
-            "left.mp4",
-            "right.mp4",
-            args.video_dir,
-            "mapping_0000",
-            "mapping_0001",
+            opts,
+            video_file_1="left.mp4",
+            video_file_2="right.mp4",
+            dir_name=args.video_dir,
+            basename_1="mapping_0000",
+            basename_2="mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
             python_blend=args.python,
@@ -1111,7 +1082,6 @@ def main(args):
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
-            blend_mode="laplacian",
         )
 
 

@@ -4,11 +4,7 @@ import torch
 import torchaudio
 import torchvision
 
-from .ffmpeg import BasicVideoInfo, subprocess_decode_ffmpeg, get_ffmpeg_decoder_process
-
-from hmlib.utils.image import make_channels_first
-
-# from torchvision.io import VideoReader as VideoReader
+from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
@@ -266,7 +262,7 @@ class FFmpegVideoReaderIterator:
         # frame = torch.from_numpy(frame)
         frame = (
             torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
-            #.to("cuda:0", non_blocking=False)
+            # .to("cuda:0", non_blocking=False)
             .reshape((self._vid_info.height, self._vid_info.width, self._channels))
         )
         self._count += 1
@@ -278,15 +274,17 @@ class FFmpegVideoReaderIterator:
 # VideoStreamReader
 #
 class VideoStreamReader:
+    # type: str = "torchaudio",
+    # type: str = "torchvision",
+    # type: str = "cv2",
+    # type: str = "ffmpeg",
+
     def __init__(
         self,
         filename: str,
+        type: str,
         codec: str = None,
-        batch_size: int = 10,
-        # type: str = "torchaudio",
-        # type: str = "torchvision",
-        # type: str = "cv2",
-        type: str = "ffmpeg",
+        batch_size: int = 1,
         device: torch.device = None,
     ):
         # subprocess_decode_ffmpeg(filename)

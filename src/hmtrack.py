@@ -37,6 +37,7 @@ from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
+from hmlib.hm_opts import hm_opts, copy_opts
 
 ROOT_DIR = os.getcwd()
 
@@ -44,6 +45,7 @@ ROOT_DIR = os.getcwd()
 def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
         parser = argparse.ArgumentParser("YOLOX Eval")
+    hm_opts.update(parser)
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
@@ -564,8 +566,8 @@ def main(exp, args, num_gpu):
                     fork_workers=False,
                     image_roi=None,
                     batch_size=1,
-                    #batch_size=args.batch_size,
-                    #blend_mode="multiblend",
+                    # batch_size=args.batch_size,
+                    # blend_mode="multiblend",
                     blend_mode="gpu-hard-seam",
                 )
                 # Create the MOT video data loader, passing it the
@@ -578,7 +580,7 @@ def main(exp, args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
-                    #batch_size=1,
+                    # batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     device=detection_device,
@@ -779,6 +781,9 @@ if __name__ == "__main__":
         num_gpus = len(args.gpus) if args.gpus else 0
         # num_gpus = torch.cuda.device_count() if args.devices is None else args.devices
         assert num_gpus <= torch.cuda.device_count()
+
+    ops = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts().parser())
+
     launch(
         main,
         num_gpus,
