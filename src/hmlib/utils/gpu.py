@@ -8,7 +8,7 @@ from hmlib.utils.utils import create_queue
 class CachedIterator:
     def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
         self._iterator = iterator
-        self._q = create_queue(mp=False)
+        self._q = create_queue(mp=False) if cache_size else None
         self._pre_callback_fn = pre_callback_fn
         for _ in range(cache_size):
             try:
@@ -21,16 +21,21 @@ class CachedIterator:
                 break
 
     def __next__(self):
-        item = self._q.get()
-        if item is None:
-            raise StopIteration
-        try:
+        if self._q is None:
             item = next(self._iterator)
             if self._pre_callback_fn is not None:
                 item = self._pre_callback_fn(item)
-            self._q.put(item)
-        except StopIteration:
-            self._q.put(None)
+        else:
+            item = self._q.get()
+            if item is None:
+                raise StopIteration
+            try:
+                item = next(self._iterator)
+                if self._pre_callback_fn is not None:
+                    item = self._pre_callback_fn(item)
+                self._q.put(item)
+            except StopIteration:
+                self._q.put(None)
         return item
 
 

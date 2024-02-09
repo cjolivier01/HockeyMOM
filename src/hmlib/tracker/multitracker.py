@@ -216,7 +216,7 @@ class JDETracker(object):
     def post_process(self, dets, meta):
         # Data loader will perform an efficient transformation since it has all of the correct info
         # dets = dataloader.scale_letterbox_to_original_image_coordinates(dets)
-        oof = dets.to(torch.int64)
+        # oof = dets.to(torch.int64)
         # dets = dets.reshape(1, -1, dets.shape[2])
         dets = ctdet_post_process_post_recale(
             dets=dets.clone(),

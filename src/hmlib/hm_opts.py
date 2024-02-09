@@ -42,7 +42,8 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--video-stream-decode-method",
-            default="ffmpeg",
+            # default="ffmpeg",
+            default="cv2",
             type=str,
             help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         )
