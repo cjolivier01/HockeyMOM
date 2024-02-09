@@ -26,10 +26,19 @@ class hm_opts(object):
             parser = argparse.ArgumentParser()
         # stitching
         parser.add_argument(
+            "--game-id",
+            default=None,
+            type=str,
+            help="Game ID",
+        )
+        parser.add_argument(
+            "-s",
+            "--show-image",
             "--show",
+            dest="show_image",
             default=False,
             action="store_true",
-            help="Show images",
+            help="show as processing",
         )
         parser.add_argument(
             "--video-stream-decode-method",
@@ -85,7 +94,7 @@ class hm_opts(object):
             "--blend_mode",
             default="laplacian",
             type=str,
-            help="Stitch blending mode",
+            help="Stitching blend mode (multiblend|laplacian|gpu-hard-seam)",
         )
         parser.add_argument(
             "--skip_final_video_save",
@@ -93,6 +102,13 @@ class hm_opts(object):
             dest="skip_final_video_save",
             action="store_true",
             help="Don't save the output video frames",
+        )
+        parser.add_argument(
+            "--no_save_stitched",
+            "--no-save-stitched",
+            dest="no_save_stitched",
+            action="store_true",
+            help="Don't save the output video",
         )
         return parser
 

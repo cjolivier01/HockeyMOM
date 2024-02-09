@@ -1106,7 +1106,7 @@ def main(args):
             rfo=args.rfo,
             python_blend=args.python,
             interpolation="bilinear",
-            show=args.show,
+            show=args.show_image,
             start_frame_number=0,
             # output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
