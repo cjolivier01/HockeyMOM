@@ -6,9 +6,11 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-VIDEO="${HOME}/Videos/tvbb"
+#VIDEO="${HOME}/Videos/tvbb"
+VIDEO="${HOME}/Videos/sharksbb1-1"
 
-GAME_ID="tvbb"
+#GAME_ID="tvbb"
+GAME_ID="sharksbb1-1"
 #GAME_ID="sharks-bb1-2"
 #GAME_ID="sharks-bb3-2"
 
