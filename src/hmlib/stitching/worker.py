@@ -22,6 +22,8 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.stitching.remapper import create_remapper_config
 from hmlib.stitching.blender import create_blender_config
 from hmlib.stitching.laplacian_blend import show_image
+from hmlib.video_stream import VideoStreamReader
+from hmlib.utils.gpu import StreamTensorToGpu, StreamTensorToDtype, CachedIterator
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128
@@ -102,6 +104,7 @@ class StitchingWorker:
         image_roi: List[int] = None,
         use_pytorch_remap: bool = True,
         blend_mode: str = "multiblend",
+        cache_size: int = 1,
     ):
         assert max_input_queue_size > 0
 
@@ -142,6 +145,7 @@ class StitchingWorker:
 
         self._receive_timer = Timer()
         self._receive_count = 0
+        self._cache_size = cache_size
 
         self._next_frame_timer = Timer()
 
@@ -217,18 +221,63 @@ class StitchingWorker:
         self._start_frame_number += self._rank
 
     def _open_videos(self):
-        self._video1 = cv2.VideoCapture(self._video_file_1)
-        self._video2 = cv2.VideoCapture(self._video_file_2)
+        # self._video1 = cv2.VideoCapture(self._video_file_1)
+        # self._video2 = cv2.VideoCapture(self._video_file_2)
+
+        self._video1 = VideoStreamReader(
+            self._video_file_1,
+            type="cv2",
+            device=self._remapping_device,
+            batch_size=self._batch_size,
+        )
+
+        self._video2 = VideoStreamReader(
+            self._video_file_2,
+            type="cv2",
+            device=self._remapping_device,
+            batch_size=self._batch_size,
+        )
+
         if self._start_frame_number or self._video_1_offset_frame:
-            self._video1.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                self._start_frame_number + self._video_1_offset_frame,
+            self._video1.seek(
+                frame_number=self._start_frame_number + self._video_1_offset_frame
             )
+        self._video1_iter = iter(self._video1)
+        # self._video1.set(
+        #     cv2.CAP_PROP_POS_FRAMES,
+        #     self._start_frame_number + self._video_1_offset_frame,
+        # )
         if self._start_frame_number or self._video_2_offset_frame:
-            self._video2.set(
-                cv2.CAP_PROP_POS_FRAMES,
-                self._start_frame_number + self._video_2_offset_frame,
+            self._video2.seek(
+                frame_number=self._start_frame_number + self._video_2_offset_frame
             )
+        self._video2_iter = iter(self._video2)
+        # self._video2.set(
+        #     cv2.CAP_PROP_POS_FRAMES,
+        #     self._start_frame_number + self._video_2_offset_frame,
+        # )
+
+        # if self._cache_size:
+        self._video1_iter = CachedIterator(
+            iterator=self._video1_iter,
+            cache_size=self._cache_size,
+            pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
+                tensor=StreamTensorToGpu(
+                    tensor=source_tensor, device=self._remapping_device
+                ),
+                dtype=torch.float,
+            ),
+        )
+        self._video2_iter = CachedIterator(
+            iterator=self._video2_iter,
+            cache_size=self._cache_size,
+            pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
+                tensor=StreamTensorToGpu(
+                    tensor=source_tensor, device=self._remapping_device
+                ),
+                dtype=torch.float,
+            ),
+        )
 
         self._stitcher = core.StitchingDataLoader(
             0,
@@ -254,10 +303,7 @@ class StitchingWorker:
                 dir_name=os.path.dirname(self._video_file_1),
                 image_index=0,
                 basename="mapping_",
-                source_hw=(
-                    int(self._video1.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                    int(self._video1.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                ),
+                source_hw=(int(self._video1.height), int(self._video1.width)),
                 batch_size=self._batch_size,
                 device=self._remapping_device,
             )
@@ -266,18 +312,12 @@ class StitchingWorker:
                 dir_name=os.path.dirname(self._video_file_2),
                 image_index=1,
                 basename="mapping_",
-                source_hw=(
-                    int(self._video2.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                    int(self._video2.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                ),
+                source_hw=(int(self._video2.height), int(self._video2.width)),
                 batch_size=self._batch_size,
                 device=self._remapping_device,
             )
             self._stitcher.configure_remapper(
-                remapper_config=[
-                    self._remapper_config_1,
-                    self._remapper_config_2,
-                ]
+                remapper_config=[self._remapper_config_1, self._remapper_config_2]
             )
 
         if self._blend_mode != "multiblend":
@@ -295,10 +335,7 @@ class StitchingWorker:
         self._initialize_from_initial_frame()
 
         # TODO: adjust max frames based on this
-        self._total_num_frames = min(
-            int(self._video1.get(cv2.CAP_PROP_FRAME_COUNT)),
-            int(self._video2.get(cv2.CAP_PROP_FRAME_COUNT)),
-        )
+        self._total_num_frames = min(int(len(self._video1)), int(len(self._video2)))
         max_frames = min(
             self._max_frames, self._total_num_frames // self._frame_stride_count
         )
@@ -324,24 +361,44 @@ class StitchingWorker:
         if self._shutdown_barrier is not None:
             self._shutdown_barrier.wait()
 
-    def _read_frame_batch(self):
-        frames_1 = []
-        frames_2 = []
-        for _ in range(self._batch_size):
-            ret1, img1, ret2, img2 = self._read_next_frame_from_video()
-            if not ret1 or not ret2:
-                return False, None, False, None
-            frames_1.append(torch.from_numpy(img1))
-            frames_2.append(torch.from_numpy(img2))
-        frames_1 = torch.stack(frames_1)
-        frames_2 = torch.stack(frames_2)
-        return True, frames_1, True, frames_2
+    # def _read_frame_batch(self):
+    #     frames_1 = []
+    #     frames_2 = []
+    #     for _ in range(self._batch_size):
+    #         ret1, img1, ret2, img2 = self._read_next_frame_from_video()
+    #         if not ret1 or not ret2:
+    #             return False, None, False, None
+    #         frames_1.append(torch.from_numpy(img1))
+    #         frames_2.append(torch.from_numpy(img2))
+    #     frames_1 = torch.stack(frames_1)
+    #     frames_2 = torch.stack(frames_2)
+    #     return True, frames_1, True, frames_2
 
-    def _read_next_frame_from_video(self):
-        ret1, img1 = self._video1.read()
-        # Read the corresponding frame from the second video
-        ret2, img2 = self._video2.read()
-        return ret1, img1, ret2, img2
+    # def _read_next_frame_from_video(self):
+    #     ret1, img1 = self._video1.read()
+    #     # Read the corresponding frame from the second video
+    #     ret2, img2 = self._video2.read()
+    #     return ret1, img1, ret2, img2
+
+    def _read_frame_batch(self):
+        try:
+            img1 = next(self._video1_iter)
+            img2 = next(self._video2_iter)
+            # img1 = StreamTensorToDtype(
+            #     tensor=StreamTensorToGpu(
+            #         tensor=img1, device=self._remapping_device
+            #     ),
+            #     dtype=torch.float,
+            # )
+            # img2 = StreamTensorToDtype(
+            #     tensor=StreamTensorToGpu(
+            #         tensor=img2, device=self._remapping_device
+            #     ),
+            #     dtype=torch.float,
+            # )
+            return True, img1, True, img2
+        except StopIteration:
+            return False, None, False, None
 
     def _feed_next_frame(self, frame_id: int) -> bool:
         for _ in range(self._frame_stride_count):
@@ -363,21 +420,21 @@ class StitchingWorker:
         # print(f"rank {self._rank} feeding LR frame {frame_id}")
 
         if self._use_pytorch_remap:
-            if isinstance(img1, torch.Tensor):
-                # Channels first
-                image_1 = img1.permute(0, 3, 1, 2)
-                image_2 = img2.permute(0, 3, 1, 2)
-            else:
-                image_1 = torch.from_numpy(
-                    np.expand_dims(img1.transpose(2, 0, 1), axis=0)
-                )
-                image_2 = torch.from_numpy(
-                    np.expand_dims(img2.transpose(2, 0, 1), axis=0)
-                )
+            # if isinstance(img1, torch.Tensor):
+            # Channels first
+            # img1 = img1.permute(0, 3, 1, 2)
+            # img2 = img2.permute(0, 3, 1, 2)
+            if isinstance(img1, np.ndarray):
+                img1 = torch.from_numpy(img1)
+                img2 = torch.from_numpy(img2)
+                # img1 = torch.from_numpy(
+                #     np.expand_dims(img1.transpose(2, 0, 1), axis=0)
+                # )
+                # img2 = torch.from_numpy(
+                #     np.expand_dims(img2.transpose(2, 0, 1), axis=0)
+                # )
             self._stitcher.add_torch_frame(
-                frame_id=frame_id,
-                image_1=image_1,
-                image_2=image_2,
+                frame_id=frame_id, image_1=img1.get(), image_2=img2.get()
             )
         else:
             core.add_to_stitching_data_loader(
@@ -426,10 +483,7 @@ class StitchingWorker:
             count += 1
         self._image_response_queue.put(StopIteration())
 
-    def _frame_feeder_worker(
-        self,
-        max_frames: int,
-    ):
+    def _frame_feeder_worker(self, max_frames: int):
         for frame_id in range(
             self._start_frame_number, self._end_frame, self._frame_stride_count
         ):
@@ -444,15 +498,12 @@ class StitchingWorker:
 
     def _start_feeder_thread(self):
         self._feeder_thread = threading.Thread(
-            target=self._frame_feeder_worker,
-            args=(self._max_frames,),
+            target=self._frame_feeder_worker, args=(self._max_frames,)
         )
         self._feeder_thread.start()
 
         self._image_getter_thread = threading.Thread(
-            name="_image_getter_worker",
-            target=self._image_getter_worker,
-            args=(),
+            name="_image_getter_worker", target=self._image_getter_worker, args=()
         )
         self._image_getter_thread.start()
 
