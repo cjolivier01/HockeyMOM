@@ -27,7 +27,6 @@ class StreamTensor {
   StreamTensor() = default;
   StreamTensor(at::Tensor tensor);
   StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor);
-  StreamTensor(at::Tensor tensor);
   at::Tensor get();
 
  private:

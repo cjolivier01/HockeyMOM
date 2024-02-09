@@ -551,7 +551,7 @@ def main(exp, args, num_gpu):
                     device=detection_device,
                     # batch_size=args.batch_size,
                     # blend_mode="multiblend",
-                    blend_mode="laplacian",
+                    blend_mode=opts.blend_mode,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
