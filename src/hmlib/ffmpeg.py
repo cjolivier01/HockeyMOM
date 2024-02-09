@@ -4,6 +4,16 @@ import uuid
 import numpy as np
 import subprocess
 from typing import Tuple
+import subprocess
+import ctypes
+import signal
+
+libc = ctypes.CDLL("libc.so.6")
+
+
+def preexec_fn():
+    # Ensure the child process gets SIGTERM if the parent dies
+    libc.prctl(1, signal.SIGTERM)
 
 
 class BasicVideoInfo:
@@ -17,7 +27,9 @@ class BasicVideoInfo:
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
         self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-        self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
+        self.codec = "".join(
+            [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
+        ).upper()
         cap.release()
 
 
@@ -104,48 +116,83 @@ def subprocess_encode_ffmpeg(
     process.wait()
 
 
-def subprocess_decode_ffmpeg(
-    input_video: str, decoder: str = "h264_cuvid", gpu_index: int = 0
+def get_ffmpeg_decoder_process(
+    input_video: str,
+    gpu_index: int,
+    buffer_size=10**8,
+    loglevel: str = "quiet",
+    format: str = "bgr24",
+    time_s: float = 0.0,
+    thread_count: int = 0,
 ):
-    # Video parameters
-    width, height = 1920, 1080  # Replace with your video's resolution
-
-    # TODO: get w, h with opencv
-
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
         "ffmpeg",
+        "-loglevel",
+        loglevel,
         "-hwaccel",
         "cuda",  # Use CUDA hardware acceleration
-        "-hwaccel_output_format",
-        "cuda",  # Output format for compatibility
-        "-c:v",
-        decoder,  # Specify the NVIDIA decoder for H.264
-        "-gpu",
-        gpu_index,  # Which GPU to use
+        "-hwaccel_device",
+        str(gpu_index),  # Which GPU to use
+        "-ss",
+        str(time_s),
         "-i",
         input_video,  # Input file
+    ]
+
+    if thread_count:
+        command += ["-threads", str(thread_count)]
+
+    command += [
         "-f",
         "image2pipe",  # Output format (pipe)
         "-pix_fmt",
-        "bgr24",  # Pixel format for OpenCV compatibility
+        format,  # Pixel format for OpenCV compatibility
         "-vcodec",
         "rawvideo",  # Output codec (raw video)
         "pipe:1",  # Output to pipe
     ]
 
     # Start the FFmpeg subprocess
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, bufsize=10**8)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        bufsize=buffer_size,
+        preexec_fn=preexec_fn,
+    )
+    return process
+
+
+def subprocess_decode_ffmpeg(
+    input_video: str,
+    # decoder: str = "hevc_cuvid",
+    gpu_index: int = 0,
+    loglevel: str = "quiet",
+):
+
+    # Video parameters
+    # width, height = 1920, 1080  # Replace with your video's resolution
+    vid_info = BasicVideoInfo(input_video)
+    width = vid_info.width
+    height = vid_info.height
+    channels = 3
+
+    process = get_ffmpeg_decoder_process(
+        input_video=input_video, gpu_index=gpu_index, loglevel=loglevel
+    )
+
+    # Start the FFmpeg subprocess
+    # process = subprocess.Popen(command, stdout=subprocess.PIPE, bufsize=10**8)
 
     while True:
         # Read the raw video frame from stdout
-        raw_image = process.stdout.read(width * height * 3)
+        raw_image = process.stdout.read(width * height * channels)
 
         if not raw_image:
             break
 
         # Transform the byte read into a numpy array
-        frame = np.frombuffer(raw_image, np.uint8).reshape((height, width, 3))
+        frame = np.frombuffer(raw_image, np.uint8).reshape((height, width, channels))
 
         # Process the frame with OpenCV
         # ...
@@ -162,57 +209,6 @@ def subprocess_decode_ffmpeg(
     cv2.destroyAllWindows()
     process.stdout.close()
     process.wait()
-
-
-# C version
-
-# // ... Initialization code ...
-
-# // Find the hardware decoder
-# const AVCodec* decoder = avcodec_find_decoder_by_name("h264_cuvid");
-
-# // Create a context for the decoder and set any specific options
-# AVCodecContext* decoder_ctx = avcodec_alloc_context3(decoder);
-# // Set options on decoder_ctx as needed, for example, selecting a GPU
-
-# // Open the decoder
-# avcodec_open2(decoder_ctx, decoder, NULL);
-
-# // ... Code to read and decode frames ...
-
-# // Find the hardware encoder
-# const AVCodec* encoder = avcodec_find_decoder_by_name("h264_nvenc");
-
-# // Create a context for the encoder and set it up
-# AVCodecContext* encoder_ctx = avcodec_alloc_context3(encoder);
-# // Set any specific options for the encoder
-
-# // Open the encoder
-# avcodec_open2(encoder_ctx, encoder, NULL);
-
-# // ... Code to encode and write frames ...
-
-# // ... Clean-up code ...
-
-# fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-# if not is_cuda:
-#     # def __init__(self, filename: str, apiPreference: int, fourcc: int, fps: float, frameSize: cv2.typing.Size, params: _typing.Sequence[int]) -> None: ...
-#     # params = Sequence()
-#     self._output_video = cv2.VideoWriter(
-#         filename=self._output_video_path,
-#         # apiPreference=cv2.CAP_FFMPEG,
-#         # apiPreference=cv2.CAP_GSTREAMER,
-#         fourcc=fourcc,
-#         fps=self._fps,
-#         frameSize=(
-#             int(self._output_frame_width),
-#             int(self._output_frame_height),
-#         ),
-#         # params=[
-#         #     cv2.VIDEOWRITER_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-#         #     #cv2.VIDEOWRITER_PROP_HW_DEVICE, 1,
-#         # ],
-#     )
 
 
 class VideoWriter:

@@ -147,15 +147,17 @@ void ImageBlender::init() {
   right_seam_value_ = unique_elements[1];
 
   gussian_kernel_ = create_gaussian_kernel(
-      /*kernel_size=*/5,
-      /*channels=*/3,
-      /*sigma=*/1.0,
-      /*dtype=*/at::ScalarType::Float);
+                        /*kernel_size=*/5,
+                        /*channels=*/3,
+                        /*sigma=*/1.0,
+                        /*dtype=*/at::ScalarType::Float)
+                        .to(seam_.device());
   mask_gussian_kernel_ = create_gaussian_kernel(
-      /*kernel_size=*/5,
-      /*channels=*/1,
-      /*sigma=*/1.0,
-      /*dtype=*/at::ScalarType::Float);
+                             /*kernel_size=*/5,
+                             /*channels=*/1,
+                             /*sigma=*/1.0,
+                             /*dtype=*/at::ScalarType::Float)
+                             .to(seam_.device());
 
   if (mode_ == Mode::Laplacian) {
     create_masks();

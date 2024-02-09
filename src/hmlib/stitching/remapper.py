@@ -1,6 +1,7 @@
 """
 Experiments in stitching
 """
+
 import os
 import time
 import argparse
@@ -71,37 +72,24 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
 
 
 def read_frame_batch(
-    cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu")
+    video_iter,
+    batch_size: int,
 ):
     frame_list = []
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
-    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+    frame = next(video_iter)
+    assert frame.ndim == 4  # Must have batch dimension
+    if isinstance(frame, np.ndarray):
+        frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
+    if batch_size == 1:
+        return frame
+    frame_list.append(frame)
     for i in range(batch_size - 1):
-        res, frame = cap.read()
-        if not res or frame is None:
-            raise StopIteration()
-        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
-    tensor = torch.stack(frame_list)
+        frame = next(video_iter)
+        if isinstance(frame, np.ndarray):
+            frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
+        frame_list.append(frame)
+    tensor = torch.cat(frame_list, dim=0)
     return tensor
-
-
-# def read_stream_batch(
-#     cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu")
-# ):
-#     frame_list = []
-#     res, frame = cap.read()
-#     if not res or frame is None:
-#         raise StopIteration()
-#     frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
-#     for i in range(batch_size - 1):
-#         res, frame = cap.read()
-#         if not res or frame is None:
-#             raise StopIteration()
-#         frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
-#     tensor = torch.stack(frame_list)
-#     return tensor
 
 
 def create_remapper_config(
@@ -392,8 +380,7 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        # interpolation="bilinear",
-        interpolation="",
+        interpolation="bilinear",
         show=True,
     )
 

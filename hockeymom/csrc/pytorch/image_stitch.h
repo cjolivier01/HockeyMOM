@@ -25,11 +25,12 @@ namespace ops {
 class StreamTensor {
  public:
   StreamTensor() = default;
+  StreamTensor(at::Tensor tensor);
   StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor);
   at::Tensor get();
 
  private:
-  std::unique_ptr<c10::cuda::CUDAStream> stream_;
+  std::unique_ptr<c10::cuda::CUDAStream> stream_{nullptr};
   at::Tensor tensor_;
 };
 
@@ -58,6 +59,7 @@ class ImageStitcher {
       std::vector<RemapImageInfo> remap_image_info,
       ImageBlender::Mode blender_mode,
       std::size_t levels,
+      bool remap_on_async_stream,
       at::Tensor seam,
       at::Tensor xor_map,
       bool lazy_init,
@@ -71,6 +73,7 @@ class ImageStitcher {
   std::unique_ptr<ImageBlender> blender_;
   std::unique_ptr<Eigen::ThreadPool> thread_pool_;
   std::unique_ptr<HmThreadPool> remap_thread_pool_;
+  bool remap_on_async_stream_;
   bool initialized_{false};
 };
 

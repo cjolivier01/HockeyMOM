@@ -1,30 +1,43 @@
 import traceback
 import multiprocessing
 import threading
+from contextlib import contextmanager
 import numpy as np
 from typing import List, Tuple
 
 import cv2
 import torch
 
-import torch
+from yolox.data import MOTDataset
+from yolox.data.datasets.datasets_wrapper import Dataset
 
 from hmlib.tracking_utils.timer import Timer
-from hmlib.datasets.dataset.jde import letterbox, py_letterbox
+from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
-from hmlib.video_out import make_visible_image
-from yolox.data import MOTDataset
 from hmlib.utils.utils import create_queue
+from hmlib.video_stream import VideoStreamReader
 
 from hmlib.utils.image import (
-    make_channels_last,
     make_channels_first,
     image_height,
     image_width,
 )
 
 
-class MOTLoadVideoWithOrig(MOTDataset):  # for inference
+@contextmanager
+def optional_with(resource):
+    """A context manager that works even if the resource is None."""
+    if resource is None:
+        # If the resource is None, yield nothing but still enter the with block
+        yield None
+    else:
+        # If the resource is not None, use it as a normal context manager
+        with resource as r:
+            yield r
+
+
+class MOTLoadVideoWithOrig(Dataset):  # for inference
+    # class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     def __init__(
         self,
         path,
@@ -44,22 +57,31 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         original_image_only: bool = False,
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
+        decoder_device: torch.device = torch.device("cpu"),
     ):
         super().__init__(
-            data_dir=data_dir,
-            json_file=json_file,
-            name=name,
-            preproc=preproc,
-            return_origin_img=return_origin_img,
+            input_dimension=img_size,
         )
+        # super().__init__(
+        #     data_dir=data_dir,
+        #     json_file=json_file,
+        #     name=name,
+        #     preproc=preproc,
+        #     return_origin_img=return_origin_img,
+        # )
         self._path = path
         # The delivery device of the letterbox image
         self._device = device
+        self._decoder_device = decoder_device
         self._start_frame_number = start_frame_number
         self.clip_original = clip_original
         self.calculated_clip_box = None
-        self.process_height = img_size[0]
-        self.process_width = img_size[1]
+        if img_size is None:
+            self.process_height = None
+            self.process_width = None
+        else:
+            self.process_height = img_size[0]
+            self.process_width = img_size[1]
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
         self.width_t = None
@@ -80,6 +102,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
         self.vw = None
         self.vh = None
         self.cap = None
+        self._vid_iter = None
         self._mapping_offset = None
         self._thread = None
         self._scale_inscribed_to_original = None
@@ -101,18 +124,31 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
     def _open_video(self):
         if self._embedded_data_loader is None:
-            self.cap = cv2.VideoCapture(self._path)
-            self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+            self.cap = VideoStreamReader(
+                filename=self._path,
+                type="cv2",
+                batch_size=self._batch_size,
+                device=self._decoder_device,
+            )
+            self.vw = self.cap.width
+            self.vh = self.cap.height
+            self.vn = len(self.cap)
+            self.fps = self.cap.fps
+
+            # self.cap = cv2.VideoCapture(self._path)
+            # self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            # self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            # self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            # self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+
             if not self.vn:
                 raise RuntimeError(
                     f"Video {self._path} either does not exist or has no usable video content"
                 )
             assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
             if self._start_frame_number:
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, self._start_frame_number)
+                self.cap.seek(frame_number=self._start_frame_number)
+            self._vid_iter = iter(self.cap)
         else:
             self.vn = len(self._embedded_data_loader)
             self.fps = self._embedded_data_loader.fps
@@ -121,7 +157,7 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
 
     def _close_video(self):
         if self.cap is not None:
-            self.cap.release()
+            self.cap.close()
             self.cap = None
         if self._embedded_data_loader is not None:
             self._embedded_data_loader.close()
@@ -197,8 +233,8 @@ class MOTLoadVideoWithOrig(MOTDataset):  # for inference
             try:
                 img = next(self._embedded_data_loader_iter)
                 if self.vw is None:
-                    self.vw = img.shape[1]
-                    self.vh = img.shape[0]
+                    self.vw = image_width(img)
+                    self.vh = image_height(img)
                 return True, img
             except StopIteration:
                 return False, None
