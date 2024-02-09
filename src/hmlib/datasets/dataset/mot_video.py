@@ -135,12 +135,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vn = len(self.cap)
             self.fps = self.cap.fps
 
-            # self.cap = cv2.VideoCapture(self._path)
-            # self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            # self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            # self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-
             if not self.vn:
                 raise RuntimeError(
                     f"Video {self._path} either does not exist or has no usable video content"
@@ -199,16 +193,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
         )
         self._thread.start()
-        # if not os.fork():
-        #     try:
-        #         self._next_frame_worker()
-        #     except Exception as ex:
-        #         print(e)
-        #         traceback.print_exc()
-        #         raise
-        #     os._exit(0)
-        # else:
-        #     self._to_worker_queue.put("ok")
         self._to_worker_queue.put("ok")
         self._next_counter = 0
 
@@ -366,14 +350,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         self.calculated_clip_box[0] : self.calculated_clip_box[2],
                         :,
                     ]
-                # self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
-                # img0 = img0[
-                #     self.clip_original[1] : self.clip_original[3],
-                #     self.clip_original[0] : self.clip_original[2],
-                #     :,
-                # ]
-                # original_img0 = img0.to("cpu", non_blocking=True)
-                # original_img0 = img0.to("cpu")
                 original_img0 = img0.clone()
 
             if not self._original_image_only:
