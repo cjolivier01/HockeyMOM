@@ -74,8 +74,6 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
 def read_frame_batch(
     video_iter,
     batch_size: int,
-    device: torch.device = torch.device("cpu"),
-    non_blocking: bool = False,
 ):
     frame_list = []
     frame = next(video_iter)
@@ -83,12 +81,12 @@ def read_frame_batch(
         frame = torch.from_numpy(frame.transpose(2, 0, 1))
     if batch_size == 1:
         return frame.unsqueeze(0)
-    frame_list.append(frame.to(device, non_blocking=non_blocking))
+    frame_list.append(frame)
     for i in range(batch_size - 1):
         frame = next(video_iter)
         if not isinstance(frame, torch.Tensor):
             frame = torch.from_numpy(frame.transpose(2, 0, 1))
-        frame_list.append(frame.to(device, non_blocking=non_blocking))
+        frame_list.append(frame)
     tensor = torch.stack(frame_list)
     return tensor
 

@@ -20,7 +20,7 @@ from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 from hmlib.utils.utils import create_queue
-from hmlib.utils.gpu import StreamTensorToGpu
+from hmlib.utils.gpu import StreamTensorToGpu, StreamTensorToDtype
 
 from hmlib.stitching.remapper import (
     ImageRemapper,
@@ -836,8 +836,6 @@ def stitch_video(
             cap_2.set(cv2.CAP_PROP_POS_FRAMES, rfo + start_frame_number)
 
     main_stream = torch.cuda.Stream(device=device)
-    # stream_1 = torch.cuda.Stream(device=device)
-    # stream_2 = torch.cuda.Stream(device=device)
 
     stitcher, xy_pos_1, xy_pos_2 = create_stitcher(
         dir_name=dir_name,
@@ -854,12 +852,11 @@ def stitch_video(
         source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size)
         source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size)
         if source_tensor_1 is None or source_tensor_2 is None:
-            img_q.put(None)    
+            img_q.put(None)
         else:
-            st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)        
+            st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)
             st2 = StreamTensorToGpu(tensor=source_tensor_2, device=device)
             img_q.put((st1, st2))
-        
 
     blender_config = create_blender_config(
         mode=blend_mode,
@@ -914,15 +911,24 @@ def stitch_video(
         frame_ids = frame_ids + frame_id
         try:
             while True:
-                stitch_timer.tic()
-
-                source_tensor_1 = read_frame_batch(video_iter=v1_iter, batch_size=batch_size)
-                source_tensor_2 = read_frame_batch(video_iter=v2_iter, batch_size=batch_size)
+                io_timer.tic()
+                source_tensor_1 = read_frame_batch(
+                    video_iter=v1_iter, batch_size=batch_size
+                )
+                source_tensor_2 = read_frame_batch(
+                    video_iter=v2_iter, batch_size=batch_size
+                )
                 if source_tensor_1 is None or source_tensor_2 is None:
-                    img_q.put(None)    
+                    img_q.put(None)
                 else:
-                    st1 = StreamTensorToGpu(tensor=source_tensor_1, device=device)        
-                    st2 = StreamTensorToGpu(tensor=source_tensor_2, device=device)
+                    st1 = StreamTensorToDtype(
+                        tensor=StreamTensorToGpu(tensor=source_tensor_1, device=device),
+                        dtype=torch.float,
+                    )
+                    st2 = StreamTensorToDtype(
+                        tensor=StreamTensorToGpu(tensor=source_tensor_2, device=device),
+                        dtype=torch.float,
+                    )
                     img_q.put((st1, st2))
 
                 tensors = img_q.get()
@@ -930,10 +936,12 @@ def stitch_video(
                     break
                 source_tensor_1 = tensors[0].get()
                 source_tensor_2 = tensors[1].get()
+                io_timer.toc()
 
                 # source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
                 # source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
-                
+
+                stitch_timer.tic()
                 sinfo_1 = core.StitchImageInfo()
                 sinfo_1.image = source_tensor_1.to(torch.float, non_blocking=True)
                 sinfo_1.xy_pos = xy_pos_1
@@ -949,7 +957,6 @@ def stitch_video(
 
                 blended = blended_stream_tensor
                 # main_stream.synchronize()
-
                 stitch_timer.toc()
 
                 if output_video:
@@ -1056,14 +1063,14 @@ def stitch_video(
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
 
-                io_timer.tic()
-                source_tensor_1 = read_frame_batch(
-                    video_iter=v1_iter, batch_size=batch_size
-                )
-                source_tensor_2 = read_frame_batch(
-                    video_iter=v2_iter, batch_size=batch_size
-                )
-                io_timer.toc()
+                # io_timer.tic()
+                # source_tensor_1 = read_frame_batch(
+                #     video_iter=v1_iter, batch_size=batch_size
+                # )
+                # source_tensor_2 = read_frame_batch(
+                #     video_iter=v2_iter, batch_size=batch_size
+                # )
+                # io_timer.toc()
 
                 # source_tensor_1 = source_tensor_1.to(device, non_blocking=True)
                 # source_tensor_2 = source_tensor_2.to(device, non_blocking=True)
