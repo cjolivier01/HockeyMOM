@@ -77,17 +77,18 @@ def read_frame_batch(
 ):
     frame_list = []
     frame = next(video_iter)
-    if not isinstance(frame, torch.Tensor):
-        frame = torch.from_numpy(frame.transpose(2, 0, 1))
+    assert frame.ndim == 4  # Must have batch dimension
+    if isinstance(frame, np.ndarray):
+        frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
     if batch_size == 1:
-        return frame.unsqueeze(0)
+        return frame
     frame_list.append(frame)
     for i in range(batch_size - 1):
         frame = next(video_iter)
-        if not isinstance(frame, torch.Tensor):
-            frame = torch.from_numpy(frame.transpose(2, 0, 1))
+        if isinstance(frame, np.ndarray):
+            frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
         frame_list.append(frame)
-    tensor = torch.stack(frame_list)
+    tensor = torch.cat(frame_list, dim=0)
     return tensor
 
 
@@ -379,8 +380,7 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        # interpolation="bilinear",
-        interpolation="",
+        interpolation="bilinear",
         show=True,
     )
 

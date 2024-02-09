@@ -169,44 +169,65 @@ class VideoStreamWriter:
 
 
 class CVVideoCaptureIterator:
-    def __init__(self, cap: cv2.VideoCapture):
+    def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
         self._cap = cap
+        self._batch_size = batch_size
 
     def __next__(self):
-        res, frame = self._cap.read()
-        if not res:
-            raise StopIteration()
-        return frame
+        if self._batch_size == 1:
+            res, frame = self._cap.read()
+            if not res:
+                raise StopIteration()
+            return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
+        else:
+            frames = []
+            for _ in range(self._batch_size):
+                res, frame = self._cap.read()
+                if not res:
+                    raise StopIteration()
+                frames.append(frame.transpose(2, 0, 1))
+            return np.stack(frames)
 
 
 class VideoReaderIterator:
-    def __init__(self, vr: torchvision.io.VideoReader):
+    def __init__(self, vr: torchvision.io.VideoReader, batch_size: int = 1):
         self._vr = vr
+        self._batch_size = batch_size
 
     def __next__(self):
+        assert self._batch_size == 1
         next_frame = next(self._vr)
         if next_frame is None:
             raise StopIteration()
-        return next_frame["data"]
+        return next_frame["data"].unsqueeze(0)
 
 
 class TAStreamReaderIterator:
-    def __init__(self, sr: torchaudio.io.StreamReader):
+    def __init__(self, sr: torchaudio.io.StreamReader, batch_size: int = 1):
         self._iter = sr.stream()
         self._chunk = None
         self._chunk_position = 0
+        self._batch_size = batch_size
 
     def __next__(self):
-        if self._chunk is None or self._chunk_position >= len(self._chunk):
-            next_chunk = next(self._iter)
-            if next_chunk is None:
-                raise StopIteration()
-            assert len(next_chunk) == 1
-            self._chunk = next_chunk[0]
-            self._chunk_position = 0
-        frame = self._chunk[self._chunk_position]
-        self._chunk_position += 1
+        next_chunk = next(self._iter)
+        if next_chunk is None:
+            raise StopIteration()
+        assert len(next_chunk) == self._batch_size
+        frame = next_chunk[0]
         return frame
+
+    # def __next__(self):
+    #     if self._chunk is None or self._chunk_position >= len(self._chunk):
+    #         next_chunk = next(self._iter)
+    #         if next_chunk is None:
+    #             raise StopIteration()
+    #         assert len(next_chunk) == 1
+    #         self._chunk = next_chunk[0]
+    #         self._chunk_position = 0
+    #     frame = self._chunk[self._chunk_position]
+    #     self._chunk_position += 1
+    #     return frame.unsqueeze(0)
 
 
 # def get_ffmpeg_decoder_process(
@@ -231,6 +252,7 @@ class FFmpegVideoReaderIterator:
         time_s: float,
         format: str,
         vid_info: BasicVideoInfo,
+        batch_size: int = 1,
     ):
         self._process = get_ffmpeg_decoder_process(
             input_video=filename, gpu_index=gpu_index, format=format, time_s=time_s
@@ -239,6 +261,7 @@ class FFmpegVideoReaderIterator:
         self._vid_info = vid_info
         self._channels = 3
         self._count = 0
+        self._batch_size = batch_size
 
     def __del__(self):
         self._process.terminate()
@@ -248,7 +271,10 @@ class FFmpegVideoReaderIterator:
             # Skip to the next frame in the buffer
             self._process.stdout.flush()
         raw_image = self._process.stdout.read(
-            self._vid_info.width * self._vid_info.height * self._channels
+            self._batch_size
+            * self._vid_info.width
+            * self._vid_info.height
+            * self._channels
         )
 
         if not raw_image:
@@ -263,11 +289,18 @@ class FFmpegVideoReaderIterator:
         frame = (
             torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
             # .to("cuda:0", non_blocking=False)
-            .reshape((self._vid_info.height, self._vid_info.width, self._channels))
+            .reshape(
+                (
+                    self._batch_size,
+                    self._vid_info.height,
+                    self._vid_info.width,
+                    self._channels,
+                )
+            )
         )
         self._count += 1
         # Make channels-first
-        return frame.permute(2, 0, 1)
+        return frame.permute(0, 3, 1, 2)
 
 
 #
@@ -333,11 +366,11 @@ class VideoStreamReader:
 
     def __iter__(self):
         if self._type == "torchaudio":
-            return TAStreamReaderIterator(self._video_in)
+            return TAStreamReaderIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "torchvision":
-            return VideoReaderIterator(self._video_in)
+            return VideoReaderIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "cv2":
-            return CVVideoCaptureIterator(self._video_in)
+            return CVVideoCaptureIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "ffmpeg":
             return FFmpegVideoReaderIterator(
                 filename=self._filename,
@@ -345,6 +378,7 @@ class VideoStreamReader:
                 time_s=self._ss,
                 format="bgr24",
                 vid_info=self._video_info,
+                batch_size=self._batch_size,
             )
         else:
             assert False

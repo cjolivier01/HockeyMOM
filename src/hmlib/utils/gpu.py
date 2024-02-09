@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from typing import Union
 
 from hmlib.utils.utils import create_queue
@@ -38,6 +39,8 @@ class StreamTensor:
         self._tensor = tensor
 
     def get(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.get()
         assert False and "Not implemented"
 
     @property
@@ -48,6 +51,14 @@ class StreamTensor:
     def device(self):
         return self._tensor.device
 
+    @property
+    def ndim(self):
+        return self._tensor.ndim
+
+    @property
+    def size(self, index: int):
+        return self._tensor.size(index)
+
     def to(self, *args, **kwargs):
         assert False and "Not implemented"
 
@@ -56,6 +67,8 @@ class StreamTensorToGpu(StreamTensor):
     def __init__(
         self, tensor: torch.Tensor, device: torch.device, contiguous: bool = False
     ):
+        if isinstance(tensor, np.ndarray):
+            tensor = torch.from_numpy(tensor)
         super(StreamTensor, self).__init__()
         assert tensor.device.type != device.type
         self._stream = torch.cuda.Stream(device=device)
@@ -80,6 +93,8 @@ class StreamTensorToDtype(StreamTensor):
     def __init__(
         self, tensor: torch.Tensor, dtype: torch.dtype, contiguous: bool = False
     ):
+        if isinstance(tensor, np.ndarray):
+            tensor = torch.from_numpy(tensor)
         super(StreamTensor, self).__init__()
         assert tensor.dtype != dtype
 
