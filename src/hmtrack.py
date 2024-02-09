@@ -38,6 +38,7 @@ from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
+from hmlib.hm_opts import hm_opts, copy_opts
 
 ROOT_DIR = os.getcwd()
 
@@ -45,6 +46,7 @@ ROOT_DIR = os.getcwd()
 def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
         parser = argparse.ArgumentParser("YOLOX Eval")
+    parser = hm_opts.parser(parser)
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
@@ -109,32 +111,19 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
     parser.add_argument(
-        "--blend-mode",
-        default="laplacian",
-        type=str,
-        help="Blend mode (multiblend|laplacian|gpu-hard-deam)",
-    )
-    parser.add_argument(
         "--no_save_video",
         "--no-save-video",
         dest="no_save_video",
         action="store_true",
         help="Don't save the output video",
     )
-    parser.add_argument(
-        "--no_save_stitched",
-        "--no-save-stitched",
-        dest="no_save_stitched",
-        action="store_true",
-        help="Don't save the output video",
-    )
-    parser.add_argument(
-        "--skip_final_video_save",
-        "--skip-final-video-save",
-        dest="skip_final_video_save",
-        action="store_true",
-        help="Don't save the output video frames",
-    )
+    # parser.add_argument(
+    #     "--skip_final_video_save",
+    #     "--skip-final-video-save",
+    #     dest="skip_final_video_save",
+    #     action="store_true",
+    #     help="Don't save the output video frames",
+    # )
     parser.add_argument(
         "--speed",
         dest="speed",
@@ -177,15 +166,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     # cam args
     parser.add_argument(
-        "-s",
-        "--show-image",
-        "--show",
-        dest="show_image",
-        default=False,
-        action="store_true",
-        help="show as processing",
-    )
-    parser.add_argument(
         "--cam-ignore-largest",
         default=False,
         action="store_true",
@@ -205,28 +185,28 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="Camera name",
     )
-    parser.add_argument(
-        "--left-file-offset",
-        "--lfo",
-        dest="lfo",
-        default=None,
-        type=float,
-        help="Left video file offset",
-    )
-    parser.add_argument(
-        "--right-file-offset",
-        "--rfo",
-        dest="rfo",
-        default=None,
-        type=float,
-        help="Left video file offset",
-    )
-    parser.add_argument(
-        "--game-id",
-        default=None,
-        type=str,
-        help="Game ID",
-    )
+    # parser.add_argument(
+    #     "--left-file-offset",
+    #     "--lfo",
+    #     dest="lfo",
+    #     default=None,
+    #     type=float,
+    #     help="Left video file offset",
+    # )
+    # parser.add_argument(
+    #     "--right-file-offset",
+    #     "--rfo",
+    #     dest="rfo",
+    #     default=None,
+    #     type=float,
+    #     help="Left video file offset",
+    # )
+    # parser.add_argument(
+    #     "--game-id",
+    #     default=None,
+    #     type=str,
+    #     help="Game ID",
+    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
@@ -244,9 +224,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=0.9,
         help="matching threshold for tracking",
     )
-    parser.add_argument(
-        "--start-frame", type=int, default=0, help="first frame number to process"
-    )
+    # parser.add_argument(
+    #     "--start-frame", type=int, default=0, help="first frame number to process"
+    # )
     parser.add_argument(
         "--cvat-output",
         action="store_true",
@@ -266,12 +246,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--no-crop", action="store_true", help="Don't crop output image"
     )
-    parser.add_argument(
-        "--max-frames",
-        type=int,
-        default=None,
-        help="maximum number of frames to process",
-    )
+    # parser.add_argument(
+    #     "--max-frames",
+    #     type=int,
+    #     default=None,
+    #     help="maximum number of frames to process",
+    # )
     parser.add_argument(
         "--save-frame-dir",
         type=str,
@@ -366,6 +346,9 @@ def configure_model(config: dict, args: argparse.Namespace):
 
 def main(exp, args, num_gpu):
     dataloader = None
+
+    opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
+
     try:
         if args.seed is not None:
             random.seed(args.seed)
@@ -781,6 +764,7 @@ if __name__ == "__main__":
         num_gpus = len(args.gpus) if args.gpus else 0
         # num_gpus = torch.cuda.device_count() if args.devices is None else args.devices
         assert num_gpus <= torch.cuda.device_count()
+
     launch(
         main,
         num_gpus,

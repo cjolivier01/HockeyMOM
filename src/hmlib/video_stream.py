@@ -1,8 +1,10 @@
 import cv2
+import numpy as np
 import torch
 import torchaudio
+import torchvision
 
-from .ffmpeg import BasicVideoInfo
+from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
@@ -166,25 +168,173 @@ class VideoStreamWriter:
         return self.append(images)
 
 
-class VideoStreamReader:
+class CVVideoCaptureIterator:
+    def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
+        self._cap = cap
+        self._batch_size = batch_size
+
+    def __next__(self):
+        if self._batch_size == 1:
+            res, frame = self._cap.read()
+            if not res:
+                raise StopIteration()
+            return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
+        else:
+            frames = []
+            for _ in range(self._batch_size):
+                res, frame = self._cap.read()
+                if not res:
+                    raise StopIteration()
+                frames.append(frame.transpose(2, 0, 1))
+            return np.stack(frames)
+
+
+class VideoReaderIterator:
+    def __init__(self, vr: torchvision.io.VideoReader, batch_size: int = 1):
+        self._vr = vr
+        self._batch_size = batch_size
+
+    def __next__(self):
+        assert self._batch_size == 1
+        next_frame = next(self._vr)
+        if next_frame is None:
+            raise StopIteration()
+        return next_frame["data"].unsqueeze(0)
+
+
+class TAStreamReaderIterator:
+    def __init__(self, sr: torchaudio.io.StreamReader, batch_size: int = 1):
+        self._iter = sr.stream()
+        self._chunk = None
+        self._chunk_position = 0
+        self._batch_size = batch_size
+
+    def __next__(self):
+        next_chunk = next(self._iter)
+        if next_chunk is None:
+            raise StopIteration()
+        assert len(next_chunk) == self._batch_size
+        frame = next_chunk[0]
+        return frame
+
+    # def __next__(self):
+    #     if self._chunk is None or self._chunk_position >= len(self._chunk):
+    #         next_chunk = next(self._iter)
+    #         if next_chunk is None:
+    #             raise StopIteration()
+    #         assert len(next_chunk) == 1
+    #         self._chunk = next_chunk[0]
+    #         self._chunk_position = 0
+    #     frame = self._chunk[self._chunk_position]
+    #     self._chunk_position += 1
+    #     return frame.unsqueeze(0)
+
+
+# def get_ffmpeg_decoder_process(
+#     input_video: str,
+#     gpu_index: int,
+#     buffer_size=10**8,
+#     loglevel: str = "quiet",
+#     format: str = "bgr24",
+#     time_s: float = 0.0,
+# ):
+
+
+class FFMpegVideoReader:
+    pass
+
+
+class FFmpegVideoReaderIterator:
     def __init__(
         self,
         filename: str,
+        gpu_index: int,
+        time_s: float,
+        format: str,
+        vid_info: BasicVideoInfo,
+        batch_size: int = 1,
+    ):
+        self._process = get_ffmpeg_decoder_process(
+            input_video=filename, gpu_index=gpu_index, format=format, time_s=time_s
+        )
+        assert self._process is not None
+        self._vid_info = vid_info
+        self._channels = 3
+        self._count = 0
+        self._batch_size = batch_size
+
+    def __del__(self):
+        self._process.terminate()
+
+    def __next__(self):
+        if self._count:
+            # Skip to the next frame in the buffer
+            self._process.stdout.flush()
+        raw_image = self._process.stdout.read(
+            self._batch_size
+            * self._vid_info.width
+            * self._vid_info.height
+            * self._channels
+        )
+
+        if not raw_image:
+            self._process.terminate()
+            raise StopIteration()
+
+        # Transform the byte read into a numpy array
+        # frame = np.frombuffer(raw_image, np.uint8).reshape(
+        #     (self._vid_info.height, self._vid_info.width, self._channels)
+        # )
+        # frame = torch.from_numpy(frame)
+        frame = (
+            torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
+            # .to("cuda:0", non_blocking=False)
+            .reshape(
+                (
+                    self._batch_size,
+                    self._vid_info.height,
+                    self._vid_info.width,
+                    self._channels,
+                )
+            )
+        )
+        self._count += 1
+        # Make channels-first
+        return frame.permute(0, 3, 1, 2)
+
+
+#
+# VideoStreamReader
+#
+class VideoStreamReader:
+    # type: str = "torchaudio",
+    # type: str = "torchvision",
+    # type: str = "cv2",
+    # type: str = "ffmpeg",
+
+    def __init__(
+        self,
+        filename: str,
+        type: str,
         codec: str = None,
-        batch_size: int = 10,
+        batch_size: int = 1,
         device: torch.device = None,
     ):
+        # subprocess_decode_ffmpeg(filename)
         self._filename = filename
+        self._type = type
         self._codec = codec
         self._fps = None
         self._width = None
         self._height = None
         self._batch_size = batch_size
-        self._debug = device
-        self._device = device
+        self._device = (
+            device if isinstance(device, torch.device) else torch.device(device)
+        )
         self._video_in = None
         self._video_info = None
         self._iter = None
+        self._ss = 0.0
         self.open()
 
     @property
@@ -214,24 +364,53 @@ class VideoStreamReader:
     def __len__(self):
         return self.frame_count
 
+    def __iter__(self):
+        if self._type == "torchaudio":
+            return TAStreamReaderIterator(self._video_in, batch_size=self._batch_size)
+        elif self._type == "torchvision":
+            return VideoReaderIterator(self._video_in, batch_size=self._batch_size)
+        elif self._type == "cv2":
+            return CVVideoCaptureIterator(self._video_in, batch_size=self._batch_size)
+        elif self._type == "ffmpeg":
+            return FFmpegVideoReaderIterator(
+                filename=self._filename,
+                gpu_index=self._device.index if self._device is not None else 0,
+                time_s=self._ss,
+                format="bgr24",
+                vid_info=self._video_info,
+                batch_size=self._batch_size,
+            )
+        else:
+            assert False
+
     def _add_stream(self):
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,
             decoder_option={},
-            # format="yuv420p",
-            format="yuvj420p",
-            hw_accel=str(self._device),
+            format=self._device.type if self._device is not None else "cuda",
+            hw_accel="cuda",
         )
 
     def isOpened(self):
-        return self._iter is not None
+        return self._video_in is not None
 
     def seek(self, timestamp: float = None, frame_number: int = None):
         assert timestamp is None or frame_number is None
         if frame_number is not None:
-            timestamp = float(frame_number) / self._video_in.info.framerate
-        self._video_in.seek(timestamp=timestamp, precise=True)
+            timestamp = float(frame_number) / self.fps
+        else:
+            frame_number = timestamp * self.fps
+        if isinstance(self._video_in, torchaudio.io.StreamReader):
+            self._video_in.seek(timestamp=timestamp, mode="precise")
+        elif isinstance(self._video_in, torchvision.io.VideoReader):
+            self._video_in.seek(time_s=timestamp)
+        elif isinstance(self._video_in, cv2.VideoCapture):
+            self._video_in.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        elif isinstance(self._video_in, FFMpegVideoReader):
+            self._ss = timestamp
+        else:
+            assert False
 
     def set(self, prop: int, value: any):
         if prop == cv2.CAP_PROP_POS_FRAMES:
@@ -240,6 +419,7 @@ class VideoStreamReader:
             assert False and f"Unsupported property: {prop}"
 
     def get(self, prop: int):
+        assert False
         return None
 
     def open(self):
@@ -247,13 +427,36 @@ class VideoStreamReader:
         self._video_info = BasicVideoInfo(video_file=self._filename)
         if self._codec is None:
             self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
-        self._video_in = torchaudio.io.StreamReader(src=self._filename)
-        self._add_stream()
-        self._iter = self._video_in.stream()
+        if self._type == "torchaudio":
+            self._video_in = torchaudio.io.StreamReader(src=self._filename)
+            self._add_stream()
+        elif self._type == "torchvision":
+            self._video_in = torchvision.io.VideoReader(
+                src=self._filename, stream="video", num_threads=32
+            )
+            self._meta = self._video_in.get_metadata()
+        elif self._type == "cv2":
+            self._video_in = cv2.VideoCapture(self._filename)
+            if not self._video_in.isOpened():
+                self._video_in.release()
+                self._video_in = None
+        elif self._type == "ffmpeg":
+            self._video_in = FFMpegVideoReader()
+        else:
+            assert False
 
     def close(self):
         if self._video_in is not None:
-            self._video_in.remove_stream(0)
+            if isinstance(self._video_in, torchaudio.io.StreamReader):
+                self._video_in.remove_stream(0)
+            elif isinstance(self._video_in, torchvision.io.VideoReader):
+                pass
+            elif isinstance(self._video_in, cv2.VideoCapture):
+                self._video_in.release()
+            elif isinstance(self._video_in, FFMpegVideoReader):
+                pass
+            else:
+                assert False
             self._video_in = None
             self._iter = None
         return
