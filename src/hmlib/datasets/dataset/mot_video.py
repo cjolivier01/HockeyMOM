@@ -94,7 +94,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._last_size = None
         self._max_frames = max_frames
         self._batch_size = batch_size
-        self._timer = None
+        self._timer = Timer()
         self._timer_counter = 0
         self._to_worker_queue = create_queue(mp=False)
         self._from_worker_queue = create_queue(mp=False)

@@ -20,6 +20,9 @@ class CachedIterator:
                 self._q.put(None)
                 break
 
+    def __iter__(self):
+        return self
+
     def __next__(self):
         if self._q is None:
             item = next(self._iterator)
@@ -37,6 +40,14 @@ class CachedIterator:
             except StopIteration:
                 self._q.put(None)
         return item
+
+
+class IteratorWrapper:
+    def __init__(self, iterator):
+        self._iterator = iterator
+
+    def __iter__(self):
+        return self._iterator
 
 
 class StreamTensor:
