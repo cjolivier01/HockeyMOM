@@ -43,6 +43,10 @@ BATCH_SIZE=1
 
 #CONFIDENCE="--conf_thres=0.25"
 
+#WRAPPER_CMD="nsys profile --show-outputs=true --wait=primary --trace=cuda,nvtx,cublas,cudnn,openacc --python-sampling=true --python-backtrace=cuda"
+#WRAPPER_CMD="nsys profile"
+#WRAPPER_CMD="echo"
+
 STITCHING_ARGS="--no-save-stitched"
 
 echo "Experiment name: ${EXP_NAME}"
@@ -54,7 +58,7 @@ set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
-  python src/hmtrack.py \
+  ${WRAPPER_CMD} python src/hmtrack.py \
   -expn="${GAME_ID}" \
   -f="${EXPERIMENT_FILE}" \
   ${PRETRAINED_MODEL} \
