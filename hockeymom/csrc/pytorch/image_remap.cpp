@@ -126,10 +126,10 @@ void ImageRemapper::to(at::Device device) {
   col_map_ = col_map_.to(device);
   row_map_ = row_map_.to(device);
   mask_ = mask_.to(device);
-  if (grid_.numel()) {
+  if (grid_.defined()) {
     grid_ = grid_.to(device);
   }
-  if (alpha_channel_.numel()) {
+  if (alpha_channel_.defined()) {
     alpha_channel_ = alpha_channel_.to(device);
   }
 }
@@ -154,8 +154,8 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     torch::nn::functional::GridSampleFuncOptions options;
     assert(interpolation_ == "bilinear"); // TODO: implement enum switch
     auto mode = torch::kBilinear;
-    options = options.padding_mode(torch::kZeros).align_corners(false);
-    options.mode(mode);
+    options =
+        options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
     destination_tensor = torch::nn::functional::grid_sample(
         source_tensor.to(at::TensorOptions().dtype(torch::kF32)),
         grid_,

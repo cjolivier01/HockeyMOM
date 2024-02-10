@@ -104,14 +104,15 @@ at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
       remap_tensors.at(i) = StreamTensor(remapped_tensor);
     }
   }
-  assert(remap_tensors.size() == 2);
-  at::Tensor stitched_tensor = blender_->forward(
-      std::move(remap_tensors.at(0).get()),
-      inputs.at(0).xy_pos,
-      std::move(remap_tensors.at(1).get()),
-      inputs.at(1).xy_pos);
+  return remap_tensors.at(0).get();
+  // assert(remap_tensors.size() == 2);
+  // at::Tensor stitched_tensor = blender_->forward(
+  //     std::move(remap_tensors.at(0).get()),
+  //     inputs.at(0).xy_pos,
+  //     std::move(remap_tensors.at(1).get()),
+  //     inputs.at(1).xy_pos);
 
-  return stitched_tensor;
+  // return stitched_tensor;
 }
 
 } // namespace ops
