@@ -42,22 +42,18 @@ class CachedIterator:
         return item
 
 
-class IteratorWrapper:
-    def __init__(self, iterator):
-        self._iterator = iterator
-
-    def __iter__(self):
-        return self._iterator
-
-
 class StreamTensor:
-    def __init__(self, tensor: torch.Tensor = None):
+    def __init__(self, tensor: torch.Tensor = None, stream: torch.cuda.Stream = None):
         self._tensor = tensor
+        self._stream = stream
 
     def get(self):
         if isinstance(self._tensor, StreamTensor):
             return self._tensor.get()
-        assert False and "Not implemented"
+        assert self._stream is not None
+        assert self._tensor is not None
+        self._stream.synchronize()
+        return self._tensor
 
     @property
     def dtype(self):
@@ -75,6 +71,13 @@ class StreamTensor:
     def size(self, index: int):
         return self._tensor.size(index)
 
+    @property
+    def shape(self):
+        return self._tensor.shape
+
+    def ref(self):
+        return self._tensor
+
     def to(self, *args, **kwargs):
         assert False and "Not implemented"
 
@@ -85,24 +88,24 @@ class StreamTensorToGpu(StreamTensor):
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        super(StreamTensor, self).__init__()
         assert tensor.device.type != device.type
-        self._stream = torch.cuda.Stream(device=device)
-        with torch.cuda.stream(stream=self._stream):
-            self._tensor = tensor.to(device, non_blocking=True)
+        stream = torch.cuda.Stream(device=device)
+        with torch.cuda.stream(stream=stream):
+            tensor = tensor.to(device, non_blocking=True)
         if contiguous:
-            self._tensor = self._tensor.contiguous()
+            tensor = tensor.contiguous()
+        super(StreamTensorToGpu, self).__init__(tensor=tensor, stream=stream)
 
-    def ref(self):
-        return self._tensor
+    # def ref(self):
+    #     return self._tensor
 
-    def get(self):
-        self._stream.synchronize()
-        t = self._tensor
-        if isinstance(t, StreamTensor):
-            t = t.get()
-        self._tensor = None
-        return t
+    # def get(self):
+    #     self._stream.synchronize()
+    #     t = self._tensor
+    #     if isinstance(t, StreamTensor):
+    #         t = t.get()
+    #     self._tensor = None
+    #     return t
 
 
 class StreamTensorToDtype(StreamTensor):
@@ -111,7 +114,7 @@ class StreamTensorToDtype(StreamTensor):
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        super(StreamTensor, self).__init__()
+        super(StreamTensorToDtype, self).__init__()
         assert tensor.dtype != dtype
 
         if isinstance(tensor, StreamTensor):
@@ -125,13 +128,13 @@ class StreamTensorToDtype(StreamTensor):
         if contiguous:
             self._tensor = self._tensor.contiguous()
 
-    def ref(self):
-        return self._tensor
+    # def ref(self):
+        # return self._tensor
 
-    def get(self):
-        self._stream.synchronize()
-        t = self._tensor
-        if isinstance(t, StreamTensor):
-            t = t.get()
-        self._tensor = None
-        return t
+    # def get(self):
+    #     self._stream.synchronize()
+    #     t = self._tensor
+    #     if isinstance(t, StreamTensor):
+    #         t = t.get()
+    #     self._tensor = None
+    #     return t

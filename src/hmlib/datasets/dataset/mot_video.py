@@ -16,6 +16,7 @@ from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
 from hmlib.video_stream import VideoStreamReader
+from hmlib.utils.gpu import StreamTensor
 
 from hmlib.utils.image import (
     make_channels_first,
@@ -58,6 +59,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
+        stream_tensors: bool = False,
     ):
         super().__init__(
             input_dimension=img_size,
@@ -108,6 +110,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._scale_inscribed_to_original = None
         self._embedded_data_loader = embedded_data_loader
         self._embedded_data_loader_iter = None
+        self._stream_tensors = stream_tensors
         assert self._embedded_data_loader is None or path is None
 
         # Optimize the clip box
@@ -310,6 +313,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # cv2.waitKey(1)
         return img
 
+    def _is_cuda(self):
+        return self._device.type == "cuda"
+
     def _get_next_batch(self):
         current_count = self._count.item()
         if current_count == len(self) or (
@@ -319,86 +325,97 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         ALL_NON_BLOCKING = True
 
-        # Read image
-        res, img0 = self._read_next_image()
-        if not res or img0 is None:
-            print(f"Error loading frame: {self._count + self._start_frame_number}")
-            raise StopIteration()
+        cuda_stream = None
+        if self._stream_tensors and self._is_cuda():
+            cuda_stream = torch.cuda.Stream(self._device)
 
-        if not isinstance(img0, torch.Tensor):
-            img0 = torch.from_numpy(img0)
-        assert img0.ndim == 4
+        with optional_with(
+            torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
+        ):
+            # Read image
+            res, img0 = self._read_next_image()
+            if not res or img0 is None:
+                print(f"Error loading frame: {self._count + self._start_frame_number}")
+                raise StopIteration()
 
-        original_img0 = img0.clone()
-        img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+            if not isinstance(img0, torch.Tensor):
+                img0 = torch.from_numpy(img0)
+            assert img0.ndim == 4
 
-        if self.clip_original is not None:
-            print("Warning: dataset is clipping images")
-            # Clipping not handled now due to "original_img = img0.clone()" above
-            if self.calculated_clip_box is None:
-                self.calculated_clip_box = fix_clip_box(
-                    self.clip_original, [image_height(img0), image_width(img0)]
-                )
-            if len(img0.shape) == 4:
-                img0 = img0[
-                    :,
-                    self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                    self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                    :,
-                ]
+            original_img0 = img0.clone()
+            img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+
+            if self.clip_original is not None:
+                print("Warning: dataset is clipping images")
+                # Clipping not handled now due to "original_img = img0.clone()" above
+                if self.calculated_clip_box is None:
+                    self.calculated_clip_box = fix_clip_box(
+                        self.clip_original, [image_height(img0), image_width(img0)]
+                    )
+                if len(img0.shape) == 4:
+                    img0 = img0[
+                        :,
+                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        :,
+                    ]
+                else:
+                    assert len(img0.shape) == 3
+                    img0 = img0[
+                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        :,
+                    ]
+                original_img0 = img0.clone().to("cpu", non_blocking=True)
+
+            if not self._original_image_only:
+                img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
+
+            if not self._original_image_only:
+                img = self.make_letterbox_images(make_channels_first(img0))
             else:
-                assert len(img0.shape) == 3
-                img0 = img0[
-                    self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                    self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                    :,
-                ]
-            original_img0 = img0.clone().to("cpu", non_blocking=True)
+                img = img0
 
-        if not self._original_image_only:
-            img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
+            if self.width_t is None:
+                self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
+                self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
-        if not self._original_image_only:
-            img = self.make_letterbox_images(make_channels_first(img0))
-        else:
-            img = img0
+            original_img0 = make_channels_first(original_img0)
 
-        if self.width_t is None:
-            self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
-            self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
+            # Does this need to be in imgs_info this way as an array?
+            ids = torch.tensor(
+                [int(self._next_frame_id + i) for i in range(len(original_img0))],
+                dtype=torch.int64,
+            )
+            self._next_frame_id += len(ids)
 
-        original_img0 = make_channels_first(original_img0)
+            imgs_info = [
+                (
+                    self.height_t.repeat(len(ids))
+                    if self._multi_width_img_info
+                    else self.height_t
+                ),
+                (
+                    self.width_t.repeat(len(ids))
+                    if self._multi_width_img_info
+                    else self.width_t
+                ),
+                ids,
+                self.video_id.repeat(len(ids)),
+                [self._path if self._path is not None else "external"],
+            ]
 
-        # Does this need to be in imgs_info this way as an array?
-        ids = torch.tensor(
-            [int(self._next_frame_id + i) for i in range(len(original_img0))],
-            dtype=torch.int64,
-        )
-        self._next_frame_id += len(ids)
-
-        imgs_info = [
-            (
-                self.height_t.repeat(len(ids))
-                if self._multi_width_img_info
-                else self.height_t
-            ),
-            (
-                self.width_t.repeat(len(ids))
-                if self._multi_width_img_info
-                else self.width_t
-            ),
-            ids,
-            self.video_id.repeat(len(ids)),
-            [self._path if self._path is not None else "external"],
-        ]
-
-        if not self._original_image_only:
-            img /= 255.0
+            if not self._original_image_only:
+                img /= 255.0
 
         self._count += self._batch_size
         if self._original_image_only:
+            if cuda_stream is not None:
+                original_img0 = StreamTensor(tensor=original_img0, stream=cuda_stream)
             return original_img0, None, None, imgs_info, ids
         else:
+            if cuda_stream is not None:
+                img = StreamTensor(tensor=img, stream=cuda_stream)
             return original_img0, img, None, imgs_info, ids
 
     def __next__(self):

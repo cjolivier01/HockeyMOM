@@ -10,9 +10,9 @@ VIDEO="${HOME}/Videos/tvbb2"
 #VIDEO="${HOME}/Videos/sharksbb1-1"
 
 #GAME_ID="tvbb"
-GAME_ID="tvbb2"
+#GAME_ID="tvbb2"
 #GAME_ID="sharksbb1-1"
-#GAME_ID="sharks-bb1-2"
+GAME_ID="sharks-bb1-2"
 #GAME_ID="sharks-bb3-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
@@ -35,7 +35,7 @@ START_FRAME=0
 #BATCH_SIZE=32
 #BATCH_SIZE=16
 #BATCH_SIZE=16
-BATCH_SIZE=2
+BATCH_SIZE=1
 #BATCH_SIZE=8
 
 #STITCHING_PARAMS="--lfo=42.63559569682018 --rfo=0"
