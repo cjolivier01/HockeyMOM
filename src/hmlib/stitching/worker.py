@@ -104,7 +104,7 @@ class StitchingWorker:
         image_roi: List[int] = None,
         use_pytorch_remap: bool = True,
         blend_mode: str = "laplacian",
-        cache_size: int = 1,
+        cache_size: int = 0,
     ):
         assert max_input_queue_size > 0
 
