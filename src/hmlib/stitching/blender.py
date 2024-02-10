@@ -1061,8 +1061,8 @@ def main(args):
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
             remap_on_async_stream=False,
-            device=torch.device("cuda", 1),
-            #device=torch.device("cuda", 0),
+            #device=torch.device("cuda", 1),
+            device=torch.device("cuda", 0),
         )
 
 
