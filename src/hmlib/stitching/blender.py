@@ -815,7 +815,7 @@ def stitch_video(
     cap_1 = VideoStreamReader(
         os.path.join(dir_name, video_file_1),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=1)}",
+        device=f"cuda:{gpu_index(want=2)}",
         batch_size=batch_size,
     )
     if not cap_1 or not cap_1.isOpened():
@@ -827,7 +827,7 @@ def stitch_video(
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=2)}",
+        device=f"cuda:{gpu_index(want=3)}",
         batch_size=batch_size,
     )
 
@@ -897,12 +897,10 @@ def stitch_video(
                 sinfo_1 = core.StitchImageInfo()
                 sinfo_1.image = source_tensor_1.get()
                 sinfo_1.xy_pos = xy_pos_1
-                # sinfo_1.cuda_stream = stream_1
 
                 sinfo_2 = core.StitchImageInfo()
                 sinfo_2.image = source_tensor_2.get()
                 sinfo_2.xy_pos = xy_pos_2
-                # sinfo_2.cuda_stream = stream_2
                 get_timer.toc()
 
                 main_stream.synchronize()
@@ -910,7 +908,7 @@ def stitch_video(
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
-                #main_stream.synchronize()
+                main_stream.synchronize()
                 stitch_timer.toc()
 
                 if output_video:
@@ -1061,7 +1059,8 @@ def main(args):
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
-            remap_on_async_stream=True,
+            remap_on_async_stream=False,
+            device="cuda:1",
         )
 
 
