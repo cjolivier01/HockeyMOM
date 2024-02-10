@@ -1052,6 +1052,7 @@ def main(args):
             rfo=args.rfo,
             python_blend=args.python,
             interpolation="bilinear",
+            #interpolation="",
             show=args.show_image,
             start_frame_number=0,
             output_video="stitched_output.mkv",
@@ -1060,7 +1061,7 @@ def main(args):
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
             remap_on_async_stream=False,
-            device="cuda:1",
+            device=torch.device("cuda", 1),
         )
 
 
