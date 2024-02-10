@@ -26,7 +26,7 @@ from yolox.data import get_yolox_datadir
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
-if False:
+if True:
     from hmlib.datasets.dataset.stitching_dataloader1 import (
         StitchDataset,
     )

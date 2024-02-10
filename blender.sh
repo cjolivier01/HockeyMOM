@@ -1,9 +1,9 @@
 #!/bin/bash
 
-VIDEO_DIR="${HOME}/Videos/sharks-bb1-2"
+#VIDEO_DIR="${HOME}/Videos/sharks-bb1-2"
 #VIDEO_DIR="${HOME}/Videos/sharksbb1-1"
 #VIDEO_DIR="${HOME}/Videos/jrmocks"
-#VIDEO_DIR="${HOME}/Videos/tvbb"
+VIDEO_DIR="${HOME}/Videos/tvbb"
 
 OMP_NUM_THREADS=16 \
 	PYTHONPATH=$(pwd):$(pwd)/src:$(pwd)/models/mixsort \
