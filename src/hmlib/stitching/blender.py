@@ -1062,6 +1062,7 @@ def main(args):
             queue_size=args.queue_size,
             remap_on_async_stream=False,
             device=torch.device("cuda", 1),
+            #device=torch.device("cuda", 0),
         )
 
 
