@@ -1,5 +1,5 @@
 """
-Experiments in stitching 
+Experiments in stitching
 """
 
 import os
@@ -1026,7 +1026,7 @@ def stitch_video(
                 if show:
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
-                all_timer.tic() 
+                all_timer.tic()
 
         except StopIteration:
             print("Done.")

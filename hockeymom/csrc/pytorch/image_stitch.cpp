@@ -111,7 +111,6 @@ at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
       std::move(remap_tensors.at(1).get()),
       inputs.at(1).xy_pos);
 
-  // return std::make_shared<StreamTensor>(stream, stitched_tensor);
   return stitched_tensor;
 }
 
