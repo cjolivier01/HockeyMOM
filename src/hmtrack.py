@@ -384,7 +384,7 @@ def main(exp, args, num_gpu):
         os.makedirs(results_folder, exist_ok=True)
 
         setup_logger(file_name, distributed_rank=rank, filename="val_log.txt", mode="a")
-        logger.info("Args: {}".format(args))
+        # logger.info("Args: {}".format(args))
 
         if args.conf is not None:
             exp.test_conf = args.conf
