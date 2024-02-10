@@ -342,17 +342,18 @@ class StitchDataset:
         assert len(images) == 2
 
         sinfo_1 = core.StitchImageInfo()
-        sinfo_1.image = make_channels_first(imgs_1).to(torch.float, non_blocking=True)
+        sinfo_1.image = make_channels_first(imgs_1).to("cuda").to(torch.float, non_blocking=True)
         sinfo_1.xy_pos = self._xy_pos_1
 
         sinfo_2 = core.StitchImageInfo()
-        sinfo_2.image = make_channels_first(imgs_2).to(torch.float, non_blocking=True)
+        sinfo_2.image = make_channels_first(imgs_2).to("cuda").to(torch.float, non_blocking=True)
         sinfo_2.xy_pos = self._xy_pos_2
 
         # main_stream.synchronize()
         # torch.cuda.current_stream().synchronize()
         # self._cuda_stream.synchronize()
-        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2]) / 255.0
+        #blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2]) / 255.0
+        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
         
         #blended_stream_tensor = imgs_1.clone()
         # torch.cuda.synchronize()
