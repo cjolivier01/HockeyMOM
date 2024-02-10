@@ -15,7 +15,6 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
-from contextlib import contextmanager
 from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import StreamTensor
 
@@ -62,9 +61,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         decoder_device: torch.device = torch.device("cpu"),
         stream_tensors: bool = False,
     ):
-        super().__init__(
-            input_dimension=img_size,
-        )
+        # super().__init__(
+        #     input_dimension=img_size,
+        # )
         # super().__init__(
         #     data_dir=data_dir,
         #     json_file=json_file,
@@ -353,11 +352,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     self.calculated_clip_box = fix_clip_box(
                         self.clip_original, [image_height(img0), image_width(img0)]
                     )
-                    raise StopIteration()
-
-                inner_batch_size = 1
-                if not isinstance(img0, torch.Tensor):
-                    img0 = torch.from_numpy(img0)
+                if len(img0.shape) == 4:
+                    img0 = img0[
+                        :,
+                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        :,
+                    ]
                 else:
                     assert len(img0.shape) == 3
                     img0 = img0[
@@ -368,33 +369,16 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 original_img0 = img0.clone().to("cpu", non_blocking=True)
 
             if not self._original_image_only:
-                if frames_imgs[0].ndim == 3:
-                    img = torch.stack(frames_imgs, dim=0).to(torch.float32)
-                else:
-                    img = torch.cat(frames_imgs, dim=0).to(torch.float32)
+                img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
 
             if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
-                original_img = torch.cat(frames_original_imgs, dim=0)
-            # Does this need to be in imgs_info this way as an array?
-            ids = torch.cat(ids, dim=0)
+                img = img0
 
-            imgs_info = [
-                (
-                    self.height_t.repeat(len(ids))
-                    if self._multi_width_img_info
-                    else self.height_t
-                ),
-                (
-                    self.width_t.repeat(len(ids))
-                    if self._multi_width_img_info
-                    else self.width_t
-                ),
-                ids,
-                self.video_id.repeat(len(ids)),
-                [self._path if self._path is not None else "external"],
-            ]
+            if self.width_t is None:
+                self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
+                self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
             original_img0 = make_channels_first(original_img0)
 
@@ -425,10 +409,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img /= 255.0
 
         self._count += self._batch_size
-
-        if cuda_stream is not None:
-            cuda_stream.synchronize()
-
         if self._original_image_only:
             if cuda_stream is not None:
                 original_img0 = StreamTensor(tensor=original_img0, stream=cuda_stream)
