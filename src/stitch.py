@@ -19,9 +19,14 @@ from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 
-from hmlib.datasets.dataset.stitching_dataloader2 import (
-    StitchDataset,
-)
+if False:
+    from hmlib.datasets.dataset.stitching_dataloader1 import (
+        StitchDataset,
+    )
+else:
+    from hmlib.datasets.dataset.stitching_dataloader2 import (
+        StitchDataset,
+    )
 
 from hockeymom import core
 
@@ -110,6 +115,7 @@ def stitch_videos(
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
     remapping_device: torch.device = torch.device("cuda", 0),
+    remap_on_async_stream: bool = True,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -148,6 +154,7 @@ def stitch_videos(
         encoder_device=torch.device("cuda"),
         blend_mode=blend_mode,
         remapping_device=remapping_device,
+        remap_on_async_stream=remap_on_async_stream,
     )
 
     frame_count = 0
@@ -334,6 +341,7 @@ def main(args):
             max_frames=args.max_frames,
             output_stitched_video_file=None,
             blend_mode=args.blend_mode,
+            remap_on_async_stream=False,
             #blend_mode="gpu-hard-seam",
             remapping_device=torch.device("cuda", 0),
         )

@@ -1,5 +1,5 @@
 """
-Experiments in stitching
+Experiments in stitching 
 """
 
 import os
@@ -1113,6 +1113,7 @@ def main(args):
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
+            remap_on_async_stream=True,
         )
 
 

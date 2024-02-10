@@ -10,10 +10,7 @@
 
 #include <cuda_runtime.h>
 
-#include "absl/synchronization/mutex.h"
-
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>

@@ -73,25 +73,22 @@ void ImageStitcher::to(at::Device device) {
 }
 
 at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
-  // if (!initialized_) {
-  //   int batch_size = inputs.at(0).image.size(0);
-  //   for (auto& r : remappers_) {
-  //     r->init(batch_size);
-  //   }
-  // }
-  // at::cuda::CUDAStream current_stream =
-  //     at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
-  // current_stream.synchronize();
+  if (!initialized_) {
+    int batch_size = inputs.at(0).image.size(0);
+    for (auto& r : remappers_) {
+      r->init(batch_size);
+    }
+  }
   std::vector<StreamTensor> remap_tensors(inputs.size());
   if (remap_on_async_stream_) {
+    at::cuda::CUDAStream current_stream =
+        at::cuda::getCurrentCUDAStream(inputs.at(0).image.device().index());
+    current_stream.synchronize();
     HmThreadPool thread_pool(*remap_thread_pool_);
     for (std::size_t i = 0, n = inputs.size(); i < n; ++i) {
       thread_pool.Schedule([this, i, &remap_tensors, &inputs]() {
         StitchImageInfo& img_info = inputs.at(i);
         c10::cuda::CUDAStream remap_stream = at::cuda::getStreamFromPool();
-        // c10::cuda::CUDAStream remap_stream = img_info.cuda_stream.has_value()
-        //     ? std::move(img_info.cuda_stream.value())
-        //     : at::cuda::getStreamFromPool();
         // Set the current stream
         c10::cuda::CUDAStreamGuard stream_guard(remap_stream);
         at::Tensor remapped_tensor =

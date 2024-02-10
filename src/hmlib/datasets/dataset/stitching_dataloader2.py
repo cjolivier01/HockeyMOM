@@ -133,12 +133,14 @@ class StitchDataset:
         encoder_device: torch.device = _get_cuda_device(),
         blend_mode: str = "multiblend",
         remapping_device: torch.device = torch.device("cuda", 0),
+        remap_on_async_stream: bool = True,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
         self._batch_size = batch_size
         self._device = device
         self._remapping_device = remapping_device
+        self._remap_on_async_stream = remap_on_async_stream
         self._encoder_device = encoder_device
         self._output_stitched_video_file = output_stitched_video_file
         self._video_1_offset_frame = video_1_offset_frame
@@ -455,6 +457,7 @@ class StitchDataset:
                 dir_name=os.path.dirname(self._video_file_1),
                 batch_size=self._batch_size,
                 device=self._remapping_device,
+                remap_on_async_stream=self._remap_on_async_stream,
             )
             self._stitcher.to(self._remapping_device)
 
