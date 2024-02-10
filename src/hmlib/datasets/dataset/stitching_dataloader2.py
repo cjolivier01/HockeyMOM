@@ -386,7 +386,7 @@ class StitchDataset:
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
-        for i in range(min(self._max_input_queue_size, self._max_frames)):
+        for _ in range(min(self._max_input_queue_size, self._max_frames)):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._from_coordinator_queue.put(("ok", self._next_requested_frame))

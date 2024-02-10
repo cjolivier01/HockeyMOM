@@ -343,10 +343,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             assert img0.ndim == 4
 
             original_img0 = img0.clone()
-            img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+            if self._device.type != "cpu":
+                img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
             if self.clip_original is not None:
-                # print("Warning: dataset is clipping images")
+                print("Warning: dataset is clipping images")
                 # Clipping not handled now due to "original_img = img0.clone()" above
                 if self.calculated_clip_box is None:
                     self.calculated_clip_box = fix_clip_box(
@@ -380,7 +381,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
-            original_img0 = make_channels_first(original_img0)
+            original_img0 = make_channels_first(original_img0).contiguous()
 
             # Does this need to be in imgs_info this way as an array?
             ids = torch.tensor(

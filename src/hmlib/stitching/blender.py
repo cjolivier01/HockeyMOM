@@ -853,45 +853,22 @@ def stitch_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    if True:
-        v1_iter = CachedIterator(
-            iterator=v1_iter,
-            cache_size=queue_size,
-            pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-                tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
-                dtype=torch.float,
-            ),
-        )
-        v2_iter = CachedIterator(
-            iterator=v2_iter,
-            cache_size=queue_size,
-            pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-                tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
-                dtype=torch.float,
-            ),
-        )
-    else:
-        img_q = create_queue(mp=False)
-
-        for i in range(queue_size):
-            source_tensor_1 = read_frame_batch(
-                video_iter=v1_iter, batch_size=batch_size
-            )
-            source_tensor_2 = read_frame_batch(
-                video_iter=v2_iter, batch_size=batch_size
-            )
-            if source_tensor_1 is None or source_tensor_2 is None:
-                img_q.put(None)
-            else:
-                st1 = StreamTensorToDtype(
-                    tensor=StreamTensorToGpu(tensor=source_tensor_1, device=device),
-                    dtype=torch.float,
-                )
-                st2 = StreamTensorToDtype(
-                    tensor=StreamTensorToGpu(tensor=source_tensor_2, device=device),
-                    dtype=torch.float,
-                )
-                img_q.put((st1, st2))
+    v1_iter = CachedIterator(
+        iterator=v1_iter,
+        cache_size=queue_size,
+        pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
+            tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
+            dtype=torch.float,
+        ),
+    )
+    v2_iter = CachedIterator(
+        iterator=v2_iter,
+        cache_size=queue_size,
+        pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
+            tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
+            dtype=torch.float,
+        ),
+    )
 
     with torch.cuda.stream(main_stream):
         stitcher.to(device)
@@ -914,35 +891,6 @@ def stitch_video(
                 io_timer.tic()
                 source_tensor_1 = next(v1_iter)
                 source_tensor_2 = next(v2_iter)
-                # source_tensor_1 = read_frame_batch(
-                #     video_iter=v1_iter, batch_size=batch_size
-                # )
-                # source_tensor_2 = read_frame_batch(
-                #     video_iter=v2_iter, batch_size=batch_size
-                # )
-                if False:
-                    if source_tensor_1 is None or source_tensor_2 is None:
-                        img_q.put(None)
-                    else:
-                        st1 = StreamTensorToDtype(
-                            tensor=StreamTensorToGpu(
-                                tensor=source_tensor_1, device=device
-                            ),
-                            dtype=torch.float,
-                        )
-                        st2 = StreamTensorToDtype(
-                            tensor=StreamTensorToGpu(
-                                tensor=source_tensor_2, device=device
-                            ),
-                            dtype=torch.float,
-                        )
-                        img_q.put((st1, st2))
-
-                        tensors = img_q.get()
-                        if tensors is None:
-                            break
-                        source_tensor_1 = tensors[0].get()
-                        source_tensor_2 = tensors[1].get()
                 io_timer.toc()
 
                 get_timer.tic()
@@ -957,12 +905,12 @@ def stitch_video(
                 # sinfo_2.cuda_stream = stream_2
                 get_timer.toc()
 
+                main_stream.synchronize()
                 stitch_timer.tic()
-                # main_stream.synchronize()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
-                # main_stream.synchronize()
+                #main_stream.synchronize()
                 stitch_timer.toc()
 
                 if output_video:
