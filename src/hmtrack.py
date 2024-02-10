@@ -385,7 +385,7 @@ def main(exp, args, num_gpu):
         os.makedirs(results_folder, exist_ok=True)
 
         setup_logger(file_name, distributed_rank=rank, filename="val_log.txt", mode="a")
-        logger.info("Args: {}".format(args))
+        # logger.info("Args: {}".format(args))
 
         if args.conf is not None:
             exp.test_conf = args.conf
@@ -541,6 +541,7 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=output_stitched_video_file,
                     max_frames=args.max_frames,
+                    # max_input_queue_size=2,
                     max_input_queue_size=1,
                     num_workers=1,
                     blend_thread_count=1,

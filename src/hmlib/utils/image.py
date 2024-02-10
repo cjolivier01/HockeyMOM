@@ -568,6 +568,7 @@ def resize_image(
                 img=img,
                 size=(w, h) if permuted else (h, w),
                 interpolation=mode,
+                antialias=True,
             )
             if permuted:
                 # C, W, H -> H, W, C
@@ -581,6 +582,7 @@ def resize_image(
                 img=img,
                 size=(w, h),
                 interpolation=mode,
+                antialias=True,
             )
             if permuted:
                 # C, W, H -> H, W, C

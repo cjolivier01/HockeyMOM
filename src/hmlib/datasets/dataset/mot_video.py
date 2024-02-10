@@ -17,6 +17,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
 from contextlib import contextmanager
 from hmlib.video_stream import VideoStreamReader
+from hmlib.utils.gpu import StreamTensor
 
 from hmlib.utils.image import (
     make_channels_first,
@@ -59,6 +60,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
+        stream_tensors: bool = False,
     ):
         super().__init__(
             input_dimension=img_size,
@@ -95,7 +97,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._last_size = None
         self._max_frames = max_frames
         self._batch_size = batch_size
-        self._timer = None
+        self._timer = Timer()
         self._timer_counter = 0
         self._to_worker_queue = create_queue(mp=False)
         self._from_worker_queue = create_queue(mp=False)
@@ -109,6 +111,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._scale_inscribed_to_original = None
         self._embedded_data_loader = embedded_data_loader
         self._embedded_data_loader_iter = None
+        self._stream_tensors = stream_tensors
         assert self._embedded_data_loader is None or path is None
 
         # Optimize the clip box
@@ -135,12 +138,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vh = self.cap.height
             self.vn = len(self.cap)
             self.fps = self.cap.fps
-
-            # self.cap = cv2.VideoCapture(self._path)
-            # self.vw = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            # self.vh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            # self.vn = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            # self.fps = self.cap.get(cv2.CAP_PROP_FPS)
 
             if not self.vn:
                 raise RuntimeError(
@@ -200,16 +197,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
         )
         self._thread.start()
-        # if not os.fork():
-        #     try:
-        #         self._next_frame_worker()
-        #     except Exception as ex:
-        #         print(e)
-        #         traceback.print_exc()
-        #         raise
-        #     os._exit(0)
-        # else:
-        #     self._to_worker_queue.put("ok")
         self._to_worker_queue.put("ok")
         self._next_counter = 0
 
@@ -229,13 +216,24 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _read_next_image(self):
         if self.cap is not None:
-            return self.cap.read()
+            img = next(self._vid_iter)
+            return True, img
         else:
             try:
-                img = next(self._embedded_data_loader_iter)
-                if self.vw is None:
-                    self.vw = image_width(img)
-                    self.vh = image_height(img)
+                if self._batch_size == 1:
+                    img = next(self._embedded_data_loader_iter)
+                    if self.vw is None:
+                        self.vw = image_width(img)
+                        self.vh = image_height(img)
+                else:
+                    imgs = []
+                    for _ in range(self._batch_size):
+                        imgs.append(next(self._embedded_data_loader_iter))
+                    assert imgs[0].ndim == 4
+                    if isinstance(imgs[0], np.ndarray):
+                        img = np.concatenate(imgs, axis=0)
+                    else:
+                        img = torch.cat(imgs, dim=0)
                 return True, img
             except StopIteration:
                 return False, None
@@ -316,8 +314,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # cv2.waitKey(1)
         return img
 
-    def is_cuda(self):
-        return self._device is not None and self._device.type == "cuda"
+    def _is_cuda(self):
+        return self._device.type == "cuda"
 
     def _get_next_batch(self):
         current_count = self._count.item()
@@ -327,24 +325,33 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             raise StopIteration
 
         ALL_NON_BLOCKING = True
-        # ALL_NON_BLOCKING = False
 
-        # frames_inscribed_images = []
-        frames_imgs = []
-        frames_original_imgs = []
-        ids = []
-
-        cuda_stream = torch.cuda.Stream(device=self._device) if self.is_cuda() else None
+        cuda_stream = None
+        if self._stream_tensors and self._is_cuda():
+            cuda_stream = torch.cuda.Stream(self._device)
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
         ):
-            for batch_item_number in range(self._batch_size):
-                # Read image
-                res, img0 = self._read_next_image()
-                if not res or img0 is None:
-                    print(
-                        f"Error loading frame: {self._count + self._start_frame_number}"
+            # Read image
+            res, img0 = self._read_next_image()
+            if not res or img0 is None:
+                print(f"Error loading frame: {self._count + self._start_frame_number}")
+                raise StopIteration()
+
+            if not isinstance(img0, torch.Tensor):
+                img0 = torch.from_numpy(img0)
+            assert img0.ndim == 4
+
+            original_img0 = img0.clone()
+            img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+
+            if self.clip_original is not None:
+                # print("Warning: dataset is clipping images")
+                # Clipping not handled now due to "original_img = img0.clone()" above
+                if self.calculated_clip_box is None:
+                    self.calculated_clip_box = fix_clip_box(
+                        self.clip_original, [image_height(img0), image_width(img0)]
                     )
                     raise StopIteration()
 
@@ -352,79 +359,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if not isinstance(img0, torch.Tensor):
                     img0 = torch.from_numpy(img0)
                 else:
-                    assert img0.ndim == 4
-                    inner_batch_size = len(img0)
-                original_img0 = img0.clone()
-                img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
-
-                if self.clip_original is not None:
-                    # assert False  # do this on GPU
-                    # Clipping not handled now due to "original_img = img0.clone()" above
-                    if self.calculated_clip_box is None:
-                        self.calculated_clip_box = fix_clip_box(
-                            self.clip_original, [image_height(img0), image_width(img0)]
-                        )
-                    if len(img0.shape) == 4:
-                        img0 = img0[
-                            :,
-                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                            :,
-                        ]
-                    else:
-                        assert len(img0.shape) == 3
-                        img0 = img0[
-                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                            :,
-                        ]
-                    # self.clip_original = fix_clip_box(self.clip_original, img0.shape[:2])
-                    # img0 = img0[
-                    #     self.clip_original[1] : self.clip_original[3],
-                    #     self.clip_original[0] : self.clip_original[2],
-                    #     :,
-                    # ]
-                    # original_img0 = img0.to("cpu", non_blocking=True)
-                    # original_img0 = img0.to("cpu")
-                    original_img0 = img0.clone()
-
-                if not self._original_image_only:
-                    img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
-                else:
-                    if self._device is not None:
-                        original_img0 = (
-                            original_img0.to(
-                                self._device, non_blocking=ALL_NON_BLOCKING
-                            )
-                            .to(torch.float, non_blocking=ALL_NON_BLOCKING)
-                            .contiguous()
-                        )
-
-                if not self._original_image_only:
-                    if img0.ndim != 4:
-                        img0 = img0.unsqueeze(0)
-                    img = self.make_letterbox_images(make_channels_first(img0))
-                else:
-                    img = img0
-
-                if self.width_t is None:
-                    # self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
-                    # self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
-                    self.width_t = torch.tensor(image_width(img), dtype=torch.int64)
-                    self.height_t = torch.tensor(image_height(img), dtype=torch.int64)
-
-                if not self._original_image_only:
-                    frames_imgs.append(img.to(torch.float32))
-
-                frames_original_imgs.append(
-                    make_channels_first(original_img0)
-                    # make_channels_first(original_img0).to(
-                    #     "cpu", non_blocking=ALL_NON_BLOCKING
-                    # )
-                )
-                for _ in range(inner_batch_size):
-                    self._next_frame_id += 1
-                    ids.append(self._next_frame_id.clone())
+                    assert len(img0.shape) == 3
+                    img0 = img0[
+                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        :,
+                    ]
+                original_img0 = img0.clone().to("cpu", non_blocking=True)
 
             if not self._original_image_only:
                 if frames_imgs[0].ndim == 3:
@@ -432,12 +373,37 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 else:
                     img = torch.cat(frames_imgs, dim=0).to(torch.float32)
 
-            if frames_original_imgs[0].ndim == 3:
-                original_img = torch.stack(frames_original_imgs, dim=0)
+            if not self._original_image_only:
+                img = self.make_letterbox_images(make_channels_first(img0))
             else:
                 original_img = torch.cat(frames_original_imgs, dim=0)
             # Does this need to be in imgs_info this way as an array?
             ids = torch.cat(ids, dim=0)
+
+            imgs_info = [
+                (
+                    self.height_t.repeat(len(ids))
+                    if self._multi_width_img_info
+                    else self.height_t
+                ),
+                (
+                    self.width_t.repeat(len(ids))
+                    if self._multi_width_img_info
+                    else self.width_t
+                ),
+                ids,
+                self.video_id.repeat(len(ids)),
+                [self._path if self._path is not None else "external"],
+            ]
+
+            original_img0 = make_channels_first(original_img0)
+
+            # Does this need to be in imgs_info this way as an array?
+            ids = torch.tensor(
+                [int(self._next_frame_id + i) for i in range(len(original_img0))],
+                dtype=torch.int64,
+            )
+            self._next_frame_id += len(ids)
 
             imgs_info = [
                 (
@@ -464,10 +430,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             cuda_stream.synchronize()
 
         if self._original_image_only:
-            # return original_img.cpu(), None, None, imgs_info, ids
-            return original_img, None, None, imgs_info, ids
+            if cuda_stream is not None:
+                original_img0 = StreamTensor(tensor=original_img0, stream=cuda_stream)
+            return original_img0, None, None, imgs_info, ids
         else:
-            return original_img, img, None, imgs_info, ids
+            if cuda_stream is not None:
+                img = StreamTensor(tensor=img, stream=cuda_stream)
+            return original_img0, img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()

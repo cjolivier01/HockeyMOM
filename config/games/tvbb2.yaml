@@ -3,7 +3,7 @@ game:
   rink: "dublin"
   home: "Blue Devils"
   away: "Cougars"
-  clip_box: [50, 360, 3928, 1557]
+  # clip_box: [50, 360, 3928, 1557]
   boundaries:
     upper:
       - [214, 753, 1265, 492]

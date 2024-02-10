@@ -16,6 +16,7 @@ _FOURCC_TO_CODEC = {
     "MJPEG": "mjpeg_cuvid",
     "XVID": "mpeg4_cuvid",
     "MP4V": "mpeg4_cuvid",
+    "FMP4": "mpeg4_cuvid",
 }
 
 
@@ -426,7 +427,12 @@ class VideoStreamReader:
         assert self._video_in is None
         self._video_info = BasicVideoInfo(video_file=self._filename)
         if self._codec is None:
-            self._codec = _FOURCC_TO_CODEC[self._video_info.codec]
+            self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec, None)
+            if self._codec is None and self._type != "cv2":
+                print(
+                    f"VideoStreamReader is changing decoder from {self._type} to cv2 due to video's codec type: {self._video_info.codec}"
+                )
+                self._type = "cv2"
         if self._type == "torchaudio":
             self._video_in = torchaudio.io.StreamReader(src=self._filename)
             self._add_stream()
