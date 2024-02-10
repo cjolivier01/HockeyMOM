@@ -972,7 +972,7 @@ def stitch_video(
                         max_width=max_width,
                     )
                     if video_out is None:
-                        fps = cap_1.get(cv2.CAP_PROP_FPS)
+                        fps = cap_1.fps
                         video_out = VideoOutput(
                             name="StitchedOutput",
                             args=None,
@@ -1108,7 +1108,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show_image,
             start_frame_number=0,
-            # output_video="stitched_output.mkv",
+            output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
