@@ -78,6 +78,7 @@ core.hello_world()
 
 BASIC_DEBUGGING = False
 
+
 class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
@@ -219,7 +220,6 @@ class DefaultArguments(core.HMPostprocessConfig):
                 self.bottom_border_lines[i][2] += lower_tune_position[0]
                 self.bottom_border_lines[i][1] += lower_tune_position[1]
                 self.bottom_border_lines[i][3] += lower_tune_position[1]
-
 
 
 def scale_box(box, from_img, to_img):
@@ -1169,4 +1169,6 @@ class CamTrackPostProcessor(torch.nn.Module):
 
 
 def _scalar_like(v, device):
+    if isinstance(v, torch.Tensor):
+        return v.clone()
     return torch.tensor(v, dtype=torch.float32, device=device)
