@@ -563,6 +563,7 @@ def main(exp, args, num_gpu):
                 # stitching data loader as its image source
                 dataloader = MOTLoadVideoWithOrig(
                     path=None,
+                    game_id=dir_name,
                     img_size=exp.test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,

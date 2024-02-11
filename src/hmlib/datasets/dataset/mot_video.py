@@ -43,6 +43,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self,
         path,
         img_size,
+        game_id: str = None,
         clip_original=None,
         video_id: int = 1,
         data_dir=None,
@@ -73,6 +74,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         #     return_origin_img=return_origin_img,
         # )
         self._path = path
+        self._game_id = game_id
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
@@ -94,6 +96,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._scale_color_tensor = None
         self._count = torch.tensor([0], dtype=torch.int32)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
+        if self._next_frame_id == 0:
+            self._next_frame_id = 1
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
         self._max_frames = max_frames
@@ -113,7 +117,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._embedded_data_loader = embedded_data_loader
         self._embedded_data_loader_iter = None
         self._stream_tensors = stream_tensors
-        assert self._embedded_data_loader is None or path is None
+        # assert self._embedded_data_loader is None or path is None
 
         # Optimize the clip box
         if self.clip_original is not None:
@@ -349,7 +353,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
             if self.clip_original is not None:
-                print("Warning: dataset is clipping images")
+                # print("Warning: dataset is clipping images")
                 # Clipping not handled now due to "original_img = img0.clone()" above
                 if self.calculated_clip_box is None:
                     self.calculated_clip_box = fix_clip_box(
@@ -405,7 +409,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 ),
                 ids,
                 self.video_id.repeat(len(ids)),
-                [self._path if self._path is not None else "external"],
+                [self._path if self._path is not None else self._game_id],
             ]
 
             if not self._original_image_only:
