@@ -950,8 +950,9 @@ def stitch_video(
                 sinfo_2.xy_pos = xy_pos_2
                 get_timer.toc()
 
-                main_stream.synchronize()
-                torch.cuda.synchronize()
+                # main_stream.synchronize()
+                # torch.cuda.synchronize()
+
                 stitch_timer.tic()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
@@ -1043,7 +1044,7 @@ def stitch_video(
 
                 batch_count += 1
 
-                if batch_count % 20 == 0:
+                if batch_count % 50 == 0:
                     print(
                         "\nStitching: {:.2f} fps".format(
                             batch_size * 1.0 / max(1e-5, stitch_timer.average_time)
@@ -1064,7 +1065,7 @@ def stitch_video(
                             batch_size * 1.0 / max(1e-5, all_timer.average_time)
                         )
                     )
-                    if batch_count % 50 == 0:
+                    if True and batch_count % 50 == 0:
                         stitch_timer = Timer()
                         io_timer = Timer()
                         get_timer = Timer()
