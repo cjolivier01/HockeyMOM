@@ -37,7 +37,7 @@ def _get_dir_name(path):
     return Path(path).parent
 
 
-from hmlib.stitching.stitch_worker import (
+from hmlib.stitching.worker import (
     StitchingWorker,
     create_queue,
     safe_put_queue,
@@ -97,8 +97,9 @@ class StitchDataset:
         image_roi: List[int] = None,
         device: torch.device = "cpu",
         encoder_device: torch.device = _get_cuda_device(),
-        blend_mode: str = "multiblend",
+        blend_mode: str = "laplacian",
         remapping_device: torch.device = torch.device("cuda", 0),
+        remap_on_async_stream: bool = False, # unused
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
