@@ -14,13 +14,23 @@ import torch.nn.functional as F
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.image import image_width, image_height
-from hmlib.video_out import VideoOutput, ImageProcData, resize_image, rotate_image
-from hmlib.video_out import make_visible_image
+from hmlib.video_out import (
+    VideoOutput,
+    ImageProcData,
+    resize_image,
+    rotate_image,
+    optional_with,
+)
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 from hmlib.utils.utils import create_queue
-from hmlib.utils.gpu import StreamTensorToGpu, StreamTensorToDtype, CachedIterator
+from hmlib.utils.gpu import (
+    StreamTensorToGpu,
+    StreamTensorToDtype,
+    CachedIterator,
+    StreamTensor,
+)
 from hmlib.hm_opts import hm_opts, copy_opts
 
 from hmlib.stitching.remapper import (
@@ -523,7 +533,7 @@ def blend_video(
 
     # source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
     # source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
-    
+
     source_tensor_1 = next(v1_iter)
     source_tensor_2 = next(v2_iter)
 
@@ -593,8 +603,8 @@ def blend_video(
                         levels=4,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
-                        # lazy_init=True,
-                        lazy_init=False,
+                        lazy_init=True,
+                        # lazy_init=False,
                         interpolation="bilinear",
                     )
                     blender.to(device)
@@ -825,7 +835,7 @@ def stitch_video(
     device: torch.device = torch.device("cuda", 0),
     skip_final_video_save: bool = False,
     queue_size: int = 1,
-    remap_on_async_stream: bool = True,
+    remap_on_async_stream: bool = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -874,6 +884,8 @@ def stitch_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
+    torch.cuda.synchronize()
+
     v1_iter = CachedIterator(
         iterator=v1_iter,
         cache_size=queue_size,
@@ -891,7 +903,21 @@ def stitch_video(
         ),
     )
 
-    with torch.cuda.stream(main_stream):
+    def to_tensor(t):
+        if isinstance(t, StreamTensor):
+            return t.get()
+        if isinstance(t, np.ndarray):
+            t = torch.from_numpy(t)
+        if t.device != device:
+            t = t.to(device, non_blocking=False)
+        if t.dtype == torch.uint8:
+            t = t.to(torch.float, non_blocking=False)
+        return t
+
+    with optional_with(
+        # None
+        torch.cuda.stream(main_stream)
+    ):
         stitcher.to(device)
 
         video_out = None
@@ -916,20 +942,22 @@ def stitch_video(
 
                 get_timer.tic()
                 sinfo_1 = core.StitchImageInfo()
-                sinfo_1.image = source_tensor_1.get()
+                sinfo_1.image = to_tensor(source_tensor_1)
                 sinfo_1.xy_pos = xy_pos_1
 
                 sinfo_2 = core.StitchImageInfo()
-                sinfo_2.image = source_tensor_2.get()
+                sinfo_2.image = to_tensor(source_tensor_2)
                 sinfo_2.xy_pos = xy_pos_2
                 get_timer.toc()
 
                 main_stream.synchronize()
+                torch.cuda.synchronize()
                 stitch_timer.tic()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
                 main_stream.synchronize()
+                #torch.cuda.synchronize()
                 stitch_timer.toc()
 
                 if output_video:
@@ -988,7 +1016,7 @@ def stitch_video(
                         if show:
                             for img in my_blended:
                                 show_image("stitched", img, wait=False)
-                        main_stream.synchronize()
+                        # main_stream.synchronize()
                         video_out.append(
                             ImageProcData(
                                 frame_id=frame_ids,
@@ -1062,7 +1090,7 @@ def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     with torch.no_grad():
         stitch_video(
-        #blend_video(
+            # blend_video(
             opts,
             video_file_1="left.mp4",
             video_file_2="right.mp4",
@@ -1071,20 +1099,20 @@ def main(args):
             basename_2="mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
-            # python_blend=args.python,
-            python_blend=True,
+            python_blend=args.python,
+            # python_blend=False,
             interpolation="bilinear",
-            #interpolation="",
+            # interpolation="",
             show=args.show_image,
             start_frame_number=0,
             output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
-            #queue_size=args.queue_size,
-            #remap_on_async_stream=False,
+            # queue_size=args.queue_size,
+            remap_on_async_stream=False,
             device=torch.device("cuda", 1),
-            #device=torch.device("cuda", 0),
+            # device=torch.device("cuda", 0),
         )
 
 
