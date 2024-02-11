@@ -350,14 +350,14 @@ class PtImageBlender:
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
 
-            full_left, full_right = _make_full(image_1, image_2, level=0)
-            canvas = self._laplacian_blend.forward(left=full_left, right=full_right)
+            # full_left, full_right = _make_full(image_1, image_2, level=0)
+            # canvas = self._laplacian_blend.forward(left=full_left, right=full_right)
 
-            # canvas = self._laplacian_blend.forward(
-            #     left=image_1,
-            #     right=image_2,
-            #     make_full_fn=_make_full,
-            # )
+            canvas = self._laplacian_blend.forward(
+                left=image_1,
+                right=image_2,
+                make_full_fn=_make_full,
+            )
         else:
             full_left, full_right = _make_full(image_1, image_2, level=0)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
@@ -1061,8 +1061,8 @@ def stitch_video(
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     with torch.no_grad():
-        #stitch_video(
-        blend_video(
+        stitch_video(
+        #blend_video(
             opts,
             video_file_1="left.mp4",
             video_file_2="right.mp4",

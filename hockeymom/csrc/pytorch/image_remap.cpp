@@ -80,6 +80,9 @@ ImageRemapper::ImageRemapper(
 }
 
 void ImageRemapper::init(std::size_t batch_size) {
+  if (initialized_) {
+    return;
+  }
   assert(!initialized_);
   initialized_ = false;
   // std::cout << "Padding tensors to size: " << working_width_ << " x "

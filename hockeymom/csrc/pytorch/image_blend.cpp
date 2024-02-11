@@ -170,6 +170,18 @@ void ImageBlender::init() {
 }
 
 void ImageBlender::create_masks() {
+  int canvas_h = seam_.size(0);
+  int canvas_w = seam_.size(1);
+
+  // The canvas width pyramid
+  level_canvas_dims_.reserve(levels_);
+  level_canvas_dims_.clear();
+  level_canvas_dims_.emplace_back(ImageSize{.w = canvas_w, .h = canvas_h});
+  for (std::size_t l = 0; l < levels_; l++) {
+    level_canvas_dims_.emplace_back(*level_canvas_dims_.rbegin() / 2);
+  }
+
+  // Now on to the masks...
   at::Tensor mask = seam_.unsqueeze(0).unsqueeze(0);
 
   at::Tensor condition_left =
@@ -269,35 +281,49 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     const at::Tensor& image_1,
     const std::vector<int>& xy_pos_1,
     const at::Tensor& image_2,
-    const std::vector<int>& xy_pos_2) const {
+    const std::vector<int>& xy_pos_2,
+    std::size_t level) const {
   assert(image_1.dim() == 4);
   assert(image_1.size(1) == 3 || image_1.size(0) == 4);
-  int h1 = image_1.size(2);
-  int w1 = image_1.size(3);
-  int x1 = xy_pos_1.at(0);
-  int y1 = xy_pos_1.at(1);
-  int h2 = image_2.size(2);
-  int w2 = image_2.size(3);
-  int x2 = xy_pos_2.at(0);
-  int y2 = xy_pos_2.at(1);
+
+  // int h1 = image_1.size(2);
+  // int w1 = image_1.size(3);
+  // int x1 = xy_pos_1.at(0);
+  // int y1 = xy_pos_1.at(1);
+  // int h2 = image_2.size(2);
+  // int w2 = image_2.size(3);
+  // int x2 = xy_pos_2.at(0);
+  // int y2 = xy_pos_2.at(1);
+
+  const AInfo& ainfo_1 = ainfos_.at(level).at(0);
+  const AInfo& ainfo_2 = ainfos_.at(level).at(1);
+
+  int h1 = ainfo_1.h;
+  int w1 = ainfo_1.w;
+  int x1 = ainfo_1.x;
+  int y1 = ainfo_1.y;
+  int h2 = ainfo_2.h;
+  int w2 = ainfo_2.w;
+  int x2 = ainfo_2.x;
+  int y2 = ainfo_2.y;
 
   int canvas_w = seam_.size(1);
   int canvas_h = seam_.size(0);
 
-  if (y1 < y2) {
-    y2 -= y1;
-    y1 = 0;
-  } else if (y2 < y1) {
-    y1 -= y2;
-    y2 = 0;
-  }
-  if (x1 < x2) {
-    x2 -= x1;
-    x1 = 0;
-  } else if (x2 < x1) {
-    x1 -= x2;
-    x2 = 0;
-  }
+  // if (y1 < y2) {
+  //   y2 -= y1;
+  //   y1 = 0;
+  // } else if (y2 < y1) {
+  //   y1 -= y2;
+  //   y2 = 0;
+  // }
+  // if (x1 < x2) {
+  //   x2 -= x1;
+  //   x1 = 0;
+  // } else if (x2 < x1) {
+  //   x1 -= x2;
+  //   x2 = 0;
+  // }
 
   // std::cout << "Canvas size=[" << canvas_h << ", " << canvas_w << "]"
   //           << std::endl;
@@ -379,7 +405,7 @@ at::Tensor ImageBlender::hard_seam_blend(
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) const {
   auto [full_left, full_right] =
-      make_full(image_1, xy_pos_1, image_2, xy_pos_2);
+      make_full(image_1, xy_pos_1, image_2, xy_pos_2, /*level=*/0);
 
   int channels = image_1.size(1);
   assert(channels == 3 || channels == 4);
@@ -425,6 +451,60 @@ at::Tensor ImageBlender::forward(
     init();
   }
   assert(initialized_);
+
+  if (ainfos_.empty()) {
+    // first pass, fill in the size/pos data for each level, even if we aren;t
+    // blending, since we need the full-size item anyway got a call to make_full
+
+    // verify channels first
+    assert(image_1.size(1) == 3);
+    assert(image_2.size(1) == 3);
+
+    int h1 = image_1.size(2);
+    int w1 = image_1.size(3);
+    int x1 = xy_pos_1.at(0);
+    int y1 = xy_pos_1.at(1);
+    int h2 = image_2.size(2);
+    int w2 = image_2.size(3);
+    int x2 = xy_pos_2.at(0);
+    int y2 = xy_pos_2.at(1);
+
+    if (y1 < y2) {
+      y2 -= y1;
+      y1 = 0;
+    } else if (y2 < y1) {
+      y1 -= y2;
+      y2 = 0;
+    }
+    if (x1 < x2) {
+      x2 -= x1;
+      x1 = 0;
+    } else if (x2 < x1) {
+      x1 -= x2;
+      x2 = 0;
+    }
+
+    ainfos_.clear();
+    // From full size, then levels_ half-sized each time
+    ainfos_.emplace_back(std::vector<AInfo>{
+        AInfo{
+            .h = h1,
+            .w = w1,
+            .x = x1,
+            .y = y1,
+        },
+        AInfo{
+            .h = h2,
+            .w = w2,
+            .x = x2,
+            .y = y2,
+        }});
+    for (std::size_t l = 0; l < levels_; l++) {
+      ainfos_.emplace_back(std::vector<AInfo>{
+          (*ainfos_.rbegin())[0] / 2, (*ainfos_.rbegin())[1] / 2});
+    }
+  }
+
   if (mode_ == Mode::HardSeam) {
     return hard_seam_blend(
         std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
@@ -438,19 +518,25 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) {
-  auto [full_left, full_right] =
-      make_full(image_1, xy_pos_1, image_2, xy_pos_2);
-
-  full_left = full_left.to(at::ScalarType::Float);
-  full_right = full_right.to(at::ScalarType::Float);
+  at::Tensor image_left, image_right;
+  if (make_all_full_first_) {
+    auto res = make_full(image_1, xy_pos_1, image_2, xy_pos_2, /*level=*/0);
+    image_left = res.first;
+    image_right = res.second;
+  } else {
+    image_left = std::move(image_1);
+    image_right = std::move(image_2);
+  }
+  image_left = image_left.to(at::ScalarType::Float);
+  image_right = image_right.to(at::ScalarType::Float);
 
   // std::cout << "full_left size=" << full_left.sizes()
   //           << "\nfull_right size=" << full_right.sizes() << std::endl;
 
   std::vector<at::Tensor> left_laplacian =
-      create_laplacian_pyramid(full_left, gussian_kernel_);
+      create_laplacian_pyramid(image_left, gussian_kernel_);
   std::vector<at::Tensor> right_laplacian =
-      create_laplacian_pyramid(full_right, gussian_kernel_);
+      create_laplacian_pyramid(image_right, gussian_kernel_);
 
   // std::cout << "left_laplacian size=" << left_laplacian.sizes()
   //           << "\nright_laplacian size=" << right_laplacian.sizes() <<
@@ -458,6 +544,17 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
 
   at::Tensor left_small_gaussian_blurred = *left_laplacian.rbegin();
   at::Tensor right_small_gaussian_blurred = *right_laplacian.rbegin();
+
+  if (!make_all_full_first_) {
+    auto res = make_full(
+        left_small_gaussian_blurred,
+        xy_pos_1,
+        right_small_gaussian_blurred,
+        xy_pos_2,
+        levels_);
+    left_small_gaussian_blurred = res.first;
+    right_small_gaussian_blurred = res.second;
+  }
 
   at::Tensor mask_1d = mask_small_gaussian_blurred_.at(levels_);
   at::Tensor mask_left = mask_1d;
@@ -477,6 +574,13 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
     at::Tensor L_left = left_laplacian.at(this_level);
     at::Tensor L_right = right_laplacian.at(this_level);
+
+    if (!make_all_full_first_) {
+      auto res = make_full(L_left, xy_pos_1, L_right, xy_pos_2, levels_);
+      L_left = res.first;
+      L_right = res.second;
+    }
+
     at::Tensor L_c = (mask_left * L_left) + (mask_right * L_right);
     F_2 = L_c + upsampled_F1;
   }

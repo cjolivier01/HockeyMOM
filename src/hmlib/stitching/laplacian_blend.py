@@ -10,14 +10,14 @@ def create_gaussian_kernel(
 ):
     # Create Gaussian Kernel. In Numpy
     ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
-    print(ax)
+    # print(ax)
     xx, yy = np.meshgrid(ax, ax)
-    print(xx)
-    print(yy)
+    # print(xx)
+    # print(yy)
     kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sigma))
-    print(kernel)
+    # print(kernel)
     kernel /= np.sum(kernel)
-    print(kernel)
+    # print(kernel)
     # Change kernel to PyTorch. reshapes to (channels, 1, size, size)
     kernel_tensor = torch.as_tensor(kernel, dtype=dtype)
     kernel_tensor = kernel_tensor.repeat(channels, 1, 1, 1)
@@ -46,7 +46,7 @@ def downsample(x):
 
 def upsample(image, size):
     # print(f"upsample {image.shape[-2:]} -> {size}")
-    #return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
+    # return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
 
@@ -79,7 +79,9 @@ def create_laplacian_pyramid(x, kernel, levels):
 def one_level_gaussian_pyramid(img, kernel):
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
-    print(f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}")
+    print(
+        f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}"
+    )
     # Downsample blurred A
     down = downsample(gauss_filtered_x)
     # print(down.shape)
@@ -144,15 +146,15 @@ class LaplacianBlend(torch.nn.Module):
             self.mask_small_gaussian_blurred.append(mask_img.squeeze(0).squeeze(0))
 
         for i in range(len(self.mask_small_gaussian_blurred)):
-            print(
-                f"BEFORE mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
-            )
+            # print(
+            #     f"BEFORE mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
+            # )
             self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[
                 i
             ] / torch.max(self.mask_small_gaussian_blurred[i])
-            print(
-                f"AFTER mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
-            )
+            # print(
+            #     f"AFTER mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
+            # )
         print("Done creating masks")
 
     def initialize(self, input_shape: torch.Size, device: torch.device):
@@ -175,7 +177,7 @@ class LaplacianBlend(torch.nn.Module):
     def forward(self, left, right, make_full_fn: callable = None):
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
-        assert left.shape == right.shape  # They should be "full" already
+        # assert left.shape == right.shape  # They should be "full" already
         if not self._initialized:
             self.initialize(input_shape=left.shape, device=left.device)
         if False:
@@ -227,8 +229,16 @@ class LaplacianBlend(torch.nn.Module):
                     assert L_left.shape[-2:] == mask_left.shape
                     assert L_right.shape[-2:] == mask_right.shape
 
-                L_c = (mask_left * L_left) + (mask_right * L_right)
-                F_2 = L_c + upsampled_F1
+                if False:
+                    L_left *= mask_left
+                    L_right *= mask_right
+                    L_left += L_right
+                    L_left += upsampled_F1
+                    # L_c = (mask_left * L_left) + (mask_right * L_right)
+                    F_2 = L_left
+                else:
+                    L_c = (mask_left * L_left) + (mask_right * L_right)
+                    F_2 = L_c + upsampled_F1
                 # show_image("F_2", F_2)
             return F_2
 

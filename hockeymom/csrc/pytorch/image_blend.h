@@ -13,6 +13,7 @@ namespace ops {
 
 class ImageBlender {
   using SizeRef = at::IntArrayRef;
+
  public:
   enum class Mode { HardSeam, Laplacian };
 
@@ -31,14 +32,16 @@ class ImageBlender {
       at::Tensor&& image_2,
       const std::vector<int>& xy_pos_2);
 
+ private:
+  void init();
+
   std::pair<at::Tensor, at::Tensor> make_full(
       const at::Tensor& image_1,
       const std::vector<int>& xy_pos_1,
       const at::Tensor& image_2,
-      const std::vector<int>& xy_pos_2) const;
+      const std::vector<int>& xy_pos_2,
+      std::size_t level) const;
 
- private:
-  void init();
   at::Tensor hard_seam_blend(
       at::Tensor&& image_1,
       const std::vector<int>& xy_pos_1,
@@ -53,14 +56,17 @@ class ImageBlender {
 
   at::Tensor downsample(const at::Tensor& x);
   at::Tensor upsample(at::Tensor& x, const SizeRef size) const;
-  std::vector<at::Tensor> create_laplacian_pyramid(at::Tensor& x, at::Tensor& kernel);
+  std::vector<at::Tensor> create_laplacian_pyramid(
+      at::Tensor& x,
+      at::Tensor& kernel);
   at::Tensor one_level_gaussian_pyramid(at::Tensor& x, at::Tensor& kernel);
   void create_masks();
 
   Mode mode_;
   std::size_t levels_;
-  std::size_t src_width_;
-  std::size_t src_height_;
+  const std::size_t num_images_{2};
+  // std::size_t src_width_;
+  // std::size_t src_height_;
 
   at::Tensor seam_;
   at::Tensor xor_map_;
@@ -70,6 +76,31 @@ class ImageBlender {
   at::Tensor condition_right_;
   std::vector<at::Tensor> seam_masks_;
   std::string interpolation_;
+
+  struct ImageSize {
+    std::int64_t w{0};
+    std::int64_t h{0};
+    ImageSize operator/(std::int64_t q) {
+      return ImageSize{
+          .w = w / q,
+          .h = h / q,
+      };
+    }
+  };
+  struct AInfo {
+    std::int64_t h{0}, w{0}, x{0}, y{0};
+    AInfo operator/(std::int64_t q) {
+      return AInfo{
+          .h = h / q,
+          .w = w / q,
+          .x = x / q,
+          .y = y / q,
+      };
+    }
+  };
+  std::vector<std::vector<AInfo>> ainfos_;
+  std::vector<ImageSize> level_canvas_dims_;
+  bool make_all_full_first_{false};
 
   // Laplacian pyramid persistent tensors
   at::Tensor gussian_kernel_;
