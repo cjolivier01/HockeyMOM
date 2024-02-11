@@ -315,15 +315,6 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   assert(image_1.dim() == 4);
   assert(image_1.size(1) == 3 || image_1.size(0) == 4);
 
-  // int h1 = image_1.size(2);
-  // int w1 = image_1.size(3);
-  // int x1 = xy_pos_1.at(0);
-  // int y1 = xy_pos_1.at(1);
-  // int h2 = image_2.size(2);
-  // int w2 = image_2.size(3);
-  // int x2 = xy_pos_2.at(0);
-  // int y2 = xy_pos_2.at(1);
-
   const AInfo& ainfo_1 = ainfos_.at(level).at(0);
   const AInfo& ainfo_2 = ainfos_.at(level).at(1);
 
@@ -336,27 +327,10 @@ std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
   int x2 = ainfo_2.x;
   int y2 = ainfo_2.y;
 
-  // int canvas_w = seam_.size(1);
-  // int canvas_h = seam_.size(0);
-
   const auto& canvas_level = level_canvas_dims_.at(level);
   int canvas_w = canvas_level.w;
   int canvas_h = canvas_level.h;
 
-  // if (y1 < y2) {
-  //   y2 -= y1;
-  //   y1 = 0;
-  // } else if (y2 < y1) {
-  //   y1 -= y2;
-  //   y2 = 0;
-  // }
-  // if (x1 < x2) {
-  //   x2 -= x1;
-  //   x1 = 0;
-  // } else if (x2 < x1) {
-  //   x1 -= x2;
-  //   x2 = 0;
-  // }
   if (verbose) {
     std::cout << "\nCanvas size=[" << canvas_h << ", " << canvas_w << "]"
               << std::endl;
@@ -643,15 +617,10 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   at::Tensor mask_left = mask_1d;
   at::Tensor mask_right = 1 - mask_1d;
 
-  // // std::cout << mask_1d.sizes() << std::endl;
-
-  at::Tensor F_2 = left_small_gaussian_blurred * mask_left +
-      right_small_gaussian_blurred * mask_right;
-
-  // at::Tensor F_2 = blend(
-  //     std::move(left_small_gaussian_blurred),
-  //     std::move(right_small_gaussian_blurred),
-  //     levels_);
+  at::Tensor F_2 = blend(
+      std::move(left_small_gaussian_blurred),
+      std::move(right_small_gaussian_blurred),
+      levels_);
 
   for (int this_level = levels_ - 1; this_level >= 0; this_level--) {
     at::Tensor mask_1d = mask_small_gaussian_blurred_.at(this_level);
@@ -673,9 +642,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
       L_left = res.first;
       L_right = res.second;
     }
-    // at::Tensor L_c = blend(std::move(L_left), std::move(L_right),
-    // this_level);
-    at::Tensor L_c = (mask_left * L_left) + (mask_right * L_right);
+    at::Tensor L_c = blend(std::move(L_left), std::move(L_right), this_level);
     F_2 = L_c + upsampled_F1;
   }
 
