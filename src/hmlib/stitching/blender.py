@@ -1086,6 +1086,9 @@ def stitch_video(
                 else:
                     video_out.stop()
 
+#
+# Combined FPS= 2XY/(X+Y)
+#
 
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())

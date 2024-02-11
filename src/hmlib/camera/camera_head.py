@@ -13,8 +13,6 @@ from typing import Dict, List
 
 from yolox.evaluators.mot_evaluator import write_results_no_score, TrackingHead
 
-from hmlib.tracker.multitracker import JDETracker, torch_device
-from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.evaluation import Evaluator

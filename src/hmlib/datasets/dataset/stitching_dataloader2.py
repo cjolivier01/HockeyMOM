@@ -82,6 +82,10 @@ class MultiDataLoaderWrapper:
             self._iters.append(iter(dl))
         return self
 
+    def close(self):
+        for dl in self._dataloaders:
+            dl.close()
+
     def __next__(self):
         result = []
         for it in self._iters:

@@ -341,8 +341,8 @@ class StitchingWorker:
             safe_put_queue(self._to_worker_queue, None)
         else:
             self._stop_child_threads()
-            self._video1.release()
-            self._video2.release()
+            self._video1.close()
+            self._video2.close()
             if self._output_video is not None:
                 self._output_video.release()
             self._open = False

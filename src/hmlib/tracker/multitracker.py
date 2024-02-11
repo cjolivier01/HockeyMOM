@@ -182,12 +182,8 @@ class STrack(BaseTrack):
         return "OT_{}_({}-{})".format(self.track_id, self.start_frame, self.end_frame)
 
 
-def torch_device():
-    return "cuda:0"
-
-
 class JDETracker(object):
-    def __init__(self, opt, frame_rate=30):
+    def __init__(self, opt, frame_rate=30, device: torch.device = None):
         self.opt = opt
         # if opt.gpus[0] >= 0:
         #     opt.device = torch.device(torch_device())
@@ -196,7 +192,7 @@ class JDETracker(object):
         print("Creating model...")
         self.model = create_model(opt.arch, opt.heads, opt.head_conv)
         self.model = load_model(self.model, opt.load_model)
-        self.model = self.model.to(opt.device)
+        self.model = self.model.to(opt.device if device is None else device)
         self.model.eval()
 
         self.tracked_stracks = []  # type: list[STrack]
@@ -339,8 +335,6 @@ class JDETracker(object):
         # batched_dets = dets
         # batched_id_feature = id_feature
 
-
-
     def inner_update(self, detections, id_feature, log_debug: bool = False):
         self.frame_id += 1
         activated_starcks = []
@@ -395,12 +389,8 @@ class JDETracker(object):
         STrack.multi_predict(strack_pool)
         dists = matching.embedding_distance(strack_pool, detections)
         # dists = matching.iou_distance(strack_pool, detections)
-        dists = matching.fuse_motion(
-            self.kalman_filter, dists, strack_pool, detections
-        )
-        matches, u_track, u_detection = matching.linear_assignment(
-            dists, thresh=0.4
-        )
+        dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections)
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.4)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -420,9 +410,7 @@ class JDETracker(object):
             if strack_pool[i].state == TrackState.Tracked
         ]
         dists = matching.iou_distance(r_tracked_stracks, detections)
-        matches, u_track, u_detection = matching.linear_assignment(
-            dists, thresh=0.5
-        )
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
 
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -472,25 +460,22 @@ class JDETracker(object):
         self.tracked_stracks = [
             t for t in self.tracked_stracks if t.state == TrackState.Tracked
         ]
-        self.tracked_stracks = joint_stracks(
-            self.tracked_stracks, activated_starcks
-        )
+        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
 
         if removed_stracks:
             for r in removed_stracks:
-                #self.removed_strack_ids.add(r.track_id)
+                # self.removed_strack_ids.add(r.track_id)
                 r.remove()
-            #self.removed_strack_count += len(removed_stracks)
+            # self.removed_strack_count += len(removed_stracks)
             self.lost_stracks = sub_stracks(self.lost_stracks, removed_stracks)
 
-        #self.removed_stracks.extend(removed_stracks)
+        # self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
             self.tracked_stracks, self.lost_stracks
         )
-
 
         # self.lost_stracks = sub_stracks(self.lost_stracks, removed_stracks)
 
@@ -499,23 +484,17 @@ class JDETracker(object):
         # )
 
         # get scores of lost tracks
-        output_stracks = [
-            track for track in self.tracked_stracks if track.is_activated
-        ]
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
         if log_debug:
             logger.debug("===========Frame {}==========".format(self.frame_id))
             logger.debug(
-                "Activated: {}".format(
-                    [track.track_id for track in activated_starcks]
-                )
+                "Activated: {}".format([track.track_id for track in activated_starcks])
             )
             logger.debug(
                 "Refind: {}".format([track.track_id for track in refind_stracks])
             )
-            logger.debug(
-                "Lost: {}".format([track.track_id for track in lost_stracks])
-            )
+            logger.debug("Lost: {}".format([track.track_id for track in lost_stracks]))
             logger.debug(
                 "Removed: {}".format([track.track_id for track in removed_stracks])
             )

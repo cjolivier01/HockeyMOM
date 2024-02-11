@@ -26,9 +26,14 @@ from yolox.data import get_yolox_datadir
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
-from hmlib.datasets.dataset.stitching_dataloader2 import (
-    StitchDataset,
-)
+if False:
+    from hmlib.datasets.dataset.stitching_dataloader1 import (
+        StitchDataset,
+    )
+else:
+    from hmlib.datasets.dataset.stitching_dataloader2 import (
+        StitchDataset,
+    )
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
@@ -480,7 +485,7 @@ def main(exp, args, num_gpu):
             track_device = "cpu"
             video_out_device = "cpu"
             if len(args.gpus) > 1:
-                video_out_device = torch.device("cuda", int(args.gpus[1]))
+                video_out_device = torch.device("cuda", int(args.gpus[-1]))
             else:
                 video_out_device = torch.device("cuda", int(args.gpus[0]))
             # if len(args.gpus) > 2:
@@ -578,6 +583,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
+                    device_for_original_image=video_out_device,
                 )
             else:
                 assert len(input_video_files) == 1
@@ -680,7 +686,7 @@ def main(exp, args, num_gpu):
         else:
             args.device = f"cuda:{rank}"
         # start evaluate
-
+        args.device = detection_device
         eval_functions = {
             "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},

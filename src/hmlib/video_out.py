@@ -36,8 +36,6 @@ from hmlib.utils.image import (
     resize_image,
     crop_image,
 )
-from hmlib.tracker.multitracker import torch_device
-
 from .video_stream import VideoStreamWriter
 
 from torchvision.io import write_video

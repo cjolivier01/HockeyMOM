@@ -59,6 +59,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
+        device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
     ):
         # super().__init__(
@@ -75,6 +76,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
+        self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
         self.clip_original = clip_original
         self.calculated_clip_box = None
@@ -408,6 +410,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if not self._original_image_only:
                 img /= 255.0
+
+            if (
+                self._device_for_original_image is not None
+                and original_img0.device != self._device_for_original_image
+            ):
+                if original_img0.device.type == "cuda":
+                    print("Warning: original image is on a different cuda device")
+                    original_img0 = original_img0.to("cpu", non_blocking=True)
+                original_img0 = original_img0.to(
+                    self._device_for_original_image, non_blocking=True
+                )
 
         self._count += self._batch_size
         if self._original_image_only:
