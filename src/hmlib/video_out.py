@@ -423,7 +423,7 @@ class VideoOutput:
             while self._imgproc_queue.qsize() > self._max_queue_backlog:
                 print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.01)
-            #torch.cuda.current_stream(img_proc_data.img.device).synchronize()
+            # torch.cuda.current_stream(img_proc_data.img.device).synchronize()
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
@@ -573,6 +573,8 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+
+            assert online_im.device.type == "cpu" or online_im.device == self._device
 
             if online_im.ndim == 3:
                 online_im = online_im.unsqueeze(0)

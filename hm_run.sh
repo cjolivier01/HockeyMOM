@@ -64,7 +64,7 @@ OMP_NUM_THREADS=16 \
   -f="${EXPERIMENT_FILE}" \
   ${PRETRAINED_MODEL} \
   -b=${BATCH_SIZE} \
-  --gpus=1,2,0 \
+  --gpus=0,1,2,3 \
   --infer \
   ${STITCHING_ARGS} \
   ${TRACKER} \

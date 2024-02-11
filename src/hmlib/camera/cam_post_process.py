@@ -441,12 +441,12 @@ class CamTrackPostProcessor(torch.nn.Module):
         if self._args.crop_output_image:
             # TODO: Does self._hockey_mom.video.height take into account clipping of the stitched frame?
 
-            self.final_frame_width = 4096
-            self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
-            # self.final_frame_height = self._hockey_mom.video.height
-            # self.final_frame_width = (
-            #     self._hockey_mom.video.height * self._final_aspect_ratio
-            # )
+            # self.final_frame_width = 4096
+            # self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+            self.final_frame_height = self._hockey_mom.video.height
+            self.final_frame_width = (
+                self._hockey_mom.video.height * self._final_aspect_ratio
+            )
         else:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
