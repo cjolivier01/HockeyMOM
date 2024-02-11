@@ -584,7 +584,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    device_for_original_image=video_out_device,
+                    #device_for_original_image=video_out_device,
                 )
             else:
                 assert len(input_video_files) == 1

@@ -16,7 +16,7 @@ from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
 from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensor, StreamTensorToDtype, StreamTensorToGpu
 
 from hmlib.utils.image import (
     make_channels_first,
@@ -62,6 +62,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         decoder_device: torch.device = torch.device("cpu"),
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
+        log_messages: bool = False,
     ):
         # super().__init__(
         #     input_dimension=img_size,
@@ -78,6 +79,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
+        self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
         self.clip_original = clip_original
@@ -155,7 +157,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         else:
             self.vn = len(self._embedded_data_loader)
             self.fps = self._embedded_data_loader.fps
-        if self.vn is not None:
+        if self.vn is not None and self._log_messages:
             print("Lenth of the video: {:d} frames".format(self.vn))
 
     def _close_video(self):
@@ -422,9 +424,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if original_img0.device.type == "cuda":
                     print("Warning: original image is on a different cuda device")
                     original_img0 = original_img0.to("cpu", non_blocking=True)
-                original_img0 = original_img0.to(
-                    self._device_for_original_image, non_blocking=True
-                )
+                if True:
+                    original_img0 = tensor = StreamTensorToGpu(
+                        tensor=original_img0, device=self._device_for_original_image
+                    )
+                else:
+                    original_img0 = original_img0.to(
+                        self._device_for_original_image, non_blocking=True
+                    )
 
         self._count += self._batch_size
         if self._original_image_only:
@@ -449,7 +456,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._timer.toc()
 
         self._timer_counter += self._batch_size
-        if self._next_counter and self._next_counter % 20 == 0:
+        if self._log_messages and self._next_counter and self._next_counter % 20 == 0:
             logger.info(
                 "Video Dataset frame delivery {} ({:.2f} fps)".format(
                     self._timer_counter,
