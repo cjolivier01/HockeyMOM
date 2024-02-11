@@ -378,8 +378,8 @@ class CamTrackPostProcessor(torch.nn.Module):
                 self._send_to_timer_post_process,
                 print_interval=50,
             ):
-                while self._queue.qsize() > 10:
-                    # print("Cam post-process queue too large")
+                while self._queue.qsize() > 1:
+                    #print("Cam post-process queue too large")
                     time.sleep(0.001)
                 dets = []
                 # dets = [
@@ -441,12 +441,12 @@ class CamTrackPostProcessor(torch.nn.Module):
         if self._args.crop_output_image:
             # TODO: Does self._hockey_mom.video.height take into account clipping of the stitched frame?
 
-            # self.final_frame_width = 4096
-            # self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
-            self.final_frame_height = self._hockey_mom.video.height
-            self.final_frame_width = (
-                self._hockey_mom.video.height * self._final_aspect_ratio
-            )
+            self.final_frame_width = min(self._hockey_mom.video.width, 4096)
+            self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+            # self.final_frame_height = self._hockey_mom.video.height
+            # self.final_frame_width = (
+            #     self._hockey_mom.video.height * self._final_aspect_ratio
+            # )
         else:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width

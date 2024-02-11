@@ -26,7 +26,7 @@ from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
 from hmlib.utils.utils import create_queue
 from hmlib.utils.gpu import (
-    StreamTensorToGpu,
+    StreamTensorToDevice,
     StreamTensorToDtype,
     CachedIterator,
     StreamTensor,
@@ -890,7 +890,7 @@ def stitch_video(
         iterator=v1_iter,
         cache_size=queue_size,
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-            tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
+            tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=torch.float,
         ),
     )
@@ -898,7 +898,7 @@ def stitch_video(
         iterator=v2_iter,
         cache_size=queue_size,
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-            tensor=StreamTensorToGpu(tensor=source_tensor, device=device),
+            tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=torch.float,
         ),
     )

@@ -23,7 +23,7 @@ from hmlib.stitching.remapper import create_remapper_config
 from hmlib.stitching.blender import create_blender_config
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.gpu import StreamTensorToGpu, StreamTensorToDtype, CachedIterator
+from hmlib.utils.gpu import StreamTensorToDevice, StreamTensorToDtype, CachedIterator
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128
@@ -250,7 +250,7 @@ class StitchingWorker:
             iterator=self._video1_iter,
             cache_size=self._cache_size,
             pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-                tensor=StreamTensorToGpu(
+                tensor=StreamTensorToDevice(
                     tensor=source_tensor, device=self._remapping_device
                 ),
                 dtype=torch.float,
@@ -260,7 +260,7 @@ class StitchingWorker:
             iterator=self._video2_iter,
             cache_size=self._cache_size,
             pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-                tensor=StreamTensorToGpu(
+                tensor=StreamTensorToDevice(
                     tensor=source_tensor, device=self._remapping_device
                 ),
                 dtype=torch.float,

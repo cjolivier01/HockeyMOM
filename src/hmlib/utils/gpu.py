@@ -82,7 +82,7 @@ class StreamTensor:
         assert False and "Not implemented"
 
 
-class StreamTensorToGpu(StreamTensor):
+class StreamTensorToDevice(StreamTensor):
     def __init__(
         self, tensor: torch.Tensor, device: torch.device, contiguous: bool = False
     ):
@@ -94,7 +94,7 @@ class StreamTensorToGpu(StreamTensor):
             tensor = tensor.to(device, non_blocking=True)
         if contiguous:
             tensor = tensor.contiguous()
-        super(StreamTensorToGpu, self).__init__(tensor=tensor, stream=stream)
+        super(StreamTensorToDevice, self).__init__(tensor=tensor, stream=stream)
 
     # def ref(self):
     #     return self._tensor

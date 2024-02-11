@@ -246,6 +246,7 @@ class StitchDataset:
                 original_image_only=True,
                 # device=remapping_device,
                 device=torch.device("cpu"),
+                #scale_rgb_down=True,
             )
         )
         dataloaders.append(
@@ -259,6 +260,7 @@ class StitchDataset:
                 original_image_only=True,
                 # device=remapping_device,
                 device=torch.device("cpu"),
+                #scale_rgb_down=True,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)

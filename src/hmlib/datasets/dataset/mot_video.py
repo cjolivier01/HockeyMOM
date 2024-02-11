@@ -16,7 +16,7 @@ from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
 from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.gpu import StreamTensor, StreamTensorToDtype, StreamTensorToGpu
+from hmlib.utils.gpu import StreamTensor, StreamTensorToDtype, StreamTensorToDevice
 
 from hmlib.utils.image import (
     make_channels_first,
@@ -63,6 +63,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
+        #scale_rgb_down: bool = False,
+        #output_type: torch.dtype = None
     ):
         # super().__init__(
         #     input_dimension=img_size,
@@ -79,9 +81,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
+        #self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
+        #self._output_type = output_type
         self.clip_original = clip_original
         self.calculated_clip_box = None
         if img_size is None:
@@ -416,6 +420,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if not self._original_image_only:
                 img /= 255.0
+                if original_img0.dtype == img.dtype:
+                    original_img0 /= 255.0
 
             if (
                 self._device_for_original_image is not None
@@ -425,7 +431,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     print("Warning: original image is on a different cuda device")
                     original_img0 = original_img0.to("cpu", non_blocking=True)
                 if True:
-                    original_img0 = tensor = StreamTensorToGpu(
+                    original_img0 = tensor = StreamTensorToDevice(
                         tensor=original_img0, device=self._device_for_original_image
                     )
                 else:

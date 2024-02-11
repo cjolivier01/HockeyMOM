@@ -485,7 +485,8 @@ def main(exp, args, num_gpu):
             track_device = "cpu"
             video_out_device = "cpu"
             if len(args.gpus) > 1:
-                video_out_device = torch.device("cuda", int(args.gpus[-1]))
+                #video_out_device = torch.device("cuda", int(args.gpus[-1]))
+                video_out_device = torch.device("cuda", int(args.gpus[0]))
             else:
                 video_out_device = torch.device("cuda", int(args.gpus[0]))
             # if len(args.gpus) > 2:
@@ -584,7 +585,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    #device_for_original_image=video_out_device,
+                    device_for_original_image=video_out_device,
                 )
             else:
                 assert len(input_video_files) == 1
