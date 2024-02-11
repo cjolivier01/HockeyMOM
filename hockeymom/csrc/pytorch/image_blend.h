@@ -61,12 +61,20 @@ class ImageBlender {
       at::Tensor& kernel);
   at::Tensor one_level_gaussian_pyramid(at::Tensor& x, at::Tensor& kernel);
   void create_masks();
+  void build_coordinate_system(
+      const at::Tensor& image_1,
+      const std::vector<int>& xy_pos_1,
+      const at::Tensor& image_2,
+      const std::vector<int>& xy_pos_2);
 
-  Mode mode_;
-  std::size_t levels_;
+  at::Tensor blend(
+      at::Tensor&& left_small_gaussian_blurred,
+      at::Tensor&& right_small_gaussian_blurred,
+      int level);
+
+  const Mode mode_;
+  const std::size_t levels_;
   const std::size_t num_images_{2};
-  // std::size_t src_width_;
-  // std::size_t src_height_;
 
   at::Tensor seam_;
   at::Tensor xor_map_;
