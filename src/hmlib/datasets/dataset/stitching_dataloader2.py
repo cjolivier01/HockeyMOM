@@ -244,8 +244,8 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                device=remapping_device,
-                # device=torch.device("cpu"),
+                # device=remapping_device,
+                device=torch.device("cpu"),
             )
         )
         dataloaders.append(
@@ -257,8 +257,8 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                device=remapping_device,
-                # device=torch.device("cpu"),
+                # device=remapping_device,
+                device=torch.device("cpu"),
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)

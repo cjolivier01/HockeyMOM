@@ -332,8 +332,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         ALL_NON_BLOCKING = True
 
         cuda_stream = None
-        if self._stream_tensors and self._is_cuda():
-            cuda_stream = torch.cuda.Stream(self._device)
+        # if self._stream_tensors and self._is_cuda():
+        #     cuda_stream = torch.cuda.Stream(self._device)
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
