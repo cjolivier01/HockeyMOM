@@ -76,9 +76,7 @@ void prettyPrintTensor(const torch::Tensor& tensor) {
   }
 }
 
-torch::Tensor gaussian_conv2d(
-    const torch::Tensor& x,
-    const torch::Tensor& g_kernel) {
+torch::Tensor gaussian_conv2d(torch::Tensor x, const torch::Tensor& g_kernel) {
   // Check if x has a dtype different from torch::kUInt8
   if (x.dtype() == torch::kUInt8) {
     throw std::runtime_error("Input tensor cannot have dtype torch::kUInt8");
@@ -272,7 +270,7 @@ at::Tensor ImageBlender::downsample(const at::Tensor& x) {
   return avg_pooling_->forward(x);
 }
 
-at::Tensor ImageBlender::upsample(at::Tensor& x, const SizeRef size) const {
+at::Tensor ImageBlender::upsample(at::Tensor x, const SizeRef size) const {
   return torch::upsample_bilinear2d(x, size, /*align_corners=*/false);
 }
 
@@ -552,10 +550,16 @@ at::Tensor ImageBlender::blend(
   TORCH_CHECK(
       image_size(mask_right) == image_size(right_small_gaussian_blurred),
       "Left image does not match mask size");
-
+#if 1 // in-place
+  left_small_gaussian_blurred *= mask_left;
+  right_small_gaussian_blurred *= mask_right;
+  return left_small_gaussian_blurred + right_small_gaussian_blurred;
+  // return right_small_gaussian_blurred;
+#else
   at::Tensor F_2 = left_small_gaussian_blurred * mask_left +
       right_small_gaussian_blurred * mask_right;
   return F_2;
+#endif
 }
 
 at::Tensor ImageBlender::laplacian_pyramid_blend(
@@ -613,37 +617,53 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
               << right_small_gaussian_blurred.sizes() << std::endl;
   }
 
-  at::Tensor mask_1d = mask_small_gaussian_blurred_.at(levels_);
-  at::Tensor mask_left = mask_1d;
-  at::Tensor mask_right = 1 - mask_1d;
-
   at::Tensor F_2 = blend(
       std::move(left_small_gaussian_blurred),
       std::move(right_small_gaussian_blurred),
       levels_);
 
   for (int this_level = levels_ - 1; this_level >= 0; this_level--) {
-    at::Tensor mask_1d = mask_small_gaussian_blurred_.at(this_level);
-    at::Tensor mask_left = mask_1d;
-    at::Tensor mask_right = 1 - mask_1d;
-
-    // TODO: use canvas dims instead of mask sizes, thend ont need mask here
     const ImageSize& canvas_dims = level_canvas_dims_.at(this_level);
 
-    at::Tensor F_1 = upsample(
-        F_2,
-        {mask_1d.size(mask_1d.dim() - 2), mask_1d.size(mask_1d.dim() - 1)});
-    at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
-    at::Tensor L_left = left_laplacian.at(this_level);
-    at::Tensor L_right = right_laplacian.at(this_level);
+    // at::Tensor F_1 = upsample(F_2, {canvas_dims.h, canvas_dims.w});
+    // at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
+    // at::Tensor L_left = left_laplacian.at(this_level);
+    // at::Tensor L_right = right_laplacian.at(this_level);
+
+    // if (!make_all_full_first_) {
+    //   auto res = make_full(L_left, xy_pos_1, L_right, xy_pos_2, this_level);
+    //   L_left = res.first;
+    //   L_right = res.second;
+    // }
+    // at::Tensor L_c = blend(std::move(L_left), std::move(L_right),
+    // this_level); F_2 = L_c + upsampled_F1;
+
+    at::Tensor L_left;
+    at::Tensor L_right;
 
     if (!make_all_full_first_) {
-      auto res = make_full(L_left, xy_pos_1, L_right, xy_pos_2, this_level);
+      auto res = make_full(
+          left_laplacian.at(this_level),
+          xy_pos_1,
+          right_laplacian.at(this_level),
+          xy_pos_2,
+          this_level);
       L_left = res.first;
       L_right = res.second;
+    } else {
+      L_left = left_laplacian.at(this_level);
+      L_right = right_laplacian.at(this_level);
     }
+
     at::Tensor L_c = blend(std::move(L_left), std::move(L_right), this_level);
-    F_2 = L_c + upsampled_F1;
+
+    at::Tensor F_1 = upsample(std::move(F_2), {canvas_dims.h, canvas_dims.w});
+    at::Tensor upsampled_F1 = gaussian_conv2d(std::move(F_1), gussian_kernel_);
+    
+    F_2 = L_c;
+    F_2 += upsampled_F1;
+
+    //F_2 = L_c + upsampled_F1;
   }
 
   return F_2;

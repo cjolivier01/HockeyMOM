@@ -55,7 +55,7 @@ class ImageBlender {
       const std::vector<int>& xy_pos_2);
 
   at::Tensor downsample(const at::Tensor& x);
-  at::Tensor upsample(at::Tensor& x, const SizeRef size) const;
+  at::Tensor upsample(at::Tensor x, const SizeRef size) const;
   std::vector<at::Tensor> create_laplacian_pyramid(
       at::Tensor& x,
       at::Tensor& kernel);
