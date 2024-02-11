@@ -482,17 +482,21 @@ def main(exp, args, num_gpu):
 
         if args.game_id:
             detection_device = torch.device("cuda", int(args.gpus[0]))
+            stitching_device = detection_device
             track_device = "cpu"
             video_out_device = "cpu"
             if len(args.gpus) > 1:
-                #video_out_device = torch.device("cuda", int(args.gpus[-1]))
-                video_out_device = torch.device("cuda", int(args.gpus[0]))
+                video_out_device = torch.device("cuda", int(args.gpus[-1]))
+                #video_out_device = torch.device("cuda", int(args.gpus[0]))
+                if len(args.gpus) > 2:
+                    stitching_device = torch.device("cuda", int(args.gpus[1]))
             else:
                 video_out_device = torch.device("cuda", int(args.gpus[0]))
             # if len(args.gpus) > 2:
             #     track_device = torch.device("cuda", int(args.gpus[2]))
         else:
             detection_device = torch.device("cuda", int(rank))
+            stitching_device = detection_device
 
         dataloader = None
         postprocessor = None
@@ -555,9 +559,8 @@ def main(exp, args, num_gpu):
                     fork_workers=False,
                     image_roi=None,
                     batch_size=1,
-                    device=detection_device,
+                    remapping_device=stitching_device,
                     # batch_size=args.batch_size,
-                    # blend_mode="multiblend",
                     blend_mode=opts.blend_mode,
                 )
                 # Create the MOT video data loader, passing it the
@@ -574,7 +577,7 @@ def main(exp, args, num_gpu):
                     # batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
-                    device=detection_device,
+                    # device=detection_device,
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
@@ -585,7 +588,8 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    device_for_original_image=video_out_device,
+                    #device_for_original_image=video_out_device,
+                    device_for_original_image=torch.device("cpu"),
                 )
             else:
                 assert len(input_video_files) == 1

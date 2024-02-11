@@ -133,16 +133,14 @@ class StitchDataset:
         num_workers: int = 1,
         fork_workers: bool = False,
         image_roi: List[int] = None,
-        device: torch.device = "cpu",
         encoder_device: torch.device = _get_cuda_device(),
-        blend_mode: str = "multiblend",
-        remapping_device: torch.device = torch.device("cuda", 0),
-        remap_on_async_stream: bool = True,
+        blend_mode: str = "laplacian",
+        remapping_device: torch.device = None,
+        remap_on_async_stream: bool = False,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
         self._batch_size = batch_size
-        self._device = device
         self._remapping_device = remapping_device
         self._remap_on_async_stream = remap_on_async_stream
         self._encoder_device = encoder_device

@@ -50,9 +50,8 @@ class StreamTensor:
     def get(self):
         if isinstance(self._tensor, StreamTensor):
             return self._tensor.get()
-        assert self._stream is not None
-        assert self._tensor is not None
-        self._stream.synchronize()
+        if self._stream is not None:
+            self._stream.synchronize()
         return self._tensor
 
     @property
@@ -81,6 +80,9 @@ class StreamTensor:
     def to(self, *args, **kwargs):
         assert False and "Not implemented"
 
+    def __len__(self):
+        return self._tensor.shape[0]
+
 
 class StreamTensorToDevice(StreamTensor):
     def __init__(
@@ -88,24 +90,15 @@ class StreamTensorToDevice(StreamTensor):
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        assert tensor.device.type != device.type
-        stream = torch.cuda.Stream(device=device)
-        with torch.cuda.stream(stream=stream):
-            tensor = tensor.to(device, non_blocking=True)
+        if tensor.device == device:
+            stream = None
+        else:
+            stream = torch.cuda.Stream(device=device)
+            with torch.cuda.stream(stream=stream):
+                tensor = tensor.to(device, non_blocking=True)
         if contiguous:
             tensor = tensor.contiguous()
         super(StreamTensorToDevice, self).__init__(tensor=tensor, stream=stream)
-
-    # def ref(self):
-    #     return self._tensor
-
-    # def get(self):
-    #     self._stream.synchronize()
-    #     t = self._tensor
-    #     if isinstance(t, StreamTensor):
-    #         t = t.get()
-    #     self._tensor = None
-    #     return t
 
 
 class StreamTensorToDtype(StreamTensor):
@@ -127,14 +120,3 @@ class StreamTensorToDtype(StreamTensor):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
         if contiguous:
             self._tensor = self._tensor.contiguous()
-
-    # def ref(self):
-        # return self._tensor
-
-    # def get(self):
-    #     self._stream.synchronize()
-    #     t = self._tensor
-    #     if isinstance(t, StreamTensor):
-    #         t = t.get()
-    #     self._tensor = None
-    #     return t

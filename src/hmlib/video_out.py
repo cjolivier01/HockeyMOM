@@ -301,9 +301,9 @@ class VideoOutput:
         save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
-        max_queue_backlog: int = 25,
+        max_queue_backlog: int = 1,
         watermark_image_path: str = None,
-        device: torch.device = torch.device("cuda", 0),
+        device: torch.device = None,
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
@@ -420,8 +420,11 @@ class VideoOutput:
         with TimeTracker(
             "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
         ):
+            counter = 0
             while self._imgproc_queue.qsize() > self._max_queue_backlog:
-                print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+                counter += 1
+                if counter % 100 == 0:
+                    print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.01)
             # torch.cuda.current_stream(img_proc_data.img.device).synchronize()
             self._imgproc_queue.put(img_proc_data)
@@ -573,8 +576,15 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+            
+            #torch.cuda.synchronize()
 
-            assert online_im.device.type == "cpu" or online_im.device == self._device
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im)
+
+            #assert online_im.device.type == "cpu" or online_im.device == self._device
+            if online_im.device.type != "cpu" and self._device.type != "cpu":
+                online_im = online_im.cpu()
 
             if online_im.ndim == 3:
                 online_im = online_im.unsqueeze(0)

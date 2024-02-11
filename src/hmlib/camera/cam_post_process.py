@@ -514,7 +514,8 @@ class CamTrackPostProcessor(torch.nn.Module):
     def _kmeans_cuda_device(self):
         if self._use_fork:
             return "cpu"
-        return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+        # return "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
+        return  "cpu"
         # return self._device
 
     def get_cluster_boxes(
@@ -582,7 +583,8 @@ class CamTrackPostProcessor(torch.nn.Module):
         # info_imgs = online_targets_and_img[3]
         original_img = online_targets_and_img[5]
 
-        online_im = original_img.clone()
+        online_im = original_img
+        # online_im = original_img.clone()
         if online_im.ndim == 4:
             assert online_im.shape[0] == 1
             online_im = online_im.squeeze(0)

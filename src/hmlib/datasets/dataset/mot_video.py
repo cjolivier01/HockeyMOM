@@ -63,8 +63,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
-        #scale_rgb_down: bool = False,
-        #output_type: torch.dtype = None
+        # scale_rgb_down: bool = False,
+        # output_type: torch.dtype = None
     ):
         # super().__init__(
         #     input_dimension=img_size,
@@ -81,11 +81,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
-        #self._scale_rgb_down = scale_rgb_down
+        # self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
-        #self._output_type = output_type
+        # self._output_type = output_type
         self.clip_original = clip_original
         self.calculated_clip_box = None
         if img_size is None:
@@ -428,10 +428,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 and original_img0.device != self._device_for_original_image
             ):
                 if original_img0.device.type == "cuda":
-                    print("Warning: original image is on a different cuda device")
+                    # print("Warning: original image is on a different cuda device")
                     original_img0 = original_img0.to("cpu", non_blocking=True)
+                    StreamTensorToDevice(
+                        tensor=original_img0,
+                        device=self._device_for_original_image,
+                    )
                 if True:
-                    original_img0 = tensor = StreamTensorToDevice(
+                    original_img0 = StreamTensorToDevice(
                         tensor=original_img0, device=self._device_for_original_image
                     )
                 else:
@@ -447,7 +451,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         else:
             if cuda_stream is not None:
                 img = StreamTensor(tensor=img, stream=cuda_stream)
-            return original_img0, img, None, imgs_info, ids
+            return original_img0, img.to("cpu"), None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
