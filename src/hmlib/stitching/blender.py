@@ -1105,7 +1105,7 @@ def main(args):
             # interpolation="",
             show=args.show_image,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            #output_video="stitched_output.mkv",
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
