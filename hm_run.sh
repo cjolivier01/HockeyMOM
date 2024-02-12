@@ -49,6 +49,10 @@ BATCH_SIZE=1
 
 STITCHING_ARGS="--no-save-stitched"
 
+if [ -z "CUDA_VISIBLE_DEVICES" ]; then
+  CUDA_VISIBLE_DEVICES="1,2,3,0"
+fi
+
 echo "Experiment name: ${EXP_NAME}"
 
 if [ ! -z "${VIDEO}" ]; then
@@ -56,7 +60,7 @@ if [ ! -z "${VIDEO}" ]; then
 fi
 set -x
 OMP_NUM_THREADS=16 \
-  CUDA_VISIBLE_DEVICES="1,2,3,0" \
+  CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
