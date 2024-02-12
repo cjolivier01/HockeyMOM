@@ -1,25 +1,35 @@
 game:
-  name: "tvbb-1"
+  name: "sharks-bb2-2"
   rink: "vallco"
   home: "Cougars"
-  away: "Tri-Valley Blue Devils 10BB"
+  away: "Sharks 10BB-2"
 
   stitching:
-    offsets: [15.39277049481131, 0]
+    offsets: null
 
-  clip_box: [null, 200, null, null]
   boundaries:
     upper:
-      - [291, 1135, 1187, 626]
-      - [3067, 479, 4107, 927]
+      - [179, 1493, 485, 1324]
+      - [422, 1357, 1142, 1055]
+      - [1128, 1049, 2480, 619]
+      - [2447, 617, 4224, 621]
+      - [4195, 614, 5447, 968]
+      - [5498, 1069, 5620, 1055]
     lower:
-      - [14, 1102, 306, 1105]
-      - [294, 1134, 931, 1850]
-      - [7, 1163, 318, 1162]
-      - [2992, 1606, 3667, 1094]
-      - [3668, 1094, 3866, 802]
-      - [3866, 802, 4240, 824]
+      - [5, 1498, 170, 1491]
+      - [154, 1481, 601, 2117]
+      - [4831, 2037, 5586, 926]
 rink:
+  tracking:
+    #
+    # Some tracking config
+    #
+    cam_ignore_largest: true
+
   camera:
-    fixed_edge_scaling_factor: 1.25
+    #
+    # Rink-related tracking config
+    #
     fixed_edge_rotation_angle: 40
+    follower_box_scale_width: 1.2
+    follower_box_scale_height: 1.2
