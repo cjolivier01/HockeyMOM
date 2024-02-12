@@ -1,6 +1,6 @@
 #!/bin/bash
 
-GAME_ID="sharks-bb1-2"
+GAME_ID="sharks-bb2-2"
 #GAME_ID="sharksbb1-1"
 #GAME_ID="tvbb"
 
