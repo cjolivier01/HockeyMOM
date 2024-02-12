@@ -141,8 +141,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        # self.fixed_edge_rotation = False
-        self.fixed_edge_rotation = True
+        self.fixed_edge_rotation = False
+        # self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
             "fixed_edge_rotation_angle"

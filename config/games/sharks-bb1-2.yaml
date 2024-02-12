@@ -1,38 +1,15 @@
 game:
-  name: "sharks-bb1-2"
-  rink: "sharks_black"
+  name: "sharks-bb2-2"
+  rink: "vallco"
   home: "Cougars"
-  away: "Sharks 10BB-1"
+  away: "Sharks 10BB-2"
 
   stitching:
-    offsets: [2.06935921221635, 0]
-
-  #clip_box: [null, 280, null, null]
-  #clip_box: [null, 500, null, null]
+    offsets: null
 
   boundaries:
     upper:
-      - [954, 1300, 1859, 1079]
-      - [1859, 1079, 2307, 1029]
-      - [2244, 1033, 3196, 1009]
-      - [2677, 1029, 3263, 1023]
-      - [3148, 1013, 3962, 1017]
-      - [3949, 1017, 4874, 1045]
-      - [4848, 1045, 5710, 1113]
-      - [6758, 1388, 7124, 1546]
-      - [7115, 1493, 7861, 1493]
-    upper_tune_position: [0, 35]
     lower:
-      - [1016, 1528, 1833, 1832]
-      - [1817, 1837, 2926, 2082]
-      - [2897, 2079, 3881, 2181]
-      - [3855, 2183, 4858, 2147]
-      - [4858, 2147, 5942, 1960]
-      - [5941, 1960, 6987, 1644]
-      - [6966, 1644, 7121, 1588]
-      - [7167, 711, 7941, 674]
-      - [10, 1536, 998, 1455]
-    lower_tune_position: [0, 70]
 rink:
   tracking:
     #
@@ -44,6 +21,6 @@ rink:
     #
     # Rink-related tracking config
     #
-    fixed_edge_rotation_angle: 35
-    follower_box_scale_width: 1.25
-    follower_box_scale_height: 1.25
+    fixed_edge_rotation_angle: 40
+    follower_box_scale_width: 1.2
+    follower_box_scale_height: 1.2

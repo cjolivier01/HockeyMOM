@@ -576,6 +576,7 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+            frame_id = imgproc_data.frame_id
             
             #torch.cuda.synchronize()
 
