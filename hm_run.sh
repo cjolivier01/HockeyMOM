@@ -11,9 +11,9 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #VIDEO="${HOME}/Videos/sharks-bb1-2"
 
 #GAME_ID="tvbb"
-#GAME_ID="tvbb2"
+GAME_ID="tvbb2"
 #GAME_ID="sharksbb1-1"
-GAME_ID="sharks-bb2-2"
+#GAME_ID="sharks-bb2-2"
 #GAME_ID="sharks-bb3-2"
 
 TEST_SIZE_ARG="--test-size=300x780"
@@ -49,9 +49,9 @@ BATCH_SIZE=1
 
 STITCHING_ARGS="--no-save-stitched"
 
-if [ -z "CUDA_VISIBLE_DEVICES" ]; then
-  CUDA_VISIBLE_DEVICES="1,2,3,0"
-fi
+# if [ -z "CUDA_VISIBLE_DEVICES" ]; then
+#   CUDA_VISIBLE_DEVICES="1,2,3,0"
+# fi
 
 echo "Experiment name: ${EXP_NAME}"
 
