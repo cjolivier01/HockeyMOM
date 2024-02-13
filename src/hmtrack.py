@@ -44,7 +44,7 @@ from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 from hmlib.hm_opts import hm_opts, copy_opts
-from hmlib.utils.gpu import get_gpu_with_highest_compute_capability
+from hmlib.utils.gpu import get_gpu_with_highest_compute_capability, GpuAllocator
 
 ROOT_DIR = os.getcwd()
 
@@ -484,37 +484,20 @@ def main(exp, args, num_gpu):
         #
         # BEGIN GPU SELECTION
         #
-        used_gpus = set()
-
-        def _get_next_gpu():
-            gpu_index = 0
-            for g in args.gpus:
-                if g not in used_gpus:
-                    gpu_index = g
-                    break
-            used_gpus.add(gpu_index)
-            return gpu_index
-
-        most_modern_gpu_index = get_gpu_with_highest_compute_capability(gpus=args.gpus)
-        if not most_modern_gpu_index:
-            most_modern_gpu_index = 0
-        else:
-            most_modern_gpu_index = most_modern_gpu_index[0]
-        assert most_modern_gpu_index in args.gpus
+        gpu_allocator = GpuAllocator(args.gpus)
 
         stitching_device = None
         if args.game_id:
             video_out_device = "cpu"
-            if len(args.gpus) > 1:
-                video_out_device = torch.device("cuda", most_modern_gpu_index)
-                used_gpus.add(most_modern_gpu_index)
+            video_out_device = torch.device("cuda", gpu_allocator.allocate_modern())
+            if gpu_allocator.free_count():
+                detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
             else:
-                video_out_device = torch.device("cuda", _get_next_gpu())
+                detection_device = video_out_device
+                video_out_device = torch.device("cpu")
 
-            detection_device = torch.device("cuda", _get_next_gpu())
-
-            if len(args.gpus) < len(used_gpus):
-                stitching_device = torch.device("cuda", _get_next_gpu())
+            if gpu_allocator.free_count():
+                stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
             else:
                 stitching_device = detection_device
             track_device = "cpu"

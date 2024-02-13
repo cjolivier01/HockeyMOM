@@ -846,7 +846,7 @@ def stitch_video(
     cap_1 = VideoStreamReader(
         os.path.join(dir_name, video_file_1),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=2)}",
+        device=f"cuda:{gpu_index(want=1)}",
         batch_size=batch_size,
     )
     if not cap_1 or not cap_1.isOpened():
@@ -858,7 +858,7 @@ def stitch_video(
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=3)}",
+        device=f"cuda:{gpu_index(want=2)}",
         batch_size=batch_size,
     )
 
@@ -1108,7 +1108,6 @@ def main(args):
             python_blend=args.python,
             # python_blend=False,
             interpolation="bilinear",
-            # interpolation="",
             show=args.show_image,
             start_frame_number=0,
             output_video="stitched_output.mkv" if args.save_stitched else None,
@@ -1118,7 +1117,7 @@ def main(args):
             # queue_size=args.queue_size,
             remap_on_async_stream=False,
             # device=torch.device("cuda", 2),
-            device=torch.device("cuda", 1),
+            device=torch.device("cuda", 0),
         )
 
 

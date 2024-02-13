@@ -1,8 +1,34 @@
 import torch
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union, Set
 
 from hmlib.utils.utils import create_queue
+
+
+class GpuAllocator:
+    def __init__(self, gpus: List[int]):
+        gpu_count = min(torch.cuda.device_count(), len(gpus))
+        self._gpus = gpus[: gpu_count + 1]
+        self._used_gpus = set()
+
+    def allocate_modern(self):
+        index, caps = get_gpu_with_highest_compute_capability(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
+        if index is not None:
+            self._used_gpus.add(index)
+        return index
+
+    def allocate_fast(self):
+        index, caps = get_gpu_with_most_multiprocessors(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
+        if index is not None:
+            self._used_gpus.add(index)
+        return index
+
+    def free_count(self):
+        return len(self._gpus) - len(self._used_gpus)
 
 
 class CachedIterator:
@@ -132,6 +158,7 @@ def get_gpu_capabilities():
         gpu_info.append(
             {
                 "name": properties.name,
+                "index": i,
                 "compute_capability": f"{properties.major}.{properties.minor}",
                 "total_memory": properties.total_memory
                 / (1024**3),  # Convert bytes to GB
@@ -141,18 +168,49 @@ def get_gpu_capabilities():
     return gpu_info
 
 
-def get_gpu_with_highest_compute_capability(gpus: List[int]) -> Tuple[int, Dict]:
-    caps = get_gpu_capabilities()
-    if caps is None:
+def get_gpu_with_highest_compute_capability(
+    allowed_gpus: List[int] = None,
+    disallowed_gpus: Union[List[int], Set[int]] = None,
+) -> Tuple[int, Dict]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
         return None
-    highest = 0
-    gpu_index = None
-    for index, gpu in enumerate(caps):
-        if index not in gpus:
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["compute_capability"]))
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
             continue
-        this_compute = float(gpu["compute_capability"])
-        if this_compute > highest:
-            highest = this_compute
-            gpu_index = index
-    return gpu_index, caps[gpu_index]
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        return index, gpu
+    return None, None
 
+
+def get_gpu_with_most_multiprocessors(
+    allowed_gpus: List[int] = None,
+    disallowed_gpus: Union[List[int], Set[int]] = None,
+) -> Tuple[int, Dict]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
+        return None
+    sorted_gpus = sorted(
+        gpus, key=lambda x: float(x["properties"].multi_processor_count)
+    )
+    candidates = []
+    last_count = 0
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
+            continue
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        if last_count:
+            if gpu["properties"].multi_processor_count == last_count:
+                candidates.append(index)
+        else:
+            last_count = gpu["properties"].multi_processor_count
+            candidates.append(index)
+    if not candidates:
+        return None, None
+    candidates = sorted(candidates)
+    return candidates[0], gpus[candidates[0]]

@@ -11,9 +11,9 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #VIDEO="${HOME}/Videos/sharks-bb1-2"
 
 #GAME_ID="tvbb"
-GAME_ID="tvbb2"
+#GAME_ID="tvbb2"
 #GAME_ID="sharksbb1-1"
-#GAME_ID="sharks-bb2-2"
+GAME_ID="sharks-bb2-2"
 #GAME_ID="sharks-bb3-2"
 
 TEST_SIZE_ARG="--test-size=300x780"

@@ -41,7 +41,9 @@ class hm_opts(object):
             help="show as processing",
         )
         parser.add_argument(
+            "--decoder",
             "--video-stream-decode-method",
+            dest="video_stream_decode_method",
             # default="ffmpeg",
             default="cv2",
             type=str,

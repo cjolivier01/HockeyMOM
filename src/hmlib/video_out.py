@@ -258,6 +258,10 @@ class VideoOutput:
         image_channel_adjustment: List[float] = None,
         print_interval: int = 50,
     ):
+        if device is not None:
+            print(
+                "Video output {output_frame_width}x{output_frame_height} using device: {device} ({output_video_path})"
+            )
         self._args = args
         self._device = (
             device if isinstance(device, torch.device) else torch.device(device)

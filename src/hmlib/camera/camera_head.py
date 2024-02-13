@@ -149,9 +149,10 @@ class CamTrackHead(TrackingHead):
             letterbox_img,
             original_img,
         )
+        assert isinstance(online_ids, torch.Tensor)
         self._postprocessor.send(
             online_tlwhs,
-            torch.tensor(online_ids, dtype=torch.int64),
+            online_ids,
             detections,
             info_imgs,
             None,
@@ -159,9 +160,7 @@ class CamTrackHead(TrackingHead):
         )
         return detections, online_tlwhs
 
-    def on_first_image(
-        self, frame_id, letterbox_img, original_img, device
-    ):
+    def on_first_image(self, frame_id, letterbox_img, original_img, device):
         if self._hockey_mom is None:
             if len(original_img.shape) == 4:
                 original_img = original_img[0]
@@ -181,7 +180,7 @@ class CamTrackHead(TrackingHead):
                 save_frame_dir=self._save_frame_dir,
                 device=device,
                 opt=self._opt,
-                original_clip_box=self._original_clip_box, # TODO: Put in args
+                original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
                 use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,
