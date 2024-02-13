@@ -151,7 +151,7 @@ def stitch_videos(
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
         # encoder_device=torch.device("cpu"),
-        encoder_device=torch.device("cuda"),
+        encoder_device=torch.device("cuda", 1),
         blend_mode=blend_mode,
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,

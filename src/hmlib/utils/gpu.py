@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import Union
+from typing import Dict, List, Tuple
 
 from hmlib.utils.utils import create_queue
 
@@ -120,3 +120,39 @@ class StreamTensorToDtype(StreamTensor):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
         if contiguous:
             self._tensor = self._tensor.contiguous()
+
+
+def get_gpu_capabilities():
+    if not torch.cuda.is_available():
+        return None
+    num_gpus = torch.cuda.device_count()
+    gpu_info = []
+    for i in range(num_gpus):
+        properties = torch.cuda.get_device_properties(i)
+        gpu_info.append(
+            {
+                "name": properties.name,
+                "compute_capability": f"{properties.major}.{properties.minor}",
+                "total_memory": properties.total_memory
+                / (1024**3),  # Convert bytes to GB
+                "properties": properties,
+            }
+        )
+    return gpu_info
+
+
+def get_gpu_with_highest_compute_capability(gpus: List[int]) -> Tuple[int, Dict]:
+    caps = get_gpu_capabilities()
+    if caps is None:
+        return None
+    highest = 0
+    gpu_index = None
+    for index, gpu in enumerate(caps):
+        if index not in gpus:
+            continue
+        this_compute = float(gpu["compute_capability"])
+        if this_compute > highest:
+            highest = this_compute
+            gpu_index = index
+    return gpu_index, caps[gpu_index]
+

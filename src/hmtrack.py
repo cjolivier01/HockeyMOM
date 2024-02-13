@@ -44,6 +44,7 @@ from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 from hmlib.hm_opts import hm_opts, copy_opts
+from hmlib.utils.gpu import get_gpu_with_highest_compute_capability
 
 ROOT_DIR = os.getcwd()
 
@@ -480,20 +481,43 @@ def main(exp, args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
+        #
+        # BEGIN GPU SELECTION
+        #
+        used_gpus = set()
+
+        def _get_next_gpu():
+            gpu_index = 0
+            for g in args.gpus:
+                if g not in used_gpus:
+                    gpu_index = g
+                    break
+            used_gpus.add(gpu_index)
+            return gpu_index
+
+        most_modern_gpu_index = get_gpu_with_highest_compute_capability(gpus=args.gpus)
+        if not most_modern_gpu_index:
+            most_modern_gpu_index = 0
+        else:
+            most_modern_gpu_index = most_modern_gpu_index[0]
+        assert most_modern_gpu_index in args.gpus
+
+        stitching_device = None
         if args.game_id:
-            detection_device = torch.device("cuda", int(args.gpus[0]))
-            stitching_device = detection_device
-            track_device = "cpu"
             video_out_device = "cpu"
             if len(args.gpus) > 1:
-                video_out_device = torch.device("cuda", int(args.gpus[-1]))
-                #video_out_device = torch.device("cuda", int(args.gpus[0]))
-                if len(args.gpus) > 2:
-                    stitching_device = torch.device("cuda", int(args.gpus[1]))
+                video_out_device = torch.device("cuda", most_modern_gpu_index)
+                used_gpus.add(most_modern_gpu_index)
             else:
-                video_out_device = torch.device("cuda", int(args.gpus[0]))
-            # if len(args.gpus) > 2:
-            #     track_device = torch.device("cuda", int(args.gpus[2]))
+                video_out_device = torch.device("cuda", _get_next_gpu())
+
+            detection_device = torch.device("cuda", _get_next_gpu())
+
+            if len(args.gpus) < len(used_gpus):
+                stitching_device = torch.device("cuda", _get_next_gpu())
+            else:
+                stitching_device = detection_device
+            track_device = "cpu"
         else:
             detection_device = torch.device("cuda", int(rank))
             stitching_device = detection_device
@@ -588,7 +612,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    #device_for_original_image=video_out_device,
+                    # device_for_original_image=video_out_device,
                     device_for_original_image=torch.device("cpu"),
                 )
             else:

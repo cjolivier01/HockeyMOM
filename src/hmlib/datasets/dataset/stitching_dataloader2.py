@@ -67,7 +67,8 @@ def _get_cuda_device():
     # Use last device
     if int(os.environ.get("HM_NO_CUDA_STITCH_ENCODER", "0")):
         return torch.device("cpu")
-    return torch.device("cuda", torch.cuda.device_count() - 1)
+    #return torch.device("cuda", torch.cuda.device_count() - 1)
+    return torch.device("cpu")
 
 
 class MultiDataLoaderWrapper:
@@ -244,7 +245,7 @@ class StitchDataset:
                 original_image_only=True,
                 # device=remapping_device,
                 device=torch.device("cpu"),
-                #scale_rgb_down=True,
+                # scale_rgb_down=True,
             )
         )
         dataloaders.append(
@@ -258,7 +259,7 @@ class StitchDataset:
                 original_image_only=True,
                 # device=remapping_device,
                 device=torch.device("cpu"),
-                #scale_rgb_down=True,
+                # scale_rgb_down=True,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)
@@ -443,9 +444,7 @@ class StitchDataset:
                 fps=self.fps,
                 device=self._encoder_device,
                 fourcc=(
-                    "hevc_nvenc"
-                    if str(self._encoder_device).startswith("cuda")
-                    else "XVID"
+                    "hevc_nvenc" if self._encoder_device.type == "cuda" else "XVID"
                 ),
                 name="STITCH-OUT",
                 simple_save=True,
