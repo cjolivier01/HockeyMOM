@@ -195,6 +195,7 @@ class ImageProcData:
 def _to_float(
     tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
 ):
+    assert apply_scale
     if tensor.dtype == torch.uint8:
         if apply_scale:
             return tensor.to(torch.float32, non_blocking=non_blocking) / 255.0
@@ -208,6 +209,7 @@ def _to_float(
 def _to_uint8(
     tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
 ):
+    assert apply_scale
     if not isinstance(tensor, torch.Tensor):
         assert tensor.dtype == np.uint8
         return tensor
@@ -260,7 +262,8 @@ class VideoOutput:
     ):
         if device is not None:
             print(
-                "Video output {output_frame_width}x{output_frame_height} using device: {device} ({output_video_path})"
+                f"Video output {output_frame_width}x{output_frame_height} "
+                f"using device: {device} ({output_video_path})"
             )
         self._args = args
         self._device = (
@@ -541,6 +544,7 @@ class VideoOutput:
 
             # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type != "cpu":
+                # max = torch.max(online_im)
                 online_im = online_im.cpu()
 
             if online_im.ndim == 3:

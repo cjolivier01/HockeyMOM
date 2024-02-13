@@ -7,6 +7,8 @@ from hmlib.utils.utils import create_queue
 
 class GpuAllocator:
     def __init__(self, gpus: List[int]):
+        if gpus is None:
+            gpus = [i for i in range(torch.cuda.device_count())]
         gpu_count = min(torch.cuda.device_count(), len(gpus))
         self._gpus = gpus[: gpu_count + 1]
         self._used_gpus = set()
@@ -129,7 +131,11 @@ class StreamTensorToDevice(StreamTensor):
 
 class StreamTensorToDtype(StreamTensor):
     def __init__(
-        self, tensor: torch.Tensor, dtype: torch.dtype, contiguous: bool = False
+        self,
+        tensor: torch.Tensor,
+        dtype: torch.dtype,
+        contiguous: bool = False,
+        scale_down_factor: float = None,
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
@@ -140,6 +146,8 @@ class StreamTensorToDtype(StreamTensor):
             self._stream = tensor._stream
             with torch.cuda.stream(stream=self._stream):
                 self._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
+                if scale_down_factor and scale_down_factor != 1:
+                    self._tensor /= scale_down_factor
         else:
             self._stream = torch.cuda.Stream(tensor.device)
             with torch.cuda.stream(stream=self._stream):

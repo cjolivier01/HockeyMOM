@@ -30,6 +30,7 @@ from hmlib.utils.gpu import (
     StreamTensorToDtype,
     CachedIterator,
     StreamTensor,
+    GpuAllocator,
 )
 from hmlib.hm_opts import hm_opts, copy_opts
 
@@ -821,6 +822,7 @@ def stitch_video(
     dir_name: str,
     basename_1: str,
     basename_2: str,
+    output_device: torch.device,
     interpolation: str = None,
     lfo: float = None,
     rfo: float = None,
@@ -892,6 +894,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=torch.float,
+            scale_down_factor=255.0,
         ),
     )
     v2_iter = CachedIterator(
@@ -900,6 +903,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=torch.float,
+            scale_down_factor=255.0,
         ),
     )
 
@@ -945,6 +949,10 @@ def stitch_video(
                 sinfo_1.image = to_tensor(source_tensor_1)
                 sinfo_1.xy_pos = xy_pos_1
 
+                if not batch_count:
+                    max_value = torch.max(sinfo_1.image)
+                    assert max_value < 1.01
+
                 sinfo_2 = core.StitchImageInfo()
                 sinfo_2.image = to_tensor(source_tensor_2)
                 sinfo_2.xy_pos = xy_pos_2
@@ -957,6 +965,11 @@ def stitch_video(
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
 
                 blended = blended_stream_tensor
+                
+                if not batch_count:
+                    max_value = torch.max(blended)
+                    assert max_value < 1.2
+                
                 main_stream.synchronize()
                 # torch.cuda.synchronize()
                 stitch_timer.toc()
@@ -976,7 +989,7 @@ def stitch_video(
                             output_frame_width=video_dim_width,
                             output_frame_height=video_dim_height,
                             fps=fps,
-                            device=blended.device,
+                            device=output_device,
                             skip_final_save=skip_final_video_save,
                             fourcc="auto",
                         )
@@ -1094,6 +1107,7 @@ def stitch_video(
 
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
+    gpu_allocator = GpuAllocator(gpus=None)
     with torch.no_grad():
         stitch_video(
             # blend_video(
@@ -1111,13 +1125,14 @@ def main(args):
             show=args.show_image,
             start_frame_number=0,
             output_video="stitched_output.mkv" if args.save_stitched else None,
+            output_device=torch.device("cuda", gpu_allocator.allocate_modern()),
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             # queue_size=args.queue_size,
             remap_on_async_stream=False,
             # device=torch.device("cuda", 2),
-            device=torch.device("cuda", 0),
+            device=torch.device("cuda", gpu_allocator.allocate_fast()),
         )
 
 
