@@ -63,12 +63,11 @@ def distribute_items_detailed(total_item_count, worker_count):
     return distribution
 
 
-def _get_cuda_device():
-    # Use last device
-    if int(os.environ.get("HM_NO_CUDA_STITCH_ENCODER", "0")):
-        return torch.device("cpu")
-    #return torch.device("cuda", torch.cuda.device_count() - 1)
-    return torch.device("cpu")
+# def _get_cuda_device():
+#     # Use last device
+#     if int(os.environ.get("HM_NO_CUDA_STITCH_ENCODER", "0")):
+#         return torch.device("cpu")
+#     return torch.device("cuda", torch.cuda.device_count() - 1)
 
 
 class MultiDataLoaderWrapper:
@@ -106,6 +105,12 @@ class MultiDataLoaderWrapper:
                 self._len = this_len if self._len is None else min(self._len, this_len)
 
 
+def as_torch_device(device):
+    if isinstance(device, str):
+        return torch.device(device)
+    return device
+
+
 ##
 #   _____ _   _  _        _     _____        _                     _
 #  / ____| | (_)| |      | |   |  __ \      | |                   | |
@@ -134,7 +139,7 @@ class StitchDataset:
         num_workers: int = 1,
         fork_workers: bool = False,
         image_roi: List[int] = None,
-        encoder_device: torch.device = _get_cuda_device(),
+        encoder_device: torch.device = torch.device("cpu"),
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         remap_on_async_stream: bool = False,
@@ -142,9 +147,9 @@ class StitchDataset:
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
         self._batch_size = batch_size
-        self._remapping_device = remapping_device
+        self._remapping_device = as_torch_device(remapping_device)
         self._remap_on_async_stream = remap_on_async_stream
-        self._encoder_device = encoder_device
+        self._encoder_device = as_torch_device(encoder_device)
         self._output_stitched_video_file = output_stitched_video_file
         self._video_1_offset_frame = video_1_offset_frame
         self._video_2_offset_frame = video_2_offset_frame
@@ -429,7 +434,8 @@ class StitchDataset:
             args.show_image = False
             args.plot_frame_number = False
             self._video_output_size = torch.tensor(
-                (stitched_frame.shape[1], stitched_frame.shape[0]), dtype=torch.int32
+                [image_width(stitched_frame), image_height(stitched_frame)],
+                dtype=torch.int32,
             )
             self._video_output_box = torch.tensor(
                 (0, 0, self._video_output_size[0], self._video_output_size[1]),
@@ -443,19 +449,19 @@ class StitchDataset:
                 output_frame_height=self._video_output_size[1],
                 fps=self.fps,
                 device=self._encoder_device,
-                fourcc=(
-                    "hevc_nvenc" if self._encoder_device.type == "cuda" else "XVID"
-                ),
+                # fourcc=(
+                #     "hevc_nvenc"
+                #     if str(self._encoder_device).startswith("cuda")
+                #     else "XVID"
+                # ),
                 name="STITCH-OUT",
                 simple_save=True,
             )
-
         image_proc_data = ImageProcData(
             frame_id=frame_id,
-            img=stitched_frame,
+            img=torch.clamp(stitched_frame / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
         )
-
         self._video_output.append(image_proc_data)
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
@@ -470,6 +476,7 @@ class StitchDataset:
                 device=self._remapping_device,
                 remap_on_async_stream=self._remap_on_async_stream,
             )
+            assert self._remapping_device.type != "cpu"
             self._stitcher.to(self._remapping_device)
 
             frame_count = 0

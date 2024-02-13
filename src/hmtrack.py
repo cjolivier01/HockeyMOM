@@ -521,6 +521,9 @@ def main(exp, args, num_gpu):
         else:
             detection_device = torch.device("cuda", int(rank))
             stitching_device = detection_device
+        #
+        # END GPU SELECTION
+        #
 
         dataloader = None
         postprocessor = None
@@ -563,7 +566,7 @@ def main(exp, args, num_gpu):
                 # Create the stitcher data loader
                 output_stitched_video_file = (
                     os.path.join(".", f"stitched_output-{args.experiment_name}.mkv")
-                    if not args.no_save_stitched
+                    if args.save_stitched
                     else None
                 )
                 stitched_dataset = StitchDataset(
@@ -573,7 +576,9 @@ def main(exp, args, num_gpu):
                     video_1_offset_frame=lfo,
                     video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
-                    output_stitched_video_file=output_stitched_video_file,
+                    output_stitched_video_file=(
+                        output_stitched_video_file if args.save_stitched else None
+                    ),
                     max_frames=args.max_frames,
                     # max_input_queue_size=2,
                     max_input_queue_size=1,

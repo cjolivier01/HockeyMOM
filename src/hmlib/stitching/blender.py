@@ -958,7 +958,7 @@ def stitch_video(
 
                 blended = blended_stream_tensor
                 main_stream.synchronize()
-                #torch.cuda.synchronize()
+                # torch.cuda.synchronize()
                 stitch_timer.toc()
 
                 if output_video:
@@ -1086,9 +1086,11 @@ def stitch_video(
                 else:
                     video_out.stop()
 
+
 #
 # Combined FPS= XY/(X+Y)
 #
+
 
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
@@ -1109,14 +1111,14 @@ def main(args):
             # interpolation="",
             show=args.show_image,
             start_frame_number=0,
-            output_video="stitched_output.mkv",
+            output_video="stitched_output.mkv" if args.save_stitched else None,
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             # queue_size=args.queue_size,
             remap_on_async_stream=False,
-            #device=torch.device("cuda", 2),
-            device=torch.device("cuda", 0),
+            # device=torch.device("cuda", 2),
+            device=torch.device("cuda", 1),
         )
 
 

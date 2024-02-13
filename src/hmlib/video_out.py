@@ -29,6 +29,10 @@ from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorScaler
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.utils.gpu import (
+    get_gpu_with_highest_compute_capability,
+    get_gpu_capabilities,
+)
 from hmlib.utils.image import (
     make_channels_last,
     image_width,
@@ -46,22 +50,6 @@ from hmlib.utils.box_functions import (
     height,
 )
 
-from torchaudio.utils import ffmpeg_utils
-
-
-def print_ffmpeg_info():
-    print("Library versions:")
-    print(ffmpeg_utils.get_versions())
-    print("\nBuild config:")
-    print(ffmpeg_utils.get_build_config())
-    print("\nDecoders:")
-    print([k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k])
-    print("\nEncoders:")
-    print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
-
-
-print_ffmpeg_info()
-
 
 @contextmanager
 def optional_with(resource):
@@ -75,54 +63,17 @@ def optional_with(resource):
             yield r
 
 
-def get_gpu_capabilities():
-    if not torch.cuda.is_available():
-        return None
-    num_gpus = torch.cuda.device_count()
-    gpu_info = []
-    for i in range(num_gpus):
-        properties = torch.cuda.get_device_properties(i)
-        gpu_info.append(
-            {
-                "name": properties.name,
-                "compute_capability": f"{properties.major}.{properties.minor}",
-                "total_memory": properties.total_memory
-                / (1024**3),  # Convert bytes to GB
-                "properties": properties,
-            }
-        )
-    return gpu_info
-
-
-def get_gpu_with_highest_compute_capability() -> Tuple[int, Dict]:
-    caps = get_gpu_capabilities()
-    if caps is None:
-        return None
-    highest = 0
-    gpu_index = None
-    for index, gpu in enumerate(caps):
-        this_compute = float(gpu["compute_capability"])
-        if this_compute > highest:
-            highest = this_compute
-            gpu_index = index
-    return gpu_index, caps[gpu_index]
-
-
 def get_best_codec(gpu_number: int, width: int, height: int):
-    highest_index, highest_cap = get_gpu_with_highest_compute_capability()
-    print(
-        f"GPU with highest compute capability: \"cuda:{highest_index}\" with compute: {highest_cap['compute_capability']}"
-    )
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if (
         compute >= 7 and width <= 9900
     ):  # FIXME: I forget what the max is? 99-thousand-something
-        return "hevc_nvenc"
+        return "hevc_nvenc", True
     elif compute >= 6 and width <= 4096:
-        return "hevc_nvenc"
+        return "hevc_nvenc", True
     else:
-        return "XVID"
+        return "XVID", False
 
 
 def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
@@ -157,9 +108,6 @@ def make_visible_image(
         new_h = new_w / ar
         img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
     return make_showable_type(img)
-
-
-_ANGLE = 0.0
 
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
@@ -318,6 +266,7 @@ class VideoOutput:
         self._simple_save = simple_save
         self._fps = fps
         self._skip_final_save = skip_final_save
+        assert output_frame_width > 4 and output_frame_height > 4
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
         self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
@@ -335,11 +284,14 @@ class VideoOutput:
 
         if fourcc == "auto":
             if self._device.type == "cuda":
-                self._fourcc = get_best_codec(
+                self._fourcc, is_gpu = get_best_codec(
                     device.index,
                     width=int(output_frame_width),
                     height=int(output_frame_height),
                 )
+                if not is_gpu:
+                    print(f"Can't use GPU for output video {output_video_path}")
+                    self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"
             print(
@@ -577,13 +529,13 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
-            
-            #torch.cuda.synchronize()
+
+            # torch.cuda.synchronize()
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
 
-            #assert online_im.device.type == "cpu" or online_im.device == self._device
+            # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type != "cpu":
                 online_im = online_im.cpu()
 

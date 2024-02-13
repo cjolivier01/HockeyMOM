@@ -7,6 +7,8 @@ from typing import Tuple
 import subprocess
 import ctypes
 import signal
+from torchaudio.utils import ffmpeg_utils
+
 
 libc = ctypes.CDLL("libc.so.6")
 
@@ -33,16 +35,29 @@ class BasicVideoInfo:
         cap.release()
 
 
+def print_ffmpeg_info():
+    print("Library versions:")
+    print(ffmpeg_utils.get_versions())
+    print("\nBuild config:")
+    print(ffmpeg_utils.get_build_config())
+    print("\nDecoders:")
+    print([k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k])
+    print("\nEncoders:")
+    print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
+
+
 def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
     # attach audio to new video
-    cmd_str = f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy -strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
+    cmd_str = f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy "
+    f"-strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
     print(cmd_str)
     os.system(cmd_str)
 
 
 def convert_to_h265(source_video: str, dest_video: str):
     # attach audio to new video
-    cmd_str = f"/usr/local/bin/ffmpeg -y -hwaccel cuda -i {source_video} -c:v libx265 -crf 40 -b:a 192k -preset medium -tune fastdecode -c:a copy {dest_video}"
+    cmd_str = f"/usr/local/bin/ffmpeg -y -hwaccel cuda -i {source_video} -c:v libx265 "
+    f"-crf 40 -b:a 192k -preset medium -tune fastdecode -c:a copy {dest_video}"
     print(cmd_str)
     os.system(cmd_str)
 

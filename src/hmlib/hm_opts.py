@@ -105,9 +105,9 @@ class hm_opts(object):
             help="Don't save the output video frames",
         )
         parser.add_argument(
-            "--no_save_stitched",
-            "--no-save-stitched",
-            dest="no_save_stitched",
+            "--save_stitched",
+            "--save-stitched",
+            dest="save_stitched",
             action="store_true",
             help="Don't save the output video",
         )

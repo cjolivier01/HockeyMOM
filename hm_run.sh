@@ -47,11 +47,7 @@ BATCH_SIZE=1
 #WRAPPER_CMD="nsys profile"
 #WRAPPER_CMD="echo"
 
-STITCHING_ARGS="--no-save-stitched"
-
-# if [ -z "CUDA_VISIBLE_DEVICES" ]; then
-#   CUDA_VISIBLE_DEVICES="1,2,3,0"
-# fi
+#STITCHING_ARGS="--save-stitched"
 
 echo "Experiment name: ${EXP_NAME}"
 
