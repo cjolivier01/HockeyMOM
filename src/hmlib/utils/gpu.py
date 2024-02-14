@@ -249,3 +249,71 @@ def get_gpu_with_most_multiprocessors(
     candidates = sorted(candidates)
     return candidates[0], gpus[candidates[0]]
 
+
+def _check_is(dev: torch.device, flag: bool):
+    if dev is not None:
+        assert isinstance(dev, torch.device)
+    assert (flag and dev is not None) or (not flag and dev is None)
+
+
+def select_gpus(
+    allowed_gpus: List[int],
+    rank: int = None,
+    gpu_allocator: GpuAllocator = None,
+    inference: bool = True,
+    is_stitching: bool = True,
+    is_detecting: bool = True,
+    is_encoding: bool = True,
+    is_camera: bool = True,
+):
+    #
+    # BEGIN GPU SELECTION
+    #
+    if gpu_allocator is None:
+        gpu_allocator = GpuAllocator(gpus=allowed_gpus)
+
+    stitching_device = None
+    video_encoding_device = None
+    camera_device = torch.device("cpu")
+    if inference:
+        if is_encoding:
+            video_encoding_device = torch.device(
+                "cuda", gpu_allocator.allocate_modern()
+            )
+        if gpu_allocator.free_count():
+            detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+        else:
+            detection_device = video_encoding_device
+            if is_encoding:
+                video_encoding_device = torch.device("cpu")
+
+        if is_stitching:
+            if gpu_allocator.free_count():
+                stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
+            else:
+                stitching_device = detection_device
+    else:
+        if rank is not None:
+            for i in range(rank):
+                _ = gpu_allocator.allocate_fast()
+            detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+        if is_stitching:
+            stitching_device = detection_device
+    #
+    # END GPU SELECTION
+    #
+    gpus = dict()
+    _check_is(stitching_device, is_stitching)
+    _check_is(detection_device, is_detecting)
+    _check_is(stitching_device, is_stitching)
+    _check_is(camera_device, is_camera)
+    _check_is(video_encoding_device, is_encoding)
+    if stitching_device is not None:
+        gpus["stitching"] = stitching_device
+    if detection_device is not None:
+        gpus["detection"] = detection_device
+    if camera_device is not None:
+        gpus["camera"] = camera_device
+    if video_encoding_device is not None:
+        gpus["encoder"] = video_encoding_device
+    return gpus
