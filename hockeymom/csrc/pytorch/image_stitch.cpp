@@ -57,6 +57,7 @@ ImageStitcher::ImageStitcher(
         remap_info.src_height,
         remap_info.col_map,
         remap_info.row_map,
+        at::ScalarType::Float,
         remap_info.add_alpha_channel,
         interpolation));
     (*remappers_.rbegin())->init(batch_size);
@@ -78,6 +79,10 @@ at::Tensor ImageStitcher::forward(std::vector<StitchImageInfo> inputs) {
     for (auto& r : remappers_) {
       r->init(batch_size);
     }
+  }
+  for (auto& t : inputs) {
+    TORCH_CHECK(
+        torch::is_floating_point(t.image), "Inputs must be floating point");
   }
   std::vector<StreamTensor> remap_tensors(inputs.size());
   if (remap_on_async_stream_) {

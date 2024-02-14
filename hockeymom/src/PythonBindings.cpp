@@ -67,6 +67,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("y_pos", &hm::ops::RemapperConfig::y_pos)
       .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
       .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
+      .def_readwrite("dtype", &hm::ops::RemapperConfig::dtype)
       .def_readwrite(
           "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
       .def_readwrite("interpolation", &hm::ops::RemapperConfig::interpolation)
@@ -457,12 +458,14 @@ PYBIND11_MODULE(_hockeymom, m) {
               std::size_t,
               at::Tensor,
               at::Tensor,
+              at::ScalarType,
               bool,
               std::optional<std::string>>(),
           py::arg("src_width"),
           py::arg("src_height"),
           py::arg("col_map"),
           py::arg("row_map"),
+          py::arg("dtype"),
           py::arg("add_alpha_channel"),
           py::arg("interpolation"),
           py::call_guard<py::gil_scoped_release>())

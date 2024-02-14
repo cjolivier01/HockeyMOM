@@ -56,10 +56,10 @@ def show_image(label: str, img: torch.Tensor, wait: bool = True):
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
     if img.ndim == 4:
         for i in img:
-            cv2.imshow(label, make_visible_image(i, scale_elements=None))
+            cv2.imshow(label, make_visible_image(i, scale_elements=255.0))
             cv2.waitKey(1 if not wait else 0)
     else:
-        cv2.imshow(label, make_visible_image(img, scale_elements=None))
+        cv2.imshow(label, make_visible_image(img, scale_elements=255.0))
         cv2.waitKey(1 if not wait else 0)
 
 

@@ -65,6 +65,7 @@ ImageRemapper::ImageRemapper(
     std::size_t src_height,
     at::Tensor col_map,
     at::Tensor row_map,
+    at::ScalarType dtype,
     bool add_alpha_channel,
     std::optional<std::string> interpolation)
     : src_width_(src_width),
@@ -73,6 +74,7 @@ ImageRemapper::ImageRemapper(
       dest_height_(col_map.size(0)),
       col_map_(col_map),
       row_map_(row_map),
+      dtype_(dtype),
       add_alpha_channel_(add_alpha_channel),
       interpolation_(interpolation ? *interpolation : "") {
   working_width_ = std::max(src_width_, dest_width_);
@@ -113,11 +115,15 @@ void ImageRemapper::init(std::size_t batch_size) {
   mask_ = mask.contiguous();
   if (add_alpha_channel_) {
     at::TensorOptions options;
-    options = options.dtype(at::ScalarType::Byte);
+    options = options.dtype(dtype_);
     alpha_channel_ = at::empty(
         {(int)batch_size, 1, (int)working_height_, (int)working_width_},
         options);
-    alpha_channel_.fill_(255);
+    if (torch::is_floating_point(alpha_channel_)) {
+      alpha_channel_.fill_(1.0);
+    } else {
+      alpha_channel_.fill_(255);
+    }
     alpha_channel_.index_put_(
         {at::indexing::Slice(), at::indexing::Slice(), mask_}, (uint8_t)0);
   }
@@ -139,8 +145,18 @@ void ImageRemapper::to(at::Device device) {
 
 at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
   assert(initialized_);
+  TORCH_CHECK(
+      source_tensor.dtype() == dtype_,
+      "Current remapper dtype is ",
+      dtype_,
+      " but the source tensor dtype is ",
+      source_tensor.dtype());
+  TORCH_CHECK(
+      source_tensor.size(1) == 3 || source_tensor.size(2) == 4,
+      "Tensor format should be [batch, channels, height, width");
+  // bool was_uint8 = source_tensor.dtype() == torch::
   source_tensor = pad_tensor_to_size_batched(
-      source_tensor, working_width_, working_height_, (uint8_t)0);
+      source_tensor, working_width_, working_height_, 0);
   // batch + 3 channels
   assert(source_tensor.sizes().size() == 4);
   at::Tensor destination_tensor;
@@ -159,11 +175,20 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     auto mode = torch::kBilinear;
     options =
         options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
-    destination_tensor = torch::nn::functional::grid_sample(
-        source_tensor.to(at::TensorOptions().dtype(torch::kF32)),
-        grid_,
-        options);
-    destination_tensor = destination_tensor.clamp(0, 255.0).to(torch::kByte);
+    if (!torch::is_floating_point(source_tensor)) {
+      source_tensor = source_tensor.to(at::TensorOptions().dtype(torch::kF32));
+    }
+    destination_tensor =
+        torch::nn::functional::grid_sample(source_tensor, grid_, options);
+    if (destination_tensor.dtype() != dtype_) {
+      if (dtype_ == at::ScalarType::Byte) {
+        destination_tensor =
+            destination_tensor.clamp(0, 255.0).to(torch::kByte);
+      } else {
+        destination_tensor =
+            destination_tensor.to(at::TensorOptions().dtype(dtype_));
+      }
+    }
   }
   destination_tensor.index_put_(
       {torch::indexing::Slice(), torch::indexing::Slice(), mask_}, (uint8_t)0);

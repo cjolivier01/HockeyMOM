@@ -160,6 +160,7 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
                 config.src_height,
                 config.col_map,
                 config.row_map,
+                at::ScalarType::Float,
                 config.add_alpha_channel,
                 config.interpolation);
         remapper->init(config.batch_size);

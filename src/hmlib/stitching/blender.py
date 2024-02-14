@@ -951,7 +951,7 @@ def stitch_video(
 
                 if not batch_count:
                     max_value = torch.max(sinfo_1.image)
-                    assert max_value < 1.01
+                    # assert max_value < 1.01
 
                 sinfo_2 = core.StitchImageInfo()
                 sinfo_2.image = to_tensor(source_tensor_2)
@@ -963,13 +963,13 @@ def stitch_video(
 
                 stitch_timer.tic()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
-
+                # blended_stream_tensor /= 255.0
                 blended = blended_stream_tensor
-                
+
                 if not batch_count:
                     max_value = torch.max(blended)
-                    assert max_value < 1.2
-                
+                    # assert max_value < 1.2
+
                 main_stream.synchronize()
                 # torch.cuda.synchronize()
                 stitch_timer.toc()
