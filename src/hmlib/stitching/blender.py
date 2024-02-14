@@ -1146,9 +1146,8 @@ def main(args):
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
-            # queue_size=args.queue_size,
+            queue_size=args.queue_size,
             remap_on_async_stream=False,
-            # device=torch.device("cuda", 2),
             device=torch.device("cuda", gpu_allocator.allocate_fast()),
         )
 

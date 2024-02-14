@@ -1,4 +1,5 @@
 import torch
+import time
 import numpy as np
 from typing import Dict, List, Tuple, Union, Set
 
@@ -11,25 +12,45 @@ class GpuAllocator:
             gpus = [i for i in range(torch.cuda.device_count())]
         gpu_count = min(torch.cuda.device_count(), len(gpus))
         self._gpus = gpus[: gpu_count + 1]
-        self._used_gpus = set()
+        self._used_gpus = dict()
+        self._named_allocations = dict()
 
-    def allocate_modern(self):
+    def allocate_modern(self, name: str = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
         index, caps = get_gpu_with_highest_compute_capability(
             allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
         )
         if index is not None:
-            self._used_gpus.add(index)
+            self._used_gpus.add(index, caps)
+            if name:
+                self._named_allocations[name] = index
         return index
 
-    def allocate_fast(self):
+    def allocate_fast(self, name: str = None):
+        """
+        Allocate GPU with the most multiprocessing cores
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
         index, caps = get_gpu_with_most_multiprocessors(
             allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
         )
         if index is not None:
-            self._used_gpus.add(index)
+            self._used_gpus.add(index, caps)
+            if name:
+                self._named_allocations[name] = index
         return index
 
     def free_count(self):
+        """
+        How many GPU's remain to be allocated?
+        """
         return len(self._gpus) - len(self._used_gpus)
 
 
@@ -70,24 +91,51 @@ class CachedIterator:
         return item
 
 
-class StreamTensor:
-    def __init__(self, tensor: torch.Tensor = None, stream: torch.cuda.Stream = None):
+class StreamTensorBase:
+    pass
+
+
+class StreamTensor(StreamTensorBase):
+    def __init__(
+        self,
+        tensor: Union[torch.Tensor, StreamTensorBase] = None,
+        stream: torch.cuda.Stream = None,
+        event: torch.cuda.Event = None,
+    ):
         self._tensor = tensor
         self._stream = stream
-        if not hasattr(self, "_event"):
-            self._event = None
+        self._event = event
+        self._owns_stream = False
+        self._sync_duraton = None
 
     def get(self):
-        if isinstance(self._tensor, StreamTensor):
-            return self._tensor.get()
         if self._stream is not None:
             if self._event is not None:
                 with torch.cuda.stream(self._stream):
+                    start = time.time()
                     self._event.synchronize()
+                    self._sync_duraton = start - time.time()
             else:
                 assert False
                 self._stream.synchronize()
+        elif self._event is not None:
+            start = time.time()
+            self._event.synchronize()
+            self._sync_duraton = start - time.time()
         return self._tensor
+
+    @property
+    def sync_duration(self):
+        if self._sync_duraton is None:
+            return -1
+        return self._sync_duraton
+
+    @property
+    def stream(self):
+        if self._owns_stream:
+            return self._stream
+        else:
+            return None
 
     @property
     def dtype(self):
@@ -128,6 +176,9 @@ class StreamCheckpoint(StreamTensor):
             with torch.cuda.stream(stream):
                 self._event = torch.cuda.Event()
                 self._event.record()
+        else:
+            self._event = torch.cuda.Event()
+            self._event.record()
 
 
 class StreamTensorToDevice(StreamTensor):
