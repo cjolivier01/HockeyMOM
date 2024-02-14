@@ -4,7 +4,14 @@ import torch
 import torchaudio
 import torchvision
 
+from hmlib.utils.image import resize_image
+
 from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
+
+#
+# Live stream:
+# https://www.digitalocean.com/community/tutorials/how-to-set-up-a-video-streaming-server-using-nginx-rtmp-on-ubuntu-22-04
+#
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
@@ -18,6 +25,27 @@ _FOURCC_TO_CODEC = {
     "MP4V": "mpeg4_cuvid",
     "FMP4": "mpeg4_cuvid",
 }
+
+
+def video_size(width: int, height: int, max_width: int = 1024):
+    h = height
+    w = width
+    if h > max_width:
+        ar = w / h
+        w = int(max_width)
+        h = int(w / ar)
+        return w, h, True
+    return w, h, False
+
+
+def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = 1024):
+    assert tensor.ndim == 4 and (tensor.shape[-1] == 3 or tensor.shape[-1] == 4)
+    h = tensor.shape[1]
+    w = tensor.shape[2]
+    w, h, resized = video_size(width=w, height=h, max_width=max_width)
+    if resized:
+        return resize_image(tensor, new_height=h, new_width=w)
+    return tensor
 
 
 class VideoStreamWriter:
@@ -41,7 +69,17 @@ class VideoStreamWriter:
         self._width = width
         self._height = height
         self._codec = codec
-        self._format = format
+        self._streaming = False
+        if self._filename.startswith("rtmp://"):
+            self._format = "flv"
+            self._container_type = "flv"
+            self._streaming = True
+        elif self._filename.startswith("udp://"):
+            self._format = "mpegts"
+            self._container_type = "mpegts"
+            self._streaming = True
+        else:
+            self._format = format
         self._video_out = None
         self._video_f = None
         self._device = device
@@ -97,17 +135,29 @@ class VideoStreamWriter:
         if self._lossless:
             options["qp"] = "0"
 
-        self._video_out.add_video_stream(
-            frame_rate=self._fps,
-            height=self._height,
-            width=self._width,
-            format=self._format,
-            encoder=self._codec,
-            encoder_format="bgr0",
-            encoder_option=options,
-            codec_config=self._codec_config,
-            hw_accel=str(self._device),
-        )
+        if self._filename.startswith("rtmp://"):
+            new_w, new_h, _ = video_size(width=self._width, height=self._height)
+            self._video_out.add_video_stream(
+                frame_rate=10.0,
+                format="bgr24",
+                # encoder="av1_nvenc",
+                encoder="flv",
+                height=new_h,
+                width=new_w,
+                # hw_accel=str(self._device),
+            )
+        else:
+            self._video_out.add_video_stream(
+                frame_rate=self._fps,
+                height=self._height,
+                width=self._width,
+                format=self._format,
+                encoder=self._codec,
+                encoder_format="bgr0",
+                encoder_option=options,
+                codec_config=self._codec_config,
+                hw_accel=str(self._device),
+            )
         print("Video stream added")
 
     def bgr_to_rgb(self, batch: torch.Tensor):
@@ -145,9 +195,10 @@ class VideoStreamWriter:
 
     def open(self):
         assert self._video_f is None
-        ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
-        if not self._filename.endswith("." + ext):
-            self._filename += "." + ext
+        if not self._streaming:
+            ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
+            if not self._filename.endswith("." + ext):
+                self._filename += "." + ext
         self._video_out = torchaudio.io.StreamWriter(
             dst=self._filename, format=self._container_type
         )
@@ -161,6 +212,9 @@ class VideoStreamWriter:
         return None
 
     def append(self, images: torch.Tensor):
+        if self._streaming:
+            images = scale_down_for_live_video(images)
+            images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
             self.flush(flush_video_file=False)

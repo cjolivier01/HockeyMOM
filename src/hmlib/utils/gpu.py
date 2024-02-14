@@ -103,12 +103,18 @@ class StreamTensor(StreamTensorBase):
         tensor: Union[torch.Tensor, StreamTensorBase] = None,
         stream: torch.cuda.Stream = None,
         event: torch.cuda.Event = None,
+        owns_stream: bool = None,
+        verbose: bool = True,
     ):
         self._tensor = tensor
         self._stream = stream
         self._event = event
-        self._owns_stream = False
+        if not isinstance(tensor, StreamTensor):
+            assert owns_stream is None
+        else:
+            self._owns_stream = owns_stream
         self._sync_duraton = None
+        self._verbose = verbose
 
     def get(self):
         if self._stream is not None:
@@ -124,6 +130,12 @@ class StreamTensor(StreamTensorBase):
             start = time.time()
             self._event.synchronize()
             self._sync_duraton = start - time.time()
+        if (
+            self._verbose
+            and self._sync_duraton is not None
+            and self._sync_duraton > 0.001
+        ):
+            print(f"Tensor sync took {self._sync_duraton} seconds")
         return self._tensor
 
     @property
@@ -134,6 +146,8 @@ class StreamTensor(StreamTensorBase):
 
     @property
     def stream(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.stream
         if self._owns_stream:
             return self._stream
         else:
@@ -159,10 +173,36 @@ class StreamTensor(StreamTensorBase):
     def shape(self):
         return self._tensor.shape
 
+    @property
+    def owns_stream(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.owns_stream
+        return self._owns_stream
+
     def ref(self):
         if isinstance(self._tensor, StreamTensor):
             return self._tensor.ref()
         return self._tensor
+
+    def _set_ref(self, tensor: torch.Tensor):
+        """
+        Set tensor to some modified version of itself that does not need compute, such as permute()
+        """
+        if isinstance(self._tensor, StreamTensor):
+            self._tensor._set_ref(tensor)
+        else:
+            self._tensor = tensor
+
+    def __truediv__(self, other):
+        assert isinstance(other, (int, float))
+        assert self._owns_stream
+        with torch.cuda.stream(self._stream):
+            self._set_ref(self.ref() / other)
+            self._event = torch.cuda.Event()
+            self._event.record()
+
+    def permute(self, *args):
+        self._set_ref(self.ref().permute(*args))
 
     def to(self, *args, **kwargs):
         assert False and "Not implemented"
@@ -172,15 +212,24 @@ class StreamTensor(StreamTensorBase):
 
 
 class StreamCheckpoint(StreamTensor):
-    def __init__(self, tensor: torch.Tensor, stream: torch.cuda.Stream):
-        super(StreamCheckpoint, self).__init__(tensor=tensor, stream=stream)
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        stream: torch.cuda.Stream,
+        event: torch.cuda.Event = None,
+        owns_stream: bool = None,
+    ):
+        super(StreamCheckpoint, self).__init__(
+            tensor=tensor, stream=stream, event=event, owns_stream=owns_stream
+        )
         if self._stream is not None:
             with torch.cuda.stream(stream):
                 self._event = torch.cuda.Event()
                 self._event.record()
         else:
-            self._event = torch.cuda.Event()
-            self._event.record()
+            if tensor.device.type == "cuda":
+                self._event = torch.cuda.Event()
+                self._event.record()
 
 
 class StreamTensorToDevice(StreamTensor):

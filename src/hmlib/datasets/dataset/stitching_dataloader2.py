@@ -9,7 +9,7 @@ import argparse
 import torch
 import traceback
 import numpy as np
-from typing import List
+from typing import List, Union
 
 from pathlib import Path
 
@@ -48,6 +48,25 @@ from hmlib.stitching.stitch_worker import (
     INFO,
     _LARGE_NUMBER_OF_FRAMES,
 )
+
+
+def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
+    if isinstance(tensor, torch.Tensor):
+        return tensor
+    if isinstance(tensor, StreamTensor):
+        return tensor.get()
+    elif isinstance(tensor, np.ndarray):
+        return torch.from_numpy(tensor)
+    else:
+        assert False
+
+
+def sync_required(tensor: Union[torch.Tensor, StreamTensor]):
+    if isinstance(tensor, (torch.Tensor, np.ndartray)):
+        return False
+    if tensor.owns_stream:
+        return False
+    return True
 
 
 def distribute_items_detailed(total_item_count, worker_count):
@@ -187,6 +206,7 @@ class StitchDataset:
         self._num_workers = num_workers
         self._stitching_workers = {}
         self._fork_workers = fork_workers
+        self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
         # self._ordering_queue = (
@@ -383,7 +403,7 @@ class StitchDataset:
             blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
             if stream is not None:
                 blended_stream_tensor = StreamCheckpoint(
-                    tensor=blended_stream_tensor, stream=stream
+                    tensor=blended_stream_tensor, stream=None
                 )
             # if stream is not None:
             #     stream.synchronize()
@@ -449,7 +469,7 @@ class StitchDataset:
             )
         image_proc_data = ImageProcData(
             frame_id=frame_id,
-            img=torch.clamp(stitched_frame / 255.0, min=0.0, max=255.0),
+            img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
         )
         self._video_output.append(image_proc_data)
@@ -574,8 +594,8 @@ class StitchDataset:
     def __next__(self):
         # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
-        status = self._from_coordinator_queue.get()
         self._next_timer.tic()
+        status = self._from_coordinator_queue.get()
         # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
@@ -588,6 +608,9 @@ class StitchDataset:
 
         # self._next_timer.tic()
         stitched_frame = self.get_next_frame(frame_id=frame_id)
+
+        self._batch_count += 1
+
         # show_image("stitched_frame", stitched_frame, wait=True)
         if stitched_frame is None:
             self.close()
@@ -600,9 +623,20 @@ class StitchDataset:
         )
 
         self._send_frame_to_video_out(frame_id=frame_id, stitched_frame=stitched_frame)
-
-        self._current_frame += 1
+        assert stitched_frame.ndim == 4
+        # maybe nested batches can be some multiple of, so can remove this check if necessary
+        assert self._batch_size == stitched_frame.shape[0]
+        self._current_frame += stitched_frame.shape[0]
         self._next_timer.toc()
+
+        if self._batch_count % 50 == 0:
+            logger.info(
+                "Stitching dataset __next__ wait speed {} ({:.2f} fps)".format(
+                    self._current_frame,
+                    self._batch_size * 1.0 / max(1e-5, self._next_timer.average_time),
+                )
+            )
+
         return stitched_frame
 
     def __len__(self):
