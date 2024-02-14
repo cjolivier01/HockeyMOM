@@ -218,8 +218,9 @@ class StitchDataset:
         self._video_output = None
 
     def __delete__(self):
-        for worker in self._stitching_workers.values():
-            worker.close()
+        self.close()
+        # for worker in self._stitching_workers.values():
+        #     worker.close()
 
     @property
     def lfo(self):

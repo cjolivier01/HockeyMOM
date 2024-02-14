@@ -104,40 +104,44 @@ def stitch_videos(
         remap_on_async_stream=remap_on_async_stream,
     )
 
-    frame_count = 0
-    start = None
+    try:
 
-    dataset_timer = Timer()
-    for i, stitched_image in enumerate(data_loader):
+        frame_count = 0
+        start = None
 
-        if isinstance(stitched_image, StreamTensor):
-            stitched_image = stitched_image.get()
+        dataset_timer = Timer()
+        for i, stitched_image in enumerate(data_loader):
 
-        if i > 1:
-            dataset_timer.toc()
-        if i % 20 == 0:
-            logger.info(
-                "Dataset frame {} ({:.2f} fps)".format(
-                    i, 1.0 / max(1e-5, dataset_timer.average_time)
+            if isinstance(stitched_image, StreamTensor):
+                stitched_image = stitched_image.get()
+
+            if i > 1:
+                dataset_timer.toc()
+            if i % 20 == 0:
+                logger.info(
+                    "Dataset frame {} ({:.2f} fps)".format(
+                        i, 1.0 / max(1e-5, dataset_timer.average_time)
+                    )
                 )
+                if i % 100 == 0:
+                    dataset_timer = Timer()
+
+            frame_count += 1
+
+            if show:
+                show_image("stitched_image", stitched_image, wait=False)
+
+            if i == 1:
+                start = time.time()
+            dataset_timer.tic()
+
+        if start is not None:
+            duration = time.time() - start
+            print(
+                f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
             )
-            if i % 100 == 0:
-                dataset_timer = Timer()
-
-        frame_count += 1
-
-        if show:
-            show_image("stitched_image", stitched_image, wait=False)
-
-        if i == 1:
-            start = time.time()
-        dataset_timer.tic()
-
-    if start is not None:
-        duration = time.time() - start
-        print(
-            f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
-        )
+    finally:
+        data_loader.close()
     return lfo, rfo
 
 
