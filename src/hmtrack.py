@@ -6,6 +6,7 @@ import warnings
 
 import traceback
 import sys, os
+from typing import List
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -44,7 +45,7 @@ from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 from hmlib.hm_opts import hm_opts, copy_opts
-from hmlib.utils.gpu import get_gpu_with_highest_compute_capability, GpuAllocator
+from hmlib.utils.gpu import select_gpus
 
 ROOT_DIR = os.getcwd()
 
@@ -481,32 +482,7 @@ def main(exp, args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
-        #
-        # BEGIN GPU SELECTION
-        #
-        gpu_allocator = GpuAllocator(args.gpus)
-
-        stitching_device = None
-        if args.game_id:
-            video_out_device = "cpu"
-            video_out_device = torch.device("cuda", gpu_allocator.allocate_modern())
-            if gpu_allocator.free_count():
-                detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
-            else:
-                detection_device = video_out_device
-                video_out_device = torch.device("cpu")
-
-            if gpu_allocator.free_count():
-                stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
-            else:
-                stitching_device = detection_device
-            track_device = "cpu"
-        else:
-            detection_device = torch.device("cuda", int(rank))
-            stitching_device = detection_device
-        #
-        # END GPU SELECTION
-        #
+        gpus = select_gpus(allowed_gpus=args.gpus)
 
         dataloader = None
         postprocessor = None
@@ -571,7 +547,7 @@ def main(exp, args, num_gpu):
                     fork_workers=False,
                     image_roi=None,
                     batch_size=1,
-                    remapping_device=stitching_device,
+                    remapping_device=gpus["stitching"],
                     # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
                 )
@@ -617,7 +593,7 @@ def main(exp, args, num_gpu):
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     name="val",
-                    device=detection_device,
+                    device=gpus["detection"],
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
@@ -641,8 +617,8 @@ def main(exp, args, num_gpu):
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
             original_clip_box=dataloader.clip_original,
-            device=track_device,
-            video_out_device=video_out_device,
+            device=gpus["camera"],
+            video_out_device=gpus["encoder"],
             data_type="mot",
             use_fork=False,
             async_post_processing=True,
@@ -663,7 +639,7 @@ def main(exp, args, num_gpu):
         trt_file = None
         decoder = None
         if model is not None:
-            model = model.to(detection_device)
+            model = model.to(gpus["detection"])
             # if args.game_id:
             #     model.cuda(int(args.gpus[0]))
             # else:
@@ -704,7 +680,7 @@ def main(exp, args, num_gpu):
         else:
             args.device = f"cuda:{rank}"
         # start evaluate
-        args.device = detection_device
+        args.device = gpus["detection"]
         eval_functions = {
             "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},
@@ -726,7 +702,7 @@ def main(exp, args, num_gpu):
             decoder,
             exp.test_size,
             results_folder,
-            device=detection_device,
+            device=gpus["detection"],
         )
         if not args.infer:
             logger.info("\n" + str(summary))
