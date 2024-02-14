@@ -393,6 +393,7 @@ class MovingBox(ResizingBox):
             label=self._make_label(),
             text_scale=2,
         )
+        img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_threasholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
             cl = [int(i) for i in center(self.bounding_box())]
@@ -444,11 +445,11 @@ class MovingBox(ResizingBox):
                     color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
-                vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=1)
+                img = vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=1)
                 # X
-                vis.plot_line(img, cl, [co[0], cl[1]], color=(255, 255, 0), thickness=3)
+                img = vis.plot_line(img, cl, [co[0], cl[1]], color=(255, 255, 0), thickness=3)
                 # Y
-                vis.plot_line(img, cl, [cl[0], co[1]], color=(255, 255, 0), thickness=3)
+                img = vis.plot_line(img, cl, [cl[0], co[1]], color=(255, 255, 0), thickness=3)
 
         return img
 
