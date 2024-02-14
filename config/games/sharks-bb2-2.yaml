@@ -31,5 +31,5 @@ rink:
     # Rink-related tracking config
     #
     fixed_edge_rotation_angle: 40
-    follower_box_scale_width: 1.4
-    follower_box_scale_height: 1.25
+    follower_box_scale_width: 1.2
+    follower_box_scale_height: 1.2
