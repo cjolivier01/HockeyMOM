@@ -4,6 +4,7 @@ Experiments in stitching
 
 import os
 import argparse
+import datetime
 import numpy as np
 from typing import Tuple, List
 import cv2
@@ -401,6 +402,22 @@ def make_seam_and_xor_masks(
     assert len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
+    if not force and os.path.isfile(seam_filename):
+        mapping_file = os.path.join(dir_name, "mapping_0000.tif")
+        if os.path.exists(mapping_file):
+            mapping_file_mtime = datetime.datetime.fromtimestamp(
+                os.path.getmtime(mapping_file)
+            ).isoformat()
+            seam_file_mtime = datetime.datetime.fromtimestamp(
+                os.path.getmtime(seam_filename)
+            ).isoformat()
+            force = mapping_file_mtime >= seam_file_mtime
+            if force:
+                print(
+                    f"Recreating seam files because mapping file is newer ({mapping_file})"
+                )
+        else:
+            print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
         blender = core.EnBlender(
             args=[
