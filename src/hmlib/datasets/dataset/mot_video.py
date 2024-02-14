@@ -81,6 +81,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
+        self._preproc = preproc
         # self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
@@ -356,6 +357,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if not isinstance(img0, torch.Tensor):
                 img0 = torch.from_numpy(img0)
             assert img0.ndim == 4
+
+            if self._preproc is not None:
+                img0 = self._preproc(img0)
 
             original_img0 = img0.clone()
             if self._device.type != "cpu":
