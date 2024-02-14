@@ -25,7 +25,8 @@ from hmlib.stitching.synchronize import (
 from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.video_out import VideoOutput, ImageProcData
+from hmlib.utils.gpu import StreamTensor, StreamCheckpoint
+from hmlib.video_out import VideoOutput, ImageProcData, optional_with
 from hmlib.utils.image import (
     make_channels_last,
     make_channels_first,
@@ -41,7 +42,7 @@ def _get_dir_name(path):
 
 
 from hmlib.stitching.stitch_worker import (
-    #StitchingWorker,
+    # StitchingWorker,
     create_queue,
     safe_put_queue,
     INFO,
@@ -167,6 +168,11 @@ class StitchDataset:
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
+
+        if self._remapping_device.type == "cuda":
+            self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
+        else:
+            self._remapping_stream = None
 
         # Optimize the roi box
         if image_roi is not None:
@@ -353,52 +359,35 @@ class StitchDataset:
         assert isinstance(images, list)
         assert len(images) == 2
 
-        sinfo_1 = core.StitchImageInfo()
-        sinfo_1.image = (
-            make_channels_first(imgs_1)
-            .to(self._remapping_device, non_blocking=True)
-            .to(torch.float, non_blocking=True)
-        )
-        sinfo_1.xy_pos = self._xy_pos_1
+        stream = None
+        if imgs_1.device.type == "cpu":
+            stream = self._remapping_stream
+        with optional_with(torch.cuda.stream(stream) if stream is not None else None):
+            sinfo_1 = core.StitchImageInfo()
+            sinfo_1.image = (
+                make_channels_first(imgs_1)
+                .to(self._remapping_device, non_blocking=True)
+                .to(torch.float, non_blocking=True)
+            )
+            sinfo_1.xy_pos = self._xy_pos_1
 
-        sinfo_2 = core.StitchImageInfo()
-        sinfo_2.image = (
-            make_channels_first(imgs_2)
-            .to(self._remapping_device, non_blocking=True)
-            .to(torch.float, non_blocking=True)
-        )
-        sinfo_2.xy_pos = self._xy_pos_2
+            sinfo_2 = core.StitchImageInfo()
+            sinfo_2.image = (
+                make_channels_first(imgs_2)
+                .to(self._remapping_device, non_blocking=True)
+                .to(torch.float, non_blocking=True)
+            )
+            sinfo_2.xy_pos = self._xy_pos_2
 
-        # main_stream.synchronize()
-        # torch.cuda.current_stream().synchronize()
-        # self._cuda_stream.synchronize()
-        # blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2]) / 255.0
-        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
-
-        # blended_stream_tensor = imgs_1.clone()
-        # torch.cuda.synchronize()
-
-        # pull_timer = Timer()
-        # count = 0
-        # for _ in range(1000):
-        #     pull_timer.tic()
-        #     stitched_frame = stitching_worker.receive_image(expected_frame_id=frame_id)
-        #     count += 1
-        #     frame_id += 1
-        #     pull_timer.toc()
-        #     if count % 20 == 0:
-        #         logger.info(
-        #             "Pulling stitch frame from stitcher: {} ({:.2f} fps)".format(
-        #                 frame_id,
-        #                 1.0 / max(1e-5, pull_timer.average_time),
-        #             )
-        #         )
-        #         pull_timer = Timer()
-        #     # while self._image_response_queue.qsize() > 25:
+            blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+            if stream is not None:
+                blended_stream_tensor = StreamCheckpoint(
+                    tensor=blended_stream_tensor, stream=stream
+                )
+            # if stream is not None:
+            #     stream.synchronize()
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
-        # INFO(f"Locally enqueing frame {frame_id}")
-        # self._ordering_queue.enqueue(frame_id, stitched_frame)
         self._ordering_queue.put((ids_1, blended_stream_tensor))
         self._prepare_next_frame_timer.toc()
 
@@ -502,24 +491,23 @@ class StitchDataset:
 
     @staticmethod
     def prepare_frame_for_video(image: np.array, image_roi: np.array):
-        image = make_channels_last(image)
         if not image_roi:
             if image.shape[-1] == 4:
                 if len(image.shape) == 4:
-                    image = image[:, :, :, :3]
+                    image = make_channels_last(image)[:, :, :, :3]
                 else:
-                    image = image[:, :, :3]
+                    image = make_channels_last(image)[:, :, :3]
         else:
             image_roi = fix_clip_box(
                 image_roi, [image_height(image), image_width(image)]
             )
             if len(image.shape) == 4:
-                image = image[
+                image = make_channels_last(image)[
                     :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
                 ]
             else:
                 assert len(image.shape) == 3
-                image = image[
+                image = make_channels_last(image)[
                     image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
                 ]
         return image

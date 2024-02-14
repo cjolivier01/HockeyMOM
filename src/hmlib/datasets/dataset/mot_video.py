@@ -350,6 +350,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
+            if isinstance(img0, StreamTensor):
+                img0 = img0.get()
+
             if not isinstance(img0, torch.Tensor):
                 img0 = torch.from_numpy(img0)
             assert img0.ndim == 4

@@ -18,7 +18,7 @@ from torchvision.transforms import functional as F
 import PIL
 
 from typing import List
-
+from hmlib.utils.gpu import StreamTensor
 
 def flip(img):
     return img[:, :, ::-1].copy()
@@ -473,9 +473,9 @@ class ImageColorScaler:
 
 
 def _permute(t, *args):
-    if isinstance(t, torch.Tensor):
-        return t.permute(*args)
-    return t.transpose(*args)
+    if isinstance(t, np.ndarray):
+        return t.transpose(*args)
+    return t.permute(*args)
 
 
 def make_channels_first(img: torch.Tensor):
@@ -501,7 +501,7 @@ def make_channels_last(img: torch.Tensor):
 
 
 def image_width(img):
-    if isinstance(img, torch.Tensor):
+    if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-2]
@@ -522,7 +522,7 @@ def image_width(img):
 
 
 def image_height(img):
-    if isinstance(img, torch.Tensor):
+    if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-3]

@@ -14,6 +14,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
+from hmlib.utils.gpu import StreamTensor
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
@@ -162,6 +163,10 @@ def stitch_videos(
 
     dataset_timer = Timer()
     for i, stitched_image in enumerate(data_loader):
+        
+        if isinstance(stitched_image, StreamTensor):
+            stitched_image = stitched_image.get()
+        
         if i > 1:
             dataset_timer.toc()
         if i % 20 == 0:

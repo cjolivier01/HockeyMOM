@@ -74,12 +74,19 @@ class StreamTensor:
     def __init__(self, tensor: torch.Tensor = None, stream: torch.cuda.Stream = None):
         self._tensor = tensor
         self._stream = stream
+        if not hasattr(self, "_event"):
+            self._event = None
 
     def get(self):
         if isinstance(self._tensor, StreamTensor):
             return self._tensor.get()
         if self._stream is not None:
-            self._stream.synchronize()
+            if self._event is not None:
+                with torch.cuda.stream(self._stream):
+                    self._event.synchronize()
+            else:
+                assert False
+                self._stream.synchronize()
         return self._tensor
 
     @property
@@ -103,6 +110,8 @@ class StreamTensor:
         return self._tensor.shape
 
     def ref(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.ref()
         return self._tensor
 
     def to(self, *args, **kwargs):
@@ -110,6 +119,15 @@ class StreamTensor:
 
     def __len__(self):
         return self._tensor.shape[0]
+
+
+class StreamCheckpoint(StreamTensor):
+    def __init__(self, tensor: torch.Tensor, stream: torch.cuda.Stream):
+        super(StreamCheckpoint, self).__init__(tensor=tensor, stream=stream)
+        if self._stream is not None:
+            with torch.cuda.stream(stream):
+                self._event = torch.cuda.Event()
+                self._event.record()
 
 
 class StreamTensorToDevice(StreamTensor):
@@ -124,6 +142,8 @@ class StreamTensorToDevice(StreamTensor):
             stream = torch.cuda.Stream(device=device)
             with torch.cuda.stream(stream=stream):
                 tensor = tensor.to(device, non_blocking=True)
+                self._event = torch.cuda.Event()
+                self._event.record()
         if contiguous:
             tensor = tensor.contiguous()
         super(StreamTensorToDevice, self).__init__(tensor=tensor, stream=stream)
@@ -148,12 +168,18 @@ class StreamTensorToDtype(StreamTensor):
                 self._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
                 if scale_down_factor and scale_down_factor != 1:
                     self._tensor /= scale_down_factor
+                if contiguous:
+                    self._tensor = self._tensor.contiguous()
+                self._event = torch.cuda.Event()
+                self._event.record()
         else:
             self._stream = torch.cuda.Stream(tensor.device)
             with torch.cuda.stream(stream=self._stream):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
-        if contiguous:
-            self._tensor = self._tensor.contiguous()
+                if contiguous:
+                    self._tensor = self._tensor.contiguous()
+                self._event = torch.cuda.Event()
+                self._event.record()
 
 
 def get_gpu_capabilities():
@@ -222,3 +248,4 @@ def get_gpu_with_most_multiprocessors(
         return None, None
     candidates = sorted(candidates)
     return candidates[0], gpus[candidates[0]]
+
