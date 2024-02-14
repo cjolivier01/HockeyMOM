@@ -248,13 +248,6 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
-# class Detection:
-#     def __init__(self, track_id, tlwh, history):
-#         self.track_id = track_id
-#         self.tlwh = tlwh
-#         self.history = history
-
-
 class CamTrackPostProcessor(torch.nn.Module):
     def __init__(
         self,
@@ -509,11 +502,11 @@ class CamTrackPostProcessor(torch.nn.Module):
         self,
         online_tlwhs: torch.Tensor,
         online_ids: torch.Tensor,
-        cluster_counts: List[int] = [3, 2],
+        cluster_counts: List[int],
     ):
         if self._cluster_man is None:
             self._cluster_man = ClusterMan(
-                sizes=[3, 2], device=self._kmeans_cuda_device()
+                sizes=cluster_counts, device=self._kmeans_cuda_device()
             )
 
         self._cluster_man.calculate_all_clusters(
@@ -619,9 +612,10 @@ class CamTrackPostProcessor(torch.nn.Module):
 
         if self._args.plot_cluster_tracking:
             cluster_box_colors = {
-                2: (128, 0, 0),  # dark red
-                3: (0, 0, 128),  # dark blue
+                cluster_counts[0]: (128, 0, 0),  # dark red
+                cluster_counts[1]: (0, 0, 128),  # dark blue
             }
+            assert len(cluster_counts) == len(cluster_box_colors)
             for cc in cluster_counts:
                 if cc in cluster_boxes_map:
                     online_im = vis.plot_rectangle(
@@ -654,88 +648,83 @@ class CamTrackPostProcessor(torch.nn.Module):
         #
         # Current ROI box
         #
-        if True:
-            if self._current_roi is None:
-                start_box = current_box
-                self._current_roi = MovingBox(
-                    label="Current ROI",
-                    bbox=start_box,
-                    arena_box=self.get_arena_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
-                    max_width=self._hockey_mom._video_frame.width,
-                    max_height=self._hockey_mom._video_frame.height,
-                    color=(255, 128, 64),
-                    thickness=5,
-                    device=self._device,
-                )
-                # self._current_roi.eval()
+        if self._current_roi is None:
+            start_box = current_box
+            self._current_roi = MovingBox(
+                label="Current ROI",
+                bbox=start_box,
+                arena_box=self.get_arena_box(),
+                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
+                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
+                max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
+                max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
+                max_width=self._hockey_mom._video_frame.width,
+                max_height=self._hockey_mom._video_frame.height,
+                color=(255, 128, 64),
+                thickness=5,
+                device=self._device,
+            )
+            # self._current_roi.eval()
 
-                size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-                size_stick_size = size_unstick_size / 3
+            size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
+            size_stick_size = size_unstick_size / 3
 
-                self._current_roi_aspect = MovingBox(
-                    label="AspectRatio",
-                    bbox=self._current_roi,
-                    arena_box=self.get_arena_box(),
-                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
-                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-                    max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
-                    max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
-                    max_width=self._hockey_mom._video_frame.width,
-                    max_height=self._hockey_mom._video_frame.height,
-                    width_change_threshold=_scalar_like(
-                        size_unstick_size * 2, device=current_box.device
-                    ),
-                    width_change_threshold_low=_scalar_like(
-                        size_stick_size * 2, device=current_box.device
-                    ),
-                    height_change_threshold=_scalar_like(
-                        size_unstick_size * 2, device=current_box.device
-                    ),
-                    height_change_threshold_low=_scalar_like(
-                        size_stick_size * 2, device=current_box.device
-                    ),
-                    sticky_translation=True,
-                    sticky_sizing=True,
-                    scale_width=self._args.game_config["rink"]["camera"][
-                        "follower_box_scale_width"
-                    ],
-                    scale_height=self._args.game_config["rink"]["camera"][
-                        "follower_box_scale_height"
-                    ],
-                    fixed_aspect_ratio=self._final_aspect_ratio,
-                    color=(255, 0, 255),
-                    thickness=5,
-                    device=self._device,
-                )
-                self._current_roi = iter(self._current_roi)
-                self._current_roi_aspect = iter(self._current_roi_aspect)
-                # self._current_roi_aspect.eval()
-            else:
-                # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-                self._current_roi.forward(current_box, stop_on_dir_change=False)
+            self._current_roi_aspect = MovingBox(
+                label="AspectRatio",
+                bbox=self._current_roi,
+                arena_box=self.get_arena_box(),
+                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
+                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
+                max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
+                max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
+                max_width=self._hockey_mom._video_frame.width,
+                max_height=self._hockey_mom._video_frame.height,
+                width_change_threshold=_scalar_like(
+                    size_unstick_size * 2, device=current_box.device
+                ),
+                width_change_threshold_low=_scalar_like(
+                    size_stick_size * 2, device=current_box.device
+                ),
+                height_change_threshold=_scalar_like(
+                    size_unstick_size * 2, device=current_box.device
+                ),
+                height_change_threshold_low=_scalar_like(
+                    size_stick_size * 2, device=current_box.device
+                ),
+                sticky_translation=True,
+                sticky_sizing=True,
+                scale_width=self._args.game_config["rink"]["camera"][
+                    "follower_box_scale_width"
+                ],
+                scale_height=self._args.game_config["rink"]["camera"][
+                    "follower_box_scale_height"
+                ],
+                fixed_aspect_ratio=self._final_aspect_ratio,
+                color=(255, 0, 255),
+                thickness=5,
+                device=self._device,
+            )
+            self._current_roi = iter(self._current_roi)
+            self._current_roi_aspect = iter(self._current_roi_aspect)
+            # self._current_roi_aspect.eval()
+        else:
+            # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
+            self._current_roi.forward(current_box, stop_on_dir_change=False)
 
-            self._current_roi = next(self._current_roi)
-            self._current_roi_aspect = next(self._current_roi_aspect)
-            if self._args.plot_moving_boxes:
-                online_im = self._current_roi_aspect.draw(
-                    img=online_im, draw_threasholds=True
-                )
-                online_im = self._current_roi.draw(img=online_im)
-                online_im = vis.plot_line(
-                    online_im,
-                    center(self._current_roi.bbox),
-                    center(current_box),
-                    color=(255, 255, 255),
-                    thickness=2,
-                )
-
-        # outside_expanded_box = (
-        #     current_box + self._outside_box_expansion_for_speed_curtailing
-        # )
+        self._current_roi = next(self._current_roi)
+        self._current_roi_aspect = next(self._current_roi_aspect)
+        if self._args.plot_moving_boxes:
+            online_im = self._current_roi_aspect.draw(
+                img=online_im, draw_threasholds=True
+            )
+            online_im = self._current_roi.draw(img=online_im)
+            online_im = vis.plot_line(
+                online_im,
+                center(self._current_roi.bbox),
+                center(current_box),
+                color=(255, 255, 255),
+                thickness=2,
+            )
 
         if self._args.plot_camera_tracking:
             online_im = vis.plot_rectangle(
@@ -758,7 +747,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             group_threshhold=0.5,
         )
         if group_x_velocity:
-            # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            print(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 cv2.circle(
                     online_im,
@@ -773,9 +762,21 @@ class CamTrackPostProcessor(torch.nn.Module):
             current_box = make_box_at_center(
                 edge_center, width(current_box), height(current_box)
             )
-            # assert width(current_box) <= hockey_mom.video.width
-            # assert height(current_box) <= hockey_mom.video.height
-            self._hockey_mom._current_camera_box_speed_x += group_x_velocity * 2 / 3
+
+            # If group x velocity is in different direction than current speed, behave a little differently
+
+            gv = group_x_velocity * 2 / 3
+            # self._hockey_mom._current_camera_box_speed_x += gv
+            # self._hockey_mom._current_camera_box_speed_x = torch.where(
+            #     torch.eq(
+            #         torch.sign(self._hockey_mom._current_camera_box_speed_x),
+            #         torch.sign(gv),
+            #     ),
+            #     # same sign
+            #     gv,
+            #     # different sign, decay wrong-way speed more quickly
+            #     self._hockey_mom._current_camera_box_speed_x / 2 + gv,
+            # )
 
             if self._current_roi is not None:
                 roi_center = center(self._current_roi_aspect.bounding_box())
@@ -806,7 +807,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     )
                 else:
                     # Cut the speed quickly due to overshoot
-                    self._current_roi.scale_speed(ratio_x=0.5)
+                    self._current_roi.scale_speed(ratio_x=0.4)
                     print("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()

@@ -323,6 +323,7 @@ class HockeyMOM:
         return torch.tensor(scalar_float, dtype=torch.float32, device=self._device)
 
     def get_speed(self):
+        assert False
         return math.sqrt(
             self._current_camera_box_speed_x * self._current_camera_box_speed_x
             + self._current_camera_box_speed_y * self._current_camera_box_speed_y
@@ -333,6 +334,7 @@ class HockeyMOM:
         return self.get_speed() >= speed
 
     def control_speed(self, abs_max_x: float, abs_max_y: float, set_speed_x: bool):
+        assert False
         if set_speed_x:
             if self._current_camera_box_speed_x < 0:
                 self._current_camera_box_speed_x = -abs_max_x
@@ -692,6 +694,7 @@ class HockeyMOM:
 
     @classmethod
     def move_box_center_to_point(cls, box, point):
+        assert False
         w = box[2] - box[0]
         h = box[3] - box[1]
         box[0] = point[0] - w / 2
@@ -719,6 +722,7 @@ class HockeyMOM:
         return containing_box
 
     def ratioed_expand(self, box):
+        assert False
         ew = self._video_frame.width / 10
         eh = self._video_frame.height / 10
         diff = torch.tensor([-ew / 2, -eh / 2, ew / 2, eh / 2])
@@ -736,6 +740,7 @@ class HockeyMOM:
 
     @classmethod
     def scale(cls, w, h, x, y, maximum=True):
+        assert False
         nw = y * w / h
         nh = x * h / w
         if int(maximum) ^ int(_as_scalar(nw >= x)):
@@ -752,6 +757,7 @@ class HockeyMOM:
         verbose: bool = False,
         extra_validation: bool = False,
     ):
+        assert False
         return self._make_box_proper_aspect_ratio(
             frame_id=frame_id,
             the_box=the_box,
@@ -770,6 +776,7 @@ class HockeyMOM:
         verbose: bool = False,
         extra_validation: bool = False,
     ):
+        assert False
         """
         Make the given box the specified aspect ratio about the box's center.
         The final box must be within the initial box.
@@ -870,6 +877,7 @@ class HockeyMOM:
     def apply_fixed_edge_scaling(
         self, box, edge_scaling_factor: float, verbose: bool = False
     ):
+        assert False
         current_center = center(box)
         w = width(box)
         # h = height(box)
@@ -942,6 +950,7 @@ class HockeyMOM:
         return box
 
     def apply_box_velocity(self, box, scale_speed: float, verbose: bool = False):
+        assert False
         dx = self._current_camera_box_speed_x * scale_speed
         # dy = self._current_camera_box_speed_y * scale_speed
         # Don't move up and down
@@ -957,6 +966,7 @@ class HockeyMOM:
         proposed_point: List[int],
         last_point: List[int],
     ):
+        assert False
         dx = proposed_point[0] - last_point[0]
         dy = proposed_point[1] - last_point[1]
         # print(f"want: dx={dx}, dy={dy}")
@@ -1025,6 +1035,7 @@ class HockeyMOM:
         scale_speed: float = 1.0,
         verbose: bool = False,
     ):
+        assert False
         if last_box is not None:
             self.adjust_veclocity_based_upon_new_box(
                 center(proposed_new_box), center(last_box)
@@ -1038,6 +1049,7 @@ class HockeyMOM:
         return moved_box
 
     def smooth_resize_box(self, proposed_new_box, last_box):
+        assert False
         if last_box is None:
             last_box = proposed_new_box
         #
@@ -1072,6 +1084,7 @@ class HockeyMOM:
     def did_direction_change(
         self, dx: bool = True, dy: bool = True, reset: bool = False
     ):
+        assert False
         if reset:
             if dx:
                 self._current_camera_box_speed_reversed_x = False
@@ -1083,6 +1096,7 @@ class HockeyMOM:
         )
 
     def set_direction_changed(self, dx: bool = True, dy: bool = True):
+        assert False
         if dx:
             self._current_camera_box_speed_reversed_x = True
         if dy:
@@ -1090,6 +1104,7 @@ class HockeyMOM:
         return dx or dy
 
     def get_velocity_and_acceleratrion_xy(self):
+        assert False
         return (
             self._current_camera_box_speed_x,
             self._current_camera_box_speed_y,
@@ -1098,6 +1113,7 @@ class HockeyMOM:
         )
 
     def curtail_velocity_if_outside_box(self, current_box, bounding_box):
+        assert False
         if current_box[0] <= bounding_box[0] and self._current_camera_box_speed_x < 0:
             self._current_camera_box_speed_x /= 2
         if current_box[2] >= bounding_box[2] and self._current_camera_box_speed_x > 0:
@@ -1108,17 +1124,21 @@ class HockeyMOM:
             self._current_camera_box_speed_y /= 2
 
     def is_box_at_left_right_edge(self, box):
+        assert False
         if box[0] <= 0 or box[2] >= self._clamp_box[2]:
             return True
         return False
 
     def is_box_at_right_edge(self, box):
+        assert False
         return box[2] >= self._clamp_box[2]
 
     def is_box_at_left_edge(self, box):
+        assert False
         return box[0] <= 0
 
     def _curtail_speed_at_edges(self, box):
+        assert False
         """
         If we are on (or past) and edge, cut the speed in half.
         Setting to zero tends to make it have too much of a "bounce" effect,
