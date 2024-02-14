@@ -26,7 +26,8 @@ class GpuAllocator:
             allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
         )
         if index is not None:
-            self._used_gpus.add(index, caps)
+            assert index not in self._used_gpus
+            self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
         return index
@@ -42,7 +43,8 @@ class GpuAllocator:
             allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
         )
         if index is not None:
-            self._used_gpus.add(index, caps)
+            assert index not in self._used_gpus
+            self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
         return index
