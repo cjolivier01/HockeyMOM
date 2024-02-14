@@ -26,7 +26,7 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 2048
+MAX_VIDEO_WIDTH = 640
 
 
 def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
@@ -73,9 +73,20 @@ class VideoStreamWriter:
         self._codec = codec
         self._streaming = False
         if self._filename.startswith("rtmp://"):
+            self._width, self._height, _ = video_size(
+                width=self._width, height=self._height
+            )
+            self._format = format
+            # self._container_type = "fvl"
+            self._container_type = None
+            self._codec = "h264_nvenc"
+            # self._codec = "libx264"
             # self._format = "av1"
             # self._container_type = "av1"
-            self._format = "flv"
+            # self._format = "hevc"
+            # self._container_type = "hevc"
+            # self._format = "flv"
+            self._format = "bgr24"
             self._container_type = "flv"
             self._streaming = True
         elif self._filename.startswith("udp://"):
@@ -141,19 +152,24 @@ class VideoStreamWriter:
 
         if self._filename.startswith("rtmp://"):
             new_w, new_h, _ = video_size(width=self._width, height=self._height)
+            hw_accel = None
+            if self._codec.endswith("_nvenc"):
+                hw_accel = str(self._device)
             self._video_out.add_video_stream(
                 frame_rate=self._fps,
                 format="bgr24",
-                # encoder="av1_nvenc",
-                encoder=self._format,
+                encoder=self._codec,
+                encoder_format="bgr0",
+                # encoder_format="xxxx",
                 height=new_h,
                 width=new_w,
                 codec_config=self._codec_config,
-                # hw_accel=str(self._device),
+                hw_accel=hw_accel,
             )
         else:
             self._video_out.add_video_stream(
-                frame_rate=self._fps,
+                # frame_rate=self._fps,
+                frame_rate=10,
                 height=self._height,
                 width=self._width,
                 format=self._format,
@@ -219,7 +235,7 @@ class VideoStreamWriter:
     def append(self, images: torch.Tensor):
         if self._streaming:
             images = scale_down_for_live_video(images)
-            if images.device.type != "cpu":
+            if not self._codec.endswith("_nvenc") and images.device.type != "cpu":
                 images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
