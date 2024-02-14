@@ -444,7 +444,7 @@ def create_blender_config(
     dir_name: str,
     basename: str,
     device: torch.device,
-    levels: int = 4,
+    levels: int = 10,
     lazy_init: bool = False,
     interpolation: str = "bilinear",
 ) -> core.RemapperConfig:
@@ -618,7 +618,7 @@ def blend_video(
                             if blend_mode == "laplacian"
                             else core.ImageBlenderMode.HardSeam
                         ),
-                        levels=4,
+                        levels=10,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
                         lazy_init=True,
@@ -784,7 +784,7 @@ def create_stitcher(
     blend_mode: str = "laplacian",
     interpolation: str = "bilinear",
     remap_on_async_stream: bool = False,
-    levels: int = 4,
+    levels: int = 10,
 ):
     blender_config = create_blender_config(
         mode=blend_mode,
