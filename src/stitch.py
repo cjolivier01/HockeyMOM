@@ -14,8 +14,9 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensor, GpuAllocator
 from hmlib.stitching.laplacian_blend import show_image
+from hmlib.hm_opts import hm_opts
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
@@ -36,68 +37,16 @@ ROOT_DIR = os.getcwd()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
-    parser.add_argument("-expn", "--experiment-name", type=str, default=None)
-    parser.add_argument("-n", "--name", type=str, default=None, help="model name")
-
     parser.add_argument(
-        "-d", "--devices", default=None, type=int, help="device for training"
-    )
-    parser.add_argument(
-        "-m",
-        "--blend-mode",
-        "--blend_mode",
-        dest="blend_mode",
-        default="laplacian",
+        "-o",
+        "--output",
+        dest="output_file",
         type=str,
-        help="Blending mode (multiblend|gpu-hard-seam|gpu-laplacian)",
+        default=None,
+        help="Output file",
     )
     parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
-    )
-    parser.add_argument(
-        "--project-file",
-        "--project_file",
-        default="autooptimiser_out.pto",
-        type=str,
-        help="Use project file as input to stitcher",
-    )
-    parser.add_argument(
-        "--lfo",
-        "--left_frame_offset",
-        default=None,
-        type=float,
-        help="Left frame offset",
-    )
-    parser.add_argument(
-        "--rfo",
-        "--right_frame_offset",
-        default=None,
-        type=float,
-        help="Right frame offset",
-    )
-    parser.add_argument(
-        "--video_dir",
-        default=None,
-        type=str,
-        help="Video directory to find 'left.mp4' and 'right.mp4'",
-    )
-    parser.add_argument(
-        "--game-id",
-        default=None,
-        type=str,
-        help="Game ID",
-    )
-    parser.add_argument(
-        "--max-frames",
-        default=None,
-        type=int,
-        help="Maximum number of frames to process",
-    )
-    parser.add_argument(
-        "--show",
-        default=False,
-        action="store_true",
-        help="Show images",
     )
     return parser
 
@@ -116,6 +65,7 @@ def stitch_videos(
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
     remapping_device: torch.device = torch.device("cuda", 0),
+    encoder_device: torch.device = torch.device("cpu"),
     remap_on_async_stream: bool = True,
 ):
     if dir_name is None and game_id:
@@ -144,15 +94,11 @@ def stitch_videos(
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         num_workers=1,
-        # remap_thread_count=2,
-        # blend_thread_count=10,
         remap_thread_count=1,
         blend_thread_count=1,
-        # fork_workers=True,
         fork_workers=False,
         image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
-        # encoder_device=torch.device("cpu"),
-        encoder_device=torch.device("cuda", 1),
+        encoder_device=encoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
@@ -163,10 +109,10 @@ def stitch_videos(
 
     dataset_timer = Timer()
     for i, stitched_image in enumerate(data_loader):
-        
+
         if isinstance(stitched_image, StreamTensor):
             stitched_image = stitched_image.get()
-        
+
         if i > 1:
             dataset_timer.toc()
         if i % 20 == 0:
@@ -181,14 +127,9 @@ def stitch_videos(
         frame_count += 1
 
         if show:
-            # stitched_image = torch.from_numpy(stitched_image).to(torch.float32)
-            # stitched_image[:,:,0:1] *= 1.2
-            # stitched_image[:,:,1:3] *= 0.8
-            # stitched_image = torch.clamp(stitched_image, min=0, max=255).to(torch.uint8).numpy()
             show_image("stitched_image", stitched_image, wait=False)
 
         if i == 1:
-            # draw_box_with_mouse(stitched_image, destroy_all_windows_after=True)
             start = time.time()
         dataset_timer.tic()
 
@@ -319,40 +260,41 @@ def remap_video(
 def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
-
+    gpu_allocator = GpuAllocator(gpus=None)
     with torch.no_grad():
-        # remap_video(
-        #     video_left,
-        #     video_right,
-        #     args.video_dir,
-        #     "mapping_0000",
-        #     "mapping_0001",
-        #     # interpolation="bicubic",
-        #     show=True,
-        # )
-
-        # args.lfo = 15
-        # args.rfo = 0
-
-        lfo, rfo = stitch_videos(
-            args.video_dir,
-            video_left,
-            video_right,
-            lfo=args.lfo,
-            rfo=args.rfo,
-            project_file_name=args.project_file,
-            game_id=args.game_id,
-            show=args.show,
-            max_frames=args.max_frames,
-            output_stitched_video_file=None,
-            blend_mode=args.blend_mode,
-            remap_on_async_stream=False,
-            remapping_device=torch.device("cuda", 1),
-        )
+        if False:
+            remap_video(
+                video_left,
+                video_right,
+                args.video_dir,
+                "mapping_0000",
+                "mapping_0001",
+                # interpolation="bicubic",
+                show=True,
+            )
+        else:
+            stitch_videos(
+                args.video_dir,
+                video_left,
+                video_right,
+                lfo=args.lfo,
+                rfo=args.rfo,
+                project_file_name=args.project_file,
+                game_id=args.game_id,
+                show=args.show_image,
+                max_frames=args.max_frames,
+                output_stitched_video_file=args.output_file,
+                blend_mode=args.blend_mode,
+                remap_on_async_stream=False,
+                remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
+                encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
+            )
 
 
 if __name__ == "__main__":
-    args = make_parser().parse_args()
+    parser = make_parser()
+    parser = hm_opts.parser(parser=parser)
+    args = parser.parse_args()
 
     main(args)
     print("Done.")
