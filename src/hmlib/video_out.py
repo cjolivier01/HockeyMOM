@@ -483,7 +483,9 @@ class VideoOutput:
             and self._output_video is None
             and not self._skip_final_save
         ):
-            if "_nvenc" in self._fourcc:
+            if "_nvenc" in self._fourcc or self._output_video_path.startswith(
+                "rtmp://"
+            ):
                 self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
                     fps=self._fps,

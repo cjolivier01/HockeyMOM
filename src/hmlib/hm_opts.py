@@ -58,6 +58,21 @@ class hm_opts(object):
         #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         # )
         parser.add_argument(
+            "-o",
+            "--output",
+            dest="output_file",
+            type=str,
+            default=None,
+            help="Output file",
+        )
+        parser.add_argument(
+            "--output-fps",
+            dest="output_fps",
+            type=float,
+            default=None,
+            help="Output frames per second",
+        )
+        parser.add_argument(
             "--lfo",
             "--left-frame-offset",
             dest="lfo",

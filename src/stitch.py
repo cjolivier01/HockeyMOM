@@ -38,14 +38,6 @@ ROOT_DIR = os.getcwd()
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument(
-        "-o",
-        "--output",
-        dest="output_file",
-        type=str,
-        default=None,
-        help="Output file",
-    )
-    parser.add_argument(
         "--num_workers", default=1, type=int, help="Number of stitching workers"
     )
     return parser

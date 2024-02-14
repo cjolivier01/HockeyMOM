@@ -65,12 +65,15 @@ class DefaultArguments(core.HMPostprocessConfig):
         self,
         game_config: Dict,
         basic_debugging: bool = False,
+        output_video_path: str = None,
     ):
         # basic_debugging = False
 
         super().__init__()
 
         self.game_config = game_config
+        
+        self._output_video_path = output_video_path
 
         # Display the image every frame (slow)
         self.show_image = self.show_image or basic_debugging
@@ -432,14 +435,17 @@ class CamTrackPostProcessor(torch.nn.Module):
             self.final_frame_width = self._hockey_mom.video.width
 
         assert self._video_output_campp is None
-        self._video_output_campp = VideoOutput(
-            name="TRACKING",
-            args=self._args,
-            output_video_path=(
+        output_video_path = self._args._output_video_path
+        if output_video_path is None:
+            output_video_path = (
                 os.path.join(self._save_dir, "tracking_output.mkv")
                 if self._save_dir is not None
                 else None
-            ),
+            )
+        self._video_output_campp = VideoOutput(
+            name="TRACKING",
+            args=self._args,
+            output_video_path=output_video_path,
             fps=self._fps,
             use_fork=False,
             start=False,

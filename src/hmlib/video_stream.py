@@ -27,7 +27,7 @@ _FOURCC_TO_CODEC = {
 }
 
 
-def video_size(width: int, height: int, max_width: int = 1024):
+def video_size(width: int, height: int, max_width: int = 2048):
     h = height
     w = width
     if h > max_width:
@@ -38,7 +38,7 @@ def video_size(width: int, height: int, max_width: int = 1024):
     return w, h, False
 
 
-def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = 1024):
+def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = 2048):
     assert tensor.ndim == 4 and (tensor.shape[-1] == 3 or tensor.shape[-1] == 4)
     h = tensor.shape[1]
     w = tensor.shape[2]
@@ -138,7 +138,7 @@ class VideoStreamWriter:
         if self._filename.startswith("rtmp://"):
             new_w, new_h, _ = video_size(width=self._width, height=self._height)
             self._video_out.add_video_stream(
-                frame_rate=10.0,
+                frame_rate=self._fps,
                 format="bgr24",
                 # encoder="av1_nvenc",
                 encoder="flv",

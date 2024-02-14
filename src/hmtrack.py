@@ -449,6 +449,7 @@ def main(exp, args, num_gpu):
         cam_args = DefaultArguments(
             game_config=game_config,
             basic_debugging=args.debug,
+            output_video_path=args.output_file,
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
