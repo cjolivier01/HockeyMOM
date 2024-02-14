@@ -43,7 +43,7 @@ def to_cv2(image):
 
 
 def resize_image(image, max_size=800):
-    assert False # wth
+    assert False  # wth
     if max(image.shape[:2]) > max_size:
         scale = float(max_size) / max(image.shape[:2])
         image = cv2.resize(image, None, fx=scale, fy=scale)
@@ -164,9 +164,9 @@ def plot_torch_rectangle(
     image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
         1
     )
-    image_tensor[
-        :, bottom_y : bottom_y + thickness, top_x:bottom_x
-    ] = color_value.unsqueeze(1)
+    image_tensor[:, bottom_y : bottom_y + thickness, top_x:bottom_x] = (
+        color_value.unsqueeze(1)
+    )
 
     # Draw left and right lines of the box
     image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
@@ -474,6 +474,117 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
         cv2.rectangle(im, (x1, y1), (x2, y2), color, 2)
 
     return im
+
+
+def draw_arrows(img, bbox, horizontal=True, vertical=True):
+    """
+    Draw arrows on the bounding box edges.
+
+    Parameters:
+    - img: The image on which to draw.
+    - bbox: The bounding box specified as (x1, y1, x2, y2).
+    - horizontal: Boolean indicating direction of arrows on left/right edges.
+                  True for outward, False for inward.
+    - vertical: Boolean indicating direction of arrows on top/bottom edges.
+                True for outward, False for inward.
+    """
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    arrow_length = max(w // 20, 20)  # Length of the arrow
+    # tip_length = arrow_length // 20
+    tip_length = 0.1
+    arrow_thickness = 2  # Thickness of the arrow
+    color = (0, 255, 0)  # Arrow color (Green)
+
+    # Calculate midpoints
+    left_mid = (x, y + h // 2)
+    right_mid = (x + w, y + h // 2)
+    top_mid = (x + w // 2, y)
+    bottom_mid = (x + w // 2, y + h)
+
+    # Horizontal arrows
+    if horizontal:
+        # Left arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (left_mid[0] + arrow_length, left_mid[1]),
+            left_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Right arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (right_mid[0] - arrow_length, right_mid[1]),
+            right_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    else:
+        # Left arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            left_mid,
+            (left_mid[0] + arrow_length, left_mid[1]),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Right arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            right_mid,
+            (right_mid[0] - arrow_length, right_mid[1]),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+
+    # Vertical arrows
+    if vertical:
+        # Top arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (top_mid[0], top_mid[1] + arrow_length),
+            top_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Bottom arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (bottom_mid[0], bottom_mid[1] - arrow_length),
+            bottom_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    else:
+        # Top arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            top_mid,
+            (top_mid[0], top_mid[1] + arrow_length),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Bottom arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            bottom_mid,
+            (bottom_mid[0], bottom_mid[1] - arrow_length),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    return img
 
 
 # def plot_kmeans_intertias(hockey_mom: HockeyMOM):
