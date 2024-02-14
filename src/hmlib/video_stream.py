@@ -26,8 +26,10 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
+MAX_VIDEO_WIDTH = 2048
 
-def video_size(width: int, height: int, max_width: int = 2048):
+
+def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     h = height
     w = width
     if h > max_width:
@@ -38,7 +40,7 @@ def video_size(width: int, height: int, max_width: int = 2048):
     return w, h, False
 
 
-def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = 2048):
+def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_WIDTH):
     assert tensor.ndim == 4 and (tensor.shape[-1] == 3 or tensor.shape[-1] == 4)
     h = tensor.shape[1]
     w = tensor.shape[2]
@@ -71,6 +73,8 @@ class VideoStreamWriter:
         self._codec = codec
         self._streaming = False
         if self._filename.startswith("rtmp://"):
+            # self._format = "av1"
+            # self._container_type = "av1"
             self._format = "flv"
             self._container_type = "flv"
             self._streaming = True
@@ -141,9 +145,10 @@ class VideoStreamWriter:
                 frame_rate=self._fps,
                 format="bgr24",
                 # encoder="av1_nvenc",
-                encoder="flv",
+                encoder=self._format,
                 height=new_h,
                 width=new_w,
+                codec_config=self._codec_config,
                 # hw_accel=str(self._device),
             )
         else:
@@ -214,7 +219,8 @@ class VideoStreamWriter:
     def append(self, images: torch.Tensor):
         if self._streaming:
             images = scale_down_for_live_video(images)
-            images = images.cpu()
+            if images.device.type != "cpu":
+                images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
             self.flush(flush_video_file=False)

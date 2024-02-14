@@ -753,7 +753,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             group_threshhold=0.5,
         )
         if group_x_velocity:
-            print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 cv2.circle(
                     online_im,
@@ -813,7 +813,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     )
                 else:
                     # Cut the speed quickly due to overshoot
-                    self._current_roi.scale_speed(ratio_x=0.4)
+                    self._current_roi.scale_speed(ratio_x=0.6)
                     print("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
