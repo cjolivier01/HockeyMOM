@@ -29,6 +29,10 @@ FAN_MODE_HEAVY_IO = 4
 
 lock_file_path = "/tmp/gpu_fan_control.lock"
 
+# GPUs that have their own cooling system
+IGNORE_GPUS = {
+    "GPU1 Temp",
+}
 
 def set_zone_fan_speed(speed_percent, zone: int = 1):
     ratio = speed_percent / 100
@@ -60,6 +64,8 @@ def manage_temp(ipmi: pyipmi.Ipmi, match_str: str, zone: int, current_mode: str)
     sensors = []
     reservation_id = ipmi.reserve_device_sdr_repository()
     for sdr in ipmi.get_repository_sdr_list(reservation_id):
+        if sdr.device_id_string in IGNORE_GPUS:
+            continue
         if match_str in sdr.device_id_string:
             sensors.append(sdr)
             if len(sensors) == 1:
