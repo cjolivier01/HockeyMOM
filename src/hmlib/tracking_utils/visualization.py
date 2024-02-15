@@ -587,6 +587,71 @@ def draw_arrows(img, bbox, horizontal=True, vertical=True):
     return img
 
 
+def draw_centered_lines(image, bbox, thickness=2, color=(0, 255, 0)):
+    image = to_cv2(image)
+
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    # Calculate 26% of the box's width and height for the line lengths
+    line_length_w = int(0.26 * w)
+    line_length_h = int(0.26 * h)
+
+    # Calculate the start and end points for lines parallel to width
+    start_x_w = x + (w - line_length_w) // 2
+    end_x_w = start_x_w + line_length_w
+    # And for lines parallel to height
+    start_y_h = y + (h - line_length_h) // 2
+    end_y_h = start_y_h + line_length_h
+
+    # Draw lines centered on each side
+    # Line on top side
+    cv2.line(image, (start_x_w, y), (end_x_w, y), color, thickness)
+    # Line on bottom side
+    cv2.line(image, (start_x_w, y + h), (end_x_w, y + h), color, thickness)
+
+    # Line on left side
+    cv2.line(image, (x, start_y_h), (x, end_y_h), color, thickness)
+    # Line on right side
+    cv2.line(image, (x + w, start_y_h), (x + w, end_y_h), color, thickness)
+
+    return image
+
+
+def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):
+    image = to_cv2(image)
+
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    # Calculate 10% of the box's width and height
+    corner_length_w = int(0.1 * w)
+    corner_length_h = int(0.1 * h)
+
+    # Define points for the corners - each corner will be represented as two lines
+    # Top-left corner
+    cv2.line(image, (x, y), (x + corner_length_w, y), color, thickness)
+    cv2.line(image, (x, y), (x, y + corner_length_h), color, thickness)
+
+    # Top-right corner
+    cv2.line(image, (x + w, y), (x + w - corner_length_w, y), color, thickness)
+    cv2.line(image, (x + w, y), (x + w, y + corner_length_h), color, thickness)
+
+    # Bottom-left corner
+    cv2.line(image, (x, y + h), (x + corner_length_w, y + h), color, thickness)
+    cv2.line(image, (x, y + h), (x, y + h - corner_length_h), color, thickness)
+
+    # Bottom-right corner
+    cv2.line(image, (x + w, y + h), (x + w - corner_length_w, y + h), color, thickness)
+    cv2.line(image, (x + w, y + h), (x + w, y + h - corner_length_h), color, thickness)
+
+    return image
+
+
 # def plot_kmeans_intertias(hockey_mom: HockeyMOM):
 #     inertias = []
 #     object_count = len(hockey_mom.online_image_center_points)

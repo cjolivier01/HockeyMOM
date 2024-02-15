@@ -149,7 +149,9 @@ class CamTrackHead(TrackingHead):
             letterbox_img,
             original_img,
         )
-        assert isinstance(online_ids, torch.Tensor)
+        assert isinstance(online_ids, torch.Tensor) or (
+            isinstance(online_ids, list) and len(online_ids) == 0
+        )
         self._postprocessor.send(
             online_tlwhs,
             online_ids,

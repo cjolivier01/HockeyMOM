@@ -683,7 +683,7 @@ def main(exp, args, num_gpu):
         # start evaluate
         args.device = gpus["detection"]
         eval_functions = {
-            "hm": {"function": evaluator.evaluate_hockeymom},
+            # "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},
             "fair": {"function": evaluator.evaluate_fair},
             "centertrack": {"function": evaluator.evaluate_centertrack},

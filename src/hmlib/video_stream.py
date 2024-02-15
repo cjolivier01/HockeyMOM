@@ -4,7 +4,9 @@ import torch
 import torchaudio
 import torchvision
 
+from hmlib.tracking_utils.log import logger
 from hmlib.utils.image import resize_image
+from hmlib.tracking_utils.timer import Timer
 
 from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
@@ -26,7 +28,7 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 640
+MAX_VIDEO_WIDTH = 1280
 
 
 def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
@@ -34,6 +36,9 @@ def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     w = width
     if h > max_width:
         ar = w / h
+        if ar > 2.1:
+            # probably the whole panorama
+            max_width = max_width + 500
         w = int(max_width)
         h = int(w / ar)
         return w, h, True
@@ -64,6 +69,7 @@ class VideoStreamWriter:
         device: torch.device = None,
         lossless: bool = False,
         container_type: str = "matroska",
+        local_resize: bool = True,
     ):
         self._filename = filename
         self._container_type = container_type
@@ -72,21 +78,11 @@ class VideoStreamWriter:
         self._height = height
         self._codec = codec
         self._streaming = False
+        self._local_resize = local_resize
+        self._timer = Timer()
         if self._filename.startswith("rtmp://"):
-            self._width, self._height, _ = video_size(
-                width=self._width, height=self._height
-            )
             self._format = format
-            # self._container_type = "fvl"
-            self._container_type = None
             self._codec = "h264_nvenc"
-            # self._codec = "libx264"
-            # self._format = "av1"
-            # self._container_type = "av1"
-            # self._format = "hevc"
-            # self._container_type = "hevc"
-            # self._format = "flv"
-            self._format = "bgr24"
             self._container_type = "flv"
             self._streaming = True
         elif self._filename.startswith("udp://"):
@@ -95,12 +91,19 @@ class VideoStreamWriter:
             self._streaming = True
         else:
             self._format = format
+
+        if self._streaming and self._local_resize:
+            self._width, self._height, _ = video_size(
+                width=self._width, height=self._height
+            )
+
         self._video_out = None
         self._video_f = None
         self._device = device
         self._lossless = lossless
         assert batch_size >= 1
         self._batch_size = batch_size
+        self._batch_count = 0
         self._batch_items = []
         self._in_flush = False
         self._codec_config = torchaudio.io.CodecConfig(
@@ -151,16 +154,23 @@ class VideoStreamWriter:
             options["qp"] = "0"
 
         if self._filename.startswith("rtmp://"):
-            new_w, new_h, _ = video_size(width=self._width, height=self._height)
+            new_w, new_h, needs_resize = video_size(
+                width=self._width, height=self._height
+            )
+            assert not self._local_resize or not needs_resize
             hw_accel = None
             if self._codec.endswith("_nvenc"):
                 hw_accel = str(self._device)
+            # Cut down the bitrate
+            self._codec_config.bit_rate /= 4
             self._video_out.add_video_stream(
-                frame_rate=self._fps,
+                # frame_rate=self._fps / 2,
+                frame_rate=20,
                 format="bgr24",
                 encoder=self._codec,
                 encoder_format="bgr0",
-                # encoder_format="xxxx",
+                encoder_width=self._width,
+                encoder_height=self._height,
                 height=new_h,
                 width=new_w,
                 codec_config=self._codec_config,
@@ -168,8 +178,7 @@ class VideoStreamWriter:
             )
         else:
             self._video_out.add_video_stream(
-                # frame_rate=self._fps,
-                frame_rate=10,
+                frame_rate=self._fps,
                 height=self._height,
                 width=self._width,
                 format=self._format,
@@ -234,12 +243,25 @@ class VideoStreamWriter:
 
     def append(self, images: torch.Tensor):
         if self._streaming:
-            images = scale_down_for_live_video(images)
+            if self._local_resize:
+                images = scale_down_for_live_video(images)
+            assert images.device == self._device
             if not self._codec.endswith("_nvenc") and images.device.type != "cpu":
                 images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
         if len(self._batch_items) >= self._batch_size:
             self.flush(flush_video_file=False)
+        self._batch_count += 1
+        if self._timer.start_time != 0:
+            self._timer.toc()
+        if self._batch_count % 100 == 0:
+            logger.info(
+                "Writing output ({:.2f} fps)".format(
+                    len(images) * 1.0 / max(1e-5, self._timer.average_time),
+                )
+            )
+            self._timer = Timer()
+        self._timer.tic()
 
     def write(self, images: torch.Tensor):
         return self.append(images)

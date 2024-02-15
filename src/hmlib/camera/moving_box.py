@@ -6,7 +6,7 @@ import cv2
 
 import numpy as np
 
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch
 
@@ -98,10 +98,86 @@ class ResizingBox(BasicBox):
         self._max_width = max_width
         self._max_height = max_height
 
+        #
+        # Sticky sizing thresholds
+        #
+        # Threshold to grow width (ratio of bbox)
+        self._size_ratio_thresh_grow_dw = 0.05
+        # Threshold to grow height (ratio of bbox)
+        self._size_ratio_thresh_grow_dy = 0.1
+        # Threshold to shrink width (ratio of bbox)
+        self._size_ratio_thresh_shrink_dw = 0.08
+        # Threshold to shrink height (ratio of bbox)
+        self._size_ratio_thresh_shrink_dy = 0.1
+
         self._size_is_frozen = True
 
-    def draw(self, img: np.array, draw_threasholds: bool = False):
-        pass
+    def draw(self, img: np.array, draw_threasholds: bool = True):
+        if self._sticky_sizing:
+            assert self._following_box is not None  # why?
+            my_bbox = self.bounding_box()
+            center_tensor = center(my_bbox)
+            my_width = width(my_bbox)
+            my_height = height(my_bbox)
+            following_bbox = self._following_box.bounding_box()
+            # dashed box representing the following box inscribed at our center
+
+            if self._size_is_frozen:
+                corner_box = scale_box(
+                    box=my_bbox.clone(), scale_width=0.98, scale_height=0.98
+                )
+                img = vis.draw_corner_boxes(
+                    image=img, bbox=corner_box, color=(255, 255, 255), thickness=1
+                )
+
+            scaled_following_box = scale_box(
+                following_bbox,
+                scale_width=self._scale_width,
+                scale_height=self._scale_height,
+            )
+
+            inscribed = move_box_to_center(
+                scaled_following_box.clone(), center(my_bbox)
+            )
+            # print(
+            #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
+            # )
+            img = vis.draw_dashed_rectangle(
+                img, box=inscribed, color=(255, 255, 255), thickness=2
+            )
+
+            # Sizing thresholds
+            if draw_threasholds:
+                grow_width, grow_height, shrink_width, shrink_height = (
+                    self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
+                )
+                grow_box = make_box_at_center(
+                    center_point=center_tensor,
+                    w=my_width + grow_width,
+                    h=my_height + grow_height,
+                )
+                shrink_box = make_box_at_center(
+                    center_point=center_tensor,
+                    w=my_width - shrink_width,
+                    h=my_height - shrink_height,
+                )
+
+                img = vis.draw_centered_lines(
+                    img, bbox=grow_box, thickness=4, color=(0, 255, 0)
+                )
+                img = vis.draw_centered_lines(
+                    img, bbox=shrink_box, thickness=4, color=(0, 0, 255)
+                )
+        return img
+
+    def _get_grow_wh_and_shrink_wh(self, bbox: torch.Tensor):
+        my_width = width(bbox)
+        my_height = height(bbox)
+        grow_width = my_width * self._size_ratio_thresh_grow_dw
+        grow_height = my_height * self._size_ratio_thresh_grow_dy
+        shrink_width = my_width * self._size_ratio_thresh_shrink_dw
+        shrink_height = my_height * self._size_ratio_thresh_shrink_dy
+        return grow_width, grow_height, shrink_width, shrink_height
 
     def _clamp_resizing(self):
         self._current_speed_w = torch.clamp(
@@ -164,14 +240,14 @@ class ResizingBox(BasicBox):
         current_w = width(bbox)
         current_h = height(bbox)
 
-        if self._fixed_aspect_ratio is not None:
-            # Apply aspect ratio
-            if dest_width / dest_height < self._fixed_aspect_ratio:
-                # Constrain by height
-                dest_width = dest_height * self._fixed_aspect_ratio
-            else:
-                # Constrain by width
-                dest_height = dest_width / self._fixed_aspect_ratio
+        # if self._fixed_aspect_ratio is not None:
+        #     # Apply aspect ratio
+        #     if dest_width / dest_height < self._fixed_aspect_ratio:
+        #         # Constrain by height
+        #         dest_width = dest_height * self._fixed_aspect_ratio
+        #     else:
+        #         # Constrain by width
+        #         dest_height = dest_width / self._fixed_aspect_ratio
 
         dw = dest_width - current_w
         dh = dest_height - current_h
@@ -180,36 +256,105 @@ class ResizingBox(BasicBox):
         # BEGIN size threshhold
         #
         if self._sticky_sizing:
-            scale_amount = 0.1
-            req_w_diff = current_w * scale_amount
-            req_h_diff = current_h * scale_amount
-            dw_thresh = False
-            dh_thresh = False
-            want_bigger = False
+            assert self._following_box is not None  # why?
 
-            zero = self._zero_float_tensor.clone()
-            if dw < zero and dw < -req_w_diff:
-                dw_thresh = True
-            elif dw > zero and dw > req_w_diff:
-                dw_thresh = True
-                want_bigger = True
-            else:
-                dw = zero.clone()
+            grow_width, grow_height, shrink_width, shrink_height = (
+                self._get_grow_wh_and_shrink_wh(bbox=bbox)
+            )
 
-            if dh < zero and dh < -req_h_diff:
-                dh_thresh = True
-            elif dh > zero and dh > req_h_diff:
-                dh_thresh = True
-                want_bigger = True
-            else:
-                dh = zero.clone()
+            # scale_amount = 0.1
+            # req_w_diff = current_w * scale_amount
+            # req_h_diff = current_h * scale_amount
+            # dw_thresh = False
+            # dh_thresh = False
+            # want_bigger = False
 
-            if not dw_thresh and not dh_thresh:
-                self._size_is_frozen = True
-            elif (dw_thresh and dh_thresh) or (
-                want_bigger and (dw_thresh or dh_thresh)
-            ):
-                self._size_is_frozen = False
+            dw_thresh = torch.logical_and(dw < 0, dw < -shrink_width)
+            want_bigger_w = torch.logical_and(dw > 0, dw > grow_width)
+            dw_thresh = torch.logical_or(dw_thresh, want_bigger_w)
+            dw = torch.where(dw_thresh, dw, 0)
+
+            dh_thresh = torch.logical_and(dh < 0, dh < -shrink_height)
+            want_bigger_h = torch.logical_and(dh > 0, dh > grow_height)
+            dh_thresh = torch.logical_or(dh_thresh, want_bigger_h)
+            dh = torch.where(dw_thresh, dh, 0)
+
+            self._size_is_frozen = torch.logical_and(
+                torch.logical_not(dw_thresh), torch.logical_not(dh_thresh)
+            )
+            both_thresh = torch.logical_and(dw_thresh, dh_thresh)
+
+            # prioritize width thresh
+            if True:
+                both_thresh = torch.logical_or(dw_thresh, both_thresh)
+
+            any_thresh = torch.logical_or(dw_thresh, dh_thresh)
+            want_bigger = torch.logical_and(
+                torch.logical_or(want_bigger_w, want_bigger_h), any_thresh
+            )
+            self._size_is_frozen = torch.logical_or(
+                self._size_is_frozen,
+                torch.logical_not(torch.logical_or(both_thresh, want_bigger)),
+            )
+            # if self._size_is_frozen:
+            #     print(f"frozen size={self._size_is_frozen}")
+            # else:
+            #     print(f"frozen size={self._size_is_frozen}")
+
+            # zero = self._zero_float_tensor.clone()
+            # if dw < zero and dw < -req_w_diff:
+            #     dw_thresh = True
+            # elif dw > zero and dw > req_w_diff:
+            #     dw_thresh = True
+            #     want_bigger = True
+            # else:
+            #     dw = zero.clone()
+
+            # if dh < zero and dh < -req_h_diff:
+            #     dh_thresh = True
+            # elif dh > zero and dh > req_h_diff:
+            #     dh_thresh = True
+            #     want_bigger = True
+            # else:
+            #     dh = zero.clone()
+
+            # if not dw_thresh and not dh_thresh:
+            #     self._size_is_frozen = True
+            # elif (dw_thresh and dh_thresh) or (
+            #     want_bigger and (dw_thresh or dh_thresh)
+            # ):
+            #     self._size_is_frozen = False
+
+            # scale_amount = 0.1
+            # req_w_diff = current_w * scale_amount
+            # req_h_diff = current_h * scale_amount
+            # dw_thresh = False
+            # dh_thresh = False
+            # want_bigger = False
+
+            # zero = self._zero_float_tensor.clone()
+            # if dw < zero and dw < -req_w_diff:
+            #     dw_thresh = True
+            # elif dw > zero and dw > req_w_diff:
+            #     dw_thresh = True
+            #     want_bigger = True
+            # else:
+            #     dw = zero.clone()
+
+            # if dh < zero and dh < -req_h_diff:
+            #     dh_thresh = True
+            # elif dh > zero and dh > req_h_diff:
+            #     dh_thresh = True
+            #     want_bigger = True
+            # else:
+            #     dh = zero.clone()
+
+            # if not dw_thresh and not dh_thresh:
+            #     self._size_is_frozen = True
+            # elif (dw_thresh and dh_thresh) or (
+            #     want_bigger and (dw_thresh or dh_thresh)
+            # ):
+            #     self._size_is_frozen = False
 
             # print(f"frozen size={self._size_is_frozen}")
 
@@ -220,15 +365,25 @@ class ResizingBox(BasicBox):
         assert self._zero.item() == 0
 
         if different_directions(dw, self._current_speed_w):
-            self._current_speed_w = self._zero.clone()
-            if stop_on_dir_change:
-                dw = self._zero.clone()
-                # self._size_is_frozen = True
+            # self._current_speed_w = self._zero.clone()
+            self._current_speed_w = torch.where(
+                torch.abs(self._current_speed_w) < self._max_speed_w / 6,
+                0,
+                self._current_speed_w / 2,
+            )
+            # if stop_on_dir_change:
+            #     dw = self._zero.clone()
+            # self._size_is_frozen = True
         if different_directions(dh, self._current_speed_h):
-            self._current_speed_h = self._zero.clone()
-            if stop_on_dir_change:
-                dh = self._zero.clone()
-                # self._size_is_frozen = True
+            # self._current_speed_h = self._zero.clone()
+            self._current_speed_h = torch.where(
+                torch.abs(self._current_speed_h) < self._max_speed_h / 6,
+                0,
+                self._current_speed_w / 2,
+            )
+            # if stop_on_dir_change:
+            #     dh = self._zero.clone()
+            # self._size_is_frozen = True
 
         # # Growing is allowed at a higher speed than shrinking
         # resize_larger_scale = 2.0
@@ -393,20 +548,23 @@ class MovingBox(ResizingBox):
             label=self._make_label(),
             text_scale=2,
         )
-        img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
+        # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_threasholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
-            cl = [int(i) for i in center(self.bounding_box())]
+            center_tensor = center(self.bounding_box())
+            my_center = [int(i) for i in center_tensor]
+            my_width = width(self.bounding_box())
+            my_height = height(self.bounding_box())
             cv2.circle(
                 img,
-                cl,
+                my_center,
                 radius=int(sticky),
                 color=(255, 0, 0),
                 thickness=3,
             )
             cv2.circle(
                 img,
-                cl,
+                my_center,
                 radius=int(unsticky),
                 color=(255, 0, 255),
                 thickness=3,
@@ -416,24 +574,46 @@ class MovingBox(ResizingBox):
                 following_bbox_center = center(following_bbox)
                 # dashed box representing the following box inscribed at our center
 
-                scaled_following_box = scale_box(
-                    following_bbox.clone(),
-                    scale_width=self._scale_width,
-                    scale_height=self._scale_height,
-                )
-                inscribed = move_box_to_center(
-                    scaled_following_box.clone(), center(self.bounding_box())
-                )
-                img = vis.draw_dashed_rectangle(
-                    img, box=inscribed, color=(255, 255, 255), thickness=1
-                )
+                #     scaled_following_box = scale_box(
+                #         following_bbox.clone(),
+                #         scale_width=self._scale_width,
+                #         scale_height=self._scale_height,
+                #     )
+                #     inscribed = move_box_to_center(
+                #         scaled_following_box.clone(), center(self.bounding_box())
+                #     )
+                #     img = vis.draw_dashed_rectangle(
+                #         img, box=inscribed, color=(255, 255, 255), thickness=1
+                #     )
+
+                #     # Sizing thresholds
+                #     grow_width, grow_height, shrink_width, shrink_height = (
+                #         self._get_grow_wh_and_shrink_wh(bbox=draw_box)
+                #     )
+                #     grow_box = make_box_at_center(
+                #         center_point=center_tensor,
+                #         w=my_width + grow_width,
+                #         h=my_height + grow_height,
+                #     )
+                #     shrink_box = make_box_at_center(
+                #         center_point=center_tensor,
+                #         w=my_width - shrink_width,
+                #         h=my_height - shrink_height,
+                #     )
+
+                #     img = vis.draw_centered_lines(
+                #         img, bbox=grow_box, thickness=4, color=(0, 255, 0)
+                #     )
+                #     img = vis.draw_centered_lines(
+                #         img, bbox=shrink_box, thickness=4, color=(0, 0, 255)
+                #     )
 
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
                 co = [int(i) for i in following_bbox_center]
                 cv2.circle(
                     img,
-                    cl,
+                    my_center,
                     radius=5,
                     color=(255, 255, 0),
                     thickness=cv2.FILLED,
@@ -445,11 +625,25 @@ class MovingBox(ResizingBox):
                     color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
-                img = vis.plot_line(img, cl, co, color=(255, 255, 0), thickness=1)
+                img = vis.plot_line(
+                    img, my_center, co, color=(255, 255, 0), thickness=1
+                )
                 # X
-                img = vis.plot_line(img, cl, [co[0], cl[1]], color=(255, 255, 0), thickness=3)
+                img = vis.plot_line(
+                    img,
+                    my_center,
+                    [co[0], my_center[1]],
+                    color=(255, 255, 0),
+                    thickness=3,
+                )
                 # Y
-                img = vis.plot_line(img, cl, [cl[0], co[1]], color=(255, 255, 0), thickness=3)
+                img = vis.plot_line(
+                    img,
+                    my_center,
+                    [my_center[0], co[1]],
+                    color=(255, 255, 0),
+                    thickness=3,
+                )
 
         return img
 
@@ -510,17 +704,18 @@ class MovingBox(ResizingBox):
         self,
         accel_x: torch.Tensor = None,
         accel_y: torch.Tensor = None,
-        use_constraints: bool = True,
+        scale_constraints: float = None,
         nonstop_delay: torch.Tensor = None,
     ):
-        if use_constraints:
+        if scale_constraints is not None:
+            mult = scale_constraints
             if accel_x is not None:
                 accel_x = torch.clamp(
-                    accel_x, min=-self._max_accel_x, max=self._max_accel_x
+                    accel_x, min=-self._max_accel_x * mult, max=self._max_accel_x * mult
                 )
             if accel_y is not None:
                 accel_y = torch.clamp(
-                    accel_y, min=-self._max_accel_y, max=self._max_accel_y
+                    accel_y, min=-self._max_accel_y * mult, max=self._max_accel_y * mult
                 )
         if accel_x is not None:
             self._current_speed_x += accel_x
@@ -531,8 +726,6 @@ class MovingBox(ResizingBox):
         if nonstop_delay is not None:
             self._nonstop_delay = nonstop_delay
             self._nonstop_delay_counter = self._zero
-        # if use_constraints:
-        #     self._clamp_speed()
 
     def scale_speed(
         self,
@@ -551,7 +744,11 @@ class MovingBox(ResizingBox):
         our current velocity and constraints
         """
         if isinstance(dest_box, BasicBox):
-            dest_box = dest_box.bounding_box()
+            dest_box = scale_box(
+                box=dest_box.bounding_box(),
+                scale_width=self._scale_width,
+                scale_height=self._scale_height,
+            )
 
         bbox = self.bounding_box()
         center_current = center(bbox)
@@ -623,20 +820,36 @@ class MovingBox(ResizingBox):
 
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
-                self._current_speed_x = self._zero.clone()
+                # self._current_speed_x = self._zero.clone()
+                # self._current_speed_x /= 2
+
+                self._current_speed_x = torch.where(
+                    torch.abs(self._current_speed_x) < self._max_speed_x / 6,
+                    0,
+                    self._current_speed_x / 2,
+                )
+
                 if stop_on_dir_change:
                     total_diff[0] = self._zero.clone()
             if different_directions(total_diff[1], self._current_speed_y):
-                self._current_speed_y = self._zero.clone()
+                # self._current_speed_y = self._zero.clone()
+                # self._current_speed_y /= 2
+
+                self._current_speed_y = torch.where(
+                    torch.abs(self._current_speed_y) < self._max_speed_y / 6,
+                    0,
+                    self._current_speed_y / 2,
+                )
+
                 if stop_on_dir_change:
                     total_diff[1] = self._zero.clone()
         self.adjust_speed(
-            accel_x=total_diff[0], accel_y=total_diff[1], use_constraints=True
+            accel_x=total_diff[0],
+            accel_y=total_diff[1],
+            scale_constraints=1.0,
         )
+
         super(MovingBox, self).set_destination(
-            # dest_box=scale_box(
-            #     dest_box, scale_width=self._scale_width, scale_height=self._scale_height
-            # ),
             dest_box=dest_box,
             stop_on_dir_change=stop_on_dir_change,
         )
@@ -760,6 +973,7 @@ class MovingBox(ResizingBox):
             # Constrain by width
             new_w = w
             new_h = new_w / aspect_ratio
+        assert new_w >= w
         return make_box_at_center(center_point=center(setting_box), w=new_w, h=new_h)
 
     def is_nonstop(self):

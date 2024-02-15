@@ -792,7 +792,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     self._current_roi.adjust_speed(
                         accel_x=group_x_velocity / 2,
                         accel_y=None,
-                        scale_constraints=3.0,
+                        scale_constraints=2.0,
                         nonstop_delay=torch.tensor(
                             1, dtype=torch.int64, device=self._device
                         ),
