@@ -72,7 +72,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         super().__init__()
 
         self.game_config = game_config
-        
+
         self._output_video_path = output_video_path
 
         # Display the image every frame (slow)
@@ -125,8 +125,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # Plot frame ID and speed/velocity in upper-left corner
         self.plot_speed = False
 
-        self.fixed_edge_rotation = False
-        # self.fixed_edge_rotation = True
+        # self.fixed_edge_rotation = False
+        self.fixed_edge_rotation = True
 
         self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
             "fixed_edge_rotation_angle"
@@ -744,7 +744,7 @@ class CamTrackPostProcessor(torch.nn.Module):
         if self._args.plot_speed:
             vis.plot_frame_id_and_speeds(
                 online_im,
-                -frame_id,
+                frame_id,
                 *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
             )
 
@@ -770,20 +770,6 @@ class CamTrackPostProcessor(torch.nn.Module):
             )
 
             # If group x velocity is in different direction than current speed, behave a little differently
-
-            gv = group_x_velocity * 2 / 3
-            # self._hockey_mom._current_camera_box_speed_x += gv
-            # self._hockey_mom._current_camera_box_speed_x = torch.where(
-            #     torch.eq(
-            #         torch.sign(self._hockey_mom._current_camera_box_speed_x),
-            #         torch.sign(gv),
-            #     ),
-            #     # same sign
-            #     gv,
-            #     # different sign, decay wrong-way speed more quickly
-            #     self._hockey_mom._current_camera_box_speed_x / 2 + gv,
-            # )
-
             if self._current_roi is not None:
                 roi_center = center(self._current_roi_aspect.bounding_box())
                 if self._args.plot_individual_player_tracking:
@@ -806,7 +792,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     self._current_roi.adjust_speed(
                         accel_x=group_x_velocity / 2,
                         accel_y=None,
-                        use_constraints=False,
+                        scale_constraints=3.0,
                         nonstop_delay=torch.tensor(
                             1, dtype=torch.int64, device=self._device
                         ),
