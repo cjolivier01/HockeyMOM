@@ -63,6 +63,37 @@ def example():
     # Now, `warped_image` contains the transformed image tensor
 
 
+# Manually create a grid that applies the perspective transformation
+def warp_perspective_pytorch(image_tensor, M, dsize):
+    if isinstance(image_tensor, np.ndarray):
+        image_tensor = torch.from_numpy(image_tensor)
+        # add batch and make channels first
+        image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)
+    B, C, H, W = image_tensor.shape
+    # Convert M from numpy to tensor
+    M = torch.tensor(M, dtype=torch.float32)
+
+    # Create normalized 2D grid
+    xx, yy = torch.meshgrid(torch.linspace(-1, 1, dsize[1]), torch.linspace(-1, 1, dsize[0]))
+    grid = torch.stack([yy, xx], dim=2).unsqueeze(0)  # Shape: (1, H, W, 2)
+
+    # Adjust grid for perspective transformation
+    # Add ones to make grid homogenous
+    ones = torch.ones(grid.shape[:-1] + (1,))
+    grid_homogenous = torch.cat([grid, ones], dim=3)
+
+    # Apply perspective transformation
+    grid_transformed = grid_homogenous @ M.T[:3, :3]
+    grid_transformed = grid_transformed[..., :2] / grid_transformed[..., 2:3]  # Divide by Z to normalize
+
+    # Warp image using grid_sample
+    image_tensor = image_tensor.to(torch.float32) / 255.0
+    warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
+    warped_image = torch.clamp(warped_image * 255.0, min=0, max=255).to(torch.uint8)
+
+    return warped_image
+
+
 def main():
     # Load your image
     image_path = '/mnt/home/colivier-local/Videos/tvbb2/panorama.tif'  # Specify the path to your image
@@ -81,6 +112,7 @@ def main():
 
     # Prepare for interactive point selection
     fig, ax = plt.subplots()
+    original_image = np.array(np.ascontiguousarray(image))
     img_plot = plt.imshow(image)
     selected_points = []
 
@@ -101,6 +133,7 @@ def main():
 
 
     def proceed_with_warp_cv2():
+        nonlocal original_image
         print(selected_points)
 
         src_pts = np.array(selected_points, dtype=np.float32)
@@ -112,12 +145,25 @@ def main():
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
         warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
+        #warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
         # Display the warped image
         plt.figure()
-        plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
-        plt.title("Warped Image")
-        plt.show()
+        if warped_image.ndim == 4:
+            assert warped_image.size(0) == 1
+            warped_image = warped_image.squeeze(0)
+
+        if warped_image.shape[0] == 4 or warped_image.shape[0] == 3:
+            warped_image = warped_image.permute(1, 2, 0)
+            warped_image = warped_image.contiguous().numpy()
+
+        # cv2.imshow("online_im", original_image)
+        original_image *= 1
+        cv2.imshow("online_im", warped_image)
+        cv2.waitKey(0)
+        #plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
+        #plt.title("Warped Image")
+        #plt.show()
 
     def proceed_with_warp_pytorch():
         # Convert selected points to tensor and perform perspective warp
