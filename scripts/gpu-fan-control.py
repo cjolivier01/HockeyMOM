@@ -34,13 +34,14 @@ IGNORE_GPUS = {
     "GPU1 Temp",
 }
 
+
 def set_zone_fan_speed(speed_percent, zone: int = 1):
     ratio = speed_percent / 100
     # fan_speed = int(ratio * 64)
     fan_speed = int(ratio * 95)
     raw_command = [0x30, 0x70, 0x66, 0x01, int(zone), int(fan_speed)]
-    cmd = [vs   
-           
+    cmd = [
+        "ipmitool",
         "raw",
     ] + [hex(v) for v in raw_command]
     subprocess.check_call(cmd)
