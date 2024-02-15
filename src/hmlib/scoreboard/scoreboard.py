@@ -1,4 +1,5 @@
 import cv2
+import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -100,14 +101,16 @@ def main():
 
 
     def proceed_with_warp_cv2():
+        print(selected_points)
+
         src_pts = np.array(selected_points, dtype=np.float32)
 
         width, height = image.size
         dst_pts = np.array([[0, 0], [width-1, 0], [width-1, height-1], [0, height-1]], dtype=np.float32)
-    
+
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-        
+
         warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
 
         # Display the warped image
