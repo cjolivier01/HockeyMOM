@@ -230,7 +230,8 @@ def main():
         original_image *= 1
         # cv2.imshow("online_im", warped_image)
         # cv2.waitKey(0)
-        plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
+        plt.imshow(warped_image)
+        #plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
         plt.show()
 
