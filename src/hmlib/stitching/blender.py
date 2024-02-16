@@ -1141,7 +1141,7 @@ def main(args):
             interpolation="bilinear",
             show=args.show_image,
             start_frame_number=0,
-            output_video="stitched_output.mkv" if args.save_stitched else None,
+            output_video=args.output_file,
             output_device=torch.device("cuda", gpu_allocator.allocate_modern()),
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
