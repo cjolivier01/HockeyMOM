@@ -205,12 +205,12 @@ class ImageRemapper:
             self._working_h = max(src_h, self._dest_h)
             print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
-            col_map = pad_tensor_to_size(
-                col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
-            row_map = pad_tensor_to_size(
-                row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
+            # col_map = pad_tensor_to_size(
+            #     col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            # )
+            # row_map = pad_tensor_to_size(
+            #     row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            # )
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,
