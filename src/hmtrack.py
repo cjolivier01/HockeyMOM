@@ -411,14 +411,6 @@ def main(exp, args, num_gpu):
 
         game_config = args.game_config
 
-        # game_config = get_config(
-        #     game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
-        # )
-
-        # args = configure_model(config=game_config, args=args)
-
-        # game_config["args"] = vars(args)
-
         tracker = get_nested_value(game_config, "model.tracker.type")
 
         if args.lfo is None and args.rfo is None:

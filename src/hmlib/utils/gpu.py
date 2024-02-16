@@ -14,6 +14,7 @@ class GpuAllocator:
         self._gpus = gpus[: gpu_count + 1]
         self._used_gpus = dict()
         self._named_allocations = dict()
+        self._last_allocated = None
 
     def allocate_modern(self, name: str = None):
         """
@@ -30,6 +31,9 @@ class GpuAllocator:
             self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
+        if index is None:
+            return self._last_allocated
+        self._last_allocated = index
         return index
 
     def allocate_fast(self, name: str = None):
@@ -47,6 +51,9 @@ class GpuAllocator:
             self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
+        if index is None:
+            return self._last_allocated
+        self._last_allocated = index
         return index
 
     def free_count(self):
