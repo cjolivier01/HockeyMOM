@@ -310,7 +310,7 @@ def get_gpu_with_highest_compute_capability(
 ) -> Tuple[int, Dict]:
     gpus = get_gpu_capabilities()
     if gpus is None:
-        return None
+        return None, None
     sorted_gpus = sorted(gpus, key=lambda x: float(x["compute_capability"]))
     for _, gpu in enumerate(reversed(sorted_gpus)):
         index = gpu["index"]
@@ -328,7 +328,7 @@ def get_gpu_with_most_multiprocessors(
 ) -> Tuple[int, Dict]:
     gpus = get_gpu_capabilities()
     if gpus is None:
-        return None
+        return None, None
     sorted_gpus = sorted(
         gpus, key=lambda x: float(x["properties"].multi_processor_count)
     )
