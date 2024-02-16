@@ -209,11 +209,6 @@ class StitchDataset:
         self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
-        # self._ordering_queue = (
-        #     core.SortedPyArrayUin8Queue()
-        #     if blend_mode == "multiblend"
-        #     else core.SortedTensorQueue()
-        # )
         self._ordering_queue = create_queue(mp=False)
         self._coordinator_thread = None
 
