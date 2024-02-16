@@ -26,7 +26,12 @@ from threading import Thread
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.visualization import get_complete_monitor_width
-from hmlib.utils.image import ImageHorizontalGaussianDistribution, ImageColorScaler
+from hmlib.utils.image import (
+    ImageHorizontalGaussianDistribution,
+    ImageColorScaler,
+    make_channels_first,
+    make_channels_last,
+)
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.gpu import (
@@ -781,7 +786,7 @@ class VideoOutput:
                     cuda_stream.synchronize()
 
                 # torch.cuda.synchronize()
-
+                online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
                 if self._output_video is not None and not self._skip_final_save:

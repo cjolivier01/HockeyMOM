@@ -8,91 +8,6 @@ import torch
 import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 
-def find_perspective_transform(src, dst):
-    # Construct the matrix A based on the source and destination coordinates
-    A = []
-    for i in range(0, len(src)):
-        x, y = src[i][0], src[i][1]
-        u, v = dst[i][0], dst[i][1]
-        A.append([x, y, 1, 0, 0, 0, -u*x, -u*y])
-        A.append([0, 0, 0, x, y, 1, -v*x, -v*y])
-
-    A = np.array(A)
-    B = dst.flatten()
-
-    # Solve for the transformation matrix
-    transform_matrix = np.linalg.solve(A, B)
-    transform_matrix = np.append(transform_matrix, 1).reshape(3, 3)
-
-    return transform_matrix
-
-def warp_perspective(image_tensor, M, dsize):
-    B, C, H, W = image_tensor.shape
-    M = torch.tensor(M, dtype=torch.float32)
-
-    # Generate grid of coordinates
-    grid_y, grid_x = torch.meshgrid(torch.linspace(-1, 1, dsize[1]), torch.linspace(-1, 1, dsize[0]), indexing='ij')
-    grid = torch.stack((grid_x, grid_y, torch.ones_like(grid_x)), dim=2).unsqueeze(0)  # Shape: (1, H, W, 3)
-
-    # Transform grid
-    grid = grid @ M.T
-    # grid = grid[:,:,:,:2] / grid[:,:,:,2:3]  # Divide by Z to get image coordinates
-    # grid = grid.permute(0, 3, 1, 2)  # Reorder dimensions to (N, C, H, W)
-    # grid = grid[:, :2, :, :]  # Drop ones
-    grid = (grid - 0.5) * 2  # Scale grid to [-1, 1]
-    grid = grid.unsqueeze(0)
-
-    # Sample pixels using grid
-    warped_image = F.grid_sample(image_tensor.unsqueeze(0), grid, mode='bilinear', padding_mode='zeros', align_corners=True)
-
-    return warped_image.squeeze(0)
-
-def example():
-    # Example usage
-    # Assume image_tensor is your loaded image in (C, H, W) format
-    # Define source points (corners of the distorted scoreboard) and destination points (corners of the desired rectangle)
-    src_points = torch.tensor([[x1, y1], [x2, y2], [x3, y3], [x4, y4]])  # Replace these points with actual coordinates
-    dst_points = torch.tensor([[0, 0], [width, 0], [width, height], [0, height]])  # Desired rectangle's corners
-
-    # Calculate the perspective transform matrix
-    M = find_perspective_transform(src_points, dst_points)
-
-    # Apply perspective warp
-    warped_image = warp_perspective(image_tensor, M, (width, height))
-
-    # Now, `warped_image` contains the transformed image tensor
-
-
-# Manually create a grid that applies the perspective transformation
-# def warp_perspective_pytorch(image_tensor, M, dsize):
-#     if isinstance(image_tensor, np.ndarray):
-#         image_tensor = torch.from_numpy(image_tensor)
-#         # add batch and make channels first
-#         image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)
-#     B, C, H, W = image_tensor.shape
-#     # Convert M from numpy to tensor
-#     M = torch.tensor(M, dtype=torch.float32)
-
-#     # Create normalized 2D grid
-#     xx, yy = torch.meshgrid(torch.linspace(-1, 1, dsize[1]), torch.linspace(-1, 1, dsize[0]))
-#     grid = torch.stack([yy, xx], dim=2).unsqueeze(0)  # Shape: (1, H, W, 2)
-
-#     # Adjust grid for perspective transformation
-#     # Add ones to make grid homogenous
-#     ones = torch.ones(grid.shape[:-1] + (1,))
-#     grid_homogenous = torch.cat([grid, ones], dim=3)
-
-#     # Apply perspective transformation
-#     grid_transformed = grid_homogenous @ M.T[:3, :3]
-#     grid_transformed = grid_transformed[..., :2] / grid_transformed[..., 2:3]  # Divide by Z to normalize
-
-#     # Warp image using grid_sample
-#     image_tensor = image_tensor.to(torch.float32) / 255.0
-#     warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
-#     warped_image = torch.clamp(warped_image * 255.0, min=0, max=255).to(torch.uint8)
-
-#     return warped_image
-
 def warp_perspective_pytorch(image_tensor, M, dsize):
     # Convert M to a torch tensor and calculate its inverse
     M = torch.tensor(M, dtype=torch.float32)
@@ -116,6 +31,9 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     # Transform the grid using the inverse matrix
     grid = grid.view(-1, 3)  # Flatten grid
     grid_transformed = torch.mm(grid, M_inverse.t())  # Apply inverse transformation matrix
+
+    grid_transformed = grid
+
     grid_transformed = grid_transformed / grid_transformed[:, 2].unsqueeze(-1)  # Normalize z to 1
     grid_transformed = grid_transformed[:, :2]  # Remove the z component
 
@@ -136,14 +54,15 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     imin = torch.min(image_tensor)
     imax = torch.max(image_tensor)
-    print(grid_transformed)
+    #print(grid_transformed)
 
     warped_image = torch.zeros((3, height, width))
     g_int = grid_transformed.to(torch.int64)
     #warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
     row_map = grid_transformed[0][:,:,1]
     col_map = grid_transformed[0][:,:,0]
-
+    # print(row_map)
+    # print(col_map)
     src_height = image_tensor.shape[-2]
     src_width = image_tensor.shape[-1]
     row_map_normalized = (
@@ -153,13 +72,28 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
         2.0 * col_map / (src_width - 1)
     ) - 1  # Normalize to [-1, 1]
 
+    # row_map_normalized = (
+    #     2.0 * row_map / (src_height - 1)
+    # ) - 1  # Normalize to [-1, 1]
+    # col_map_normalized = (
+    #     2.0 * col_map / (src_width - 1)
+    # ) - 1  # Normalize to [-1, 1]
+
     # Create the grid for grid_sample
     grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1).unsqueeze(0)
 
+    row_min=torch.min(row_map)
     row_max=torch.max(row_map)
+    col_min=torch.min(col_map)
     col_max=torch.max(col_map)
 
-    #warped_image[:] = image_tensor[:, :, row_map, col_map]
+    row_norm_min=torch.min(row_map_normalized)
+    row_norm_max=torch.max(row_map_normalized)
+    col_norm_min=torch.min(col_map_normalized)
+    col_norm_max=torch.max(col_map_normalized)
+
+
+    #warped_image[:] = image_tensor[:, :, row_map.to(torch.int32), col_map.to(torch.int32)]
     warped_image = F.grid_sample(image_tensor, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
     #warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
 
@@ -194,7 +128,7 @@ def main():
     original_image = np.array(np.ascontiguousarray(image))
     img_plot = plt.imshow(image)
 
-    # selected_points = []
+    selected_points = []
 
     #selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
     selected_points = [[5845.921076009106, 911.8827549830662], [6032.949003386821, 969.4298095608242], [5996.9820942757215, 1120.4908278274388], [5809.954166898008, 1048.5570096052415]]
@@ -226,8 +160,8 @@ def main():
         # ar = src_width/src_height
 
         # width, height = image.size
-        width = 100
-        height = 40
+        width = 640
+        height = 480
         # width = src_width
         # height = src_height
 
@@ -235,7 +169,7 @@ def main():
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-        print(M)
+        #print(M)
         warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
         # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
