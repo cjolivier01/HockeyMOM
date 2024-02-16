@@ -132,7 +132,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     # Warp the image using grid_sample
 
-    image_tensor = image_tensor.to(torch.float32) / 255.0
+    image_tensor = image_tensor.to(torch.float32)
 
     imin = torch.min(image_tensor)
     imax = torch.max(image_tensor)
@@ -141,18 +141,34 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     warped_image = torch.zeros((3, height, width))
     g_int = grid_transformed.to(torch.int64)
     #warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
-    row_map = grid_transformed[0][:,:,1].to(torch.int32)
-    col_map = grid_transformed[0][:,:,0].to(torch.int32)
+    row_map = grid_transformed[0][:,:,1]
+    col_map = grid_transformed[0][:,:,0]
+
+    src_height = image_tensor.shape[-2]
+    src_width = image_tensor.shape[3]
+    row_map_normalized = (
+        2.0 * row_map / (src_height - 1)
+    ) - 1  # Normalize to [-1, 1]
+    col_map_normalized = (
+        2.0 * col_map / (src_width - 1)
+    ) - 1  # Normalize to [-1, 1]
+
+    # Create the grid for grid_sample
+    grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1).unsqueeze(0)
+
+
+
     row_max=torch.max(row_map)
     col_max=torch.max(col_map)
 
-    warped_image[:] = image_tensor[:, :, row_map, col_map]
-    #warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=True)
+    #warped_image[:] = image_tensor[:, :, row_map, col_map]
+    warped_image = F.grid_sample(image_tensor, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+    #warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
 
     wmin = torch.min(warped_image)
     wmax = torch.max(warped_image)
 
-    warped_image = torch.clamp(warped_image * 255.0, min=0, max=255).to(torch.uint8)
+    warped_image = torch.clamp(warped_image, min=0, max=255).to(torch.uint8)
 
     wmin = torch.min(warped_image)
     wmax = torch.max(warped_image)

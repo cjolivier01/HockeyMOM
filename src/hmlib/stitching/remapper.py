@@ -255,7 +255,8 @@ class ImageRemapper:
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
-        dev = str(device)
+        #dev = str(device)
+        dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
             self._remap_op.to(dev)
@@ -387,6 +388,7 @@ def main(args):
         "mapping_0000",
         interpolation="bilinear",
         show=True,
+        device=torch.device("cpu"),
     )
 
 
@@ -395,4 +397,3 @@ if __name__ == "__main__":
 
     main(args)
     print("Done.")
-N
