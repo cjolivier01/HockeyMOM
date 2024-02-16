@@ -131,17 +131,17 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     image_tensor = image_tensor.permute(0, 3, 1, 2)
 
     # Warp the image using grid_sample
-    
+
     image_tensor = image_tensor.to(torch.float32) / 255.0
 
     imin = torch.min(image_tensor)
     imax = torch.max(image_tensor)
     print(grid_transformed)
-    
+
     warped_image = torch.zeros((3, height, width))
     g_int = grid_transformed.to(torch.int64)
     warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
-    
+
     warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=True)
 
     wmin = torch.min(warped_image)
@@ -156,7 +156,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
 def main():
     # Load your image
-    image_path = '/mnt/home/colivier-local/Videos/tvbb2/panorama.tif'  # Specify the path to your image
+    image_path = '/home/colivier/Videos/sharks-bb3-1/panorama.tif'  # Specify the path to your image
     #image = Image.open(image_path)
     image = Image.open(image_path)
     image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
@@ -177,7 +177,7 @@ def main():
 
     selected_points = []
 
-    selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
+    # selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
 
     def onclick(event):
         if event.xdata is not None and event.ydata is not None:
@@ -201,20 +201,20 @@ def main():
 
         src_pts = np.array(selected_points, dtype=np.float32)
 
-        #width, height = image.size
-        width = 40
-        height = 20
-        
+        width, height = image.size
+        #width = 40
+        #height = 20
+
         dst_pts = np.array([[0, 0], [width-1, 0], [width-1, height-1], [0, height-1]], dtype=np.float32)
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
         print(M)
-        #warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
-        warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
-        
-        wmin = torch.min(warped_image)
-        wmax = torch.max(warped_image)
+        warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
+        # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
+
+        #wmin = torch.min(warped_image)
+        #wmax = torch.max(warped_image)
 
         # Display the warped image
         plt.figure()
@@ -228,11 +228,11 @@ def main():
 
         # cv2.imshow("online_im", original_image)
         original_image *= 1
-        cv2.imshow("online_im", warped_image)
-        cv2.waitKey(0)
-        #plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
-        #plt.title("Warped Image")
-        #plt.show()
+        # cv2.imshow("online_im", warped_image)
+        # cv2.waitKey(0)
+        plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
+        plt.title("Warped Image")
+        plt.show()
 
     def proceed_with_warp_pytorch():
         # Convert selected points to tensor and perform perspective warp
@@ -248,12 +248,12 @@ def main():
         plt.title("Warped Image")
         plt.show()
 
-    if False:
+    if True:
         cid = fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show()
     else:
         proceed_with_warp_cv2()
-    
+
 
 if __name__ == "__main__":
     main()
