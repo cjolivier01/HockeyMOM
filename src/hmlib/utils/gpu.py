@@ -393,8 +393,8 @@ def select_gpus(
             detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
         else:
             detection_device = video_encoding_device
-            if is_encoding:
-                video_encoding_device = torch.device("cpu")
+            # if is_encoding:
+            #     video_encoding_device = torch.device("cpu")
 
         if is_stitching:
             if gpu_allocator.free_count():

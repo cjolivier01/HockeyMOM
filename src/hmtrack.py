@@ -192,28 +192,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="Camera name",
     )
-    # parser.add_argument(
-    #     "--left-file-offset",
-    #     "--lfo",
-    #     dest="lfo",
-    #     default=None,
-    #     type=float,
-    #     help="Left video file offset",
-    # )
-    # parser.add_argument(
-    #     "--right-file-offset",
-    #     "--rfo",
-    #     dest="rfo",
-    #     default=None,
-    #     type=float,
-    #     help="Left video file offset",
-    # )
-    # parser.add_argument(
-    #     "--game-id",
-    #     default=None,
-    #     type=str,
-    #     help="Game ID",
-    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
@@ -231,9 +209,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=0.9,
         help="matching threshold for tracking",
     )
-    # parser.add_argument(
-    #     "--start-frame", type=int, default=0, help="first frame number to process"
-    # )
     parser.add_argument(
         "--cvat-output",
         action="store_true",
@@ -253,12 +228,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--no-crop", action="store_true", help="Don't crop output image"
     )
-    # parser.add_argument(
-    #     "--max-frames",
-    #     type=int,
-    #     default=None,
-    #     help="maximum number of frames to process",
-    # )
     parser.add_argument(
         "--save-frame-dir",
         type=str,
@@ -628,7 +597,7 @@ def main(exp, args, num_gpu):
             postprocessor=postprocessor,
         )
 
-        torch.cuda.set_device(rank)
+        #torch.cuda.set_device(rank)
         trt_file = None
         decoder = None
         if model is not None:
