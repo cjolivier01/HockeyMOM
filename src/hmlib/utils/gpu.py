@@ -31,10 +31,10 @@ class GpuAllocator:
             self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
-        if index is None:
+            self._last_allocated = index
+            return index
+        else:
             return self._last_allocated
-        self._last_allocated = index
-        return index
 
     def allocate_fast(self, name: str = None):
         """
@@ -51,10 +51,10 @@ class GpuAllocator:
             self._used_gpus[index] = caps
             if name:
                 self._named_allocations[name] = index
-        if index is None:
+            self._last_allocated = index
+            return index
+        else:
             return self._last_allocated
-        self._last_allocated = index
-        return index
 
     def free_count(self):
         """

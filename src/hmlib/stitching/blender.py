@@ -46,15 +46,15 @@ ROOT_DIR = os.getcwd()
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
     parser = hm_opts.parser(parser)
-    parser.add_argument(
-        "-o",
-        "--output",
-        "--output_video",
-        dest="output_video",
-        type=str,
-        default=None,
-        help="Show images",
-    )
+    # parser.add_argument(
+    #     "-o",
+    #     "--output",
+    #     "--output_video",
+    #     dest="output_video",
+    #     type=str,
+    #     default=None,
+    #     help="Show images",
+    # )
     # parser.add_argument(
     #     "--project-file",
     #     "--project_file",
