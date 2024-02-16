@@ -140,9 +140,14 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     warped_image = torch.zeros((3, height, width))
     g_int = grid_transformed.to(torch.int64)
-    warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
+    #warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
+    row_map = grid_transformed[0][:,:,1].to(torch.int32)
+    col_map = grid_transformed[0][:,:,0].to(torch.int32)
+    row_max=torch.max(row_map)
+    col_max=torch.max(col_map)
 
-    warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=True)
+    warped_image[:] = image_tensor[:, :, row_map, col_map]
+    #warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=True)
 
     wmin = torch.min(warped_image)
     wmax = torch.max(warped_image)
@@ -175,9 +180,9 @@ def main():
     original_image = np.array(np.ascontiguousarray(image))
     img_plot = plt.imshow(image)
 
-    selected_points = []
+    #selected_points = []
 
-    # selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
+    selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
 
     def onclick(event):
         if event.xdata is not None and event.ydata is not None:
@@ -201,17 +206,17 @@ def main():
 
         src_pts = np.array(selected_points, dtype=np.float32)
 
-        width, height = image.size
-        #width = 40
-        #height = 20
+        # width, height = image.size
+        width = 40
+        height = 20
 
         dst_pts = np.array([[0, 0], [width-1, 0], [width-1, height-1], [0, height-1]], dtype=np.float32)
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
         print(M)
-        warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
-        # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
+        # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
+        warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
         #wmin = torch.min(warped_image)
         #wmax = torch.max(warped_image)
@@ -228,8 +233,8 @@ def main():
 
         # cv2.imshow("online_im", original_image)
         original_image *= 1
-        # cv2.imshow("online_im", warped_image)
-        # cv2.waitKey(0)
+        cv2.imshow("online_im", warped_image)
+        cv2.waitKey(0)
         plt.imshow(warped_image)
         #plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
@@ -249,7 +254,7 @@ def main():
         plt.title("Warped Image")
         plt.show()
 
-    if True:
+    if False:
         cid = fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show()
     else:
