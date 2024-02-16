@@ -13,30 +13,33 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.stitching.synchronize import get_image_geo_position
+from hmlib.hm_opts import hm_opts
+from hmlib.video_stream import VideoStreamReader
 
 # from hmlib.async_worker import AsyncWorker
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.image import make_channels_last, make_channels_first
 
 ROOT_DIR = os.getcwd()
 
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
-    parser.add_argument(
-        "--project-file",
-        "--project_file",
-        default="autooptimiser_out.pto",
-        type=str,
-        help="Use project file as input to stitcher",
-    )
-    parser.add_argument(
-        "--video_dir",
-        default=None,
-        type=str,
-        help="Video directory to find 'left.mp4' and 'right.mp4'",
-    )
+    # parser.add_argument(
+    #     "--project-file",
+    #     "--project_file",
+    #     default="autooptimiser_out.pto",
+    #     type=str,
+    #     help="Use project file as input to stitcher",
+    # )
+    # parser.add_argument(
+    #     "--video_dir",
+    #     default=None,
+    #     type=str,
+    #     help="Video directory to find 'left.mp4' and 'right.mp4'",
+    # )
     return parser
 
 
@@ -79,14 +82,16 @@ def read_frame_batch(
     frame = next(video_iter)
     assert frame.ndim == 4  # Must have batch dimension
     if isinstance(frame, np.ndarray):
-        frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
+        frame = torch.from_numpy(frame)
+        frame = make_channels_first(frame)
     if batch_size == 1:
         return frame
     frame_list.append(frame)
     for i in range(batch_size - 1):
         frame = next(video_iter)
         if isinstance(frame, np.ndarray):
-            frame = torch.from_numpy(frame.transpose(0, 3, 1, 2))
+            frame = torch.from_numpy(frame)
+            frame = make_channels_first(frame)
         frame_list.append(frame)
     tensor = torch.cat(frame_list, dim=0)
     return tensor
@@ -326,13 +331,13 @@ def remap_video(
     batch_size: int = 1,
     device: torch.device = torch.device("cuda"),
 ):
-    cap = cv2.VideoCapture(os.path.join(dir_name, video_file))
+    cap = VideoStreamReader(os.path.join(dir_name, video_file), type="cv2")
     if not cap or not cap.isOpened():
         raise AssertionError(
             f"Could not open video file: {os.path.join(dir_name, video_file)}"
         )
-
-    source_tensor = read_frame_batch(cap, batch_size=batch_size)
+    video_iter = iter(cap)
+    source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
 
     remapper = ImageRemapper(
         dir_name=dir_name,
@@ -371,7 +376,7 @@ def remap_video(
                 )
                 cv2.waitKey(1)
 
-        source_tensor = read_frame_batch(cap, batch_size=batch_size)
+        source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
         timer.tic()
 
 
@@ -386,7 +391,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = make_parser().parse_args()
+    args = hm_opts.parser(make_parser()).parse_args()
 
     main(args)
     print("Done.")
+N

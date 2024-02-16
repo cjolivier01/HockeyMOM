@@ -96,6 +96,7 @@ class hm_opts(object):
         parser.add_argument(
             "--project-file",
             "--project_file",
+            dest="project_file",
             default="autooptimiser_out.pto",
             type=str,
             help="Use project file as input to stitcher",

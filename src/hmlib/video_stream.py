@@ -427,6 +427,8 @@ class VideoStreamReader:
         self._width = None
         self._height = None
         self._batch_size = batch_size
+        if device is None:
+            device = torch.device("cpu")
         self._device = (
             device if isinstance(device, torch.device) else torch.device(device)
         )
