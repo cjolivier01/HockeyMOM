@@ -159,7 +159,7 @@ if __name__ == "__main__":
     #get_rois("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     #run_selection("/mnt/data/Videos/blackhawks/first_tracked_frame.png")
     current_file_path = os.path.dirname(os.path.abspath(__file__))
-    img_file = os.path.join(current_file_path, "..", "s.tif")
+    img_file = os.path.join(current_file_path, "..", "s.png")
     draw_line(img_file)
 
 
