@@ -233,8 +233,8 @@ def main():
         # ar = src_width/src_height
 
         # width, height = image.size
-        # width = 10
-        # height = 5
+        width = 200
+        height = 75
         width = src_width
         height = src_height
 
@@ -252,7 +252,7 @@ def main():
         # )
         src_pts = np.array(selected_points, dtype=np.float32)
 
-        bbox_src = get_bbox(src_pts)
+        bbox_src = get_bbox(selected_points)
         bbox_dest = get_bbox(dst_pts)
 
         # Calculate the perspective transform matrix and apply the warp
