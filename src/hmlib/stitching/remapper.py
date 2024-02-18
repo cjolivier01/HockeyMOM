@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from hmlib.stitching.synchronize import get_image_geo_position
 from hmlib.hm_opts import hm_opts
 from hmlib.video_stream import VideoStreamReader
+from hmlib.video_out import make_visible_image
 
 # from hmlib.async_worker import AsyncWorker
 
@@ -201,16 +202,20 @@ class ImageRemapper:
         else:
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
+
+            # self._working_w = self._dest_w
+            # self._working_h = self._dest_h
+
             self._working_w = max(src_w, self._dest_w)
             self._working_h = max(src_h, self._dest_h)
             print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
-            # col_map = pad_tensor_to_size(
-            #     col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            # )
-            # row_map = pad_tensor_to_size(
-            #     row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            # )
+            col_map = pad_tensor_to_size(
+                col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            )
+            row_map = pad_tensor_to_size(
+                row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
+            )
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,
@@ -255,7 +260,7 @@ class ImageRemapper:
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
-        #dev = str(device)
+        # dev = str(device)
         dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
@@ -324,6 +329,7 @@ class ImageRemapper:
 
 
 def remap_video(
+    opts: argparse.Namespace,
     video_file: str,
     dir_name: str,
     basename: str,
@@ -373,7 +379,10 @@ def remap_video(
             for i in range(len(destination_tensor)):
                 cv2.imshow(
                     "mapped image",
-                    destination_tensor[i].permute(1, 2, 0).numpy(),
+                    # destination_tensor[i].permute(1, 2, 0).numpy(),
+                    make_visible_image(
+                        destination_tensor[i], enable_resizing=opts.show_scaled
+                    ),
                 )
                 cv2.waitKey(1)
 
@@ -383,10 +392,12 @@ def remap_video(
 
 def main(args):
     remap_video(
+        args,
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        interpolation="bilinear",
+        #interpolation="bilinear",
+        interpolation=None,
         show=True,
         device=torch.device("cpu"),
     )
