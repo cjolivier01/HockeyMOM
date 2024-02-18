@@ -255,7 +255,6 @@ def main():
         bbox_src = get_bbox(src_pts)
         bbox_dest = get_bbox(dst_pts)
 
-
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
