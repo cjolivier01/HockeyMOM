@@ -66,6 +66,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         game_config: Dict,
         basic_debugging: bool = False,
         output_video_path: str = None,
+        opts: argparse.Namespace = None,
     ):
         # basic_debugging = False
 
@@ -204,6 +205,25 @@ class DefaultArguments(core.HMPostprocessConfig):
                 self.bottom_border_lines[i][2] += lower_tune_position[0]
                 self.bottom_border_lines[i][1] += lower_tune_position[1]
                 self.bottom_border_lines[i][3] += lower_tune_position[1]
+
+        if opts is not None:
+            self.copy_args_if_not_exist(opts, self)
+
+    @staticmethod
+    def copy_args_if_not_exist(source, target):
+        """
+        Copy all attributes from source to target if they don't already exist in target.
+
+        Parameters:
+        - source: An object (e.g., argparse.Namespace) from which to copy attributes.
+        - target: The target object to which attributes should be copied.
+        """
+        for attribute in vars(source):
+            if not attribute.startswith("_"):
+              if not hasattr(target, attribute):
+                  setattr(target, attribute, getattr(source, attribute))
+
+
 
 
 def scale_box(box, from_img, to_img):

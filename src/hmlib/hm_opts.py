@@ -41,6 +41,12 @@ class hm_opts(object):
             help="show as processing",
         )
         parser.add_argument(
+            "--show-scaled",
+            default=False,
+            action="store_true",
+            help="scale showed image (ignored is --show-image is not specified)",
+        )
+        parser.add_argument(
             "--decoder",
             "--video-stream-decode-method",
             dest="video_stream_decode_method",

@@ -27,7 +27,7 @@ from yolox.data import get_yolox_datadir
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
-if False:
+if True:
     from hmlib.datasets.dataset.stitching_dataloader1 import (
         StitchDataset,
     )
@@ -411,6 +411,7 @@ def main(exp, args, num_gpu):
             game_config=game_config,
             basic_debugging=args.debug,
             output_video_path=args.output_file,
+            opts=args,
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop

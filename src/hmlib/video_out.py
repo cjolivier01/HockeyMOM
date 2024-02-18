@@ -778,7 +778,12 @@ class VideoOutput:
                         if show_img.ndim == 3:
                             show_img = show_img.unsqueeze(0)
                         for s_img in show_img:
-                            cv2.imshow("online_im", make_visible_image(s_img))
+                            cv2.imshow(
+                                "online_im",
+                                make_visible_image(
+                                    s_img, enable_resizing=self._args.show_scaled
+                                ),
+                            )
                             cv2.waitKey(1)
 
                 # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
