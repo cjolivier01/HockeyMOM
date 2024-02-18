@@ -200,6 +200,7 @@ class ImageRemapper:
             )
             self._remap_op.init(batch_size=batch_size)
         else:
+            assert col_map.shape == row_map.shape
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
 
