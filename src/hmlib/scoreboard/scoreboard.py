@@ -39,7 +39,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     # height, width = dsize
     width, height = dsize
     grid_y, grid_x = torch.meshgrid(
-        torch.linspace(-1, 1, height), torch.linspace(-1, 1, width), indexing="ij"
+        torch.linspace(0, 1, height), torch.linspace(0, 1, width), indexing="ij"
     )
     grid = torch.stack(
         (grid_x, grid_y, torch.ones_like(grid_x)), dim=2
@@ -94,13 +94,18 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     row_map = grid_transformed[0][:, :, 1]
     col_map = grid_transformed[0][:, :, 0]
 
-    row_map += 1
-    row_map /= 2
+    row_min = torch.min(row_map)
+    row_max = torch.max(row_map)
+    col_min = torch.min(col_map)
+    col_max = torch.max(col_map)
+
+    #row_map += 1
+    #row_map /= 2
     row_map *= height
     row_map = torch.clamp(row_map, min=0, max=height - 1).to(torch.int32)
 
-    col_map += 1
-    col_map /= 2
+    #col_map += 1
+    #col_map /= 2
     col_map *= width
     col_map = torch.clamp(col_map, min=0, max=width - 1).to(torch.int32)
 
@@ -133,7 +138,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     warped_image[:] = image_tensor[:, :, row_map, col_map]
     # warped_image = F.grid_sample(
-    #     image_tensor, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+    #      image_tensor, grid, mode="bilinear", padding_mode="zeros", align_corners=False
     # )
     # warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
 
@@ -222,7 +227,15 @@ def main():
             [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
             dtype=np.float32,
         )
-        src_pts = dst_pts
+
+        # src_pts = dst_pts
+        ww=width
+        hh=height/2
+        src_pts = np.array(
+            [[0, 0], [ww - 1, 0], [ww - 1, hh - 1], [0, hh - 1]],
+            dtype=np.float32,
+        )
+        #src_pts = np.array(selected_points, dtype=np.float32)
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
