@@ -580,7 +580,7 @@ def resize_image(
                 img = img.permute(2, 1, 0)
             img = F.resize(
                 img=img,
-                size=(w, h),
+                size=(w, h) if permuted else (h, w),
                 interpolation=mode,
                 antialias=True,
             )
