@@ -3,6 +3,10 @@ game:
   rink: "gilbert"
   home: "Sun Devils"
   away: "Cougars"
+
+  stitching:
+    #offsets: [20, 0]
+
   boundaries:
     upper:
       - [448, 1034, 519, 963]
