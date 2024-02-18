@@ -356,6 +356,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if not isinstance(img0, torch.Tensor):
                 img0 = torch.from_numpy(img0)
+            if img0.ndim == 3:
+                assert self._batch_size == 1
+                img0 = img0.unsqueeze(0)
             assert img0.ndim == 4
 
             if self._preproc is not None:

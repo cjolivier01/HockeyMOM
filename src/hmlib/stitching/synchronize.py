@@ -15,7 +15,7 @@ from pathlib import Path
 import tifffile
 
 from hockeymom import core
-
+from hmlib.hm_opts import hm_opts
 
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ffmpeg import extract_frame_image
@@ -367,7 +367,10 @@ def find_sitched_roi(image):
 if __name__ == "__main__":
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
+    opts = hm_opts()
+    parser = opts.parser()
+    args = parser.parse_args()
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/jrmocks/left.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/jrmocks/right.mp4",
+        file0_path=f"{os.environ['HOME']}/Videos/{args.game_id}/left.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/right.mp4",
     )
