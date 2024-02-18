@@ -9,6 +9,7 @@ import torchvision
 import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 import torchvision.transforms as transforms
+
 from hmlib.utils.image import (
     image_width,
     image_height,
@@ -41,6 +42,10 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     grid_y, grid_x = torch.meshgrid(
         torch.linspace(0, 1, height), torch.linspace(0, 1, width), indexing="ij"
     )
+    print(torch.min(grid_x))
+    print(torch.max(grid_x))
+    print(torch.min(grid_y))
+    print(torch.max(grid_y))
     grid = torch.stack(
         (grid_x, grid_y, torch.ones_like(grid_x)), dim=2
     )  # Shape: (H, W, 3)
@@ -48,7 +53,9 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     # Transform the grid using the inverse matrix
     grid = grid.view(-1, 3)  # Flatten grid
     grid_transformed = torch.mm(
-        grid, M_inverse.t()
+        grid,
+        M_inverse.t(),
+        # M.t()
     )  # Apply inverse transformation matrix
     # print(grid_transformed)
     # grid_transformed = grid
@@ -68,6 +75,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     # Reshape the grid to the shape (1, H, W, 2)
     grid_transformed = grid_transformed.view(height, width, 2)
+    # grid_transformed = grid_transformed.permute(height, width, 2)
     grid_transformed = grid_transformed.unsqueeze(0)
     # grid_transformed = grid_transformed.permute(0, 3, 1, 2)  # Change to (1, 2, H, W) for grid_sample
 
@@ -89,7 +97,7 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     # print(grid_transformed)
 
     warped_image = torch.zeros((3, height, width))
-    g_int = grid_transformed.to(torch.int64)
+    # g_int = grid_transformed.to(torch.int64)
     # warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
     row_map = grid_transformed[0][:, :, 1]
     col_map = grid_transformed[0][:, :, 0]
@@ -99,13 +107,13 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
     col_min = torch.min(col_map)
     col_max = torch.max(col_map)
 
-    #row_map += 1
-    #row_map /= 2
+    # row_map += 1
+    # row_map /= 2
     row_map *= height
     row_map = torch.clamp(row_map, min=0, max=height - 1).to(torch.int32)
 
-    #col_map += 1
-    #col_map /= 2
+    # col_map += 1
+    # col_map /= 2
     col_map *= width
     col_map = torch.clamp(col_map, min=0, max=width - 1).to(torch.int32)
 
@@ -229,13 +237,13 @@ def main():
         )
 
         # src_pts = dst_pts
-        ww=width
-        hh=height/2
-        src_pts = np.array(
-            [[0, 0], [ww - 1, 0], [ww - 1, hh - 1], [0, hh - 1]],
-            dtype=np.float32,
-        )
-        #src_pts = np.array(selected_points, dtype=np.float32)
+        # ww=width
+        # hh=height/2
+        # src_pts = np.array(
+        #     [[0, 0], [ww - 1, 0], [ww - 1, hh - 1], [0, hh - 1]],
+        #     dtype=np.float32,
+        # )
+        src_pts = np.array(selected_points, dtype=np.float32)
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
@@ -244,12 +252,12 @@ def main():
 
         # print(M)
         # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
-        warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
+        # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
-        # warped_image = torchvision.transforms.functional.perspective(
-        #     image, startpoints=src_pts, endpoints=dst_pts, fill=0
-        # )
-        # warped_image = transforms.ToTensor()(warped_image)
+        warped_image = torchvision.transforms.functional.perspective(
+            image, startpoints=src_pts, endpoints=dst_pts, fill=0
+        )
+        warped_image = transforms.ToTensor()(warped_image)
 
         # wmin = torch.min(warped_image)
         # wmax = torch.max(warped_image)
