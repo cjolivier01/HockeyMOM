@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+from typing import List
 
 import torch
 import torchvision
@@ -215,6 +216,12 @@ def main():
                 proceed_with_warp_cv2()
             plt.draw()
 
+    def get_bbox(point_list: List[List[float]]):
+        points = torch.tensor(point_list)
+        mins = torch.min(points, dim=0)[0]
+        maxs = torch.max(points, dim=0)[0]
+        return torch.cat((mins, maxs), dim=0)
+
     def proceed_with_warp_cv2():
         nonlocal original_image
         print(selected_points)
@@ -244,6 +251,10 @@ def main():
         #     dtype=np.float32,
         # )
         src_pts = np.array(selected_points, dtype=np.float32)
+
+        bbox_src = get_bbox(src_pts)
+        bbox_dest = get_bbox(dst_pts)
+
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
