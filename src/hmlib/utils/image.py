@@ -536,7 +536,7 @@ def image_height(img):
             else:
                 assert img.shape[0] in [1, 3, 4]
                 return img.shape[-2]
-    assert img.shape[-1] == 3
+    assert img.shape[-1] in [3, 4]
     if len(img.shape) == 4:
         return img.shape[1]
     return img.shape[0]
