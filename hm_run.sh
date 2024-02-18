@@ -6,7 +6,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 # Videos
 #
 #VIDEO="${HOME}/Videos/lbd2/stitched_output-with-audio.avi"
-#VIDEO="${HOME}/Videos/tvbb2"
+#VIDEO="${HOME}/Videos/sundevils"
 #VIDEO="${HOME}/Videos/sharksbb1-1"
 #VIDEO="${HOME}/Videos/sharks-bb1-2"
 
@@ -15,11 +15,12 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #GAME_ID="sharksbb1-1"
 #GAME_ID="sharks-bb2-2"
 #GAME_ID="sharks-bb3-2"
-GAME_ID="jrmocks"
+GAME_ID="sundevils"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
-BLEND_MODE="--blend-mode=laplacian"
+BLEND_MODE="--blend-mode=multiblend"
+#BLEND_MODE="--blend-mode=laplacian"
 #BLEND_MODE="--blend-mode=gpu-hard-seam"
 
 START_FRAME=0
