@@ -3,15 +3,18 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-from typing import List
+from typing import List, Tuple, Optional, Union
 
 import torch
+from torch import Tensor
+from torch.nn.functional import conv2d, grid_sample, interpolate, pad as torch_pad
+
 import torchvision
 import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 import torchvision.transforms as transforms
 from torchvision.transforms import ToPILImage
-from torchvision.transforms._functional_tensor import _apply_grid_transform
+#from torchvision.transforms._functional_tensor import _apply_grid_transform
 
 from hmlib.utils.image import (
     image_width,
@@ -26,148 +29,6 @@ from hmlib.video_out import make_showable_type
 class Scoreboard:
     def __init__(self, src_pts: torch.Tensor, dest_height: int, dest_width: int):
         pass
-
-
-def warp_perspective_pytorch(image_tensor, M, dsize):
-    # Convert M to a torch tensor and calculate its inverse
-    M = torch.tensor(M, dtype=torch.float32)
-    M_inverse = torch.inverse(M)
-
-    if isinstance(image_tensor, np.ndarray):
-        image_tensor = torch.from_numpy(image_tensor)
-
-    if image_tensor.ndim == 3:
-        image_tensor = image_tensor.unsqueeze(0)
-
-    if image_tensor.shape[-1] == 4:
-        image_tensor = image_tensor[:, :, :, :3]
-
-    src_width = image_width(image_tensor)
-    src_height = image_height(image_tensor)
-
-    # Generate a grid of points in the output image
-    # height, width = dsize
-    width, height = dsize
-    grid_y, grid_x = torch.meshgrid(
-        torch.linspace(0, 1, height), torch.linspace(0, 1, width), indexing="ij"
-    )
-    print(torch.min(grid_x))
-    print(torch.max(grid_x))
-    print(torch.min(grid_y))
-    print(torch.max(grid_y))
-    grid = torch.stack(
-        (grid_x, grid_y, torch.ones_like(grid_x)), dim=2
-    )  # Shape: (H, W, 3)
-
-    # Transform the grid using the inverse matrix
-    grid = grid.view(-1, 3)  # Flatten grid
-    grid_transformed = torch.mm(
-        grid,
-        M_inverse.t(),
-        # M.t()
-    )  # Apply inverse transformation matrix
-    # print(grid_transformed)
-    # grid_transformed = grid
-
-    grid_transformed = torch.mm(grid, M_inverse.t())
-
-    print(
-        f"min={torch.min(grid_transformed)}, max={torch.max(grid_transformed)}, unique={torch.unique(grid_transformed)}"
-    )
-
-    grid_transformed = grid_transformed / grid_transformed[:, 2].unsqueeze(
-        -1
-    )  # Normalize z to 1
-    grid_transformed = grid_transformed[:, :2]  # Remove the z component
-
-    print(f"min={torch.min(grid_transformed)}, max={torch.max(grid_transformed)}")
-
-    # Reshape the grid to the shape (1, H, W, 2)
-    grid_transformed = grid_transformed.view(height, width, 2)
-    # grid_transformed = grid_transformed.permute(height, width, 2)
-    grid_transformed = grid_transformed.unsqueeze(0)
-    # grid_transformed = grid_transformed.permute(0, 3, 1, 2)  # Change to (1, 2, H, W) for grid_sample
-
-    min_grid_x = torch.min(grid_transformed[:, :, :, 0])
-    max_grid_x = torch.max(grid_transformed[:, :, :, 0])
-
-    min_grid_y = torch.min(grid_transformed[:, :, :, 1])
-    max_grid_y = torch.max(grid_transformed[:, :, :, 1])
-
-    # channels first?
-    image_tensor = image_tensor.permute(0, 3, 1, 2)
-
-    # Warp the image using grid_sample
-
-    image_tensor = image_tensor.to(torch.float32)
-
-    imin = torch.min(image_tensor)
-    imax = torch.max(image_tensor)
-    # print(grid_transformed)
-
-    warped_image = torch.zeros((3, height, width))
-    # g_int = grid_transformed.to(torch.int64)
-    # warped_image[:] = image_tensor[:, g_int[2], g_int[2]]
-    row_map = grid_transformed[0][:, :, 1]
-    col_map = grid_transformed[0][:, :, 0]
-
-    row_min = torch.min(row_map)
-    row_max = torch.max(row_map)
-    col_min = torch.min(col_map)
-    col_max = torch.max(col_map)
-
-    # row_map += 1
-    # row_map /= 2
-    row_map *= height
-    row_map = torch.clamp(row_map, min=0, max=height - 1).to(torch.int32)
-
-    # col_map += 1
-    # col_map /= 2
-    col_map *= width
-    col_map = torch.clamp(col_map, min=0, max=width - 1).to(torch.int32)
-
-    # print(row_map)
-    # print(col_map)
-    src_height = image_tensor.shape[-2]
-    src_width = image_tensor.shape[-1]
-    row_map_normalized = (2.0 * row_map / (src_height - 1)) - 1  # Normalize to [-1, 1]
-    col_map_normalized = (2.0 * col_map / (src_width - 1)) - 1  # Normalize to [-1, 1]
-
-    # row_map_normalized = (
-    #     2.0 * row_map / (src_height - 1)
-    # ) - 1  # Normalize to [-1, 1]
-    # col_map_normalized = (
-    #     2.0 * col_map / (src_width - 1)
-    # ) - 1  # Normalize to [-1, 1]
-
-    # Create the grid for grid_sample
-    grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1).unsqueeze(0)
-
-    row_min = torch.min(row_map)
-    row_max = torch.max(row_map)
-    col_min = torch.min(col_map)
-    col_max = torch.max(col_map)
-
-    row_norm_min = torch.min(row_map_normalized)
-    row_norm_max = torch.max(row_map_normalized)
-    col_norm_min = torch.min(col_map_normalized)
-    col_norm_max = torch.max(col_map_normalized)
-
-    warped_image[:] = image_tensor[:, :, row_map, col_map]
-    # warped_image = F.grid_sample(
-    #      image_tensor, grid, mode="bilinear", padding_mode="zeros", align_corners=False
-    # )
-    # warped_image = F.grid_sample(image_tensor, grid_transformed, mode='bilinear', padding_mode='zeros', align_corners=False)
-
-    wmin = torch.min(warped_image)
-    wmax = torch.max(warped_image)
-
-    warped_image = torch.clamp(warped_image, min=0, max=255).to(torch.uint8)
-
-    wmin = torch.min(warped_image)
-    wmax = torch.max(warped_image)
-
-    return warped_image
 
 
 def _get_perspective_coeffs(
@@ -244,49 +105,111 @@ def _perspective_grid(
     output_grid = output_grid1 / output_grid2 - 1.0
     return output_grid.view(1, oh, ow, 2)
 
+def _cast_squeeze_in(img: Tensor, req_dtypes: List[torch.dtype]) -> Tuple[Tensor, bool, bool, torch.dtype]:
+    need_squeeze = False
+    # make image NCHW
+    if img.ndim < 4:
+        img = img.unsqueeze(dim=0)
+        need_squeeze = True
 
-def find_perspective_transform(src, dst):
-    """
-    Compute the perspective transform matrix that maps src points to dst points using torch.linalg.solve.
-    :param src: Source points (4 points, defined as rectangles' corners)
-    :param dst: Destination points (4 points, defined as rectangles' corners)
-    :return: Transformation matrix
-    """
-    matrix = []
-    for p1, p2 in zip(dst, src):
-        matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
-        matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
-
-    A = torch.tensor(matrix, dtype=torch.float)
-    B = torch.tensor(src, dtype=torch.float).view(8)
-    transform_matrix = torch.linalg.solve(A, B)
-
-    transform_matrix = torch.cat((transform_matrix, torch.tensor([1.0])), dim=0)
-    transform_matrix = transform_matrix.view(3, 3)
-    return transform_matrix
+    out_dtype = img.dtype
+    need_cast = False
+    if out_dtype not in req_dtypes:
+        need_cast = True
+        req_dtype = req_dtypes[0]
+        img = img.to(req_dtype)
+    return img, need_cast, need_squeeze, out_dtype
 
 
-def apply_perspective(img, matrix, w, h):
-    """
-    Apply the perspective transformation to an image using the computed matrix.
-    :param img: Input image tensor of shape (C, H, W)
-    :param matrix: Transformation matrix
-    :param w: Width of the output image
-    :param h: Height of the output image
-    :return: Transformed image tensor
-    """
-    # Invert the transformation matrix
-    matrix_inv = torch.inverse(matrix)
+def _cast_squeeze_out(img: Tensor, need_cast: bool, need_squeeze: bool, out_dtype: torch.dtype) -> Tensor:
+    if need_squeeze:
+        img = img.squeeze(dim=0)
 
-    # Normalize the pixel coordinates to [-1, 1]
-    grid = torch.nn.functional.affine_grid(
-        matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False
-    )
+    if need_cast:
+        if out_dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            # it is better to round before cast
+            img = torch.round(img)
+        img = img.to(out_dtype)
 
-    # Apply the transformation
-    return torch.nn.functional.grid_sample(
-        img.unsqueeze(0), grid, align_corners=False
-    ).squeeze(0)
+    return img
+
+
+def _apply_grid_transform(
+    img: Tensor, grid: Tensor, mode: str, fill: Optional[Union[int, float, List[float]]]
+) -> Tensor:
+
+    img, need_cast, need_squeeze, out_dtype = _cast_squeeze_in(img, [grid.dtype])
+
+    if img.shape[0] > 1:
+        # Apply same grid to a batch of images
+        grid = grid.expand(img.shape[0], grid.shape[1], grid.shape[2], grid.shape[3])
+
+    # Append a dummy mask for customized fill colors, should be faster than grid_sample() twice
+    if fill is not None:
+        mask = torch.ones((img.shape[0], 1, img.shape[2], img.shape[3]), dtype=img.dtype, device=img.device)
+        img = torch.cat((img, mask), dim=1)
+
+    img = grid_sample(img, grid, mode=mode, padding_mode="zeros", align_corners=False)
+
+    # Fill with required color
+    if fill is not None:
+        mask = img[:, -1:, :, :]  # N * 1 * H * W
+        img = img[:, :-1, :, :]  # N * C * H * W
+        mask = mask.expand_as(img)
+        fill_list, len_fill = (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
+        fill_img = torch.tensor(fill_list, dtype=img.dtype, device=img.device).view(1, len_fill, 1, 1).expand_as(img)
+        if mode == "nearest":
+            mask = mask < 0.5
+            img[mask] = fill_img[mask]
+        else:  # 'bilinear'
+            img = img * mask + (1.0 - mask) * fill_img
+
+    img = _cast_squeeze_out(img, need_cast, need_squeeze, out_dtype)
+    return img
+
+
+# def find_perspective_transform(src, dst):
+#     """
+#     Compute the perspective transform matrix that maps src points to dst points using torch.linalg.solve.
+#     :param src: Source points (4 points, defined as rectangles' corners)
+#     :param dst: Destination points (4 points, defined as rectangles' corners)
+#     :return: Transformation matrix
+#     """
+#     matrix = []
+#     for p1, p2 in zip(dst, src):
+#         matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
+#         matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
+
+#     A = torch.tensor(matrix, dtype=torch.float)
+#     B = torch.tensor(src, dtype=torch.float).view(8)
+#     transform_matrix = torch.linalg.solve(A, B)
+
+#     transform_matrix = torch.cat((transform_matrix, torch.tensor([1.0])), dim=0)
+#     transform_matrix = transform_matrix.view(3, 3)
+#     return transform_matrix
+
+
+# def apply_perspective(img, matrix, w, h):
+#     """
+#     Apply the perspective transformation to an image using the computed matrix.
+#     :param img: Input image tensor of shape (C, H, W)
+#     :param matrix: Transformation matrix
+#     :param w: Width of the output image
+#     :param h: Height of the output image
+#     :return: Transformed image tensor
+#     """
+#     # Invert the transformation matrix
+#     matrix_inv = torch.inverse(matrix)
+
+#     # Normalize the pixel coordinates to [-1, 1]
+#     grid = torch.nn.functional.affine_grid(
+#         matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False
+#     )
+
+#     # Apply the transformation
+#     return torch.nn.functional.grid_sample(
+#         img.unsqueeze(0), grid, align_corners=False
+#     ).squeeze(0)
 
 
 def main():
