@@ -13,12 +13,13 @@ import numpy as np
 import cv2
 import random
 import torch
-import torchvision as tv
 from torchvision.transforms import functional as F
+import torch.nn.functional as TF
 import PIL
 
 from typing import List
 from hmlib.utils.gpu import StreamTensor
+
 
 def flip(img):
     return img[:, :, ::-1].copy()
@@ -604,22 +605,20 @@ def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
         pad_width = target_width - tensor.size(2)
     pad_height = max(0, pad_height)
     pad_width = max(0, pad_width)
+    if pad_height == 0 and pad_height == 0:
+        return tensor
     padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
+    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
     return padded_tensor
 
 
 def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
-    if len(tensor.shape) == 3:
-        pad_height = target_height - tensor.size(1)
-        pad_width = target_width - tensor.size(2)
-    else:
-        assert len(tensor.shape) == 4
-        pad_height = target_height - tensor.size(2)
-        pad_width = target_width - tensor.size(3)
+    pad_height = target_height - image_height(tensor)
+    pad_width = target_width - image_width(tensor)
     pad_height = max(0, pad_height)
     pad_width = max(0, pad_width)
+    if pad_height == 0 and pad_height == 0:
+        return tensor
     padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
+    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
     return padded_tensor
-

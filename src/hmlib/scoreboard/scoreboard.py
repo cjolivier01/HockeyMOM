@@ -277,9 +277,28 @@ def main():
             ]
             src_pts[:, 0] -= bbox_src[0]
             src_pts[:, 1] -= bbox_src[1]
+
+            # width = image_width(src_image) * 3
+            # height = image_height(src_image) * 2
+
+            width = image_width(src_image) / 2
+            height = image_height(src_image) / 3
+
+            src_width = image_width(src_image)
+            src_height = image_height(src_image)
+
+            totw = max(width, src_width)
+            toth = max(height, src_height)
+            # src_image = src_image.to(torch.float)
+            # if totw > src_width or toth > src_height:
+            #     src_image = pad_tensor_to_size_batched(
+            #         src_image,
+            #         target_width=totw,
+            #         target_height=toth,
+            #         pad_value=0,
+            #     )
+
             pil_image = to_pil(src_image.squeeze(0))
-            width = image_width(src_image)
-            height = image_height(src_image)
         else:
             pil_image = to_pil(original_image)
 
