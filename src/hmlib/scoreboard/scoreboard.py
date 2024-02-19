@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 import torchvision.transforms as transforms
 from torchvision.transforms import ToPILImage
-from torchvision.transforms._functional_tensor import _apply_grid_transform, _perspective_grid
+from torchvision.transforms._functional_tensor import _apply_grid_transform
 
 from hmlib.utils.image import (
     image_width,
@@ -169,7 +169,10 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     return warped_image
 
-def _get_perspective_coeffs(startpoints: List[List[int]], endpoints: List[List[int]]) -> List[float]:
+
+def _get_perspective_coeffs(
+    startpoints: List[List[int]], endpoints: List[List[int]]
+) -> List[float]:
     """Helper function to get the coefficients (a, b, c, d, e, f, g, h) for the perspective transforms.
 
     In Perspective Transform each pixel (x, y) in the original image gets transformed as,
@@ -187,14 +190,60 @@ def _get_perspective_coeffs(startpoints: List[List[int]], endpoints: List[List[i
     a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float)
 
     for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
-        a_matrix[2 * i, :] = torch.tensor([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
-        a_matrix[2 * i + 1, :] = torch.tensor([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
+        a_matrix[2 * i, :] = torch.tensor(
+            [p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]]
+        )
+        a_matrix[2 * i + 1, :] = torch.tensor(
+            [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]]
+        )
 
     b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
     res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
 
     output: List[float] = res.tolist()
     return output
+
+
+def _perspective_grid(
+    coeffs: List[float], ow: int, oh: int, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    # https://github.com/python-pillow/Pillow/blob/4634eafe3c695a014267eefdce830b4a825beed7/
+    # src/libImaging/Geometry.c#L394
+
+    #
+    # x_out = (coeffs[0] * x + coeffs[1] * y + coeffs[2]) / (coeffs[6] * x + coeffs[7] * y + 1)
+    # y_out = (coeffs[3] * x + coeffs[4] * y + coeffs[5]) / (coeffs[6] * x + coeffs[7] * y + 1)
+    #
+    theta1 = torch.tensor(
+        [[[coeffs[0], coeffs[1], coeffs[2]], [coeffs[3], coeffs[4], coeffs[5]]]],
+        dtype=dtype,
+        device=device,
+    )
+    theta2 = torch.tensor(
+        [[[coeffs[6], coeffs[7], 1.0], [coeffs[6], coeffs[7], 1.0]]],
+        dtype=dtype,
+        device=device,
+    )
+
+    d = 0.5
+    base_grid = torch.empty(1, oh, ow, 3, dtype=dtype, device=device)
+    x_grid = torch.linspace(d, ow * 1.0 + d - 1.0, steps=ow, device=device)
+    base_grid[..., 0].copy_(x_grid)
+    y_grid = torch.linspace(d, oh * 1.0 + d - 1.0, steps=oh, device=device).unsqueeze_(
+        -1
+    )
+    base_grid[..., 1].copy_(y_grid)
+    base_grid[..., 2].fill_(1)
+
+    rescaled_theta1 = theta1.transpose(1, 2) / torch.tensor(
+        [0.5 * ow, 0.5 * oh], dtype=dtype, device=device
+    )
+    output_grid1 = base_grid.view(1, oh * ow, 3).bmm(rescaled_theta1)
+    output_grid2 = base_grid.view(1, oh * ow, 3).bmm(theta2.transpose(1, 2))
+
+    output_grid = output_grid1 / output_grid2 - 1.0
+    return output_grid.view(1, oh, ow, 2)
+
 
 def find_perspective_transform(src, dst):
     """
@@ -205,8 +254,8 @@ def find_perspective_transform(src, dst):
     """
     matrix = []
     for p1, p2 in zip(dst, src):
-        matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0]*p1[0], -p2[0]*p1[1]])
-        matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1]*p1[0], -p2[1]*p1[1]])
+        matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
+        matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
 
     A = torch.tensor(matrix, dtype=torch.float)
     B = torch.tensor(src, dtype=torch.float).view(8)
@@ -230,10 +279,14 @@ def apply_perspective(img, matrix, w, h):
     matrix_inv = torch.inverse(matrix)
 
     # Normalize the pixel coordinates to [-1, 1]
-    grid = torch.nn.functional.affine_grid(matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False)
+    grid = torch.nn.functional.affine_grid(
+        matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False
+    )
 
     # Apply the transformation
-    return torch.nn.functional.grid_sample(img.unsqueeze(0), grid, align_corners=False).squeeze(0)
+    return torch.nn.functional.grid_sample(
+        img.unsqueeze(0), grid, align_corners=False
+    ).squeeze(0)
 
 
 def main():
@@ -389,7 +442,9 @@ def main():
             dtype=np.float32,
         )
 
-        perspective_coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
+        perspective_coeffs = _get_perspective_coeffs(
+            startpoints=src_pts, endpoints=dst_pts
+        )
 
         # Compute the perspective transform matrix
         # transform_matrix = find_perspective_transform(src_pts, dst_pts)
@@ -402,13 +457,16 @@ def main():
         #     src_image, startpoints=src_pts, endpoints=dst_pts
         # )
 
-
-        #ow, oh = src_image.shape[-1], img.shape[-2]
+        # ow, oh = src_image.shape[-1], img.shape[-2]
         ow = width
         oh = height
         dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
-        grid = _perspective_grid(perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device)
-        warped_image = _apply_grid_transform(src_image, grid, mode="bilinear", fill=None)
+        grid = _perspective_grid(
+            perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device
+        )
+        warped_image = _apply_grid_transform(
+            src_image, grid, mode="bilinear", fill=None
+        )
 
         wmin = torch.min(warped_image)
         wmax = torch.max(warped_image)
@@ -430,7 +488,7 @@ def main():
         original_image *= 1
         # cv2.imshow("online_im", warped_image)
         # cv2.waitKey(0)
-        #plt.imshow(pil_image)
+        # plt.imshow(pil_image)
         plt.imshow(warped_image)
         # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
