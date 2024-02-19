@@ -9,12 +9,12 @@ import torch
 from torch import Tensor
 from torch.nn.functional import conv2d, grid_sample, interpolate, pad as torch_pad
 
-import torchvision
-import torch.nn.functional as F
+# import torchvision
+# import torch.nn.functional as F
 from torchvision.transforms import functional as TF
-import torchvision.transforms as transforms
-from torchvision.transforms import ToPILImage
-#from torchvision.transforms._functional_tensor import _apply_grid_transform
+# import torchvision.transforms as transforms
+# from torchvision.transforms import ToPILImage
+# from torchvision.transforms._functional_tensor import _apply_grid_transform
 
 from hmlib.utils.image import (
     image_width,
@@ -105,7 +105,10 @@ def _perspective_grid(
     output_grid = output_grid1 / output_grid2 - 1.0
     return output_grid.view(1, oh, ow, 2)
 
-def _cast_squeeze_in(img: Tensor, req_dtypes: List[torch.dtype]) -> Tuple[Tensor, bool, bool, torch.dtype]:
+
+def _cast_squeeze_in(
+    img: Tensor, req_dtypes: List[torch.dtype]
+) -> Tuple[Tensor, bool, bool, torch.dtype]:
     need_squeeze = False
     # make image NCHW
     if img.ndim < 4:
@@ -121,12 +124,20 @@ def _cast_squeeze_in(img: Tensor, req_dtypes: List[torch.dtype]) -> Tuple[Tensor
     return img, need_cast, need_squeeze, out_dtype
 
 
-def _cast_squeeze_out(img: Tensor, need_cast: bool, need_squeeze: bool, out_dtype: torch.dtype) -> Tensor:
+def _cast_squeeze_out(
+    img: Tensor, need_cast: bool, need_squeeze: bool, out_dtype: torch.dtype
+) -> Tensor:
     if need_squeeze:
         img = img.squeeze(dim=0)
 
     if need_cast:
-        if out_dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+        if out_dtype in (
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        ):
             # it is better to round before cast
             img = torch.round(img)
         img = img.to(out_dtype)
@@ -146,7 +157,11 @@ def _apply_grid_transform(
 
     # Append a dummy mask for customized fill colors, should be faster than grid_sample() twice
     if fill is not None:
-        mask = torch.ones((img.shape[0], 1, img.shape[2], img.shape[3]), dtype=img.dtype, device=img.device)
+        mask = torch.ones(
+            (img.shape[0], 1, img.shape[2], img.shape[3]),
+            dtype=img.dtype,
+            device=img.device,
+        )
         img = torch.cat((img, mask), dim=1)
 
     img = grid_sample(img, grid, mode=mode, padding_mode="zeros", align_corners=False)
@@ -156,8 +171,14 @@ def _apply_grid_transform(
         mask = img[:, -1:, :, :]  # N * 1 * H * W
         img = img[:, :-1, :, :]  # N * C * H * W
         mask = mask.expand_as(img)
-        fill_list, len_fill = (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
-        fill_img = torch.tensor(fill_list, dtype=img.dtype, device=img.device).view(1, len_fill, 1, 1).expand_as(img)
+        fill_list, len_fill = (
+            (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
+        )
+        fill_img = (
+            torch.tensor(fill_list, dtype=img.dtype, device=img.device)
+            .view(1, len_fill, 1, 1)
+            .expand_as(img)
+        )
         if mode == "nearest":
             mask = mask < 0.5
             img[mask] = fill_img[mask]
@@ -293,8 +314,8 @@ def main():
         width = src_width
         height = src_height
 
-        to_pil = ToPILImage()
-        to_tensor = transforms.ToTensor()
+        # to_pil = ToPILImage()
+        # to_tensor = transforms.ToTensor()
 
         # src_pts = dst_pts
         # ww=width
@@ -309,7 +330,7 @@ def main():
             bbox_src = int_bbox(get_bbox(selected_points))
             # bbox_dest = int_bbox(get_bbox(dst_pts))
 
-            to_tensor = transforms.ToTensor()
+            # to_tensor = transforms.ToTensor()
             # image = to_tensor(image)
             original_image = make_channels_first(
                 torch.from_numpy(original_image).unsqueeze(0)
@@ -345,9 +366,10 @@ def main():
                 width = totw
                 height = toth
 
-            pil_image = to_pil(src_image.squeeze(0))
+            #pil_image = to_pil(src_image.squeeze(0))
         else:
-            pil_image = to_pil(original_image)
+            #pil_image = to_pil(original_image)
+            pass
 
         # src_pts[:,2] -= bbox_src[0]
         # src_pts[:,3] -= bbox_src[1]
