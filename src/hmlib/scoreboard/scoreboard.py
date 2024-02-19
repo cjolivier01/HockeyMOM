@@ -10,14 +10,21 @@ import torchvision
 import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 import torchvision.transforms as transforms
+from torchvision.transforms import ToPILImage
 
 from hmlib.utils.image import (
     image_width,
     image_height,
     make_channels_first,
     make_channels_last,
+    pad_tensor_to_size_batched,
 )
 from hmlib.video_out import make_showable_type
+
+
+class Scoreboard:
+    def __init__(self, src_pts: torch.Tensor, dest_height: int, dest_width: int):
+        pass
 
 
 def warp_perspective_pytorch(image_tensor, M, dsize):
@@ -169,14 +176,14 @@ def main():
     image = Image.open(image_path)
     image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
 
-    # This function will be called later to perform the perspective warp
-    def outer_warp_perspective(image_tensor, src_points, dst_points, dsize):
-        # Calculate the perspective transform matrix
-        M = find_perspective_transform(src_points, dst_points)
+    # # This function will be called later to perform the perspective warp
+    # def outer_warp_perspective(image_tensor, src_points, dst_points, dsize):
+    #     # Calculate the perspective transform matrix
+    #     M = find_perspective_transform(src_points, dst_points)
 
-        # Apply perspective warp
-        warped_image = warp_perspective(image_tensor, M, dsize)
-        return warped_image
+    #     # Apply perspective warp
+    #     warped_image = warp_perspective(image_tensor, M, dsize)
+    #     return warped_image
 
     # Prepare for interactive point selection
     fig, ax = plt.subplots()
@@ -190,7 +197,7 @@ def main():
         [5845.921076009106, 911.8827549830662],
         [6032.949003386821, 969.4298095608242],
         [5996.9820942757215, 1120.4908278274388],
-        [5809.954166898008, 1048.5570096052415],
+        [5790.954166898008, 1048.5570096052415],
     ]
 
     def onclick(event):
@@ -222,6 +229,11 @@ def main():
         maxs = torch.max(points, dim=0)[0]
         return torch.cat((mins, maxs), dim=0)
 
+    def int_bbox(bbox: torch.Tensor):
+        bbox[:2] = torch.floor(bbox[:2])
+        bbox[2:] = torch.ceil(bbox[2:])
+        return bbox.to(torch.int32)
+
     def proceed_with_warp_cv2():
         nonlocal original_image
         print(selected_points)
@@ -233,8 +245,8 @@ def main():
         # ar = src_width/src_height
 
         # width, height = image.size
-        width = 200
-        height = 75
+        # width = 200
+        # height = 75
         width = src_width
         height = src_height
 
@@ -243,6 +255,9 @@ def main():
             dtype=np.float32,
         )
 
+        to_pil = ToPILImage()
+        to_tensor = transforms.ToTensor()
+
         # src_pts = dst_pts
         # ww=width
         # hh=height/2
@@ -250,33 +265,44 @@ def main():
         #     [[0, 0], [ww - 1, 0], [ww - 1, hh - 1], [0, hh - 1]],
         #     dtype=np.float32,
         # )
-        src_pts = np.array(selected_points, dtype=np.float32)
+        src_pts = torch.tensor(selected_points, dtype=torch.float)
 
-        bbox_src = get_bbox(selected_points).to(torch.int32)
+        if False:
+            bbox_src = int_bbox(get_bbox(selected_points))
+            bbox_dest = int_bbox(get_bbox(dst_pts))
 
-        to_tensor = transforms.ToTensor()
-        # image = to_tensor(image)
-        original_image = make_channels_first(torch.from_numpy(original_image)).unsqueeze(
-            0
-        )
+            to_tensor = transforms.ToTensor()
+            # image = to_tensor(image)
+            original_image = make_channels_first(
+                torch.from_numpy(original_image).unsqueeze(0)
+            )
 
-        src_image = original_image[
-            :, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]
-        ]
+            src_image = original_image[
+                :, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]
+            ]
+            src_pts[:, 0] -= bbox_src[0]
+            src_pts[:, 1] -= bbox_src[1]
+            pil_image = to_pil(src_image.squeeze(0))
+        else:
+            pil_image = to_pil(original_image)
+
+        # src_pts[:,2] -= bbox_src[0]
+        # src_pts[:,3] -= bbox_src[1]
         # show_image(src_image)
         # bbox_dest = get_bbox(dst_pts)
 
-        # Calculate the perspective transform matrix and apply the warp
-        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-
         # print(M)
+        # Calculate the perspective transform matrix and apply the warp
+        # M = cv2.getPerspectiveTransform(src_pts, dst_pts)
         # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
         # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
+
+
         warped_image = torchvision.transforms.functional.perspective(
-            image, startpoints=src_pts, endpoints=dst_pts, fill=0
+            pil_image, startpoints=src_pts, endpoints=dst_pts
         )
-        warped_image = transforms.ToTensor()(warped_image)
+        warped_image = to_tensor(warped_image)
 
         # wmin = torch.min(warped_image)
         # wmax = torch.max(warped_image)
@@ -298,6 +324,7 @@ def main():
         original_image *= 1
         # cv2.imshow("online_im", warped_image)
         # cv2.waitKey(0)
+        #plt.imshow(pil_image)
         plt.imshow(warped_image)
         # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")

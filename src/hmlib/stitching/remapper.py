@@ -21,7 +21,7 @@ from hmlib.video_out import make_visible_image
 
 import hockeymom.core as core
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.image import make_channels_last, make_channels_first
+from hmlib.utils.image import make_channels_first, pad_tensor_to_size_batched
 
 ROOT_DIR = os.getcwd()
 
@@ -42,37 +42,6 @@ def make_parser():
     #     help="Video directory to find 'left.mp4' and 'right.mp4'",
     # )
     return parser
-
-
-# Function to pad tensor to the target size
-def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
-    if len(tensor.shape) == 2:
-        pad_height = target_height - tensor.size(0)
-        pad_width = target_width - tensor.size(1)
-    else:
-        assert len(tensor.shape) == 3
-        pad_height = target_height - tensor.size(1)
-        pad_width = target_width - tensor.size(2)
-    pad_height = max(0, pad_height)
-    pad_width = max(0, pad_width)
-    padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
-    return padded_tensor
-
-
-def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
-    if len(tensor.shape) == 3:
-        pad_height = target_height - tensor.size(1)
-        pad_width = target_width - tensor.size(2)
-    else:
-        assert len(tensor.shape) == 4
-        pad_height = target_height - tensor.size(2)
-        pad_width = target_width - tensor.size(3)
-    pad_height = max(0, pad_height)
-    pad_width = max(0, pad_width)
-    padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
-    return padded_tensor
 
 
 def read_frame_batch(
@@ -397,7 +366,7 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        #interpolation="bilinear",
+        # interpolation="bilinear",
         interpolation=None,
         show=True,
         device=torch.device("cpu"),

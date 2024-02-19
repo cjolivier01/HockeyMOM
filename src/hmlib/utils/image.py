@@ -591,3 +591,35 @@ def resize_image(
     elif isinstance(img, PIL.Image.Image):
         return img.resize((w, h))
     return cv2.resize(img, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
+
+
+# Function to pad tensor to the target size
+def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
+    if len(tensor.shape) == 2:
+        pad_height = target_height - tensor.size(0)
+        pad_width = target_width - tensor.size(1)
+    else:
+        assert len(tensor.shape) == 3
+        pad_height = target_height - tensor.size(1)
+        pad_width = target_width - tensor.size(2)
+    pad_height = max(0, pad_height)
+    pad_width = max(0, pad_width)
+    padding = [0, pad_width, 0, pad_height]
+    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
+    return padded_tensor
+
+
+def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
+    if len(tensor.shape) == 3:
+        pad_height = target_height - tensor.size(1)
+        pad_width = target_width - tensor.size(2)
+    else:
+        assert len(tensor.shape) == 4
+        pad_height = target_height - tensor.size(2)
+        pad_width = target_width - tensor.size(3)
+    pad_height = max(0, pad_height)
+    pad_width = max(0, pad_width)
+    padding = [0, pad_width, 0, pad_height]
+    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
+    return padded_tensor
+
