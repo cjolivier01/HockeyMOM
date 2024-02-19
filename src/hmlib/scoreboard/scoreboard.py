@@ -398,9 +398,9 @@ def main():
         # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
         warped_image = torchvision.transforms.functional.perspective(
-            pil_image, startpoints=src_pts, endpoints=dst_pts
+            src_image, startpoints=src_pts, endpoints=dst_pts
         )
-        warped_image = to_tensor(warped_image)
+        #warped_image = to_tensor(warped_image)
 
         wmin = torch.min(warped_image)
         wmax = torch.max(warped_image)
@@ -425,24 +425,6 @@ def main():
         #plt.imshow(pil_image)
         plt.imshow(warped_image)
         # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
-        plt.title("Warped Image")
-        plt.show()
-
-    def proceed_with_warp_pytorch():
-        # Convert selected points to tensor and perform perspective warp
-        src_points_tensor = torch.tensor(selected_points, dtype=torch.float32)
-        width, height = image.size
-        dst_points = torch.tensor(
-            [[0, 0], [width, 0], [width, height], [0, height]], dtype=torch.float32
-        )
-        warped_image = outer_warp_perspective(
-            image_tensor, src_points_tensor, dst_points, (width, height)
-        )
-
-        # Convert warped image tensor to PIL Image for display
-        warped_image_pil = TF.to_pil_image(warped_image.squeeze(0))
-        plt.figure()
-        plt.imshow(warped_image_pil)
         plt.title("Warped Image")
         plt.show()
 
