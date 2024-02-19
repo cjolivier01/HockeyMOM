@@ -7,14 +7,8 @@ from typing import List, Tuple, Optional, Union
 
 import torch
 from torch import Tensor
-from torch.nn.functional import conv2d, grid_sample, interpolate, pad as torch_pad
-
-# import torchvision
-# import torch.nn.functional as F
+from torch.nn import functional as F
 from torchvision.transforms import functional as TF
-# import torchvision.transforms as transforms
-# from torchvision.transforms import ToPILImage
-# from torchvision.transforms._functional_tensor import _apply_grid_transform
 
 from hmlib.utils.image import (
     image_width,
@@ -164,7 +158,7 @@ def _apply_grid_transform(
         )
         img = torch.cat((img, mask), dim=1)
 
-    img = grid_sample(img, grid, mode=mode, padding_mode="zeros", align_corners=False)
+    img = F.grid_sample(img, grid, mode=mode, padding_mode="zeros", align_corners=False)
 
     # Fill with required color
     if fill is not None:
@@ -187,50 +181,6 @@ def _apply_grid_transform(
 
     img = _cast_squeeze_out(img, need_cast, need_squeeze, out_dtype)
     return img
-
-
-# def find_perspective_transform(src, dst):
-#     """
-#     Compute the perspective transform matrix that maps src points to dst points using torch.linalg.solve.
-#     :param src: Source points (4 points, defined as rectangles' corners)
-#     :param dst: Destination points (4 points, defined as rectangles' corners)
-#     :return: Transformation matrix
-#     """
-#     matrix = []
-#     for p1, p2 in zip(dst, src):
-#         matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
-#         matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
-
-#     A = torch.tensor(matrix, dtype=torch.float)
-#     B = torch.tensor(src, dtype=torch.float).view(8)
-#     transform_matrix = torch.linalg.solve(A, B)
-
-#     transform_matrix = torch.cat((transform_matrix, torch.tensor([1.0])), dim=0)
-#     transform_matrix = transform_matrix.view(3, 3)
-#     return transform_matrix
-
-
-# def apply_perspective(img, matrix, w, h):
-#     """
-#     Apply the perspective transformation to an image using the computed matrix.
-#     :param img: Input image tensor of shape (C, H, W)
-#     :param matrix: Transformation matrix
-#     :param w: Width of the output image
-#     :param h: Height of the output image
-#     :return: Transformed image tensor
-#     """
-#     # Invert the transformation matrix
-#     matrix_inv = torch.inverse(matrix)
-
-#     # Normalize the pixel coordinates to [-1, 1]
-#     grid = torch.nn.functional.affine_grid(
-#         matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False
-#     )
-
-#     # Apply the transformation
-#     return torch.nn.functional.grid_sample(
-#         img.unsqueeze(0), grid, align_corners=False
-#     ).squeeze(0)
 
 
 def main():
@@ -366,9 +316,9 @@ def main():
                 width = totw
                 height = toth
 
-            #pil_image = to_pil(src_image.squeeze(0))
+            # pil_image = to_pil(src_image.squeeze(0))
         else:
-            #pil_image = to_pil(original_image)
+            # pil_image = to_pil(original_image)
             pass
 
         # src_pts[:,2] -= bbox_src[0]
