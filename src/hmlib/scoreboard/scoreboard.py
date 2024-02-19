@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 import torchvision.transforms as transforms
 from torchvision.transforms import ToPILImage
+from torchvision.transforms._functional_tensor import _apply_grid_transform, _perspective_grid
 
 from hmlib.utils.image import (
     image_width,
@@ -388,7 +389,7 @@ def main():
             dtype=np.float32,
         )
 
-        coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
+        perspective_coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
 
         # Compute the perspective transform matrix
         # transform_matrix = find_perspective_transform(src_pts, dst_pts)
@@ -397,10 +398,17 @@ def main():
         # warped_image = apply_perspective(src_image.squeeze(0).to(torch.float) / 255.0, transform_matrix, width, height)
         # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
-        warped_image = torchvision.transforms.functional.perspective(
-            src_image, startpoints=src_pts, endpoints=dst_pts
-        )
-        #warped_image = to_tensor(warped_image)
+        # warped_image = torchvision.transforms.functional.perspective(
+        #     src_image, startpoints=src_pts, endpoints=dst_pts
+        # )
+
+
+        #ow, oh = src_image.shape[-1], img.shape[-2]
+        ow = width
+        oh = height
+        dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
+        grid = _perspective_grid(perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device)
+        warped_image = _apply_grid_transform(src_image, grid, mode="bilinear", fill=None)
 
         wmin = torch.min(warped_image)
         wmax = torch.max(warped_image)
