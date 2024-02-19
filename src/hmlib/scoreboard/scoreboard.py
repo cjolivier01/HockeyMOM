@@ -252,13 +252,22 @@ def main():
         # )
         src_pts = np.array(selected_points, dtype=np.float32)
 
-        bbox_src = get_bbox(selected_points)
-        bbox_dest = get_bbox(dst_pts)
+        bbox_src = get_bbox(selected_points).to(torch.int32)
+
+        to_tensor = transforms.ToTensor()
+        # image = to_tensor(image)
+        original_image = make_channels_first(torch.from_numpy(original_image)).unsqueeze(
+            0
+        )
+
+        src_image = original_image[
+            :, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]
+        ]
+        # show_image(src_image)
+        # bbox_dest = get_bbox(dst_pts)
 
         # Calculate the perspective transform matrix and apply the warp
         M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-
-        to_tensor = transforms.ToTensor()
 
         # print(M)
         # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
