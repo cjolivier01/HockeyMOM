@@ -278,25 +278,26 @@ def main():
             src_pts[:, 0] -= bbox_src[0]
             src_pts[:, 1] -= bbox_src[1]
 
-            # width = image_width(src_image) * 3
-            # height = image_height(src_image) * 2
+            width = image_width(src_image) * 3
+            height = image_height(src_image) * 2
 
-            width = image_width(src_image) / 2
-            height = image_height(src_image) / 3
+            # width = image_width(src_image) / 2
+            # height = image_height(src_image) / 3
 
             src_width = image_width(src_image)
             src_height = image_height(src_image)
 
             totw = max(width, src_width)
             toth = max(height, src_height)
-            # src_image = src_image.to(torch.float)
-            # if totw > src_width or toth > src_height:
-            #     src_image = pad_tensor_to_size_batched(
-            #         src_image,
-            #         target_width=totw,
-            #         target_height=toth,
-            #         pad_value=0,
-            #     )
+            if totw > src_width or toth > src_height:
+                src_image = pad_tensor_to_size_batched(
+                    src_image,
+                    target_width=totw,
+                    target_height=toth,
+                    pad_value=0,
+                )
+                width = totw
+                height = toth
 
             pil_image = to_pil(src_image.squeeze(0))
         else:
@@ -343,7 +344,7 @@ def main():
         original_image *= 1
         # cv2.imshow("online_im", warped_image)
         # cv2.waitKey(0)
-        # plt.imshow(pil_image)
+        #plt.imshow(pil_image)
         plt.imshow(warped_image)
         # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
