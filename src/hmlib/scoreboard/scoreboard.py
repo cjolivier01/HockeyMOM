@@ -168,6 +168,72 @@ def warp_perspective_pytorch(image_tensor, M, dsize):
 
     return warped_image
 
+def _get_perspective_coeffs(startpoints: List[List[int]], endpoints: List[List[int]]) -> List[float]:
+    """Helper function to get the coefficients (a, b, c, d, e, f, g, h) for the perspective transforms.
+
+    In Perspective Transform each pixel (x, y) in the original image gets transformed as,
+     (x, y) -> ( (ax + by + c) / (gx + hy + 1), (dx + ey + f) / (gx + hy + 1) )
+
+    Args:
+        startpoints (list of list of ints): List containing four lists of two integers corresponding to four corners
+            ``[top-left, top-right, bottom-right, bottom-left]`` of the original image.
+        endpoints (list of list of ints): List containing four lists of two integers corresponding to four corners
+            ``[top-left, top-right, bottom-right, bottom-left]`` of the transformed image.
+
+    Returns:
+        octuple (a, b, c, d, e, f, g, h) for transforming each pixel.
+    """
+    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float)
+
+    for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
+        a_matrix[2 * i, :] = torch.tensor([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
+        a_matrix[2 * i + 1, :] = torch.tensor([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
+
+    b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
+    res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
+
+    output: List[float] = res.tolist()
+    return output
+
+def find_perspective_transform(src, dst):
+    """
+    Compute the perspective transform matrix that maps src points to dst points using torch.linalg.solve.
+    :param src: Source points (4 points, defined as rectangles' corners)
+    :param dst: Destination points (4 points, defined as rectangles' corners)
+    :return: Transformation matrix
+    """
+    matrix = []
+    for p1, p2 in zip(dst, src):
+        matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0]*p1[0], -p2[0]*p1[1]])
+        matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1]*p1[0], -p2[1]*p1[1]])
+
+    A = torch.tensor(matrix, dtype=torch.float)
+    B = torch.tensor(src, dtype=torch.float).view(8)
+    transform_matrix = torch.linalg.solve(A, B)
+
+    transform_matrix = torch.cat((transform_matrix, torch.tensor([1.0])), dim=0)
+    transform_matrix = transform_matrix.view(3, 3)
+    return transform_matrix
+
+
+def apply_perspective(img, matrix, w, h):
+    """
+    Apply the perspective transformation to an image using the computed matrix.
+    :param img: Input image tensor of shape (C, H, W)
+    :param matrix: Transformation matrix
+    :param w: Width of the output image
+    :param h: Height of the output image
+    :return: Transformed image tensor
+    """
+    # Invert the transformation matrix
+    matrix_inv = torch.inverse(matrix)
+
+    # Normalize the pixel coordinates to [-1, 1]
+    grid = torch.nn.functional.affine_grid(matrix_inv[:2].unsqueeze(0), torch.Size((1, *img.shape)), align_corners=False)
+
+    # Apply the transformation
+    return torch.nn.functional.grid_sample(img.unsqueeze(0), grid, align_corners=False).squeeze(0)
+
 
 def main():
     # Load your image
@@ -278,8 +344,11 @@ def main():
             src_pts[:, 0] -= bbox_src[0]
             src_pts[:, 1] -= bbox_src[1]
 
-            width = image_width(src_image) * 3
-            height = image_height(src_image) * 2
+            # width = image_width(src_image) * 3
+            # height = image_height(src_image) * 2
+
+            width = image_width(src_image)
+            height = image_height(src_image)
 
             # width = image_width(src_image) / 2
             # height = image_height(src_image) / 3
@@ -319,13 +388,22 @@ def main():
             dtype=np.float32,
         )
 
+        coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
+
+        # Compute the perspective transform matrix
+        # transform_matrix = find_perspective_transform(src_pts, dst_pts)
+
+        # # Apply the transformation
+        # warped_image = apply_perspective(src_image.squeeze(0).to(torch.float) / 255.0, transform_matrix, width, height)
+        # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+
         warped_image = torchvision.transforms.functional.perspective(
             pil_image, startpoints=src_pts, endpoints=dst_pts
         )
         warped_image = to_tensor(warped_image)
 
-        # wmin = torch.min(warped_image)
-        # wmax = torch.max(warped_image)
+        wmin = torch.min(warped_image)
+        wmax = torch.max(warped_image)
 
         # Display the warped image
         plt.figure()
