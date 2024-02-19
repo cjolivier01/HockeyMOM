@@ -250,11 +250,6 @@ def main():
         width = src_width
         height = src_height
 
-        dst_pts = np.array(
-            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
-            dtype=np.float32,
-        )
-
         to_pil = ToPILImage()
         to_tensor = transforms.ToTensor()
 
@@ -267,9 +262,9 @@ def main():
         # )
         src_pts = torch.tensor(selected_points, dtype=torch.float)
 
-        if False:
+        if True:
             bbox_src = int_bbox(get_bbox(selected_points))
-            bbox_dest = int_bbox(get_bbox(dst_pts))
+            # bbox_dest = int_bbox(get_bbox(dst_pts))
 
             to_tensor = transforms.ToTensor()
             # image = to_tensor(image)
@@ -283,6 +278,8 @@ def main():
             src_pts[:, 0] -= bbox_src[0]
             src_pts[:, 1] -= bbox_src[1]
             pil_image = to_pil(src_image.squeeze(0))
+            width = image_width(src_image)
+            height = image_height(src_image)
         else:
             pil_image = to_pil(original_image)
 
@@ -297,7 +294,10 @@ def main():
         # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
         # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
 
-
+        dst_pts = np.array(
+            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
+            dtype=np.float32,
+        )
 
         warped_image = torchvision.transforms.functional.perspective(
             pil_image, startpoints=src_pts, endpoints=dst_pts
@@ -324,7 +324,7 @@ def main():
         original_image *= 1
         # cv2.imshow("online_im", warped_image)
         # cv2.waitKey(0)
-        #plt.imshow(pil_image)
+        # plt.imshow(pil_image)
         plt.imshow(warped_image)
         # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
