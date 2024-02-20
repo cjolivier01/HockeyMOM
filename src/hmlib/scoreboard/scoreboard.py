@@ -534,13 +534,13 @@ def sb_main():
     # wi_min = np.min(warped_image)
     # wi_max = np.max(warped_image)
 
-    # cv2.imshow("warped_image", warped_image)
-    # cv2.waitKey(0)
+    cv2.imshow("warped_image", make_channels_last(warped_image)[0].numpy())
+    cv2.waitKey(0)
     # plt.imshow(pil_image)
-    plt.imshow(make_channels_last(warped_image)[0])
+    # plt.imshow(make_channels_last(warped_image)[0])
     # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
-    plt.title("Warped Image")
-    plt.show()
+    # plt.title("Warped Image")
+    # plt.show()
 
 
 if __name__ == "__main__":
