@@ -524,9 +524,9 @@ def sb_main():
         ),
     )
 
-    warped_image = scoreboard.forward(image_tensor)
+    warped_image = scoreboard.forward(image_tensor.to(torch.float) / 255)
 
-    # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+    warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
     # Display the warped image
     # plt.figure()
