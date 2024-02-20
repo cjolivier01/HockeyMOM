@@ -529,7 +529,7 @@ def sb_main():
     # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
     # Display the warped image
-    plt.figure()
+    # plt.figure()
 
     # wi_min = np.min(warped_image)
     # wi_max = np.max(warped_image)
