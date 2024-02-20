@@ -21,15 +21,96 @@ from hmlib.video_out import make_showable_type
 
 
 class Scoreboard(torch.nn.Module):
-    def __init__(self, src_pts: torch.Tensor, dest_height: int, dest_width: int):
+    def __init__(
+        self,
+        src_pts: torch.Tensor,
+        src_width: int,
+        src_height: int,
+        dest_height: int,
+        dest_width: int,
+        dtype: torch.dtype,
+        device: torch.device = None,
+    ):
         self._dest_width = dest_width
         self._dest_height = dest_height
-        if not isinstance(torch.Tensor):
+        if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
-        self._src_pts = src_pts.clone()
 
-    def forward(input: torch, Tensor):
-        pass
+        self._src_pts = src_pts.clone()
+        self._bbox_src = int_bbox(get_bbox(self._src_pts))
+
+        # original_image = make_channels_first(
+        #     torch.from_numpy(original_image).unsqueeze(0)
+        # )
+
+        # src_image = original_image[
+        #     :, :, self._bbox_src[1] : self._bbox_src[3], self._bbox_src[0] : self._bbox_src[2]
+        # ]
+        self._src_pts[:, 0] -= self._bbox_src[0]
+        self._src_pts[:, 1] -= self._bbox_src[1]
+
+        # src_width = image_width(src_image)
+        # src_height = image_height(src_image)
+
+        totw = max(self._dest_width, src_width)
+        toth = max(self._dest_height, src_height)
+        if totw > src_width or toth > src_height:
+            src_image = pad_tensor_to_size_batched(
+                src_image,
+                target_width=totw,
+                target_height=toth,
+                pad_value=0,
+            )
+            # width = totw
+            # height = toth
+            dest_w = totw
+            dest_h = toth
+        else:
+            dest_w = src_width
+            dest_h = src_height
+
+        dst_pts = np.array(
+            [
+                [0, 0],
+                [dest_width - 1, 0],
+                [dest_width - 1, dest_height - 1],
+                [0, dest_height - 1],
+            ],
+            dtype=np.float32,
+        )
+
+        perspective_coeffs = _get_perspective_coeffs(
+            startpoints=src_pts, endpoints=dst_pts
+        )
+
+        # ow, oh = src_image.shape[-1], img.shape[-2]
+        ow = dest_w
+        oh = dest_h
+
+        # dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
+        self._grid = _perspective_grid(
+            perspective_coeffs,
+            ow=ow,
+            oh=oh,
+            dtype=dtype,
+            device=torch.device("cpu") if device is None else device,
+        )
+
+    def forward(self, input_image: torch.Tensor):
+        original_image = input_image
+        src_image = original_image[
+            :,
+            :,
+            self._bbox_src[1] : self._bbox_src[3],
+            self._bbox_src[0] : self._bbox_src[2],
+        ]
+
+        warped_image = _apply_grid_transform(
+            src_image, self._grid, mode="bilinear", fill=None
+        )
+
+        warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
+        return warped_image
 
 
 def get_bbox(point_list: List[List[float]]):
@@ -414,15 +495,57 @@ def main():
 
 def sb_main():
 
+    image_path = "/home/colivier/Videos/sharks-bb3-1/panorama.tif"  # Specify the path to your image
+    # image = Image.open(image_path)
+    image = Image.open(image_path)
+    image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
+
     selected_points = [
         [5845.921076009106, 911.8827549830662],
         [6032.949003386821, 969.4298095608242],
         [5996.9820942757215, 1120.4908278274388],
         [5790.954166898008, 1048.5570096052415],
     ]
+    scoreboard = Scoreboard(
+        src_pts=selected_points,
+        src_width=image_width(image_tensor),
+        src_height=image_height(image_tensor),
+        dest_width=400,
+        dest_height=200,
+        dtype=(
+            image_tensor.dtype
+            if torch.is_floating_point(image_tensor)
+            else torch.float32
+        ),
+    )
 
-    scoreboard = Scoreboard(src_pts=selected_points, dest_width=400, dest_height=200)
+    warped_image = scoreboard.forward(image_tensor.to(torch.float))
+
+    warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+
+    # Display the warped image
+    plt.figure()
+    if warped_image.ndim == 4:
+        assert warped_image.size(0) == 1
+        warped_image = warped_image.squeeze(0)
+
+    if warped_image.shape[0] == 4 or warped_image.shape[0] == 3:
+        warped_image = warped_image.permute(1, 2, 0)
+        warped_image = warped_image.contiguous().numpy()
+
+    wi_min = np.min(warped_image)
+    wi_max = np.max(warped_image)
+
+
+    # cv2.imshow("warped_image", warped_image)
+    # cv2.waitKey(0)
+    # plt.imshow(pil_image)
+    plt.imshow(warped_image)
+    # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
+    plt.title("Warped Image")
+    plt.show()
 
 
 if __name__ == "__main__":
     main()
+    #sb_main()
