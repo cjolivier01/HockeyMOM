@@ -503,8 +503,9 @@ def sb_main():
 
     image_path = "/home/colivier/Videos/sharks-bb3-1/panorama.tif"  # Specify the path to your image
     # image = Image.open(image_path)
-    image = Image.open(image_path)
-    image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
+    image = cv2.imread(image_path)
+    # image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
+    image_tensor = make_channels_first(torch.from_numpy(image).unsqueeze(0))
 
     selected_points = [
         [5845.921076009106, 911.8827549830662],
@@ -514,8 +515,6 @@ def sb_main():
     ]
     scoreboard = Scoreboard(
         src_pts=selected_points,
-        # src_width=image_width(image_tensor),
-        # src_height=image_height(image_tensor),
         dest_width=200,
         dest_height=100,
         dtype=(
@@ -527,31 +526,23 @@ def sb_main():
 
     warped_image = scoreboard.forward(image_tensor)
 
-    #warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+    # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
     # Display the warped image
     plt.figure()
-    if warped_image.ndim == 4:
-        assert warped_image.size(0) == 1
-        warped_image = warped_image.squeeze(0)
 
-    if warped_image.shape[0] == 4 or warped_image.shape[0] == 3:
-        warped_image = warped_image.permute(1, 2, 0)
-        warped_image = warped_image.contiguous().numpy()
-
-    wi_min = np.min(warped_image)
-    wi_max = np.max(warped_image)
-
+    # wi_min = np.min(warped_image)
+    # wi_max = np.max(warped_image)
 
     # cv2.imshow("warped_image", warped_image)
     # cv2.waitKey(0)
     # plt.imshow(pil_image)
-    plt.imshow(warped_image)
+    plt.imshow(make_channels_last(warped_image)[0])
     # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
     plt.title("Warped Image")
     plt.show()
 
 
 if __name__ == "__main__":
-    #main()
+    # main()
     sb_main()
