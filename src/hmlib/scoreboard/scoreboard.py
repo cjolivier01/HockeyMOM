@@ -24,8 +24,8 @@ class Scoreboard(torch.nn.Module):
     def __init__(
         self,
         src_pts: torch.Tensor,
-        src_width: int,
-        src_height: int,
+        # src_width: int,
+        # src_height: int,
         dest_height: int,
         dest_width: int,
         dtype: torch.dtype,
@@ -52,15 +52,19 @@ class Scoreboard(torch.nn.Module):
         # src_width = image_width(src_image)
         # src_height = image_height(src_image)
 
+        src_width = self._bbox_src[2] - self._bbox_src[0]
+        src_height = self._bbox_src[3] - self._bbox_src[1]
+
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
         if totw > src_width or toth > src_height:
-            src_image = pad_tensor_to_size_batched(
-                src_image,
-                target_width=totw,
-                target_height=toth,
-                pad_value=0,
-            )
+            assert False
+            # src_image = pad_tensor_to_size_batched(
+            #     src_image,
+            #     target_width=totw,
+            #     target_height=toth,
+            #     pad_value=0,
+            # )
             # width = totw
             # height = toth
             dest_w = totw
@@ -78,9 +82,10 @@ class Scoreboard(torch.nn.Module):
             ],
             dtype=np.float32,
         )
-
+        # print(src_pts)
+        # print(dst_pts)
         perspective_coeffs = _get_perspective_coeffs(
-            startpoints=src_pts, endpoints=dst_pts
+            startpoints=self._src_pts, endpoints=dst_pts
         )
 
         # ow, oh = src_image.shape[-1], img.shape[-2]
@@ -95,6 +100,7 @@ class Scoreboard(torch.nn.Module):
             dtype=dtype,
             device=torch.device("cpu") if device is None else device,
         )
+        pass
 
     def forward(self, input_image: torch.Tensor):
         original_image = input_image
@@ -508,10 +514,10 @@ def sb_main():
     ]
     scoreboard = Scoreboard(
         src_pts=selected_points,
-        src_width=image_width(image_tensor),
-        src_height=image_height(image_tensor),
-        dest_width=400,
-        dest_height=200,
+        # src_width=image_width(image_tensor),
+        # src_height=image_height(image_tensor),
+        dest_width=200,
+        dest_height=100,
         dtype=(
             image_tensor.dtype
             if torch.is_floating_point(image_tensor)
@@ -519,9 +525,9 @@ def sb_main():
         ),
     )
 
-    warped_image = scoreboard.forward(image_tensor.to(torch.float))
+    warped_image = scoreboard.forward(image_tensor)
 
-    warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+    #warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
     # Display the warped image
     plt.figure()
@@ -547,5 +553,5 @@ def sb_main():
 
 
 if __name__ == "__main__":
-    main()
-    #sb_main()
+    #main()
+    sb_main()
