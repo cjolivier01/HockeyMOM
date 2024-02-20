@@ -28,9 +28,8 @@ class Scoreboard(torch.nn.Module):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
         self._src_pts = src_pts.clone()
 
-    def forward(input: torch,Tensor):
+    def forward(input: torch, Tensor):
         pass
-
 
 
 def get_bbox(point_list: List[List[float]]):
@@ -260,7 +259,7 @@ def main():
 
     def proceed_with_warp_cv2():
         nonlocal original_image
-        #print(selected_points)
+        # print(selected_points)
 
         src_pts = np.array(selected_points, dtype=np.float32)
 
@@ -271,8 +270,8 @@ def main():
         # width, height = image.size
         width = 200
         height = 100
-        #width = src_width
-        #height = src_height
+        # width = src_width
+        # height = src_height
 
         # to_pil = ToPILImage()
         # to_tensor = transforms.ToTensor()
@@ -378,6 +377,8 @@ def main():
             src_image, grid, mode="bilinear", fill=None
         )
 
+        warped_image = warped_image[:, :, :height, :width]
+
         wmin = torch.min(warped_image)
         wmax = torch.max(warped_image)
 
@@ -409,6 +410,7 @@ def main():
         plt.show()
     else:
         proceed_with_warp_cv2()
+
 
 def sb_main():
 
