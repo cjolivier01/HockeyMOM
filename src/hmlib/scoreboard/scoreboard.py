@@ -20,9 +20,30 @@ from hmlib.utils.image import (
 from hmlib.video_out import make_showable_type
 
 
-class Scoreboard:
+class Scoreboard(torch.nn.Module):
     def __init__(self, src_pts: torch.Tensor, dest_height: int, dest_width: int):
+        self._dest_width = dest_width
+        self._dest_height = dest_height
+        if not isinstance(torch.Tensor):
+            src_pts = torch.tensor(src_pts, dtype=torch.float)
+        self._src_pts = src_pts.clone()
+
+    def forward(input: torch,Tensor):
         pass
+
+
+
+def get_bbox(point_list: List[List[float]]):
+    points = torch.tensor(point_list)
+    mins = torch.min(points, dim=0)[0]
+    maxs = torch.max(points, dim=0)[0]
+    return torch.cat((mins, maxs), dim=0)
+
+
+def int_bbox(bbox: torch.Tensor):
+    bbox[:2] = torch.floor(bbox[:2])
+    bbox[2:] = torch.ceil(bbox[2:])
+    return bbox.to(torch.int32)
 
 
 def _get_perspective_coeffs(
@@ -237,20 +258,9 @@ def main():
                 proceed_with_warp_cv2()
             plt.draw()
 
-    def get_bbox(point_list: List[List[float]]):
-        points = torch.tensor(point_list)
-        mins = torch.min(points, dim=0)[0]
-        maxs = torch.max(points, dim=0)[0]
-        return torch.cat((mins, maxs), dim=0)
-
-    def int_bbox(bbox: torch.Tensor):
-        bbox[:2] = torch.floor(bbox[:2])
-        bbox[2:] = torch.ceil(bbox[2:])
-        return bbox.to(torch.int32)
-
     def proceed_with_warp_cv2():
         nonlocal original_image
-        print(selected_points)
+        #print(selected_points)
 
         src_pts = np.array(selected_points, dtype=np.float32)
 
@@ -259,10 +269,10 @@ def main():
         # ar = src_width/src_height
 
         # width, height = image.size
-        # width = 200
-        # height = 75
-        width = src_width
-        height = src_height
+        width = 200
+        height = 100
+        #width = src_width
+        #height = src_height
 
         # to_pil = ToPILImage()
         # to_tensor = transforms.ToTensor()
@@ -295,8 +305,8 @@ def main():
             # width = image_width(src_image) * 3
             # height = image_height(src_image) * 2
 
-            width = image_width(src_image)
-            height = image_height(src_image)
+            # width = image_width(src_image)
+            # height = image_height(src_image)
 
             # width = image_width(src_image) / 2
             # height = image_height(src_image) / 3
@@ -313,8 +323,13 @@ def main():
                     target_height=toth,
                     pad_value=0,
                 )
-                width = totw
-                height = toth
+                # width = totw
+                # height = toth
+                dest_w = totw
+                dest_h = toth
+            else:
+                dest_w = src_width
+                dest_h = src_height
 
             # pil_image = to_pil(src_image.squeeze(0))
         else:
@@ -353,8 +368,8 @@ def main():
         # )
 
         # ow, oh = src_image.shape[-1], img.shape[-2]
-        ow = width
-        oh = height
+        ow = dest_w
+        oh = dest_h
         dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
         grid = _perspective_grid(
             perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device
@@ -394,6 +409,17 @@ def main():
         plt.show()
     else:
         proceed_with_warp_cv2()
+
+def sb_main():
+
+    selected_points = [
+        [5845.921076009106, 911.8827549830662],
+        [6032.949003386821, 969.4298095608242],
+        [5996.9820942757215, 1120.4908278274388],
+        [5790.954166898008, 1048.5570096052415],
+    ]
+
+    scoreboard = Scoreboard(src_pts=selected_points, dest_width=400, dest_height=200)
 
 
 if __name__ == "__main__":
