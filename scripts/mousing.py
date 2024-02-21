@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.widgets import Button
 from PIL import Image
+from pathlib import Path
+from hmlib.config import save_game_config, get_game_config, set_nested_value
+from hmlib.hm_opts import hm_opts
 
 
 def draw_line(image_path: str):
@@ -46,7 +49,7 @@ def draw_line(image_path: str):
     plt.show()
 
 
-def other_impl(image_path):
+def other_impl(game_id: str, image_path: str):
     img = cv2.imread(image_path)
 
     # Initialize global variables
@@ -55,6 +58,8 @@ def other_impl(image_path):
     lower_lines = []
     current_line = []  # To store the current line being drawn
     drawing = False  # True if mouse is pressed
+    aborted = False
+
     print("UPPER")
 
     def draw_line(event, x, y, flags, param):
@@ -62,26 +67,25 @@ def other_impl(image_path):
 
         if event == cv2.EVENT_LBUTTONDOWN:
             drawing = True
-            current_line = [(x, y)]  # Start point of the line
+            current_line = [[x, y]]  # Start point of the line
 
         elif event == cv2.EVENT_LBUTTONUP:
             drawing = False
-            current_line.append((x, y))  # End point of the line
+            current_line.append([x, y])  # End point of the line
             # Ensure the line is always left to right
             start, end = sorted(current_line)
             if is_upper:
-                upper_lines.append((start, end))
+                upper_lines.append([start, end])
             else:
-                lower_lines.append((start, end))
+                lower_lines.append([start, end])
             cv2.line(img, start, end, (255, 0, 0) if not is_upper else (0, 0, 255), 2)
 
     def display_image_and_draw_lines(image_path):
-        nonlocal img, is_upper
+        nonlocal img, is_upper, aborted
         cv2.namedWindow(
             "Image", cv2.WINDOW_NORMAL
         )  # Create a window that can be resized
         cv2.setMouseCallback("Image", draw_line)
-
         while True:
             cv2.imshow("Image", img)
             key = cv2.waitKey(1) & 0xFF
@@ -104,21 +108,42 @@ def other_impl(image_path):
             elif key in [76, 108]:  # L, l
                 print("LOWER")
                 is_upper = False
+            elif key == ord("a") or key == ord("A"):
+                aborted = True
+                break
             elif key == ord("q"):  # Quit the program
                 break
 
         cv2.destroyAllWindows()
-        return lines
+
+    def to_tlbr(lines):
+        new_lines = []
+        for line in lines:
+            ll = [line[0][0], line[0][1], line[1][0], line[1][1]]
+            new_lines.append(ll)
+        return new_lines
 
     # Example usage
-    line_coordinates = display_image_and_draw_lines(image_path)
-    print(line_coordinates)
-    return line_coordinates
+    display_image_and_draw_lines(image_path)
+    if not aborted:
+        upper_lines = to_tlbr(upper_lines)
+        lower_lines = to_tlbr(lower_lines)
+
+        print(f"Upper: {upper_lines}")
+        print(f"Lower: {lower_lines}")
+
+        this_path = Path(os.path.dirname(__file__))
+        root_dir = os.path.realpath(this_path / "..")
+        game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+        set_nested_value(game_config, "game.boundaries.upper", upper_lines)
+        set_nested_value(game_config, "game.boundaries.lower", lower_lines)
+        save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
 
 
 if __name__ == "__main__":
+    opts = hm_opts()
+    args = opts.parse()
     current_file_path = os.path.dirname(os.path.abspath(__file__))
-    img_file = os.path.join(current_file_path, "..", "s.png")
+    image_path = os.path.join(current_file_path, "..", "s.png")
     # draw_line(img_file)
-    line_coordinates = other_impl(img_file)
-    print(line_coordinates)
+    other_impl(game_id=args.game_id, image_path=image_path)
