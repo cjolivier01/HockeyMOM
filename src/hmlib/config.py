@@ -91,8 +91,8 @@ def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None
 def get_clip_box(game_id: str, root_dir: str):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:
-        game = game_config["game"]
-        if "clip_box" in game:
+        game = game_config.get("game", None)
+        if game and "clip_box" in game:
             return game["clip_box"]
     return None
 

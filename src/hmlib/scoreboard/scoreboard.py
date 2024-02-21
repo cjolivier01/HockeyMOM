@@ -19,9 +19,9 @@ from hmlib.utils.image import (
     make_channels_last,
     pad_tensor_to_size_batched,
 )
-from hmlib.video_out import make_showable_type
 
-from hmlib.config import get_game_config, save_game_config, get_nested_value
+from hmlib.config import get_game_config, get_nested_value
+
 
 class Scoreboard(torch.nn.Module):
     def __init__(
@@ -106,7 +106,7 @@ class Scoreboard(torch.nn.Module):
         )
 
     def forward(self, input_image: torch.Tensor):
-        original_image = input_image
+        original_image = make_channels_first(input_image)
         src_image = original_image[
             :,
             :,
@@ -164,7 +164,7 @@ def _get_perspective_coeffs(
         a_matrix[2 * i + 1, :] = torch.tensor(
             [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]]
         )
-    #b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
+    # b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
     b_matrix = startpoints.view(8)
     res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
 
@@ -508,23 +508,16 @@ def main():
 def sb_main(game_id: str):
 
     image_path = f"{os.environ['HOME']}/Videos/{game_id}/panorama.tif"  # Specify the path to your image
-    # image = Image.open(image_path)
     image = cv2.imread(image_path)
-    # image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
     image_tensor = make_channels_first(torch.from_numpy(image).unsqueeze(0))
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
     game_id = "tvbb"
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
-    selected_points = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
-
-    # selected_points = [
-    #     [5845.921076009106, 911.8827549830662],
-    #     [6032.949003386821, 969.4298095608242],
-    #     [5996.9820942757215, 1120.4908278274388],
-    #     [5790.954166898008, 1048.5570096052415],
-    # ]
+    selected_points = get_nested_value(
+        game_config, "rink.scoreboard.perspective_polygon"
+    )
 
     if selected_points:
         scoreboard = Scoreboard(

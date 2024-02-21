@@ -55,6 +55,9 @@ from hmlib.utils.box_functions import (
     height,
 )
 
+from hmlib.scoreboard.scoreboard import Scoreboard
+from hmlib.config import get_game_config, save_game_config, get_nested_value
+
 
 @contextmanager
 def optional_with(resource):
@@ -294,6 +297,11 @@ class VideoOutput:
         self._print_interval = print_interval
         self._output_video = None
 
+        self._scoreboard = None
+        self._scoreboard_points = get_nested_value(
+            args.game_config, "rink.scoreboard.perspective_polygon", None
+        )
+
         if fourcc == "auto":
             if self._device.type == "cuda":
                 self._fourcc, is_gpu = get_best_codec(
@@ -522,6 +530,8 @@ class VideoOutput:
                 )
             assert self._output_video.isOpened()
 
+        scoreboard = None
+
         cuda_stream = None
 
         batch_count = 0
@@ -548,6 +558,15 @@ class VideoOutput:
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
+
+            if scoreboard is None and self._scoreboard_points:
+                scoreboard = Scoreboard(
+                    src_pts=self._scoreboard_points,
+                    dest_height=75,
+                    dest_width=200,
+                    dtype=torch.float,
+                    device=self._device,
+                )
 
             # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type != "cpu":
@@ -589,6 +608,10 @@ class VideoOutput:
 
                 src_image_width = image_width(online_im)
                 src_image_height = image_height(online_im)
+
+                scoreboard_img = None
+                if scoreboard is not None:
+                    scoreboard_img = make_channels_last(scoreboard.forward(online_im))
 
                 #
                 # Perspective rotation
@@ -710,6 +733,14 @@ class VideoOutput:
                 # Numpy array after here
                 if isinstance(online_im, PIL.Image.Image):
                     online_im = np.array(online_im)
+
+                #
+                # Scoreboard
+                #
+                if scoreboard_img is not None:
+                    sw = image_width(scoreboard_img)
+                    sh = image_height(scoreboard_img)
+                    online_im[:, 0:sh, 0:sw, :] = scoreboard_img.to(torch.float) / 255
 
                 #
                 # Watermark
