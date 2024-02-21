@@ -562,8 +562,8 @@ class VideoOutput:
             if scoreboard is None and self._scoreboard_points:
                 scoreboard = Scoreboard(
                     src_pts=self._scoreboard_points,
-                    dest_height=200,
-                    dest_width=500,
+                    dest_height=150,
+                    dest_width=400,
                     # dest_height=75,
                     # dest_width=200,
                     dtype=torch.float,
