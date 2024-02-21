@@ -58,7 +58,6 @@ class Scoreboard(torch.nn.Module):
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
         if totw > src_width or toth > src_height:
-            assert False
             # src_image = pad_tensor_to_size_batched(
             #     src_image,
             #     target_width=totw,
@@ -67,11 +66,13 @@ class Scoreboard(torch.nn.Module):
             # )
             # width = totw
             # height = toth
-            dest_w = totw
-            dest_h = toth
+            self._dest_w = totw
+            self._dest_h = toth
+            self._bbox_src[2] = self._bbox_src[0] + self._dest_w
+            self._bbox_src[3] = self._bbox_src[1] + self._dest_h
         else:
-            dest_w = src_width
-            dest_h = src_height
+            self._dest_w = src_width
+            self._dest_h = src_height
 
         dst_pts = np.array(
             [
@@ -89,8 +90,8 @@ class Scoreboard(torch.nn.Module):
         )
 
         # ow, oh = src_image.shape[-1], img.shape[-2]
-        ow = dest_w
-        oh = dest_h
+        ow = self._dest_w
+        oh = self._dest_h
 
         # dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
         self._grid = _perspective_grid(
@@ -100,7 +101,6 @@ class Scoreboard(torch.nn.Module):
             dtype=dtype,
             device=torch.device("cpu") if device is None else device,
         )
-        pass
 
     def forward(self, input_image: torch.Tensor):
         original_image = input_image
