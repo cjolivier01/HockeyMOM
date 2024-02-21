@@ -2,14 +2,6 @@ import os
 import yaml
 from typing import List, Dict
 
-# Define a custom representer for better control over formatting (optional)
-def nested_list_representer(dumper, data):
-    # This tries to force block style for nested lists
-    return dumper.represent_sequence(u'tag:yaml.org,2002:seq', data, flow_style=False)
-
-# Register the custom representer with PyYAML (optional)
-yaml.add_representer(list, nested_list_representer)
-
 def load_config_file(
     root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
 ):
