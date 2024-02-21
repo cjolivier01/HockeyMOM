@@ -772,6 +772,9 @@ class CamTrackPostProcessor(torch.nn.Module):
             min_considered_velocity=3.0,
             group_threshhold=0.5,
         )
+        #
+        # Breakway detection
+        #
         if group_x_velocity:
             # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
