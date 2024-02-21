@@ -5,6 +5,7 @@ import random
 import warnings
 
 import traceback
+from pathlib import Path
 import sys, os
 from typing import List
 
@@ -320,6 +321,22 @@ def configure_model(config: dict, args: argparse.Namespace):
     return args
 
 
+def find_stitched_file(dir_name: str, game_id: str):
+    exts = ["mkv", "avi", "mp4"]
+    basenames = [
+        "stitched_output",
+        "stitched_output-with-audio",
+        "stitched_output-" + game_id,
+        "stitched_output-with-audio-" + game_id,
+    ]
+    for basename in basenames:
+        for ext in exts:
+            path = os.path.join(dir_name, basename + "." + ext)
+            if os.path.exists(path):
+                return path
+    return None
+
+
 def main(exp, args, num_gpu):
     dataloader = None
 
@@ -430,12 +447,15 @@ def main(exp, args, num_gpu):
             game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
             if os.path.isdir(game_video_dir):
                 # TODO: also look for avi and mp4 files
-                pre_stitched_file_name = "stitched_output-with-audio.mkv"
-                pre_stitched_file_path = os.path.join(
-                    game_video_dir, pre_stitched_file_name
+                pre_stitched_file_name = find_stitched_file(
+                    dir_name=game_video_dir, game_id=args.game_id
                 )
-                if os.path.exists(pre_stitched_file_path):
-                    args.input_video = pre_stitched_file_path
+                # pre_stitched_file_name = "stitched_output-with-audio.mkv"
+                # pre_stitched_file_path = os.path.join(
+                #     game_video_dir, pre_stitched_file_name
+                # )
+                if os.path.exists(pre_stitched_file_name):
+                    args.input_video = pre_stitched_file_name
                 else:
                     args.input_video = game_video_dir
 
@@ -598,7 +618,7 @@ def main(exp, args, num_gpu):
             postprocessor=postprocessor,
         )
 
-        #torch.cuda.set_device(rank)
+        # torch.cuda.set_device(rank)
         trt_file = None
         decoder = None
         if model is not None:

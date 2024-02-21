@@ -368,8 +368,7 @@ if __name__ == "__main__":
     # Currently, expects files to be named like
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     opts = hm_opts()
-    parser = opts.parser()
-    args = parser.parse_args()
+    args = opts.parse()
     synchronize_by_audio(
         file0_path=f"{os.environ['HOME']}/Videos/{args.game_id}/left.mp4",
         file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/right.mp4",
