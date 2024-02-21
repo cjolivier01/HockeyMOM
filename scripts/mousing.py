@@ -6,7 +6,12 @@ import matplotlib.patches as patches
 from matplotlib.widgets import Button
 from PIL import Image
 from pathlib import Path
-from hmlib.config import save_game_config, get_game_config, set_nested_value
+from hmlib.config import (
+    save_game_config,
+    get_game_config,
+    set_nested_value,
+    get_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 
 
@@ -138,6 +143,17 @@ def other_impl(game_id: str, image_path: str):
         set_nested_value(game_config, "game.boundaries.upper", upper_lines)
         set_nested_value(game_config, "game.boundaries.lower", lower_lines)
         save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
+        return True
+    return False
+
+
+def maybe_configure_borders(game_id: str, root_dir: str):
+    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    if get_nested_value(
+        game_config, "game.boundaries.upper", None
+    ) is None and get_nested_value(game_config, "game.boundaries.lower", None):
+        # TODO: need to extract frame, why is panorama.tif not always correct?
+        other_impl(game_id=game_id, image_path=image_path)
 
 
 if __name__ == "__main__":
