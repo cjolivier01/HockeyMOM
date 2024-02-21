@@ -3,6 +3,7 @@ import cv2
 from pathlib import Path
 
 from hmlib.config import get_game_config, save_game_config, set_nested_value
+from hmlib.hm_opts import hm_opts
 
 # import wx
 
@@ -60,7 +61,8 @@ def select_opencv(game_id: str):
 
     # Load an image
     img = cv2.imread(
-        f'{os.environ["HOME"]}/Videos/{game_id}/panorama.tif'
+        # f'{os.environ["HOME"]}/Videos/{game_id}/panorama.tif'
+        f'{os.environ["HOME"]}/Videos/{game_id}/s.png'
     )  # Replace 'path_to_your_image.jpg' with your image path
     cv2.imshow("image", img)
 
@@ -84,13 +86,14 @@ if __name__ == "__main__":
     # app = wx.App(False)
     # frame = ImageViewer(None, "Image Viewer")
     # app.MainLoop()
+    opts = hm_opts()
+    args = opts.parse()
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")
-    game_id = "nm-wolves"
-    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
 
-    points = select_opencv(game_id)
+    points = select_opencv(args.game_id)
 
     if points and len(points) == 4:
         set_nested_value(game_config, "rink.scoreboard.perspective_polygon", points)
-        save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
+        save_game_config(game_id=args.game_id, root_dir=root_dir, data=game_config)
