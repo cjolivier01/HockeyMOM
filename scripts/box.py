@@ -38,7 +38,7 @@ from hmlib.config import get_game_config, save_game_config, set_nested_value
 #             print(self.points)
 
 
-def select_opencv():
+def select_opencv(game_id: str):
     # Initialize global variables
     points = []  # List to store points
 
@@ -47,19 +47,25 @@ def select_opencv():
         if event == cv2.EVENT_LBUTTONDOWN:
             if len(points) < 4:  # Check if less than 4 points have been clicked
                 points.append([x, y])  # Append the point
-                cv2.circle(img, (x, y), 3, (0, 255, 0), -1)  # Draw circle at the clicked point
+                cv2.circle(
+                    img, (x, y), 3, (0, 255, 0), -1
+                )  # Draw circle at the clicked point
                 if len(points) > 1:
-                    cv2.line(img, tuple(points[-2]), tuple(points[-1]), (255, 0, 0), 2)  # Draw line between points
-                cv2.imshow('image', img)  # Show the image
+                    cv2.line(
+                        img, tuple(points[-2]), tuple(points[-1]), (255, 0, 0), 2
+                    )  # Draw line between points
+                cv2.imshow("image", img)  # Show the image
             # if len(points) == 4:  # If 4 points have been clicked
             #     cv2.destroyAllWindows()  # Close the window
 
     # Load an image
-    img = cv2.imread('/home/colivier/Videos/tvbb/panorama.tif')  # Replace 'path_to_your_image.jpg' with your image path
-    cv2.imshow('image', img)
+    img = cv2.imread(
+        f'{os.environ["HOME"]}/Videos/{game_id}/panorama.tif'
+    )  # Replace 'path_to_your_image.jpg' with your image path
+    cv2.imshow("image", img)
 
     # Set mouse callback function for window
-    cv2.setMouseCallback('image', click_event)
+    cv2.setMouseCallback("image", click_event)
 
     try:
         cv2.waitKey(0)  # Wait indefinitely for a key press
@@ -80,10 +86,10 @@ if __name__ == "__main__":
     # app.MainLoop()
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")
-    game_id = "tvbb"
+    game_id = "nm-wolves"
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
 
-    points = select_opencv()
+    points = select_opencv(game_id)
 
     if points and len(points) == 4:
         set_nested_value(game_config, "rink.scoreboard.perspective_polygon", points)

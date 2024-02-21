@@ -562,8 +562,10 @@ class VideoOutput:
             if scoreboard is None and self._scoreboard_points:
                 scoreboard = Scoreboard(
                     src_pts=self._scoreboard_points,
-                    dest_height=75,
-                    dest_width=200,
+                    dest_height=200,
+                    dest_width=500,
+                    # dest_height=75,
+                    # dest_width=200,
                     dtype=torch.float,
                     device=self._device,
                 )
@@ -740,7 +742,7 @@ class VideoOutput:
                 if scoreboard_img is not None:
                     sw = image_width(scoreboard_img)
                     sh = image_height(scoreboard_img)
-                    online_im[:, 0:sh, 0:sw, :] = scoreboard_img.to(torch.float) / 255
+                    online_im[:, 0:sh, 0:sw, :] = scoreboard_img.to(torch.float) # / 255
 
                 #
                 # Watermark
