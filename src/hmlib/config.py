@@ -21,12 +21,26 @@ def load_config_file(
     return {} if not merge_into_config else merge_into_config
 
 
+def save_config_file(root_dir: str, config_type: str, config_name: str, data: dict):
+    yaml_file_path = os.path.join(
+        root_dir, "config", config_type, config_name + ".yaml"
+    )
+    with open(yaml_file_path, "w") as file:
+        yaml.dump(data, file, sort_keys=False)
+
+
 def baseline_config(root_dir: str):
     return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
 
 def get_game_config(game_id: str, root_dir: str):
     return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
+
+
+def save_game_config(game_id: str, root_dir: str, data: dict):
+    return save_config_file(
+        root_dir=root_dir, config_type="games", config_name=game_id, data=data
+    )
 
 
 def get_rink_config(rink: str, root_dir: str):
