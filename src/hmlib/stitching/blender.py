@@ -784,7 +784,7 @@ def create_stitcher(
     blend_mode: str = "laplacian",
     interpolation: str = "bilinear",
     remap_on_async_stream: bool = False,
-    levels: int = 10,
+    levels: int = 6,
 ):
     blender_config = create_blender_config(
         mode=blend_mode,
