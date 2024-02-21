@@ -609,6 +609,9 @@ class VideoOutput:
                 src_image_width = image_width(online_im)
                 src_image_height = image_height(online_im)
 
+                #
+                # Extract the scoreboard before we do any cropping or rotation
+                #
                 scoreboard_img = None
                 if scoreboard is not None:
                     scoreboard_img = make_channels_last(scoreboard.forward(online_im))
