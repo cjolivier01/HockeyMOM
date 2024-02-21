@@ -740,9 +740,13 @@ class VideoOutput:
                 # Scoreboard
                 #
                 if scoreboard_img is not None:
-                    sw = image_width(scoreboard_img)
-                    sh = image_height(scoreboard_img)
-                    online_im[:, 0:sh, 0:sw, :] = scoreboard_img.to(torch.float) # / 255
+                    if torch.is_floating_point(
+                        online_im
+                    ) and not torch.is_floating_point(scoreboard_img):
+                        scoreboard_img = scoreboard_img.to(torch.float) / 255.0
+                    online_im[:, : scoreboard.height, : scoreboard.width, :] = (
+                        scoreboard_img
+                    )
 
                 #
                 # Watermark

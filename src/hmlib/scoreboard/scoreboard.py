@@ -121,6 +121,14 @@ class Scoreboard(torch.nn.Module):
         warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
         return warped_image
 
+    @property
+    def width(self):
+        return self._dest_width
+
+    @property
+    def height(self):
+        return self._dest_height
+
 
 def get_bbox(point_list: Union[torch.Tensor, List[List[float]]]):
     if isinstance(point_list, list):
