@@ -1,5 +1,7 @@
+import os
 import cv2
 import yaml
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -19,6 +21,7 @@ from hmlib.utils.image import (
 )
 from hmlib.video_out import make_showable_type
 
+from hmlib.config import get_game_config, save_game_config, get_nested_value
 
 class Scoreboard(torch.nn.Module):
     def __init__(
@@ -499,50 +502,47 @@ def main():
         proceed_with_warp_cv2()
 
 
-def sb_main():
+def sb_main(game_id: str):
 
-    image_path = "/home/colivier/Videos/sharks-bb3-1/panorama.tif"  # Specify the path to your image
+    image_path = f"{os.environ['HOME']}/Videos/{game_id}/panorama.tif"  # Specify the path to your image
     # image = Image.open(image_path)
     image = cv2.imread(image_path)
     # image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
     image_tensor = make_channels_first(torch.from_numpy(image).unsqueeze(0))
 
-    selected_points = [
-        [5845.921076009106, 911.8827549830662],
-        [6032.949003386821, 969.4298095608242],
-        [5996.9820942757215, 1120.4908278274388],
-        [5790.954166898008, 1048.5570096052415],
-    ]
-    scoreboard = Scoreboard(
-        src_pts=selected_points,
-        dest_width=200,
-        dest_height=100,
-        dtype=(
-            image_tensor.dtype
-            if torch.is_floating_point(image_tensor)
-            else torch.float32
-        ),
-    )
+    this_path = Path(os.path.dirname(__file__))
+    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
+    game_id = "tvbb"
+    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    selected_points = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
 
-    warped_image = scoreboard.forward(image_tensor.to(torch.float) / 255)
+    # selected_points = [
+    #     [5845.921076009106, 911.8827549830662],
+    #     [6032.949003386821, 969.4298095608242],
+    #     [5996.9820942757215, 1120.4908278274388],
+    #     [5790.954166898008, 1048.5570096052415],
+    # ]
 
-    warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
+    if selected_points:
+        scoreboard = Scoreboard(
+            src_pts=selected_points,
+            dest_width=200,
+            dest_height=100,
+            dtype=(
+                image_tensor.dtype
+                if torch.is_floating_point(image_tensor)
+                else torch.float32
+            ),
+        )
 
-    # Display the warped image
-    # plt.figure()
+        warped_image = scoreboard.forward(image_tensor.to(torch.float) / 255)
 
-    # wi_min = np.min(warped_image)
-    # wi_max = np.max(warped_image)
+        warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
 
-    cv2.imshow("warped_image", make_channels_last(warped_image)[0].numpy())
-    cv2.waitKey(0)
-    # plt.imshow(pil_image)
-    # plt.imshow(make_channels_last(warped_image)[0])
-    # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
-    # plt.title("Warped Image")
-    # plt.show()
+        cv2.imshow("warped_image", make_channels_last(warped_image)[0].numpy())
+        cv2.waitKey(0)
 
 
 if __name__ == "__main__":
     # main()
-    sb_main()
+    sb_main("tvbb")

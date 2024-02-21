@@ -2,7 +2,7 @@ import os
 import cv2
 from pathlib import Path
 
-from hmlib.config import get_game_config, save_game_config
+from hmlib.config import get_game_config, save_game_config, set_nested_value
 
 # import wx
 
@@ -51,8 +51,8 @@ def select_opencv():
                 if len(points) > 1:
                     cv2.line(img, tuple(points[-2]), tuple(points[-1]), (255, 0, 0), 2)  # Draw line between points
                 cv2.imshow('image', img)  # Show the image
-            if len(points) == 4:  # If 4 points have been clicked
-                cv2.destroyAllWindows()  # Close the window
+            # if len(points) == 4:  # If 4 points have been clicked
+            #     cv2.destroyAllWindows()  # Close the window
 
     # Load an image
     img = cv2.imread('/home/colivier/Videos/tvbb/panorama.tif')  # Replace 'path_to_your_image.jpg' with your image path
@@ -61,13 +61,17 @@ def select_opencv():
     # Set mouse callback function for window
     cv2.setMouseCallback('image', click_event)
 
-    cv2.waitKey(0)  # Wait indefinitely for a key press
+    try:
+        cv2.waitKey(0)  # Wait indefinitely for a key press
+    except Exception as ex:
+        print(ex)
     cv2.destroyAllWindows()  # Destroy all windows
 
     # Print the four points
     if len(points) == 4:
         print(points)
-
+        return points
+    return None
 
 
 if __name__ == "__main__":
@@ -76,9 +80,11 @@ if __name__ == "__main__":
     # app.MainLoop()
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")
-    game_id = "nm-wolves"
+    game_id = "tvbb"
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
 
-    select_opencv()
+    points = select_opencv()
 
-    save_game_config(game_id=game_config, root_dir=root_dir, data=game_config)
+    if points and len(points) == 4:
+        set_nested_value(game_config, "rink.scoreboard.perspective_polygon", points)
+        save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
