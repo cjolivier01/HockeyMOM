@@ -21,6 +21,7 @@ from hmlib.utils.image import (
 )
 
 from hmlib.config import get_game_config, get_nested_value
+from hmlib.hm_opts import hm_opts
 
 
 class Scoreboard(torch.nn.Module):
@@ -521,7 +522,6 @@ def sb_main(game_id: str):
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-    game_id = "tvbb"
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     selected_points = get_nested_value(
         game_config, "rink.scoreboard.perspective_polygon"
@@ -530,8 +530,8 @@ def sb_main(game_id: str):
     if selected_points:
         scoreboard = Scoreboard(
             src_pts=selected_points,
-            dest_width=200,
-            dest_height=100,
+            dest_width=500,
+            dest_height=200,
             dtype=(
                 image_tensor.dtype
                 if torch.is_floating_point(image_tensor)
@@ -549,4 +549,6 @@ def sb_main(game_id: str):
 
 if __name__ == "__main__":
     # main()
-    sb_main("tvbb")
+    opts = hm_opts()
+    args = opts.parse()
+    sb_main(args.game_id)
