@@ -2,6 +2,7 @@ import os
 import yaml
 from typing import List, Dict
 
+
 def load_config_file(
     root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
 ):
