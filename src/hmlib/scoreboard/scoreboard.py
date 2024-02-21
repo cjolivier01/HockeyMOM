@@ -122,8 +122,11 @@ class Scoreboard(torch.nn.Module):
         return warped_image
 
 
-def get_bbox(point_list: List[List[float]]):
-    points = torch.tensor(point_list)
+def get_bbox(point_list: Union[torch.Tensor, List[List[float]]]):
+    if isinstance(point_list, list):
+        points = torch.tensor(point_list)
+    else:
+        points = point_list
     mins = torch.min(points, dim=0)[0]
     maxs = torch.max(points, dim=0)[0]
     return torch.cat((mins, maxs), dim=0)
@@ -161,8 +164,8 @@ def _get_perspective_coeffs(
         a_matrix[2 * i + 1, :] = torch.tensor(
             [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]]
         )
-
-    b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
+    #b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
+    b_matrix = startpoints.view(8)
     res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
 
     output: List[float] = res.tolist()
