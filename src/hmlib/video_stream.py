@@ -184,6 +184,7 @@ class VideoStreamWriter:
                 encoder=self._codec,
                 encoder_format="bgr0",
                 encoder_option=options,
+                encoder_frame_rate=self._fps,
                 codec_config=self._codec_config,
                 hw_accel=str(self._device),
             )
