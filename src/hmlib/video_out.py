@@ -798,7 +798,7 @@ class VideoOutput:
                 #
                 # Frame Number
                 #
-                if True or (self.has_args() and self._args.plot_frame_number):
+                if self.has_args() and self._args.plot_frame_number:
                     prev_device = None
                     if isinstance(online_im, torch.Tensor):
                         prev_device = online_im.device
