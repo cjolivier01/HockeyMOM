@@ -373,8 +373,11 @@ class CamTrackPostProcessor(torch.nn.Module):
                 self._send_to_timer_post_process,
                 print_interval=50,
             ):
+                wait_count = 0
                 while self._queue.qsize() > 1:
-                    # print("Cam post-process queue too large")
+                    wait_count += 1
+                    if wait_count % 20 == 0:
+                        print("Cam post-process queue too large")
                     time.sleep(0.001)
                 dets = []
                 # dets = [
