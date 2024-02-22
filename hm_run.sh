@@ -15,7 +15,7 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #GAME_ID="sharksbb1-1"
 #GAME_ID="sharks-bb2-2"
 #GAME_ID="sharks-bb3-2"
-GAME_ID="sundevils"
+#GAME_ID="sundevils"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
