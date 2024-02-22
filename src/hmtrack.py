@@ -251,7 +251,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--radius", type=int, default=0, help="radius for computing similarity"
     )
     parser.add_argument(
-        "--input_video", type=str, default=None, help="Input video file(s)"
+        "--input_video",
+        "--input-video",
+        type=str,
+        default=None,
+        help="Input video file(s)",
     )
     parser.add_argument(
         "--iou_only",
