@@ -259,6 +259,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument(
         "--iou_only",
+        "--iou-only",
         dest="iou_only",
         default=False,
         action="store_true",
