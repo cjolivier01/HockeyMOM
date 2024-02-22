@@ -186,3 +186,18 @@ def create_queue(mp: bool):
         return multiprocessing.Queue()
     else:
         return queue.Queue()
+
+def classinstancememoize(cls):
+    cache = {}
+
+    def get_instance(*args, **kwargs):
+        # Sort kwargs to ensure consistent ordering
+        kwargs_tuple = tuple(sorted(kwargs.items()))
+        # Use args and sorted kwargs as the key
+        key = (args, kwargs_tuple)
+
+        if key not in cache:
+            cache[key] = cls(*args, **kwargs)
+        return cache[key]
+
+    return get_instance

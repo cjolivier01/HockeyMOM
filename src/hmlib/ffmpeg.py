@@ -11,6 +11,7 @@ import ctypes
 import signal
 from torchaudio.utils import ffmpeg_utils
 
+from hmlib.utils.utils import classinstancememoize
 
 libc = ctypes.CDLL("libc.so.6")
 
@@ -20,21 +21,78 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
+# @classinstancememoize
 class BasicVideoInfo:
-    def __init__(self, video_file: str):
-        cap = cv2.VideoCapture(video_file)
-        if not cap.isOpened():
-            raise AssertionError(f"Unable to open video file {video_file}")
-        self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.fps = cap.get(cv2.CAP_PROP_FPS)
-        self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
-        self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-        self.codec = "".join(
-            [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
-        ).upper()
-        cap.release()
+    def __init__(self, video_file: str, use_ffprobe: bool = True):
+        if use_ffprobe:
+            probe = FFProbe(video_file)
+            self._ffstream: FFStream = None
+            if not probe.video:
+                raise AssertionError(
+                    f"Unable to get video stream from file: {video_file}"
+                )
+            elif len(probe.video) > 1:
+                raise AssertionError(
+                    f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
+                )
+            self._ffstream = probe.video[0]
+            self.frame_count = self._ffstream.frames()
+            self.fps = self._ffstream.avgFrameRate()
+            sz = self._ffstream.frameSize()
+            self.width = sz[0]
+            self.height = sz[1]
+            self.bitrate = self._ffstream.bitrate()
+            self.codec = self._ffstream.codec()
+            self.fourcc = fourcc_to_int(self._ffstream.codec())
+        else:
+            cap = cv2.VideoCapture(video_file)
+            if not cap.isOpened():
+                raise AssertionError(f"Unable to open video file {video_file}")
+            self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.fps = cap.get(cv2.CAP_PROP_FPS)
+            self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
+            self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+            self.codec = "".join(
+                [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
+            ).upper()
+            cap.release()
+
+
+def fourcc_to_int(fourcc):
+    """
+    Convert a FOURCC code to an integer.
+
+    Args:
+    - fourcc (str): A four-character string representing the FOURCC code.
+
+    Returns:
+    - int: The integer representation of the FOURCC code.
+    """
+    # Ensure the input is exactly 4 characters
+    assert len(fourcc) == 4, "FOURCC code must be 4 characters long."
+
+    # Calculate the integer value
+    value = (
+        (ord(fourcc[0]) << 0)
+        | (ord(fourcc[1]) << 8)
+        | (ord(fourcc[2]) << 16)
+        | (ord(fourcc[3]) << 24)
+    )
+
+    return value
+
+
+def duration_to_seconds(duration_str):
+    # Split the duration string into hours, minutes, seconds, and nanoseconds
+    hours, minutes, seconds_ns = duration_str.split(':')
+    seconds, ns = seconds_ns.split('.')
+
+    # Convert hours and minutes to seconds, and nanoseconds to seconds
+    total_seconds = int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(ns) / 1e9
+
+    return total_seconds
 
 
 def print_ffmpeg_info():
@@ -334,6 +392,7 @@ class FFProbe:
             self.audio = []
             datalines = []
             for a in iter(p.stdout.readline, b""):
+                a = a.decode("utf-8")
                 if re.match("\[STREAM\]", a):
                     datalines = []
                 elif re.match("\[\/STREAM\]", a):
@@ -342,6 +401,7 @@ class FFProbe:
                 else:
                     datalines.append(a)
             for a in iter(p.stderr.readline, b""):
+                a = a.decode("utf-8")
                 if re.match("\[STREAM\]", a):
                     datalines = []
                 elif re.match("\[\/STREAM\]", a):
@@ -439,7 +499,7 @@ class FFStream:
                 try:
                     f = int(self.__dict__["nb_frames"])
                 except Exception as e:
-                    print("None integer frame count")
+                    return int(self.durationSeconds() * self.realFrameRate())
         return f
 
     def durationSeconds(self):
@@ -453,7 +513,7 @@ class FFStream:
                 try:
                     f = float(self.__dict__["duration"])
                 except Exception as e:
-                    print("None numeric duration")
+                    f = duration_to_seconds(self.__dict__["TAG:DURATION"])
         return f
 
     def language(self):
@@ -504,14 +564,14 @@ class FFStream:
                 print("None integer bitrate")
         return b
 
-    def avgFrameRate(self) -> float:
+    def realFrameRate(self) -> float:
         """
         Returns average frame rate
         """
         b = 0.0
-        if self.__dict__["avg_frame_rate"]:
+        if self.__dict__["r_frame_rate"]:
             try:
-                rate = self.__dict__["avg_frame_rate"]
+                rate = self.__dict__["r_frame_rate"]
                 if rate:
                     tokens = rate.split("/")
                     token_count = len(tokens)
@@ -521,7 +581,7 @@ class FFStream:
                         b = float(tokens[0]) / float(tokens[1])
                     else:
                         raise AssertionError(
-                            f"invalid number of tokens ({token_count}) in avg_frame_rate string: {rate}"
+                            f"invalid number of tokens ({token_count}) in r_frame_rate string: {rate}"
                         )
             except Exception as e:
                 print("None integer bitrate")
