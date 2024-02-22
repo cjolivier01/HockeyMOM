@@ -298,9 +298,11 @@ class VideoOutput:
         self._output_video = None
 
         self._scoreboard = None
-        self._scoreboard_points = get_nested_value(
-            args.game_config, "rink.scoreboard.perspective_polygon", None
-        )
+        self._scoreboard_points = None
+        if hasattr(args, "game_config"):
+            self._scoreboard_points = get_nested_value(
+                args.game_config, "rink.scoreboard.perspective_polygon", None
+            )
 
         if fourcc == "auto":
             if self._device.type == "cuda":
@@ -536,6 +538,8 @@ class VideoOutput:
 
         batch_count = 0
 
+        last_frame_id = None
+
         # seen_frames = set()
         while True:
             batch_count += 1
@@ -553,6 +557,12 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
+
+            if last_frame_id is None:
+                last_frame_id = frame_id
+            else:
+                assert frame_id == last_frame_id + 1
+                last_frame_id = frame_id
 
             # torch.cuda.synchronize()
 
@@ -788,17 +798,18 @@ class VideoOutput:
                 #
                 # Frame Number
                 #
-                if self.has_args() and self._args.plot_frame_number:
-                    prev_device = online_im.device
+                if True or (self.has_args() and self._args.plot_frame_number):
+                    prev_device = None
+                    if isinstance(online_im, torch.Tensor):
+                        prev_device = online_im.device
                     if cuda_stream is not None:
                         cuda_stream.synchronize()
                     online_im = vis.plot_frame_number(
                         online_im,
                         frame_id=frame_id,
                     )
-                    online_im = torch.from_numpy(online_im).to(
-                        prev_device, non_blocking=True
-                    )
+                    if prev_device is not None and online_im.device != prev_device:
+                        online_im = online_im.to(prev_device, non_blocking=True)
 
                 # if plot_interias:
                 #     vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
@@ -819,7 +830,8 @@ class VideoOutput:
                             cv2.imshow(
                                 "online_im",
                                 make_visible_image(
-                                    s_img, enable_resizing=self._args.show_scaled
+                                    s_img,
+                                    # enable_resizing=self._args.show_scaled
                                 ),
                             )
                             cv2.waitKey(1)

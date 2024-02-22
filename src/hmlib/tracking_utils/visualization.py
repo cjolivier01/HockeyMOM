@@ -9,6 +9,8 @@ from sklearn.cluster import KMeans
 
 from screeninfo import get_monitors
 
+from hmlib.utils.image import image_width
+
 
 def get_complete_monitor_width():
     width = 0
@@ -296,19 +298,29 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
 
 def plot_frame_number(image, frame_id):
-    text_scale = max(4, image.shape[1] / 800.0)
+    was_torch = isinstance(image, torch.Tensor)
+    text_scale = max(2, image_width(image) / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
-    image = to_cv2(image)
-    cv2.putText(
-        image,
-        f"F: {frame_id}",
-        (0, int(15 * text_scale)),
-        cv2.FONT_HERSHEY_PLAIN,
-        text_scale,
-        (0, 0, 255),
-        thickness=2,
-    )
+    assert image.ndim == 4
+    result_images = []
+    frame_id = int(frame_id)
+    for i in range(image.shape[0]):
+        img = to_cv2(image[i])
+        cv2.putText(
+            img,
+            f"F: {frame_id + i}",
+            (text_offset, int(30 * text_scale)),
+            cv2.FONT_HERSHEY_PLAIN,
+            text_scale,
+            (0, 0, 255),
+            thickness=text_thickness,
+        )
+        result_images.append(torch.from_numpy(img) if was_torch else img)
+    if was_torch:
+        image = torch.stack(result_images)
+    else:
+        image = np.stack(result_images)
     return image
 
 

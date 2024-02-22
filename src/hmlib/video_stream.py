@@ -164,8 +164,7 @@ class VideoStreamWriter:
             # Cut down the bitrate
             self._codec_config.bit_rate /= 4
             self._video_out.add_video_stream(
-                # frame_rate=self._fps / 2,
-                frame_rate=20,
+                frame_rate=self._fps,
                 format="bgr24",
                 encoder=self._codec,
                 encoder_format="bgr0",
