@@ -220,10 +220,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         """
         for attribute in vars(source):
             if not attribute.startswith("_"):
-              if not hasattr(target, attribute):
-                  setattr(target, attribute, getattr(source, attribute))
-
-
+                if not hasattr(target, attribute):
+                    setattr(target, attribute, getattr(source, attribute))
 
 
 def scale_box(box, from_img, to_img):
@@ -813,9 +811,10 @@ class CamTrackPostProcessor(torch.nn.Module):
                 )
                 if should_adjust_speed.item():
                     self._current_roi.adjust_speed(
-                        accel_x=group_x_velocity / 2,
+                        accel_x=group_x_velocity
+                        / 3,  # nm-wolves, TODO: configurable in separater vantage-point yaml
                         accel_y=None,
-                        scale_constraints=2.0,
+                        scale_constraints=1.3,  # nm-wolves, TODO: configurable in separater vantage-point yaml
                         nonstop_delay=torch.tensor(
                             1, dtype=torch.int64, device=self._device
                         ),
