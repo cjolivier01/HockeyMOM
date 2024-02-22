@@ -822,6 +822,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                 else:
                     # Cut the speed quickly due to overshoot
                     self._current_roi.scale_speed(ratio_x=0.6)
+                    #self._current_roi.scale_speed(ratio_x=0.9)
                     print("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
