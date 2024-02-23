@@ -41,7 +41,13 @@ else:
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
-from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_value, update_config
+from hmlib.config import (
+    get_clip_box,
+    get_config,
+    set_nested_value,
+    get_nested_value,
+    update_config,
+)
 
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
@@ -215,6 +221,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--cvat-output",
         action="store_true",
         help="generate dataset data importable by cvat",
+    )
+    parser.add_argument(
+        "--stitch",
+        "--force-stitching",
+        "--force_stitching",
+        dest="force_stitching",
+        action="store_true",
+        help="force video stitching",
     )
     parser.add_argument(
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
@@ -450,13 +464,16 @@ def main(exp, args, num_gpu):
             game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
             if os.path.isdir(game_video_dir):
                 # TODO: also look for avi and mp4 files
-                pre_stitched_file_name = find_stitched_file(
-                    dir_name=game_video_dir, game_id=args.game_id
-                )
-                if os.path.exists(pre_stitched_file_name):
-                    args.input_video = pre_stitched_file_name
-                else:
+                if args.force_stitching:
                     args.input_video = game_video_dir
+                else:
+                    pre_stitched_file_name = find_stitched_file(
+                        dir_name=game_video_dir, game_id=args.game_id
+                    )
+                    if os.path.exists(pre_stitched_file_name):
+                        args.input_video = pre_stitched_file_name
+                    else:
+                        args.input_video = game_video_dir
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -738,7 +755,12 @@ if __name__ == "__main__":
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
-    game_config = update_config(root_dir=ROOT_DIR, baseline_config=game_config, config_type="models", config_name="tracker_" + args.tracker)
+    game_config = update_config(
+        root_dir=ROOT_DIR,
+        baseline_config=game_config,
+        config_type="models",
+        config_name="tracker_" + args.tracker,
+    )
 
     args = configure_model(config=game_config, args=args)
     args.game_config = game_config
