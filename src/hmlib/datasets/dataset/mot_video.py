@@ -1,5 +1,4 @@
 import traceback
-import multiprocessing
 import threading
 from contextlib import contextmanager
 import numpy as np
@@ -356,8 +355,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             # if isinstance(img0, StreamTensor):
             #     img0 = img0.get()
 
-            if not isinstance(img0, torch.Tensor):
+            if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
+            elif isinstance(img0, StreamTensor):
+                img0 = img0.get()
+
             if img0.ndim == 3:
                 assert self._batch_size == 1
                 img0 = img0.unsqueeze(0)
@@ -366,8 +368,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._preproc is not None:
                 img0 = self._preproc(img0)
 
-            original_img0 = img0
-            if self._device.type != "cpu":
+            if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
             if self.clip_original is not None:
@@ -393,7 +394,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     ]
 
             if not self._original_image_only:
-                original_img0 = img0.to("cpu", non_blocking=True)
+                original_img0 = img0.to("cpu", non_blocking=ALL_NON_BLOCKING)
                 img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
@@ -412,7 +413,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
-            original_img0 = make_channels_first(original_img0).contiguous()
+            original_img0 = make_channels_first(original_img0)
 
             # Does this need to be in imgs_info this way as an array?
             ids = torch.tensor(
