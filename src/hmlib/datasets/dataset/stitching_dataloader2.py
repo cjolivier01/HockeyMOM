@@ -272,6 +272,7 @@ class StitchDataset:
                 original_image_only=True,
                 device=remapping_device,
                 stream_tensors=True,
+                dtype=torch.float,
                 # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
@@ -287,6 +288,7 @@ class StitchDataset:
                 original_image_only=True,
                 device=remapping_device,
                 stream_tensors=True,
+                dtype=torch.float,
                 # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
@@ -395,11 +397,11 @@ class StitchDataset:
             stream = self._remapping_stream
         with optional_with(torch.cuda.stream(stream) if stream is not None else None):
             sinfo_1 = core.StitchImageInfo()
-            sinfo_1.image = _prepare_image(imgs_1)
+            sinfo_1.image = to_tensor(_prepare_image(imgs_1))
             sinfo_1.xy_pos = self._xy_pos_1
 
             sinfo_2 = core.StitchImageInfo()
-            sinfo_2.image = _prepare_image(imgs_2)
+            sinfo_2.image = to_tensor(_prepare_image(imgs_2))
             sinfo_2.xy_pos = self._xy_pos_2
 
             blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])

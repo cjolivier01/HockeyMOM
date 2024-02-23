@@ -463,11 +463,15 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._count += self._batch_size
         if self._original_image_only:
             if cuda_stream is not None:
-                original_img0 = StreamTensor(tensor=original_img0, stream=cuda_stream)
+                original_img0 = StreamTensor(
+                    tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
+                )
             return original_img0, None, None, imgs_info, ids
         else:
             if cuda_stream is not None:
-                img = StreamTensor(tensor=img, stream=cuda_stream)
+                img = StreamTensor(
+                    tensor=img, stream=cuda_stream, event=torch.cuda.Event()
+                )
             return original_img0, img.to("cpu"), None, imgs_info, ids
 
     def __next__(self):
