@@ -10,7 +10,7 @@
 	url = https://gitlab.com/libeigen/eigen.git
 [submodule "mmcv"]
 	path = mmcv
-	url = ssh://git@github.com/open-mmlab/mmcv
+	url = ssh://git@github.com/cjolivier01/mmcv
 [submodule "external/opencv-python"]
 	path = external/opencv-python
 	url = ssh://git@github.com/cjolivier01/opencv-python
