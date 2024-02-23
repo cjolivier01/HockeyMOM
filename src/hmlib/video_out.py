@@ -118,7 +118,7 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
             if scale_elements and scale_elements != 1:
                 img = img * 255.0
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
-        img = img.contiguous().cpu().numpy()
+        img = np.ascontiguousarray(img.cpu().numpy())
     return img
 
 
@@ -817,7 +817,9 @@ class VideoOutput:
                             or self._save_frame_dir
                         )
                     ):
-                        online_im = online_im.detach().contiguous().cpu().numpy()
+                        online_im = np.ascontiguousarray(
+                            online_im.detach().cpu().numpy()
+                        )
 
                 #
                 # Frame Number
