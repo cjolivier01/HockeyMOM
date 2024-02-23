@@ -15,7 +15,13 @@ from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
 from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.gpu import StreamTensor, StreamTensorToDtype, StreamTensorToDevice
+from hmlib.utils.gpu import (
+    StreamTensor,
+    # StreamTensorToDtype,
+    # StreamTensorToDevice,
+    CachedIterator,
+)
+from hmlib.video_out import quick_show
 
 from hmlib.utils.image import (
     make_channels_first,
@@ -55,6 +61,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         start_frame_number: int = 0,
         multi_width_img_info: bool = True,
         embedded_data_loader=None,
+        embedded_data_loader_cache_size: int = 6,
         original_image_only: bool = False,
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
@@ -78,6 +85,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # )
         self._path = path
         self._game_id = game_id
+        self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
@@ -223,6 +231,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._timer = Timer()
         if self._embedded_data_loader is not None:
             self._embedded_data_loader_iter = iter(self._embedded_data_loader)
+            if self._embedded_data_loader_cache_size:
+                self._embedded_data_loader_iter = CachedIterator(
+                    iterator=self._embedded_data_loader_iter,
+                    cache_size=self._embedded_data_loader_cache_size,
+                )
         if self._thread is None:
             self._start_worker()
         return self
@@ -352,13 +365,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
-            # if isinstance(img0, StreamTensor):
-            #     img0 = img0.get()
+            if isinstance(img0, StreamTensor):
+                img0 = img0.get()
 
             if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
             elif isinstance(img0, StreamTensor):
-                img0 = img0.get()
+                # img0 = img0.get()
+                pass
 
             if img0.ndim == 3:
                 assert self._batch_size == 1
@@ -394,10 +408,16 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     ]
 
             if not self._original_image_only:
-                original_img0 = img0.to("cpu", non_blocking=ALL_NON_BLOCKING)
-                img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
+                # original_img0 = img0.to("cpu", non_blocking=ALL_NON_BLOCKING)
+                # original_img0 = img0.to("cpu")
+                # original_img0 = img0.clone()
+                # original_img0 = img0.clone()
+                original_img0 = img0
+                if not torch.is_floating_point(img0):
+                    img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
+                # original_img0 = img0.clone()
                 original_img0 = img0
                 if self._dtype is not None and self._dtype != original_img0.dtype:
                     was_fp = torch.is_floating_point(original_img0)
@@ -443,39 +463,43 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if original_img0.dtype == img.dtype:
                     original_img0 /= 255.0
 
-            if (
-                self._device_for_original_image is not None
-                and original_img0.device != self._device_for_original_image
-            ):
-                if original_img0.device.type == "cuda":
-                    # print("Warning: original image is on a different cuda device")
-                    original_img0 = original_img0.to("cpu", non_blocking=True)
-                    StreamTensorToDevice(
-                        tensor=original_img0,
-                        device=self._device_for_original_image,
-                    )
-                if True:
-                    original_img0 = StreamTensorToDevice(
-                        tensor=original_img0, device=self._device_for_original_image
-                    )
-                else:
-                    original_img0 = original_img0.to(
-                        self._device_for_original_image, non_blocking=True
-                    )
+            # if (
+            #     self._device_for_original_image is not None
+            #     and original_img0.device != self._device_for_original_image
+            # ):
+            #     if original_img0.device.type == "cuda":
+            #         # print("Warning: original image is on a different cuda device")
+            #         original_img0 = original_img0.to("cpu", non_blocking=True)
+            #         StreamTensorToDevice(
+            #             tensor=original_img0,
+            #             device=self._device_for_original_image,
+            #         )
+            #     if True:
+            #         original_img0 = StreamTensorToDevice(
+            #             tensor=original_img0, device=self._device_for_original_image
+            #         )
+            #     else:
+            #         original_img0 = original_img0.to(
+            #             self._device_for_original_image, non_blocking=True
+            #         )
 
         self._count += self._batch_size
+
+        if cuda_stream is not None:
+            original_img0 = StreamTensor(
+                tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
+            )
+
         if self._original_image_only:
-            if cuda_stream is not None:
-                original_img0 = StreamTensor(
-                    tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
-                )
             return original_img0, None, None, imgs_info, ids
         else:
+            #img = img.to("cpu", non_blocking=True)
             if cuda_stream is not None:
                 img = StreamTensor(
                     tensor=img, stream=cuda_stream, event=torch.cuda.Event()
                 )
-            return original_img0, img.to("cpu"), None, imgs_info, ids
+            # return original_img0, img.to("cpu"), None, imgs_info, ids
+            return original_img0, img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()
