@@ -367,12 +367,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if isinstance(img0, StreamTensor):
                 img0 = img0.get()
-
-            if isinstance(img0, np.ndarray):
+            elif isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
-            elif isinstance(img0, StreamTensor):
-                # img0 = img0.get()
-                pass
 
             if img0.ndim == 3:
                 assert self._batch_size == 1

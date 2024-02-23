@@ -564,13 +564,15 @@ def main(exp, args, num_gpu):
                     # batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
-                    # device=detection_device,
+                    #device=gpus["detection"],
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
                     #     std=(0.229, 0.224, 0.225),
                     # ),
                     embedded_data_loader=stitched_dataset,
+                    embedded_data_loader_cache_size=6,
+                    #stream_tensors=True,
                     original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
