@@ -1,0 +1,17 @@
+model:
+  backbone:
+    type: dla34
+    pretrained: True
+    pretrained_path: 'pretrained/centertrack/dla34/my_crowdhuman/model_140.pth'
+    # TODO: what is default for centertrack?
+    # det_thres: 0.3
+
+    train:
+
+    test:
+
+  tracker:
+    type: centertrack
+    # TODO: what is default for centertrack?
+    # conf_thres: 0.4
+

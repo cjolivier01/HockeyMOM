@@ -41,7 +41,7 @@ else:
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
-from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_value
+from hmlib.config import get_clip_box, get_config, set_nested_value, get_nested_value, update_config
 
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
@@ -117,7 +117,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--tracker",
         default=None,
         type=str,
-        help="Use tracker type [hm|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
+        help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
     parser.add_argument(
         "--no_save_video",
@@ -321,9 +321,6 @@ def configure_model(config: dict, args: argparse.Namespace):
         )
 
     update_from_args(args, "tracker", config)
-    # set_nested_value(
-    #     dct=config, key_str="model.tracker.type", set_to=args.tracker
-    # )
     return args
 
 
@@ -720,16 +717,16 @@ if __name__ == "__main__":
     )
 
     game_config["initial_args"] = vars(args)
-    tracker = get_nested_value(game_config, "model.tracker.type")
+    if args.tracker is None:
+        args.tracker = get_nested_value(game_config, "model.tracker.type")
 
-    if tracker == "centertrack":
+    if args.tracker == "centertrack":
         opts = centertrack_opts.opts()
         opts.parser = make_parser(opts.parser)
         args = opts.parse()
         args = opts.init()
         exp = get_exp(args.exp_file, args.name)
-    elif tracker == "fair":
-        args.tracker = tracker
+    elif args.tracker == "fair":
         opts_fair.parse(opt=args)
         args = opts_fair.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
@@ -740,6 +737,8 @@ if __name__ == "__main__":
 
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
+
+    game_config = update_config(root_dir=ROOT_DIR, baseline_config=game_config, config_type="models", config_name="tracker_" + args.tracker)
 
     args = configure_model(config=game_config, args=args)
     args.game_config = game_config

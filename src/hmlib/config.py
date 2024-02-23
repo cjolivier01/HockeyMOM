@@ -87,6 +87,15 @@ def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None
     consolidated_config = recursive_update(consolidated_config, game_config)
     return consolidated_config
 
+def update_config(root_dir: str, baseline_config: dict, config_type: str, config_name: str):
+    yaml_file_path = os.path.join(
+        root_dir, "config", config_type, config_name + ".yaml"
+    )
+    if not os.path.exists(yaml_file_path):
+        return baseline_config
+    config = load_config_file(root_dir=root_dir, config_type=config_type, config_name=config_name)
+    return recursive_update(baseline_config, config)
+
 
 def get_clip_box(game_id: str, root_dir: str):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
