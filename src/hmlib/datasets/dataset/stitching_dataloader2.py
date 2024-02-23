@@ -278,10 +278,10 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                device=remapping_device,
                 stream_tensors=True,
                 dtype=torch.float,
-                # device=torch.device("cpu"),
+                device=remapping_device,
+                #device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
@@ -294,10 +294,10 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                device=remapping_device,
                 stream_tensors=True,
                 dtype=torch.float,
-                # device=torch.device("cpu"),
+                device=remapping_device,
+                #device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
