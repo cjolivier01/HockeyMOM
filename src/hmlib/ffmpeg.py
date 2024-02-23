@@ -71,7 +71,7 @@ def fourcc_to_int(fourcc):
     - int: The integer representation of the FOURCC code.
     """
     # Ensure the input is exactly 4 characters
-    assert len(fourcc) == 4, "FOURCC code must be 4 characters long."
+    assert len(fourcc) == 4, f"FOURCC code must be 4 characters long ({fourcc})."
 
     # Calculate the integer value
     value = (
