@@ -294,25 +294,6 @@ class StitchDataset:
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)
-        # stitching_worker = StitchingWorker(
-        #     rank=rank,
-        #     video_file_1=self._video_file_1,
-        #     video_file_2=self._video_file_2,
-        #     pto_project_file=self._pto_project_file,
-        #     video_1_offset_frame=self._video_1_offset_frame,
-        #     video_2_offset_frame=self._video_2_offset_frame,
-        #     start_frame_number=start_frame_number,
-        #     batch_size=self._batch_size,
-        #     max_input_queue_size=max_input_queue_size,
-        #     remap_thread_count=self._remap_thread_count,
-        #     blend_thread_count=self._blend_thread_count,
-        #     max_frames=max_frames,
-        #     frame_stride_count=frame_stride_count,
-        #     multiprocessingt_queue=self._fork_workers,
-        #     remapping_device=remapping_device,
-        #     blend_mode=self._blend_mode,
-        # )
-        # stitching_worker =
         return stitching_worker
 
     def configure_stitching(self):
@@ -409,8 +390,6 @@ class StitchDataset:
                 blended_stream_tensor = StreamCheckpoint(
                     tensor=blended_stream_tensor, stream=None
                 )
-            # if stream is not None:
-            #     stream.synchronize()
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         self._ordering_queue.put((ids_1, blended_stream_tensor))
