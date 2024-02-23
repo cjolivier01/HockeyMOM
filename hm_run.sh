@@ -10,17 +10,17 @@ EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
 #VIDEO="${HOME}/Videos/sharksbb1-1"
 #VIDEO="${HOME}/Videos/sharks-bb1-2"
 
-#GAME_ID="tvbb"
-#GAME_ID="tvbb2"
-#GAME_ID="sharksbb1-1"
-#GAME_ID="sharks-bb2-2"
-#GAME_ID="sharks-bb3-2"
-#GAME_ID="sundevils"
+#GAME_ID="--game-id=tvbb"
+#GAME_ID="--game-id=tvbb2"
+#GAME_ID="--game-id=sharksbb1-1"
+#GAME_ID="--game-id=sharks-bb2-2"
+#GAME_ID="--game-id=sharks-bb3-2"
+#GAME_ID="--game-id=sundevils"
 
 TEST_SIZE_ARG="--test-size=300x780"
 
-BLEND_MODE="--blend-mode=multiblend"
-#BLEND_MODE="--blend-mode=laplacian"
+#BLEND_MODE="--blend-mode=multiblend"
+BLEND_MODE="--blend-mode=laplacian"
 #BLEND_MODE="--blend-mode=gpu-hard-seam"
 
 START_FRAME=0
@@ -68,10 +68,9 @@ OMP_NUM_THREADS=16 \
   --gpus=0,1,2,3 \
   --infer \
   ${STITCHING_ARGS} \
-  ${TRACKER} \
+  ${TRACKER} ${GAME_ID} \
   ${CONFIDENCE} \
   ${BLEND_MODE} \
-  --game-id="${GAME_ID}" \
   --start-frame=${START_FRAME} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   --min-box-area=35 \

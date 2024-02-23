@@ -72,6 +72,7 @@ def optional_with(resource):
 
 
 def get_best_codec(gpu_number: int, width: int, height: int):
+    # return "XVID", False
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if (
@@ -754,7 +755,9 @@ class VideoOutput:
                     if torch.is_floating_point(
                         online_im
                     ) and not torch.is_floating_point(scoreboard_img):
-                        scoreboard_img = scoreboard_img.to(torch.float) / 255.0
+                        scoreboard_img = (
+                            scoreboard_img.to(torch.float, non_blocking=True) / 255.0
+                        )
                     online_im[:, : scoreboard.height, : scoreboard.width, :] = (
                         scoreboard_img
                     )
@@ -845,7 +848,12 @@ class VideoOutput:
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
                 if self._output_video is not None and not self._skip_final_save:
-                    self._output_video.write(online_im)
+                    if isinstance(self._output_video, cv2.VideoWriter):
+                        assert online_im.ndim == 4
+                        for img in online_im:
+                            self._output_video.write(img)
+                    else:
+                        self._output_video.write(online_im)
                 if self._save_frame_dir:
                     # frame_id should start with 1
                     assert imgproc_data.frame_id

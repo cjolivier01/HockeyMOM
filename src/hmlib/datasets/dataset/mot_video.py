@@ -353,8 +353,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
-            if isinstance(img0, StreamTensor):
-                img0 = img0.get()
+            # if isinstance(img0, StreamTensor):
+            #     img0 = img0.get()
 
             if not isinstance(img0, torch.Tensor):
                 img0 = torch.from_numpy(img0)
@@ -395,15 +395,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if not self._original_image_only:
                 original_img0 = img0.to("cpu", non_blocking=True)
                 img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
-
-            if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
                 original_img0 = img0
                 if self._dtype is not None and self._dtype != original_img0.dtype:
+                    was_fp = torch.is_floating_point(original_img0)
                     original_img0 = original_img0.to(
                         self._dtype, non_blocking=ALL_NON_BLOCKING
                     )
+                    is_fp = torch.is_floating_point(original_img0)
+                    # if not was_fp and is_fp:
+                    #     original_img0 /= 255.0
                 img = original_img0
 
             if self.width_t is None:

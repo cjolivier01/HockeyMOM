@@ -25,7 +25,7 @@ from hmlib.stitching.synchronize import (
 from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.utils.gpu import StreamTensor, StreamCheckpoint
+from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator
 from hmlib.video_out import VideoOutput, ImageProcData, optional_with
 from hmlib.utils.image import (
     make_channels_last,
@@ -91,15 +91,25 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 
 class MultiDataLoaderWrapper:
-    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig]):
+    def __init__(
+        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
+    ):
         self._dataloaders = dataloaders
         self._iters = []
+        self._input_queueue_size = input_queueue_size
         self._len = None
 
     def __iter__(self):
         self._iters = []
         for dl in self._dataloaders:
-            self._iters.append(iter(dl))
+            if self._input_queueue_size:
+                self._iters.append(
+                    CachedIterator(
+                        iterator=iter(dl), cache_size=self._input_queueue_size
+                    )
+                )
+            else:
+                self._iters.append(iter(dl))
         return self
 
     def close(self):
@@ -234,8 +244,6 @@ class StitchDataset:
 
     def __delete__(self):
         self.close()
-        # for worker in self._stitching_workers.values():
-        #     worker.close()
 
     @property
     def lfo(self):
@@ -293,7 +301,9 @@ class StitchDataset:
                 # scale_rgb_down=True,
             )
         )
-        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)
+        stitching_worker = MultiDataLoaderWrapper(
+            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
+        )
         return stitching_worker
 
     def configure_stitching(self):

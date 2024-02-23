@@ -83,21 +83,21 @@ class CachedIterator:
 
     def __next__(self):
         if self._q is None:
-            item = next(self._iterator)
+            result_item = next(self._iterator)
             if self._pre_callback_fn is not None:
-                item = self._pre_callback_fn(item)
+                result_item = self._pre_callback_fn(result_item)
         else:
-            item = self._q.get()
-            if item is None:
+            result_item = self._q.get()
+            if result_item is None:
                 raise StopIteration
             try:
-                item = next(self._iterator)
+                cached_item = next(self._iterator)
                 if self._pre_callback_fn is not None:
-                    item = self._pre_callback_fn(item)
-                self._q.put(item)
+                    cached_item = self._pre_callback_fn(cached_item)
+                self._q.put(cached_item)
             except StopIteration:
                 self._q.put(None)
-        return item
+        return result_item
 
 
 class StreamTensorBase:
@@ -112,10 +112,12 @@ class StreamTensor(StreamTensorBase):
         event: torch.cuda.Event = None,
         owns_stream: bool = None,
         verbose: bool = True,
+        print_thresh: float = 0.001,
     ):
         self._tensor = tensor
         self._stream = stream
         self._event = event
+        self._print_thresh = print_thresh
         if not isinstance(tensor, StreamTensor):
             assert owns_stream is None
         else:
@@ -129,20 +131,22 @@ class StreamTensor(StreamTensorBase):
                 with torch.cuda.stream(self._stream):
                     start = time.time()
                     self._event.synchronize()
-                    self._sync_duraton = start - time.time()
+                    self._sync_duraton = time.time() - start
             else:
                 assert False
                 self._stream.synchronize()
         elif self._event is not None:
             start = time.time()
             self._event.synchronize()
-            self._sync_duraton = start - time.time()
+            self._sync_duraton = time.time() - start
         if (
             self._verbose
             and self._sync_duraton is not None
-            and self._sync_duraton > 0.001
+            and self._sync_duraton > self._print_thresh
         ):
-            print(f"Tensor sync took {self._sync_duraton} seconds")
+            print(
+                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            )
         return self._tensor
 
     @property
