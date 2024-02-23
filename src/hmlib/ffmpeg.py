@@ -21,7 +21,7 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
-# @classinstancememoize
+@classinstancememoize
 class BasicVideoInfo:
     def __init__(self, video_file: str, use_ffprobe: bool = True):
         if use_ffprobe:
@@ -37,7 +37,7 @@ class BasicVideoInfo:
                 )
             self._ffstream = probe.video[0]
             self.frame_count = self._ffstream.frames()
-            self.fps = self._ffstream.avgFrameRate()
+            self.fps = self._ffstream.realFrameRate()
             sz = self._ffstream.frameSize()
             self.width = sz[0]
             self.height = sz[1]
@@ -360,7 +360,7 @@ class VideoWriter:
 Python wrapper for ffprobe command line tool. ffprobe must exist in the path.
 """
 
-
+@classinstancememoize
 class FFProbe:
     """
     FFProbe wraps the ffprobe command and pulls the data into an object form::

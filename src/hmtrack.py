@@ -456,10 +456,6 @@ def main(exp, args, num_gpu):
                 pre_stitched_file_name = find_stitched_file(
                     dir_name=game_video_dir, game_id=args.game_id
                 )
-                # pre_stitched_file_name = "stitched_output-with-audio.mkv"
-                # pre_stitched_file_path = os.path.join(
-                #     game_video_dir, pre_stitched_file_name
-                # )
                 if os.path.exists(pre_stitched_file_name):
                     args.input_video = pre_stitched_file_name
                 else:
