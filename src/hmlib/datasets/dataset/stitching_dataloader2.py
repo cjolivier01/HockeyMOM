@@ -384,8 +384,9 @@ class StitchDataset:
             return img
 
         stream = None
-        if imgs_1.device.type == "cpu":
-            stream = self._remapping_stream
+        # if imgs_1.device.type == "cpu":
+        #     stream = self._remapping_stream
+        stream = self._remapping_stream
         with optional_with(torch.cuda.stream(stream) if stream is not None else None):
             sinfo_1 = core.StitchImageInfo()
             sinfo_1.image = to_tensor(_prepare_image(imgs_1))
@@ -398,7 +399,7 @@ class StitchDataset:
             blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
             if stream is not None:
                 blended_stream_tensor = StreamCheckpoint(
-                    tensor=blended_stream_tensor, stream=None
+                    tensor=blended_stream_tensor, stream=self._remapping_stream
                 )
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
