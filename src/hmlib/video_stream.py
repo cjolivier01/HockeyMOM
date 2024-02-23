@@ -30,7 +30,6 @@ _FOURCC_TO_CODEC = {
 
 MAX_VIDEO_WIDTH = 1280
 
-
 def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     h = height
     w = width
@@ -71,10 +70,20 @@ class VideoStreamWriter:
         container_type: str = "matroska",
         local_resize: bool = True,
         streaming_drop_frame_interval: int = 3,
+        stream_fps: int = 15,
     ):
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
+        self._stream_fps = stream_fps
+        self._stream_frame_indexes = set(
+            [
+                int(i)
+                for i in np.linspace(
+                    0, np.round(self._fps) - 1, self._stream_fps, endpoint=False
+                )
+            ]
+        )
         self._width = width
         self._height = height
         self._streaming_drop_frame_interval = streaming_drop_frame_interval
@@ -167,8 +176,7 @@ class VideoStreamWriter:
             # Cut down the bitrate
             self._codec_config.bit_rate /= 4
             self._video_out.add_video_stream(
-                # frame_rate=self._fps,
-                frame_rate=20,
+                frame_rate=self._stream_fps,
                 format="bgr24",
                 encoder=self._codec,
                 encoder_format="bgr0",
@@ -247,14 +255,10 @@ class VideoStreamWriter:
 
     def append(self, images: torch.Tensor):
         if self._streaming:
+            frame = self._streaming_drop_frame_interval_counter
             self._streaming_drop_frame_interval_counter += 1
-            if (
-                self._streaming_drop_frame_interval
-                and self._streaming_drop_frame_interval_counter
-                % self._streaming_drop_frame_interval
-                == 0
-            ):
-                assert images.shape[0] == 1  # batch size of 1 only for dropping frames atm
+            if (frame % int(self._fps)) not in self._stream_frame_indexes:
+                assert images.shape[0] == 1
                 return
             if self._local_resize:
                 images = scale_down_for_live_video(images)
