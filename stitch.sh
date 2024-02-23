@@ -3,7 +3,7 @@
 #GAME_ID="sharks-bb2-2"
 #GAME_ID="sharksbb1-1"
 #GAME_ID="tvbb"
-GAME_ID="nm-wolves"
+#GAME_ID="nm-wolves"
 
 VIDEO_DIR="${HOME}/Videos/${GAME_ID}"
 
