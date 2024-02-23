@@ -63,6 +63,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
+        dtype: torch.dtype = None,
         # scale_rgb_down: bool = False,
         # output_type: torch.dtype = None
     ):
@@ -82,6 +83,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._device = device
         self._decoder_device = decoder_device
         self._preproc = preproc
+        self._dtype = dtype
         # self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
@@ -257,7 +259,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     #         if isinstance(image, torch.Tensor):
     #             self._scale_color_tensor = torch.tensor(
     #                 self._image_channel_adjustment,
-    #                 dtype=torch.float32,
+    #                 dtype=torch.float,
     #                 device=image.device,
     #             )
     #             self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
@@ -270,7 +272,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     #             )
     #     if isinstance(image, torch.Tensor):
     #         image = torch.clamp(
-    #             image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+    #             image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0
     #         ).to(torch.uint8)
     #     else:
     #         image = np.clip(
@@ -339,8 +341,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         ALL_NON_BLOCKING = True
 
         cuda_stream = None
-        # if self._stream_tensors and self._is_cuda():
-        #     cuda_stream = torch.cuda.Stream(self._device)
+        if self._stream_tensors and self._is_cuda():
+            cuda_stream = torch.cuda.Stream(self._device)
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
@@ -364,7 +366,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._preproc is not None:
                 img0 = self._preproc(img0)
 
-            original_img0 = img0.clone()
+            original_img0 = img0
             if self._device.type != "cpu":
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
@@ -389,15 +391,20 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         self.calculated_clip_box[0] : self.calculated_clip_box[2],
                         :,
                     ]
-                original_img0 = img0.clone().to("cpu", non_blocking=True)
 
             if not self._original_image_only:
-                img0 = img0.to(torch.float32, non_blocking=ALL_NON_BLOCKING)
+                original_img0 = img0.to("cpu", non_blocking=True)
+                img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
 
             if not self._original_image_only:
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
-                img = img0
+                original_img0 = img0
+                if self._dtype is not None and self._dtype != original_img0.dtype:
+                    original_img0 = original_img0.to(
+                        self._dtype, non_blocking=ALL_NON_BLOCKING
+                    )
+                img = original_img0
 
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)

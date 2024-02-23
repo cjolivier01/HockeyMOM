@@ -270,8 +270,9 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                # device=remapping_device,
-                device=torch.device("cpu"),
+                device=remapping_device,
+                stream_tensors=True,
+                # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
@@ -284,8 +285,9 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number,
                 original_image_only=True,
-                # device=remapping_device,
-                device=torch.device("cpu"),
+                device=remapping_device,
+                stream_tensors=True,
+                # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
@@ -375,24 +377,29 @@ class StitchDataset:
         assert isinstance(images, list)
         assert len(images) == 2
 
+        def _prepare_image(img: torch.Tensor):
+            img = make_channels_first(img)
+            if img.device != self._remapping_device:
+                img = img.to(self._remapping_device, non_blocking=True)
+            if img.dtype not in [
+                torch.float,
+                torch.float16,
+                torch.float32,
+                torch.float64,
+            ]:
+                img = img.to(torch.float, non_blocking=True)
+            return img
+
         stream = None
         if imgs_1.device.type == "cpu":
             stream = self._remapping_stream
         with optional_with(torch.cuda.stream(stream) if stream is not None else None):
             sinfo_1 = core.StitchImageInfo()
-            sinfo_1.image = (
-                make_channels_first(imgs_1)
-                .to(self._remapping_device, non_blocking=True)
-                .to(torch.float, non_blocking=True)
-            )
+            sinfo_1.image = _prepare_image(imgs_1)
             sinfo_1.xy_pos = self._xy_pos_1
 
             sinfo_2 = core.StitchImageInfo()
-            sinfo_2.image = (
-                make_channels_first(imgs_2)
-                .to(self._remapping_device, non_blocking=True)
-                .to(torch.float, non_blocking=True)
-            )
+            sinfo_2.image = _prepare_image(imgs_2)
             sinfo_2.xy_pos = self._xy_pos_2
 
             blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
