@@ -580,7 +580,7 @@ class VideoOutput:
                 )
 
             # assert online_im.device.type == "cpu" or online_im.device == self._device
-            if online_im.device.type != "cpu" and self._device.type != "cpu":
+            if online_im.device.type != "cpu" and self._device.type == "cpu":
                 # max = torch.max(online_im)
                 online_im = online_im.cpu()
 
