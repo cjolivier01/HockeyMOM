@@ -64,18 +64,21 @@ class VideoStreamWriter:
         height: int,
         codec: str,
         format: str = "bgr24",
-        batch_size: int = 10,
+        batch_size: int = 3,
         bit_rate: int = int(55e6),
         device: torch.device = None,
         lossless: bool = False,
         container_type: str = "matroska",
         local_resize: bool = True,
+        streaming_drop_frame_interval: int = 3,
     ):
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
         self._width = width
         self._height = height
+        self._streaming_drop_frame_interval = streaming_drop_frame_interval
+        self._streaming_drop_frame_interval_counter = 0
         self._codec = codec
         self._streaming = False
         self._local_resize = local_resize
@@ -164,7 +167,8 @@ class VideoStreamWriter:
             # Cut down the bitrate
             self._codec_config.bit_rate /= 4
             self._video_out.add_video_stream(
-                frame_rate=self._fps,
+                # frame_rate=self._fps,
+                frame_rate=20,
                 format="bgr24",
                 encoder=self._codec,
                 encoder_format="bgr0",
@@ -184,7 +188,7 @@ class VideoStreamWriter:
                 encoder=self._codec,
                 encoder_format="bgr0",
                 encoder_option=options,
-                #encoder_frame_rate=self._fps,
+                # encoder_frame_rate=self._fps,
                 codec_config=self._codec_config,
                 hw_accel=str(self._device),
             )
@@ -243,6 +247,15 @@ class VideoStreamWriter:
 
     def append(self, images: torch.Tensor):
         if self._streaming:
+            self._streaming_drop_frame_interval_counter += 1
+            if (
+                self._streaming_drop_frame_interval
+                and self._streaming_drop_frame_interval_counter
+                % self._streaming_drop_frame_interval
+                == 0
+            ):
+                assert images.shape[0] == 1  # batch size of 1 only for dropping frames atm
+                return
             if self._local_resize:
                 images = scale_down_for_live_video(images)
             assert images.device == self._device
