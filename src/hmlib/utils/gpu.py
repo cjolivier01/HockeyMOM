@@ -125,6 +125,16 @@ class StreamTensor(StreamTensorBase):
         self._sync_duraton = None
         self._verbose = verbose
 
+    # def clone(self):
+    #     #assert self._owns_stream
+    #     with torch.cuda.stream(self._stream):
+    #         return StreamTensor(
+    #             tensor=self.ref().clone(),
+    #             stream=self._stream,
+    #             event=torch.cuda.Event(),
+    #             owns_stream=self._owns_stream,
+    #         )
+
     def get(self):
         if self._stream is not None:
             if self._event is not None:
