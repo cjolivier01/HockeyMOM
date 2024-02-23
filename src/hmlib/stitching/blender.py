@@ -903,7 +903,7 @@ def stitch_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
 
     v1_iter = CachedIterator(
         iterator=v1_iter,
