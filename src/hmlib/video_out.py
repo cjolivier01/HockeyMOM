@@ -71,6 +71,27 @@ def optional_with(resource):
             yield r
 
 
+def quick_show(img: torch.Tensor):
+    if img.ndim == 4:
+        for s_img in img:
+            cv2.imshow(
+                "online_im",
+                make_visible_image(
+                    s_img,
+                ),
+            )
+            cv2.waitKey(1)
+    else:
+        assert img.ndim == 3
+        cv2.imshow(
+            "online_im",
+            make_visible_image(
+                img,
+            ),
+        )
+        cv2.waitKey(1)
+
+
 def get_best_codec(gpu_number: int, width: int, height: int):
     # return "XVID", False
     caps = get_gpu_capabilities()
@@ -884,10 +905,8 @@ class VideoOutput:
                     # Overall FPS
                     if final_all_timer is None:
                         final_all_timer = Timer()
-                        final_all_timer.tic()
                     else:
                         final_all_timer.toc()
-                        final_all_timer.tic()
 
                     if (
                         self._print_interval
@@ -902,6 +921,8 @@ class VideoOutput:
                                 get_open_files_count(),
                             )
                         )
+                        final_all_timer = Timer()
+                    final_all_timer.tic()
 
 
 def get_open_files_count():
