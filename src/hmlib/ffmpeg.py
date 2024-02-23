@@ -525,7 +525,7 @@ class FFStream:
             lang = self.__dict__["TAG:language"]
         return lang
 
-    def codec(self):
+    def codec(self) -> str:
         """
         Returns a string representation of the stream codec.
         """
@@ -550,6 +550,8 @@ class FFStream:
         codec_t = None
         if self.__dict__["codec_tag_string"]:
             codec_t = self.__dict__["codec_tag_string"]
+            if codec_t == "[0][0][0][0]":
+                codec_t = self.codec().upper()
         return codec_t
 
     def bitrate(self):
