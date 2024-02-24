@@ -46,7 +46,7 @@ def to_rgb_non_planar(image):
 
 def _pt_tensor(t, device):
     if not isinstance(t, torch.Tensor):
-        return torch.from_numpy(t).to(device)
+        return torch.from_numpy(t).to(device, non_blocking=True)
     return t
 
 
@@ -127,11 +127,6 @@ class CamTrackHead(TrackingHead):
         original_img,
         online_scores,
     ):
-        def get_image_device(i1, i2):
-            if i1 is None:
-                return i2.device
-            return i1.device
-
         self._counter += 1
         if self._counter % 100 == 0:
             print(f"open file count: {get_open_files_count()}")

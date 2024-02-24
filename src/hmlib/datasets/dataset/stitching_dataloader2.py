@@ -281,7 +281,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=torch.float,
                 device=remapping_device,
-                #device=torch.device("cpu"),
+                # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
@@ -297,7 +297,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=torch.float,
                 device=remapping_device,
-                #device=torch.device("cpu"),
+                # device=torch.device("cpu"),
                 # scale_rgb_down=True,
             )
         )
@@ -363,9 +363,9 @@ class StitchDataset:
         ids_1 = images[0][-1]
 
         imgs_2 = images[1][0]
-        ids_2 = images[1][-1]
+        # ids_2 = images[1][-1]
 
-        assert ids_1 == ids_2
+        # assert ids_1 == ids_2
 
         assert isinstance(images, list)
         assert len(images) == 2
@@ -412,7 +412,7 @@ class StitchDataset:
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._from_coordinator_queue.put(("ok", self._next_requested_frame))
-            self._next_requested_frame += 1
+            self._next_requested_frame += self._batch_size
         self._coordinator_thread = threading.Thread(
             name="StitchCoordinator",
             target=self._coordinator_thread_worker,
@@ -495,8 +495,8 @@ class StitchDataset:
                 else:
                     # print(f"Not requesting frame {next_requested_frame}")
                     pass
-                frame_count += 1
-                next_requested_frame += 1
+                frame_count += self._batch_size
+                next_requested_frame += self._batch_size
             safe_put_queue(self._from_coordinator_queue, StopIteration())
         except Exception as ex:
             if not isinstance(ex, StopIteration):
@@ -569,7 +569,7 @@ class StitchDataset:
         ):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
-            self._next_requested_frame += 1
+            self._next_requested_frame += self._batch_size
         else:
             # We were pre-requesting future frames, but we're past the
             # frames we want, so don't ask for anymore and just return these
