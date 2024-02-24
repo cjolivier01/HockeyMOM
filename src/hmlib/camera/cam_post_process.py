@@ -64,11 +64,12 @@ class DefaultArguments(core.HMPostprocessConfig):
     def __init__(
         self,
         game_config: Dict,
-        basic_debugging: bool = False,
+        basic_debugging: int = 0,
         output_video_path: str = None,
         opts: argparse.Namespace = None,
     ):
         # basic_debugging = False
+        self.debug = int(basic_debugging)
 
         super().__init__()
 
@@ -270,6 +271,25 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
+class BreakawayDetection:
+    def __init__(self, config: dict):
+        breakaway_detection = get_nested_value(
+            config, "rink.camera.breakaway_detection", None
+        )
+        self.min_considered_group_velocity = breakaway_detection[
+            "min_considered_group_velocity"
+        ]
+        self.group_ratio_threshold = breakaway_detection["group_ratio_threshold"]
+        self.group_velocity_speed_ratior = breakaway_detection[
+            "group_velocity_speed_ratio"
+        ]
+        self.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
+        self.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
+        self.overshoot_reduce_speed_factor = breakaway_detection[
+            "overshoot_reduce_speed_factor"
+        ]
+
+
 class CamTrackPostProcessor(torch.nn.Module):
     def __init__(
         self,
@@ -307,6 +327,7 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._cluster_man = None
         self._video_out_device = video_out_device
         self._original_clip_box = original_clip_box
+        self._breakaway_detection = BreakawayDetection(args.game_config)
 
         if self._video_out_device is None:
             self._video_out_device = self._device
@@ -377,9 +398,10 @@ class CamTrackPostProcessor(torch.nn.Module):
             ):
                 wait_count = 0
                 while self._queue.qsize() > 1:
-                    wait_count += 1
-                    if wait_count % 10 == 0:
-                        print("Cam post-process queue too large")
+                    if not self._args.debug and not self._args.show_image:
+                        wait_count += 1
+                        if wait_count % 10 == 0:
+                            print("Cam post-process queue too large")
                     time.sleep(0.001)
                 dets = []
                 # dets = [
@@ -773,8 +795,8 @@ class CamTrackPostProcessor(torch.nn.Module):
             )
 
         group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
-            min_considered_velocity=3.0,
-            group_threshhold=0.5,
+            min_considered_velocity=self._breakaway_detection.min_considered_group_velocity,
+            group_threshhold=self._breakaway_detection.group_ratio_threshold,
         )
         #
         # Breakway detection
@@ -818,18 +840,22 @@ class CamTrackPostProcessor(torch.nn.Module):
                 if should_adjust_speed.item():
                     self._current_roi.adjust_speed(
                         accel_x=group_x_velocity
-                        / 3,  # nm-wolves, TODO: configurable in separater vantage-point yaml
+                        * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
-                        scale_constraints=1.3,  # nm-wolves, TODO: configurable in separater vantage-point yaml
+                        scale_constraints=self._breakaway_detection.scale_speed_constraints,
                         nonstop_delay=torch.tensor(
-                            1, dtype=torch.int64, device=self._device
+                            self._breakaway_detection.nonstop_delay_count,
+                            dtype=torch.int64,
+                            device=self._device,
                         ),
                     )
                 else:
                     # Cut the speed quickly due to overshoot
-                    self._current_roi.scale_speed(ratio_x=0.6)
-                    #self._current_roi.scale_speed(ratio_x=0.9)
-                    print("Reducing group x velocity due to overshoot")
+                    # self._current_roi.scale_speed(ratio_x=0.6)
+                    self._current_roi.scale_speed(
+                        ratio_x=self._breakaway_detection.overshoot_reduce_speed_factor
+                    )
+                    # print("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
 

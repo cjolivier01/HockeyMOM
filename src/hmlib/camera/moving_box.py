@@ -679,26 +679,24 @@ class MovingBox(ResizingBox):
     def _make_label(self):
         return f"dx={self._current_speed_x.item():.1f}, dy={self._current_speed_y.item()}, {self._label}"
 
-    def _clamp_speed(self):
-        self._current_speed_x = torch.clamp(
-            self._current_speed_x, min=-self._max_speed_x, max=self._max_speed_x
-        )
-        self._current_speed_ = torch.clamp(
-            self._current_speed_y, min=-self._max_speed_y, max=self._max_speed_y
-        )
+    def _clamp_speed(self, scale: float = 1.0):
+        mx = self._max_speed_x * scale
+        my = self._max_speed_y * scale
+        self._current_speed_x = torch.clamp(self._current_speed_x, min=-mx, max=mx)
+        self._current_speed_ = torch.clamp(self._current_speed_y, min=-my, max=my)
 
-    def set_speed(
-        self,
-        speed_x: torch.Tensor,
-        speed_y: torch.Tensor,
-        use_constraints: bool = True,
-    ):
-        if speed_x is not None:
-            self._current_speed_x = speed_x
-        if speed_y is not None:
-            self._current_speed_y = speed_y
-        if use_constraints:
-            self._clamp_speed()
+    # def set_speed(
+    #     self,
+    #     speed_x: torch.Tensor,
+    #     speed_y: torch.Tensor,
+    #     use_constraints: bool = True,
+    # ):
+    #     if speed_x is not None:
+    #         self._current_speed_x = speed_x
+    #     if speed_y is not None:
+    #         self._current_speed_y = speed_y
+    #     if use_constraints:
+    #         self._clamp_speed()
 
     def adjust_speed(
         self,
@@ -723,9 +721,12 @@ class MovingBox(ResizingBox):
         if accel_y is not None:
             self._current_speed_y += accel_y
 
+        if scale_constraints is not None:
+            self._clamp_speed(scale=scale_constraints)
+
         if nonstop_delay is not None:
             self._nonstop_delay = nonstop_delay
-            self._nonstop_delay_counter = self._zero
+            self._nonstop_delay_counter = self._zero.clone()
 
     def scale_speed(
         self,
@@ -776,7 +777,7 @@ class MovingBox(ResizingBox):
             # print(total_diff)
 
         # BEGIN Sticky Translation
-        if self._sticky_translation:
+        if self._sticky_translation and not self.is_nonstop():
             diff_magnitude = torch.linalg.norm(total_diff)
 
             # Check if the new center is in a direction opposed to our current velocity
@@ -873,7 +874,7 @@ class MovingBox(ResizingBox):
             )
 
         # BEGIN Sticky Translation
-        if self._translation_is_frozen:
+        if self._translation_is_frozen and not self.is_nonstop():
             dx = self._zero
             dy = self._zero
         else:
@@ -901,9 +902,9 @@ class MovingBox(ResizingBox):
         if self._nonstop_delay != self._zero:
             # print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
             self._nonstop_delay_counter += 1
-            if self._nonstop_delay_counter >= self._nonstop_delay:
+            if self._nonstop_delay_counter > self._nonstop_delay:
                 self._nonstop_delay = self._zero
-                self._nonstop_delay_counter = self._zero
+                self._nonstop_delay_counter = self._zero.clone()
         self.stop_translation_if_out_of_arena()
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
