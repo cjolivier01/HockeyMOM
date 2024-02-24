@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EXPERIMENT_FILE="models/mixsort/exps/example/mot/yolox_x_ch.py"
+EXPERIMENT_FILE="xmodels/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Videos
@@ -59,7 +59,7 @@ fi
 set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/models/mixsort:$(pwd)/models/mixsort/MixViT:$(pwd)/src" \
+  PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/xmodels/mixsort:$(pwd)/xmodels/mixsort/MixViT:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
   -expn="${GAME_ID}" \
   -f="${EXPERIMENT_FILE}" \
