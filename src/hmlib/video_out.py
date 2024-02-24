@@ -289,6 +289,7 @@ class VideoOutput:
         skip_final_save: bool = False,
         image_channel_adjustment: List[float] = None,
         print_interval: int = 50,
+        original_clip_box: torch.Tensor = None,
     ):
         if device is not None:
             print(
@@ -309,6 +310,7 @@ class VideoOutput:
         self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
         self._output_frame_width_int = int(self._output_frame_width)
         self._output_frame_height_int = int(self._output_frame_height)
+        self._original_clip_box = original_clip_box
         self._use_fork = use_fork
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
@@ -596,6 +598,7 @@ class VideoOutput:
                     src_pts=self._scoreboard_points,
                     dest_height=200,
                     dest_width=500,
+                    clip_box=self._original_clip_box,
                     dtype=torch.float,
                     device=self._device,
                 )

@@ -617,7 +617,7 @@ def main(exp, args, num_gpu):
             fps=dataloader.fps,
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
-            original_clip_box=dataloader.clip_original,
+            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
             device=gpus["camera"],
             video_out_device=gpus["encoder"],
             data_type="mot",

@@ -33,6 +33,7 @@ class Scoreboard(torch.nn.Module):
         dest_height: int,
         dest_width: int,
         dtype: torch.dtype,
+        clip_box: torch.Tensor = None,
         device: torch.device = None,
     ):
         self._dest_width = dest_width
@@ -41,6 +42,13 @@ class Scoreboard(torch.nn.Module):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
 
         self._src_pts = src_pts.clone()
+        if clip_box is not None:
+            if not isinstance(clip_box, torch.Tensor):
+                clip_box = torch.tensor(
+                    clip_box, dtype=self._src_pts.dtype, device=self._src_pts.device
+                )
+            self._src_pts[:] -= clip_box[0:2]
+
         self._bbox_src = int_bbox(get_bbox(self._src_pts))
 
         # original_image = make_channels_first(

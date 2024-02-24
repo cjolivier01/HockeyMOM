@@ -1,7 +1,7 @@
 import os
 import yaml
 from typing import List, Dict
-
+from functools import lru_cache
 
 def load_config_file(
     root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
@@ -97,6 +97,7 @@ def update_config(root_dir: str, baseline_config: dict, config_type: str, config
     return recursive_update(baseline_config, config)
 
 
+@lru_cache
 def get_clip_box(game_id: str, root_dir: str):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:

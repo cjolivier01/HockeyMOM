@@ -161,6 +161,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         #
         # Detection boundaries
         # TODO: Somehow move into boundaries class like witht he clip stuff
+        # TODO: Get rid of this, probably no longer needed
         #
         self.top_border_lines = get_nested_value(
             self.game_config, "game.boundaries.upper", []
@@ -305,6 +306,7 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._timer = Timer()
         self._cluster_man = None
         self._video_out_device = video_out_device
+        self._original_clip_box = original_clip_box
 
         if self._video_out_device is None:
             self._video_out_device = self._device
@@ -312,17 +314,17 @@ class CamTrackPostProcessor(torch.nn.Module):
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
 
-        self._outside_box_expansion_for_speed_curtailing = torch.tensor(
-            [-100.0, -100.0, 100.0, 100.0],
-            dtype=torch.float32,
-            device=self._device,
-        )
+        # self._outside_box_expansion_for_speed_curtailing = torch.tensor(
+        #     [-100.0, -100.0, 100.0, 100.0],
+        #     dtype=torch.float32,
+        #     device=self._device,
+        # )
 
         if self._args.top_border_lines or self._args.bottom_border_lines:
             self._boundaries = BoundaryLines(
                 self._args.top_border_lines,
                 self._args.bottom_border_lines,
-                original_clip_box,
+                self._original_clip_box,
             )
 
         # Persistent state across frames
@@ -473,6 +475,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             output_frame_width=self.final_frame_width,
             output_frame_height=self.final_frame_height,
             save_frame_dir=self._save_frame_dir,
+            original_clip_box=self._original_clip_box,
             watermark_image_path=(
                 os.path.realpath(
                     os.path.join(
