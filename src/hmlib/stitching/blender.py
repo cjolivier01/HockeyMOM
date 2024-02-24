@@ -966,29 +966,16 @@ def stitch_video(
                 sinfo_1.image = to_tensor(source_tensor_1)
                 sinfo_1.xy_pos = xy_pos_1
 
-                if not batch_count:
-                    max_value = torch.max(sinfo_1.image)
-                    # assert max_value < 1.01
-
                 sinfo_2 = core.StitchImageInfo()
                 sinfo_2.image = to_tensor(source_tensor_2)
                 sinfo_2.xy_pos = xy_pos_2
                 get_timer.toc()
 
-                # main_stream.synchronize()
-                # torch.cuda.synchronize()
-
                 stitch_timer.tic()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
-                # blended_stream_tensor /= 255.0
                 blended = blended_stream_tensor
 
-                if not batch_count:
-                    max_value = torch.max(blended)
-                    # assert max_value < 1.2
-
                 main_stream.synchronize()
-                # torch.cuda.synchronize()
                 stitch_timer.toc()
 
                 if output_video:
@@ -1125,6 +1112,8 @@ def stitch_video(
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     gpu_allocator = GpuAllocator(gpus=None)
+    if not args.video_dir and args.game_id:
+        args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
     with torch.no_grad():
         stitch_video(
             # blend_video(

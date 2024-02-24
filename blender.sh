@@ -1,10 +1,4 @@
 #!/bin/bash
-
-VIDEO_DIR="${HOME}/Videos/jrmocks"
-#VIDEO_DIR="${HOME}/Videos/sharksbb1-1"
-#VIDEO_DIR="${HOME}/Videos/jrmocks"
-#VIDEO_DIR="${HOME}/Videos/tvbb"
-
 OMP_NUM_THREADS=16 \
 	PYTHONPATH=$(pwd):$(pwd)/src:$(pwd)/models/mixsort \
-	python src/hmlib/stitching/blender.py --video_dir="${VIDEO_DIR}" ${GAME_ID} --project_file=autooptimiser_out.pto ${ROTATION} ${OFFSETS}  $@
+	python src/hmlib/stitching/blender.py $@
