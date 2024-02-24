@@ -280,13 +280,13 @@ class BreakawayDetection:
             "min_considered_group_velocity"
         ]
         self.group_ratio_threshold = breakaway_detection["group_ratio_threshold"]
-        self.group_velocity_speed_ratior = breakaway_detection[
+        self.group_velocity_speed_ratio = breakaway_detection[
             "group_velocity_speed_ratio"
         ]
         self.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
         self.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
-        self.overshoot_reduce_speed_factor = breakaway_detection[
-            "overshoot_reduce_speed_factor"
+        self.overshoot_scale_speed_ratio = breakaway_detection[
+            "overshoot_scale_speed_ratio"
         ]
 
 
@@ -853,7 +853,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                     # Cut the speed quickly due to overshoot
                     # self._current_roi.scale_speed(ratio_x=0.6)
                     self._current_roi.scale_speed(
-                        ratio_x=self._breakaway_detection.overshoot_reduce_speed_factor
+                        ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
                     )
                     # print("Reducing group x velocity due to overshoot")
 
