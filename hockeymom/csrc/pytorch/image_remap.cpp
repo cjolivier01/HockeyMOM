@@ -182,7 +182,7 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
         torch::nn::functional::grid_sample(source_tensor, grid_, options);
     if (destination_tensor.dtype() != dtype_) {
       if (dtype_ == at::ScalarType::Byte) {
-        destination_tensor =
+                destination_tensor =
             destination_tensor.clamp(0, 255.0).to(torch::kByte);
       } else {
         destination_tensor =

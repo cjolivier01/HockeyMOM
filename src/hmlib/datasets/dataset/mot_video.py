@@ -404,16 +404,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     ]
 
             if not self._original_image_only:
-                # original_img0 = img0.to("cpu", non_blocking=ALL_NON_BLOCKING)
-                # original_img0 = img0.to("cpu")
-                # original_img0 = img0.clone()
-                # original_img0 = img0.clone()
                 original_img0 = img0
                 if not torch.is_floating_point(img0):
-                    img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING)
+                    img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING) / 255.0
                 img = self.make_letterbox_images(make_channels_first(img0))
             else:
-                # original_img0 = img0.clone()
                 original_img0 = img0
                 if self._dtype is not None and self._dtype != original_img0.dtype:
                     was_fp = torch.is_floating_point(original_img0)
@@ -421,8 +416,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         self._dtype, non_blocking=ALL_NON_BLOCKING
                     )
                     is_fp = torch.is_floating_point(original_img0)
-                    # if not was_fp and is_fp:
-                    #     original_img0 /= 255.0
+                    if not was_fp and is_fp:
+                        original_img0 /= 255.0
                 img = original_img0
 
             if self.width_t is None:
@@ -454,10 +449,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 [self._path if self._path is not None else self._game_id],
             ]
 
-            if not self._original_image_only:
-                img /= 255.0
-                if original_img0.dtype == img.dtype:
-                    original_img0 /= 255.0
+            # if (
+            #     not self._original_image_only
+            #     and not img_was_fp
+            #     and torch.is_floating_point(img)
+            # ):
+            #     img /= 255.0
+            #     if original_img0.dtype == img.dtype:
+            #         original_img0 /= 255.0
 
             # if (
             #     self._device_for_original_image is not None
@@ -489,7 +488,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._original_image_only:
             return original_img0, None, None, imgs_info, ids
         else:
-            #img = img.to("cpu", non_blocking=True)
+            # img = img.to("cpu", non_blocking=True)
             if cuda_stream is not None:
                 img = StreamTensor(
                     tensor=img, stream=cuda_stream, event=torch.cuda.Event()

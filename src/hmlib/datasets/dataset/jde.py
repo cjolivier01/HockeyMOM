@@ -564,7 +564,7 @@ def copy_make_border_pytorch_batch(
         raise ValueError("Unsupported border type. Use 'constant' or 'replicate'.")
 
 
-def py_letterbox(img, height, width, color=127.5):
+def py_letterbox(img, height, width, color=0.5):
     new_shape, ratio, dw, dh = py_calculate_letterbox(
         shape=img.shape[2:], height=height, width=width
     )
