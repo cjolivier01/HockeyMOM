@@ -391,16 +391,16 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if len(img0.shape) == 4:
                     img0 = img0[
                         :,
+                        :,
                         self.calculated_clip_box[1] : self.calculated_clip_box[3],
                         self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                        :,
                     ]
                 else:
                     assert len(img0.shape) == 3
                     img0 = img0[
+                        :,
                         self.calculated_clip_box[1] : self.calculated_clip_box[3],
                         self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                        :,
                     ]
 
             if not self._original_image_only:
