@@ -382,8 +382,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
             if self.clip_original is not None:
-                # print("Warning: dataset is clipping images")
-                # Clipping not handled now due to "original_img = img0.clone()" above
                 if self.calculated_clip_box is None:
                     self.calculated_clip_box = fix_clip_box(
                         self.clip_original, [image_height(img0), image_width(img0)]
@@ -481,6 +479,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._count += self._batch_size
 
         if cuda_stream is not None:
+            # if not self._original_image_only:
+            #     original_img0 = original_img0.to("cpu", non_blocking=True)
             original_img0 = StreamTensor(
                 tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
             )

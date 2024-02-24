@@ -4,7 +4,7 @@ game:
   home: New Mexico Wolves
   away: Cougars
   stitching: null
-  clip_box: [null, 200, null, null]
+  #clip_box: [null, 200, null, null]
   boundaries:
     upper:
     - - 402
