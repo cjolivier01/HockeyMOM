@@ -1,1 +1,1 @@
-../../models/centertrack/src/lib/detector.py
+../../xmodels/centertrack/src/lib/detector.py

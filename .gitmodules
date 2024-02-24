@@ -15,7 +15,7 @@
 	path = external/opencv-python
 	url = ssh://git@github.com/cjolivier01/opencv-python
 [submodule "models/deft"]
-	path = models/deft
+	path = xmodels/deft
 	url = ssh://git@github.com/cjolivier01/DEFT
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
@@ -33,10 +33,10 @@
 	path = external/abseil-cpp
 	url = https://github.com/abseil/abseil-cpp
 [submodule "models/SVHNClassifier"]
-	path = models/SVHNClassifier
+	path = xmodels/SVHNClassifier
 	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
 [submodule "models/layers/CvT"]
-	path = models/layers/CvT
+	path = xmodels/layers/CvT
 	url = ssh://git@github.com/cjolivier01/CvT
 [submodule "external/MOTChallengeEvalKit"]
 	path = external/MOTChallengeEvalKit
@@ -45,14 +45,14 @@
 	path = external/pt_autograph
 	url = ssh://git@github.com/cjolivier01/pt_autograph
 [submodule "models/MixFormer"]
-	path = models/MixFormer
+	path = xmodels/MixFormer
 	url = ssh://git@github.com/cjolivier01/MixFormer
 [submodule "models/mixsort"]
-	path = models/mixsort
+	path = xmodels/mixsort
 	url = ssh://git@github.com/cjolivier01/HmMixSort
 [submodule "models/centerpoint"]
 	path = models/centerpoint
 	url = ssh://git@github.com/cjolivier01/CenterPoint
 [submodule "models/centertrack"]
-	path = models/centertrack
+	path = xmodels/centertrack
 	url = ssh://git@github.com/cjolivier01/centertrack
