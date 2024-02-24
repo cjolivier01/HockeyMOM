@@ -75,4 +75,4 @@ OMP_NUM_THREADS=16 \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   --min-box-area=35 \
   --config=track \
-  ${VIDEO} $@ tracking,multi_pose
+  ${VIDEO} $@ tracking
