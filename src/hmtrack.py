@@ -4,6 +4,7 @@ from loguru import logger
 import argparse
 import random
 import warnings
+import socket
 
 import traceback
 from pathlib import Path
@@ -54,6 +55,7 @@ from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
 from hmlib.hm_opts import hm_opts, copy_opts
 from hmlib.utils.gpu import select_gpus
+from hmlib.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
 
@@ -376,7 +378,6 @@ def main(exp, args, num_gpu):
             args.experiment_name = args.experiment_name + "-" + args.game_id
 
         is_distributed = num_gpu > 1
-
         if args.gpus and isinstance(args.gpus, str):
             args.gpus = [int(i) for i in args.gpus.split(",")]
 
@@ -483,6 +484,13 @@ def main(exp, args, num_gpu):
 
         gpus = select_gpus(allowed_gpus=args.gpus)
 
+        if socket.gethostname().startswith("chriso-monster"):
+            gpus["stitching"] = torch.device("cuda", 0)
+            gpus["detection"] = torch.device("cuda", 0)
+            gpus["encoder"] = torch.device("cuda", 1)
+
+        torch.cuda.set_device(gpus["detection"].index)
+
         dataloader = None
         postprocessor = None
         if args.input_video:
@@ -512,6 +520,18 @@ def main(exp, args, num_gpu):
                 right_vid = BasicVideoInfo(vr)
                 total_frames = min(left_vid.frame_count, right_vid.frame_count)
                 print(f"Total possible stitched video frames: {total_frames}")
+
+                assert not args.start_frame or not args.start_frame_time
+                if not args.start_frame and args.start_frame_time:
+                    args.start_frame = time_to_frame(
+                        time_str=args.start_frame_time, fps=left_vid.fps
+                    )
+
+                assert not args.max_frames or not args.max_time
+                if not args.max_frames and args.max_time:
+                    args.max_frames = time_to_frame(
+                        time_str=args.max_time, fps=left_vid.fps
+                    )
 
                 pto_project_file, lfo, rfo = configure_video_stitching(
                     dir_name,
@@ -545,7 +565,7 @@ def main(exp, args, num_gpu):
                     remap_thread_count=1,
                     fork_workers=False,
                     image_roi=None,
-                    #batch_size=1,
+                    # batch_size=1,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
                     # batch_size=args.batch_size,
@@ -561,11 +581,11 @@ def main(exp, args, num_gpu):
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
-                    #batch_size=args.batch_size,
+                    # batch_size=args.batch_size,
                     batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
-                    #device=gpus["detection"],
+                    # device=gpus["detection"],
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
@@ -573,7 +593,8 @@ def main(exp, args, num_gpu):
                     # ),
                     embedded_data_loader=stitched_dataset,
                     embedded_data_loader_cache_size=6,
-                    #stream_tensors=True,
+                    # embedded_data_loader_cache_size=4,
+                    # stream_tensors=True,
                     original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
@@ -583,6 +604,20 @@ def main(exp, args, num_gpu):
                 )
             else:
                 assert len(input_video_files) == 1
+                assert not args.start_frame or not args.start_frame_time
+                if not args.start_frame and args.start_frame_time:
+                    vid_info = BasicVideoInfo(input_video_files[0])
+                    args.start_frame = time_to_frame(
+                        time_str=args.start_frame_time, fps=vid_info.fps
+                    )
+
+                assert not args.max_frames or not args.max_time
+                if not args.max_frames and args.max_time:
+                    vid_info = BasicVideoInfo(input_video_files[0])
+                    args.max_frames = time_to_frame(
+                        time_str=args.max_time, fps=vid_info.fps
+                    )
+
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,

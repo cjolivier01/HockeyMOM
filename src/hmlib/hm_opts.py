@@ -111,10 +111,24 @@ class hm_opts(object):
             "--start-frame", type=int, default=0, help="first frame number to process"
         )
         parser.add_argument(
+            "--start-frame-time",
+            type=str,
+            default=None,
+            help="Start at this time in video stream",
+        )
+        parser.add_argument(
             "--max-frames",
             type=int,
             default=None,
             help="maximum number of frames to process",
+        )
+        parser.add_argument(
+            "-t",
+            "--max-time",
+            dest="max_time",
+            type=str,
+            default=None,
+            help="Maximum amount of time to process",
         )
         parser.add_argument(
             "--video_dir",

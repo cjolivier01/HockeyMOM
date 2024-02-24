@@ -419,7 +419,6 @@ class StitchDataset:
             args=(self._next_requested_frame,),
         )
         self._coordinator_thread.start()
-        print("Cached request queue")
 
     def _stop_coordinator_thread(self):
         if self._coordinator_thread is not None:

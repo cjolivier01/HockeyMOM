@@ -30,6 +30,7 @@ _FOURCC_TO_CODEC = {
 
 MAX_VIDEO_WIDTH = 1280
 
+
 def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     h = height
     w = width
@@ -52,6 +53,26 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     if resized:
         return resize_image(tensor, new_height=h, new_width=w)
     return tensor
+
+
+def time_to_frame(time_str: str, fps: float):
+    # Split the time duration string into components
+    h = 0
+    m = 0
+    s = 0
+    tokens = time_str.split(":")
+    s = float(tokens[-1])
+    if len(tokens) > 1:
+        m = int(tokens[-2])
+        if len(tokens) > 2:
+            assert len(tokens) == 3
+            h = int(tokens[0])
+    # Extract seconds and milliseconds
+    # Convert hours, minutes, seconds, and milliseconds to total seconds
+    total_seconds = h * 3600 + m * 60 + s
+    # Calculate the frame number
+    frame_number = int(total_seconds * fps)
+    return frame_number
 
 
 class VideoStreamWriter:
