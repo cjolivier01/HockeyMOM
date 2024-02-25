@@ -118,6 +118,8 @@ rink:
       - 799
     - - 662
       - 854
+    projected_height: 200
+    projected_width: 700
   tracking:
     #
     # Some tracking config

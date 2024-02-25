@@ -9,6 +9,8 @@ rink:
       - 320
     - - 3500
       - 230
+    projected_height: 100
+    projected_width: 350
 game:
   boundaries:
     upper:

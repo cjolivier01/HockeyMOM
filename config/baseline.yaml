@@ -40,6 +40,8 @@ rink:
     # 4-sided polygon that maps out the scoreboard in the perspective view
     # Should be tlbr form, with values: [x, y]
     perspective_polygon: null
+    projected_height: 300
+    projected_width: 100
   tracking:
     #
     # Some tracking config

@@ -601,8 +601,12 @@ class VideoOutput:
             if scoreboard is None and self._scoreboard_points:
                 scoreboard = Scoreboard(
                     src_pts=self._scoreboard_points,
-                    dest_width=700,
-                    dest_height=200,
+                    dest_width=get_nested_value(
+                        self._args.game_config, "rink.scoreboard.projected_width"
+                    ),
+                    dest_height=get_nested_value(
+                        self._args.game_config, "rink.scoreboard.projected_height"
+                    ),
                     clip_box=self._original_clip_box,
                     dtype=torch.float,
                     device=self._device,
