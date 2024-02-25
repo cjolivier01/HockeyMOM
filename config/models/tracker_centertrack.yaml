@@ -3,8 +3,11 @@ model:
     type: dla34
     pretrained: True
     #pretrained_path: 'pretrained/centertrack/dla34/my_crowdhuman/model_140.pth'
-    pretrained_path: 'pretrained/dla34/centertrack_my_coco_ch_e90.pth'
-    # pretrained_path: 'pretrained/dla34/my_coco_ch_e60.pth'
+    #pretrained_path: 'pretrained/dla34/centertrack_my_coco_ch_e90.pth'
+    #pretrained_path: 'pretrained/dla34/centertrack_my_coco_ch_large.pth'
+    #pretrained_path: '/mnt/ripper-data/pretrained/dla34/centertrack_my_coco_ch_e120_large.pth'
+    pretrained_path: '/mnt/ripper-data/pretrained/dla34/centertrack_my_coco_ch_e120_large_last.pth'
+    #pretrained_path: 'pretrained/dla34/my_coco_ch_e60.pth'
     #pretrained_path: 'pretrained/centertrack/crowdhuman.pth'
     #pretrained_path: 'pretrained/centertrack/coco_pose_tracking.pth'
     #pretrained_path: 'pretrained/centertrack/mot17_fulltrain.pth'
@@ -18,5 +21,5 @@ model:
   tracker:
     type: centertrack
     # TODO: what is default for centertrack?
-    # conf_thres: 0.4
+    # trask_thres: 0.4
 

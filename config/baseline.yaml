@@ -75,10 +75,10 @@ rink:
       # This is because the clusters may not have changed enough at the
       # beginning of a breakaway and may simply stop the camera movement
       # due to the cluster tracking rules.
-      nonstop_delay_count: 5
+      nonstop_delay_count: 3
       # When over-shooting the breakaway players, what scale do we apply
       # to the current speed each frame?
-      overshoot_scale_speed_ratio: 0.95
+      overshoot_scale_speed_ratio: 0.8
 
 #
 # Game config

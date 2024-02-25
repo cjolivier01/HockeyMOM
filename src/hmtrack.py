@@ -559,7 +559,7 @@ def main(exp, args, num_gpu):
                     ),
                     max_frames=args.max_frames,
                     # max_input_queue_size=2,
-                    max_input_queue_size=1,
+                    max_input_queue_size=2,
                     num_workers=1,
                     blend_thread_count=1,
                     remap_thread_count=1,
@@ -780,13 +780,16 @@ if __name__ == "__main__":
         opts.parser = make_parser(opts.parser)
         args = opts.parse()
         args = opts.init()
+        args = hm_opts.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
     elif args.tracker == "fair":
         opts_fair.parse(opt=args)
         args = opts_fair.init(opt=args)
+        args = hm_opts.init(args)
         exp = get_exp(args.exp_file, args.name)
         # exp.merge(args.opts) # seems to do nothing
     else:
+        args = hm_opts.init(args)
         exp = get_exp(args.exp_file, args.name)
         exp.merge(args.opts)
 

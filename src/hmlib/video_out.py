@@ -13,7 +13,7 @@ import multiprocessing
 import queue
 from contextlib import contextmanager
 import PIL
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torchvision as tv
@@ -123,18 +123,23 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
 
 
 def make_visible_image(
-    img, enable_resizing: bool = False, scale_elements: float = 255.0
+    img, enable_resizing: Union[bool, float] = False, scale_elements: float = 255.0
 ):
-    if not enable_resizing:
+    if enable_resizing is None:
         if isinstance(img, torch.Tensor):
             img = make_showable_type(img, scale_elements)
         return img
     width = image_width(img)
-    vis_w = get_complete_monitor_width()
+    if enable_resizing != 0:
+        vis_w = width * enable_resizing
+        mult = 1.0
+    else:
+        vis_w = get_complete_monitor_width()
+        mult = 0.7
     if vis_w and width and width > vis_w:
         height = image_height(img)
         ar = width / height
-        new_w = vis_w * 0.7
+        new_w = vis_w * mult
         new_h = new_w / ar
         img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
     return make_showable_type(img)
@@ -859,8 +864,7 @@ class VideoOutput:
                             cv2.imshow(
                                 "online_im",
                                 make_visible_image(
-                                    s_img,
-                                    # enable_resizing=self._args.show_scaled
+                                    s_img, enable_resizing=self._args.show_scaled
                                 ),
                             )
                             cv2.waitKey(1)

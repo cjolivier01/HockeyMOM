@@ -32,7 +32,6 @@ class hm_opts(object):
             help="Game ID",
         )
         parser.add_argument(
-            "-s",
             "--show-image",
             "--show",
             dest="show_image",
@@ -42,8 +41,8 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--show-scaled",
-            default=False,
-            action="store_true",
+            type=float,
+            default=None,
             help="scale showed image (ignored is --show-image is not specified)",
         )
         parser.add_argument(
@@ -111,7 +110,10 @@ class hm_opts(object):
             "--start-frame", type=int, default=0, help="first frame number to process"
         )
         parser.add_argument(
+            "-s",
+            "--start-time",
             "--start-frame-time",
+            dest="start_frame_time",
             type=str,
             default=None,
             help="Start at this time in video stream",
@@ -164,7 +166,26 @@ class hm_opts(object):
             opt = self.parser.parse_args()
         else:
             opt = self.parser.parse_args(args)
-        return opt
+        return self.init(opt)
 
-    def init(self, opt):
+    @staticmethod
+    def init(opt):
+        # Normalize some conflicting arguments
+        if opt.tracker == "centertrack":
+            if hasattr(opt, "test_size") and (
+                hasattr(opt, "input_w") and hasattr(opt, "input_h")
+            ):
+                from lib.opts import opts
+                assert not opt.test_size or (
+                    opt.input_h in [-1, opts.DEFAULT_INPUT_HW]
+                    and opt.input_w in [-1, opts.DEFAULT_INPUT_HW]
+                )
+                if not opt.test_size:
+                    opt.test_size = f"{opt.input_h}x{opt.input_w}"
+                else:
+                    sz = opt.test_size.split("x")
+                    opt.input_h = int(sz[0])
+                    opt.input_w = int(sz[1]) if len(sz) > 1 else opt.input_h
+
+            print("Have")
         return opt
