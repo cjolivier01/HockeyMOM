@@ -9,8 +9,10 @@ namespace ops {
 
 namespace {
 
-constexpr std::int64_t kUnmappedPixelValue = 65535;
+//#define DO_EXTRA_PADDING
 
+constexpr std::int64_t kUnmappedPixelValue = 65535;
+#ifdef DO_EXTRA_PADDING
 template <typename VALUE_TYPE>
 at::Tensor pad_tensor_to_size(
     at::Tensor& tensor,
@@ -58,6 +60,7 @@ at::Tensor pad_tensor_to_size_batched(
   }
   return tensor;
 }
+#endif
 } // namespace
 
 ImageRemapper::ImageRemapper(
@@ -77,8 +80,14 @@ ImageRemapper::ImageRemapper(
       dtype_(dtype),
       add_alpha_channel_(add_alpha_channel),
       interpolation_(interpolation ? *interpolation : "") {
-  working_width_ = std::max(src_width_, dest_width_);
-  working_height_ = std::max(src_height_, dest_height_);
+  // working_width_ = std::max(src_width_, dest_width_);
+  // working_height_ = std::max(src_height_, dest_height_);
+
+  // working_width_ = dest_width_;
+  // working_height_ = dest_height_;
+
+  working_width_ = src_width_;
+  working_height_ = src_height_;
 }
 
 void ImageRemapper::init(std::size_t batch_size) {
@@ -87,12 +96,17 @@ void ImageRemapper::init(std::size_t batch_size) {
   }
   assert(!initialized_);
   initialized_ = false;
+#ifdef DO_EXTRA_PADDING
   // std::cout << "Padding tensors to size: " << working_width_ << " x "
   //           << working_height_ << std::endl;
   auto col_map = pad_tensor_to_size(
       col_map_, working_width_, working_height_, kUnmappedPixelValue);
   auto row_map = pad_tensor_to_size(
       row_map_, working_width_, working_height_, kUnmappedPixelValue);
+#else
+  auto col_map = col_map_;
+  auto row_map = row_map_;
+#endif
   at::Tensor mask = at::logical_or(
       col_map == kUnmappedPixelValue, row_map == kUnmappedPixelValue);
   col_map.index_put_({mask}, 0);
@@ -154,9 +168,10 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
   TORCH_CHECK(
       source_tensor.size(1) == 3 || source_tensor.size(2) == 4,
       "Tensor format should be [batch, channels, height, width");
-  // bool was_uint8 = source_tensor.dtype() == torch::
+#ifdef DO_EXTRA_PADDING
   source_tensor = pad_tensor_to_size_batched(
       source_tensor, working_width_, working_height_, 0);
+#endif
   // batch + 3 channels
   assert(source_tensor.sizes().size() == 4);
   at::Tensor destination_tensor;
@@ -197,12 +212,14 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     destination_tensor =
         at::cat({destination_tensor, alpha_channel_}, /*dim=*/1);
   }
+#ifdef DO_EXTRA_PADDING
   // Clip to the original size that was specified
   destination_tensor = destination_tensor.index(
       {torch::indexing::Slice(),
        torch::indexing::Slice(),
        torch::indexing::Slice(0, dest_height_),
        torch::indexing::Slice(0, dest_width_)});
+#endif
   return destination_tensor;
 }
 
