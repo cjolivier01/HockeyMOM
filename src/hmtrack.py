@@ -775,36 +775,41 @@ if __name__ == "__main__":
     if args.tracker is None:
         args.tracker = get_nested_value(game_config, "model.tracker.type")
 
-    if args.tracker == "centertrack":
-        opts = centertrack_opts.opts()
-        opts.parser = make_parser(opts.parser)
-        args = opts.parse()
-        args = opts.init()
-        args = hm_opts.init(opt=args)
-        exp = get_exp(args.exp_file, args.name)
-    elif args.tracker == "fair":
-        opts_fair.parse(opt=args)
-        args = opts_fair.init(opt=args)
-        args = hm_opts.init(args)
-        exp = get_exp(args.exp_file, args.name)
-        # exp.merge(args.opts) # seems to do nothing
-    else:
-        args = hm_opts.init(args)
-        exp = get_exp(args.exp_file, args.name)
-        exp.merge(args.opts)
-
-    if not args.experiment_name:
-        args.experiment_name = exp.exp_name
-
     game_config = update_config(
         root_dir=ROOT_DIR,
         baseline_config=game_config,
         config_type="models",
         config_name="tracker_" + args.tracker,
     )
+    # horrifyingly hacky dealing with conflicting arguments of different trackers
+    if args.tracker == "centertrack":
+        opts = centertrack_opts.opts(parser=make_parser())
+        args = opts.parser.parse_args()
+        args.game_config = game_config
+        args = hm_opts.init(opt=args, parser=opts.parser)
+        args = opts.parse(args=args)
+        args = opts.init()
+        #args = hm_opts.init(opt=args)
+        exp = get_exp(args.exp_file, args.name)
+    elif args.tracker == "fair":
+        args.game_config = game_config
+        opts_fair.parse(opt=args)
+        args = opts_fair.init(opt=args)
+        args = hm_opts.init(args)
+        exp = get_exp(args.exp_file, args.name)
+        # exp.merge(args.opts) # seems to do nothing
+    else:
+        args.game_config = game_config
+        args = hm_opts.init(args)
+        exp = get_exp(args.exp_file, args.name)
+        exp.merge(args.opts)
 
-    args = configure_model(config=game_config, args=args)
     args.game_config = game_config
+
+    if not args.experiment_name:
+        args.experiment_name = exp.exp_name
+
+    args = configure_model(config=args.game_config, args=args)
 
     if args.game_id:
         num_gpus = 1

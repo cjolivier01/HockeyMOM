@@ -20,6 +20,8 @@ model:
 
   tracker:
     type: centertrack
-    # TODO: what is default for centertrack?
-    # trask_thres: 0.4
+    pre_hm: true
+    pre_thresh: 0.45
+    track_thresh: 0.49
+
 

@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+from hmlib.config import get_nested_value
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -168,14 +169,21 @@ class hm_opts(object):
             opt = self.parser.parse_args(args)
         return self.init(opt)
 
+    # TODO: How can this be generalized with the nesting in the yaml?
+    CONFIG_TO_ARGS = [
+        # "model.tracker.pre_hm": "pre_hm",
+        "model.tracker",
+    ]
+
     @staticmethod
-    def init(opt):
+    def init(opt, parser: argparse.ArgumentParser = None):
         # Normalize some conflicting arguments
-        if opt.tracker == "centertrack":
+        if getattr(opt, "tracker", "") == "centertrack":
             if hasattr(opt, "test_size") and (
                 hasattr(opt, "input_w") and hasattr(opt, "input_h")
             ):
                 from lib.opts import opts
+
                 assert not opt.test_size or (
                     opt.input_h in [-1, opts.DEFAULT_INPUT_HW]
                     and opt.input_w in [-1, opts.DEFAULT_INPUT_HW]
@@ -188,4 +196,19 @@ class hm_opts(object):
                     opt.input_w = int(sz[1]) if len(sz) > 1 else opt.input_h
 
             print("Have")
+
+        for key in hm_opts.CONFIG_TO_ARGS:
+            nested_item = get_nested_value(getattr(opt, "game_config", {}), key, None)
+            if nested_item is None:
+                continue
+            if isinstance(nested_item, dict):
+                for k, v in nested_item.items():
+                    if hasattr(opt, k):
+                        current_val = getattr(opt, k)
+                        if current_val is None or (
+                            parser is not None and current_val == parser.get_default(k)
+                        ):
+                            print(f"Setting attribute {k} to {v}")
+                            setattr(opt, k, v)
+
         return opt
