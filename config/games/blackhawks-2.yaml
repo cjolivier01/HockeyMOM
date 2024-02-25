@@ -1,6 +1,6 @@
 game:
   clip_box:
-  - null
+  - 200
   - 200
   - null
   - null
@@ -118,3 +118,29 @@ rink:
       - 799
     - - 662
       - 854
+  tracking:
+    #
+    # Some tracking config
+    #
+    cam_ignore_largest: true
+
+  camera:
+    #
+    # Configuration for breakaways
+    #
+    breakaway_detection:
+      # What ratio of the group speed should we try to
+      # apply within a single frame's speed adjustment?
+      group_velocity_speed_ratio: 0.2
+      # During a breakaway, what scale do we adjust the
+      # maximum camera speed to allow for faster-than-normal tracking?
+      scale_speed_constraints: 1.5
+      # The number of frame steps to not allow any camera-stop conditions to
+      # trigger such as cluster(s) direction change or "sticky translation" rules.
+      # This is because the clusters may not have changed enough at the
+      # beginning of a breakaway and may simply stop the camera movement
+      # due to the cluster tracking rules.
+      nonstop_delay_count: 2
+      # When over-shooting the breakaway players, what scale do we apply
+      # to the current speed each frame in order to slow it down?
+      overshoot_scale_speed_ratio: 0.6
