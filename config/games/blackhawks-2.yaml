@@ -1,4 +1,9 @@
 game:
+  clip_box:
+  - null
+  - 200
+  - null
+  - null
   boundaries:
     upper:
     - - 145
@@ -105,11 +110,11 @@ game:
 rink:
   scoreboard:
     perspective_polygon:
-    - - 657
-      - 736
+    - - 647
+      - 787
+    - - 884
+      - 739
     - - 899
-      - 695
-    - - 909
-      - 754
-    - - 671
-      - 797
+      - 799
+    - - 662
+      - 854
