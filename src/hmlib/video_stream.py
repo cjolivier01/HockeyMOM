@@ -217,11 +217,10 @@ class VideoStreamWriter:
                 encoder=self._codec,
                 encoder_format="bgr0",
                 encoder_option=options,
-                # encoder_frame_rate=self._fps,
+                encoder_frame_rate=self._fps,
                 codec_config=self._codec_config,
                 hw_accel=str(self._device),
             )
-        print("Video stream added")
 
     def bgr_to_rgb(self, batch: torch.Tensor):
         # Assuming batch is a PyTorch tensor of shape [N, C, H, W]
@@ -563,7 +562,7 @@ class VideoStreamReader:
 
     def open(self):
         assert self._video_in is None
-        self._video_info = BasicVideoInfo(video_file=self._filename)
+        self._video_info = BasicVideoInfo(self._filename)
         if self._codec is None:
             self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec, None)
             if self._codec is None and self._type != "cv2":
