@@ -471,7 +471,9 @@ def main(exp, args, num_gpu):
                     pre_stitched_file_name = find_stitched_file(
                         dir_name=game_video_dir, game_id=args.game_id
                     )
-                    if os.path.exists(pre_stitched_file_name):
+                    if pre_stitched_file_name and os.path.exists(
+                        pre_stitched_file_name
+                    ):
                         args.input_video = pre_stitched_file_name
                     else:
                         args.input_video = game_video_dir
@@ -789,7 +791,7 @@ if __name__ == "__main__":
         args = hm_opts.init(opt=args, parser=opts.parser)
         args = opts.parse(args=args)
         args = opts.init()
-        #args = hm_opts.init(opt=args)
+        # args = hm_opts.init(opt=args)
         exp = get_exp(args.exp_file, args.name)
     elif args.tracker == "fair":
         args.game_config = game_config

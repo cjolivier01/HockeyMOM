@@ -307,7 +307,7 @@ class StitchDataset:
         return stitching_worker
 
     def configure_stitching(self):
-        if not self._pto_project_file:
+        if self._video_1_offset_frame is None or self._video_2_offset_frame is None:
             dir_name = _get_dir_name(self._video_file_1)
             self._pto_project_file, lfo, rfo = configure_video_stitching(
                 dir_name,

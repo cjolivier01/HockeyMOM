@@ -125,8 +125,8 @@ def synchronize_by_audio(
     full_video1.close()
 
     # Adjust to the starting frame number in each video (i.e. frame_offset might be a negative number)
-    left_frame_offset = int(frame_offset if frame_offset > 0 else 0)
-    right_frame_offset = int(-frame_offset if frame_offset < 0 else 0)
+    left_frame_offset = frame_offset if frame_offset > 0 else 0
+    right_frame_offset = -frame_offset if frame_offset < 0 else 0
 
     return left_frame_offset, right_frame_offset
 
@@ -336,9 +336,11 @@ def create_stitched_image(
         0,
         self._pto_project_file,
         os.path.splitext(self._pto_project_file)[0] + ".seam.png" if save_seams else "",
-        os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
-        if save_seams
-        else "",
+        (
+            os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
+            if save_seams
+            else ""
+        ),
         save_seams,
         1,
         1,

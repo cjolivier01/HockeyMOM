@@ -83,7 +83,7 @@ class hm_opts(object):
             "--left-frame-offset",
             dest="lfo",
             type=float,
-            default=0.0,
+            default=None,
             help="Offset for left video startig point (first supplied video)",
         )
         parser.add_argument(
@@ -91,7 +91,7 @@ class hm_opts(object):
             "--right-frame-offset",
             dest="rfo",
             type=float,
-            default=0.0,
+            default=None,
             help="Offset for right video startiog point (second supplied video)",
         )
         parser.add_argument(
