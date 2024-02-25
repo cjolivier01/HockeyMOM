@@ -26,7 +26,12 @@ from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator
-from hmlib.video_out import VideoOutput, ImageProcData, optional_with
+from hmlib.video_out import (
+    VideoOutput,
+    ImageProcData,
+    optional_with,
+    make_visible_image,
+)
 from hmlib.utils.image import (
     make_channels_last,
     make_channels_first,
@@ -629,6 +634,9 @@ class StitchDataset:
                     self._batch_size * 1.0 / max(1e-5, self._next_timer.average_time),
                 )
             )
+        if self._batch_count == 1:
+            print("Saving first stitched frame to s.png")
+            cv2.imwrite("s.png", make_visible_image(to_tensor(stitched_frame)[0]))
 
         return stitched_frame
 
