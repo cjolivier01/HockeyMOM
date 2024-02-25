@@ -88,6 +88,7 @@ if __name__ == "__main__":
     # app.MainLoop()
     opts = hm_opts()
     args = opts.parse()
+    
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")
     game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)

@@ -82,3 +82,14 @@ game:
       - 1142
       - 5369
       - 1135
+rink:
+  scoreboard:
+    perspective_polygon:
+    - - 657
+      - 736
+    - - 899
+      - 695
+    - - 909
+      - 754
+    - - 671
+      - 797

@@ -140,6 +140,8 @@ def other_impl(game_id: str, image_path: str):
         this_path = Path(os.path.dirname(__file__))
         root_dir = os.path.realpath(this_path / "..")
         game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+        if game_config is None:
+            game_config = dict()
         set_nested_value(game_config, "game.boundaries.upper", upper_lines)
         set_nested_value(game_config, "game.boundaries.lower", lower_lines)
         save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
@@ -159,6 +161,7 @@ def maybe_configure_borders(game_id: str, root_dir: str):
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
+    assert args.game_id
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     image_path = os.path.join(current_file_path, "..", "s.png")
     # draw_line(img_file)
