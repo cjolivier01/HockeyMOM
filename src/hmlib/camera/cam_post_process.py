@@ -755,6 +755,7 @@ class CamTrackPostProcessor(torch.nn.Module):
                 color=(255, 0, 255),
                 thickness=5,
                 device=self._device,
+                min_height=self._hockey_mom._video_frame.height/5,
             )
             self._current_roi = iter(self._current_roi)
             self._current_roi_aspect = iter(self._current_roi_aspect)

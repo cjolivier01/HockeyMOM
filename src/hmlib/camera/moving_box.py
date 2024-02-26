@@ -97,6 +97,7 @@ class ResizingBox(BasicBox):
         self._min_height = min_height
         self._max_width = max_width
         self._max_height = max_height
+        self._size_constrained = False
 
         #
         # Sticky sizing thresholds
@@ -143,7 +144,10 @@ class ResizingBox(BasicBox):
             #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
             # )
             img = vis.draw_dashed_rectangle(
-                img, box=inscribed, color=(255, 255, 255), thickness=2
+                img,
+                box=inscribed,
+                color=(255, 255, 255) if not self._size_constrained else (0, 0, 255),
+                thickness=2,
             )
 
             # Sizing thresholds
@@ -296,68 +300,6 @@ class ResizingBox(BasicBox):
                 self._size_is_frozen,
                 torch.logical_not(torch.logical_or(both_thresh, want_bigger)),
             )
-            # if self._size_is_frozen:
-            #     print(f"frozen size={self._size_is_frozen}")
-            # else:
-            #     print(f"frozen size={self._size_is_frozen}")
-
-            # zero = self._zero_float_tensor.clone()
-            # if dw < zero and dw < -req_w_diff:
-            #     dw_thresh = True
-            # elif dw > zero and dw > req_w_diff:
-            #     dw_thresh = True
-            #     want_bigger = True
-            # else:
-            #     dw = zero.clone()
-
-            # if dh < zero and dh < -req_h_diff:
-            #     dh_thresh = True
-            # elif dh > zero and dh > req_h_diff:
-            #     dh_thresh = True
-            #     want_bigger = True
-            # else:
-            #     dh = zero.clone()
-
-            # if not dw_thresh and not dh_thresh:
-            #     self._size_is_frozen = True
-            # elif (dw_thresh and dh_thresh) or (
-            #     want_bigger and (dw_thresh or dh_thresh)
-            # ):
-            #     self._size_is_frozen = False
-
-            # scale_amount = 0.1
-            # req_w_diff = current_w * scale_amount
-            # req_h_diff = current_h * scale_amount
-            # dw_thresh = False
-            # dh_thresh = False
-            # want_bigger = False
-
-            # zero = self._zero_float_tensor.clone()
-            # if dw < zero and dw < -req_w_diff:
-            #     dw_thresh = True
-            # elif dw > zero and dw > req_w_diff:
-            #     dw_thresh = True
-            #     want_bigger = True
-            # else:
-            #     dw = zero.clone()
-
-            # if dh < zero and dh < -req_h_diff:
-            #     dh_thresh = True
-            # elif dh > zero and dh > req_h_diff:
-            #     dh_thresh = True
-            #     want_bigger = True
-            # else:
-            #     dh = zero.clone()
-
-            # if not dw_thresh and not dh_thresh:
-            #     self._size_is_frozen = True
-            # elif (dw_thresh and dh_thresh) or (
-            #     want_bigger and (dw_thresh or dh_thresh)
-            # ):
-            #     self._size_is_frozen = False
-
-            # print(f"frozen size={self._size_is_frozen}")
-
         #
         # END size threshhold
         #
@@ -405,6 +347,8 @@ class MovingBox(ResizingBox):
         max_accel_y: torch.Tensor,
         max_width: torch.Tensor,
         max_height: torch.Tensor,
+        min_width: int = 10,
+        min_height: int = 10,
         scale_width: torch.Tensor = None,
         scale_height: torch.Tensor = None,
         arena_box: torch.Tensor = None,
@@ -432,8 +376,8 @@ class MovingBox(ResizingBox):
             width_change_threshold_low=width_change_threshold_low,
             height_change_threshold=height_change_threshold,
             height_change_threshold_low=height_change_threshold_low,
-            min_width=0,
-            min_height=0,
+            min_width=min_width,
+            min_height=min_height,
             max_width=max_width,
             max_height=max_height,
         )
@@ -889,7 +833,8 @@ class MovingBox(ResizingBox):
             dh = self._current_speed_h / 2
         # END Sticky Translation
 
-        self._bbox += torch.tensor(
+        new_box = self._bbox
+        new_box += torch.tensor(
             [
                 dx - dw,
                 dy - dh,
@@ -899,6 +844,18 @@ class MovingBox(ResizingBox):
             dtype=self._bbox.dtype,
             device=self._bbox.device,
         )
+
+        # Constrain size
+        new_ww = width(new_box)
+        new_hh = height(new_box)
+        ww = max(new_ww, self._min_width)
+        hh = max(new_hh, self._min_height)
+        self._size_constrained = ww != new_ww or hh != new_hh
+        new_box = make_box_at_center(center_point=center(new_box), w=ww, h=hh)
+
+        # Assign new bounding box
+        self._bbox = new_box
+
         if self._nonstop_delay != self._zero:
             # print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
             self._nonstop_delay_counter += 1
