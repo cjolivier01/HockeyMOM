@@ -30,13 +30,13 @@ from hmlib.video_out import (
     VideoOutput,
     ImageProcData,
     optional_with,
-    make_visible_image,
 )
 from hmlib.utils.image import (
     make_channels_last,
     make_channels_first,
     image_height,
     image_width,
+    make_visible_image,
 )
 
 

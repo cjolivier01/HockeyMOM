@@ -29,8 +29,8 @@ from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import (
     ImageHorizontalGaussianDistribution,
     ImageColorScaler,
-    make_channels_first,
     make_channels_last,
+    make_visible_image,
 )
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
@@ -104,45 +104,6 @@ def get_best_codec(gpu_number: int, width: int, height: int):
         return "hevc_nvenc", True
     else:
         return "XVID", False
-
-
-def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
-    if isinstance(img, torch.Tensor):
-        if img.ndim == 2:
-            # 2D grayscale
-            img = img.unsqueeze(0).repeat(3, 1, 1)
-        assert len(img.shape) == 3
-        img = make_channels_last(img)
-        if img.dtype in [torch.float16, torch.float32, torch.float64]:
-            # max = torch.max(img)
-            if scale_elements and scale_elements != 1:
-                img = img * 255.0
-            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
-        img = np.ascontiguousarray(img.cpu().numpy())
-    return img
-
-
-def make_visible_image(
-    img, enable_resizing: Union[bool, float] = False, scale_elements: float = 255.0
-):
-    if enable_resizing is None:
-        if isinstance(img, torch.Tensor):
-            img = make_showable_type(img, scale_elements)
-        return img
-    width = image_width(img)
-    if enable_resizing != 0:
-        vis_w = width * enable_resizing
-        mult = 1.0
-    else:
-        vis_w = get_complete_monitor_width()
-        mult = 0.7
-    if vis_w and width and width > vis_w:
-        height = image_height(img)
-        ar = width / height
-        new_w = vis_w * mult
-        new_h = new_w / ar
-        img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
-    return make_showable_type(img)
 
 
 def rotate_image(img, angle: float, rotation_point: List[int]):

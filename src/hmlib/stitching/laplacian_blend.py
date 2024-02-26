@@ -2,7 +2,7 @@ import cv2
 import torch
 import numpy as np
 import torch.nn.functional as F
-from hmlib.video_out import make_visible_image
+from hmlib.utils.image import make_visible_image
 
 
 def create_gaussian_kernel(

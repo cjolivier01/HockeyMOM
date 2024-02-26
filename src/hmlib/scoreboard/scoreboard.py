@@ -1,6 +1,6 @@
 import os
 import cv2
-import yaml
+import math
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,18 +18,18 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
     pad_tensor_to_size_batched,
+    make_visible_image,
 )
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
+import hmlib.tracking_utils.visualization as vis
 
 
 class Scoreboard(torch.nn.Module):
     def __init__(
         self,
         src_pts: torch.Tensor,
-        # src_width: int,
-        # src_height: int,
         dest_height: int,
         dest_width: int,
         dtype: torch.dtype,
@@ -40,7 +40,7 @@ class Scoreboard(torch.nn.Module):
         self._dest_height = dest_height
         if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
-
+        assert len(src_pts) == 4
         self._src_pts = src_pts.clone()
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
@@ -61,9 +61,6 @@ class Scoreboard(torch.nn.Module):
         self._src_pts[:, 0] -= self._bbox_src[0]
         self._src_pts[:, 1] -= self._bbox_src[1]
 
-        # src_width = image_width(src_image)
-        # src_height = image_height(src_image)
-
         src_width = self._bbox_src[2] - self._bbox_src[0]
         src_height = self._bbox_src[3] - self._bbox_src[1]
 
@@ -82,15 +79,20 @@ class Scoreboard(torch.nn.Module):
             self._dest_h = toth
             self._bbox_src[2] = self._bbox_src[0] + self._dest_w
             self._bbox_src[3] = self._bbox_src[1] + self._dest_h
+            pass
         else:
             self._dest_w = src_width
             self._dest_h = src_height
 
         dst_pts = np.array(
             [
+                # TL
                 [0, 0],
+                # TR
                 [dest_width - 1, 0],
+                # BR
                 [dest_width - 1, dest_height - 1],
+                # BL
                 [0, dest_height - 1],
             ],
             dtype=np.float32,
@@ -123,11 +125,14 @@ class Scoreboard(torch.nn.Module):
             self._bbox_src[0] : self._bbox_src[2],
         ]
 
+        # cv2.imshow("src_image", make_visible_image(src_image[0]))
+        # cv2.waitKey(0)
+
         warped_image = _apply_grid_transform(
             src_image, self._grid, mode="bilinear", fill=None
         )
 
-        warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
+        #warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
         return warped_image
 
     @property
@@ -522,9 +527,35 @@ def main():
         proceed_with_warp_cv2()
 
 
+# def sort_points_tl_tr_br_bl(points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+#     # Calculate the centroid of the points
+#     centroid = (
+#         sum(x for x, _ in points) / len(points),
+#         sum(y for _, y in points) / len(points),
+#     )
+
+#     # Function to calculate angle from centroid
+#     def angle_from_centroid(point):
+#         return math.atan2(point[1] - centroid[1], point[0] - centroid[0])
+
+#     # Sort points by angle from centroid
+#     sorted_points = sorted(points, key=angle_from_centroid)
+
+#     # To ensure the sorting starts from top-left, find the point with the smallest angle
+#     # and make it the starting point
+#     top_left_index = sorted_points.index(
+#         min(sorted_points, key=lambda point: (angle_from_centroid(point), -point[1]))
+#     )
+#     sorted_points = sorted_points[top_left_index:] + sorted_points[:top_left_index]
+
+#     return sorted_points
+
+
 def sb_main(game_id: str):
 
-    image_path = f"{os.environ['HOME']}/Videos/{game_id}/panorama.tif"  # Specify the path to your image
+    image_path = (
+        f"{os.environ['HOME']}/Videos/{game_id}/s.png"  # Specify the path to your image
+    )
     image = cv2.imread(image_path)
     image_tensor = make_channels_first(torch.from_numpy(image).unsqueeze(0))
 
@@ -536,10 +567,33 @@ def sb_main(game_id: str):
     )
 
     if selected_points:
+        for pt in selected_points:
+            print(pt)
+        # colors = [(255, 0, 0), (0, 255, 255), (0, 0, 255), (255, 255, 255)]
+        # for i in range(len(selected_points)):
+        #     if i == len(selected_points) - 1:
+        #         image = vis.plot_line(
+        #             image,
+        #             selected_points[-1],
+        #             selected_points[0],
+        #             color=colors[i],
+        #             thickness=i * 2 + 1,
+        #         )
+        #     else:
+        #         image = vis.plot_line(
+        #             image,
+        #             selected_points[i],
+        #             selected_points[i + 1],
+        #             color=colors[i],
+        #             thickness=i * 2 + 2,
+        #         )
+        # cv2.imshow("points", image)
+        # cv2.waitKey(0)
+
         scoreboard = Scoreboard(
             src_pts=selected_points,
-            dest_width=500,
-            dest_height=200,
+            dest_width=700,
+            dest_height=300,
             dtype=(
                 image_tensor.dtype
                 if torch.is_floating_point(image_tensor)

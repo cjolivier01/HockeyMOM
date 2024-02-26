@@ -7,16 +7,7 @@ import torch
 
 from sklearn.cluster import KMeans
 
-from screeninfo import get_monitors
-
-from hmlib.utils.image import image_width
-
-
-def get_complete_monitor_width():
-    width = 0
-    for monitor in get_monitors():
-        width += monitor.width
-    return width
+from hmlib.utils.image import image_width , get_complete_monitor_width
 
 
 def tlwhs_to_tlbrs(tlwhs):

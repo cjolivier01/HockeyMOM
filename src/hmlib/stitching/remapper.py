@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from hmlib.stitching.synchronize import get_image_geo_position
 from hmlib.hm_opts import hm_opts
 from hmlib.video_stream import VideoStreamReader
-from hmlib.video_out import make_visible_image
+from hmlib.utils.image import make_visible_image
 
 # from hmlib.async_worker import AsyncWorker
 

@@ -22,9 +22,9 @@ from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.camera.moving_box import MovingBox
-from hmlib.video_out import ImageProcData, VideoOutput, make_visible_image
+from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.clusters import ClusterMan
-from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.utils.image import ImageHorizontalGaussianDistribution, make_visible_image
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.config import get_nested_value
 
