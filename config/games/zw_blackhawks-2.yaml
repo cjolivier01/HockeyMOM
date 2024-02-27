@@ -106,6 +106,8 @@ game:
   tracking:
     cam_ignore_largest: true
   camera:
+    follower_box_scale_width: 1.5
+    follower_box_scale_height: 1.5
     breakaway_detection:
       group_velocity_speed_ratio: 0.2
       scale_speed_constraints: 1.5
