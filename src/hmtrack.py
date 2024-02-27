@@ -776,13 +776,13 @@ if __name__ == "__main__":
     game_config["initial_args"] = vars(args)
     if args.tracker is None:
         args.tracker = get_nested_value(game_config, "model.tracker.type")
-
-    game_config = update_config(
-        root_dir=ROOT_DIR,
-        baseline_config=game_config,
-        config_type="models",
-        config_name="tracker_" + args.tracker,
-    )
+    elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
+        game_config = update_config(
+            root_dir=ROOT_DIR,
+            baseline_config=game_config,
+            config_type="models",
+            config_name="tracker_" + args.tracker,
+        )
     # horrifyingly hacky dealing with conflicting arguments of different trackers
     if args.tracker == "centertrack":
         opts = centertrack_opts.opts(parser=make_parser())

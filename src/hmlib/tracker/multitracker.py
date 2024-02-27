@@ -208,7 +208,7 @@ class JDETracker(object):
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
 
         self.kalman_filter = KalmanFilter()
-        
+
         self.jit_detect = None
 
     def post_process(self, dets, meta):
