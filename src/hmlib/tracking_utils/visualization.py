@@ -7,7 +7,7 @@ import torch
 
 from sklearn.cluster import KMeans
 
-from hmlib.utils.image import image_width , get_complete_monitor_width
+from hmlib.utils.image import image_width, get_complete_monitor_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -55,7 +55,7 @@ def plot_rectangle(
         return plot_torch_rectangle(
             image_tensor=img,
             tlbr=box,
-            color=color,
+            color=normalize_color(img, color),
             thickness=thickness,
             label=label,
             text_scale=text_scale,
@@ -68,7 +68,7 @@ def plot_rectangle(
         img,
         intbox[0:2],
         intbox[2:4],
-        color=color,
+        color=normalize_color(img, color),
         thickness=thickness,
     )
 
@@ -86,6 +86,16 @@ def plot_rectangle(
     return img
 
 
+def normalize_color(img, color):
+    if isinstance(img, np.ndarray):
+        if img.dtype != np.uint8:
+            color = [float(i) / 255.0 for i in color]
+    elif isinstance(img, torch.Tensor):
+        if torch.is_floating_point(img):
+            color = [float(i) / 255.0 for i in color]
+    return color
+
+
 def plot_alpha_rectangle(
     img,
     box: List[int],
@@ -99,12 +109,22 @@ def plot_alpha_rectangle(
         return plot_rectangle(img, box, color, thickness, label, text_scale)
     intbox = [int(i) for i in box]
 
-    # Create a mask and draw the rectangle
-
     # TODO: Do just a small portion, like how the watermark is done
 
+    img = to_cv2(img)
+
+    if img.dtype == np.float:
+        color = [float(i) / 255.0 for i in color]
+
     mask = np.copy(img)
-    cv2.rectangle(mask, intbox[0:2], intbox[2:4], color=color, thickness=cv2.FILLED)
+
+    cv2.rectangle(
+        mask,
+        intbox[0:2],
+        intbox[2:4],
+        color=normalize_color(img, color),
+        thickness=cv2.FILLED,
+    )
 
     alpha = float(opacity_percent) / 100
     # Blend the mask with the original imagealpha =
@@ -204,7 +224,11 @@ def _to_int(vals):
 def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
     img = to_cv2(img)
     cv2.line(
-        img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
+        img,
+        _to_int(src_point),
+        _to_int(dest_point),
+        color=normalize_color(img, color),
+        thickness=thickness,
     )
     return img
 
@@ -214,7 +238,11 @@ def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
     cv2.circle(
-        img, [x, y], radius=int((thickness + 1) // 2), color=color, thickness=thickness
+        img,
+        [x, y],
+        radius=int((thickness + 1) // 2),
+        color=normalize_color(img, color),
+        thickness=thickness,
     )
     return img
 
@@ -368,7 +396,11 @@ def plot_tracking(
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
         cv2.rectangle(
-            im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness
+            im,
+            intbox[0:2],
+            intbox[2:4],
+            color=normalize_color(im, color),
+            thickness=line_thickness,
         )
         if print_track_id:
             id_text = "{}".format(int(obj_id))
