@@ -18,7 +18,7 @@ from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import (
     StreamTensor,
     # StreamTensorToDtype,
-    # StreamTensorToDevice,
+    StreamTensorToDevice,
     CachedIterator,
 )
 from hmlib.video_out import quick_show
@@ -462,8 +462,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             # ):
             #     if original_img0.device.type == "cuda":
             #         # print("Warning: original image is on a different cuda device")
-            #         original_img0 = original_img0.to("cpu", non_blocking=True)
-            #         StreamTensorToDevice(
+            #         original_img0 = StreamTensorToDevice(
             #             tensor=original_img0,
             #             device=self._device_for_original_image,
             #         )
