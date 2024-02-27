@@ -224,6 +224,7 @@ class StreamTensor(StreamTensorBase):
 
     def permute(self, *args):
         self._set_ref(self.ref().permute(*args))
+        return self
 
     def to(self, *args, **kwargs):
         assert False and "Not implemented"
