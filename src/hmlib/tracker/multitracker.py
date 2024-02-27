@@ -208,6 +208,8 @@ class JDETracker(object):
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
 
         self.kalman_filter = KalmanFilter()
+        
+        self.jit_detect = None
 
     def post_process(self, dets, meta):
         # Data loader will perform an efficient transformation since it has all of the correct info
@@ -309,10 +311,16 @@ class JDETracker(object):
             "out_width": inp_width // self.opt.down_ratio,
         }
 
+        # if self.jit_detect is None:
+        #     #self.jit_detect = torch.jit.script(self.model)
+        #     self.jit_detect = torch.jit.trace(self.model, example_inputs=im_blob, strict=False)
+        #     self.model = self.jit_detect
+
         """ Step 1: Network forward, get detections & embeddings"""
         start_model = time.time()
         with torch.no_grad():
             output = self.model(im_blob)[-1]
+            #output = self.model(im_blob)
             hm = output["hm"].sigmoid_()
             wh = output["wh"]
             id_feature = output["id"]
