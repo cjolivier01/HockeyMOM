@@ -146,3 +146,8 @@ rink:
       # When over-shooting the breakaway players, what scale do we apply
       # to the current speed each frame in order to slow it down?
       overshoot_scale_speed_ratio: 0.6
+
+model:
+  tracker:
+    type: fair
+    conf_thres: 0.3
