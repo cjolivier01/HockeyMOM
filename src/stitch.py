@@ -14,7 +14,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
-from hmlib.utils.gpu import StreamTensor, GpuAllocator
+from hmlib.utils.gpu import StreamTensor, GpuAllocator, CachedIterator
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.synchronize import (
@@ -59,6 +59,7 @@ def stitch_videos(
     remapping_device: torch.device = torch.device("cuda", 0),
     encoder_device: torch.device = torch.device("cpu"),
     remap_on_async_stream: bool = True,
+    ignore_clip_box: bool = True,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -88,13 +89,20 @@ def stitch_videos(
         num_workers=1,
         remap_thread_count=1,
         blend_thread_count=1,
+        max_input_queue_size=6,
         fork_workers=False,
-        image_roi=get_clip_box(game_id=game_id, root_dir=ROOT_DIR),
+        image_roi=(
+            get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
+            if not ignore_clip_box
+            else None
+        ),
         encoder_device=encoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
     )
+
+    data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=4)
 
     try:
 
@@ -102,9 +110,10 @@ def stitch_videos(
         start = None
 
         dataset_timer = Timer()
-        for i, stitched_image in enumerate(data_loader):
+        for i, stitched_image in enumerate(data_loader_iter):
 
             if isinstance(stitched_image, StreamTensor):
+                stitched_image._verbose = False
                 stitched_image = stitched_image.get()
 
             if i > 1:
@@ -282,6 +291,7 @@ def main(args):
                 output_stitched_video_file=args.output_file,
                 blend_mode=args.blend_mode,
                 remap_on_async_stream=False,
+                ignore_clip_box=True,
                 remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
                 encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
             )
