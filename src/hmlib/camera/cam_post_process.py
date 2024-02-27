@@ -180,7 +180,7 @@ class DefaultArguments(core.HMPostprocessConfig):
             self.game_config, "game.boundaries.scale_width", 1.0
         )
         boundary_scale_height = get_nested_value(
-            self.game_config, "game.boundaries.scale_width", 1.0
+            self.game_config, "game.boundaries.scale_height", 1.0
         )
         if self.top_border_lines and upper_tune_position:
             for i in range(len(self.top_border_lines)):
