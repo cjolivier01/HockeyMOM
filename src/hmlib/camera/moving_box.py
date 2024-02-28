@@ -28,9 +28,9 @@ from hmlib.utils.box_functions import (
 )
 
 
-class BasicBox:  # (torch.nn.Module):
+class BasicBox: #(torch.nn.Module):
     def __init__(self, bbox: torch.Tensor, device: str = None):
-        # super(BasicBox, self).__init__()
+        #super(BasicBox, self).__init__()
         self.device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self.device

@@ -716,14 +716,13 @@ class CamTrackPostProcessor(torch.nn.Module):
                 thickness=5,
                 device=self._device,
             )
-            # self._current_roi.eval()
+            #self._current_roi.eval()
 
             size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
             size_stick_size = size_unstick_size / 3
 
             self._current_roi_aspect = MovingBox(
                 label="AspectRatio",
-                # bbox=self._current_roi,
                 bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
                 max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,

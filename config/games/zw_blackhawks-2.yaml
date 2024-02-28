@@ -11,6 +11,16 @@ rink:
       - 230
     projected_height: 100
     projected_width: 350
+
+  camera:
+    follower_box_scale_width: 1.5
+    follower_box_scale_height: 1.5
+    breakaway_detection:
+      group_velocity_speed_ratio: 0.2
+      scale_speed_constraints: 1.5
+      nonstop_delay_count: 2
+      overshoot_scale_speed_ratio: 0.6
+
 game:
   boundaries:
     upper:
@@ -105,11 +115,3 @@ game:
       - 770
   tracking:
     cam_ignore_largest: true
-  camera:
-    follower_box_scale_width: 1.5
-    follower_box_scale_height: 1.5
-    breakaway_detection:
-      group_velocity_speed_ratio: 0.2
-      scale_speed_constraints: 1.5
-      nonstop_delay_count: 2
-      overshoot_scale_speed_ratio: 0.6
