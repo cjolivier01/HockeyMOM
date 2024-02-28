@@ -704,7 +704,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             start_box = current_box
             self._current_roi = MovingBox(
                 label="Current ROI",
-                bbox=start_box,
+                bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
                 max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
                 max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
@@ -723,7 +723,8 @@ class CamTrackPostProcessor(torch.nn.Module):
 
             self._current_roi_aspect = MovingBox(
                 label="AspectRatio",
-                bbox=self._current_roi,
+                # bbox=self._current_roi,
+                bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
                 max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
                 max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
@@ -755,20 +756,29 @@ class CamTrackPostProcessor(torch.nn.Module):
                 color=(255, 0, 255),
                 thickness=5,
                 device=self._device,
-                min_height=self._hockey_mom._video_frame.height/5,
+                min_height=self._hockey_mom._video_frame.height / 5,
             )
-            self._current_roi = iter(self._current_roi)
-            self._current_roi_aspect = iter(self._current_roi_aspect)
+            # self._current_roi = iter(self._current_roi)
+            # self._current_roi_aspect = iter(self._current_roi_aspect)
             # self._current_roi_aspect.eval()
         else:
             # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-            self._current_roi.forward(current_box, stop_on_dir_change=False)
+            # self._current_roi.forward(current_box, stop_on_dir_change=False)
+            pass
 
-        self._current_roi = next(self._current_roi)
-        self._current_roi_aspect = next(self._current_roi_aspect)
+        # self._current_roi = next(self._current_roi)
+        # self._current_roi_aspect = next(self._current_roi_aspect)
+
+        current_box = self._current_roi.forward(current_box, stop_on_dir_change=False)
+        current_box = self._current_roi_aspect.forward(
+            current_box, stop_on_dir_change=True
+        )
+
         if self._args.plot_moving_boxes:
             online_im = self._current_roi_aspect.draw(
-                img=online_im, draw_threasholds=True
+                img=online_im,
+                draw_threasholds=True,
+                following_box=self._current_roi,
             )
             online_im = self._current_roi.draw(img=online_im)
             online_im = vis.plot_line(

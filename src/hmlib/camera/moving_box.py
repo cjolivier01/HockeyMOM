@@ -113,14 +113,19 @@ class ResizingBox(BasicBox):
 
         self._size_is_frozen = True
 
-    def draw(self, img: np.array, draw_threasholds: bool = True):
+    def draw(
+        self,
+        img: np.array,
+        draw_threasholds: bool = True,
+        following_box: BasicBox = None,
+    ):
         if self._sticky_sizing:
-            assert self._following_box is not None  # why?
+            assert following_box is not None  # why?
             my_bbox = self.bounding_box()
             center_tensor = center(my_bbox)
             my_width = width(my_bbox)
             my_height = height(my_bbox)
-            following_bbox = self._following_box.bounding_box()
+            following_bbox = following_box.bounding_box()
             # dashed box representing the following box inscribed at our center
 
             if self._size_is_frozen:
@@ -227,18 +232,16 @@ class ResizingBox(BasicBox):
         if use_constraints:
             self._clamp_resizing()
 
-    def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
+    def set_destination(self, dest_box: torch.Tensor):
         self._set_destination_size(
             dest_width=width(dest_box),
             dest_height=height(dest_box),
-            stop_on_dir_change=stop_on_dir_change,
         )
 
     def _set_destination_size(
         self,
         dest_width: torch.Tensor,
         dest_height: torch.Tensor,
-        stop_on_dir_change: bool = True,
     ):
         bbox = self.bounding_box()
         current_w = width(bbox)
@@ -260,7 +263,6 @@ class ResizingBox(BasicBox):
         # BEGIN size threshhold
         #
         if self._sticky_sizing:
-            assert self._following_box is not None  # why?
 
             grow_width, grow_height, shrink_width, shrink_height = (
                 self._get_grow_wh_and_shrink_wh(bbox=bbox)
@@ -394,12 +396,15 @@ class MovingBox(ResizingBox):
             [1, 1, -1, -1], dtype=torch.float32, device=self.device
         )
 
-        if isinstance(bbox, BasicBox):
-            self._following_box = bbox
-            bbox = self._following_box.bounding_box()
-        else:
-            self._following_box = None
-            self._size_is_frozen = False
+        # if isinstance(bbox, BasicBox):
+        #     self._following_box = bbox
+        #     bbox = self._following_box.bounding_box()
+        # else:
+        #     self._following_box = None
+        #     self._size_is_frozen = False
+
+        # self._following_box = None
+        self._size_is_frozen = False
 
         self._scale_width = (
             self._one_float_tensor if scale_width is None else scale_width
@@ -481,8 +486,15 @@ class MovingBox(ResizingBox):
         zl = torch.sqrt(torch.square(width(bbox) + torch.square(height(bbox))))
         return zl
 
-    def draw(self, img: np.array, draw_threasholds: bool = False):
-        super().draw(img=img, draw_threasholds=draw_threasholds)
+    def draw(
+        self,
+        img: np.array,
+        draw_threasholds: bool = False,
+        following_box: BasicBox = None,
+    ):
+        super().draw(
+            img=img, draw_threasholds=draw_threasholds, following_box=following_box
+        )
         draw_box = self.bounding_box()
         img = vis.plot_rectangle(
             img,
@@ -513,8 +525,8 @@ class MovingBox(ResizingBox):
                 color=(255, 0, 255),
                 thickness=3,
             )
-            if self._following_box is not None:
-                following_bbox = self._following_box.bounding_box()
+            if following_box is not None:
+                following_bbox = following_box.bounding_box()
                 following_bbox_center = center(following_bbox)
                 # dashed box representing the following box inscribed at our center
 
@@ -794,28 +806,28 @@ class MovingBox(ResizingBox):
             scale_constraints=1.0,
         )
 
-        super(MovingBox, self).set_destination(
-            dest_box=dest_box,
-            stop_on_dir_change=stop_on_dir_change,
-        )
+        super(MovingBox, self).set_destination(dest_box=dest_box)
 
     def forward(self, dest_box: torch.Tensor, stop_on_dir_change: bool):
-        return self.set_destination(
-            dest_box=dest_box, stop_on_dir_change=stop_on_dir_change
-        )
+        if self._scale_width is not None or self._scale_height is not None:
+            dest_box = scale_box(
+                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+            )
+        self.set_destination(dest_box=dest_box, stop_on_dir_change=stop_on_dir_change)
+        return self.next_position()
 
     def next_position(self):
         # if arena_box is None:
         arena_box = self._arena_box
-        if self._following_box is not None:
-            dest_box = self._following_box.bounding_box()
-            dest_box = scale_box(
-                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
-            )
-            self.set_destination(
-                dest_box=dest_box,
-                stop_on_dir_change=True,
-            )
+        # if self._following_box is not None:
+        #     dest_box = self._following_box.bounding_box()
+        #     dest_box = scale_box(
+        #         dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+        #     )
+        #     self.set_destination(
+        #         dest_box=dest_box,
+        #         stop_on_dir_change=True,
+        #     )
 
         # BEGIN Sticky Translation
         if self._translation_is_frozen and not self.is_nonstop():
@@ -937,12 +949,12 @@ class MovingBox(ResizingBox):
     def is_nonstop(self):
         return self._nonstop_delay != self._zero
 
-    def __iter__(self):
-        return self
+    # def __iter__(self):
+    #     return self
 
-    def __next__(self):
-        self.next_position()
-        return self
+    # def __next__(self):
+    #     self.next_position()
+    #     return self
 
     @property
     def bbox(self):
