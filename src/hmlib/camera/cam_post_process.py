@@ -758,20 +758,12 @@ class CamTrackPostProcessor(torch.nn.Module):
                 device=self._device,
                 min_height=self._hockey_mom._video_frame.height / 5,
             )
-            # self._current_roi = iter(self._current_roi)
-            # self._current_roi_aspect = iter(self._current_roi_aspect)
-            # self._current_roi_aspect.eval()
-        else:
-            # self._current_roi.set_destination(current_box, stop_on_dir_change=False)
-            # self._current_roi.forward(current_box, stop_on_dir_change=False)
-            pass
 
-        # self._current_roi = next(self._current_roi)
-        # self._current_roi_aspect = next(self._current_roi_aspect)
-
-        current_box = self._current_roi.forward(current_box, stop_on_dir_change=False)
+        fast_roi_bounding_box = self._current_roi.forward(
+            current_box, stop_on_dir_change=False
+        )
         current_box = self._current_roi_aspect.forward(
-            current_box, stop_on_dir_change=True
+            fast_roi_bounding_box, stop_on_dir_change=True
         )
 
         if self._args.plot_moving_boxes:
@@ -783,7 +775,7 @@ class CamTrackPostProcessor(torch.nn.Module):
             online_im = self._current_roi.draw(img=online_im)
             online_im = vis.plot_line(
                 online_im,
-                center(self._current_roi.bbox),
+                center(fast_roi_bounding_box),
                 center(current_box),
                 color=(255, 255, 255),
                 thickness=2,

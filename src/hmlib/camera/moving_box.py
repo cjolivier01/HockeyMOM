@@ -949,17 +949,6 @@ class MovingBox(ResizingBox):
     def is_nonstop(self):
         return self._nonstop_delay != self._zero
 
-    # def __iter__(self):
-    #     return self
-
-    # def __next__(self):
-    #     self.next_position()
-    #     return self
-
-    @property
-    def bbox(self):
-        return self._bbox
-
 
 def different_directions(d1: torch.Tensor, d2: torch.Tensor):
     return torch.sign(d1) * torch.sign(d2) < 0
