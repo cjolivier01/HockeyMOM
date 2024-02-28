@@ -753,8 +753,11 @@ class VideoOutput:
                             scoreboard_img.to(torch.float, non_blocking=True) / 255.0
                         )
                     online_im[:, : scoreboard.height, : scoreboard.width, :] = (
-                        scoreboard_img[:, scoreboard.height, : scoreboard.width, :]
+                        scoreboard_img
                     )
+                    # online_im[:, : scoreboard.height, : scoreboard.width, :] = (
+                    #     scoreboard_img[:, scoreboard.height, : scoreboard.width, :]
+                    # )
 
                 #
                 # Watermark

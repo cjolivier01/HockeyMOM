@@ -124,7 +124,6 @@ class Scoreboard(torch.nn.Module):
             self._bbox_src[1] : self._bbox_src[3],
             self._bbox_src[0] : self._bbox_src[2],
         ]
-
         # cv2.imshow("src_image", make_visible_image(src_image[0]))
         # cv2.waitKey(0)
 
@@ -132,7 +131,7 @@ class Scoreboard(torch.nn.Module):
             src_image, self._grid, mode="bilinear", fill=None
         )
 
-        #warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
+        warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
         return warped_image
 
     @property
