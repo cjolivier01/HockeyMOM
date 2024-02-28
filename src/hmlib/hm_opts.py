@@ -50,7 +50,7 @@ class hm_opts(object):
             "--decoder",
             "--video-stream-decode-method",
             dest="video_stream_decode_method",
-            # default="ffmpeg",
+            #default="ffmpeg",
             default="cv2",
             type=str,
             help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",

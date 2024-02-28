@@ -387,10 +387,9 @@ class VideoOutput:
             counter = 0
             while self._imgproc_queue.qsize() > self._max_queue_backlog:
                 counter += 1
-                if counter % 100 == 0:
+                if counter % 10 == 0:
                     print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
-                time.sleep(0.01)
-            # torch.cuda.current_stream(img_proc_data.img.device).synchronize()
+                time.sleep(0.001)
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
@@ -530,19 +529,13 @@ class VideoOutput:
 
         last_frame_id = None
 
-        # seen_frames = set()
         while True:
             batch_count += 1
             imgproc_data = self._imgproc_queue.get()
             if imgproc_data is None:
                 break
-            # frame_id = imgproc_data.frame_id
-            # assert frame_id not in seen_frames
-            # seen_frames.add(frame_id)
 
             timer.tic()
-
-            # torch.cuda.synchronize()
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
@@ -553,8 +546,6 @@ class VideoOutput:
             else:
                 assert frame_id == last_frame_id + 1
                 last_frame_id = frame_id
-
-            # torch.cuda.synchronize()
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
@@ -584,14 +575,6 @@ class VideoOutput:
 
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
             batch_size = online_im.size(0)
-
-            # torch.cuda.synchronize()
-            # if cuda_stream is None and (
-            #     online_im.device.type == "cuda"
-            #     or self._device.type == "cuda"
-            #     or "nvenc" in self._fourcc
-            # ):
-            #     cuda_stream = torch.cuda.Stream(device=self._device)
 
             with optional_with(
                 torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
@@ -813,9 +796,6 @@ class VideoOutput:
                     if prev_device is not None and online_im.device != prev_device:
                         online_im = online_im.to(prev_device, non_blocking=True)
 
-                # if plot_interias:
-                #     vis.plot_kmeans_intertias(hockey_mom=self._hockey_mom)
-
                 # Output (and maybe show) the final image
                 if (
                     self.has_args()
@@ -841,7 +821,6 @@ class VideoOutput:
                 if cuda_stream is not None:
                     cuda_stream.synchronize()
 
-                # torch.cuda.synchronize()
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
@@ -873,10 +852,6 @@ class VideoOutput:
                         )
                     )
                     timer = Timer()
-
-                # if frame_id > 300:
-                #     print("DONE AT LEAST FOR WRITER")
-                #     break
 
                 if True:
                     # Overall FPS
