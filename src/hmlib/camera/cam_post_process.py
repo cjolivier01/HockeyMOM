@@ -227,8 +227,10 @@ class CamTrackPostProcessor:
         async_post_processing: bool = False,
         use_fork: bool = False,
         video_out_device: str = None,
+        no_frame_postprocessing: bool = False,
     ):
         self._args = args
+        self._no_frame_postprocessing = no_frame_postprocessing
         self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
         self._queue = create_queue(mp=use_fork)
@@ -253,7 +255,7 @@ class CamTrackPostProcessor:
         self._video_output_campp = None
         self._queue_timer = Timer()
         self._send_to_timer_post_process = Timer()
-
+        self._exception = None
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
             device=device,
@@ -288,6 +290,8 @@ class CamTrackPostProcessor:
     def send(
         self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
     ):
+        if self._exception is not None:
+            raise self._exception
         try:
             with TimeTracker(
                 "Send to cam post process queue",
@@ -332,14 +336,14 @@ class CamTrackPostProcessor:
         try:
             self._postprocess_frame_worker()
         except Exception as ex:
+            self._exception = ex
             print(ex)
             traceback.print_exc()
             raise
+        finally:
+            self._video_output_campp.stop()
 
     def _postprocess_frame_worker(self):
-        self._center_dx_shift = 0
-        timer = Timer()
-
         if self._args.crop_output_image:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = (
@@ -355,46 +359,47 @@ class CamTrackPostProcessor:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
 
-        assert self._video_output_campp is None
-        output_video_path = self._args._output_video_path
-        if output_video_path is None:
-            output_video_path = (
-                os.path.join(self._save_dir, "tracking_output.mkv")
-                if self._save_dir is not None
-                else None
-            )
-        self._video_output_campp = VideoOutput(
-            name="TRACKING",
-            args=self._args,
-            output_video_path=output_video_path,
-            fps=self._fps,
-            use_fork=False,
-            start=False,
-            output_frame_width=self.final_frame_width,
-            output_frame_height=self.final_frame_height,
-            save_frame_dir=self._save_frame_dir,
-            original_clip_box=self._original_clip_box,
-            watermark_image_path=(
-                os.path.realpath(
-                    os.path.join(
-                        os.path.dirname(os.path.realpath(__file__)),
-                        "..",
-                        "..",
-                        "..",
-                        "images",
-                        "sports_ai_watermark.png",
-                    )
+        if not self._no_frame_postprocessing:
+            assert self._video_output_campp is None
+            output_video_path = self._args._output_video_path
+            if output_video_path is None:
+                output_video_path = (
+                    os.path.join(self._save_dir, "tracking_output.mkv")
+                    if self._save_dir is not None
+                    else None
                 )
-                if self._args.use_watermark
-                else None
-            ),
-            device=self._video_out_device,
-            skip_final_save=self._args.skip_final_video_save,
-            image_channel_adjustment=self._args.game_config["rink"]["camera"][
-                "image_channel_adjustment"
-            ],
-        )
-        self._video_output_campp.start()
+            self._video_output_campp = VideoOutput(
+                name="TRACKING",
+                args=self._args,
+                output_video_path=output_video_path,
+                fps=self._fps,
+                use_fork=False,
+                start=False,
+                output_frame_width=self.final_frame_width,
+                output_frame_height=self.final_frame_height,
+                save_frame_dir=self._save_frame_dir,
+                original_clip_box=self._original_clip_box,
+                watermark_image_path=(
+                    os.path.realpath(
+                        os.path.join(
+                            os.path.dirname(os.path.realpath(__file__)),
+                            "..",
+                            "..",
+                            "..",
+                            "images",
+                            "sports_ai_watermark.png",
+                        )
+                    )
+                    if self._args.use_watermark
+                    else None
+                ),
+                device=self._video_out_device,
+                skip_final_save=self._args.skip_final_video_save,
+                image_channel_adjustment=self._args.game_config["rink"]["camera"][
+                    "image_channel_adjustment"
+                ],
+            )
+            self._video_output_campp.start()
 
         while True:
             online_targets_and_img = self._queue.get()
