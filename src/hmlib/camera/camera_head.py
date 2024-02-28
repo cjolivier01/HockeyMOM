@@ -3,29 +3,13 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import numpy as np
 import torch
-import cv2
-
-# from PIL import Image
 
 from typing import Dict, List
 
-from yolox.evaluators.mot_evaluator import write_results_no_score, TrackingHead
-
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
-from hmlib.tracking_utils.evaluation import Evaluator
-from hmlib.tracking_utils.io import write_results, read_results, append_results
-import hmlib.datasets.dataset.jde as datasets
-
-from hmlib.tracking_utils.utils import mkdir_if_missing
-from hmlib.opts import opts
-
+from yolox.evaluators.mot_evaluator import TrackingHead
 from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.cam_post_process import (
-    CamTrackPostProcessor,
-)
+from hmlib.camera.cam_post_process import CamTrackPostProcessor
 
 
 def to_rgb_non_planar(image):
@@ -98,8 +82,6 @@ class CamTrackHead(TrackingHead):
         return self._data_type
 
     def filter_outputs(self, outputs: torch.Tensor, output_results):
-        # TODO: for batches, will be total length of N batches combined
-        # assert len(outputs) == len(output_results)
         return outputs, output_results
 
     def _maybe_init(
@@ -176,7 +158,7 @@ class CamTrackHead(TrackingHead):
                 save_dir=self._save_dir,
                 save_frame_dir=self._save_frame_dir,
                 device=device,
-                opt=self._opt,
+                #opt=self._opt,
                 original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
                 use_fork=self._use_fork,
