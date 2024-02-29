@@ -28,6 +28,8 @@ from yolox.utils import (
 from yolox.evaluators import MOTEvaluator
 from yolox.data import get_yolox_datadir
 
+from mmtrack.apis import inference_vid, init_model
+
 from hmlib.stitching.synchronize import configure_video_stitching
 
 if False:
@@ -56,6 +58,11 @@ import hmlib.datasets as datasets
 from hmlib.hm_opts import hm_opts, copy_opts
 from hmlib.utils.gpu import select_gpus
 from hmlib.video_stream import time_to_frame
+
+from hmlib.tracking_utils.timer import Timer
+from hmlib.config import get_nested_value
+from hmlib.utils.image import make_channels_last, make_channels_first
+from hmlib.utils.gpu import CachedIterator, StreamTensor
 
 ROOT_DIR = os.getcwd()
 
@@ -649,6 +656,7 @@ def main(exp, args, num_gpu):
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
 
+        # TODO: can this be part of the openmm pipeline?
         postprocessor = CamTrackHead(
             opt=args,
             args=cam_args,
@@ -723,6 +731,7 @@ def main(exp, args, num_gpu):
         eval_functions = {
             # "hm": {"function": evaluator.evaluate_hockeymom},
             # "mixsort": {"function": evaluator.evaluate_mixsort},
+            "mmtrack": {"function": run_mmtrack},
             "fair": {"function": evaluator.evaluate_fair},
             "centertrack": {"function": evaluator.evaluate_centertrack},
             "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
@@ -757,6 +766,113 @@ def main(exp, args, num_gpu):
                 dataloader.close()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
+
+
+def run_mmtrack(
+    model,
+    config: dict,
+    dataloader,
+    postprocessor,
+    distributed=False,
+    half=False,
+    trt_file=None,
+    decoder=None,
+    test_size=None,
+    result_folder=None,
+    evaluate: bool = False,
+    tracker_name="jde",
+    device: torch.device = None,
+):
+    assert model is None
+
+    dataloader_iterator = CachedIterator(iterator=iter(dataloader), cache_size=2)
+
+    get_timer = Timer()
+    detect_timer = None
+
+    last_frame_id = None
+
+    for cur_iter, (
+        origin_imgs,
+        letterbox_imgs,
+        _,
+        info_imgs,
+        _,
+    ) in enumerate(dataloader_iterator):
+        # info_imgs is 4 scalar tensors: height, width, frame_id, video_id
+        with torch.no_grad():
+            # init tracker
+            frame_id = info_imgs[2][0]
+
+            batch_size = origin_imgs.shape[0]
+
+            if last_frame_id is None:
+                last_frame_id = int(frame_id)
+            else:
+                assert int(frame_id) == last_frame_id + batch_size
+                last_frame_id = int(frame_id)
+
+            video_id = info_imgs[3][0].item()
+            img_file_name = info_imgs[4]
+            video_name = img_file_name[0].split("/")[-1]
+            batch_size = letterbox_imgs.shape[0]
+
+            if isinstance(letterbox_imgs, StreamTensor):
+                get_timer.tic()
+                letterbox_imgs = letterbox_imgs.get()
+                get_timer.toc()
+            else:
+                get_timer = None
+
+            if detect_timer is None:
+                detect_timer = Timer()
+
+            detect_timer.tic()
+            # dets, id_feature = tracker.detect(
+            #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
+            #     make_channels_first(origin_imgs),
+            # )
+            detect_timer.toc()
+
+            del letterbox_imgs
+
+            for frame_index in range(len(origin_imgs)):
+                frame_id = info_imgs[2][frame_index]
+                detections = dets[frame_index]
+
+                online_tlwhs = []
+                online_ids = []
+                online_scores = []
+
+                for t in online_targets:
+                    tlwh = t.tlwh
+                    tid = t.track_id
+                    vertical = tlwh[2] / tlwh[3] > 1.6
+                    if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
+                        online_tlwhs.append(torch.from_numpy(tlwh))
+                        online_ids.append(tid)
+                        online_scores.append(t.score)
+                    else:
+                        print(f"Skipping target: tlwh={tlwh}")
+
+                if online_ids:
+                    online_ids = torch.tensor(online_ids, dtype=torch.int64)
+                    online_tlwhs = torch.stack(online_tlwhs)
+
+                if postprocessor is not None:
+                    if isinstance(origin_imgs, StreamTensor):
+                        origin_imgs = origin_imgs.get()
+                    detections, online_tlwhs = postprocessor.process_tracking(
+                        frame_id=frame_id,
+                        online_tlwhs=online_tlwhs,
+                        online_ids=online_ids,
+                        online_scores=online_scores,
+                        detections=detections,
+                        info_imgs=info_imgs,
+                        letterbox_img=None,
+                        original_img=origin_imgs[frame_index].unsqueeze(0),
+                    )
+            # end frame loop
 
 
 if __name__ == "__main__":
