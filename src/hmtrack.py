@@ -363,6 +363,11 @@ def find_stitched_file(dir_name: str, game_id: str):
     return None
 
 
+class FakeExp:
+    def __init__(self):
+        self.test_size = None
+
+
 def main(exp, args, num_gpu):
     dataloader = None
 
@@ -394,31 +399,35 @@ def main(exp, args, num_gpu):
         rank = args.local_rank
         # rank = get_local_rank()
 
-        file_name = os.path.join(exp.output_dir, args.experiment_name)
+        if exp is not None:
+            file_name = os.path.join(exp.output_dir, args.experiment_name)
+            if rank == 0:
+                os.makedirs(file_name, exist_ok=True)
+            results_folder = os.path.join(file_name, "track_results")
+            os.makedirs(results_folder, exist_ok=True)
 
-        if rank == 0:
-            os.makedirs(file_name, exist_ok=True)
+            setup_logger(
+                file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
+            )
+            # logger.info("Args: {}".format(args))
 
-        results_folder = os.path.join(file_name, "track_results")
-        os.makedirs(results_folder, exist_ok=True)
+            if args.conf is not None:
+                exp.test_conf = args.conf
+            if args.nms is not None:
+                exp.nmsthre = args.nms
 
-        setup_logger(file_name, distributed_rank=rank, filename="val_log.txt", mode="a")
-        # logger.info("Args: {}".format(args))
-
-        if args.conf is not None:
-            exp.test_conf = args.conf
-        if args.nms is not None:
-            exp.nmsthre = args.nms
-
-        if args.test_size:
-            assert args.tsize is None
-            tokens = args.test_size.split("x")
-            if len(tokens) == 1:
-                tokens = args.test_size.split("X")
-            assert len(tokens) == 2
-            exp.test_size = (to_32bit_mul(int(tokens[0])), to_32bit_mul(int(tokens[1])))
-        elif args.tsize is not None:
-            exp.test_size = (args.tsize, args.tsize)
+            if args.test_size:
+                assert args.tsize is None
+                tokens = args.test_size.split("x")
+                if len(tokens) == 1:
+                    tokens = args.test_size.split("X")
+                assert len(tokens) == 2
+                exp.test_size = (
+                    to_32bit_mul(int(tokens[0])),
+                    to_32bit_mul(int(tokens[1])),
+                )
+            elif args.tsize is not None:
+                exp.test_size = (args.tsize, args.tsize)
 
         game_config = args.game_config
 
@@ -443,7 +452,7 @@ def main(exp, args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
-        if tracker not in ["fair", "centertrack"]:
+        if tracker not in ["fair", "centertrack", "mmtrack"]:
             model = exp.get_model()
             logger.info(
                 "Model Summary: {}".format(get_model_info(model, exp.test_size))
@@ -499,6 +508,14 @@ def main(exp, args, num_gpu):
             gpus["encoder"] = torch.device("cuda", 1)
 
         torch.cuda.set_device(gpus["detection"].index)
+
+        if exp is None:
+            test_size = getattr(args, "test_size", None)
+            if not test_size:
+                test_size = (1088, 608)
+            exp = FakeExp()
+            exp.test_size = test_size
+            results_folder = "."  # FIXME
 
         dataloader = None
         postprocessor = None
@@ -629,7 +646,7 @@ def main(exp, args, num_gpu):
 
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
-                    img_size=exp.test_size,
+                    img_size=args.test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
@@ -672,86 +689,109 @@ def main(exp, args, num_gpu):
         )
         postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
-        evaluator = MOTEvaluator(
-            args=args,
-            dataloader=dataloader,
-            img_size=exp.test_size,
-            confthre=exp.test_conf,
-            nmsthre=exp.nmsthre,
-            num_classes=exp.num_classes,
-            postprocessor=postprocessor,
-        )
+        if not isinstance(exp, FakeExp):
+            evaluator = MOTEvaluator(
+                args=args,
+                dataloader=dataloader,
+                img_size=exp.test_size,
+                confthre=exp.test_conf,
+                nmsthre=exp.nmsthre,
+                num_classes=exp.num_classes,
+                postprocessor=postprocessor,
+            )
 
-        # torch.cuda.set_device(rank)
-        trt_file = None
-        decoder = None
-        if model is not None:
-            model = model.to(gpus["detection"])
-            # if args.game_id:
-            #     model.cuda(int(args.gpus[0]))
-            # else:
-            #     model.cuda(rank)
-            model.eval()
+            # torch.cuda.set_device(rank)
+            trt_file = None
+            decoder = None
+            if model is not None:
+                model = model.to(gpus["detection"])
+                # if args.game_id:
+                #     model.cuda(int(args.gpus[0]))
+                # else:
+                #     model.cuda(rank)
+                model.eval()
 
-            if not args.speed and not args.trt:
-                if args.load_model is None:
-                    ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
-                else:
-                    ckpt_file = args.load_model
-                logger.info("loading checkpoint")
-                loc = "cuda:{}".format(rank)
-                ckpt = torch.load(ckpt_file, map_location=loc)
-                # load the model state dict
-                if "model" in ckpt:
-                    model.load_state_dict(ckpt["model"])
-                # torch.jit.load()
-                logger.info("loaded checkpoint done.")
+                if not args.speed and not args.trt:
+                    if args.load_model is None:
+                        ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
+                    else:
+                        ckpt_file = args.load_model
+                    logger.info("loading checkpoint")
+                    loc = "cuda:{}".format(rank)
+                    ckpt = torch.load(ckpt_file, map_location=loc)
+                    # load the model state dict
+                    if "model" in ckpt:
+                        model.load_state_dict(ckpt["model"])
+                    # torch.jit.load()
+                    logger.info("loaded checkpoint done.")
 
-            if is_distributed:
-                model = DDP(model, device_ids=[rank])
+                if is_distributed:
+                    model = DDP(model, device_ids=[rank])
 
-            if args.fuse:
-                logger.info("\tFusing model...")
-                model = fuse_model(model)
+                if args.fuse:
+                    logger.info("\tFusing model...")
+                    model = fuse_model(model)
 
-            if args.trt:
-                assert (
-                    not args.fuse and not is_distributed and args.batch_size == 1
-                ), "TensorRT model is not support model fusing and distributed inferencing!"
-                trt_file = os.path.join(file_name, "model_trt.pth")
-                assert os.path.exists(
-                    trt_file
-                ), "TensorRT model is not found!\n Run tools/trt.py first!"
-                model.head.decode_in_inference = False
-                decoder = model.head.decode_outputs
+                if args.trt:
+                    assert (
+                        not args.fuse and not is_distributed and args.batch_size == 1
+                    ), "TensorRT model is not support model fusing and distributed inferencing!"
+                    trt_file = os.path.join(file_name, "model_trt.pth")
+                    assert os.path.exists(
+                        trt_file
+                    ), "TensorRT model is not found!\n Run tools/trt.py first!"
+                    model.head.decode_in_inference = False
+                    decoder = model.head.decode_outputs
+            else:
+                args.device = f"cuda:{rank}"
+
+            eval_functions = {
+                # "hm": {"function": evaluator.evaluate_hockeymom},
+                # "mixsort": {"function": evaluator.evaluate_mixsort},
+                "mmtrack": {"function": run_mmtrack},
+                "fair": {"function": evaluator.evaluate_fair},
+                "centertrack": {"function": evaluator.evaluate_centertrack},
+                "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
+                "sort": {"function": evaluator.evaluate_sort},
+                "ocsort": {"function": evaluator.evaluate_ocsort},
+                "byte": {"function": evaluator.evaluate_byte},
+                "deepsort": {"function": evaluator.evaluate_deepsort},
+                "motdt": {"function": evaluator.evaluate_motdt},
+            }
+
+            # start evaluate
+            args.device = gpus["detection"]
+
+            *_, summary = eval_functions[tracker]["function"](
+                model=model,
+                config=args.game_config,
+                distributed=is_distributed,
+                half=args.fp16,
+                trt_file=trt_file,
+                decoder=decoder,
+                test_size=exp.test_size,
+                result_folder=results_folder,
+                device=gpus["detection"],
+                **other_kwargs,
+            )
         else:
-            args.device = f"cuda:{rank}"
-        # start evaluate
-        args.device = gpus["detection"]
-        eval_functions = {
-            # "hm": {"function": evaluator.evaluate_hockeymom},
-            # "mixsort": {"function": evaluator.evaluate_mixsort},
-            "mmtrack": {"function": run_mmtrack},
-            "fair": {"function": evaluator.evaluate_fair},
-            "centertrack": {"function": evaluator.evaluate_centertrack},
-            "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
-            "sort": {"function": evaluator.evaluate_sort},
-            "ocsort": {"function": evaluator.evaluate_ocsort},
-            "byte": {"function": evaluator.evaluate_byte},
-            "deepsort": {"function": evaluator.evaluate_deepsort},
-            "motdt": {"function": evaluator.evaluate_motdt},
-        }
-        *_, summary = eval_functions[tracker]["function"](
-            model,
-            args.game_config,
-            is_distributed,
-            args.fp16,
-            trt_file,
-            decoder,
-            exp.test_size,
-            results_folder,
-            device=gpus["detection"],
-        )
+            other_kwargs = {
+                "dataloader": dataloader,
+                "postprocessor": postprocessor,
+            }
+
+            *_, summary = run_mmtrack(
+                model=model,
+                config=args.game_config,
+                #distributed=is_distributed,
+                #half=args.fp16,
+                #trt_file=trt_file,
+                #decoder=decoder,
+                test_size=exp.test_size,
+                #result_folder=results_folder,
+                device=gpus["detection"],
+                **other_kwargs,
+            )
         if not args.infer:
             logger.info("\n" + str(summary))
         logger.info("Completed")
@@ -773,19 +813,26 @@ def run_mmtrack(
     config: dict,
     dataloader,
     postprocessor,
-    distributed=False,
-    half=False,
-    trt_file=None,
-    decoder=None,
+    #distributed=False,
+    #half=False,
+    #trt_file=None,
+    #decoder=None,
     test_size=None,
-    result_folder=None,
-    evaluate: bool = False,
-    tracker_name="jde",
+    #result_folder=None,
+    #evaluate: bool = False,
+    #tracker_name=None,
     device: torch.device = None,
+    input_cache_size: int = 2,
 ):
     assert model is None
 
-    dataloader_iterator = CachedIterator(iterator=iter(dataloader), cache_size=2)
+    args.config = args.exp_file
+    args.checkpoint = None
+    model = init_model(args.config, args.checkpoint, device=device)
+
+    dataloader_iterator = CachedIterator(
+        iterator=iter(dataloader), cache_size=input_cache_size
+    )
 
     get_timer = Timer()
     detect_timer = None
@@ -832,6 +879,7 @@ def run_mmtrack(
             #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
             #     make_channels_first(origin_imgs),
             # )
+            result = inference_vid(model, letterbox_imgs, frame_id=frame_id)
             detect_timer.toc()
 
             del letterbox_imgs
@@ -916,6 +964,10 @@ if __name__ == "__main__":
         args = hm_opts.init(args)
         exp = get_exp(args.exp_file, args.name)
         # exp.merge(args.opts) # seems to do nothing
+    elif args.tracker == "mmtrack":
+        args.game_config = game_config
+        args = hm_opts.init(args)
+        exp = None
     else:
         args.game_config = game_config
         args = hm_opts.init(args)

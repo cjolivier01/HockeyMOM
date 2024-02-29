@@ -405,10 +405,11 @@ class CamTrackPostProcessor:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-
-            frame_id, online_im, current_box = self._play_tracker.forward(
-                online_targets_and_img=online_targets_and_img
-            )
+            
+            with torch.no_grad():
+                frame_id, online_im, current_box = self._play_tracker.forward(
+                    online_targets_and_img=online_targets_and_img
+                )
 
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
