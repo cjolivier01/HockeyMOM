@@ -513,8 +513,11 @@ def main(exp, args, num_gpu):
             test_size = getattr(args, "test_size", None)
             if not test_size:
                 test_size = (1088, 608)
+            else:
+                test_size = [int(test_size.split("x")[0]), int(test_size.split("x")[1])]
             exp = FakeExp()
             exp.test_size = test_size
+            args.test_size = exp.test_size
             results_folder = "."  # FIXME
 
         dataloader = None
@@ -783,12 +786,12 @@ def main(exp, args, num_gpu):
             *_, summary = run_mmtrack(
                 model=model,
                 config=args.game_config,
-                #distributed=is_distributed,
-                #half=args.fp16,
-                #trt_file=trt_file,
-                #decoder=decoder,
+                # distributed=is_distributed,
+                # half=args.fp16,
+                # trt_file=trt_file,
+                # decoder=decoder,
                 test_size=exp.test_size,
-                #result_folder=results_folder,
+                # result_folder=results_folder,
                 device=gpus["detection"],
                 **other_kwargs,
             )
@@ -813,14 +816,14 @@ def run_mmtrack(
     config: dict,
     dataloader,
     postprocessor,
-    #distributed=False,
-    #half=False,
-    #trt_file=None,
-    #decoder=None,
+    # distributed=False,
+    # half=False,
+    # trt_file=None,
+    # decoder=None,
     test_size=None,
-    #result_folder=None,
-    #evaluate: bool = False,
-    #tracker_name=None,
+    # result_folder=None,
+    # evaluate: bool = False,
+    # tracker_name=None,
     device: torch.device = None,
     input_cache_size: int = 2,
 ):
