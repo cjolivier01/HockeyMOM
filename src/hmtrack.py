@@ -882,7 +882,7 @@ def run_mmtrack(
             #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
             #     make_channels_first(origin_imgs),
             # )
-            result = inference_vid(model, letterbox_imgs, frame_id=frame_id)
+            result = inference_vid(model, letterbox_imgs.cpu().numpy(), frame_id=frame_id)
             detect_timer.toc()
 
             del letterbox_imgs
