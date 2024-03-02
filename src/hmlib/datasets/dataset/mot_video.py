@@ -397,7 +397,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._data_pipeline is not None:
                 original_img0 = img0
                 data = dict(
-                    img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
+                    #img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
+                    img=make_channels_last(original_img0.squeeze(0)),
                     img_info=dict(frame_id=ids[0]),
                     img_prefix=None,
                 )

@@ -35,6 +35,7 @@ START_FRAME=0
 
 #TRACKER="--tracker=centertrack"
 #TRACKER="--tracker=fair"
+TRACKER="--tracker=mmtrack"
 #BATCH_SIZE=32
 #BATCH_SIZE=16
 #BATCH_SIZE=16
