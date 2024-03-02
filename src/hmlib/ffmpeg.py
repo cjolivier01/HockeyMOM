@@ -43,7 +43,7 @@ class BasicVideoInfo:
             self.height = sz[1]
             self.bitrate = self._ffstream.bitrate()
             self.codec = self._ffstream.codecTag()
-            self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+            #self.fourcc = fourcc_to_int(self._ffstream.codecTag())
         else:
             cap = cv2.VideoCapture(video_file)
             if not cap.isOpened():
