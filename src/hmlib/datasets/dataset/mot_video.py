@@ -7,6 +7,8 @@ from typing import List, Tuple
 import cv2
 import torch
 
+from mmdet.datasets.pipelines import Compose
+
 from yolox.data import MOTDataset
 from yolox.data.datasets.datasets_wrapper import Dataset
 
@@ -14,6 +16,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.utils import create_queue
+from hmlib.utils.image import make_channels_last
 from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import (
     StreamTensor,
@@ -70,6 +73,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         stream_tensors: bool = False,
         log_messages: bool = False,
         dtype: torch.dtype = None,
+        data_pipeline: Compose = None,
         # scale_rgb_down: bool = False,
         # output_type: torch.dtype = None
     ):
@@ -92,6 +96,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._decoder_device = decoder_device
         self._preproc = preproc
         self._dtype = dtype
+        self._data_pipeline = data_pipeline
         # self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
@@ -382,55 +387,67 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
 
-            if self.clip_original is not None:
-                if self.calculated_clip_box is None:
-                    self.calculated_clip_box = fix_clip_box(
-                        self.clip_original, [image_height(img0), image_width(img0)]
-                    )
-                if len(img0.shape) == 4:
-                    img0 = img0[
-                        :,
-                        :,
-                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                    ]
-                else:
-                    assert len(img0.shape) == 3
-                    img0 = img0[
-                        :,
-                        self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                        self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                    ]
+            # Does this need to be in imgs_info this way as an array?
+            ids = torch.tensor(
+                [int(self._next_frame_id + i) for i in range(len(img0))],
+                dtype=torch.int64,
+            )
+            self._next_frame_id += len(ids)
 
-            if not self._original_image_only:
+            if self._data_pipeline is not None:
                 original_img0 = img0
-                if not torch.is_floating_point(img0):
-                    img0 = img0.to(torch.float, non_blocking=ALL_NON_BLOCKING) / 255.0
-                img = self.make_letterbox_images(make_channels_first(img0))
+                data = dict(
+                    img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
+                    img_info=dict(frame_id=ids[0]),
+                    img_prefix=None,
+                )
+                data = self._data_pipeline(data)
+                img = data["img"][0]
             else:
-                original_img0 = img0
-                if self._dtype is not None and self._dtype != original_img0.dtype:
-                    was_fp = torch.is_floating_point(original_img0)
-                    original_img0 = original_img0.to(
-                        self._dtype, non_blocking=ALL_NON_BLOCKING
-                    )
-                    is_fp = torch.is_floating_point(original_img0)
-                    if not was_fp and is_fp:
-                        original_img0 /= 255.0
-                img = original_img0
+                if self.clip_original is not None:
+                    if self.calculated_clip_box is None:
+                        self.calculated_clip_box = fix_clip_box(
+                            self.clip_original, [image_height(img0), image_width(img0)]
+                        )
+                    if len(img0.shape) == 4:
+                        img0 = img0[
+                            :,
+                            :,
+                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        ]
+                    else:
+                        assert len(img0.shape) == 3
+                        img0 = img0[
+                            :,
+                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
+                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
+                        ]
+
+                if not self._original_image_only:
+                    original_img0 = img0
+                    if not torch.is_floating_point(img0):
+                        img0 = (
+                            img0.to(torch.float, non_blocking=ALL_NON_BLOCKING) / 255.0
+                        )
+                    img = self.make_letterbox_images(make_channels_first(img0))
+                else:
+                    original_img0 = img0
+                    if self._dtype is not None and self._dtype != original_img0.dtype:
+                        was_fp = torch.is_floating_point(original_img0)
+                        original_img0 = original_img0.to(
+                            self._dtype, non_blocking=ALL_NON_BLOCKING
+                        )
+                        is_fp = torch.is_floating_point(original_img0)
+                        if not was_fp and is_fp:
+                            original_img0 /= 255.0
+                    img = original_img0
 
             if self.width_t is None:
                 self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
                 self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
 
             original_img0 = make_channels_first(original_img0)
-
-            # Does this need to be in imgs_info this way as an array?
-            ids = torch.tensor(
-                [int(self._next_frame_id + i) for i in range(len(original_img0))],
-                dtype=torch.int64,
-            )
-            self._next_frame_id += len(ids)
 
             imgs_info = [
                 (
@@ -485,15 +502,20 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
             )
 
-        if self._original_image_only:
-            return original_img0, None, None, imgs_info, ids
-        else:
-            # img = img.to("cpu", non_blocking=True)
+        if self._data_pipeline is not None:
             if cuda_stream is not None:
                 img = StreamTensor(
                     tensor=img, stream=cuda_stream, event=torch.cuda.Event()
                 )
-            # return original_img0, img.to("cpu"), None, imgs_info, ids
+                data["img"][0] = img
+            return original_img0, data, None, imgs_info, ids
+        if self._original_image_only:
+            return original_img0, None, None, imgs_info, ids
+        else:
+            if cuda_stream is not None:
+                img = StreamTensor(
+                    tensor=img, stream=cuda_stream, event=torch.cuda.Event()
+                )
             return original_img0, img, None, imgs_info, ids
 
     def __next__(self):
