@@ -890,8 +890,8 @@ def run_mmtrack(
             #     make_channels_first(origin_imgs),
             # )
 
-            img = origin_imgs
-            # img = letterbox_imgs
+            # img = origin_imgs
+            img = letterbox_imgs
 
             assert img.shape[0] == 1
             img = make_channels_last(img.squeeze(0)).cpu().numpy()
