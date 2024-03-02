@@ -1,9 +1,9 @@
 game:
-  clip_box:
-  - 200
-  - 200
-  - null
-  - null
+  # clip_box:
+  # - 200
+  # - 200
+  # - null
+  # - null
   boundaries:
     upper:
     - - 145

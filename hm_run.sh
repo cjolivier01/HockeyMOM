@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EXPERIMENT_FILE="xmodels/mixsort/exps/example/mot/yolox_x_ch.py"
+#EXPERIMENT_FILE="xmodels/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Videos

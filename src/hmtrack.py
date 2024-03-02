@@ -6,6 +6,7 @@ import random
 import warnings
 import socket
 import numpy as np
+import logging 
 
 import traceback
 from pathlib import Path
@@ -863,6 +864,12 @@ def run_mmtrack(
     detect_timer = None
 
     last_frame_id = None
+    
+    handler = logging.StreamHandler(sys.stdout)
+    logger.setLevel(max(logger.level, logging.INFO))
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)    
+    logger.addHandler(handler)
 
     for cur_iter, (
         origin_imgs,
@@ -884,9 +891,7 @@ def run_mmtrack(
                 assert int(frame_id) == last_frame_id + batch_size
                 last_frame_id = int(frame_id)
 
-            video_id = info_imgs[3][0].item()
             img_file_name = info_imgs[4]
-            video_name = img_file_name[0].split("/")[-1]
             batch_size = origin_imgs.shape[0]
 
             if isinstance(data["img"][0], StreamTensor):
@@ -901,31 +906,20 @@ def run_mmtrack(
                 detect_timer = Timer()
 
             detect_timer.tic()
-            # dets, id_feature = tracker.detect(
-            #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
-            #     make_channels_first(origin_imgs),
-            # )
-
-            #img = origin_imgs
-            #img = letterbox_imgs
- 
-            # image_list = []
-            # for ii in img:
-            #     image_list.append(ii)
-            # image_list
-
-            #show_image("img", img)
-
-            # assert img.shape[0] == 1
-            #img = make_channels_last(img.squeeze(0)).cpu().numpy()
-            #img = make_channels_last(img.squeeze(0))
-
-            #results = my_inference_mot(model, img, frame_id=frame_id)
-            results = my_inference_mot(model, data, frame_id=frame_id)
-            # results = inference_mot(model, img, frame_id=frame_id)
-            
-            # with torch.no_grad():
-            #     result = model(return_loss=False, rescale=False, **data)
+            data = collate([data], samples_per_gpu=1)
+            if next(model.parameters()).is_cuda:
+                # scatter to specified GPU
+                data = scatter(data, [device])[0]
+            else:
+                for m in model.modules():
+                    assert not isinstance(
+                        m, RoIPool
+                    ), 'CPU inference with RoIPool is not supported currently.'
+                # just get the actual data from DataContainer
+                data['img_metas'] = data['img_metas'][0].data
+            # forward the model
+            with torch.no_grad():
+                results = model(return_loss=False, rescale=True, **data)
             
             detect_timer.toc()
 
@@ -955,25 +949,6 @@ def run_mmtrack(
                 online_tlwhs[:, 3] = (
                     online_tlwhs[:, 3] - online_tlwhs[:, 1]
                 )  # height = y2 - y1
-
-                # online_tlwhs = []
-                # online_ids = []
-                # online_scores = []
-
-                # for t in online_targets:
-                #     tlwh = t.tlwh
-                #     tid = t.track_id
-                #     vertical = tlwh[2] / tlwh[3] > 1.6
-                #     if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
-                #         online_tlwhs.append(torch.from_numpy(tlwh))
-                #         online_ids.append(tid)
-                #         online_scores.append(t.score)
-                #     else:
-                #         print(f"Skipping target: tlwh={tlwh}")
-
-                # if online_ids:
-                #     online_ids = torch.tensor(online_ids, dtype=torch.int64)
-                #     online_tlwhs = torch.stack(online_tlwhs)
 
                 if postprocessor is not None:
                     if isinstance(origin_imgs, StreamTensor):
