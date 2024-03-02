@@ -305,13 +305,12 @@ class CamTrackPostProcessor:
                         if wait_count % 10 == 0:
                             print("Cam post-process queue too large")
                     time.sleep(0.001)
-                dets = []
                 if self._async_post_processing:
                     self._queue.put(
                         (
                             online_tlwhs,
                             online_ids,
-                            dets,
+                            detections,
                             info_imgs,
                             image,
                             original_img,
@@ -321,7 +320,7 @@ class CamTrackPostProcessor:
                     online_targets_and_img = (
                         online_tlwhs,
                         online_ids,
-                        dets,
+                        detections,
                         info_imgs,
                         image,
                         original_img,

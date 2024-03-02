@@ -6,7 +6,7 @@ import random
 import warnings
 import socket
 import numpy as np
-import logging 
+import logging
 
 import traceback
 from pathlib import Path
@@ -32,7 +32,8 @@ from yolox.data import get_yolox_datadir
 
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
-#from mmcv.runner import load_checkpoint
+
+# from mmcv.runner import load_checkpoint
 from mmdet.datasets.pipelines import Compose
 
 from mmtrack.apis import inference_vid, inference_mot, init_model
@@ -540,7 +541,7 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
+            cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(cfg.data.test.pipeline)
 
         dataloader = None
@@ -864,11 +865,13 @@ def run_mmtrack(
     detect_timer = None
 
     last_frame_id = None
-    
+
     handler = logging.StreamHandler(sys.stdout)
     logger.setLevel(max(logger.level, logging.INFO))
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)    
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
     logger.addHandler(handler)
 
     for cur_iter, (
@@ -891,36 +894,43 @@ def run_mmtrack(
                 assert int(frame_id) == last_frame_id + batch_size
                 last_frame_id = int(frame_id)
 
-            img_file_name = info_imgs[4]
             batch_size = origin_imgs.shape[0]
-
-            if isinstance(data["img"][0], StreamTensor):
-                get_timer.tic()
-                data["img"][0] = data["img"][0].get()
-                #letterbox_imgs = letterbox_imgs.get()
-                get_timer.toc()
-            else:
-                get_timer = None
 
             if detect_timer is None:
                 detect_timer = Timer()
 
             detect_timer.tic()
-            data = collate([data], samples_per_gpu=1)
-            if next(model.parameters()).is_cuda:
-                # scatter to specified GPU
-                data = scatter(data, [device])[0]
+
+            if False:
+                results = my_inference_mot(
+                    model,
+                    make_channels_last(origin_imgs.squeeze(0)).cpu().numpy(),
+                    frame_id=frame_id,
+                )
             else:
-                for m in model.modules():
-                    assert not isinstance(
-                        m, RoIPool
-                    ), 'CPU inference with RoIPool is not supported currently.'
-                # just get the actual data from DataContainer
-                data['img_metas'] = data['img_metas'][0].data
-            # forward the model
-            with torch.no_grad():
-                results = model(return_loss=False, rescale=True, **data)
-            
+                if isinstance(data["img"][0], StreamTensor):
+                    get_timer.tic()
+                    data["img"][0] = data["img"][0].get()
+                    # letterbox_imgs = letterbox_imgs.get()
+                    get_timer.toc()
+                else:
+                    get_timer = None
+
+                data = collate([data], samples_per_gpu=1)
+                if next(model.parameters()).is_cuda:
+                    # scatter to specified GPU
+                    data = scatter(data, [device])[0]
+                else:
+                    for m in model.modules():
+                        assert not isinstance(
+                            m, RoIPool
+                        ), "CPU inference with RoIPool is not supported currently."
+                    # just get the actual data from DataContainer
+                    data["img_metas"] = data["img_metas"][0].data
+                # forward the model
+                with torch.no_grad():
+                    results = model(return_loss=False, rescale=True, **data)
+
             detect_timer.toc()
 
             # del letterbox_imgs
@@ -966,7 +976,7 @@ def run_mmtrack(
             # end frame loop
 
 
-def my_inference_mot(model, data, frame_id):
+def my_inference_mot(model, img, frame_id):
     """Inference image(s) with the mot model.
 
     Args:
@@ -977,48 +987,28 @@ def my_inference_mot(model, data, frame_id):
     Returns:
         dict[str : ndarray]: The tracking results.
     """
-    # cfg = model.cfg
+    cfg = model.cfg
     device = next(model.parameters()).device  # model device
-    # # prepare data
-    # if isinstance(img, np.ndarray):
-    #     # directly add img
-    #     data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
-    #     cfg = cfg.copy()
-    #     # set loading pipeline type
-    #     cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
-    # elif isinstance(img, torch.Tensor):
-    #     # directly add img
-    #     data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
-    #     cfg = cfg.copy()
-    #     # set loading pipeline type
-    #     cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
-    # else:
-    #     # add information into dict
-    #     data = dict(
-    #         img_info=dict(filename=img, frame_id=frame_id), img_prefix=None)
-    # # build the data pipeline
-    
-    # is_pre_optimized = False
-    # if isinstance(img, torch.Tensor) and torch.is_floating_point(img):
-    #     is_pre_optimized = True
-    #     # Already did MultiScaleFlipAug on an async stream
-    #     # TODO: Apply this on the video loader stream
-    #     new_pipeline = []
-    #     for stage in cfg.data.test.pipeline:
-    #         if stage.type != "MultiScaleFlipAug":
-    #             new_pipeline.append(stage)
-    #         else:
-    #             print(stage)
-    #     # new_data = dict()
-    #     # for k, v in data.items():
-    #     #     if v is not None:
-    #     #         new_data[k] = v
-    #     # data = new_data
-    # else:
-    #     new_pipeline = cfg.data.test.pipeline
-    
-    # test_pipeline = Compose(new_pipeline)
-    # data = test_pipeline(data)
+    # prepare data
+    if isinstance(img, np.ndarray):
+        # directly add img
+        data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
+        cfg = cfg.copy()
+        # set loading pipeline type
+        cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
+    elif isinstance(img, torch.Tensor):
+        # directly add img
+        data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
+        cfg = cfg.copy()
+        # set loading pipeline type
+        cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
+    else:
+        # add information into dict
+        data = dict(img_info=dict(filename=img, frame_id=frame_id), img_prefix=None)
+    # build the data pipeline
+
+    test_pipeline = Compose(cfg.data.test.pipeline)
+    data = test_pipeline(data)
     data = collate([data], samples_per_gpu=1)
     if next(model.parameters()).is_cuda:
         # scatter to specified GPU
@@ -1027,9 +1017,9 @@ def my_inference_mot(model, data, frame_id):
         for m in model.modules():
             assert not isinstance(
                 m, RoIPool
-            ), 'CPU inference with RoIPool is not supported currently.'
+            ), "CPU inference with RoIPool is not supported currently."
         # just get the actual data from DataContainer
-        data['img_metas'] = data['img_metas'][0].data
+        data["img_metas"] = data["img_metas"][0].data
     # forward the model
     with torch.no_grad():
         result = model(return_loss=False, rescale=True, **data)

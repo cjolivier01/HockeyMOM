@@ -234,7 +234,7 @@ class PlayTracker(torch.nn.Module):
 
         online_tlwhs = online_targets_and_img[0]
         online_ids = online_targets_and_img[1]
-        # detections = online_targets_and_img[2]
+        detections = online_targets_and_img[2]
         info_imgs = online_targets_and_img[3]
 
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
@@ -286,6 +286,15 @@ class PlayTracker(torch.nn.Module):
 
         if self._args.plot_boundaries and self._boundaries is not None:
             online_im = self._boundaries.draw(online_im)
+
+        if self._args.plot_all_detections:
+            for detection in detections:
+                online_im = vis.plot_rectangle(
+                    img=online_im,
+                    box=detection[:4],
+                    color=(64, 64, 64),
+                    thickness=1,
+                )
 
         if self._args.plot_individual_player_tracking:
             online_im = vis.plot_tracking(
