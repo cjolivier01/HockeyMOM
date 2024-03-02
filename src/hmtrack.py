@@ -801,7 +801,6 @@ def main(exp, args, num_gpu):
                 test_size=exp.test_size,
                 result_folder=results_folder,
                 device=gpus["detection"],
-                **other_kwargs,
             )
         else:
             other_kwargs = {
@@ -901,7 +900,7 @@ def run_mmtrack(
 
             detect_timer.tic()
 
-            if False:
+            if True:
                 results = my_inference_mot(
                     model,
                     make_channels_last(origin_imgs.squeeze(0)).cpu().numpy(),
