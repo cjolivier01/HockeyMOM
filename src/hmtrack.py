@@ -51,7 +51,7 @@ from hmlib.config import (
     get_nested_value,
     update_config,
 )
-
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
@@ -890,8 +890,10 @@ def run_mmtrack(
             #     make_channels_first(origin_imgs),
             # )
 
-            # img = origin_imgs
-            img = letterbox_imgs
+            img = origin_imgs
+            # img = letterbox_imgs
+
+            #show_image("img", img)
 
             assert img.shape[0] == 1
             img = make_channels_last(img.squeeze(0)).cpu().numpy()
