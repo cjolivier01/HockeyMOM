@@ -5,6 +5,7 @@ import argparse
 import random
 import warnings
 import socket
+import numpy as np
 
 import traceback
 from pathlib import Path
@@ -28,7 +29,12 @@ from yolox.utils import (
 from yolox.evaluators import MOTEvaluator
 from yolox.data import get_yolox_datadir
 
-from mmtrack.apis import inference_vid, init_model
+from mmcv.ops import RoIPool
+from mmcv.parallel import collate, scatter
+#from mmcv.runner import load_checkpoint
+from mmdet.datasets.pipelines import Compose
+
+from mmtrack.apis import inference_vid, inference_mot, init_model
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
@@ -51,7 +57,7 @@ from hmlib.config import (
     get_nested_value,
     update_config,
 )
-
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.camera.cam_post_process import DefaultArguments
 import hmlib.datasets as datasets
@@ -510,15 +516,31 @@ def main(exp, args, num_gpu):
         torch.cuda.set_device(gpus["detection"].index)
 
         if exp is None:
+            exp = FakeExp()
             test_size = getattr(args, "test_size", None)
             if not test_size:
                 test_size = (1088, 608)
-            else:
-                test_size = [int(test_size.split("x")[0]), int(test_size.split("x")[1])]
-            exp = FakeExp()
+            elif isinstance(test_size, str):
+                tokens = test_size.split("x")
+                if len(tokens) == 1:
+                    tokens = args.test_size.split("X")
+                assert len(tokens) == 2
+                test_size = (
+                    to_32bit_mul(int(tokens[0])),
+                    to_32bit_mul(int(tokens[1])),
+                )
             exp.test_size = test_size
-            args.test_size = exp.test_size
+            args.test_size = test_size
             results_folder = "."  # FIXME
+
+        data_pipeline = None
+        if tracker == "mmtrack":
+            args.config = args.exp_file
+            args.checkpoint = None
+            model = init_model(args.config, args.checkpoint, device=gpus["detection"])
+            cfg = model.cfg.copy()
+            cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
+            data_pipeline = Compose(cfg.data.test.pipeline)
 
         dataloader = None
         postprocessor = None
@@ -630,6 +652,7 @@ def main(exp, args, num_gpu):
                     # ],
                     # device_for_original_image=video_out_device,
                     device_for_original_image=torch.device("cpu"),
+                    data_pipeline=data_pipeline,
                 )
             else:
                 assert len(input_video_files) == 1
@@ -649,7 +672,7 @@ def main(exp, args, num_gpu):
 
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
-                    img_size=args.test_size,
+                    img_size=test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
@@ -669,6 +692,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
+                    data_pipeline=data_pipeline,
                 )
 
         if dataloader is None:
@@ -827,11 +851,9 @@ def run_mmtrack(
     device: torch.device = None,
     input_cache_size: int = 2,
 ):
-    assert model is None
-
-    args.config = args.exp_file
-    args.checkpoint = None
-    model = init_model(args.config, args.checkpoint, device=device)
+    # args.config = args.exp_file
+    # args.checkpoint = None
+    # model = init_model(args.config, args.checkpoint, device=device)
 
     dataloader_iterator = CachedIterator(
         iterator=iter(dataloader), cache_size=input_cache_size
@@ -844,7 +866,7 @@ def run_mmtrack(
 
     for cur_iter, (
         origin_imgs,
-        letterbox_imgs,
+        data,
         _,
         info_imgs,
         _,
@@ -865,11 +887,12 @@ def run_mmtrack(
             video_id = info_imgs[3][0].item()
             img_file_name = info_imgs[4]
             video_name = img_file_name[0].split("/")[-1]
-            batch_size = letterbox_imgs.shape[0]
+            batch_size = origin_imgs.shape[0]
 
-            if isinstance(letterbox_imgs, StreamTensor):
+            if isinstance(data["img"][0], StreamTensor):
                 get_timer.tic()
-                letterbox_imgs = letterbox_imgs.get()
+                data["img"][0] = data["img"][0].get()
+                #letterbox_imgs = letterbox_imgs.get()
                 get_timer.toc()
             else:
                 get_timer = None
@@ -882,33 +905,75 @@ def run_mmtrack(
             #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
             #     make_channels_first(origin_imgs),
             # )
-            result = inference_vid(model, letterbox_imgs.cpu().numpy(), frame_id=frame_id)
+
+            #img = origin_imgs
+            #img = letterbox_imgs
+ 
+            # image_list = []
+            # for ii in img:
+            #     image_list.append(ii)
+            # image_list
+
+            #show_image("img", img)
+
+            # assert img.shape[0] == 1
+            #img = make_channels_last(img.squeeze(0)).cpu().numpy()
+            #img = make_channels_last(img.squeeze(0))
+
+            #results = my_inference_mot(model, img, frame_id=frame_id)
+            results = my_inference_mot(model, data, frame_id=frame_id)
+            # results = inference_mot(model, img, frame_id=frame_id)
+            
+            # with torch.no_grad():
+            #     result = model(return_loss=False, rescale=False, **data)
+            
             detect_timer.toc()
 
-            del letterbox_imgs
+            # del letterbox_imgs
+            del data
+
+            det_bboxes = results["det_bboxes"]
+            track_bboxes = results["track_bboxes"]
 
             for frame_index in range(len(origin_imgs)):
                 frame_id = info_imgs[2][frame_index]
-                detections = dets[frame_index]
+                detections = det_bboxes[frame_index]
+                tracking_items = track_bboxes[frame_index]
 
-                online_tlwhs = []
-                online_ids = []
-                online_scores = []
+                track_ids = tracking_items[:, 0]
+                bboxes = tracking_items[:, 1:5]
+                scores = tracking_items[:, -1]
 
-                for t in online_targets:
-                    tlwh = t.tlwh
-                    tid = t.track_id
-                    vertical = tlwh[2] / tlwh[3] > 1.6
-                    if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
-                        online_tlwhs.append(torch.from_numpy(tlwh))
-                        online_ids.append(tid)
-                        online_scores.append(t.score)
-                    else:
-                        print(f"Skipping target: tlwh={tlwh}")
+                online_tlwhs = torch.from_numpy(bboxes)
+                online_ids = torch.from_numpy(track_ids).to(torch.int64)
+                online_scores = torch.from_numpy(scores)
 
-                if online_ids:
-                    online_ids = torch.tensor(online_ids, dtype=torch.int64)
-                    online_tlwhs = torch.stack(online_tlwhs)
+                # make boxes tlwh
+                online_tlwhs[:, 2] = (
+                    online_tlwhs[:, 2] - online_tlwhs[:, 0]
+                )  # width = x2 - x1
+                online_tlwhs[:, 3] = (
+                    online_tlwhs[:, 3] - online_tlwhs[:, 1]
+                )  # height = y2 - y1
+
+                # online_tlwhs = []
+                # online_ids = []
+                # online_scores = []
+
+                # for t in online_targets:
+                #     tlwh = t.tlwh
+                #     tid = t.track_id
+                #     vertical = tlwh[2] / tlwh[3] > 1.6
+                #     if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
+                #         online_tlwhs.append(torch.from_numpy(tlwh))
+                #         online_ids.append(tid)
+                #         online_scores.append(t.score)
+                #     else:
+                #         print(f"Skipping target: tlwh={tlwh}")
+
+                # if online_ids:
+                #     online_ids = torch.tensor(online_ids, dtype=torch.int64)
+                #     online_tlwhs = torch.stack(online_tlwhs)
 
                 if postprocessor is not None:
                     if isinstance(origin_imgs, StreamTensor):
@@ -924,6 +989,76 @@ def run_mmtrack(
                         original_img=origin_imgs[frame_index].unsqueeze(0),
                     )
             # end frame loop
+
+
+def my_inference_mot(model, data, frame_id):
+    """Inference image(s) with the mot model.
+
+    Args:
+        model (nn.Module): The loaded mot model.
+        img (str | ndarray): Either image name or loaded image.
+        frame_id (int): frame id.
+
+    Returns:
+        dict[str : ndarray]: The tracking results.
+    """
+    # cfg = model.cfg
+    device = next(model.parameters()).device  # model device
+    # # prepare data
+    # if isinstance(img, np.ndarray):
+    #     # directly add img
+    #     data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
+    #     cfg = cfg.copy()
+    #     # set loading pipeline type
+    #     cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
+    # elif isinstance(img, torch.Tensor):
+    #     # directly add img
+    #     data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
+    #     cfg = cfg.copy()
+    #     # set loading pipeline type
+    #     cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
+    # else:
+    #     # add information into dict
+    #     data = dict(
+    #         img_info=dict(filename=img, frame_id=frame_id), img_prefix=None)
+    # # build the data pipeline
+    
+    # is_pre_optimized = False
+    # if isinstance(img, torch.Tensor) and torch.is_floating_point(img):
+    #     is_pre_optimized = True
+    #     # Already did MultiScaleFlipAug on an async stream
+    #     # TODO: Apply this on the video loader stream
+    #     new_pipeline = []
+    #     for stage in cfg.data.test.pipeline:
+    #         if stage.type != "MultiScaleFlipAug":
+    #             new_pipeline.append(stage)
+    #         else:
+    #             print(stage)
+    #     # new_data = dict()
+    #     # for k, v in data.items():
+    #     #     if v is not None:
+    #     #         new_data[k] = v
+    #     # data = new_data
+    # else:
+    #     new_pipeline = cfg.data.test.pipeline
+    
+    # test_pipeline = Compose(new_pipeline)
+    # data = test_pipeline(data)
+    data = collate([data], samples_per_gpu=1)
+    if next(model.parameters()).is_cuda:
+        # scatter to specified GPU
+        data = scatter(data, [device])[0]
+    else:
+        for m in model.modules():
+            assert not isinstance(
+                m, RoIPool
+            ), 'CPU inference with RoIPool is not supported currently.'
+        # just get the actual data from DataContainer
+        data['img_metas'] = data['img_metas'][0].data
+    # forward the model
+    with torch.no_grad():
+        result = model(return_loss=False, rescale=True, **data)
+    return result
 
 
 if __name__ == "__main__":
@@ -980,7 +1115,9 @@ if __name__ == "__main__":
     args.game_config = game_config
 
     if not args.experiment_name:
-        args.experiment_name = exp.exp_name
+        args.experiment_name = args.game_id
+    # if not args.experiment_name:
+    #     args.experiment_name = exp.exp_name
 
     args = configure_model(config=args.game_config, args=args)
 
