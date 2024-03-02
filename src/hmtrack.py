@@ -28,7 +28,7 @@ from yolox.utils import (
 from yolox.evaluators import MOTEvaluator
 from yolox.data import get_yolox_datadir
 
-from mmtrack.apis import inference_vid, init_model
+from mmtrack.apis import inference_vid, inference_mot, init_model
 
 from hmlib.stitching.synchronize import configure_video_stitching
 
@@ -510,14 +510,21 @@ def main(exp, args, num_gpu):
         torch.cuda.set_device(gpus["detection"].index)
 
         if exp is None:
+            exp = FakeExp()
             test_size = getattr(args, "test_size", None)
             if not test_size:
                 test_size = (1088, 608)
-            else:
-                test_size = [int(test_size.split("x")[0]), int(test_size.split("x")[1])]
-            exp = FakeExp()
+            elif isinstance(test_size, str):
+                tokens = test_size.split("x")
+                if len(tokens) == 1:
+                    tokens = args.test_size.split("X")
+                assert len(tokens) == 2
+                test_size = (
+                    to_32bit_mul(int(tokens[0])),
+                    to_32bit_mul(int(tokens[1])),
+                )
             exp.test_size = test_size
-            args.test_size = exp.test_size
+            args.test_size = test_size
             results_folder = "."  # FIXME
 
         dataloader = None
@@ -649,7 +656,7 @@ def main(exp, args, num_gpu):
 
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
-                    img_size=args.test_size,
+                    img_size=test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
@@ -882,33 +889,60 @@ def run_mmtrack(
             #     make_channels_first(letterbox_imgs.to(device, non_blocking=True)),
             #     make_channels_first(origin_imgs),
             # )
-            result = inference_vid(model, letterbox_imgs.cpu().numpy(), frame_id=frame_id)
+
+            img = origin_imgs
+            # img = letterbox_imgs
+
+            assert img.shape[0] == 1
+            img = make_channels_last(img.squeeze(0)).cpu().numpy()
+            # results = inference_vid(model, img, frame_id=frame_id)
+            results = inference_mot(model, img, frame_id=frame_id)
             detect_timer.toc()
 
             del letterbox_imgs
 
+            det_bboxes = results["det_bboxes"]
+            track_bboxes = results["track_bboxes"]
+
             for frame_index in range(len(origin_imgs)):
                 frame_id = info_imgs[2][frame_index]
-                detections = dets[frame_index]
+                detections = det_bboxes[frame_index]
+                tracking_items = track_bboxes[frame_index]
 
-                online_tlwhs = []
-                online_ids = []
-                online_scores = []
+                track_ids = tracking_items[:, 0]
+                bboxes = tracking_items[:, 1:5]
+                scores = tracking_items[:, -1]
 
-                for t in online_targets:
-                    tlwh = t.tlwh
-                    tid = t.track_id
-                    vertical = tlwh[2] / tlwh[3] > 1.6
-                    if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
-                        online_tlwhs.append(torch.from_numpy(tlwh))
-                        online_ids.append(tid)
-                        online_scores.append(t.score)
-                    else:
-                        print(f"Skipping target: tlwh={tlwh}")
+                online_tlwhs = torch.from_numpy(bboxes)
+                online_ids = torch.from_numpy(track_ids).to(torch.int64)
+                online_scores = torch.from_numpy(scores)
 
-                if online_ids:
-                    online_ids = torch.tensor(online_ids, dtype=torch.int64)
-                    online_tlwhs = torch.stack(online_tlwhs)
+                # make boxes tlwh
+                online_tlwhs[:, 2] = (
+                    online_tlwhs[:, 2] - online_tlwhs[:, 0]
+                )  # width = x2 - x1
+                online_tlwhs[:, 3] = (
+                    online_tlwhs[:, 3] - online_tlwhs[:, 1]
+                )  # height = y2 - y1
+
+                # online_tlwhs = []
+                # online_ids = []
+                # online_scores = []
+
+                # for t in online_targets:
+                #     tlwh = t.tlwh
+                #     tid = t.track_id
+                #     vertical = tlwh[2] / tlwh[3] > 1.6
+                #     if tlwh[2] * tlwh[3] > args.min_box_area and not vertical:
+                #         online_tlwhs.append(torch.from_numpy(tlwh))
+                #         online_ids.append(tid)
+                #         online_scores.append(t.score)
+                #     else:
+                #         print(f"Skipping target: tlwh={tlwh}")
+
+                # if online_ids:
+                #     online_ids = torch.tensor(online_ids, dtype=torch.int64)
+                #     online_tlwhs = torch.stack(online_tlwhs)
 
                 if postprocessor is not None:
                     if isinstance(origin_imgs, StreamTensor):
@@ -980,7 +1014,9 @@ if __name__ == "__main__":
     args.game_config = game_config
 
     if not args.experiment_name:
-        args.experiment_name = exp.exp_name
+        args.experiment_name = args.game_id
+    # if not args.experiment_name:
+    #     args.experiment_name = exp.exp_name
 
     args = configure_model(config=args.game_config, args=args)
 

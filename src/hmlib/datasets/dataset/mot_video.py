@@ -83,6 +83,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         #     preproc=preproc,
         #     return_origin_img=return_origin_img,
         # )
+        assert not isinstance(img_size, str)
         self._path = path
         self._game_id = game_id
         self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
