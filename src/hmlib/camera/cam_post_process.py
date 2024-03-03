@@ -70,10 +70,6 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_individual_player_tracking = False or basic_debugging
         # self.plot_individual_player_tracking = True
 
-        # Draw all detection boxes (even if not tracking the detection)
-        self.plot_all_detections = False
-        # self.plot_all_detections = True
-
         # Draw intermediate boxes which are used to compute the final camera box
         self.plot_cluster_tracking = False or basic_debugging
         # self.plot_cluster_tracking = True

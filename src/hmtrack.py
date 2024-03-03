@@ -251,6 +251,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--plot-all-detections", action="store_true", help="plot all detections"
+    )
+    parser.add_argument(
         "--plot-moving-boxes",
         action="store_true",
         help="plot moving camera tracking boxes",
