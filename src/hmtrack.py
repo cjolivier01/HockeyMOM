@@ -1091,8 +1091,9 @@ if __name__ == "__main__":
     if args.game_id:
         num_gpus = 1
     else:
+        if isinstance(args.gpus, str):
+            args.gpus = [int(g) for g in args.gpus.split(",")]
         num_gpus = len(args.gpus) if args.gpus else 0
-        # num_gpus = torch.cuda.device_count() if args.devices is None else args.devices
         assert num_gpus <= torch.cuda.device_count()
 
     launch(

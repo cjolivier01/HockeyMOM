@@ -295,6 +295,16 @@ class PlayTracker(torch.nn.Module):
                     color=(64, 64, 64),
                     thickness=1,
                 )
+                if detection[4] < 0.7:
+                    cv2.putText(
+                        online_im,
+                        format(float(detection[4]), ".2f"),
+                        (int(detection[0] + width(detection[:4] / 2)), int(detection[1])),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        1,
+                        (255, 255, 255),
+                        thickness=1,
+                    )
 
         if self._args.plot_individual_player_tracking:
             online_im = vis.plot_tracking(
