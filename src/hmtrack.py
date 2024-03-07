@@ -544,7 +544,7 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            #cfg.data.inference.pipeline[0].type = "LoadImageFromWebcam"
+            # cfg.data.inference.pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(cfg.data.inference.pipeline)
 
         dataloader = None
@@ -839,6 +839,14 @@ def main(exp, args, num_gpu):
             print(f"Exception while shutting down: {ex}")
 
 
+def tensor_to_image(tensor: torch.Tensor):
+    if torch.is_floating_point(tensor):
+        tensor = torch.clamp(tensor * 255, min=0, max=255).to(
+            torch.uint8, non_blocking=True
+        )
+    return tensor
+
+
 def run_mmtrack(
     model,
     config: dict,
@@ -903,10 +911,11 @@ def run_mmtrack(
 
             detect_timer.tic()
 
-            if False:
+            if True:
+                img = tensor_to_image(origin_imgs)
                 results = my_inference_mot(
                     model,
-                    make_channels_last(origin_imgs.squeeze(0)).cpu().numpy(),
+                    make_channels_last(img.squeeze(0)).cpu().numpy(),
                     frame_id=frame_id,
                 )
             else:
@@ -931,7 +940,7 @@ def run_mmtrack(
                     data["img_metas"] = data["img_metas"][0].data
                 data["img_metas"] = [data["img_metas"]]
                 img = data["img"]
-                #img = make_channels_first(img).squeeze(0)
+                # img = make_channels_first(img).squeeze(0)
                 img = make_channels_first(img)
                 data["img"] = [img]
                 # forward the model
@@ -994,7 +1003,7 @@ def my_inference_mot(model, img, frame_id):
     Returns:
         dict[str : ndarray]: The tracking results.
     """
-    #show_image("letterbox_img", img)
+    # show_image("letterbox_img", img)
     cfg = model.cfg
     device = next(model.parameters()).device  # model device
     # prepare data
