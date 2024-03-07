@@ -913,9 +913,9 @@ def run_mmtrack(
 
             detect_timer.tic()
 
-            if True:
+            if False:
                 img = tensor_to_image(origin_imgs)
-                # img = tensor_to_image(data["img"])
+                #img = tensor_to_image(data["img"])
                 results = my_inference_mot(
                     model,
                     make_channels_last(img.squeeze(0)).cpu().numpy(),
@@ -941,12 +941,12 @@ def run_mmtrack(
                         ), "CPU inference with RoIPool is not supported currently."
                     # just get the actual data from DataContainer
                     data["img_metas"] = data["img_metas"][0].data
-                data["img_metas"] = [data["img_metas"]]
-                img = data["img"]
+                #data["img_metas"] = [data["img_metas"]]
+                #img = data["img"]
                 # img = tensor_to_image(data["img"])
                 # img = make_channels_first(img).squeeze(0)
-                img = make_channels_first(img)
-                data["img"] = [img]
+                #img = make_channels_first(img)
+                #data["img"] = [img]
                 # forward the model
                 with torch.no_grad():
                     results = model(return_loss=False, rescale=True, **data)
