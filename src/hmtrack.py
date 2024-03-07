@@ -544,8 +544,10 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            # cfg.data.inference.pipeline[0].type = "LoadImageFromWebcam"
-            data_pipeline = Compose(cfg.data.inference.pipeline)
+            # pipeline = cfg.data.inference.pipeline
+            pipeline = cfg.data.test.pipeline
+            pipeline[0].type = "LoadImageFromWebcam"
+            data_pipeline = Compose(pipeline)
 
         dataloader = None
         postprocessor = None
@@ -913,6 +915,7 @@ def run_mmtrack(
 
             if True:
                 img = tensor_to_image(origin_imgs)
+                # img = tensor_to_image(data["img"])
                 results = my_inference_mot(
                     model,
                     make_channels_last(img.squeeze(0)).cpu().numpy(),
@@ -940,6 +943,7 @@ def run_mmtrack(
                     data["img_metas"] = data["img_metas"][0].data
                 data["img_metas"] = [data["img_metas"]]
                 img = data["img"]
+                # img = tensor_to_image(data["img"])
                 # img = make_channels_first(img).squeeze(0)
                 img = make_channels_first(img)
                 data["img"] = [img]
