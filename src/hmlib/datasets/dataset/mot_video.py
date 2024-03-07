@@ -396,14 +396,27 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if self._data_pipeline is not None:
                 original_img0 = img0
+                if torch.is_floating_point(img0):
+                    # TODO: Can we have a floating point version?
+                    # minp = torch.min(img0)
+                    # maxp = torch.max(img0)
+                    # img0 = torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8)
+                    #quick_show(img0, wait=True)
+                    pass
+                assert img0.shape[0] == 1
                 data = dict(
                     #img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
-                    img=make_channels_last(original_img0.squeeze(0)),
+                    img=make_channels_last(img0.squeeze(0)),
+                    #img=make_channels_first(img0.squeeze(0)),
                     img_info=dict(frame_id=ids[0]),
                     img_prefix=None,
                 )
+                # Data pipeline is going to expect a uint8 image
                 data = self._data_pipeline(data)
                 img = data["img"][0]
+                
+                #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
+                
             else:
                 if self.clip_original is not None:
                     if self.calculated_clip_box is None:

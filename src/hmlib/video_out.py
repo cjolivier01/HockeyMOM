@@ -71,7 +71,7 @@ def optional_with(resource):
             yield r
 
 
-def quick_show(img: torch.Tensor):
+def quick_show(img: torch.Tensor, wait: bool = False):
     if img.ndim == 4:
         for s_img in img:
             cv2.imshow(
@@ -89,7 +89,7 @@ def quick_show(img: torch.Tensor):
                 img,
             ),
         )
-        cv2.waitKey(1)
+        cv2.waitKey(1 if not wait else 0)
 
 
 def get_best_codec(gpu_number: int, width: int, height: int):

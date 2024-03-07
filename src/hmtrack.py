@@ -544,8 +544,8 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
-            data_pipeline = Compose(cfg.data.test.pipeline)
+            #cfg.data.inference.pipeline[0].type = "LoadImageFromWebcam"
+            data_pipeline = Compose(cfg.data.inference.pipeline)
 
         dataloader = None
         postprocessor = None
@@ -903,7 +903,7 @@ def run_mmtrack(
 
             detect_timer.tic()
 
-            if True:
+            if False:
                 results = my_inference_mot(
                     model,
                     make_channels_last(origin_imgs.squeeze(0)).cpu().numpy(),
@@ -929,6 +929,11 @@ def run_mmtrack(
                         ), "CPU inference with RoIPool is not supported currently."
                     # just get the actual data from DataContainer
                     data["img_metas"] = data["img_metas"][0].data
+                data["img_metas"] = [data["img_metas"]]
+                img = data["img"]
+                #img = make_channels_first(img).squeeze(0)
+                img = make_channels_first(img)
+                data["img"] = [img]
                 # forward the model
                 with torch.no_grad():
                     results = model(return_loss=False, rescale=True, **data)
@@ -989,6 +994,7 @@ def my_inference_mot(model, img, frame_id):
     Returns:
         dict[str : ndarray]: The tracking results.
     """
+    #show_image("letterbox_img", img)
     cfg = model.cfg
     device = next(model.parameters()).device  # model device
     # prepare data
