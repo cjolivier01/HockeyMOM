@@ -1,9 +1,6 @@
 #!/bin/bash
 
-EXPERIMENT_FILE="$(pwd)/../openmm/mmtracking/configs/mot/deepsort/sort_faster-rcnn_fpn_4e_mot17-private.py"
-
-TEST_SIZE_ARG="--test-size=300x780"
-
+EXPERIMENT_FILE="$(pwd)/../openmm/configs/hm/hm_bytetrack.py"
 
 #START_FRAME=0
 
@@ -34,5 +31,4 @@ OMP_NUM_THREADS=16 \
   --min-box-area=35 \
   --config=track \
   --tracker=mmtrack \
-  --test-size=300x780 \
   ${VIDEO} $@ tracking
