@@ -676,7 +676,7 @@ def main(exp, args, num_gpu):
 
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
-                    img_size=test_size,
+                    img_size=exp.test_size,
                     return_origin_img=True,
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),

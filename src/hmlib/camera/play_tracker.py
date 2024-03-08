@@ -290,27 +290,28 @@ class PlayTracker(torch.nn.Module):
             online_im = self._boundaries.draw(online_im)
 
         if self._args.plot_all_detections is not None:
-            for detection in detections:
-                if detection[4] >= self._args.plot_all_detections:
-                    online_im = vis.plot_rectangle(
-                        img=online_im,
-                        box=detection[:4],
-                        color=(64, 64, 64),
-                        thickness=1,
-                    )
-                    if detection[4] < 0.7:
-                        cv2.putText(
-                            online_im,
-                            format(float(detection[4]), ".2f"),
-                            (
-                                int(detection[0] + width(detection[:4] / 2)),
-                                int(detection[1]),
-                            ),
-                            cv2.FONT_HERSHEY_PLAIN,
-                            1,
-                            (255, 255, 255),
+            if not isinstance(detections, dict):
+                for detection in detections:
+                    if detection[4] >= self._args.plot_all_detections:
+                        online_im = vis.plot_rectangle(
+                            img=online_im,
+                            box=detection[:4],
+                            color=(64, 64, 64),
                             thickness=1,
                         )
+                        if detection[4] < 0.7:
+                            cv2.putText(
+                                online_im,
+                                format(float(detection[4]), ".2f"),
+                                (
+                                    int(detection[0] + width(detection[:4] / 2)),
+                                    int(detection[1]),
+                                ),
+                                cv2.FONT_HERSHEY_PLAIN,
+                                1,
+                                (255, 255, 255),
+                                thickness=1,
+                            )
 
         if self._args.plot_individual_player_tracking:
             online_im = vis.plot_tracking(
