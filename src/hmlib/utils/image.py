@@ -487,7 +487,7 @@ def make_channels_first(img: torch.Tensor):
     else:
         assert len(img.shape) == 3
         if img.shape[-1] in [1, 3, 4]:
-            return _permute(img, 0, 1, 2)
+            return _permute(img, 2, 0, 1)
     return img
 
 
