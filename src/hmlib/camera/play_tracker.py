@@ -17,6 +17,7 @@ from hmlib.camera.moving_box import MovingBox
 from hmlib.camera.clusters import ClusterMan
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.config import get_nested_value
+from hmlib.builder import HM, PIPELINES
 
 from hmlib.utils.box_functions import (
     width,
@@ -96,6 +97,7 @@ class BreakawayDetection:
         ]
 
 
+@HM.register_module()
 class PlayTracker(torch.nn.Module):
     def __init__(
         self,

@@ -404,7 +404,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     #quick_show(img0, wait=True)
                     pass
                 assert img0.shape[0] == 1
-                data = dict(
+                data_item = dict(
                     #img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
                     img=make_channels_last(img0.squeeze(0)),
                     #img=make_channels_first(img0.squeeze(0)),
@@ -412,9 +412,20 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img_prefix=None,
                 )
                 # Data pipeline is going to expect a uint8 image
-                data = self._data_pipeline(data)
-                img = data["img"][0]
-                
+                #data_item["img"] = torch.clamp(data_item["img"] * 255, min=0, max=255)
+                data_item = self._data_pipeline(data_item)
+                data = data_item
+                # data_item["img"] /= 255
+                img = data["img"]
+                if isinstance(img, list):
+                    img = img[0]
+                    assert isinstance(img, torch.Tensor)
+                # data_item["img"] = make_channels_first(data_item["img"])
+                # assert isinstance(img, torch.Tensor)  # not a list
+                # data = dict()
+                # for key, val in data_item.items():
+                #     data[key] = [val]
+  
                 #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
                 
             else:
@@ -458,8 +469,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img = original_img0
 
             if self.width_t is None:
-                self.width_t = torch.tensor([img.shape[-1]], dtype=torch.int64)
-                self.height_t = torch.tensor([img.shape[-2]], dtype=torch.int64)
+                self.width_t = torch.tensor([image_width(img)], dtype=torch.int64)
+                self.height_t = torch.tensor([image_height(img)], dtype=torch.int64)
 
             original_img0 = make_channels_first(original_img0)
 

@@ -1,19 +1,11 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import cv2
-
 import numpy as np
-
 from typing import Tuple, Union
-
 import torch
 
+from hmlib.builder import HM
 from hmlib.tracking_utils import visualization as vis
-
 from hmlib.utils.image import ImageHorizontalGaussianDistribution
-
 from hmlib.utils.box_functions import (
     width,
     height,
@@ -30,7 +22,7 @@ from hmlib.utils.box_functions import (
 
 class BasicBox: #(torch.nn.Module):
     def __init__(self, bbox: torch.Tensor, device: str = None):
-        #super(BasicBox, self).__init__()
+        super(BasicBox, self).__init__()
         self.device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
             0, dtype=torch.float32, device=self.device
@@ -338,6 +330,7 @@ class ResizingBox(BasicBox):
         self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
 
+#@HM.register_module()
 class MovingBox(ResizingBox):
     def __init__(
         self,

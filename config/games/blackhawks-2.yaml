@@ -127,8 +127,8 @@ rink:
     cam_ignore_largest: true
 
   camera:
-    # follower_box_scale_width: 1.5
-    # follower_box_scale_height: 1.5
+    follower_box_scale_width: 1.2
+    follower_box_scale_height: 1.2
     #
     # Configuration for breakaways
     #

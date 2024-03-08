@@ -544,7 +544,7 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            # pipeline = cfg.data.inference.pipeline
+            #pipeline = cfg.data.inference.pipeline
             pipeline = cfg.data.test.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(pipeline)
@@ -878,13 +878,15 @@ def run_mmtrack(
 
     last_frame_id = None
 
-    handler = logging.StreamHandler(sys.stdout)
-    logger.setLevel(max(logger.level, logging.INFO))
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    if False:
+        # INFO ogging
+        handler = logging.StreamHandler(sys.stdout)
+        logger.setLevel(max(logger.level, logging.INFO))
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     for cur_iter, (
         origin_imgs,
@@ -948,6 +950,8 @@ def run_mmtrack(
                 #img = make_channels_first(img)
                 #data["img"] = [img]
                 # forward the model
+                for i, img in enumerate(data["img"]):
+                    data["img"][i] = make_channels_first(data["img"][i])
                 with torch.no_grad():
                     results = model(return_loss=False, rescale=True, **data)
 
