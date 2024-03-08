@@ -400,7 +400,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     # TODO: Can we have a floating point version?
                     # minp = torch.min(img0)
                     # maxp = torch.max(img0)
-                    img0 = torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8)
+                    #img0 = torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8)
+                    # Normalize expects 0-255 values
+                    img0 = img0 * 255
                     #quick_show(img0, wait=True)
                     pass
                 assert img0.shape[0] == 1
