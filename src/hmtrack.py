@@ -244,7 +244,10 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
-        "--plot-all-detections", type=float, default=None, help="plot all detections above this given accuracy"
+        "--plot-all-detections",
+        type=float,
+        default=None,
+        help="plot all detections above this given accuracy",
     )
     parser.add_argument(
         "--plot-moving-boxes",
@@ -375,7 +378,7 @@ class FakeExp:
 def main(exp, args, num_gpu):
     dataloader = None
 
-    #module_path = find_item_in_module("mmdet", "PIPELINES")
+    # module_path = find_item_in_module("mmdet", "PIPELINES")
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
 
     try:
@@ -539,7 +542,7 @@ def main(exp, args, num_gpu):
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
             pipeline = cfg.data.inference.pipeline
-            #pipeline = cfg.data.test.pipeline
+            # pipeline = cfg.data.test.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(pipeline)
 
@@ -913,7 +916,6 @@ def run_mmtrack(
 
             if False:
                 img = tensor_to_image(origin_imgs)
-                #img = tensor_to_image(data["img"])
                 results = my_inference_mot(
                     model,
                     make_channels_last(img.squeeze(0)).cpu().numpy(),
@@ -939,12 +941,6 @@ def run_mmtrack(
                         ), "CPU inference with RoIPool is not supported currently."
                     # just get the actual data from DataContainer
                     data["img_metas"] = data["img_metas"][0].data
-                #data["img_metas"] = [data["img_metas"]]
-                #img = data["img"]
-                # img = tensor_to_image(data["img"])
-                # img = make_channels_first(img).squeeze(0)
-                #img = make_channels_first(img)
-                #data["img"] = [img]
                 # forward the model
                 for i, img in enumerate(data["img"]):
                     data["img"][i] = make_channels_first(data["img"][i])
@@ -994,6 +990,15 @@ def run_mmtrack(
                         original_img=origin_imgs[frame_index].unsqueeze(0),
                     )
             # end frame loop
+
+            if cur_iter % 50 == 0:
+                logger.info(
+                    "mmtrack tracking, frame {} ({:.2f} fps)".format(
+                        frame_id,
+                        batch_size * 1.0 / max(1e-5, detect_timer.average_time),
+                    )
+                )
+                detect_timer = Timer()
 
 
 def my_inference_mot(model, img, frame_id):
