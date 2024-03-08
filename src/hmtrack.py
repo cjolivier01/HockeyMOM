@@ -869,7 +869,7 @@ def run_mmtrack(
     dataloader_iterator = CachedIterator(
         iterator=iter(dataloader), cache_size=input_cache_size
     )
-    print("WARNING: Not cacheing data loader")
+    # print("WARNING: Not cacheing data loader")
     # dataloader_iterator = iter(dataloader)
 
     get_timer = Timer()
@@ -912,7 +912,7 @@ def run_mmtrack(
             if detect_timer is None:
                 detect_timer = Timer()
 
-            detect_timer.tic()
+            #detect_timer.tic()
 
             if False:
                 img = tensor_to_image(origin_imgs)
@@ -944,10 +944,12 @@ def run_mmtrack(
                 # forward the model
                 for i, img in enumerate(data["img"]):
                     data["img"][i] = make_channels_first(data["img"][i])
+                detect_timer.tic()
                 with torch.no_grad():
                     results = model(return_loss=False, rescale=True, **data)
+                detect_timer.toc()
 
-            detect_timer.toc()
+            #detect_timer.toc()
 
             # del letterbox_imgs
             del data
