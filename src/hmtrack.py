@@ -34,9 +34,6 @@ from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
 
 from hmlib.utils.py_utils import find_item_in_module
-#from hmlib.builder import PIPELINES
-
-# from mmcv.runner import load_checkpoint
 from mmdet.datasets.pipelines import Compose
 
 from mmtrack.apis import inference_vid, inference_mot, init_model
@@ -247,7 +244,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
-        "--plot-all-detections", action="store_true", help="plot all detections"
+        "--plot-all-detections", type=float, default=None, help="plot all detections above this given accuracy"
     )
     parser.add_argument(
         "--plot-moving-boxes",
@@ -541,8 +538,8 @@ def main(exp, args, num_gpu):
             args.checkpoint = None
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
-            #pipeline = cfg.data.inference.pipeline
-            pipeline = cfg.data.test.pipeline
+            pipeline = cfg.data.inference.pipeline
+            #pipeline = cfg.data.test.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(pipeline)
 
@@ -892,7 +889,7 @@ def run_mmtrack(
         data,
         _,
         info_imgs,
-        _,
+        ids,
     ) in enumerate(dataloader_iterator):
         # info_imgs is 4 scalar tensors: height, width, frame_id, video_id
         with torch.no_grad():
@@ -925,8 +922,8 @@ def run_mmtrack(
             else:
                 if isinstance(data["img"][0], StreamTensor):
                     get_timer.tic()
-                    data["img"][0] = data["img"][0].get()
-                    # letterbox_imgs = letterbox_imgs.get()
+                    for i in range(len(data["img"])):
+                        data["img"][i] = data["img"][i].get()
                     get_timer.toc()
                 else:
                     get_timer = None
