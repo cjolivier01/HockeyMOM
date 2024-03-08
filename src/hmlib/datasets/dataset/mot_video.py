@@ -533,10 +533,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if self._data_pipeline is not None:
             if cuda_stream is not None:
-                img = StreamTensor(
-                    tensor=img, stream=cuda_stream, event=torch.cuda.Event()
-                )
-                data["img"][0] = img
+                for i, img in enumerate(data["img"]):
+                    img = StreamTensor(
+                        tensor=img, stream=cuda_stream, event=torch.cuda.Event()
+                    )
+                    data["img"][i] = img
             return original_img0, data, None, imgs_info, ids
         if self._original_image_only:
             return original_img0, None, None, imgs_info, ids

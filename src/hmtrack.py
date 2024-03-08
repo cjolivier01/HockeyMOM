@@ -542,7 +542,6 @@ def main(exp, args, num_gpu):
             model = init_model(args.config, args.checkpoint, device=gpus["detection"])
             cfg = model.cfg.copy()
             pipeline = cfg.data.inference.pipeline
-            # pipeline = cfg.data.test.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
             data_pipeline = Compose(pipeline)
 
@@ -613,7 +612,6 @@ def main(exp, args, num_gpu):
                         output_stitched_video_file if args.save_stitched else None
                     ),
                     max_frames=args.max_frames,
-                    # max_input_queue_size=2,
                     max_input_queue_size=2,
                     num_workers=1,
                     blend_thread_count=1,
@@ -640,7 +638,7 @@ def main(exp, args, num_gpu):
                     batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
-                    # device=gpus["detection"],
+                    #device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
@@ -654,9 +652,9 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    # device_for_original_image=video_out_device,
-                    device_for_original_image=torch.device("cpu"),
+                    #device_for_original_image=torch.device("cpu"),
                     data_pipeline=data_pipeline,
+                    stream_tensors=tracker == "mmtrack",
                 )
             else:
                 assert len(input_video_files) == 1
