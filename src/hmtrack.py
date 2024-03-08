@@ -33,6 +33,9 @@ from yolox.data import get_yolox_datadir
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
 
+from hmlib.utils.py_utils import find_item_in_module
+#from hmlib.builder import PIPELINES
+
 # from mmcv.runner import load_checkpoint
 from mmdet.datasets.pipelines import Compose
 
@@ -149,13 +152,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Don't save the output video",
     )
-    # parser.add_argument(
-    #     "--skip_final_video_save",
-    #     "--skip-final-video-save",
-    #     dest="skip_final_video_save",
-    #     action="store_true",
-    #     help="Don't save the output video frames",
-    # )
     parser.add_argument(
         "--speed",
         dest="speed",
@@ -382,6 +378,7 @@ class FakeExp:
 def main(exp, args, num_gpu):
     dataloader = None
 
+    #module_path = find_item_in_module("mmdet", "PIPELINES")
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
 
     try:
@@ -872,6 +869,8 @@ def run_mmtrack(
     dataloader_iterator = CachedIterator(
         iterator=iter(dataloader), cache_size=input_cache_size
     )
+    print("WARNING: Not cacheing data loader")
+    # dataloader_iterator = iter(dataloader)
 
     get_timer = Timer()
     detect_timer = None

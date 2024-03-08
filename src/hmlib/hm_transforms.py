@@ -1,11 +1,5 @@
 from hmlib.builder import PIPELINES
 
-# import mmdet
-# from mmdet.datasets.pipelines import transforms
-
-# @PIPELINES.register_module()
-# class HmResize(transforms.Resize):
-
 
 @PIPELINES.register_module()
 class HmImageToTensor:

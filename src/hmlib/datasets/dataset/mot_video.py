@@ -414,17 +414,19 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 # Data pipeline is going to expect a uint8 image
                 #data_item["img"] = torch.clamp(data_item["img"] * 255, min=0, max=255)
                 data_item = self._data_pipeline(data_item)
-                data = data_item
                 # data_item["img"] /= 255
-                img = data["img"]
+                img = data_item["img"]
                 if isinstance(img, list):
                     img = img[0]
+                    data = data_item
+                else:
+                    # atm, it isn't test_pipeline
                     assert isinstance(img, torch.Tensor)
-                # data_item["img"] = make_channels_first(data_item["img"])
-                # assert isinstance(img, torch.Tensor)  # not a list
-                # data = dict()
-                # for key, val in data_item.items():
-                #     data[key] = [val]
+                    data_item["img"] = make_channels_first(data_item["img"])
+                    assert isinstance(img, torch.Tensor)  # not a list
+                    data = dict()
+                    for key, val in data_item.items():
+                        data[key] = [val]
   
                 #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
                 
