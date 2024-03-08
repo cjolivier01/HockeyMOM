@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#EXPERIMENT_FILE="xmodels/mixsort/exps/example/mot/yolox_x_ch.py"
+EXPERIMENT_FILE="xmodels/mixsort/exps/example/mot/yolox_x_ch.py"
 
 #
 # Videos
@@ -33,9 +33,8 @@ START_FRAME=0
 #START_FRAME=51100
 #START_FRAME=46200
 
-#TRACKER="--tracker=centertrack"
-#TRACKER="--tracker=fair"
-TRACKER="--tracker=mmtrack"
+TRACKER="--tracker=fair"
+
 #BATCH_SIZE=32
 #BATCH_SIZE=16
 #BATCH_SIZE=16
