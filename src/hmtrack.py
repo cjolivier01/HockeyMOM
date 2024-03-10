@@ -875,8 +875,8 @@ def run_mmtrack(
 
     last_frame_id = None
 
-    if False:
-        # INFO ogging
+    if True:
+        # INFO logging
         handler = logging.StreamHandler(sys.stdout)
         logger.setLevel(max(logger.level, logging.INFO))
         formatter = logging.Formatter(
@@ -993,8 +993,8 @@ def run_mmtrack(
             # end frame loop
 
             if cur_iter % 50 == 0:
-                print(
-                #logger.info(
+                #print(
+                logger.info(
                     "mmtrack tracking, frame {} ({:.2f} fps)".format(
                         frame_id,
                         batch_size * 1.0 / max(1e-5, detect_timer.average_time),
