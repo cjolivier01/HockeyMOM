@@ -1,7 +1,4 @@
 
-[submodule "DCNv2"]
-	path = DCNv2
-	url = ssh://git@github.com/cjolivier01/DCNv2
 [submodule "external/pybind11"]
 	path = external/pybind11
 	url = ssh://git@github.com/pybind/pybind11
