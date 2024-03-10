@@ -1,3 +1,5 @@
+import torch
+
 from hmlib.builder import PIPELINES
 
 
@@ -13,8 +15,9 @@ class HmImageToTensor:
         keys (Sequence[str]): Key of images to be converted to Tensor.
     """
 
-    def __init__(self, keys):
+    def __init__(self, keys, scale_factor=None):
         self.keys = keys
+        self.scale_factor = scale_factor
 
     def __call__(self, results):
         """Call function to convert image in results to :obj:`torch.Tensor` and
@@ -29,14 +32,13 @@ class HmImageToTensor:
         """
         for key in self.keys:
             img = results[key]
-            if not torch.is_floating_point(img):
+            if isinstance(img, torch.Tensor) and not torch.is_floating_point(img):
                 if len(img.shape) < 3:
-                    img = np.expand_dims(img, -1)
-                #results[key] = to_tensor(img).permute(2, 0, 1).contiguous()
+                    img = img.unsqueeze(0)
                 assert img.dtype == torch.uint8
-                results[key] = img.to(torch.float, non_blocking=True) / 255.0
-            else:
-                results[key] = img
+                results[key] = img.to(torch.float, non_blocking=True)
+                if self.scale_factor is not None:
+                    results[key] *= self.scale_factor
         return results
 
     def __repr__(self):
