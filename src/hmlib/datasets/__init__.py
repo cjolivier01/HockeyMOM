@@ -1,1 +1,2 @@
-#from .dataset.mot_video import MOTLoadVideoWithOrig
+def get_yolox_datadir():
+    return "data/"

@@ -16,6 +16,7 @@ from pathlib import Path
 from hockeymom import core
 from yolox.data.dataloading import get_yolox_datadir
 
+from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer

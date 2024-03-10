@@ -17,18 +17,20 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+from hmlib.datasets import get_yolox_datadir
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "../MixViT"))
-from yolox.core import launch
-from yolox.exp import get_exp
-from yolox.utils import (
-    configure_nccl,
-    fuse_model,
-    get_local_rank,
-    get_model_info,
-    setup_logger,
-)
-from yolox.evaluators import MOTEvaluator
-from yolox.data import get_yolox_datadir
+# from yolox.core import launch
+# from yolox.exp import get_exp
+# from yolox.utils import (
+#     configure_nccl,
+#     fuse_model,
+#     get_local_rank,
+#     get_model_info,
+#     setup_logger,
+# )
+# from yolox.evaluators import MOTEvaluator
+# from yolox.data import get_yolox_datadir
 
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
@@ -719,15 +721,15 @@ def main(exp, args, num_gpu):
         postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
         if not isinstance(exp, FakeExp):
-            evaluator = MOTEvaluator(
-                args=args,
-                dataloader=dataloader,
-                img_size=exp.test_size,
-                confthre=exp.test_conf,
-                nmsthre=exp.nmsthre,
-                num_classes=exp.num_classes,
-                postprocessor=postprocessor,
-            )
+            # evaluator = MOTEvaluator(
+            #     args=args,
+            #     dataloader=dataloader,
+            #     img_size=exp.test_size,
+            #     confthre=exp.test_conf,
+            #     nmsthre=exp.nmsthre,
+            #     num_classes=exp.num_classes,
+            #     postprocessor=postprocessor,
+            # )
 
             # torch.cuda.set_device(rank)
             trt_file = None
@@ -778,14 +780,14 @@ def main(exp, args, num_gpu):
                 # "hm": {"function": evaluator.evaluate_hockeymom},
                 # "mixsort": {"function": evaluator.evaluate_mixsort},
                 "mmtrack": {"function": run_mmtrack},
-                "fair": {"function": evaluator.evaluate_fair},
-                "centertrack": {"function": evaluator.evaluate_centertrack},
-                "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
-                "sort": {"function": evaluator.evaluate_sort},
-                "ocsort": {"function": evaluator.evaluate_ocsort},
-                "byte": {"function": evaluator.evaluate_byte},
-                "deepsort": {"function": evaluator.evaluate_deepsort},
-                "motdt": {"function": evaluator.evaluate_motdt},
+                # "fair": {"function": evaluator.evaluate_fair},
+                # "centertrack": {"function": evaluator.evaluate_centertrack},
+                # "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
+                # "sort": {"function": evaluator.evaluate_sort},
+                # "ocsort": {"function": evaluator.evaluate_ocsort},
+                # "byte": {"function": evaluator.evaluate_byte},
+                # "deepsort": {"function": evaluator.evaluate_deepsort},
+                # "motdt": {"function": evaluator.evaluate_motdt},
             }
 
             # start evaluate
@@ -1122,13 +1124,5 @@ if __name__ == "__main__":
         num_gpus = len(args.gpus) if args.gpus else 0
         assert num_gpus <= torch.cuda.device_count()
 
-    launch(
-        main,
-        num_gpus,
-        args.num_machines,
-        args.machine_rank,
-        backend=args.dist_backend,
-        dist_url=args.dist_url,
-        args=(exp, args, num_gpus),
-    )
+    main(exp, args, num_gpus)
     print("Done.")

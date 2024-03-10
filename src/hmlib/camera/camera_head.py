@@ -7,7 +7,7 @@ import torch
 
 from typing import Dict, List
 
-from yolox.evaluators.mot_evaluator import TrackingHead
+#from yolox.evaluators.mot_evaluator import TrackingHead
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 
@@ -43,7 +43,7 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
-class CamTrackHead(TrackingHead):
+class CamTrackHead:
     def __init__(
         self,
         opt,
