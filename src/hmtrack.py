@@ -550,8 +550,6 @@ def main(exp, args, num_gpu):
         dataloader = None
         postprocessor = None
         if args.input_video:
-            from yolox.data import ValTransform
-
             input_video_files = args.input_video.split(",")
             if len(input_video_files) == 2 or os.path.isdir(args.input_video):
                 project_file_name = "autooptimiser_out.pto"

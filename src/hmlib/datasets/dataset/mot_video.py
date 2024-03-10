@@ -6,11 +6,9 @@ from typing import List, Tuple
 
 import cv2
 import torch
+from torch.utils.data import Dataset
 
 from mmdet.datasets.pipelines import Compose
-
-from yolox.data import MOTDataset
-from yolox.data.datasets.datasets_wrapper import Dataset
 
 from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import py_letterbox
@@ -46,7 +44,6 @@ def optional_with(resource):
 
 
 class MOTLoadVideoWithOrig(Dataset):  # for inference
-    # class MOTLoadVideoWithOrig(MOTDataset):  # for inference
     def __init__(
         self,
         path,
@@ -77,16 +74,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # scale_rgb_down: bool = False,
         # output_type: torch.dtype = None
     ):
-        # super().__init__(
-        #     input_dimension=img_size,
-        # )
-        # super().__init__(
-        #     data_dir=data_dir,
-        #     json_file=json_file,
-        #     name=name,
-        #     preproc=preproc,
-        #     return_origin_img=return_origin_img,
-        # )
         assert not isinstance(img_size, str)
         self._path = path
         self._game_id = game_id

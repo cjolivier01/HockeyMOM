@@ -14,7 +14,6 @@ from typing import List, Union
 from pathlib import Path
 
 from hockeymom import core
-from yolox.data.dataloading import get_yolox_datadir
 
 from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
