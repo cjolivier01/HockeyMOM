@@ -414,10 +414,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 else:
                     #mmin, mmax = torch.min(img0), torch.max(img0)
                     pass
-                assert img0.shape[0] == 1
+                #assert img0.shape[0] == 1
                 data_item = dict(
                     #img=make_channels_last(original_img0.squeeze(0)).cpu().numpy(),
-                    img=make_channels_last(img0.squeeze(0)),
+                    #img=make_channels_last(img0.squeeze(0)),
+                    img=make_channels_last(img0),
                     #img=make_channels_first(img0.squeeze(0)),
                     img_info=dict(frame_id=ids[0]),
                     img_prefix=None,

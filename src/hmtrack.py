@@ -414,9 +414,9 @@ def main(exp, args, num_gpu):
             results_folder = os.path.join(file_name, "track_results")
             os.makedirs(results_folder, exist_ok=True)
 
-            setup_logger(
-                file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
-            )
+            # setup_logger(
+            #     file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
+            # )
             # logger.info("Args: {}".format(args))
 
             if args.conf is not None:
@@ -928,7 +928,7 @@ def run_mmtrack(
                 else:
                     get_timer = None
 
-                data = collate([data], samples_per_gpu=1)
+                data = collate([data], samples_per_gpu=batch_size)
                 if next(model.parameters()).is_cuda:
                     # scatter to specified GPU
                     data = scatter(data, [device])[0]
@@ -941,7 +941,8 @@ def run_mmtrack(
                     data["img_metas"] = data["img_metas"][0].data
                 # forward the model
                 for i, img in enumerate(data["img"]):
-                    data["img"][i] = make_channels_first(data["img"][i])
+                    # collate adds a stupid batch size of 1
+                    data["img"][i] = make_channels_first(data["img"][i].squeeze(0))
                 detect_timer.tic()
                 with torch.no_grad():
                     results = model(return_loss=False, rescale=True, **data)
@@ -992,7 +993,8 @@ def run_mmtrack(
             # end frame loop
 
             if cur_iter % 50 == 0:
-                logger.info(
+                print(
+                #logger.info(
                     "mmtrack tracking, frame {} ({:.2f} fps)".format(
                         frame_id,
                         batch_size * 1.0 / max(1e-5, detect_timer.average_time),
