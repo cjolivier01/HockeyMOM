@@ -402,8 +402,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     # maxp = torch.max(img0)
                     #img0 = torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8)
                     # Normalize expects 0-255 values
+                    
+                    #mmin, mmax = torch.min(img0), torch.max(img0)
+                    
                     img0 = img0 * 255
                     #quick_show(img0, wait=True)
+                    
+                    #mmin, mmax = torch.min(img0), torch.max(img0)
+                    
+                    pass
+                else:
+                    #mmin, mmax = torch.min(img0), torch.max(img0)
                     pass
                 assert img0.shape[0] == 1
                 data_item = dict(
@@ -418,10 +427,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 data_item = self._data_pipeline(data_item)
                 # data_item["img"] /= 255
                 img = data_item["img"]
+                
                 if isinstance(img, list):
                     img = img[0]
                     data = data_item
                 else:
+                    assert False # ?
                     # atm, it isn't test_pipeline
                     assert isinstance(img, torch.Tensor)
                     data_item["img"] = make_channels_first(data_item["img"])
@@ -430,6 +441,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     for key, val in data_item.items():
                         data[key] = [val]
   
+                #mmin, mmax = torch.min(img), torch.max(img)
+
                 #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
                 
             else:
