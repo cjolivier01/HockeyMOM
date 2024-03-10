@@ -1058,7 +1058,6 @@ def my_inference_mot(model, img, frame_id):
 
 if __name__ == "__main__":
     import hmlib.opts_fair as opts_fair
-    import lib.opts as centertrack_opts
 
     parser = make_parser()
 
@@ -1081,16 +1080,7 @@ if __name__ == "__main__":
             config_name="tracker_" + args.tracker,
         )
     # horrifyingly hacky dealing with conflicting arguments of different trackers
-    if args.tracker == "centertrack":
-        opts = centertrack_opts.opts(parser=make_parser())
-        args = opts.parser.parse_args()
-        args.game_config = game_config
-        args = hm_opts.init(opt=args, parser=opts.parser)
-        args = opts.parse(args=args)
-        args = opts.init()
-        # args = hm_opts.init(opt=args)
-        exp = get_exp(args.exp_file, args.name)
-    elif args.tracker == "fair":
+    if args.tracker == "fair":
         args.game_config = game_config
         opts_fair.parse(opt=args)
         args = opts_fair.init(opt=args)
