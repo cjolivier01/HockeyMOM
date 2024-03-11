@@ -64,7 +64,7 @@ ImageStitcher::ImageStitcher(
     (*remappers_.rbegin())->init(batch_size);
   }
   blender_ = std::make_unique<ImageBlender>(
-      blender_mode, levels, seam, xor_map, lazy_init, interpolation);
+      blender_mode, levels, seam, xor_map, /*lazy_init=*/true, interpolation);
 }
 
 void ImageStitcher::to(at::Device device) {

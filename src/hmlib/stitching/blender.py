@@ -151,11 +151,13 @@ class PtImageBlender:
         laplacian_blend: False,
         max_levels: int = 4,
         cuda_stream: torch.cuda.Stream = None,
+        dtype: torch.dtype = torch.float,
     ):
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
         self._cuda_stream = cuda_stream
+        self._dtype = dtype
         self.max_levels = max_levels
         if laplacian_blend:
             self._laplacian_blend = LaplacianBlend(
@@ -218,7 +220,7 @@ class PtImageBlender:
                     self._seam_mask.shape[0],
                     self._seam_mask.shape[1],
                 ),
-                dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
+                dtype=torch.uint8 if self._laplacian_blend is None else self._dtype,
                 device=self._seam_mask.device,
             )
             # full_left = torch.zeros_like(canvas)
@@ -855,6 +857,7 @@ def stitch_video(
     skip_final_video_save: bool = False,
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
+    dtype: torch.dtype = torch.float16,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -910,7 +913,7 @@ def stitch_video(
         cache_size=queue_size,
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
-            dtype=torch.float,
+            dtype=dtype,
             scale_down_factor=255.0,
         ),
     )
@@ -919,7 +922,7 @@ def stitch_video(
         cache_size=queue_size,
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
-            dtype=torch.float,
+            dtype=dtype,
             scale_down_factor=255.0,
         ),
     )
@@ -932,7 +935,7 @@ def stitch_video(
         if t.device != device:
             t = t.to(device, non_blocking=False)
         if t.dtype == torch.uint8:
-            t = t.to(torch.float, non_blocking=False)
+            t = t.to(dtype, non_blocking=False)
         return t
 
     with optional_with(

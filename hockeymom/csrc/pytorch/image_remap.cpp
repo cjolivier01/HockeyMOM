@@ -122,7 +122,7 @@ void ImageRemapper::init(std::size_t batch_size) {
     assert(grid.sizes().size() == 3);
     grid = grid.expand(
         {(int)batch_size, grid.size(0), grid.size(1), grid.size(2)});
-    grid_ = grid.contiguous();
+    grid_ = grid.to(at::TensorOptions(FloatType)).contiguous();
   }
   col_map_ = col_map.contiguous();
   row_map_ = row_map.contiguous();
@@ -173,7 +173,7 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
       source_tensor, working_width_, working_height_, 0);
 #endif
   // batch + 3 channels
-  assert(source_tensor.sizes().size() == 4);
+  TORCH_CHECK(source_tensor.sizes().size() == 4, "Expected a 4D tensor");
   at::Tensor destination_tensor;
   if (interpolation_.empty()) {
     destination_tensor = at::empty_like(source_tensor);
@@ -191,13 +191,13 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     options =
         options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
     if (!torch::is_floating_point(source_tensor)) {
-      source_tensor = source_tensor.to(at::TensorOptions().dtype(torch::kF32));
+      source_tensor = source_tensor.to(at::TensorOptions().dtype(FloatType));
     }
     destination_tensor =
         torch::nn::functional::grid_sample(source_tensor, grid_, options);
     if (destination_tensor.dtype() != dtype_) {
       if (dtype_ == at::ScalarType::Byte) {
-                destination_tensor =
+        destination_tensor =
             destination_tensor.clamp(0, 255.0).to(torch::kByte);
       } else {
         destination_tensor =

@@ -127,16 +127,19 @@ at::Tensor create_gaussian_kernel(
       -double(kernel_size - 1) / 2.0,
       double(kernel_size - 1) / 2.0,
       kernel_size,
-      torch::TensorOptions().dtype(dtype));
+      torch::TensorOptions().dtype(at::ScalarType::Float));
   auto xx_and_yy = at::meshgrid({ax, ax}, /*indexing=*/"ij");
   at::Tensor& xx = xx_and_yy.at(0);
   at::Tensor& yy = xx_and_yy.at(1);
   at::Tensor kernel_tensor = at::exp(
       -0.5 * (at::square(xx) + at::square(yy)) /
-      at::square(scalar_float(sigma, dtype)));
+      at::square(scalar_float(sigma, at::ScalarType::Float)));
   kernel_tensor /= at::sum(kernel_tensor);
   // # Reshapes to (channels, 1, size, size)
   kernel_tensor = kernel_tensor.repeat({channels, 1, 1, 1});
+  if (dtype != at::ScalarType::Float) {
+    kernel_tensor = kernel_tensor.to(torch::TensorOptions(dtype));
+  }
   return kernel_tensor;
 }
 

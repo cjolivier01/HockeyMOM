@@ -1,8 +1,8 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <torch/torch.h>
 #include <torch/nn/functional.h>
+#include <torch/torch.h>
 
 #include <optional>
 #include <string>
@@ -16,8 +16,8 @@ class ImageBlender {
 
  public:
   enum class Mode { HardSeam, Laplacian };
-  //constexpr static inline torch::ScalarType FloatType = torch::ScalarType::Half;
-  constexpr static inline torch::ScalarType FloatType = torch::ScalarType::Float;
+  constexpr static inline at::ScalarType FloatType = at::ScalarType::Half;
+  // constexpr static inline at::ScalarType FloatType = at::ScalarType::Float;
 
   // levels=0 = quick, hard seam
   ImageBlender(
