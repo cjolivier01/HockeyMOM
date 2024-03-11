@@ -20,17 +20,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from hmlib.datasets import get_yolox_datadir
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../MixViT"))
-# from yolox.core import launch
-# from yolox.exp import get_exp
-# from yolox.utils import (
-#     configure_nccl,
-#     fuse_model,
-#     get_local_rank,
-#     get_model_info,
-#     setup_logger,
-# )
-# from yolox.evaluators import MOTEvaluator
-# from yolox.data import get_yolox_datadir
 
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
@@ -334,23 +323,23 @@ def update_from_args(args, arg_name, config, noset_value: any = None):
 
 
 def configure_model(config: dict, args: argparse.Namespace):
-    if hasattr(args, "det_thres"):
-        args.det_thres = set_nested_value(
-            dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
-        )
-        assert args.det_thres is not None
-    if hasattr(args, "conf_thres"):
-        args.conf_thres = set_nested_value(
-            dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
-        )
-        assert args.conf_thres is not None
-    if config["model"]["backbone"]["pretrained"]:
-        args.load_model = set_nested_value(
-            dct=config,
-            key_str="model.backbone.pretrained_path",
-            set_to=args.load_model,
-            noset_value="",
-        )
+    # if hasattr(args, "det_thres"):
+    #     args.det_thres = set_nested_value(
+    #         dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
+    #     )
+    #     assert args.det_thres is not None
+    # if hasattr(args, "conf_thres"):
+    #     args.conf_thres = set_nested_value(
+    #         dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
+    #     )
+    #     assert args.conf_thres is not None
+    # if config["model"]["backbone"]["pretrained"]:
+    #     args.load_model = set_nested_value(
+    #         dct=config,
+    #         key_str="model.backbone.pretrained_path",
+    #         set_to=args.load_model,
+    #         noset_value="",
+    #     )
 
     update_from_args(args, "tracker", config)
     return args
@@ -377,27 +366,27 @@ class FakeExp:
         self.test_size = None
 
 
-def main(exp, args, num_gpu):
+def main(args, num_gpu):
     dataloader = None
 
     # module_path = find_item_in_module("mmdet", "PIPELINES")
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
 
     try:
-        if args.seed is not None:
-            random.seed(args.seed)
-            torch.manual_seed(args.seed)
-            cudnn.deterministic = True
-            warnings.warn(
-                "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
-            )
+        # if args.seed is not None:
+        #     random.seed(args.seed)
+        #     torch.manual_seed(args.seed)
+        #     cudnn.deterministic = True
+        #     warnings.warn(
+        #         "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
+        #     )
 
         # set_deterministic()
 
-        if not args.experiment_name:
-            args.experiment_name = args.game_id
-        elif args.game_id and args.game_id not in args.experiment_name:
-            args.experiment_name = args.experiment_name + "-" + args.game_id
+        # if not args.experiment_name:
+        #     args.experiment_name = args.game_id
+        # elif args.game_id and args.game_id not in args.experiment_name:
+        #     args.experiment_name = args.experiment_name + "-" + args.game_id
 
         is_distributed = num_gpu > 1
         if args.gpus and isinstance(args.gpus, str):
@@ -409,35 +398,35 @@ def main(exp, args, num_gpu):
         rank = args.local_rank
         # rank = get_local_rank()
 
-        if exp is not None:
-            file_name = os.path.join(exp.output_dir, args.experiment_name)
-            if rank == 0:
-                os.makedirs(file_name, exist_ok=True)
-            results_folder = os.path.join(file_name, "track_results")
-            os.makedirs(results_folder, exist_ok=True)
+        # if exp is not None:
+        #     file_name = os.path.join(exp.output_dir, args.experiment_name)
+        #     if rank == 0:
+        #         os.makedirs(file_name, exist_ok=True)
+        #     results_folder = os.path.join(file_name, "track_results")
+        #     os.makedirs(results_folder, exist_ok=True)
 
-            # setup_logger(
-            #     file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
-            # )
-            # logger.info("Args: {}".format(args))
+        #     # setup_logger(
+        #     #     file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
+        #     # )
+        #     # logger.info("Args: {}".format(args))
 
-            if args.conf is not None:
-                exp.test_conf = args.conf
-            if args.nms is not None:
-                exp.nmsthre = args.nms
+        #     if args.conf is not None:
+        #         exp.test_conf = args.conf
+        #     if args.nms is not None:
+        #         exp.nmsthre = args.nms
 
-            if args.test_size:
-                assert args.tsize is None
-                tokens = args.test_size.split("x")
-                if len(tokens) == 1:
-                    tokens = args.test_size.split("X")
-                assert len(tokens) == 2
-                exp.test_size = (
-                    to_32bit_mul(int(tokens[0])),
-                    to_32bit_mul(int(tokens[1])),
-                )
-            elif args.tsize is not None:
-                exp.test_size = (args.tsize, args.tsize)
+        #     if args.test_size:
+        #         assert args.tsize is None
+        #         tokens = args.test_size.split("x")
+        #         if len(tokens) == 1:
+        #             tokens = args.test_size.split("X")
+        #         assert len(tokens) == 2
+        #         exp.test_size = (
+        #             to_32bit_mul(int(tokens[0])),
+        #             to_32bit_mul(int(tokens[1])),
+        #         )
+        #     elif args.tsize is not None:
+        #         exp.test_size = (args.tsize, args.tsize)
 
         game_config = args.game_config
 
@@ -462,11 +451,11 @@ def main(exp, args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
-        if tracker not in ["fair", "centertrack", "mmtrack"]:
-            model = exp.get_model()
-            logger.info(
-                "Model Summary: {}".format(get_model_info(model, exp.test_size))
-            )
+        # if tracker not in ["fair", "centertrack", "mmtrack"]:
+        #     model = exp.get_model()
+        #     logger.info(
+        #         "Model Summary: {}".format(get_model_info(model, exp.test_size))
+        #     )
 
         cam_args = DefaultArguments(
             game_config=game_config,
@@ -519,6 +508,8 @@ def main(exp, args, num_gpu):
 
         torch.cuda.set_device(gpus["detection"].index)
 
+        # TODO: get rid of this, set in cfg (detector.input_size, etc)
+        exp = None
         if exp is None:
             exp = FakeExp()
             test_size = getattr(args, "test_size", None)
@@ -602,7 +593,7 @@ def main(exp, args, num_gpu):
                 )
                 # Create the stitcher data loader
                 output_stitched_video_file = (
-                    os.path.join(".", f"stitched_output-{args.experiment_name}.mkv")
+                    os.path.join(".", f"stitched_output-{args.game_id}.mkv")
                     if args.save_stitched
                     else None
                 )
@@ -816,12 +807,6 @@ def main(exp, args, num_gpu):
             *_, summary = run_mmtrack(
                 model=model,
                 config=args.game_config,
-                # distributed=is_distributed,
-                # half=args.fp16,
-                # trt_file=trt_file,
-                # decoder=decoder,
-                test_size=exp.test_size,
-                # result_folder=results_folder,
                 device=gpus["detection"],
                 **other_kwargs,
             )
@@ -851,29 +836,16 @@ def tensor_to_image(tensor: torch.Tensor):
 
 def run_mmtrack(
     model,
-    config: dict,
+    config,
     dataloader,
     postprocessor,
-    # distributed=False,
-    # half=False,
-    # trt_file=None,
-    # decoder=None,
-    test_size=None,
-    # result_folder=None,
-    # evaluate: bool = False,
-    # tracker_name=None,
     device: torch.device = None,
     input_cache_size: int = 2,
 ):
-    # args.config = args.exp_file
-    # args.checkpoint = None
-    # model = init_model(args.config, args.checkpoint, device=device)
-
     dataloader_iterator = CachedIterator(
         iterator=iter(dataloader), cache_size=input_cache_size
     )
     # print("WARNING: Not cacheing data loader")
-    # dataloader_iterator = iter(dataloader)
 
     get_timer = Timer()
     detect_timer = None
@@ -955,7 +927,6 @@ def run_mmtrack(
 
             # detect_timer.toc()
 
-            # del letterbox_imgs
             del data
 
             det_bboxes = results["det_bboxes"]
@@ -1008,64 +979,8 @@ def run_mmtrack(
                 detect_timer = Timer()
 
 
-def my_inference_mot(model, img, frame_id):
-    """Inference image(s) with the mot model.
-
-    Args:
-        model (nn.Module): The loaded mot model.
-        img (str | ndarray): Either image name or loaded image.
-        frame_id (int): frame id.
-
-    Returns:
-        dict[str : ndarray]: The tracking results.
-    """
-    # show_image("letterbox_img", img)
-    cfg = model.cfg
-    device = next(model.parameters()).device  # model device
-    # prepare data
-    if isinstance(img, np.ndarray):
-        # directly add img
-        data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
-        cfg = cfg.copy()
-        # set loading pipeline type
-        cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
-    elif isinstance(img, torch.Tensor):
-        # directly add img
-        data = dict(img=img, img_info=dict(frame_id=frame_id), img_prefix=None)
-        cfg = cfg.copy()
-        # set loading pipeline type
-        cfg.data.test.pipeline[0].type = "LoadImageFromWebcam"
-    else:
-        # add information into dict
-        data = dict(img_info=dict(filename=img, frame_id=frame_id), img_prefix=None)
-    # build the data pipeline
-
-    test_pipeline = Compose(cfg.data.test.pipeline)
-    data = test_pipeline(data)
-    data = collate([data], samples_per_gpu=1)
-    if next(model.parameters()).is_cuda:
-        # scatter to specified GPU
-        data = scatter(data, [device])[0]
-    else:
-        for m in model.modules():
-            assert not isinstance(
-                m, RoIPool
-            ), "CPU inference with RoIPool is not supported currently."
-        # just get the actual data from DataContainer
-        data["img_metas"] = data["img_metas"][0].data
-    # forward the model
-    with torch.no_grad():
-        result = model(return_loss=False, rescale=True, **data)
-    return result
-
-
 if __name__ == "__main__":
-    import hmlib.opts_fair as opts_fair
-
     parser = make_parser()
-
-    opts_fair = opts_fair.opts(parser=parser)
-    parser = opts_fair.parser
     args = parser.parse_args()
 
     game_config = get_config(
@@ -1082,30 +997,8 @@ if __name__ == "__main__":
             config_type="models",
             config_name="tracker_" + args.tracker,
         )
-    # horrifyingly hacky dealing with conflicting arguments of different trackers
-    if args.tracker == "fair":
-        args.game_config = game_config
-        opts_fair.parse(opt=args)
-        args = opts_fair.init(opt=args)
-        args = hm_opts.init(args)
-        exp = get_exp(args.exp_file, args.name)
-        # exp.merge(args.opts) # seems to do nothing
-    elif args.tracker == "mmtrack":
-        args.game_config = game_config
-        args = hm_opts.init(args)
-        exp = None
-    else:
-        args.game_config = game_config
-        args = hm_opts.init(args)
-        exp = get_exp(args.exp_file, args.name)
-        exp.merge(args.opts)
-
     args.game_config = game_config
-
-    if not args.experiment_name:
-        args.experiment_name = args.game_id
-    # if not args.experiment_name:
-    #     args.experiment_name = exp.exp_name
+    args = hm_opts.init(args)
 
     args = configure_model(config=args.game_config, args=args)
 
@@ -1117,5 +1010,5 @@ if __name__ == "__main__":
         num_gpus = len(args.gpus) if args.gpus else 0
         assert num_gpus <= torch.cuda.device_count()
 
-    main(exp, args, num_gpus)
+    main(args, num_gpus)
     print("Done.")

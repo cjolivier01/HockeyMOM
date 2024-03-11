@@ -25,6 +25,12 @@ class hm_opts(object):
     def parser(parser: argparse.ArgumentParser = None):
         if parser is None:
             parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
+        )
+        parser.add_argument(
+            "--debug", default=0, type=int, help="debug level"
+        )
         # stitching
         parser.add_argument(
             "--game-id",
