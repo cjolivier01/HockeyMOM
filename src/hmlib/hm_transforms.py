@@ -847,7 +847,7 @@ class HmCrop:
         self.keys = keys
         self.rectangle = rectangle
         self.calculated_clip_boxes: Dict = dict()
-        # self.save_clipped_images = save_clipped_images
+        self.save_clipped_images = save_clipped_images
         if self.rectangle is not None:
             if isinstance(self.rectangle, (list, tuple)):
                 if not any(item is not None for item in self.rectangle):
