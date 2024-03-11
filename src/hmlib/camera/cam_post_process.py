@@ -234,7 +234,7 @@ class CamTrackPostProcessor:
         self._fps = fps
         self._thread = None
         self._use_fork = use_fork
-        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float32)
+        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
         self._final_image_processing_started = False
         self._async_post_processing = async_post_processing

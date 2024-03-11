@@ -35,7 +35,7 @@ def ctdet_post_process_post_recale(dets: torch.Tensor, c, s, h, w, num_classes):
     ret = []
     c_t = torch.from_numpy(c[0]).to(dets.device)
     s_t = torch.from_numpy(np.array(s)).to(dets.device)
-    w_h = torch.tensor((w, h), dtype=torch.float32, device=dets.device)
+    w_h = torch.tensor((w, h), dtype=torch.float, device=dets.device)
     trans = None
     # Across batch items
     for i in range(dets.shape[0]):
@@ -53,8 +53,8 @@ def ctdet_post_process_post_recale(dets: torch.Tensor, c, s, h, w, num_classes):
             top_preds[j + 1] = (
                 torch.cat(
                     [
-                        dets[i, inds, :4].to(torch.float32),
-                        dets[i, inds, 4:5].to(torch.float32),
+                        dets[i, inds, :4].to(torch.float),
+                        dets[i, inds, 4:5].to(torch.float),
                     ],
                     axis=1,
                 ).cpu()

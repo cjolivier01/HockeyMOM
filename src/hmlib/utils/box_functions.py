@@ -66,7 +66,7 @@ def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Ten
             center_point[0] + (w / 2.0) - 0.5,
             center_point[1] + (h / 2.0) - 0.5,
         ],
-        dtype=torch.float32,
+        dtype=torch.float,
         device=center_point.device,
     )
     # assert np.isclose(width(box), w)

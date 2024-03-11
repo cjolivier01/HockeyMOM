@@ -89,7 +89,7 @@ class VideoFrame(object):
         self._horizontal_center = self._image_width / 2
         self._bbox = torch.tensor(
             (0, 0, self._image_width - 1, self._image_height - 1),
-            dtype=torch.float32,
+            dtype=torch.float,
             device=self._image_width.device,
         )
 
@@ -194,7 +194,7 @@ class TlwhHistory(object):
         height = tlwh[3]
         x_center = left + width / 2
         y_center = top + height / 2
-        return torch.tensor((x_center, y_center), dtype=torch.float32)
+        return torch.tensor((x_center, y_center), dtype=torch.float)
 
     def __len__(self):
         length = len(self._image_position_history)
@@ -320,7 +320,7 @@ class HockeyMOM:
         # )
 
     def _to_scalar_float(self, scalar_float):
-        return torch.tensor(scalar_float, dtype=torch.float32, device=self._device)
+        return torch.tensor(scalar_float, dtype=torch.float, device=self._device)
 
     def get_speed(self):
         assert False
@@ -628,7 +628,7 @@ class HockeyMOM:
         #     box,
         #     torch.tensor(
         #         [0, 0, self._video_frame.width - 1, self._video_frame.height - 1],
-        #         dtype=torch.float32,
+        #         dtype=torch.float,
         #     ),
         # )
 
@@ -958,7 +958,7 @@ class HockeyMOM:
         # if verbose:
         #     print(f"Moving box by {dx} x {dy}")
         return box + torch.tensor(
-            [dx, dy, dx, dy], dtype=torch.float32, device=box.device
+            [dx, dy, dx, dy], dtype=torch.float, device=box.device
         )
 
     def adjust_veclocity_based_upon_new_box(

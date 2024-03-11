@@ -107,7 +107,7 @@ class Scoreboard(torch.nn.Module):
         ow = self._dest_w
         oh = self._dest_h
 
-        # dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
+        # dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float
         self._grid = _perspective_grid(
             perspective_coeffs,
             ow=ow,
@@ -483,7 +483,7 @@ def main():
         # ow, oh = src_image.shape[-1], img.shape[-2]
         ow = dest_w
         oh = dest_h
-        dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float32
+        dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float
         grid = _perspective_grid(
             perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device
         )
@@ -596,7 +596,7 @@ def sb_main(game_id: str):
             dtype=(
                 image_tensor.dtype
                 if torch.is_floating_point(image_tensor)
-                else torch.float32
+                else torch.float
             ),
         )
 

@@ -382,7 +382,7 @@ class StitchDataset:
             if img.dtype not in [
                 torch.float,
                 torch.float16,
-                torch.float32,
+                torch.float,
                 torch.float64,
             ]:
                 img = img.to(torch.float, non_blocking=True)
@@ -447,7 +447,7 @@ class StitchDataset:
             )
             self._video_output_box = torch.tensor(
                 (0, 0, self._video_output_size[0], self._video_output_size[1]),
-                dtype=torch.float32,
+                dtype=torch.float,
             )
             # Not doing anything fancy, so don't waste time copy to and from the GPU
             self._video_output = VideoOutput(

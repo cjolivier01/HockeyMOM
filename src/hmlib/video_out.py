@@ -194,9 +194,9 @@ def _to_float(
     assert apply_scale
     if tensor.dtype == torch.uint8:
         if apply_scale:
-            return tensor.to(torch.float32, non_blocking=non_blocking) / 255.0
+            return tensor.to(torch.float, non_blocking=non_blocking) / 255.0
         else:
-            return tensor.to(torch.float32, non_blocking=non_blocking)
+            return tensor.to(torch.float, non_blocking=non_blocking)
     else:
         assert torch.is_floating_point(tensor)
     return tensor
@@ -227,11 +227,11 @@ def _to_uint8(
 def image_wh(image: torch.Tensor):
     if image.shape[-1] in [3, 4]:
         return torch.tensor(
-            [image.shape[-2], image.shape[-3]], dtype=torch.float32, device=image.device
+            [image.shape[-2], image.shape[-3]], dtype=torch.float, device=image.device
         )
     assert image.shape[1] in [3, 4]
     return torch.tensor(
-        [image.shape[-1], image.shape[-2]], dtype=torch.float32, device=image.device
+        [image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device
     )
 
 
@@ -313,7 +313,7 @@ class VideoOutput:
             self._fourcc = fourcc
 
         self._horizontal_image_gaussian_distribution = None
-        self._zero_f32 = torch.tensor(0, dtype=torch.float32, device=device)
+        self._zero_f32 = torch.tensor(0, dtype=torch.float, device=device)
         self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
         self._send_to_video_out_timer = Timer()

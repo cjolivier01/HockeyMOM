@@ -25,7 +25,7 @@ class BasicBox: #(torch.nn.Module):
         super(BasicBox, self).__init__()
         self.device = bbox.device if device is None else device
         self._zero_float_tensor = torch.tensor(
-            0, dtype=torch.float32, device=self.device
+            0, dtype=torch.float, device=self.device
         )
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self.device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self.device)
@@ -383,10 +383,10 @@ class MovingBox(ResizingBox):
         self._sticky_translation = sticky_translation
 
         self._line_thickness_tensor = torch.tensor(
-            [2, 2, -1, -2], dtype=torch.float32, device=self.device
+            [2, 2, -1, -2], dtype=torch.float, device=self.device
         )
         self._inflate_arena_for_unsticky_edges = torch.tensor(
-            [1, 1, -1, -1], dtype=torch.float32, device=self.device
+            [1, 1, -1, -1], dtype=torch.float, device=self.device
         )
 
         # if isinstance(bbox, BasicBox):

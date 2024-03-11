@@ -276,7 +276,7 @@ class ImageRemapper:
             else:
                 # Perform the grid sampling with bicubic interpolation
                 destination_tensor = F.grid_sample(
-                    source_tensor.to(torch.float32),
+                    source_tensor.to(torch.float),
                     self._grid,
                     mode=self._interpolation,
                     padding_mode="zeros",

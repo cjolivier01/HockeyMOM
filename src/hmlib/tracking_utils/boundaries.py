@@ -6,14 +6,14 @@ class BoundaryLines:
     def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
         self._original_clip_box = original_clip_box
         if self._original_clip_box is None:
-            self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float32)
+            self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float)
         elif not isinstance(self._original_clip_box, torch.Tensor):
             self._original_clip_box = torch.tensor(
-                self._original_clip_box, dtype=torch.float32
+                self._original_clip_box, dtype=torch.float
             )
         clip_upper_left = self._original_clip_box[0:2]
         if upper_border_lines:
-            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
+            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float)
             self._upper_borders[:, 0:2] -= clip_upper_left
             self._upper_borders[:, 2:4] -= clip_upper_left
             self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
@@ -21,7 +21,7 @@ class BoundaryLines:
             self._upper_borders = None
             self._upper_line_vectors = None
         if lower_border_lines:
-            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
+            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float)
             self._lower_borders[:, 0:2] -= clip_upper_left
             self._lower_borders[:, 2:4] -= clip_upper_left
             self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)

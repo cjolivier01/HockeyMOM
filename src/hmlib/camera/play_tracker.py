@@ -109,7 +109,7 @@ class PlayTracker(torch.nn.Module):
         self._args = args
         self._hockey_mom = hockey_mom
         self._thread = None
-        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float32)
+        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
         self._final_image_processing_started = False
         self._device = device
@@ -423,7 +423,7 @@ class PlayTracker(torch.nn.Module):
                     thickness=20,
                 )
             edge_center = torch.tensor(
-                edge_center, dtype=torch.float32, device=current_box.device
+                edge_center, dtype=torch.float, device=current_box.device
             )
             current_box = make_box_at_center(
                 edge_center, width(current_box), height(current_box)
@@ -474,4 +474,4 @@ class PlayTracker(torch.nn.Module):
 def _scalar_like(v, device):
     if isinstance(v, torch.Tensor):
         return v.clone()
-    return torch.tensor(v, dtype=torch.float32, device=device)
+    return torch.tensor(v, dtype=torch.float, device=device)
