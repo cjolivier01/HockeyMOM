@@ -847,7 +847,7 @@ class HmCrop:
         self.keys = keys
         self.rectangle = rectangle
         self.calculated_clip_boxes: Dict = dict()
-        self.save_clipped_images = save_clipped_images
+        # self.save_clipped_images = save_clipped_images
         if self.rectangle is not None:
             if isinstance(self.rectangle, (list, tuple)):
                 if not any(item is not None for item in self.rectangle):
@@ -907,5 +907,31 @@ class HmCrop:
 
     def __repr__(self):
         repr_str = self.__class__.__name__
-        repr_str += f"(rectangle={self.rectangle}, "
+        repr_str += f"(rectangle={self.rectangle})"
+        return repr_str
+
+
+@PIPELINES.register_module()
+class CloneImage:
+    def __init__(
+        self,
+        source_key: str,
+        dest_key: str,
+    ):
+        self.source_key = source_key
+        self.dest_key = dest_key
+        assert (self.source_key and self.dest_key) or (
+            not self.source_key and not self.dest_key
+        )
+
+    def __call__(self, results):
+        if self.source_key:
+            img = results.get(self.source_key, None)
+            if img is not None:
+                results[self.dest_key] = img.clone()
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f"(source_key={self.source_key}, dest_key={self.dest_key})"
         return repr_str
