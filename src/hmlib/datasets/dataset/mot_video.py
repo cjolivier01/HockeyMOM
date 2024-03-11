@@ -392,9 +392,19 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img_info=dict(frame_id=ids[0]),
                     img_prefix=None,
                 )
-                # Data pipeline is going to expect a uint8 image
                 data_item = self._data_pipeline(data_item)
                 img = data_item["img"]
+                
+                # Maybe get back the clipped image as the "origina"
+                if "clipped_image" in data_item:
+                    clipped_image = data_item["clipped_image"]
+                    if isinstance(clipped_image, list):
+                        assert len(clipped_image) == 1
+                        clipped_image = clipped_image[0]
+                    original_img0 = clipped_image["img"]
+                    del data_item["clipped_image"]
+                    if torch.is_floating_point(original_img0):
+                        original_img0 /= 255
                 
                 if isinstance(img, list):
                     img = img[0]

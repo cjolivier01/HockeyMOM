@@ -545,6 +545,11 @@ def main(exp, args, num_gpu):
             cfg = model.cfg.copy()
             pipeline = cfg.data.inference.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
+            for i, p in enumerate(pipeline):
+                if p.type == "HmCrop":
+                    pipeline[i].rectangle = get_clip_box(
+                        game_id=args.game_id, root_dir=ROOT_DIR
+                    )
             data_pipeline = Compose(pipeline)
 
         dataloader = None
@@ -638,7 +643,7 @@ def main(exp, args, num_gpu):
                     batch_size=1,
                     clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
-                    #device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
+                    # device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
                     # device=torch.device("cpu"),
                     # preproc=ValTransform(
                     #     rgb_means=(0.485, 0.456, 0.406),
@@ -652,7 +657,7 @@ def main(exp, args, num_gpu):
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
-                    #device_for_original_image=torch.device("cpu"),
+                    # device_for_original_image=torch.device("cpu"),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
                 )
@@ -910,7 +915,7 @@ def run_mmtrack(
             if detect_timer is None:
                 detect_timer = Timer()
 
-            #detect_timer.tic()
+            # detect_timer.tic()
 
             if False:
                 img = tensor_to_image(origin_imgs)
@@ -948,7 +953,7 @@ def run_mmtrack(
                     results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 
-            #detect_timer.toc()
+            # detect_timer.toc()
 
             # del letterbox_imgs
             del data
@@ -993,7 +998,7 @@ def run_mmtrack(
             # end frame loop
 
             if cur_iter % 50 == 0:
-                #print(
+                # print(
                 logger.info(
                     "mmtrack tracking, frame {} ({:.2f} fps)".format(
                         frame_id,

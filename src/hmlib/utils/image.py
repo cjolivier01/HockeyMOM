@@ -480,6 +480,22 @@ def _permute(t, *args):
     return t.permute(*args)
 
 
+def is_channels_first(img: Union[torch.Tensor, np.ndarray]):
+    if img.ndim == 3:
+        return img.shape[0] in [3, 4] and img.shape[-1] not in [3, 4]
+    else:
+        assert img.ndim == 4
+        return img.shape[1] in [3, 4] and img.shape[-1] not in [3, 4]
+
+
+def is_channels_last(img: Union[torch.Tensor, np.ndarray]):
+    if img.ndim == 3:
+        return img.shape[-1] in [3, 4] and img.shape[0] not in [3, 4]
+    else:
+        assert img.ndim == 4
+        return img.shape[-1] in [3, 4] and img.shape[1] not in [3, 4]
+
+
 def make_channels_first(img: torch.Tensor):
     if len(img.shape) == 4:
         if img.shape[-1] in [1, 3, 4]:

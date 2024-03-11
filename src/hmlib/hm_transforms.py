@@ -1,5 +1,5 @@
 import numbers
-from typing import List, Optional, Tuple, Union, no_type_check
+from typing import Dict, List, Optional, Tuple, Union, no_type_check
 import warnings
 import torch
 from torchvision.transforms import functional as F
@@ -8,7 +8,14 @@ import cv2
 import numpy as np
 import mmcv
 from hmlib.builder import PIPELINES
-from hmlib.utils.image import image_width, image_height, resize_image
+from hmlib.utils.image import (
+    image_width,
+    image_height,
+    resize_image,
+    make_channels_first,
+    make_channels_last,
+    is_channels_first,
+)
 
 
 try:
@@ -835,10 +842,12 @@ class HmCrop:
         self,
         rectangle: List[int] = list(),
         keys: List[str] = list(),
+        save_clipped_images: bool = False,
     ):
         self.keys = keys
         self.rectangle = rectangle
-        self.calculated_clip_boxes = dict()
+        self.calculated_clip_boxes: Dict = dict()
+        self.save_clipped_images = save_clipped_images
         if self.rectangle is not None:
             if isinstance(self.rectangle, (list, tuple)):
                 if not any(item is not None for item in self.rectangle):
@@ -863,10 +872,13 @@ class HmCrop:
             for key in self.keys:
                 img = results[key]
                 if key not in self.calculated_clip_boxes:
-                    self.calculated_clip_box[key] = HmCrop.fix_clip_box(
-                        self.clip_original, [image_height(img), image_width(img)]
+                    self.calculated_clip_boxes[key] = HmCrop.fix_clip_box(
+                        self.rectangle, [image_height(img), image_width(img)]
                     )
-                clip_box = self.calculated_clip_box[key]
+                clip_box = self.calculated_clip_boxes[key]
+                icf = is_channels_first(img)
+                if not icf:
+                    img = make_channels_first(img)
                 if len(img.shape) == 4:
                     img = img[
                         :,
@@ -881,8 +893,16 @@ class HmCrop:
                         clip_box[1] : clip_box[3],
                         clip_box[0] : clip_box[2],
                     ]
-
+                if not icf:
+                    img = make_channels_last(img)
                 results[key] = img
+                if key == "img":
+                    results["img_shape"] = torch.tensor(img.shape, dtype=torch.int64)
+                    results["ori_shape"] = results["img_shape"].clone()
+                if self.save_clipped_images:
+                    if "clipped_image" not in results:
+                        results["clipped_image"] = dict()
+                    results["clipped_image"][key] = img
         return results
 
     def __repr__(self):
