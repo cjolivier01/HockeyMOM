@@ -827,3 +827,65 @@ class HmResize:
         repr_str += f"keep_ratio={self.keep_ratio}, "
         repr_str += f"bbox_clip_border={self.bbox_clip_border})"
         return repr_str
+
+
+@PIPELINES.register_module()
+class HmCrop:
+    def __init__(
+        self,
+        rectangle: List[int] = list(),
+        keys: List[str] = list(),
+    ):
+        self.keys = keys
+        self.rectangle = rectangle
+        self.calculated_clip_boxes = dict()
+        if self.rectangle is not None:
+            if isinstance(self.rectangle, (list, tuple)):
+                if not any(item is not None for item in self.rectangle):
+                    self.rectangle = []
+
+    @staticmethod
+    def fix_clip_box(clip_box, hw: List[int]):
+        if isinstance(clip_box, list):
+            if clip_box[0] is None:
+                clip_box[0] = 0
+            if clip_box[1] is None:
+                clip_box[1] = 0
+            if clip_box[2] is None:
+                clip_box[2] = hw[1]
+            if clip_box[3] is None:
+                clip_box[3] = hw[0]
+            clip_box = np.array(clip_box, dtype=np.int64)
+        return clip_box
+
+    def __call__(self, results):
+        if self.rectangle and self.keys:
+            for key in self.keys:
+                img = results[key]
+                if key not in self.calculated_clip_boxes:
+                    self.calculated_clip_box[key] = HmCrop.fix_clip_box(
+                        self.clip_original, [image_height(img), image_width(img)]
+                    )
+                clip_box = self.calculated_clip_box[key]
+                if len(img.shape) == 4:
+                    img = img[
+                        :,
+                        :,
+                        clip_box[1] : clip_box[3],
+                        clip_box[0] : clip_box[2],
+                    ]
+                else:
+                    assert len(img.shape) == 3
+                    img = img[
+                        :,
+                        clip_box[1] : clip_box[3],
+                        clip_box[0] : clip_box[2],
+                    ]
+
+                results[key] = img
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f"(rectangle={self.rectangle}, "
+        return repr_str
