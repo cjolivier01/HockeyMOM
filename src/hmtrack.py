@@ -536,11 +536,11 @@ def main(args, num_gpu):
             cfg = model.cfg.copy()
             pipeline = cfg.data.inference.pipeline
             pipeline[0].type = "LoadImageFromWebcam"
-            for i, p in enumerate(pipeline):
-                if p.type == "HmCrop":
-                    pipeline[i].rectangle = get_clip_box(
-                        game_id=args.game_id, root_dir=ROOT_DIR
-                    )
+            # for i, p in enumerate(pipeline):
+            #     if p.type == "HmCrop":
+            #         pipeline[i].rectangle = get_clip_box(
+            #             game_id=args.game_id, root_dir=ROOT_DIR
+            #         )
             data_pipeline = Compose(pipeline)
 
         dataloader = None
@@ -632,7 +632,7 @@ def main(args, num_gpu):
                     json_file="test.json",
                     # batch_size=args.batch_size,
                     batch_size=1,
-                    clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+                    #clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     # device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
                     # device=torch.device("cpu"),
@@ -677,7 +677,7 @@ def main(args, num_gpu):
                     json_file="test.json",
                     # json_file="val.json",
                     batch_size=args.batch_size,
-                    clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+                    #clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     name="val",
                     device=gpus["detection"],

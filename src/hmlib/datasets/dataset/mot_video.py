@@ -401,10 +401,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if isinstance(clipped_image, list):
                         assert len(clipped_image) == 1
                         clipped_image = clipped_image[0]
-                    original_img0 = clipped_image["img"]
-                    del data_item["clipped_image"]
-                    if torch.is_floating_point(original_img0):
-                        original_img0 /= 255
+                    if clipped_image is not None:
+                        original_img0 = clipped_image["img"]
+                        del data_item["clipped_image"]
+                        if torch.is_floating_point(original_img0):
+                            original_img0 /= 255
                 
                 if isinstance(img, list):
                     img = img[0]
