@@ -2,8 +2,8 @@
 
 #include <ATen/ATen.h>
 #include <torch/torch.h>
+#include <torch/nn/functional.h>
 
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -16,6 +16,8 @@ class ImageBlender {
 
  public:
   enum class Mode { HardSeam, Laplacian };
+  //constexpr static inline torch::ScalarType FloatType = torch::ScalarType::Half;
+  constexpr static inline torch::ScalarType FloatType = torch::ScalarType::Float;
 
   // levels=0 = quick, hard seam
   ImageBlender(

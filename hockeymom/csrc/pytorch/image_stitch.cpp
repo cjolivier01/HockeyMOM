@@ -9,7 +9,8 @@ namespace ops {
 namespace {
 
 inline at::Tensor scalar_float(const float& val) {
-  return torch::tensor({val});
+  return torch::tensor(
+      {val}, torch::TensorOptions().dtype(ImageBlender::FloatType));
 }
 
 } // namespace
@@ -57,7 +58,7 @@ ImageStitcher::ImageStitcher(
         remap_info.src_height,
         remap_info.col_map,
         remap_info.row_map,
-        at::ScalarType::Float,
+        ImageBlender::FloatType,
         remap_info.add_alpha_channel,
         interpolation));
     (*remappers_.rbegin())->init(batch_size);
