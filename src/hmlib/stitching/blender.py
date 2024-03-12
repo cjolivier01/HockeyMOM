@@ -851,7 +851,6 @@ def stitch_video(
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
-    # max_width: int = 8192,
     max_width: int = 9999,
     rotation_angle: int = 0,
     batch_size: int = 8,
