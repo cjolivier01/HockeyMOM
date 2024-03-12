@@ -178,9 +178,11 @@ class StitchDataset:
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         remap_on_async_stream: bool = False,
+        dtype: torch.dtype = torch.float,
     ):
         assert max_input_queue_size > 0
         self._start_frame_number = start_frame_number
+        self._dtype = dtype
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
         self._remap_on_async_stream = remap_on_async_stream
@@ -284,7 +286,7 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                dtype=torch.float,
+                dtype=self._dtype,
                 device=remapping_device,
                 # device=torch.device("cpu"),
                 # scale_rgb_down=True,
@@ -300,7 +302,7 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                dtype=torch.float,
+                dtype=self._dtype,
                 device=remapping_device,
                 # device=torch.device("cpu"),
                 # scale_rgb_down=True,
@@ -379,13 +381,8 @@ class StitchDataset:
             img = make_channels_first(img)
             if img.device != self._remapping_device:
                 img = img.to(self._remapping_device, non_blocking=True)
-            if img.dtype not in [
-                torch.float,
-                torch.float16,
-                torch.float,
-                torch.float64,
-            ]:
-                img = img.to(torch.float, non_blocking=True)
+            if img.dtype != self._dtype:
+                img = img.to(self._dtype, non_blocking=True)
             return img
 
         stream = None
@@ -447,7 +444,7 @@ class StitchDataset:
             )
             self._video_output_box = torch.tensor(
                 (0, 0, self._video_output_size[0], self._video_output_size[1]),
-                dtype=torch.float,
+                dtype=self._dtype,
             )
             # Not doing anything fancy, so don't waste time copy to and from the GPU
             self._video_output = VideoOutput(
@@ -482,6 +479,7 @@ class StitchDataset:
                 dir_name=os.path.dirname(self._video_file_1),
                 batch_size=self._batch_size,
                 device=self._remapping_device,
+                dtype=self._dtype,
                 remap_on_async_stream=self._remap_on_async_stream,
             )
             assert self._remapping_device.type != "cpu"

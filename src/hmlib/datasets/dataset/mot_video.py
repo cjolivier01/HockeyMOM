@@ -69,7 +69,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
-        dtype: torch.dtype = None,
+        dtype: torch.dtype = torch.float,
         data_pipeline: Compose = None,
         # scale_rgb_down: bool = False,
         # output_type: torch.dtype = None
@@ -437,7 +437,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     original_img0 = img0
                     if not torch.is_floating_point(img0):
                         img0 = (
-                            img0.to(torch.float, non_blocking=ALL_NON_BLOCKING) / 255.0
+                            img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING) / 255.0
                         )
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
