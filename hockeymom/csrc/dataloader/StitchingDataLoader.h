@@ -88,6 +88,7 @@ class StitchingDataLoader {
   using FRAME_DATA_TYPE = std::shared_ptr<FrameData>;
 
   StitchingDataLoader(
+      at::ScalarType dtype,
       std::size_t start_frame_id,
       std::string project_file,
       std::string seam_file,
@@ -139,6 +140,7 @@ class StitchingDataLoader {
   FRAME_DATA_TYPE record_stats(FRAME_DATA_TYPE&& frame);
 
   void shutdown();
+  at::ScalarType dtype_;
   std::string project_file_;
   bool save_seam_and_xor_mask_;
   std::string seam_file_;

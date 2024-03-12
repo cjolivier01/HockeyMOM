@@ -88,6 +88,7 @@ PYBIND11_MODULE(_hockeymom, m) {
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
       .def(py::init<
+           at::ScalarType,
            std::size_t,
            std::string,
            std::string,
@@ -499,12 +500,14 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(
           py::init<
               hm::ops::ImageBlender::Mode,
+              bool,
               std::size_t,
               at::Tensor,
               at::Tensor,
               bool,
               std::optional<std::string>>(),
           py::arg("mode"),
+          py::arg("half"),
           py::arg("levels"),
           py::arg("seam"),
           py::arg("xor_map"),
@@ -555,6 +558,7 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(py::init<>())
       .def_readwrite("src_width", &hm::ops::RemapImageInfo::src_width)
       .def_readwrite("src_height", &hm::ops::RemapImageInfo::src_height)
+      .def_readwrite("dtype", &hm::ops::RemapImageInfo::dtype)
       .def_readwrite("col_map", &hm::ops::RemapImageInfo::col_map)
       .def_readwrite("row_map", &hm::ops::RemapImageInfo::row_map)
       .def_readwrite(
@@ -567,6 +571,7 @@ PYBIND11_MODULE(_hockeymom, m) {
               std::size_t,
               std::vector<hm::ops::RemapImageInfo>,
               hm::ops::ImageBlender::Mode,
+              bool,
               std::size_t,
               bool,
               at::Tensor,
@@ -576,6 +581,7 @@ PYBIND11_MODULE(_hockeymom, m) {
           py::arg("batch_size"),
           py::arg("remap_image_info"),
           py::arg("blender_mode"),
+          py::arg("half"),
           py::arg("levels"),
           py::arg("remap_on_async_stream"),
           py::arg("seam"),

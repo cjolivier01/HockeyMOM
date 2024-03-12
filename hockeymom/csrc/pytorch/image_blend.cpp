@@ -120,8 +120,8 @@ inline at::Tensor scalar_float(const float& val, at::ScalarType dtype) {
 at::Tensor create_gaussian_kernel(
     int kernel_size,
     int channels,
-    float sigma = 1.0,
-    at::ScalarType dtype = ImageBlender::FloatType) {
+    float sigma,
+    at::ScalarType dtype) {
   // Create Gaussian Kernel. In Numpy
   at::Tensor ax = at::linspace(
       -double(kernel_size - 1) / 2.0,
@@ -137,7 +137,7 @@ at::Tensor create_gaussian_kernel(
   kernel_tensor /= at::sum(kernel_tensor);
   // # Reshapes to (channels, 1, size, size)
   kernel_tensor = kernel_tensor.repeat({channels, 1, 1, 1});
-  if (dtype != at::ScalarType::Float) {
+  if (kernel_tensor.dtype() != dtype) {
     kernel_tensor = kernel_tensor.to(torch::TensorOptions(dtype));
   }
   return kernel_tensor;
@@ -147,12 +147,14 @@ at::Tensor create_gaussian_kernel(
 
 ImageBlender::ImageBlender(
     Mode mode,
+    bool half,
     std::size_t levels,
     at::Tensor seam,
     at::Tensor xor_map,
     bool lazy_init,
     std::optional<std::string> interpolation)
     : mode_(mode),
+      dtype_(half ? at::ScalarType::Half : at::ScalarType::Float),
       levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
@@ -181,13 +183,13 @@ void ImageBlender::init() {
                         /*kernel_size=*/5,
                         /*channels=*/3,
                         /*sigma=*/1.0,
-                        /*dtype=*/FloatType)
+                        /*dtype=*/dtype_)
                         .to(seam_.device());
   mask_gussian_kernel_ = create_gaussian_kernel(
                              /*kernel_size=*/5,
                              /*channels=*/1,
                              /*sigma=*/1.0,
-                             /*dtype=*/FloatType)
+                             /*dtype=*/dtype_)
                              .to(seam_.device());
 
   if (mode_ == Mode::Laplacian) {
@@ -222,7 +224,7 @@ void ImageBlender::create_masks() {
 
   mask.index_put_({condition_left}, 1);
   mask.index_put_({condition_right}, 0);
-  mask = mask.to(FloatType);
+  mask = mask.to(dtype_);
   at::Tensor mask_img = mask.clone();
   mask_small_gaussian_blurred_ = {mask.squeeze(0).squeeze(0)};
   for (int l = 0; l < levels_ + 1; ++l) {
@@ -580,8 +582,8 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     image_left = std::move(image_1);
     image_right = std::move(image_2);
   }
-  image_left = image_left.to(FloatType);
-  image_right = image_right.to(FloatType);
+  image_left = image_left.to(dtype_);
+  image_right = image_right.to(dtype_);
 
   if (verbose) {
     std::cout << "image_left size=" << image_left.sizes()

@@ -6,14 +6,14 @@
 namespace hm {
 namespace ops {
 
-namespace {
+// namespace {
 
-inline at::Tensor scalar_float(const float& val) {
-  return torch::tensor(
-      {val}, torch::TensorOptions().dtype(ImageBlender::FloatType));
-}
+// inline at::Tensor scalar_float(const float& val, at::ScalarType dtype) {
+//   return torch::tensor(
+//       {val}, torch::TensorOptions().dtype(dtype));
+// }
 
-} // namespace
+// } // namespace
 
 StreamTensor::StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor)
     : stream_(std::make_unique<c10::cuda::CUDAStream>(std::move(stream))),
@@ -41,13 +41,15 @@ ImageStitcher::ImageStitcher(
     std::size_t batch_size,
     std::vector<RemapImageInfo> remap_image_info,
     ImageBlender::Mode blender_mode,
+    bool half,
     std::size_t levels,
     bool remap_on_async_stream,
     at::Tensor seam,
     at::Tensor xor_map,
     bool lazy_init,
     std::optional<std::string> interpolation)
-    : remap_image_infos_(std::move(remap_image_info)),
+    : dtype_(half ? at::ScalarType::Half : at::ScalarType::Float),
+      remap_image_infos_(std::move(remap_image_info)),
       thread_pool_(
           std::make_unique<Eigen::ThreadPool>(remap_image_infos_.size())),
       remap_thread_pool_(std::make_unique<HmThreadPool>(thread_pool_.get())),
@@ -58,13 +60,19 @@ ImageStitcher::ImageStitcher(
         remap_info.src_height,
         remap_info.col_map,
         remap_info.row_map,
-        ImageBlender::FloatType,
+        dtype_,
         remap_info.add_alpha_channel,
         interpolation));
     (*remappers_.rbegin())->init(batch_size);
   }
   blender_ = std::make_unique<ImageBlender>(
-      blender_mode, levels, seam, xor_map, /*lazy_init=*/true, interpolation);
+      blender_mode,
+      half,
+      levels,
+      seam,
+      xor_map,
+      /*lazy_init=*/true,
+      interpolation);
 }
 
 void ImageStitcher::to(at::Device device) {

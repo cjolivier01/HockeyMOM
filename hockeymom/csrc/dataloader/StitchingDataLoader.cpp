@@ -92,6 +92,7 @@ std::shared_ptr<MatrixRGB> tensor_to_matrix_rgb_image(
 } // namespace
 
 StitchingDataLoader::StitchingDataLoader(
+    at::ScalarType dtype,
     std::size_t start_frame_id,
     std::string project_file,
     std::string seam_file,
@@ -100,7 +101,8 @@ StitchingDataLoader::StitchingDataLoader(
     std::size_t max_queue_size,
     std::size_t remap_thread_count,
     std::size_t blend_thread_count)
-    : project_file_(std::move(project_file)),
+    : dtype_(dtype),
+      project_file_(std::move(project_file)),
       seam_file_(std::move(seam_file)),
       xor_mask_file_(std::move(xor_mask_file)),
       save_seam_and_xor_mask_(save_seam_and_xor_mask),
@@ -160,7 +162,7 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
                 config.src_height,
                 config.col_map,
                 config.row_map,
-                at::ScalarType::Float,
+                dtype_,
                 config.add_alpha_channel,
                 config.interpolation);
         remapper->init(config.batch_size);
@@ -185,6 +187,7 @@ std::shared_ptr<ops::ImageBlender> StitchingDataLoader::get_blender() {
       std::shared_ptr<ops::ImageBlender> blender =
           std::make_shared<ops::ImageBlender>(
               mode,
+              /*half=*/dtype_ == at::ScalarType::Half,
               blender_config_.mode == kBlendModeGpuLaplacian
                   ? blender_config_.levels
                   : 0,

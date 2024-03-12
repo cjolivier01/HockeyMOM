@@ -11,17 +11,17 @@ namespace hm {
 
 namespace ops {
 
+
 class ImageBlender {
   using SizeRef = at::IntArrayRef;
 
  public:
   enum class Mode { HardSeam, Laplacian };
-  constexpr static inline at::ScalarType FloatType = at::ScalarType::Half;
-  // constexpr static inline at::ScalarType FloatType = at::ScalarType::Float;
 
   // levels=0 = quick, hard seam
   ImageBlender(
       Mode mode,
+      bool half,
       std::size_t levels,
       at::Tensor seam,
       at::Tensor xor_map,
@@ -75,6 +75,7 @@ class ImageBlender {
       int level);
 
   const Mode mode_;
+  at::ScalarType dtype_;
   const std::size_t levels_;
   const std::size_t num_images_{2};
 

@@ -122,7 +122,7 @@ void ImageRemapper::init(std::size_t batch_size) {
     assert(grid.sizes().size() == 3);
     grid = grid.expand(
         {(int)batch_size, grid.size(0), grid.size(1), grid.size(2)});
-    grid_ = grid.to(at::TensorOptions(FloatType)).contiguous();
+    grid_ = grid.to(at::TensorOptions(dtype_)).contiguous();
   }
   col_map_ = col_map.contiguous();
   row_map_ = row_map.contiguous();
@@ -191,7 +191,7 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     options =
         options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
     if (!torch::is_floating_point(source_tensor)) {
-      source_tensor = source_tensor.to(at::TensorOptions().dtype(FloatType));
+      source_tensor = source_tensor.to(at::TensorOptions().dtype(dtype_));
     }
     destination_tensor =
         torch::nn::functional::grid_sample(source_tensor, grid_, options);

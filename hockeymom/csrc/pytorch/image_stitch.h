@@ -34,6 +34,7 @@ class StreamTensor {
 struct RemapImageInfo {
   std::size_t src_width{0};
   std::size_t src_height{0};
+  at::ScalarType dtype;
   at::Tensor col_map;
   at::Tensor row_map;
   bool add_alpha_channel{false};
@@ -55,6 +56,7 @@ class ImageStitcher {
       std::size_t batch_size,
       std::vector<RemapImageInfo> remap_image_info,
       ImageBlender::Mode blender_mode,
+      bool half,
       std::size_t levels,
       bool remap_on_async_stream,
       at::Tensor seam,
@@ -65,6 +67,7 @@ class ImageStitcher {
   at::Tensor forward(std::vector<StitchImageInfo> inputs);
 
  private:
+  at::ScalarType dtype_;
   std::vector<RemapImageInfo> remap_image_infos_;
   std::vector<std::unique_ptr<ImageRemapper>> remappers_;
   std::unique_ptr<ImageBlender> blender_;

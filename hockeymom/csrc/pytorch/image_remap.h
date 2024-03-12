@@ -27,9 +27,6 @@ struct RemapperConfig {
 };
 
 class ImageRemapper {
-  constexpr static inline at::ScalarType FloatType = at::ScalarType::Half;
-  // constexpr static inline torch::ScalarType FloatType =
-  // at::ScalarType::Float;
  public:
   ImageRemapper(
       std::size_t src_width,

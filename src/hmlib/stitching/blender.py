@@ -519,7 +519,7 @@ def blend_video(
 
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
-
+    torch.float32
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
 
@@ -780,6 +780,7 @@ def create_stitcher(
     dir_name: str,
     batch_size: int,
     device: torch.device,
+    dtype: torch.dtype,
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "nona",
@@ -820,6 +821,7 @@ def create_stitcher(
         batch_size=batch_size,
         remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
+        half=dtype == torch.float16,
         levels=blender_config.levels,
         remap_on_async_stream=remap_on_async_stream,
         seam=blender_config.seam,
@@ -895,6 +897,7 @@ def stitch_video(
     stitcher, xy_pos_1, xy_pos_2 = create_stitcher(
         dir_name=dir_name,
         batch_size=batch_size,
+        dtype=dtype,
         mapping_basename_1=basename_1,
         mapping_basename_2=basename_2,
         device=device,
