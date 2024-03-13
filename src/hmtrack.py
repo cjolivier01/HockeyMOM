@@ -14,6 +14,7 @@ import sys, os
 from typing import List
 
 import torch
+from torch.cuda.amp import autocast, GradScaler
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -106,13 +107,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=False,
         action="store_true",
         help="Adopting mix precision evaluating.",
-    )
-    parser.add_argument(
-        "--fuse",
-        dest="fuse",
-        default=False,
-        action="store_true",
-        help="Fuse conv and bn for testing.",
     )
     parser.add_argument(
         "--infer",
@@ -369,24 +363,9 @@ class FakeExp:
 def main(args, num_gpu):
     dataloader = None
 
-    # module_path = find_item_in_module("mmdet", "PIPELINES")
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
 
     try:
-        # if args.seed is not None:
-        #     random.seed(args.seed)
-        #     torch.manual_seed(args.seed)
-        #     cudnn.deterministic = True
-        #     warnings.warn(
-        #         "You have chosen to seed testing. This will turn on the CUDNN deterministic setting, "
-        #     )
-
-        # set_deterministic()
-
-        # if not args.experiment_name:
-        #     args.experiment_name = args.game_id
-        # elif args.game_id and args.game_id not in args.experiment_name:
-        #     args.experiment_name = args.experiment_name + "-" + args.game_id
 
         is_distributed = num_gpu > 1
         if args.gpus and isinstance(args.gpus, str):
@@ -396,37 +375,6 @@ def main(args, num_gpu):
         cudnn.benchmark = True
 
         rank = args.local_rank
-        # rank = get_local_rank()
-
-        # if exp is not None:
-        #     file_name = os.path.join(exp.output_dir, args.experiment_name)
-        #     if rank == 0:
-        #         os.makedirs(file_name, exist_ok=True)
-        #     results_folder = os.path.join(file_name, "track_results")
-        #     os.makedirs(results_folder, exist_ok=True)
-
-        #     # setup_logger(
-        #     #     file_name, distributed_rank=rank, filename="val_log.txt", mode="a"
-        #     # )
-        #     # logger.info("Args: {}".format(args))
-
-        #     if args.conf is not None:
-        #         exp.test_conf = args.conf
-        #     if args.nms is not None:
-        #         exp.nmsthre = args.nms
-
-        #     if args.test_size:
-        #         assert args.tsize is None
-        #         tokens = args.test_size.split("x")
-        #         if len(tokens) == 1:
-        #             tokens = args.test_size.split("X")
-        #         assert len(tokens) == 2
-        #         exp.test_size = (
-        #             to_32bit_mul(int(tokens[0])),
-        #             to_32bit_mul(int(tokens[1])),
-        #         )
-        #     elif args.tsize is not None:
-        #         exp.test_size = (args.tsize, args.tsize)
 
         game_config = args.game_config
 
@@ -451,11 +399,6 @@ def main(args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
-        # if tracker not in ["fair", "centertrack", "mmtrack"]:
-        #     model = exp.get_model()
-        #     logger.info(
-        #         "Model Summary: {}".format(get_model_info(model, exp.test_size))
-        #     )
 
         cam_args = DefaultArguments(
             game_config=game_config,
@@ -619,6 +562,7 @@ def main(args, num_gpu):
                     remapping_device=gpus["stitching"],
                     # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
+                    dtype=torch.float if not args.fp16 else torch.half,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -632,7 +576,7 @@ def main(args, num_gpu):
                     json_file="test.json",
                     # batch_size=args.batch_size,
                     batch_size=1,
-                    #clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+                    # clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     name="val",
                     # device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
                     # device=torch.device("cpu"),
@@ -651,6 +595,7 @@ def main(args, num_gpu):
                     # device_for_original_image=torch.device("cpu"),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
+                    dtype=torch.float if not args.fp16 else torch.half,
                 )
             else:
                 assert len(input_video_files) == 1
@@ -675,22 +620,14 @@ def main(args, num_gpu):
                     start_frame_number=args.start_frame,
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
-                    # json_file="val.json",
                     batch_size=args.batch_size,
-                    #clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+                    # clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     name="val",
                     device=gpus["detection"],
-                    # device=torch.device("cpu"),
-                    # preproc=ValTransform(
-                    #     rgb_means=(0.485, 0.456, 0.406),
-                    #     std=(0.229, 0.224, 0.225),
-                    # ),
                     original_image_only=tracker == "centertrack",
-                    # image_channel_adjustment=game_config["rink"]["camera"][
-                    #     "image_channel_adjustment"
-                    # ],
                     data_pipeline=data_pipeline,
+                    dtype=torch.float if not args.fp16 else torch.half,
                 )
 
         if dataloader is None:
@@ -715,25 +652,10 @@ def main(args, num_gpu):
         postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
         if not isinstance(exp, FakeExp):
-            # evaluator = MOTEvaluator(
-            #     args=args,
-            #     dataloader=dataloader,
-            #     img_size=exp.test_size,
-            #     confthre=exp.test_conf,
-            #     nmsthre=exp.nmsthre,
-            #     num_classes=exp.num_classes,
-            #     postprocessor=postprocessor,
-            # )
-
-            # torch.cuda.set_device(rank)
             trt_file = None
             decoder = None
             if model is not None:
                 model = model.to(gpus["detection"])
-                # if args.game_id:
-                #     model.cuda(int(args.gpus[0]))
-                # else:
-                #     model.cuda(rank)
                 model.eval()
 
                 if not args.speed and not args.trt:
@@ -753,10 +675,6 @@ def main(args, num_gpu):
                 if is_distributed:
                     model = DDP(model, device_ids=[rank])
 
-                if args.fuse:
-                    logger.info("\tFusing model...")
-                    model = fuse_model(model)
-
                 if args.trt:
                     assert (
                         not args.fuse and not is_distributed and args.batch_size == 1
@@ -771,17 +689,7 @@ def main(args, num_gpu):
                 args.device = f"cuda:{rank}"
 
             eval_functions = {
-                # "hm": {"function": evaluator.evaluate_hockeymom},
-                # "mixsort": {"function": evaluator.evaluate_mixsort},
                 "mmtrack": {"function": run_mmtrack},
-                # "fair": {"function": evaluator.evaluate_fair},
-                # "centertrack": {"function": evaluator.evaluate_centertrack},
-                # "mixsort_oc": {"function": evaluator.evaluate_mixsort_oc},
-                # "sort": {"function": evaluator.evaluate_sort},
-                # "ocsort": {"function": evaluator.evaluate_ocsort},
-                # "byte": {"function": evaluator.evaluate_byte},
-                # "deepsort": {"function": evaluator.evaluate_deepsort},
-                # "motdt": {"function": evaluator.evaluate_motdt},
             }
 
             # start evaluate
@@ -919,9 +827,12 @@ def run_mmtrack(
                 # forward the model
                 for i, img in enumerate(data["img"]):
                     # collate adds a stupid batch size of 1
-                    data["img"][i] = make_channels_first(data["img"][i].squeeze(0))
+                    data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
+                        torch.float, non_blocking=True
+                    )
                 detect_timer.tic()
                 with torch.no_grad():
+                    #with autocast():
                     results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 
