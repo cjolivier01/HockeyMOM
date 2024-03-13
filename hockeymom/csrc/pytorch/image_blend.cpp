@@ -476,17 +476,17 @@ void ImageBlender::build_coordinate_system(
   int x2 = xy_pos_2.at(0);
   int y2 = xy_pos_2.at(1);
 
-  if (y1 < y2) {
+  if (y1 <= y2) {
     y2 -= y1;
     y1 = 0;
-  } else if (y2 < y1) {
+  } else {
     y1 -= y2;
     y2 = 0;
   }
-  if (x1 < x2) {
+  if (x1 <= x2) {
     x2 -= x1;
     x1 = 0;
-  } else if (x2 < x1) {
+  } else {
     x1 -= x2;
     x2 = 0;
   }
