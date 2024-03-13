@@ -3,10 +3,8 @@
 rm -f panorama.tif nona*.tif
 
 # generate project file from images, FOV=108 degrees
-#pto_gen -p 0 -o my_project.pto -f 180 left.png right.png
 #pto_gen -p 0 -o my_project.pto -f 108 left.png right.png
 #pto_gen -p 1 -o my_project.pto -f 108 left.png right.png
-#pto_gen -p 1 -o my_project.pto -f 180 left.png right.png
 
 # find control points
 #cpfind --linearmatch my_project.pto -o my_project.pto
