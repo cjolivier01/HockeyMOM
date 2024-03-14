@@ -63,6 +63,13 @@ def make_parser():
     #     help="Use project file as input to stitcher",
     # )
     parser.add_argument(
+        "--fp16",
+        dest="fp16",
+        default=False,
+        action="store_true",
+        help="Adopting mix precision evaluating.",
+    )
+    parser.add_argument(
         "-b",
         "--batch-size",
         "--batch_size",
@@ -1143,6 +1150,7 @@ def main(args):
             queue_size=args.queue_size,
             remap_on_async_stream=False,
             device=torch.device("cuda", gpu_allocator.allocate_fast()),
+            dtype=torch.float16 if args.fp16 else torch.float,
         )
 
 

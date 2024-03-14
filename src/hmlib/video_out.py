@@ -35,8 +35,9 @@ from hmlib.utils.image import (
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.gpu import (
-    get_gpu_with_highest_compute_capability,
     get_gpu_capabilities,
+    StreamTensor,
+    StreamTensorToDevice,
 )
 from hmlib.utils.image import (
     make_channels_last,
@@ -392,6 +393,16 @@ class VideoOutput:
                 ) and counter % 10 == 0:
                     print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.001)
+
+            # Maybe move devices on a different stream
+            if (
+                not isinstance(img_proc_data, np.ndarray)
+                and img_proc_data.img.device != self._device
+            ):
+                assert isinstance(img_proc_data.img, torch.Tensor)
+                img_proc_data.img = StreamTensorToDevice(
+                    tensor=img_proc_data.img, device=self._device
+                )
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
@@ -566,6 +577,10 @@ class VideoOutput:
                     device=self._device,
                 )
 
+            if isinstance(online_im, StreamTensor):
+                # TODO: Can we delay this?
+                online_im = online_im.get()
+
             # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type == "cpu":
                 # max = torch.max(online_im)
@@ -576,7 +591,7 @@ class VideoOutput:
                 current_box = current_box.unsqueeze(0)
 
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
-            batch_size = online_im.size(0)
+            batch_size = online_im.shape[0]
 
             with optional_with(
                 torch.cuda.stream(cuda_stream) if cuda_stream is not None else None

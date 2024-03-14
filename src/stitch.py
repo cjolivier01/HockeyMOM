@@ -60,6 +60,8 @@ def stitch_videos(
     encoder_device: torch.device = torch.device("cpu"),
     remap_on_async_stream: bool = True,
     ignore_clip_box: bool = True,
+    cache_size: int = 4,
+    dtype: torch.dtype = torch.float,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -100,9 +102,10 @@ def stitch_videos(
         blend_mode=blend_mode,
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
+        dtype=dtype,
     )
 
-    data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=4)
+    data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
 
     try:
 
@@ -118,10 +121,11 @@ def stitch_videos(
 
             if i > 1:
                 dataset_timer.toc()
-            if i % 20 == 0:
+            if (i + 1) % 20 == 0:
+                assert stitched_image.ndim == 4
                 logger.info(
                     "Dataset frame {} ({:.2f} fps)".format(
-                        i, 1.0 / max(1e-5, dataset_timer.average_time)
+                        i * stitched_image.size(0), 1.0 / max(1e-5, dataset_timer.average_time)
                     )
                 )
                 if i % 100 == 0:
@@ -294,6 +298,7 @@ def main(args):
                 ignore_clip_box=True,
                 remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
                 encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
+                dtype=torch.half if args.fp16 else torch.float,
             )
 
 

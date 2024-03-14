@@ -102,13 +102,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="pls input your expriment description file",
     )
     parser.add_argument(
-        "--fp16",
-        dest="fp16",
-        default=False,
-        action="store_true",
-        help="Adopting mix precision evaluating.",
-    )
-    parser.add_argument(
         "--infer",
         default=False,
         action="store_true",

@@ -38,12 +38,12 @@ class hm_opts(object):
             type=str,
             help="Game ID",
         )
-        # parser.add_argument(
-        #     "--fp16",
-        #     default=False,
-        #     action="store_true",
-        #     help="show as processing",
-        # )
+        parser.add_argument(
+            "--fp16",
+            default=False,
+            action="store_true",
+            help="show as processing",
+        )
         parser.add_argument(
             "--show-image",
             "--show",

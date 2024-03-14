@@ -256,21 +256,26 @@ class StreamCheckpoint(StreamTensor):
 
 class StreamTensorToDevice(StreamTensor):
     def __init__(
-        self, tensor: torch.Tensor, device: torch.device, contiguous: bool = False
+        self,
+        tensor: torch.Tensor,
+        device: torch.device,
+        contiguous: bool = False,
+        stream: torch.cuda.Stream = None,
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        if tensor.device == device:
-            stream = None
-        else:
-            stream = torch.cuda.Stream(device=device)
+        if tensor.device != device:
+            if stream is None:
+                stream = torch.cuda.Stream(device=device)
             with torch.cuda.stream(stream=stream):
                 tensor = tensor.to(device, non_blocking=True)
                 self._event = torch.cuda.Event()
                 self._event.record()
         if contiguous:
             tensor = tensor.contiguous()
-        super(StreamTensorToDevice, self).__init__(tensor=tensor, stream=stream)
+        super(StreamTensorToDevice, self).__init__(
+            tensor=tensor, stream=stream, event=self._event
+        )
 
 
 class StreamTensorToDtype(StreamTensor):
