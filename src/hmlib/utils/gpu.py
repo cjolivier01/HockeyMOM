@@ -107,10 +107,10 @@ class StreamTensorBase:
 class StreamTensor(StreamTensorBase):
     def __init__(
         self,
-        tensor: Union[torch.Tensor, StreamTensorBase] = None,
-        stream: torch.cuda.Stream = None,
-        event: torch.cuda.Event = None,
-        owns_stream: bool = None,
+        tensor: Union[torch.Tensor, StreamTensorBase],
+        stream: Union[torch.cuda.Stream, None] = None,
+        event: Union[torch.cuda.Event, None] = None,
+        owns_stream: Union[bool, None] = None,
         verbose: bool = True,
         print_thresh: float = 0.001,
     ):
@@ -186,7 +186,6 @@ class StreamTensor(StreamTensorBase):
     def ndim(self):
         return self._tensor.ndim
 
-    @property
     def size(self, index: int):
         return self._tensor.size(index)
 
@@ -260,7 +259,8 @@ class StreamTensorToDevice(StreamTensor):
         tensor: torch.Tensor,
         device: torch.device,
         contiguous: bool = False,
-        stream: torch.cuda.Stream = None,
+        stream: Union[None, torch.cuda.Stream] = None,
+        verbose: bool = True,
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
@@ -274,7 +274,7 @@ class StreamTensorToDevice(StreamTensor):
         if contiguous:
             tensor = tensor.contiguous()
         super(StreamTensorToDevice, self).__init__(
-            tensor=tensor, stream=stream, event=self._event
+            tensor=tensor, stream=stream, event=self._event, verbose=verbose
         )
 
 
