@@ -399,10 +399,12 @@ class VideoOutput:
                 not isinstance(img_proc_data, np.ndarray)
                 and img_proc_data.img.device != self._device
             ):
-                assert isinstance(img_proc_data.img, torch.Tensor)
-                img_proc_data.img = StreamTensorToDevice(
-                    tensor=img_proc_data.img, device=self._device
-                )
+                if isinstance(img_proc_data.img, torch.Tensor):
+                    img_proc_data.img = StreamTensorToDevice(
+                        tensor=img_proc_data.img,
+                        device=self._device,
+                        verbose=False,
+                    )
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
