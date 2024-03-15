@@ -396,7 +396,7 @@ class VideoOutput:
 
             # Maybe move devices on a different stream
             if (
-                not isinstance(img_proc_data, np.ndarray)
+                not isinstance(img_proc_data.img, np.ndarray)
                 and img_proc_data.img.device != self._device
             ):
                 if isinstance(img_proc_data.img, torch.Tensor):
