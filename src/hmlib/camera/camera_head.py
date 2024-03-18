@@ -158,7 +158,6 @@ class CamTrackHead:
                 save_dir=self._save_dir,
                 save_frame_dir=self._save_frame_dir,
                 device=device,
-                #opt=self._opt,
                 original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
                 use_fork=self._use_fork,

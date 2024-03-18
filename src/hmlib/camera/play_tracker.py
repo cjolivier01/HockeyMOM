@@ -106,6 +106,7 @@ class PlayTracker(torch.nn.Module):
         original_clip_box,
         args: argparse.Namespace,
     ):
+        super(PlayTracker, self).__init__()
         self._args = args
         self._hockey_mom = hockey_mom
         self._thread = None

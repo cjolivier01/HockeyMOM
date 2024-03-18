@@ -20,13 +20,15 @@ from hmlib.utils.box_functions import (
 )
 
 
-class BasicBox: #(torch.nn.Module):
-    def __init__(self, bbox: torch.Tensor, device: str = None):
+class BasicBox(torch.nn.Module):
+    def __init__(
+        self, bbox: torch.Tensor, device: Union[torch.device, str, None] = None
+    ):
         super(BasicBox, self).__init__()
+        if device and isinstance(device, str):
+            device = torch.device(device)
         self.device = bbox.device if device is None else device
-        self._zero_float_tensor = torch.tensor(
-            0, dtype=torch.float, device=self.device
-        )
+        self._zero_float_tensor = torch.tensor(0, dtype=torch.float, device=self.device)
         self._zero_int_tensor = torch.tensor(0, dtype=torch.int64, device=self.device)
         self._one_float_tensor = torch.tensor(1, dtype=torch.int64, device=self.device)
         self._true = torch.tensor(True, dtype=torch.bool, device=self.device)
@@ -330,7 +332,7 @@ class ResizingBox(BasicBox):
         self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
 
-#@HM.register_module()
+# @HM.register_module()
 class MovingBox(ResizingBox):
     def __init__(
         self,
