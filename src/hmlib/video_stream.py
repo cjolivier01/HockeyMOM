@@ -565,7 +565,7 @@ class VideoStreamReader:
         assert self._video_in is None
         self._video_info = BasicVideoInfo(self._filename)
         if self._codec is None:
-            self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec, None)
+            self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec.upper(), None)
             if self._codec is None and self._type != "cv2":
                 print(
                     f"VideoStreamReader is changing decoder from {self._type} "
