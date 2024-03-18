@@ -522,6 +522,7 @@ class VideoStreamReader:
             assert False
 
     def _add_stream(self):
+        # Add the video stream
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,

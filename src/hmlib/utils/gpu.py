@@ -288,7 +288,7 @@ class StreamTensorToDtype(StreamTensor):
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        super(StreamTensorToDtype, self).__init__()
+        super(StreamTensorToDtype, self).__init__(tensor=tensor)
         assert tensor.dtype != dtype
 
         if isinstance(tensor, StreamTensor):

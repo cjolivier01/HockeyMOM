@@ -46,29 +46,6 @@ ROOT_DIR = os.getcwd()
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
     parser = hm_opts.parser(parser)
-    # parser.add_argument(
-    #     "-o",
-    #     "--output",
-    #     "--output_video",
-    #     dest="output_video",
-    #     type=str,
-    #     default=None,
-    #     help="Show images",
-    # )
-    # parser.add_argument(
-    #     "--project-file",
-    #     "--project_file",
-    #     default="autooptimiser_out.pto",
-    #     type=str,
-    #     help="Use project file as input to stitcher",
-    # )
-    parser.add_argument(
-        "--fp16",
-        dest="fp16",
-        default=False,
-        action="store_true",
-        help="Adopting mix precision evaluating.",
-    )
     parser.add_argument(
         "-b",
         "--batch-size",
@@ -78,19 +55,6 @@ def make_parser():
         type=int,
         help="Batch size",
     )
-    # parser.add_argument(
-    #     "--video_dir",
-    #     default=None,
-    #     type=str,
-    #     help="Video directory to find 'left.mp4' and 'right.mp4'",
-    # )
-    # parser.add_argument(
-    #     "--laplacian-blend",
-    #     "--laplacian_blend",
-    #     default=1,
-    #     type=int,
-    #     help="Use Laplacian blending rather than a hard stitch",
-    # )
     parser.add_argument(
         "-q",
         "--queue-size",
@@ -99,27 +63,6 @@ def make_parser():
         type=int,
         help="Queue size",
     )
-    # parser.add_argument(
-    #     "--lfo",
-    #     "--left_frame_offset",
-    #     default=None,
-    #     type=float,
-    #     help="Left frame offset",
-    # )
-    # parser.add_argument(
-    #     "--rfo",
-    #     "--right_frame_offset",
-    #     default=None,
-    #     type=float,
-    #     help="Right frame offset",
-    # )
-    # parser.add_argument(
-    #     "--skip_final_video_save",
-    #     "--skip-final-video-save",
-    #     dest="skip_final_video_save",
-    #     action="store_true",
-    #     help="Don't save the output video frames",
-    # )
     parser.add_argument(
         "--python",
         action="store_true",
