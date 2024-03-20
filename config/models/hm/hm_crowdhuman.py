@@ -1,24 +1,17 @@
 _base_ = [
-    #"../datasets/coco.py",
-    #"../datasets/crowdhuman.py",
     "../datasets/crowdhuman_mot17.py",
-    # "../datasets/crowdhuman_mot17_sportsmot.py",
-    "..//default_hm_runtime.py",
+    "../default_hm_runtime.py",
     "./hm_yolox_s.py",
 ]
 
 import os
 
-#yolox_img_scale = (640, 640)
-#yolox_img_scale = (416, 1312)
 yolox_img_scale = (480, 1312)
 
 detector_standalone_model = dict(
     input_size=yolox_img_scale,
     init_cfg=dict(
         type="Pretrained",
-        #checkpoint=f"{os.environ['HOME']}/Downloads/my_yolox_s_640x640_coco_e300.pth",
-        #checkpoint="/mnt/data/pretrained/mmdetection/my_yolox_s_640x640_coco_e300.pth",
         checkpoint="/mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth",
     ),
 )
