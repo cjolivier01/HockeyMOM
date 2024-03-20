@@ -46,7 +46,7 @@ rink:
     #
     # Some tracking config
     #
-    cam_ignore_largest: false
+    cam_ignore_largest: true
   camera:
     #
     # Rink-related tracking config
