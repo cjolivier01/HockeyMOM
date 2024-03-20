@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EXPERIMENT_FILE="$(pwd)/../openmm/configs/hm/hm_bytetrack.py"
+EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_bytetrack.py"
 
 #START_FRAME=0
 
@@ -21,9 +21,9 @@ fi
 set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd)/build:$(pwd)/src/lib:$(pwd)/xmodels/mixsort:$(pwd)/xmodels/mixsort/MixViT:$(pwd)/src" \
+  PYTHONPATH="$(pwd)/build:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
-  -expn="hm_mmtrack" \
+  -expn="hm_run" \
   -f="${EXPERIMENT_FILE}" \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2,3 \
