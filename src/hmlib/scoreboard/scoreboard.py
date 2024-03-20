@@ -23,6 +23,7 @@ from hmlib.utils.image import (
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
+from hmlib.utils.image import resize_image
 import hmlib.tracking_utils.visualization as vis
 
 
@@ -33,8 +34,8 @@ class Scoreboard(torch.nn.Module):
         dest_height: int,
         dest_width: int,
         dtype: torch.dtype,
-        clip_box: torch.Tensor = None,
-        device: torch.device = None,
+        clip_box: Union[torch.Tensor, None] = None,
+        device: Union[torch.device, None] = None,
     ):
         self._dest_width = dest_width
         self._dest_height = dest_height
@@ -51,13 +52,6 @@ class Scoreboard(torch.nn.Module):
 
         self._bbox_src = int_bbox(get_bbox(self._src_pts))
 
-        # original_image = make_channels_first(
-        #     torch.from_numpy(original_image).unsqueeze(0)
-        # )
-
-        # src_image = original_image[
-        #     :, :, self._bbox_src[1] : self._bbox_src[3], self._bbox_src[0] : self._bbox_src[2]
-        # ]
         self._src_pts[:, 0] -= self._bbox_src[0]
         self._src_pts[:, 1] -= self._bbox_src[1]
 
@@ -67,19 +61,12 @@ class Scoreboard(torch.nn.Module):
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
         if totw > src_width or toth > src_height:
-            # src_image = pad_tensor_to_size_batched(
-            #     src_image,
-            #     target_width=totw,
-            #     target_height=toth,
-            #     pad_value=0,
-            # )
-            # width = totw
-            # height = toth
+            ratio_w = totw / src_width
+            ratio_h = toth / src_height
             self._dest_w = totw
             self._dest_h = toth
-            self._bbox_src[2] = self._bbox_src[0] + self._dest_w
-            self._bbox_src[3] = self._bbox_src[1] + self._dest_h
-            pass
+            self._src_pts[:, 0] *= ratio_w
+            self._src_pts[:, 1] *= ratio_h
         else:
             self._dest_w = src_width
             self._dest_h = src_height
@@ -103,11 +90,9 @@ class Scoreboard(torch.nn.Module):
             startpoints=self._src_pts, endpoints=dst_pts
         )
 
-        # ow, oh = src_image.shape[-1], img.shape[-2]
         ow = self._dest_w
         oh = self._dest_h
 
-        # dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float
         self._grid = _perspective_grid(
             perspective_coeffs,
             ow=ow,
@@ -124,12 +109,18 @@ class Scoreboard(torch.nn.Module):
             self._bbox_src[1] : self._bbox_src[3],
             self._bbox_src[0] : self._bbox_src[2],
         ]
+        src_image = resize_image(
+            img=src_image, new_width=self._dest_w, new_height=self._dest_h
+        )
         # cv2.imshow("src_image", make_visible_image(src_image[0]))
         # cv2.waitKey(0)
 
         warped_image = _apply_grid_transform(
             src_image, self._grid, mode="bilinear", fill=None
         )
+
+        # cv2.imshow("src_image", make_visible_image(warped_image[0]))
+        # cv2.waitKey(0)
 
         warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
         return warped_image
@@ -160,7 +151,8 @@ def int_bbox(bbox: torch.Tensor):
 
 
 def _get_perspective_coeffs(
-    startpoints: List[List[int]], endpoints: List[List[int]]
+    startpoints: Union[torch.Tensor, List[List[int]]],
+    endpoints: Union[torch.Tensor, List[List[int]]],
 ) -> List[float]:
     """Helper function to get the coefficients (a, b, c, d, e, f, g, h) for the perspective transforms.
 
