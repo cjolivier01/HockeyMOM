@@ -23,6 +23,9 @@ rink:
     price: 0 dollars  
   tracking:
     cam_ignore_largest: true
+  scoreboard:
+    projected_height: 200
+    projected_width: 200
   camera:
     fixed_edge_scaling_factor: 0.8
     follower_box_scale_width: 1.4

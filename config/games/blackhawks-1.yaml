@@ -1,4 +1,6 @@
 game:
+  name: "blackhawks-1"
+  rink: "vallco"
   boundaries:
     upper:
     - - 41
