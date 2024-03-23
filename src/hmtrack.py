@@ -30,6 +30,13 @@ from mmdet.datasets.pipelines import Compose
 
 from mmtrack.apis import inference_vid, inference_mot, init_model
 
+from mmpose.apis import (
+    collect_multi_frames,
+    inference_top_down_pose_model,
+    init_pose_model,
+    vis_pose_tracking_result,
+)
+
 from hmlib.stitching.synchronize import configure_video_stitching
 
 if False:
@@ -69,7 +76,7 @@ ROOT_DIR = os.getcwd()
 
 def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
-        parser = argparse.ArgumentParser("YOLOX Eval")
+        parser = argparse.ArgumentParser("HockeyMOM Tracking")
     parser = hm_opts.parser(parser)
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
@@ -244,6 +251,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="directory to save the output video frases as png files",
     )
+    parser.add_argument(
+        "--task",
+        "--tasks",
+        dest="tasks",
+        type=str,
+        default="tracking",
+        help="Comma-separated task list (tracking, multi_pose)",
+    )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument(
         "--min-box-area", type=float, default=100, help="filter out tiny boxes"
@@ -252,27 +267,42 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
     )
     # mixformer args
-    parser.add_argument("--script", type=str, default="mixformer_deit")
-    parser.add_argument("--config", type=str, default="track")
-    parser.add_argument("--alpha", type=float, default=0.6, help="fuse parameter")
+    # parser.add_argument("--script", type=str, default="mixformer_deit")
+    # parser.add_argument("--config", type=str, default="track")
+    # parser.add_argument("--alpha", type=float, default=0.6, help="fuse parameter")
+    # parser.add_argument(
+    #     "--radius", type=int, default=0, help="radius for computing similarity"
+    # )
+    # parser.add_argument(
+    #     "--input_video",
+    #     "--input-video",
+    #     type=str,
+    #     default=None,
+    #     help="Input video file(s)",
+    # )
+    # parser.add_argument(
+    #     "--iou_only",
+    #     "--iou-only",
+    #     dest="iou_only",
+    #     default=False,
+    #     action="store_true",
+    #     help="only use iou for similarity",
+    # )
+
+    # Pose args
     parser.add_argument(
-        "--radius", type=int, default=0, help="radius for computing similarity"
+        "--radius", type=int, default=4, help="Keypoint radius for visualization"
     )
     parser.add_argument(
-        "--input_video",
-        "--input-video",
-        type=str,
-        default=None,
-        help="Input video file(s)",
+        "--thickness", type=int, default=1, help="Link thickness for visualization"
     )
     parser.add_argument(
-        "--iou_only",
-        "--iou-only",
-        dest="iou_only",
-        default=False,
+        "--smooth",
         action="store_true",
-        help="only use iou for similarity",
+        help="Apply a temporal filter to smooth the pose estimation results. "
+        "See also --smooth-filter-cfg.",
     )
+
     return parser
 
 
@@ -310,24 +340,6 @@ def update_from_args(args, arg_name, config, noset_value: any = None):
 
 
 def configure_model(config: dict, args: argparse.Namespace):
-    # if hasattr(args, "det_thres"):
-    #     args.det_thres = set_nested_value(
-    #         dct=config, key_str="model.backbone.det_thres", set_to=args.det_thres
-    #     )
-    #     assert args.det_thres is not None
-    # if hasattr(args, "conf_thres"):
-    #     args.conf_thres = set_nested_value(
-    #         dct=config, key_str="model.tracker.conf_thres", set_to=args.conf_thres
-    #     )
-    #     assert args.conf_thres is not None
-    # if config["model"]["backbone"]["pretrained"]:
-    #     args.load_model = set_nested_value(
-    #         dct=config,
-    #         key_str="model.backbone.pretrained_path",
-    #         set_to=args.load_model,
-    #         noset_value="",
-    #     )
-
     update_from_args(args, "tracker", config)
     return args
 
@@ -464,20 +476,24 @@ def main(args, num_gpu):
             args.test_size = test_size
             results_folder = "."  # FIXME
 
+        pose_model = None
+
         data_pipeline = None
         if tracker == "mmtrack":
             args.config = args.exp_file
             args.checkpoint = None
-            model = init_model(args.config, args.checkpoint, device=gpus["detection"])
-            cfg = model.cfg.copy()
-            pipeline = cfg.data.inference.pipeline
-            pipeline[0].type = "LoadImageFromWebcam"
-            # for i, p in enumerate(pipeline):
-            #     if p.type == "HmCrop":
-            #         pipeline[i].rectangle = get_clip_box(
-            #             game_id=args.game_id, root_dir=ROOT_DIR
-            #         )
-            data_pipeline = Compose(pipeline)
+            if args.tracking or args.multi_pose:
+                model = init_model(
+                    args.config, args.checkpoint, device=gpus["detection"]
+                )
+                cfg = model.cfg.copy()
+                pipeline = cfg.data.inference.pipeline
+                pipeline[0].type = "LoadImageFromWebcam"
+                data_pipeline = Compose(pipeline)
+            if args.multi_pose:
+                pose_model = init_pose_model(
+                    args.pose_config, args.pose_checkpoint, device=gpus["detection"]
+                )
 
         dataloader = None
         postprocessor = None
@@ -707,6 +723,7 @@ def main(args, num_gpu):
 
             *_, summary = run_mmtrack(
                 model=model,
+                pose_model=pose_model,
                 config=args.game_config,
                 device=gpus["detection"],
                 **other_kwargs,
@@ -737,6 +754,7 @@ def tensor_to_image(tensor: torch.Tensor):
 
 def run_mmtrack(
     model,
+    pose_model,
     config,
     dataloader,
     postprocessor,
@@ -825,11 +843,14 @@ def run_mmtrack(
                     )
                 detect_timer.tic()
                 with torch.no_grad():
-                    #with autocast():
+                    # with autocast():
                     results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 
             # detect_timer.toc()
+
+            if pose_model is not None:
+                multi_pose_task(pose_model=pose_model)
 
             del data
 
@@ -883,6 +904,68 @@ def run_mmtrack(
                 detect_timer = Timer()
 
 
+def process_mmtracking_results(mmtracking_results):
+    """Process mmtracking results.
+
+    :param mmtracking_results:
+    :return: a list of tracked bounding boxes
+    """
+    person_results = []
+    # 'track_results' is changed to 'track_bboxes'
+    # in https://github.com/open-mmlab/mmtracking/pull/300
+    if "track_bboxes" in mmtracking_results:
+        tracking_results = mmtracking_results["track_bboxes"][0]
+    elif "track_results" in mmtracking_results:
+        tracking_results = mmtracking_results["track_results"][0]
+
+    for track in tracking_results:
+        person = {}
+        person["track_id"] = int(track[0])
+        person["bbox"] = track[1:]
+        person_results.append(person)
+    return person_results
+
+
+def multi_pose_task(
+    pose_model, cur_frame, tracking_results: dict, smoother: bool = False
+):
+    # keep the person class bounding boxes.
+    person_results = process_mmtracking_results(tracking_results)
+
+    # test a single image, with a list of bboxes.
+    pose_results, returned_outputs = inference_top_down_pose_model(
+        pose_model,
+        cur_frame,
+        person_results,
+        bbox_thr=args.bbox_thr,
+        format="xyxy",
+        dataset=dataset,
+        dataset_info=dataset_info,
+        return_heatmap=False,
+        outputs=output_layer_names,
+    )
+
+    if smoother:
+        pose_results = smoother.smooth(pose_results)
+
+    vis_frame = None
+    # show the results
+    if args.show:
+        vis_frame = vis_pose_tracking_result(
+            pose_model,
+            cur_frame,
+            pose_results,
+            radius=args.radius,
+            thickness=args.thickness,
+            dataset=dataset,
+            dataset_info=dataset_info,
+            kpt_score_thr=args.kpt_thr,
+            show=False,
+        )
+
+    return tracking_results, pose_results, vis_frame
+
+
 if __name__ == "__main__":
     parser = make_parser()
     args = parser.parse_args()
@@ -890,6 +973,13 @@ if __name__ == "__main__":
     game_config = get_config(
         game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
     )
+
+    # Set up the task flags
+    args.tracking = False
+    args.multi_pose = False
+    tokens = args.tasks.split(",")
+    for t in tokens:
+        setattr(args, t, True)
 
     game_config["initial_args"] = vars(args)
     if args.tracker is None:
