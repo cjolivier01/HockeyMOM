@@ -100,6 +100,7 @@ class CamTrackHead:
 
     def process_tracking(
         self,
+        tracking_results,
         frame_id,
         online_tlwhs,
         online_ids,
@@ -137,7 +138,7 @@ class CamTrackHead:
             None,
             original_img,
         )
-        return detections, online_tlwhs
+        return tracking_results, detections, online_tlwhs
 
     def on_first_image(self, frame_id, letterbox_img, original_img, device):
         if self._hockey_mom is None:

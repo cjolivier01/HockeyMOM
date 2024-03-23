@@ -29,6 +29,8 @@ from hmlib.utils.py_utils import find_item_in_module
 from mmdet.datasets.pipelines import Compose
 
 from mmtrack.apis import inference_vid, inference_mot, init_model
+from mmpose.core import Smoother
+from mmpose.datasets import DatasetInfo
 
 from mmpose.apis import (
     collect_multi_frames,
@@ -266,30 +268,27 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
     )
-    # mixformer args
-    # parser.add_argument("--script", type=str, default="mixformer_deit")
-    # parser.add_argument("--config", type=str, default="track")
-    # parser.add_argument("--alpha", type=float, default=0.6, help="fuse parameter")
-    # parser.add_argument(
-    #     "--radius", type=int, default=0, help="radius for computing similarity"
-    # )
-    # parser.add_argument(
-    #     "--input_video",
-    #     "--input-video",
-    #     type=str,
-    #     default=None,
-    #     help="Input video file(s)",
-    # )
-    # parser.add_argument(
-    #     "--iou_only",
-    #     "--iou-only",
-    #     dest="iou_only",
-    #     default=False,
-    #     action="store_true",
-    #     help="only use iou for similarity",
-    # )
+    parser.add_argument(
+        "--input_video",
+        "--input-video",
+        type=str,
+        default=None,
+        help="Input video file(s)",
+    )
 
     # Pose args
+    parser.add_argument(
+        "--pose-config", type=str, default=None, help="Pose config file"
+    )
+    parser.add_argument(
+        "--pose-checkpoint", type=str, default=None, help="Pose checkpoint file"
+    )
+    parser.add_argument(
+        "--kpt-thr", type=float, default=0.3, help="Keypoint score threshold"
+    )
+    parser.add_argument(
+        "--bbox-thr", type=float, default=0.3, help="Bounding box score threshold"
+    )
     parser.add_argument(
         "--radius", type=int, default=4, help="Keypoint radius for visualization"
     )
@@ -476,6 +475,7 @@ def main(args, num_gpu):
             args.test_size = test_size
             results_folder = "."  # FIXME
 
+        # Set up for pose
         pose_model = None
 
         data_pipeline = None
@@ -494,6 +494,21 @@ def main(args, num_gpu):
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["detection"]
                 )
+
+                pose_dataset = pose_model.cfg.data["test"]["type"]
+                pose_dataset_info = pose_model.cfg.data["test"].get(
+                    "dataset_info", None
+                )
+                if pose_dataset_info is None:
+                    warnings.warn(
+                        "Please set `dataset_info` in the config."
+                        "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
+                        DeprecationWarning,
+                    )
+                else:
+                    pose_dataset_info = DatasetInfo(pose_dataset_info)
+        else:
+            assert False and "No longer supported"
 
         dataloader = None
         postprocessor = None
@@ -724,6 +739,8 @@ def main(args, num_gpu):
             *_, summary = run_mmtrack(
                 model=model,
                 pose_model=pose_model,
+                pose_dataset_type=pose_dataset,
+                pose_dataset_info=pose_dataset_info,
                 config=args.game_config,
                 device=gpus["detection"],
                 **other_kwargs,
@@ -755,6 +772,8 @@ def tensor_to_image(tensor: torch.Tensor):
 def run_mmtrack(
     model,
     pose_model,
+    pose_dataset_type,
+    pose_dataset_info,
     config,
     dataloader,
     postprocessor,
@@ -844,20 +863,37 @@ def run_mmtrack(
                 detect_timer.tic()
                 with torch.no_grad():
                     # with autocast():
-                    results = model(return_loss=False, rescale=True, **data)
+                    tracking_results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 
             # detect_timer.toc()
 
-            if pose_model is not None:
-                multi_pose_task(pose_model=pose_model)
+            # del data
 
-            del data
-
-            det_bboxes = results["det_bboxes"]
-            track_bboxes = results["track_bboxes"]
+            det_bboxes = tracking_results["det_bboxes"]
+            track_bboxes = tracking_results["track_bboxes"]
 
             for frame_index in range(len(origin_imgs)):
+
+                if pose_model is not None:
+                    tracking_results, pose_results, returned_outputs, vis_frame = (
+                        multi_pose_task(
+                            pose_model=pose_model,
+                            cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            dataset=pose_dataset_type,
+                            dataset_info=pose_dataset_info,
+                            tracking_results=tracking_results,
+                            smooth=args.smooth,
+                            show=args.show_image,
+                        )
+                    )
+                if vis_frame is not None:
+                    if isinstance(vis_frame, np.ndarray):
+                        vis_frame = torch.from_numpy(vis_frame)
+                    origin_imgs[frame_index] = make_channels_first(vis_frame).to(
+                        device=origin_imgs.device, non_blocking=True
+                    )
+
                 frame_id = info_imgs[2][frame_index]
                 detections = det_bboxes[frame_index]
                 tracking_items = track_bboxes[frame_index]
@@ -881,16 +917,30 @@ def run_mmtrack(
                 if postprocessor is not None:
                     if isinstance(origin_imgs, StreamTensor):
                         origin_imgs = origin_imgs.get()
-                    detections, online_tlwhs = postprocessor.process_tracking(
-                        frame_id=frame_id,
-                        online_tlwhs=online_tlwhs,
-                        online_ids=online_ids,
-                        online_scores=online_scores,
-                        detections=detections,
-                        info_imgs=info_imgs,
-                        letterbox_img=None,
-                        original_img=origin_imgs[frame_index].unsqueeze(0),
+                    tracking_results, detections, online_tlwhs = (
+                        postprocessor.process_tracking(
+                            tracking_results=tracking_results,
+                            frame_id=frame_id,
+                            online_tlwhs=online_tlwhs,
+                            online_ids=online_ids,
+                            online_scores=online_scores,
+                            detections=detections,
+                            info_imgs=info_imgs,
+                            letterbox_img=None,
+                            original_img=origin_imgs[frame_index].unsqueeze(0),
+                        )
                     )
+
+                # if pose_model is not None:
+                #     multi_pose_task(
+                #         pose_model=pose_model,
+                #         cur_frame=make_channels_last(origin_imgs[frame_index]),
+                #         dataset=pose_dataset_type,
+                #         dataset_info=pose_dataset_info,
+                #         tracking_results=tracking_results,
+                #         smooth=args.smooth,
+                #         show=args.show_image,
+                #     )
             # end frame loop
 
             if cur_iter % 50 == 0:
@@ -927,21 +977,41 @@ def process_mmtracking_results(mmtracking_results):
 
 
 def multi_pose_task(
-    pose_model, cur_frame, tracking_results: dict, smoother: bool = False
+    pose_model,
+    cur_frame,
+    dataset,
+    dataset_info,
+    tracking_results: dict,
+    smooth: bool = False,
+    show: bool = False,
 ):
+    # build pose smoother for temporal refinement
+    if smooth:
+        smoother = Smoother(filter_cfg=args.smooth_filter_cfg, keypoint_dim=2)
+    else:
+        smoother = None
+
+    # whether to return heatmap, optional
+    return_heatmap = False
+
+    # return the output of some desired layers,
+    # e.g. use ('backbone', ) to return backbone feature
+    output_layer_names = None
+
     # keep the person class bounding boxes.
     person_results = process_mmtracking_results(tracking_results)
 
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        cur_frame,
+        cur_frame.to("cpu").numpy(),
+        # cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
         dataset=dataset,
         dataset_info=dataset_info,
-        return_heatmap=False,
+        return_heatmap=return_heatmap,
         outputs=output_layer_names,
     )
 
@@ -950,10 +1020,10 @@ def multi_pose_task(
 
     vis_frame = None
     # show the results
-    if args.show:
+    if show:
         vis_frame = vis_pose_tracking_result(
             pose_model,
-            cur_frame,
+            cur_frame.to("cpu").numpy(),
             pose_results,
             radius=args.radius,
             thickness=args.thickness,
@@ -963,7 +1033,7 @@ def multi_pose_task(
             show=False,
         )
 
-    return tracking_results, pose_results, vis_frame
+    return tracking_results, pose_results, returned_outputs, vis_frame
 
 
 if __name__ == "__main__":
