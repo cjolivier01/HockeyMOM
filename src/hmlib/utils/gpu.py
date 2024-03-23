@@ -186,7 +186,7 @@ class StreamTensor(StreamTensorBase):
     def ndim(self):
         return self._tensor.ndim
 
-    def size(self, index: int):
+    def size(self, index: int) -> int:
         return self._tensor.size(index)
 
     @property
@@ -332,9 +332,9 @@ def get_gpu_capabilities():
 
 
 def get_gpu_with_highest_compute_capability(
-    allowed_gpus: List[int] = None,
-    disallowed_gpus: Union[List[int], Set[int]] = None,
-) -> Tuple[int, Dict]:
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], None] = None,
+) -> Tuple[Union[int, None], Union[Dict, None]]:
     gpus = get_gpu_capabilities()
     if gpus is None:
         return None, None
@@ -350,8 +350,8 @@ def get_gpu_with_highest_compute_capability(
 
 
 def get_gpu_with_most_multiprocessors(
-    allowed_gpus: List[int] = None,
-    disallowed_gpus: Union[List[int], Set[int]] = None,
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], None] = None,
 ) -> Tuple[int, Dict]:
     gpus = get_gpu_capabilities()
     if gpus is None:
@@ -379,7 +379,7 @@ def get_gpu_with_most_multiprocessors(
     return candidates[0], gpus[candidates[0]]
 
 
-def _check_is(dev: torch.device, flag: bool):
+def _check_is(dev: Union[torch.device, None], flag: bool):
     if dev is not None:
         assert isinstance(dev, torch.device)
     assert (flag and dev is not None) or (not flag and dev is None)
@@ -387,8 +387,8 @@ def _check_is(dev: torch.device, flag: bool):
 
 def select_gpus(
     allowed_gpus: List[int],
-    rank: int = None,
-    gpu_allocator: GpuAllocator = None,
+    rank: Union[int, None] = None,
+    gpu_allocator: Union[GpuAllocator, None] = None,
     inference: bool = True,
     is_stitching: bool = True,
     is_detecting: bool = True,
@@ -401,8 +401,9 @@ def select_gpus(
     if gpu_allocator is None:
         gpu_allocator = GpuAllocator(gpus=allowed_gpus)
 
-    stitching_device = None
-    video_encoding_device = None
+    stitching_device: Union[torch.device, None] = None
+    video_encoding_device: Union[torch.device, None] = None
+    detection_device: Union[torch.device, None] = None
     camera_device = torch.device("cpu")
     if inference:
         if is_encoding:
