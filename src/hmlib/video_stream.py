@@ -21,6 +21,7 @@ _EXTENSION_MAPPING = {
 
 _FOURCC_TO_CODEC = {
     "HEVC": "hevc_cuvid",
+    "HVC1": "hevc_cuvid",
     "H264": "h264_cuvid",
     "MJPEG": "mjpeg_cuvid",
     "XVID": "mpeg4_cuvid",
@@ -564,7 +565,7 @@ class VideoStreamReader:
     def open(self):
         assert self._video_in is None
         self._video_info = BasicVideoInfo(self._filename)
-        if self._codec is None:
+        if self._codec is None and self._type != "ffmpeg":
             self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec.upper(), None)
             if self._codec is None and self._type != "cv2":
                 print(
