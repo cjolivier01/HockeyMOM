@@ -28,7 +28,4 @@ OMP_NUM_THREADS=16 \
   -b=${BATCH_SIZE} \
   --gpus=0,1,2,3 \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
-  --min-box-area=35 \
-  --config=track \
-  --tracker=mmtrack \
-  ${VIDEO} $@ tracking
+  ${VIDEO} $@
