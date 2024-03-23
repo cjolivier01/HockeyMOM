@@ -125,7 +125,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument(
         "--tracker",
-        default=None,
+        default="mmtrack",
         type=str,
         help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     )
@@ -477,6 +477,8 @@ def main(args, num_gpu):
 
         # Set up for pose
         pose_model = None
+        pose_dataset = None
+        pose_dataset_info = None
 
         data_pipeline = None
         if tracker == "mmtrack":
@@ -887,6 +889,9 @@ def run_mmtrack(
                             show=args.show_image,
                         )
                     )
+                else:
+                    vis_frame = None
+
                 if vis_frame is not None:
                     if isinstance(vis_frame, np.ndarray):
                         vis_frame = torch.from_numpy(vis_frame)
