@@ -866,7 +866,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            scale_down_factor=255.0,
+            #scale_down_factor=255.0,
         ),
     )
     v2_iter = CachedIterator(
@@ -875,7 +875,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            scale_down_factor=255.0,
+            #scale_down_factor=255.0,
         ),
     )
 

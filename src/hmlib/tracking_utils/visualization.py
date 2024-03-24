@@ -2,7 +2,7 @@ import copy
 import numpy as np
 import math
 import cv2
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import torch
 
 from sklearn.cluster import KMeans
@@ -29,6 +29,8 @@ def get_color(idx):
 def to_cv2(image):
     # OpenCV likes [Height, Width, Channels]
     if isinstance(image, torch.Tensor):
+        if image.dtype == torch.float16:
+            image = image.to(torch.float32)
         image = image.cpu().numpy()
     if image.shape[0] in [3, 4]:
         image = image.transpose(1, 2, 0)
@@ -48,7 +50,7 @@ def plot_rectangle(
     box: List[int],
     color: Tuple[int, int, int],
     thickness: int,
-    label: str = None,
+    label: Union[str, None] = None,
     text_scale: int = 1,
 ):
     if False and isinstance(img, torch.Tensor):
@@ -89,10 +91,10 @@ def plot_rectangle(
 def normalize_color(img, color):
     if isinstance(img, np.ndarray):
         if img.dtype != np.uint8:
-            color = [float(i) / 255.0 for i in color]
+            color = [float(i) for i in color]
     elif isinstance(img, torch.Tensor):
         if torch.is_floating_point(img):
-            color = [float(i) / 255.0 for i in color]
+            color = [float(i) for i in color]
     return color
 
 
@@ -114,7 +116,7 @@ def plot_alpha_rectangle(
     img = to_cv2(img)
 
     if img.dtype == np.float:
-        color = [float(i) / 255.0 for i in color]
+        color = [float(i) for i in color]
 
     mask = np.copy(img)
 

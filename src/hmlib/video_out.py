@@ -25,6 +25,7 @@ from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.utils import create_queue
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import (
     ImageHorizontalGaussianDistribution,
@@ -156,9 +157,11 @@ def paste_watermark_at_position(
     assert dest_image.ndim == 4
     watermark_height = image_height(watermark_rgb_channels)
     watermark_width = image_width(watermark_rgb_channels)
-    dest_image[:, y : y + watermark_height, x : x + watermark_width] = dest_image[
-        :, y : y + watermark_height, x : x + watermark_width
-    ] * (1 - watermark_mask / 255.0) + watermark_rgb_channels * (watermark_mask / 255.0)
+    dest_image[:, y : y + watermark_height, x : x + watermark_width] = (
+        dest_image[:, y : y + watermark_height, x : x + watermark_width]
+        * (1 - watermark_mask)
+        + watermark_rgb_channels * watermark_mask
+    )
     return dest_image
 
 
@@ -190,33 +193,39 @@ class ImageProcData:
 
 
 def _to_float(
-    tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
+    tensor: torch.Tensor,
+    apply_scale: bool = False,
+    non_blocking: bool = False,
+    dtype: torch.dtype = torch.float,
 ):
-    assert apply_scale
+    assert not apply_scale
     if tensor.dtype == torch.uint8:
         if apply_scale:
-            return tensor.to(torch.float, non_blocking=non_blocking) / 255.0
+            assert False
+            return tensor.to(dtype, non_blocking=non_blocking) / 255.0
         else:
-            return tensor.to(torch.float, non_blocking=non_blocking)
+            return tensor.to(dtype, non_blocking=non_blocking)
     else:
         assert torch.is_floating_point(tensor)
     return tensor
 
 
 def _to_uint8(
-    tensor: torch.Tensor, apply_scale: bool = True, non_blocking: bool = False
+    tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False
 ):
-    assert apply_scale
+    assert not apply_scale
     if not isinstance(tensor, torch.Tensor):
         assert tensor.dtype == np.uint8
         return tensor
     if tensor.dtype != torch.uint8:
         if apply_scale:
+            assert False
             assert torch.is_floating_point(tensor)
             return (
-                (tensor * 255)
-                .clamp(min=0, max=255.0)
-                .to(torch.uint8, non_blocking=non_blocking)
+                # note, no scale applied here (I removed before adding assert)
+                tensor.clamp(min=0, max=255.0).to(
+                    torch.uint8, non_blocking=non_blocking
+                )
             )
         else:
             return tensor.clamp(min=0, max=255.0).to(
@@ -489,6 +498,9 @@ class VideoOutput:
 
         return image, current_box
 
+    def _float_type(self):
+        return torch.float16 if self._args.fp16 else torch.float
+
     def _final_image_processing(self):
         print("VideoOutput thread started.")
         plot_interias = False
@@ -555,6 +567,8 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
+
+            # show_image("online_im", online_im, wait=False)
 
             if last_frame_id is None:
                 last_frame_id = frame_id
@@ -627,7 +641,11 @@ class VideoOutput:
                 # Perspective rotation
                 #
                 if self.has_args() and self._args.fixed_edge_rotation:
-                    online_im = _to_float(online_im, non_blocking=True)
+                    online_im = _to_float(
+                        online_im,
+                        non_blocking=True,
+                        dtype=self._float_type(),
+                    )
                     rotated_images = []
                     current_boxes = []
                     for img, bbox in zip(online_im, current_box):
@@ -698,7 +716,11 @@ class VideoOutput:
                 # Crop to output video frame image
                 #
                 if self.has_args() and self._args.crop_output_image:
-                    online_im = _to_float(online_im, non_blocking=True)
+                    online_im = _to_float(
+                        online_im,
+                        non_blocking=True,
+                        dtype=self._float_type(),
+                    )
                     # assert torch.isclose(
                     #     aspect_ratio(current_box), self._output_aspect_ratio,
                     # )
@@ -751,8 +773,8 @@ class VideoOutput:
                     if torch.is_floating_point(
                         online_im
                     ) and not torch.is_floating_point(scoreboard_img):
-                        scoreboard_img = (
-                            scoreboard_img.to(torch.float, non_blocking=True) / 255.0
+                        scoreboard_img = scoreboard_img.to(
+                            torch.float, non_blocking=True
                         )
                     online_im[:, : scoreboard.height, : scoreboard.width, :] = (
                         scoreboard_img

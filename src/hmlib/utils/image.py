@@ -137,9 +137,7 @@ def pt_get_affine_transform(
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
     dst[1, :] = (
-        torch.tensor(
-            [dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device
-        )
+        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device)
         + dst_dir
     )
 
@@ -147,13 +145,9 @@ def pt_get_affine_transform(
     dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
 
     if inv:
-        trans = pt_cv2_get_affine_transform(
-            dst.to(torch.float), src.to(torch.float)
-        )
+        trans = pt_cv2_get_affine_transform(dst.to(torch.float), src.to(torch.float))
     else:
-        trans = pt_cv2_get_affine_transform(
-            src.to(torch.float), dst.to(torch.float)
-        )
+        trans = pt_cv2_get_affine_transform(src.to(torch.float), dst.to(torch.float))
 
     return trans
 
@@ -641,7 +635,10 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     return padded_tensor
 
 
-def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
+def make_showable_type(
+    img: Union[torch.Tensor, np.ndarray],
+    scale_elements: Union[float, None] = None,
+):
     if isinstance(img, torch.Tensor):
         if img.ndim == 2:
             # 2D grayscale
@@ -649,16 +646,19 @@ def make_showable_type(img: torch.Tensor, scale_elements: float = 255.0):
         assert len(img.shape) == 3
         img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.float, torch.float64]:
-            # max = torch.max(img)
+            if img.dtype == torch.float16:
+                img = img.to(torch.float32)
             if scale_elements and scale_elements != 1:
-                img = img * 255.0
+                img = img * scale_elements
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
         img = np.ascontiguousarray(img.cpu().numpy())
     return img
 
 
 def make_visible_image(
-    img, enable_resizing: Union[bool, float] = False, scale_elements: float = 255.0
+    img,
+    enable_resizing: Union[bool, float] = False,
+    scale_elements: Union[float, None] = None,
 ):
     if enable_resizing is None:
         if isinstance(img, torch.Tensor):

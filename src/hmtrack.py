@@ -602,7 +602,7 @@ def main(args, num_gpu):
                     remapping_device=gpus["stitching"],
                     # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
-                    dtype=torch.float if not args.fp16 else torch.half,
+                    # dtype=torch.float if not args.fp16 else torch.half,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -635,7 +635,7 @@ def main(args, num_gpu):
                     # device_for_original_image=torch.device("cpu"),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
-                    dtype=torch.float if not args.fp16 else torch.half,
+                    # dtype=torch.float if not args.fp16 else torch.half,
                 )
             else:
                 assert len(input_video_files) == 1
@@ -738,6 +738,7 @@ def main(args, num_gpu):
             *_, summary = eval_functions[tracker]["function"](
                 model=model,
                 config=args.game_config,
+                fp16=args.fp16,
                 distributed=is_distributed,
                 half=args.fp16,
                 trt_file=trt_file,
@@ -795,6 +796,7 @@ def run_mmtrack(
     postprocessor,
     device: torch.device = None,
     input_cache_size: int = 2,
+    fp16: bool = False,
 ):
     dataloader_iterator = CachedIterator(
         iterator=iter(dataloader), cache_size=input_cache_size
@@ -840,6 +842,8 @@ def run_mmtrack(
 
             if detect_timer is None:
                 detect_timer = Timer()
+
+            # show_image("image", data["img"][0] / 255, wait=False)
 
             # detect_timer.tic()
 
@@ -907,13 +911,17 @@ def run_mmtrack(
                     #     torch.float, non_blocking=True
                     # )
                     data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
-                        torch.float, non_blocking=True
+                        torch.float16 if fp16 else torch.float, non_blocking=True
                     )
 
                 # forward the model
                 detect_timer.tic()
-                with torch.no_grad():
-                    # with autocast():
+                if fp16:
+                    with autocast():
+                        tracking_results = model(
+                            return_loss=False, rescale=True, **data
+                        )
+                else:
                     tracking_results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 

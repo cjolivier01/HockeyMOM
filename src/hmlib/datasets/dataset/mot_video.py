@@ -383,10 +383,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if self._data_pipeline is not None:
                 original_img0 = img0
-                if torch.is_floating_point(img0):
-                    img0 = img0 * 255
-                else:
-                    pass
+                # if torch.is_floating_point(img0):
+                #     img0 = img0 * 255
                 data_item = dict(
                     img=make_channels_last(img0),
                     img_info=dict(frame_id=ids[0]),
@@ -404,8 +402,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if clipped_image is not None:
                         original_img0 = clipped_image["img"]
                         del data_item["clipped_image"]
-                        if torch.is_floating_point(original_img0):
-                            original_img0 /= 255
+                        # if torch.is_floating_point(original_img0):
+                        #     original_img0 /= 255
                 
                 if isinstance(img, list):
                     img = img[0]
@@ -437,7 +435,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     original_img0 = img0
                     if not torch.is_floating_point(img0):
                         img0 = (
-                            img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING) / 255.0
+                            #img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING) / 255.0
+                            img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
                         )
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
@@ -448,8 +447,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                             self._dtype, non_blocking=ALL_NON_BLOCKING
                         )
                         is_fp = torch.is_floating_point(original_img0)
-                        if not was_fp and is_fp:
-                            original_img0 /= 255.0
+                        # if not was_fp and is_fp:
+                        #     original_img0 /= 255.0
                     img = original_img0
 
             if self.width_t is None:

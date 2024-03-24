@@ -462,9 +462,12 @@ class StitchDataset:
                 name="STITCH-OUT",
                 simple_save=True,
             )
+        assert False and "What's up with the / 255.0 down there?"
         image_proc_data = ImageProcData(
             frame_id=frame_id,
-            img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+            #img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+            img=to_tensor(stitched_frame),
+            #img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
         )
         self._video_output.append(image_proc_data)
@@ -607,7 +610,7 @@ class StitchDataset:
 
         self._batch_count += 1
 
-        # show_image("stitched_frame", stitched_frame, wait=True)
+        #show_image("stitched_frame", stitched_frame.get(), wait=True)
         if stitched_frame is None:
             self.close()
             raise StopIteration()
@@ -636,6 +639,7 @@ class StitchDataset:
             print("Saving first stitched frame to s.png")
             cv2.imwrite("s.png", make_visible_image(to_tensor(stitched_frame)[0]))
 
+        # show_image("stitched_frame", stitched_frame.get(), wait=False)
         return stitched_frame
 
     def __len__(self):
