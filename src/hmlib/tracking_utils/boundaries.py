@@ -249,35 +249,49 @@ class BoundaryLines:
             centers = torch.stack((centers_y, centers_x), dim=1)
         return centers
 
-    def prune(bboxes, inclusion_box):
-        if len(bboxes) == 0:
-            # nothing
-            return bboxes
-        filtered_online_tlwh = []
-        filtered_online_ids = []
-        online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-        for i in range(len(online_tlwhs_centers)):
-            center = online_tlwhs_centers[i]
-            if inclusion_box is not None:
-                if inclusion_box[0] and center[0] < inclusion_box[0]:
-                    continue
-                elif inclusion_box[2] and center[0] > inclusion_box[2]:
-                    continue
-                elif inclusion_box[1] and center[1] < inclusion_box[1]:
-                    continue
-                elif inclusion_box[3] and center[1] > inclusion_box[3]:
-                    continue
-            if boundaries is not None:
-                # TODO: boundaries could be done with the box edges
-                if boundaries.is_point_outside(center):
-                    # print(f"ignoring: {center}")
-                    continue
-            filtered_online_tlwh.append(online_tlwhs[i])
-            filtered_online_ids.append(online_ids[i])
-        if len(filtered_online_tlwh) == 0:
-            assert len(filtered_online_ids) == 0
-            return [], []
-        return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
+    # def prune(bboxes, inclusion_box):
+    #     if len(bboxes) == 0:
+    #         # nothing
+    #         return bboxes
+    #     filtered_online_tlwh = []
+    #     filtered_online_ids = []
+    #     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
+    #     for i in range(len(online_tlwhs_centers)):
+    #         center = online_tlwhs_centers[i]
+    #         if inclusion_box is not None:
+    #             if inclusion_box[0] and center[0] < inclusion_box[0]:
+    #                 continue
+    #             elif inclusion_box[2] and center[0] > inclusion_box[2]:
+    #                 continue
+    #             elif inclusion_box[1] and center[1] < inclusion_box[1]:
+    #                 continue
+    #             elif inclusion_box[3] and center[1] > inclusion_box[3]:
+    #                 continue
+    #         if boundaries is not None:
+    #             # TODO: boundaries could be done with the box edges
+    #             if boundaries.is_point_outside(center):
+    #                 # print(f"ignoring: {center}")
+    #                 continue
+    #         filtered_online_tlwh.append(online_tlwhs[i])
+    #         filtered_online_ids.append(online_ids[i])
+    #     if len(filtered_online_tlwh) == 0:
+    #         assert len(filtered_online_ids) == 0
+    #         return [], []
+    #     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
+
+    def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
+        centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+
+        above_line = self.point_batch_check_point_above_segments(
+            centers,
+            self._lower_borders.numpy(),
+        )
+        below_line = self.point_batch_check_point_below_segments(
+            centers,
+            self._upper_borders.numpy(),
+        )
+        above_or_below = np.logical_or(above_line, below_line)
+        return np.logical_not(above_or_below)
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -289,18 +303,9 @@ class BoundaryLines:
         for i, track_bboxes in enumerate(track_bboxes):
             if not track_bboxes.ndim:
                 continue
-            centers = self.get_centers(bbox_tlbr=track_bboxes[:, 1:5])
-
-            above_line = self.point_batch_check_point_above_segments(
-                centers,
-                self._lower_borders.numpy(),
-            )
-            below_line = self.point_batch_check_point_below_segments(
-                centers,
-                self._upper_borders.numpy(),
-            )
-            above_or_below = np.logical_or(above_line, below_line)
-            track_bboxes = track_bboxes[np.logical_not(above_or_below)]
+            track_bboxes = track_bboxes[
+                self.prune_items_index(batch_item_bboxes=track_bboxes[:, 1:5])
+            ]
             new_track_bboxes.append(track_bboxes)
         data["track_bboxes"] = new_track_bboxes
         self._duration += time.time() - start
