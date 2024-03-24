@@ -1,4 +1,3 @@
-# cjolivier01.ddns.net
 from loguru import logger
 
 import argparse
@@ -20,8 +19,6 @@ import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from hmlib.datasets import get_yolox_datadir
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "../MixViT"))
 
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
@@ -474,7 +471,8 @@ def main(args, num_gpu):
                 )
             exp.test_size = test_size
             args.test_size = test_size
-            results_folder = "."  # FIXME
+            results_folder = os.path.join(".", "output_workdirs", args.game_id)
+            os.makedirs(results_folder, exist_ok=True)
 
         # Set up for pose
         pose_model = None
@@ -832,7 +830,7 @@ def run_mmtrack(
 
             if False:
                 img = tensor_to_image(origin_imgs)
-                results = my_inference_mot( # DOTO: return proper data and img_meta items (one for each frame)
+                results = my_inference_mot(  # DOTO: return proper data and img_meta items (one for each frame)
                     model,
                     make_channels_last(img.squeeze(0)).cpu().numpy(),
                     frame_id=frame_id,
@@ -873,8 +871,8 @@ def run_mmtrack(
                 #     if all_metas:
                 #         data['img'] = all_images
                 #         data["img_metas"] = all_metas
-                        # assert len(data["img"]) == 1
-                        # data["img"] = data["img"][0]
+                # assert len(data["img"]) == 1
+                # data["img"] = data["img"][0]
 
                 data = collate([data], samples_per_gpu=batch_size)
                 if next(model.parameters()).is_cuda:

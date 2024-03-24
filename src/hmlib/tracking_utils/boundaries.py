@@ -1,7 +1,13 @@
 import torch
+
+# from mmcv.runner import BaseModule, auto_fp16
+
+# from ..builder import MODELS
+from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 
 
+@PIPELINES.register_module()
 class BoundaryLines:
     def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
         self._original_clip_box = original_clip_box
@@ -73,12 +79,12 @@ class BoundaryLines:
 
         return line_vectors
 
-    def is_point_too_high(self, point):
-        return False
+    # def is_point_too_high(self, point):
+    #     return False
 
-    def is_point_too_low(self, point):
-        too_low = self.is_point_below_line(point)
-        return False
+    # def is_point_too_low(self, point):
+    #     too_low = self.is_point_below_line(point)
+    #     return False
 
     def is_point_outside(self, point):
         return self.is_point_above_line(point) or self.is_point_below_line(point)
@@ -106,7 +112,7 @@ class BoundaryLines:
                     return True
         return False
 
-    def point_batch_check_point_above_segents(self, points):
+    def point_batch_check_point_above_segments(self, points):
         lines_start = self._upper_borders[:, 0:2]
         point_vecs = points[0] - lines_start
         cross_z = (
@@ -137,3 +143,9 @@ class BoundaryLines:
 
         # Check if the point is below the line
         return cross_product_z > 0
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, data):
+        return data
