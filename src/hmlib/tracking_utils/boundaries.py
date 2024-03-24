@@ -1,3 +1,4 @@
+import time
 from typing import Union
 
 import numpy as np
@@ -48,6 +49,7 @@ class BoundaryLines:
             self._lower_borders = None
             self._lower_line_vectors = None
         self._passes = 0
+        self._duration = 0
 
     def draw(self, img):
         if self._upper_borders is not None:
@@ -165,7 +167,6 @@ class BoundaryLines:
             points.shape[0], line_segments.shape[0]
         )
         comparison = np.any(comparison_matrix, axis=1)
-        # comparison = comparison.reshape(comparison.shape[0], 1)
         return comparison
 
     def point_batch_check_point_below_segments(self, points, line_segments):
@@ -197,7 +198,7 @@ class BoundaryLines:
             <= np.maximum(expanded_segments[:, 0], expanded_segments[:, 2])
         )
 
-        # Step 5: Determine if the point's y is above the line's y at that x
+        # Step 5: Determine if the point's y is below the line's y at that x
         points_above_line = (
             expanded_points[:, 1] < y_values_at_points_x
         ) & within_x_range
@@ -207,7 +208,6 @@ class BoundaryLines:
             points.shape[0], line_segments.shape[0]
         )
         comparison = np.any(comparison_matrix, axis=1)
-        # comparison = comparison.reshape(comparison.shape[0], 1)
         return comparison
 
     # def is_point_below_line(self, point):
@@ -283,6 +283,7 @@ class BoundaryLines:
         return self.forward(*args, **kwargs)
 
     def forward(self, data, **kwargs):
+        start = time.time()
         track_bboxes = data["track_bboxes"]
         new_track_bboxes = []
         for i, track_bboxes in enumerate(track_bboxes):
@@ -302,6 +303,12 @@ class BoundaryLines:
             track_bboxes = track_bboxes[np.logical_not(above_or_below)]
             new_track_bboxes.append(track_bboxes)
         data["track_bboxes"] = new_track_bboxes
-
+        self._duration += time.time() - start
         self._passes += 1
+        if self._passes % 50 == 0:
+            fps = self._passes / self._duration
+            if fps > 50:
+                print(f"Boundary pruning speed: {self._passes/self._duration} fps")
+            self._passes = 0
+            self._duration = 0
         return data
