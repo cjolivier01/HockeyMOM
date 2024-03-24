@@ -9,7 +9,7 @@ _base_ = [
 # The overall tracking model
 #
 model = dict(
-    type="ByteTrack",
+    type="HmEndToEnd",
     motion=dict(type="KalmanFilter"),
     tracker=dict(
         type="ByteTracker",

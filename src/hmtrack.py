@@ -7,6 +7,7 @@ import warnings
 import socket
 import numpy as np
 import logging
+import copy
 
 import traceback
 from pathlib import Path
@@ -106,7 +107,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "-f",
         "--exp_file",
-        default="exps/example/mot/yolox_x_sports_mix.py",
+        default=None,
         type=str,
         help="pls input your expriment description file",
     )
@@ -831,7 +832,7 @@ def run_mmtrack(
 
             if False:
                 img = tensor_to_image(origin_imgs)
-                results = my_inference_mot(
+                results = my_inference_mot( # DOTO: return proper data and img_meta items (one for each frame)
                     model,
                     make_channels_last(img.squeeze(0)).cpu().numpy(),
                     frame_id=frame_id,
@@ -845,6 +846,36 @@ def run_mmtrack(
                 else:
                     get_timer = None
 
+                # for i, img in enumerate(data["img"]):
+                #     # collate adds a stupid batch size of 1
+                #     data["img"][i] = make_channels_first(data["img"][i]).to(
+                #         torch.float, non_blocking=True
+                #     )
+                #     # data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
+                #     #     torch.float, non_blocking=True
+                #     # )
+
+                # Expand batch tensors into list of tensors
+                # if len(data["img"]) == 1:
+                #     all_images = []
+                #     all_metas = []
+                #     for outer_index, img in enumerate(data["img"]):
+                #         if img.ndim == 4 and img.shape[0] != 1:
+                #             for i in range(img.shape[0]):
+                #                 all_images.append(img[i].unsqueeze(0))
+                #                 all_metas.append(
+                #                     copy.deepcopy(data["img_metas"][outer_index])
+                #                 )
+                #                 if i:
+                #                     all_metas[-1].data["frame_id"] = (
+                #                         all_metas[0].data["frame_id"] + i
+                #                     )
+                #     if all_metas:
+                #         data['img'] = all_images
+                #         data["img_metas"] = all_metas
+                        # assert len(data["img"]) == 1
+                        # data["img"] = data["img"][0]
+
                 data = collate([data], samples_per_gpu=batch_size)
                 if next(model.parameters()).is_cuda:
                     # scatter to specified GPU
@@ -856,12 +887,17 @@ def run_mmtrack(
                         ), "CPU inference with RoIPool is not supported currently."
                     # just get the actual data from DataContainer
                     data["img_metas"] = data["img_metas"][0].data
-                # forward the model
+
                 for i, img in enumerate(data["img"]):
                     # collate adds a stupid batch size of 1
+                    # data["img"][i] = make_channels_first(data["img"][i]).to(
+                    #     torch.float, non_blocking=True
+                    # )
                     data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
                         torch.float, non_blocking=True
                     )
+
+                # forward the model
                 detect_timer.tic()
                 with torch.no_grad():
                     # with autocast():
