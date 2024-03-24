@@ -5,7 +5,12 @@ from mmtrack.models.mot.byte_track import ByteTrack
 
 from ..builder import MODELS
 
+
 @MODELS.register_module()
 class HmEndToEnd(ByteTrack):
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
         super(HmEndToEnd, self).__init__(*args, **kwargs)
