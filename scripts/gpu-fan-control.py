@@ -6,6 +6,7 @@ import pyipmi
 import pyipmi.interfaces
 import pyipmi.sensor
 import time
+import pynvml
 
 # setting fan speeds
 #
@@ -59,24 +60,8 @@ def set_fan_mode(fan_mode: int):
     subprocess.check_call(cmd)
 
 
-def manage_temp(ipmi: pyipmi.Ipmi, match_str: str, zone: int, current_mode: str):
-    max_temp = 0
-
-    sensors = []
-    reservation_id = ipmi.reserve_device_sdr_repository()
-    for sdr in ipmi.get_repository_sdr_list(reservation_id):
-        if sdr.device_id_string in IGNORE_GPUS:
-            continue
-        if match_str in sdr.device_id_string:
-            sensors.append(sdr)
-            if len(sensors) == 1:
-                print("")
-            reading = ipmi.get_sensor_reading(sdr.number)
-            temp_in_c = reading[0]
-            max_temp = max(max_temp, temp_in_c)
-            print(f"{sdr.device_id_string}: {temp_in_c} degrees C")
-        else:
-            continue
+def manage_temp(match_str: str, zone: int, current_mode: str):
+    max_temp = get_max_gpu_temp()
 
     if max_temp <= PERIPHERAL_SUPER_SLOW_FAN_TEMP:
         if current_mode != "super-slow":
@@ -103,32 +88,71 @@ def manage_temp(ipmi: pyipmi.Ipmi, match_str: str, zone: int, current_mode: str)
     return current_mode
 
 
+def get_max_gpu_temp():
+    # Initialize NVML
+    pynvml.nvmlInit()
+    try:
+        # Get the number of GPUs
+        device_count = pynvml.nvmlDeviceGetCount()
+
+        max_temp = 0
+
+        # Loop through each GPU and get its temperature
+        for i in range(device_count):
+            # Get handle for the current GPU
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            # Get the GPU temperature in Celsius
+            temperature = pynvml.nvmlDeviceGetTemperature(
+                handle, pynvml.NVML_TEMPERATURE_GPU
+            )
+            try:
+                fan_speed = pynvml.nvmlDeviceGetFanSpeed(handle)
+                if fan_speed:
+                    # Has its own fan, so ignore
+                    continue
+            except pynvml.NVMLError as ex:
+                if ex.value != pynvml.NVML_ERROR_NOT_SUPPORTED:
+                    raise
+
+            # Print the temperature
+            print(f"GPU {i}: {temperature}°C")
+            max_temp = max(temperature, max_temp)
+    finally:
+        # Shutdown NVML
+        pynvml.nvmlShutdown()
+
+    return max_temp
+
+
+def open_ipmi():
+    interface = pyipmi.interfaces.create_interface(
+        "ipmitool",
+        interface_type="open",
+    )
+    ipmi = pyipmi.create_connection(interface)
+    ipmi.session.establish()
+    ipmi.target = pyipmi.Target(ipmb_address=0x20)
+    return ipmi
+
+
+def close_ipmi(ipmi):
+    if ipmi is not None:
+        ipmi.session.close()
+
+
 def main():
-    set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
     gpu_mode = "fast"
 
     while True:
-        ipmi = None
         try:
-            interface = pyipmi.interfaces.create_interface(
-                "ipmitool",
-                interface_type="open",
-            )
-            ipmi = pyipmi.create_connection(interface)
-            ipmi.session.establish()
-            ipmi.target = pyipmi.Target(ipmb_address=0x20)
-
             gpu_mode = manage_temp(
-                ipmi=ipmi, match_str="GPU", zone=ZONE_PERIPHERAL, current_mode=gpu_mode
+                match_str="GPU", zone=ZONE_PERIPHERAL, current_mode=gpu_mode
             )
 
             time.sleep(10)
 
         except Exception as e:
             print(f"IPMI error: {e}")
-        finally:
-            if ipmi is not None:
-                ipmi.session.close()
 
 
 def mamage_gpu_fans():
@@ -137,12 +161,12 @@ def mamage_gpu_fans():
 
 if __name__ == "__main__":
     # Check if the lock file already exists
-    if os.path.exists(lock_file_path):
-        print(f"Another instance of the script {__file__} is already running.")
-        sys.exit(1)
+    # if os.path.exists(lock_file_path):
+    #     print(f"Another instance of the script {__file__} is already running.")
+    #     sys.exit(1)
 
-    with open(lock_file_path, "w") as lock_file:
-        lock_file.write("Lock")
+    # with open(lock_file_path, "w") as lock_file:
+    #     lock_file.write("Lock")
     try:
         main()
     finally:
