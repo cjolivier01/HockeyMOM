@@ -155,7 +155,7 @@ ImageBlender::ImageBlender(
     std::optional<std::string> interpolation)
     : mode_(mode),
       dtype_(half ? at::ScalarType::Half : at::ScalarType::Float),
-      levels_(levels),
+            levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
       interpolation_(interpolation ? *interpolation : ""),
@@ -525,10 +525,10 @@ at::Tensor ImageBlender::forward(
   if (ainfos_.empty()) {
     build_coordinate_system(image_1, xy_pos_1, image_2, xy_pos_2);
   }
-
+  
   if (mode_ == Mode::HardSeam) {
     return hard_seam_blend(
-        std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
+                std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
   }
   return laplacian_pyramid_blend(
       std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
@@ -582,8 +582,8 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     image_left = std::move(image_1);
     image_right = std::move(image_2);
   }
-  image_left = image_left.to(dtype_);
-  image_right = image_right.to(dtype_);
+  image_left = image_left.to(dtype_, /*non_blocking=*/true);
+  image_right = image_right.to(dtype_, /*non_blocking=*/true);
 
   if (verbose) {
     std::cout << "image_left size=" << image_left.sizes()

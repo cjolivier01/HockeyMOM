@@ -6,15 +6,6 @@
 namespace hm {
 namespace ops {
 
-// namespace {
-
-// inline at::Tensor scalar_float(const float& val, at::ScalarType dtype) {
-//   return torch::tensor(
-//       {val}, torch::TensorOptions().dtype(dtype));
-// }
-
-// } // namespace
-
 StreamTensor::StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor)
     : stream_(std::make_unique<c10::cuda::CUDAStream>(std::move(stream))),
       tensor_(std::move(tensor)) {}
