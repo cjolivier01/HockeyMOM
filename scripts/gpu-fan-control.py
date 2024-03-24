@@ -141,6 +141,7 @@ def close_ipmi(ipmi):
 
 
 def main():
+    set_zone_fan_speed(speed_percent=100, zone=ZONE_PERIPHERAL)
     gpu_mode = "fast"
 
     while True:
@@ -161,12 +162,12 @@ def mamage_gpu_fans():
 
 if __name__ == "__main__":
     # Check if the lock file already exists
-    # if os.path.exists(lock_file_path):
-    #     print(f"Another instance of the script {__file__} is already running.")
-    #     sys.exit(1)
+    if os.path.exists(lock_file_path):
+        print(f"Another instance of the script {__file__} is already running.")
+        sys.exit(1)
 
-    # with open(lock_file_path, "w") as lock_file:
-    #     lock_file.write("Lock")
+    with open(lock_file_path, "w") as lock_file:
+        lock_file.write("Lock")
     try:
         main()
     finally:
