@@ -474,39 +474,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 [self._path if self._path is not None else self._game_id],
             ]
 
-            # if (
-            #     not self._original_image_only
-            #     and not img_was_fp
-            #     and torch.is_floating_point(img)
-            # ):
-            #     img /= 255.0
-            #     if original_img0.dtype == img.dtype:
-            #         original_img0 /= 255.0
-
-            # if (
-            #     self._device_for_original_image is not None
-            #     and original_img0.device != self._device_for_original_image
-            # ):
-            #     if original_img0.device.type == "cuda":
-            #         # print("Warning: original image is on a different cuda device")
-            #         original_img0 = StreamTensorToDevice(
-            #             tensor=original_img0,
-            #             device=self._device_for_original_image,
-            #         )
-            #     if True:
-            #         original_img0 = StreamTensorToDevice(
-            #             tensor=original_img0, device=self._device_for_original_image
-            #         )
-            #     else:
-            #         original_img0 = original_img0.to(
-            #             self._device_for_original_image, non_blocking=True
-            #         )
-
         self._count += self._batch_size
 
         if cuda_stream is not None:
-            # if not self._original_image_only:
-            #     original_img0 = original_img0.to("cpu", non_blocking=True)
             original_img0 = StreamTensor(
                 tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
             )
