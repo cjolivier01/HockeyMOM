@@ -135,6 +135,12 @@ class BoundaryLines:
             np.arange(points.shape[0]), np.arange(line_segments.shape[0]), indexing="ij"
         )
 
+        point_indices = torch.from_numpy(point_indices).to(points.device)
+        segment_indices = torch.from_numpy(segment_indices).to(points.device)
+        if isinstance(line_segments, np.ndarray):
+            line_segments = torch.from_numpy(line_segments)
+        line_segments = line_segments.to(points.device)
+
         # Expand points and segments to match each combination
         expanded_points = points[point_indices.ravel()]
         expanded_segments = line_segments[segment_indices.ravel()]
@@ -151,10 +157,10 @@ class BoundaryLines:
         # Step 4: Filter for points where x is within the line segment's x range
         within_x_range = (
             expanded_points[:, 0]
-            >= np.minimum(expanded_segments[:, 0], expanded_segments[:, 2])
+            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
         ) & (
             expanded_points[:, 0]
-            <= np.maximum(expanded_segments[:, 0], expanded_segments[:, 2])
+            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
         )
 
         # Step 5: Determine if the point's y is above the line's y at that x
@@ -166,7 +172,7 @@ class BoundaryLines:
         comparison_matrix = points_above_line.reshape(
             points.shape[0], line_segments.shape[0]
         )
-        comparison = np.any(comparison_matrix, axis=1)
+        comparison = torch.any(comparison_matrix, axis=1)
         return comparison
 
     def point_batch_check_point_below_segments(self, points, line_segments):
@@ -175,6 +181,12 @@ class BoundaryLines:
         point_indices, segment_indices = np.meshgrid(
             np.arange(points.shape[0]), np.arange(line_segments.shape[0]), indexing="ij"
         )
+
+        point_indices = torch.from_numpy(point_indices).to(points.device)
+        segment_indices = torch.from_numpy(segment_indices).to(points.device)
+        if isinstance(line_segments, np.ndarray):
+            line_segments = torch.from_numpy(line_segments)
+        line_segments = line_segments.to(points.device)
 
         # Expand points and segments to match each combination
         expanded_points = points[point_indices.ravel()]
@@ -192,10 +204,10 @@ class BoundaryLines:
         # Step 4: Filter for points where x is within the line segment's x range
         within_x_range = (
             expanded_points[:, 0]
-            >= np.minimum(expanded_segments[:, 0], expanded_segments[:, 2])
+            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
         ) & (
             expanded_points[:, 0]
-            <= np.maximum(expanded_segments[:, 0], expanded_segments[:, 2])
+            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
         )
 
         # Step 5: Determine if the point's y is below the line's y at that x
@@ -207,7 +219,7 @@ class BoundaryLines:
         comparison_matrix = points_above_line.reshape(
             points.shape[0], line_segments.shape[0]
         )
-        comparison = np.any(comparison_matrix, axis=1)
+        comparison = torch.any(comparison_matrix, axis=1)
         return comparison
 
     # def is_point_below_line(self, point):
@@ -284,35 +296,42 @@ class BoundaryLines:
 
         above_line = self.point_batch_check_point_above_segments(
             centers,
-            self._lower_borders.numpy(),
+            self._lower_borders,
         )
         below_line = self.point_batch_check_point_below_segments(
             centers,
-            self._upper_borders.numpy(),
+            self._upper_borders,
         )
-        above_or_below = np.logical_or(above_line, below_line)
-        return np.logical_not(above_or_below)
+        above_or_below = torch.logical_or(above_line, below_line)
+        return torch.logical_not(above_or_below)
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
     def forward(self, data, **kwargs):
         start = time.time()
-        track_bboxes = data["track_bboxes"]
-        new_track_bboxes = []
-        for i, track_bboxes in enumerate(track_bboxes):
-            if not track_bboxes.ndim:
-                continue
-            track_bboxes = track_bboxes[
-                self.prune_items_index(batch_item_bboxes=track_bboxes[:, 1:5])
-            ]
-            new_track_bboxes.append(track_bboxes)
-        data["track_bboxes"] = new_track_bboxes
+        if "prune_list" not in data:
+            return data
+        prune_list = data["prune_list"]
+        bbox_tensors = data[prune_list[0]]
+
+        if bbox_tensors.shape[1] == 6:
+            # Tracking box (index + tlbr + score)
+            bboxes = bbox_tensors[:, 1:5]
+        elif bbox_tensors.shape[1] == 5:
+            # Detection tlbr + score
+            bboxes = bbox_tensors[:, :4]
+        else:
+            assert False
+        keep_indexes = self.prune_items_index(batch_item_bboxes=bboxes)
+        for name in prune_list:
+            data[name] = data[name][keep_indexes]
+
         self._duration += time.time() - start
         self._passes += 1
         if self._passes % 50 == 0:
             fps = self._passes / self._duration
-            if fps > 50:
+            if fps > 50 or True:
                 print(f"Boundary pruning speed: {self._passes/self._duration} fps")
             self._passes = 0
             self._duration = 0
