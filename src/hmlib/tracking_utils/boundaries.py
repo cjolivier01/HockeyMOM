@@ -1,16 +1,29 @@
+from typing import Union
+
+import numpy as np
 import torch
 
-# from mmcv.runner import BaseModule, auto_fp16
-
-# from ..builder import MODELS
 from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 
 
+# @PIPELINES.register_module()
+# class PruneDetections:
+#     def __init__(self, det_thresh: float = 0.05):
+#         self.det_thresh = det_thresh
+
+
 @PIPELINES.register_module()
 class BoundaryLines:
-    def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
+    def __init__(
+        self,
+        upper_border_lines,
+        lower_border_lines,
+        original_clip_box=None,
+        det_thresh: float = 0.05,
+    ):
         self._original_clip_box = original_clip_box
+        self.det_thresh = det_thresh
         if self._original_clip_box is None:
             self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float)
         elif not isinstance(self._original_clip_box, torch.Tensor):
@@ -34,6 +47,7 @@ class BoundaryLines:
         else:
             self._lower_borders = None
             self._lower_line_vectors = None
+        self._passes = 0
 
     def draw(self, img):
         if self._upper_borders is not None:
@@ -144,8 +158,68 @@ class BoundaryLines:
         # Check if the point is below the line
         return cross_product_z > 0
 
+    def get_centers(self, bbox_tlbr: Union[torch.Tensor, np.ndarray]):
+        # Calculate the centers
+        # The center x coordinates are calculated by averaging the left and right coordinates
+        centers_x = (bbox_tlbr[:, 1] + bbox_tlbr[:, 3]) / 2
+
+        # The center y coordinates are calculated by averaging the top and bottom coordinates
+        centers_y = (bbox_tlbr[:, 0] + bbox_tlbr[:, 2]) / 2
+
+        if isinstance(bbox_ttlbr, np.ndarray):
+            # Combine the x and y center coordinates
+            centers = np.vstack((centers_y, centers_x)).T
+        else:
+            # Combine the x and y center coordinates into a single tensor
+            centers = torch.stack((centers_y, centers_x), dim=1)
+        return centers
+
+    def prune(bboxes, inclusion_box):
+        if len(bboxes) == 0:
+            # nothing
+            return bboxes
+        filtered_online_tlwh = []
+        filtered_online_ids = []
+        online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
+        for i in range(len(online_tlwhs_centers)):
+            center = online_tlwhs_centers[i]
+            if inclusion_box is not None:
+                if inclusion_box[0] and center[0] < inclusion_box[0]:
+                    continue
+                elif inclusion_box[2] and center[0] > inclusion_box[2]:
+                    continue
+                elif inclusion_box[1] and center[1] < inclusion_box[1]:
+                    continue
+                elif inclusion_box[3] and center[1] > inclusion_box[3]:
+                    continue
+            if boundaries is not None:
+                # TODO: boundaries could be done with the box edges
+                if boundaries.is_point_outside(center):
+                    # print(f"ignoring: {center}")
+                    continue
+            filtered_online_tlwh.append(online_tlwhs[i])
+            filtered_online_ids.append(online_ids[i])
+        if len(filtered_online_tlwh) == 0:
+            assert len(filtered_online_ids) == 0
+            return [], []
+        return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
+
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    def forward(self, data):
+    def forward(self, data, **kwargs):
+        det_bboxes = data["det_bboxes"]
+        track_bboxes = data["track_bboxes"]
+        assert len(det_bboxes) == len(track_bboxes)
+        # new_det_bboxes = []
+        # new_track_bboxes = []
+        for i, detections in enumerate(det_bboxes):
+            if not detections.ndim:
+                continue
+            if self.det_thresh > 0:
+                detections = detections[detections[:, 4] > self.det_thresh]
+                det_bboxes[i] = detections
+            #centers = self.get_centers(bbox_tlbr=detections)
+
+        self._passes += 1
         return data

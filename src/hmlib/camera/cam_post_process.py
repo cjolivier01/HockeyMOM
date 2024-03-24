@@ -24,7 +24,7 @@ from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.camera.play_tracker import PlayTracker
 
 # from hmlib.utils.image import ImageHorizontalGaussianDistribution, make_visible_image
-from hmlib.tracking_utils.boundaries import BoundaryLines
+# from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.config import get_nested_value
 
 from hmlib.utils.box_functions import aspect_ratio
@@ -400,7 +400,7 @@ class CamTrackPostProcessor:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
-            
+
             with torch.no_grad():
                 frame_id, online_im, current_box = self._play_tracker.forward(
                     online_targets_and_img=online_targets_and_img

@@ -29,6 +29,7 @@ from mmdet.datasets.pipelines import Compose
 from mmtrack.apis import inference_vid, inference_mot, init_model
 from mmpose.core import Smoother
 from mmpose.datasets import DatasetInfo
+from hmlib.tracking_utils.boundaries import BoundaryLines
 
 from mmpose.apis import (
     collect_multi_frames,
@@ -491,6 +492,20 @@ def main(args, num_gpu):
                 pipeline = cfg.data.inference.pipeline
                 pipeline[0].type = "LoadImageFromWebcam"
                 data_pipeline = Compose(pipeline)
+
+            # post-detection pipeline
+            if hasattr(model, "post_detection_pipeline"):
+                if cam_args.top_border_lines or cam_args.bottom_border_lines:
+                    model.post_detection_pipeline.append(
+                        BoundaryLines(
+                            upper_border_lines=cam_args.top_border_lines,
+                            lower_border_lines=cam_args.bottom_border_lines,
+                            original_clip_box=get_clip_box(
+                                game_id=args.game_id, root_dir=ROOT_DIR
+                            ),
+                        )
+                    )
+
             if args.multi_pose:
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["detection"]
