@@ -1,6 +1,7 @@
 from loguru import logger
 
 import argparse
+import time
 import random
 import warnings
 import socket
@@ -445,11 +446,12 @@ def main(args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
-        gpus = select_gpus(allowed_gpus=args.gpus)
+        gpus = select_gpus(allowed_gpus=args.gpus, is_multipose=args.multi_pose)
 
         if socket.gethostname().startswith("chriso-monster"):
             gpus["stitching"] = torch.device("cuda", 0)
             gpus["detection"] = torch.device("cuda", 0)
+            gpus["pose"] = torch.device("cuda", 0)
             gpus["encoder"] = torch.device("cuda", 1)
 
         torch.cuda.set_device(gpus["detection"].index)
@@ -508,7 +510,7 @@ def main(args, num_gpu):
 
             if args.multi_pose:
                 pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["detection"]
+                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
 
                 pose_dataset = pose_model.cfg.data["test"]["type"]
@@ -938,12 +940,13 @@ def run_mmtrack(
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            #cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
-                            show=args.show_image,
+                            #show=args.show_image,
                         )
                     )
                 else:
@@ -1047,6 +1050,7 @@ def multi_pose_task(
     smooth: bool = False,
     show: bool = False,
 ):
+    start = time.time()
     # build pose smoother for temporal refinement
     if smooth:
         smoother = Smoother(filter_cfg=args.smooth_filter_cfg, keypoint_dim=2)
@@ -1094,7 +1098,8 @@ def multi_pose_task(
             kpt_score_thr=args.kpt_thr,
             show=False,
         )
-
+    duration = time.time() - start
+    print(f"pose took {duration} seconds")
     return tracking_results, pose_results, returned_outputs, vis_frame
 
 

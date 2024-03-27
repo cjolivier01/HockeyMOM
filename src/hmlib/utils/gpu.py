@@ -392,6 +392,7 @@ def select_gpus(
     inference: bool = True,
     is_stitching: bool = True,
     is_detecting: bool = True,
+    is_multipose: bool = False,
     is_encoding: bool = True,
     is_camera: bool = True,
 ):
@@ -404,7 +405,11 @@ def select_gpus(
     stitching_device: Union[torch.device, None] = None
     video_encoding_device: Union[torch.device, None] = None
     detection_device: Union[torch.device, None] = None
+    multipose_device: Union[torch.device, None] = None
     camera_device = torch.device("cpu")
+    if is_multipose:
+        # Multi-Pose gets the biggest, baddest one
+        multipose_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if inference:
         if is_encoding:
             video_encoding_device = torch.device(
@@ -413,9 +418,9 @@ def select_gpus(
         if gpu_allocator.free_count():
             detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
         else:
-            detection_device = video_encoding_device
-            # if is_encoding:
-            #     video_encoding_device = torch.device("cpu")
+            detection_device = (
+                video_encoding_device if not multipose_device else multipose_device
+            )
 
         if is_stitching:
             if gpu_allocator.free_count():
@@ -442,6 +447,8 @@ def select_gpus(
         gpus["stitching"] = stitching_device
     if detection_device is not None:
         gpus["detection"] = detection_device
+    if multipose_device is not None:
+        gpus["multipose"] = multipose_device
     if camera_device is not None:
         gpus["camera"] = camera_device
     if video_encoding_device is not None:
