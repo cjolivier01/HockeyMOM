@@ -1000,15 +1000,25 @@ class HmTopDownAffine:
             trans = get_affine_transform(c, s, r, image_size)
             if not isinstance(img, list):
                 if isinstance(img, torch.Tensor):
-                    img = warp_affine_pytorch(
-                        img,
-                        torch.from_numpy(trans).to(img.device, non_blocking=True),
-                        (int(image_size[0]), int(image_size[1])),
-                    )
-                    img = make_channels_first(img)
-                    if img.ndim == 4:
-                        assert img.shape[0] == 1
-                        img = img.squeeze(0)
+                    if True:
+                        device = img.device
+                        img = cv2.warpAffine(
+                            img.cpu().numpy(),
+                            trans,
+                            (int(image_size[0]), int(image_size[1])),
+                            flags=cv2.INTER_LINEAR,
+                        )
+                        img = torch.from_numpy(img).to(device, non_blocking=True)
+                    else:
+                        img = warp_affine_pytorch(
+                            img,
+                            torch.from_numpy(trans).to(img.device, non_blocking=True),
+                            (int(image_size[0]), int(image_size[1])),
+                        )
+                        img = make_channels_first(img)
+                        if img.ndim == 4:
+                            assert img.shape[0] == 1
+                            img = img.squeeze(0)
                 else:
                     img = cv2.warpAffine(
                         img,
@@ -1047,7 +1057,7 @@ class HmToTensor:
         results (dict): contain all information about training.
     """
 
-    def __init__(self, device='cpu'):
+    def __init__(self, device="cpu"):
         self.device = device
 
     def _to_tensor(self, x):
@@ -1056,13 +1066,17 @@ class HmToTensor:
                 x = x.to(torch.float32, non_blocking=True)
             return make_channels_first(x / 255.0)
         else:
-            return torch.from_numpy(x.astype('float32')).permute(2, 0, 1).to(
-                self.device).div_(255.0)
+            return (
+                torch.from_numpy(x.astype("float32"))
+                .permute(2, 0, 1)
+                .to(self.device)
+                .div_(255.0)
+            )
 
     def __call__(self, results):
-        if isinstance(results['img'], (list, tuple)):
-            results['img'] = [self._to_tensor(img) for img in results['img']]
+        if isinstance(results["img"], (list, tuple)):
+            results["img"] = [self._to_tensor(img) for img in results["img"]]
         else:
-            results['img'] = self._to_tensor(results['img'])
+            results["img"] = self._to_tensor(results["img"])
 
         return results

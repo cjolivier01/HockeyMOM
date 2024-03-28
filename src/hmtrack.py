@@ -1072,8 +1072,8 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        cur_frame.to("cpu").numpy(),
-        # cur_frame,
+        # cur_frame.to("cpu").numpy(),
+        cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
