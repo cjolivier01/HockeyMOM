@@ -942,13 +942,13 @@ def run_mmtrack(
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            # cur_frame=make_channels_last(origin_imgs[frame_index]),
-                            cur_frame=make_channels_last(data["img"][frame_index]),
+                            cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            # cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
-                            # show=args.show_image,
+                            show=True,
                         )
                     )
                 else:
@@ -1072,8 +1072,8 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        # cur_frame.to("cpu").numpy(),
-        cur_frame,
+        cur_frame.to("cpu").numpy(),
+        # cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
