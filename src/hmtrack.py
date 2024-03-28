@@ -1,78 +1,68 @@
-from loguru import logger
-
 import argparse
-import time
-import random
-import warnings
-import socket
-import numpy as np
-import logging
 import copy
-
+import logging
+import os
+import random
+import socket
+import sys
+import time
 import traceback
+import warnings
 from pathlib import Path
-import sys, os
-from typing import Any, List, Dict, Union
+from typing import Any, Dict, List, Union
 
-import torch
-from torch.cuda.amp import autocast, GradScaler
-import torch.backends.cudnn as cudnn
-from torch.nn.parallel import DistributedDataParallel as DDP
 import mmcv
-from hmlib.datasets import get_yolox_datadir
-
+import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
+from loguru import logger
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
-
-from hmlib.utils.py_utils import find_item_in_module
-from hmlib.utils.pipeline import replace_pipeline_class
 from mmdet.datasets.pipelines import Compose
-
-from mmtrack.apis import inference_vid, inference_mot, init_model
-from mmpose.core import Smoother
-from mmpose.datasets import DatasetInfo
-from hmlib.tracking_utils.boundaries import BoundaryLines
-
 from mmpose.apis import (
     collect_multi_frames,
     inference_top_down_pose_model,
     init_pose_model,
     vis_pose_tracking_result,
 )
+from mmpose.core import Smoother
+from mmpose.datasets import DatasetInfo
+from mmtrack.apis import inference_mot, inference_vid, init_model
+from torch.cuda.amp import GradScaler, autocast
+from torch.nn.parallel import DistributedDataParallel as DDP
 
+from hmlib.datasets import get_yolox_datadir
 from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.tracking_utils.boundaries import BoundaryLines
+from hmlib.utils.pipeline import replace_pipeline_class
+from hmlib.utils.py_utils import find_item_in_module
 
 if False:
-    from hmlib.datasets.dataset.stitching_dataloader1 import (
-        StitchDataset,
-    )
+    from hmlib.datasets.dataset.stitching_dataloader1 import StitchDataset
 else:
     from hmlib.datasets.dataset.stitching_dataloader2 import (
         StitchDataset,
     )
 
-from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.tracking_utils.log import logger
+import hmlib.datasets as datasets
+from hmlib.camera.cam_post_process import DefaultArguments
+from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
     get_clip_box,
     get_config,
-    set_nested_value,
     get_nested_value,
+    set_nested_value,
     update_config,
 )
+from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.camera.camera_head import CamTrackHead
-from hmlib.camera.cam_post_process import DefaultArguments
-import hmlib.datasets as datasets
-from hmlib.hm_opts import hm_opts, copy_opts
-from hmlib.utils.gpu import select_gpus
-from hmlib.video_stream import time_to_frame
-
+from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.config import get_nested_value
-from hmlib.utils.image import make_channels_last, make_channels_first
-from hmlib.utils.gpu import CachedIterator, StreamTensor
+from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus
+from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
 
@@ -515,7 +505,7 @@ def main(args, num_gpu):
                 replace_pipeline_class(
                     test_pipeline, "TopDownAffine", "HmTopDownAffine"
                 )
-                #pose_config.data["test"] = test_pipeline
+                # pose_config.data["test"] = test_pipeline
                 pose_model = init_pose_model(
                     pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
