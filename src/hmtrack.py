@@ -60,7 +60,12 @@ from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus
+from hmlib.utils.gpu import (
+    CachedIterator,
+    StreamTensor,
+    select_gpus,
+    StreamTensorToDevice,
+)
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.video_stream import time_to_frame
 
@@ -507,9 +512,7 @@ def main(args, num_gpu):
                 replace_pipeline_class(
                     test_pipeline, "TopDownAffine", "HmTopDownAffine"
                 )
-                replace_pipeline_class(
-                    test_pipeline, "ToTensor", "HmToTensor"
-                )
+                replace_pipeline_class(test_pipeline, "ToTensor", "HmToTensor")
                 pose_model = init_pose_model(
                     pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
@@ -844,6 +847,11 @@ def run_mmtrack(
 
             batch_size = origin_imgs.shape[0]
 
+            if pose_model is not None:
+                cpu_original_img = StreamTensorToDevice(
+                    tensor=origin_imgs, device=torch.device("cpu"), contiguous=True
+                )
+
             if detect_timer is None:
                 detect_timer = Timer()
 
@@ -936,13 +944,16 @@ def run_mmtrack(
             det_bboxes = tracking_results["det_bboxes"]
             track_bboxes = tracking_results["track_bboxes"]
 
-            for frame_index in range(len(origin_imgs)):
 
+            if pose_model is not None:
+                cpu_original_img = cpu_original_img.get()
+
+            for frame_index in range(len(origin_imgs)):
                 if pose_model is not None:
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            cur_frame=make_channels_last(cpu_original_img[frame_index]),
                             # cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
@@ -1072,8 +1083,8 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        # cur_frame.to("cpu").numpy(),
-        cur_frame,
+        cur_frame.to("cpu").numpy(),
+        #cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
