@@ -352,7 +352,7 @@ def get_gpu_with_highest_compute_capability(
 def get_gpu_with_most_multiprocessors(
     allowed_gpus: Union[List[int], None] = None,
     disallowed_gpus: Union[List[int], Set[int], None] = None,
-) -> Tuple[int, Dict]:
+) -> Tuple[Union[int, None], Union[Dict, None]]:
     gpus = get_gpu_capabilities()
     if gpus is None:
         return None, None
@@ -440,6 +440,7 @@ def select_gpus(
     gpus = dict()
     _check_is(stitching_device, is_stitching)
     _check_is(detection_device, is_detecting)
+    _check_is(multipose_device, is_multipose)
     _check_is(stitching_device, is_stitching)
     _check_is(camera_device, is_camera)
     _check_is(video_encoding_device, is_encoding)
