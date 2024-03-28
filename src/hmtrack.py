@@ -12,7 +12,7 @@ import copy
 import traceback
 from pathlib import Path
 import sys, os
-from typing import List
+from typing import Any, List, Dict, Union
 
 import torch
 from torch.cuda.amp import autocast, GradScaler
@@ -25,6 +25,7 @@ from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
 
 from hmlib.utils.py_utils import find_item_in_module
+from hmlib.utils.pipeline import replace_pipeline_class
 from mmdet.datasets.pipelines import Compose
 
 from mmtrack.apis import inference_vid, inference_mot, init_model
@@ -512,11 +513,12 @@ def main(args, num_gpu):
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
-
-                pose_dataset = pose_model.cfg.data["test"]["type"]
-                pose_dataset_info = pose_model.cfg.data["test"].get(
-                    "dataset_info", None
+                test_pipeline = pose_model.cfg.data["test"]
+                replace_pipeline_class(
+                    test_pipeline, "TopDownAffine", "HmTopDownAffine"
                 )
+                pose_dataset = test_pipeline["type"]
+                pose_dataset_info = test_pipeline.get("dataset_info", None)
                 if pose_dataset_info is None:
                     warnings.warn(
                         "Please set `dataset_info` in the config."
@@ -940,13 +942,13 @@ def run_mmtrack(
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            #cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            # cur_frame=make_channels_last(origin_imgs[frame_index]),
                             cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
-                            #show=args.show_image,
+                            # show=args.show_image,
                         )
                     )
                 else:
