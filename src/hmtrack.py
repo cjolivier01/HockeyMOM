@@ -18,7 +18,7 @@ import torch
 from torch.cuda.amp import autocast, GradScaler
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
-
+import mmcv
 from hmlib.datasets import get_yolox_datadir
 
 from mmcv.ops import RoIPool
@@ -510,12 +510,14 @@ def main(args, num_gpu):
                     )
 
             if args.multi_pose:
-                pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
-                )
-                test_pipeline = pose_model.cfg.data["test"]
+                pose_config = mmcv.Config.fromfile(args.pose_config)
+                test_pipeline = pose_config.data["test"]
                 replace_pipeline_class(
                     test_pipeline, "TopDownAffine", "HmTopDownAffine"
+                )
+                #pose_config.data["test"] = test_pipeline
+                pose_model = init_pose_model(
+                    pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
                 pose_dataset = test_pipeline["type"]
                 pose_dataset_info = test_pipeline.get("dataset_info", None)
@@ -632,7 +634,6 @@ def main(args, num_gpu):
                     embedded_data_loader_cache_size=6,
                     # embedded_data_loader_cache_size=4,
                     # stream_tensors=True,
-                    original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
