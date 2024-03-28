@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from hmlib.utils.image import image_width, image_height, make_channels_first, make_channels_last
 
 def warp_affine_pytorch(image, affine_matrix, output_size):
     """
@@ -17,14 +18,26 @@ def warp_affine_pytorch(image, affine_matrix, output_size):
     if image.dim() == 3:
         image = image.unsqueeze(0)
 
+    iw = image_width(image)
+    ih = image_height(image)
+
     # Create the affine grid
+    if affine_matrix.dtype != image.dtype:
+        affine_matrix = affine_matrix.to(image.dtype, non_blocking=True)
     theta = affine_matrix.unsqueeze(0)  # Add batch dimension
-    grid = F.affine_grid(theta, [image.size(0), image.size(1), output_size[0], output_size[1]], align_corners=False)
-    
+    grid = F.affine_grid(
+        theta,
+        [1, 3, output_size[0], output_size[1]],
+        align_corners=False,
+    )
+
     # Apply the transformation
+    image = make_channels_first(image)
     transformed_image = F.grid_sample(image, grid, align_corners=False)
+    transformed_image = make_channels_last(transformed_image)
 
     return transformed_image
+
 
 # Example usage
 # Assuming `image_tensor` is your image tensor of shape (C, H, W) or (N, C, H, W)

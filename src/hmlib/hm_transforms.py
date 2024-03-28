@@ -1,22 +1,31 @@
 import numbers
-from typing import Dict, List, Optional, Tuple, Union, no_type_check
 import warnings
-import torch
-from torchvision.transforms import functional as F
+from typing import Dict, List, Optional, Tuple, Union, no_type_check
 
 import cv2
-import numpy as np
 import mmcv
-from hmlib.builder import PIPELINES
+import numpy as np
+import torch
+from mmpose.core.post_processing import (
+    affine_transform,
+    fliplr_joints,
+    get_affine_transform,
+    get_warp_matrix,
+    warp_affine_joints,
+)
+from torchvision.transforms import functional as F
+
+from hmlib.builder import PIPELINES, POSE_PIPELINES
 from hmlib.utils.image import (
-    image_width,
     image_height,
-    resize_image,
+    image_width,
+    is_channels_first,
     make_channels_first,
     make_channels_last,
-    is_channels_first,
+    resize_image,
 )
 
+from .cv2_to_torch import warp_affine_pytorch
 
 try:
     from PIL import Image
@@ -936,7 +945,8 @@ class CloneImage:
         repr_str += f"(source_key={self.source_key}, dest_key={self.dest_key})"
         return repr_str
 
-@PIPELINES.register_module()
+
+@POSE_PIPELINES.register_module()
 class HmTopDownAffine:
     """Affine transform the image to make input.
 
@@ -955,54 +965,104 @@ class HmTopDownAffine:
         self.use_udp = use_udp
 
     def __call__(self, results):
-        image_size = results['ann_info']['image_size']
+        image_size = results["ann_info"]["image_size"]
 
-        img = results['img']
-        joints_3d = results['joints_3d']
-        joints_3d_visible = results['joints_3d_visible']
-        c = results['center']
-        s = results['scale']
-        r = results['rotation']
+        img = results["img"]
+        joints_3d = results["joints_3d"]
+        joints_3d_visible = results["joints_3d_visible"]
+        c = results["center"]
+        s = results["scale"]
+        r = results["rotation"]
 
         if self.use_udp:
             trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
             if not isinstance(img, list):
                 img = cv2.warpAffine(
                     img,
-                    trans, (int(image_size[0]), int(image_size[1])),
-                    flags=cv2.INTER_LINEAR)
+                    trans,
+                    (int(image_size[0]), int(image_size[1])),
+                    flags=cv2.INTER_LINEAR,
+                )
             else:
                 img = [
                     cv2.warpAffine(
                         i,
-                        trans, (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR) for i in img
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    for i in img
                 ]
 
-            joints_3d[:, 0:2] = \
-                warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
+            joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
 
         else:
             trans = get_affine_transform(c, s, r, image_size)
             if not isinstance(img, list):
-                img = cv2.warpAffine(
-                    img,
-                    trans, (int(image_size[0]), int(image_size[1])),
-                    flags=cv2.INTER_LINEAR)
+                if isinstance(img, torch.Tensor):
+                    img = warp_affine_pytorch(
+                        img,
+                        torch.from_numpy(trans).to(img.device, non_blocking=True),
+                        (int(image_size[0]), int(image_size[1])),
+                    )
+                    img = make_channels_first(img)
+                    if img.ndim == 4:
+                        assert img.shape[0] == 1
+                        img = img.squeeze(0)
+                else:
+                    img = cv2.warpAffine(
+                        img,
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
             else:
                 img = [
                     cv2.warpAffine(
                         i,
-                        trans, (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR) for i in img
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    for i in img
                 ]
-            for i in range(results['ann_info']['num_joints']):
+            for i in range(results["ann_info"]["num_joints"]):
                 if joints_3d_visible[i, 0] > 0.0:
-                    joints_3d[i,
-                              0:2] = affine_transform(joints_3d[i, 0:2], trans)
+                    joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
 
-        results['img'] = img
-        results['joints_3d'] = joints_3d
-        results['joints_3d_visible'] = joints_3d_visible
+        results["img"] = img
+        results["joints_3d"] = joints_3d
+        results["joints_3d_visible"] = joints_3d_visible
+
+        return results
+
+
+@POSE_PIPELINES.register_module()
+class HmToTensor:
+    """Transform image to Tensor.
+
+    Required key: 'img'. Modifies key: 'img'.
+
+    Args:
+        results (dict): contain all information about training.
+    """
+
+    def __init__(self, device='cpu'):
+        self.device = device
+
+    def _to_tensor(self, x):
+        if isinstance(x, torch.Tensor):
+            if not torch.is_floating_point(x):
+                x = x.to(torch.float32, non_blocking=True)
+            return make_channels_first(x / 255.0)
+        else:
+            return torch.from_numpy(x.astype('float32')).permute(2, 0, 1).to(
+                self.device).div_(255.0)
+
+    def __call__(self, results):
+        if isinstance(results['img'], (list, tuple)):
+            results['img'] = [self._to_tensor(img) for img in results['img']]
+        else:
+            results['img'] = self._to_tensor(results['img'])
 
         return results

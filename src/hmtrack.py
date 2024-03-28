@@ -498,19 +498,25 @@ def main(args, num_gpu):
                             ),
                         )
                     )
-
+            #
+            # BEGIN Set up multi-pose model, if enabled
+            #
             if args.multi_pose:
                 pose_config = mmcv.Config.fromfile(args.pose_config)
-                test_pipeline = pose_config.data["test"]
+                test_pipeline = pose_config["test_pipeline"]
                 replace_pipeline_class(
                     test_pipeline, "TopDownAffine", "HmTopDownAffine"
                 )
-                # pose_config.data["test"] = test_pipeline
+                replace_pipeline_class(
+                    test_pipeline, "ToTensor", "HmToTensor"
+                )
                 pose_model = init_pose_model(
                     pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
-                pose_dataset = test_pipeline["type"]
-                pose_dataset_info = test_pipeline.get("dataset_info", None)
+                pose_dataset = pose_model.cfg.data["test"]["type"]
+                pose_dataset_info = pose_model.cfg.data["test"].get(
+                    "dataset_info", None
+                )
                 if pose_dataset_info is None:
                     warnings.warn(
                         "Please set `dataset_info` in the config."
@@ -519,6 +525,9 @@ def main(args, num_gpu):
                     )
                 else:
                     pose_dataset_info = DatasetInfo(pose_dataset_info)
+            #
+            # END Set up multi-pose model, if enabled
+            #
         else:
             assert False and "No longer supported"
 
@@ -1063,8 +1072,8 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        cur_frame.to("cpu").numpy(),
-        # cur_frame,
+        # cur_frame.to("cpu").numpy(),
+        cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
