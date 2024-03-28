@@ -24,6 +24,7 @@ from hmlib.utils.image import (
     make_channels_last,
     resize_image,
 )
+from hmlib.stitching.laplacian_blend import show_image
 
 from .cv2_to_torch import warp_affine_pytorch
 
@@ -1000,7 +1001,7 @@ class HmTopDownAffine:
             trans = get_affine_transform(c, s, r, image_size)
             if not isinstance(img, list):
                 if isinstance(img, torch.Tensor):
-                    if True:
+                    if False:
                         device = img.device
                         img = cv2.warpAffine(
                             img.cpu().numpy(),
@@ -1008,17 +1009,32 @@ class HmTopDownAffine:
                             (int(image_size[0]), int(image_size[1])),
                             flags=cv2.INTER_LINEAR,
                         )
+                        show_image("warped", img, wait=False)
                         img = torch.from_numpy(img).to(device, non_blocking=True)
                     else:
-                        img = warp_affine_pytorch(
-                            img,
-                            torch.from_numpy(trans).to(img.device, non_blocking=True),
-                            (int(image_size[0]), int(image_size[1])),
-                        )
+                        ih = image_height(img)
+                        iw = image_width(img)
+                        c = c.copy()
+                        c[0] -= float(ih)/2
+                        c[0] /= ih
+                        c[1] -= float(iw)/2
+                        c[1] /= iw
+                        trans = get_affine_transform(c, s, r, image_size)
+                        # img = torch.clamp(img, min=0, max=255.0)
                         img = make_channels_first(img)
+                        if not torch.is_floating_point(img):
+                            img = img.to(torch.float, non_blocking=True)
+                        
+                        img = warp_affine_pytorch(
+                            img.cpu(), # NOTE MAKING CPU TENSOR
+                            torch.from_numpy(trans).to(img.device, non_blocking=True).cpu(),
+                            (int(image_size[1]), int(image_size[0])),
+                        )
+                        # img = resize_image(img, new_width=288, new_height=384)
                         if img.ndim == 4:
                             assert img.shape[0] == 1
                             img = img.squeeze(0)
+                        show_image("warped", img.cpu().numpy(), wait=False)
                 else:
                     img = cv2.warpAffine(
                         img,

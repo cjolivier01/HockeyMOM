@@ -1,46 +1,54 @@
 import torch
 import torch.nn.functional as F
-from hmlib.utils.image import image_width, image_height, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_width,
+    image_height,
+    make_channels_first,
+    make_channels_last,
+)
 
-def warp_affine_pytorch(image, affine_matrix, output_size):
+
+import torch
+import torch.nn.functional as F
+
+
+def warp_affine_pytorch(image, transform_matrix, output_size):
     """
-    Apply an affine transformation to an image tensor
+    Apply affine transformation on an image using PyTorch.
 
     Parameters:
-    - image: A (C, H, W) or (N, C, H, W) image tensor.
-    - affine_matrix: A (2, 3) affine transformation matrix.
-    - output_size: A tuple (H, W) specifying the output image size.
+    - image: Source image tensor of shape (C, H, W).
+    - transform_matrix: 2x3 affine transformation matrix.
+    - output_size: Desired output size as (H, W).
 
     Returns:
-    - Transformed image tensor.
+    - Transformed image tensor of shape (C, H, W).
     """
-    # Ensure the image tensor is 4D (batch, channels, height, width)
-    if image.dim() == 3:
-        image = image.unsqueeze(0)
+    C, H, W = image.shape
+    out_H, out_W = output_size
 
-    iw = image_width(image)
-    ih = image_height(image)
-
-    # Create the affine grid
-    if affine_matrix.dtype != image.dtype:
-        affine_matrix = affine_matrix.to(image.dtype, non_blocking=True)
-    theta = affine_matrix.unsqueeze(0)  # Add batch dimension
-    grid = F.affine_grid(
-        theta,
-        [1, 3, output_size[0], output_size[1]],
-        align_corners=False,
+    # Convert the 2x3 transformation matrix to 3x3
+    transform_matrix = torch.tensor(transform_matrix, dtype=torch.float)
+    transform_matrix = torch.cat(
+        [transform_matrix, torch.tensor([[0, 0, 1]], dtype=torch.float)], dim=0
     )
 
+    # Invert the transformation matrix
+    transform_matrix = torch.inverse(transform_matrix)
+
+    # Create normalized 2D grid coordinates
+    xx, yy = torch.meshgrid(torch.linspace(-1, 1, out_W), torch.linspace(-1, 1, out_H))
+    ones = torch.ones_like(xx)
+    grid = torch.stack([xx, yy, ones], dim=2).reshape(-1, 3).t()
+
     # Apply the transformation
-    image = make_channels_first(image)
-    transformed_image = F.grid_sample(image, grid, align_corners=False)
-    transformed_image = make_channels_last(transformed_image)
+    transformed_grid = torch.matmul(transform_matrix[:2, :], grid)
+    transformed_grid = transformed_grid.t().reshape(out_H, out_W, 2)
 
-    return transformed_image
+    # Perform grid sampling
+    transformed_image = F.grid_sample(
+        image.unsqueeze(0), transformed_grid.unsqueeze(0), align_corners=True
+    )
 
+    return transformed_image.squeeze(0)
 
-# Example usage
-# Assuming `image_tensor` is your image tensor of shape (C, H, W) or (N, C, H, W)
-# and `affine_matrix` is a (2, 3) tensor representing your affine transformation
-# output_size = (H, W)  # Desired output size
-# transformed_image = warp_affine_pytorch(image_tensor, affine_matrix, output_size)
