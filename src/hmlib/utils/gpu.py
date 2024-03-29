@@ -266,7 +266,9 @@ class StreamTensorToDevice(StreamTensor):
             tensor = torch.from_numpy(tensor)
         if tensor.device != device:
             if stream is None:
-                stream = torch.cuda.Stream(device=device)
+                stream = torch.cuda.Stream(
+                    device=device if device.type == "cuda" else tensor.device
+                )
             with torch.cuda.stream(stream=stream):
                 tensor = tensor.to(device, non_blocking=True)
                 self._event = torch.cuda.Event()

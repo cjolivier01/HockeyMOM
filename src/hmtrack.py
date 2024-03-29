@@ -1,77 +1,73 @@
-from loguru import logger
-
 import argparse
-import time
-import random
-import warnings
-import socket
-import numpy as np
-import logging
 import copy
-
+import logging
+import os
+import random
+import socket
+import sys
+import time
 import traceback
+import warnings
 from pathlib import Path
-import sys, os
-from typing import List
+from typing import Any, Dict, List, Union
 
+import mmcv
+import numpy as np
 import torch
-from torch.cuda.amp import autocast, GradScaler
 import torch.backends.cudnn as cudnn
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-from hmlib.datasets import get_yolox_datadir
-
+from loguru import logger
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
-
-from hmlib.utils.py_utils import find_item_in_module
 from mmdet.datasets.pipelines import Compose
-
-from mmtrack.apis import inference_vid, inference_mot, init_model
-from mmpose.core import Smoother
-from mmpose.datasets import DatasetInfo
-from hmlib.tracking_utils.boundaries import BoundaryLines
-
 from mmpose.apis import (
     collect_multi_frames,
     inference_top_down_pose_model,
     init_pose_model,
     vis_pose_tracking_result,
 )
+from mmpose.core import Smoother
+from mmpose.datasets import DatasetInfo
+from mmtrack.apis import inference_mot, inference_vid, init_model
+from torch.cuda.amp import GradScaler, autocast
+from torch.nn.parallel import DistributedDataParallel as DDP
 
+from hmlib.datasets import get_yolox_datadir
 from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.tracking_utils.boundaries import BoundaryLines
+from hmlib.utils.pipeline import replace_pipeline_class
+from hmlib.utils.py_utils import find_item_in_module
 
 if False:
-    from hmlib.datasets.dataset.stitching_dataloader1 import (
-        StitchDataset,
-    )
+    from hmlib.datasets.dataset.stitching_dataloader1 import StitchDataset
 else:
     from hmlib.datasets.dataset.stitching_dataloader2 import (
         StitchDataset,
     )
 
-from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.tracking_utils.log import logger
+import hmlib.datasets as datasets
+from hmlib.camera.cam_post_process import DefaultArguments
+from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
     get_clip_box,
     get_config,
-    set_nested_value,
     get_nested_value,
+    set_nested_value,
     update_config,
 )
+from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.camera.camera_head import CamTrackHead
-from hmlib.camera.cam_post_process import DefaultArguments
-import hmlib.datasets as datasets
-from hmlib.hm_opts import hm_opts, copy_opts
-from hmlib.utils.gpu import select_gpus
-from hmlib.video_stream import time_to_frame
-
+from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.config import get_nested_value
-from hmlib.utils.image import make_channels_last, make_channels_first
-from hmlib.utils.gpu import CachedIterator, StreamTensor
+from hmlib.utils.gpu import (
+    CachedIterator,
+    StreamTensor,
+    select_gpus,
+    StreamTensorToDevice,
+)
+from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
 
@@ -510,12 +506,19 @@ def main(args, num_gpu):
                             ),
                         )
                     )
-
+            #
+            # BEGIN Set up multi-pose model, if enabled
+            #
             if args.multi_pose:
-                pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                pose_config = mmcv.Config.fromfile(args.pose_config)
+                test_pipeline = pose_config["test_pipeline"]
+                replace_pipeline_class(
+                    test_pipeline, "TopDownAffine", "HmTopDownAffine"
                 )
-
+                replace_pipeline_class(test_pipeline, "ToTensor", "HmToTensor")
+                pose_model = init_pose_model(
+                    pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                )
                 pose_dataset = pose_model.cfg.data["test"]["type"]
                 pose_dataset_info = pose_model.cfg.data["test"].get(
                     "dataset_info", None
@@ -528,6 +531,9 @@ def main(args, num_gpu):
                     )
                 else:
                     pose_dataset_info = DatasetInfo(pose_dataset_info)
+            #
+            # END Set up multi-pose model, if enabled
+            #
         else:
             assert False and "No longer supported"
 
@@ -633,7 +639,6 @@ def main(args, num_gpu):
                     #embedded_data_loader_cache_size=6,
                     embedded_data_loader_cache_size=args.cache_size,
                     # stream_tensors=True,
-                    original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
                     #     "image_channel_adjustment"
                     # ],
@@ -846,6 +851,11 @@ def run_mmtrack(
 
             batch_size = origin_imgs.shape[0]
 
+            if pose_model is not None:
+                cpu_original_img = StreamTensorToDevice(
+                    tensor=origin_imgs, device=torch.device("cpu"), contiguous=True
+                )
+
             if detect_timer is None:
                 detect_timer = Timer()
 
@@ -938,19 +948,22 @@ def run_mmtrack(
             det_bboxes = tracking_results["det_bboxes"]
             track_bboxes = tracking_results["track_bboxes"]
 
-            for frame_index in range(len(origin_imgs)):
 
+            if pose_model is not None:
+                cpu_original_img = cpu_original_img.get()
+
+            for frame_index in range(len(origin_imgs)):
                 if pose_model is not None:
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            #cur_frame=make_channels_last(origin_imgs[frame_index]),
-                            cur_frame=make_channels_last(data["img"][frame_index]),
+                            cur_frame=make_channels_last(cpu_original_img[frame_index]),
+                            # cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
-                            #show=args.show_image,
+                            show=True,
                         )
                     )
                 else:
@@ -1075,7 +1088,7 @@ def multi_pose_task(
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
         cur_frame.to("cpu").numpy(),
-        # cur_frame,
+        #cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",

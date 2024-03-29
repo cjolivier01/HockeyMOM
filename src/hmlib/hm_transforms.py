@@ -1,22 +1,32 @@
 import numbers
-from typing import Dict, List, Optional, Tuple, Union, no_type_check
 import warnings
-import torch
-from torchvision.transforms import functional as F
+from typing import Dict, List, Optional, Tuple, Union, no_type_check
 
 import cv2
-import numpy as np
 import mmcv
-from hmlib.builder import PIPELINES
+import numpy as np
+import torch
+from mmpose.core.post_processing import (
+    affine_transform,
+    fliplr_joints,
+    get_affine_transform,
+    get_warp_matrix,
+    warp_affine_joints,
+)
+from torchvision.transforms import functional as F
+
+from hmlib.builder import PIPELINES, POSE_PIPELINES
 from hmlib.utils.image import (
-    image_width,
     image_height,
-    resize_image,
+    image_width,
+    is_channels_first,
     make_channels_first,
     make_channels_last,
-    is_channels_first,
+    resize_image,
 )
+from hmlib.stitching.laplacian_blend import show_image
 
+from .cv2_to_torch import warp_affine_pytorch
 
 try:
     from PIL import Image
@@ -935,3 +945,154 @@ class CloneImage:
         repr_str = self.__class__.__name__
         repr_str += f"(source_key={self.source_key}, dest_key={self.dest_key})"
         return repr_str
+
+
+@POSE_PIPELINES.register_module()
+class HmTopDownAffine:
+    """Affine transform the image to make input.
+
+    Required key:'img', 'joints_3d', 'joints_3d_visible', 'ann_info','scale',
+    'rotation' and 'center'.
+
+    Modified key:'img', 'joints_3d', and 'joints_3d_visible'.
+
+    Args:
+        use_udp (bool): To use unbiased data processing.
+            Paper ref: Huang et al. The Devil is in the Details: Delving into
+            Unbiased Data Processing for Human Pose Estimation (CVPR 2020).
+    """
+
+    def __init__(self, use_udp=False):
+        self.use_udp = use_udp
+
+    def __call__(self, results):
+        image_size = results["ann_info"]["image_size"]
+
+        img = results["img"]
+        joints_3d = results["joints_3d"]
+        joints_3d_visible = results["joints_3d_visible"]
+        c = results["center"]
+        s = results["scale"]
+        r = results["rotation"]
+
+        if self.use_udp:
+            trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
+            if not isinstance(img, list):
+                img = cv2.warpAffine(
+                    img,
+                    trans,
+                    (int(image_size[0]), int(image_size[1])),
+                    flags=cv2.INTER_LINEAR,
+                )
+            else:
+                img = [
+                    cv2.warpAffine(
+                        i,
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    for i in img
+                ]
+
+            joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
+
+        else:
+            trans = get_affine_transform(c, s, r, image_size)
+            if not isinstance(img, list):
+                if isinstance(img, torch.Tensor):
+                    if False:
+                        device = img.device
+                        img = cv2.warpAffine(
+                            img.cpu().numpy(),
+                            trans,
+                            (int(image_size[0]), int(image_size[1])),
+                            flags=cv2.INTER_LINEAR,
+                        )
+                        show_image("warped", img, wait=False)
+                        img = torch.from_numpy(img).to(device, non_blocking=True)
+                    else:
+                        ih = image_height(img)
+                        iw = image_width(img)
+                        c = c.copy()
+                        c[0] -= float(ih)/2
+                        c[0] /= ih
+                        c[1] -= float(iw)/2
+                        c[1] /= iw
+                        trans = get_affine_transform(c, s, r, image_size)
+                        # img = torch.clamp(img, min=0, max=255.0)
+                        img = make_channels_first(img)
+                        if not torch.is_floating_point(img):
+                            img = img.to(torch.float, non_blocking=True)
+                        
+                        img = warp_affine_pytorch(
+                            img.cpu(), # NOTE MAKING CPU TENSOR
+                            torch.from_numpy(trans).to(img.device, non_blocking=True).cpu(),
+                            (int(image_size[1]), int(image_size[0])),
+                        )
+                        # img = resize_image(img, new_width=288, new_height=384)
+                        if img.ndim == 4:
+                            assert img.shape[0] == 1
+                            img = img.squeeze(0)
+                        show_image("warped", img.cpu().numpy(), wait=False)
+                else:
+                    img = cv2.warpAffine(
+                        img,
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+            else:
+                img = [
+                    cv2.warpAffine(
+                        i,
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    for i in img
+                ]
+            for i in range(results["ann_info"]["num_joints"]):
+                if joints_3d_visible[i, 0] > 0.0:
+                    joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
+
+        results["img"] = img
+        results["joints_3d"] = joints_3d
+        results["joints_3d_visible"] = joints_3d_visible
+
+        return results
+
+
+@POSE_PIPELINES.register_module()
+class HmToTensor:
+    """Transform image to Tensor.
+
+    Required key: 'img'. Modifies key: 'img'.
+
+    Args:
+        results (dict): contain all information about training.
+    """
+
+    def __init__(self, device="cpu"):
+        self.device = device
+
+    def _to_tensor(self, x):
+        if isinstance(x, torch.Tensor):
+            if not torch.is_floating_point(x):
+                x = x.to(torch.float32, non_blocking=True)
+            return make_channels_first(x / 255.0)
+        else:
+            return (
+                torch.from_numpy(x.astype("float32"))
+                .permute(2, 0, 1)
+                .to(self.device)
+                .div_(255.0)
+            )
+
+    def __call__(self, results):
+        if isinstance(results["img"], (list, tuple)):
+            results["img"] = [self._to_tensor(img) for img in results["img"]]
+        else:
+            results["img"] = self._to_tensor(results["img"])
+
+        return results
