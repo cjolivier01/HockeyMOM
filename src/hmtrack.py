@@ -2,15 +2,10 @@ from loguru import logger
 
 import argparse
 import time
-#import random
 import warnings
-#import socket
 import numpy as np
 import logging
-#import copy
-
 import traceback
-#from pathlib import Path
 import sys, os
 from typing import List
 
@@ -460,7 +455,8 @@ def main(args, num_gpu):
         #     gpus["encoder"] = torch.device("cuda", 1)
 
         # Set the detection device as the default device
-        torch.cuda.set_device(gpus["detection"])
+        if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
+            torch.cuda.set_device(gpus["detection"].index)
 
         # TODO: get rid of this, set in cfg (detector.input_size, etc)
         exp = None
@@ -652,9 +648,9 @@ def main(args, num_gpu):
                     data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
                     json_file="test.json",
                     batch_size=args.batch_size,
+                    max_input_queue_size=args.cache_size,
                     # clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
-                    name="val",
                     device=gpus["detection"],
                     original_image_only=tracker == "centertrack",
                     data_pipeline=data_pipeline,

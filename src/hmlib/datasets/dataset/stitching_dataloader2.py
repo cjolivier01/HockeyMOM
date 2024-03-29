@@ -88,13 +88,6 @@ def distribute_items_detailed(total_item_count, worker_count):
     return distribution
 
 
-# def _get_cuda_device():
-#     # Use last device
-#     if int(os.environ.get("HM_NO_CUDA_STITCH_ENCODER", "0")):
-#         return torch.device("cpu")
-#     return torch.device("cuda", torch.cuda.device_count() - 1)
-
-
 class MultiDataLoaderWrapper:
     def __init__(
         self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
