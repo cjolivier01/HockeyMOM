@@ -119,7 +119,8 @@ class StreamTensor(StreamTensorBase):
         self._event = event
         self._print_thresh = print_thresh
         if not isinstance(tensor, StreamTensor):
-            assert owns_stream is None
+            # assert owns_stream is None
+            self._owns_stream = owns_stream
         else:
             self._owns_stream = owns_stream
         self._sync_duraton = None

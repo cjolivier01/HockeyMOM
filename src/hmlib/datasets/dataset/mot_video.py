@@ -53,11 +53,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         game_id: str = None,
         clip_original=None,
         video_id: int = 1,
-        #data_dir=None,
-        #json_file: str = "train.json",
-        #name: str = "train",
+        # data_dir=None,
+        # json_file: str = "train.json",
+        # name: str = "train",
         preproc=None,
-        #return_origin_img=False,
+        # return_origin_img=False,
         max_frames: int = 0,
         batch_size: int = 1,
         start_frame_number: int = 0,
@@ -71,7 +71,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
-        dtype: torch.dtype = torch.float,
+        dtype: torch.dtype = None,
         data_pipeline: Compose = None,
         # scale_rgb_down: bool = False,
         # output_type: torch.dtype = None
@@ -324,8 +324,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
         ):
-            if self._dtype == torch.float16:
-                time.time()
             # Read image
             res, img0 = self._read_next_image()
             if not res or img0 is None:
@@ -382,7 +380,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img, list):
                     img = img[0]
                     data = data_item
-                #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
+                # quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
 
             else:
                 if self.clip_original is not None:
@@ -407,22 +405,15 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
                 if not self._original_image_only:
                     original_img0 = img0
-                    if not torch.is_floating_point(img0):
-                        img0 = (
-                            #img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING) / 255.0
-                            img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
-                        )
+                    if self._dtype is not None and img0.dtype != self._dtype:
+                        img0 = img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
                     original_img0 = img0
                     if self._dtype is not None and self._dtype != original_img0.dtype:
-                        was_fp = torch.is_floating_point(original_img0)
                         original_img0 = original_img0.to(
                             self._dtype, non_blocking=ALL_NON_BLOCKING
                         )
-                        is_fp = torch.is_floating_point(original_img0)
-                        # if not was_fp and is_fp:
-                        #     original_img0 /= 255.0
                     img = original_img0
 
             if self.width_t is None:
@@ -451,7 +442,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if cuda_stream is not None:
             original_img0 = StreamTensor(
-                tensor=original_img0, stream=cuda_stream, event=torch.cuda.Event()
+                tensor=original_img0,
+                stream=cuda_stream,
+                event=torch.cuda.Event(),
+                owns_stream=True,
             )
 
         if self._data_pipeline is not None:

@@ -25,7 +25,7 @@ from hmlib.stitching.synchronize import (
 from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator
+from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator, async_to
 from hmlib.video_out import (
     VideoOutput,
     ImageProcData,
@@ -278,7 +278,8 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                dtype=self._dtype,
+                # dtype=self._dtype,
+                dtype=torch.float16,
                 device=remapping_device,
             )
         )
@@ -291,7 +292,7 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                dtype=self._dtype,
+                # dtype=self._dtype,
                 device=remapping_device,
             )
         )
@@ -367,9 +368,11 @@ class StitchDataset:
         def _prepare_image(img: torch.Tensor):
             img = make_channels_first(img)
             if img.device != self._remapping_device:
-                img = img.to(self._remapping_device, non_blocking=True)
+                img = async_to(img, device=self._remapping_device)
+                # img = img.to(self._remapping_device, non_blocking=True)
             if img.dtype != self._dtype:
-                img = img.to(self._dtype, non_blocking=True)
+                img = async_to(img, dtype=self._dtype)
+                # img = img.to(self._dtype, non_blocking=True)
             return img
 
         stream = None
@@ -452,9 +455,9 @@ class StitchDataset:
         assert False and "What's up with the / 255.0 down there?"
         image_proc_data = ImageProcData(
             frame_id=frame_id,
-            #img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+            # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             img=to_tensor(stitched_frame),
-            #img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+            # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
         )
         self._video_output.append(image_proc_data)
@@ -597,7 +600,7 @@ class StitchDataset:
 
         self._batch_count += 1
 
-        #show_image("stitched_frame", stitched_frame.get(), wait=True)
+        # show_image("stitched_frame", stitched_frame.get(), wait=True)
         if stitched_frame is None:
             self.close()
             raise StopIteration()
