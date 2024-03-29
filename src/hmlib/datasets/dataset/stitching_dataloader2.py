@@ -180,7 +180,7 @@ class StitchDataset:
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
     ):
-        assert max_input_queue_size > 0
+        max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._dtype = dtype
         self._batch_size = batch_size

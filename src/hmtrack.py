@@ -209,6 +209,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
     )
     parser.add_argument(
+        "--cache-size", type=int, default=2, help="cache size for GPU stream async operations"
+    )
+    parser.add_argument(
         "--match_thresh",
         type=float,
         default=0.9,
@@ -593,7 +596,7 @@ def main(args, num_gpu):
                         output_stitched_video_file if args.save_stitched else None
                     ),
                     max_frames=args.max_frames,
-                    max_input_queue_size=2,
+                    max_input_queue_size=args.cache_size,
                     num_workers=1,
                     blend_thread_count=1,
                     remap_thread_count=1,
@@ -627,8 +630,8 @@ def main(args, num_gpu):
                     #     std=(0.229, 0.224, 0.225),
                     # ),
                     embedded_data_loader=stitched_dataset,
-                    embedded_data_loader_cache_size=6,
-                    # embedded_data_loader_cache_size=4,
+                    #embedded_data_loader_cache_size=6,
+                    embedded_data_loader_cache_size=args.cache_size,
                     # stream_tensors=True,
                     original_image_only=tracker == "centertrack",
                     # image_channel_adjustment=game_config["rink"]["camera"][
@@ -762,6 +765,7 @@ def main(args, num_gpu):
                 pose_dataset_info=pose_dataset_info,
                 config=args.game_config,
                 device=gpus["detection"],
+                input_cache_size=args.cache_size,
                 **other_kwargs,
             )
         if not args.infer:
