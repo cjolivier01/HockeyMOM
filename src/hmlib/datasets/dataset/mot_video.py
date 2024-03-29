@@ -51,11 +51,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         game_id: str = None,
         clip_original=None,
         video_id: int = 1,
-        data_dir=None,
-        json_file: str = "train.json",
-        name: str = "train",
+        #data_dir=None,
+        #json_file: str = "train.json",
+        #name: str = "train",
         preproc=None,
-        return_origin_img=False,
+        #return_origin_img=False,
         max_frames: int = 0,
         batch_size: int = 1,
         start_frame_number: int = 0,
@@ -392,7 +392,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 )
                 data_item = self._data_pipeline(data_item)
                 img = data_item["img"]
-                
+
                 # Maybe get back the clipped image as the "origina"
                 if "clipped_image" in data_item:
                     clipped_image = data_item["clipped_image"]
@@ -404,12 +404,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         del data_item["clipped_image"]
                         # if torch.is_floating_point(original_img0):
                         #     original_img0 /= 255
-                
+
                 if isinstance(img, list):
                     img = img[0]
                     data = data_item
                 #quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
-                
+
             else:
                 if self.clip_original is not None:
                     if self.calculated_clip_box is None:

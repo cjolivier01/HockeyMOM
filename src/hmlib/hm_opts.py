@@ -45,6 +45,12 @@ class hm_opts(object):
             help="show as processing",
         )
         parser.add_argument(
+            "--fp16-stitch",
+            default=False,
+            action="store_true",
+            help="Stitch images using fp16 (lower mem, but lower quality image output)",
+        )
+        parser.add_argument(
             "--show-image",
             "--show",
             dest="show_image",

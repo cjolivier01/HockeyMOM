@@ -279,7 +279,6 @@ class StitchDataset:
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._video_file_1,
-                data_dir=os.path.join(get_yolox_datadir(), dataset_name),
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
@@ -288,14 +287,11 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                # device=torch.device("cpu"),
-                # scale_rgb_down=True,
             )
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._video_file_2,
-                data_dir=os.path.join(get_yolox_datadir(), dataset_name),
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
@@ -304,8 +300,6 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                # device=torch.device("cpu"),
-                # scale_rgb_down=True,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(

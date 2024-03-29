@@ -2,15 +2,15 @@ from loguru import logger
 
 import argparse
 import time
-import random
+#import random
 import warnings
-import socket
+#import socket
 import numpy as np
 import logging
-import copy
+#import copy
 
 import traceback
-from pathlib import Path
+#from pathlib import Path
 import sys, os
 from typing import List
 
@@ -610,7 +610,7 @@ def main(args, num_gpu):
                     remapping_device=gpus["stitching"],
                     # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
-                    dtype=torch.float if not args.fp16 else torch.half,
+                    dtype=torch.float if not args.fp16_stitch else torch.half,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -618,32 +618,15 @@ def main(args, num_gpu):
                     path=None,
                     game_id=dir_name,
                     img_size=exp.test_size,
-                    return_origin_img=True,
                     start_frame_number=args.start_frame,
-                    data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
-                    json_file="test.json",
                     # batch_size=args.batch_size,
                     batch_size=1,
-                    # clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
-                    name="val",
-                    # device=gpus["detection"] if tracker == "mmtrack" else torch.device("cpu"),
-                    # device=torch.device("cpu"),
-                    # preproc=ValTransform(
-                    #     rgb_means=(0.485, 0.456, 0.406),
-                    #     std=(0.229, 0.224, 0.225),
-                    # ),
                     embedded_data_loader=stitched_dataset,
                     # embedded_data_loader_cache_size=6,
                     embedded_data_loader_cache_size=args.cache_size,
-                    # stream_tensors=True,
-                    # original_image_only=tracker == "centertrack",
-                    # image_channel_adjustment=game_config["rink"]["camera"][
-                    #     "image_channel_adjustment"
-                    # ],
-                    # device_for_original_image=torch.device("cpu"),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
-                    # dtype=torch.float if not args.fp16 else torch.half,
+                    dtype=torch.float if not args.fp16 else torch.half,
                 )
             else:
                 assert len(input_video_files) == 1
