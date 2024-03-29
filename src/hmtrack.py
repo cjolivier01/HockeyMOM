@@ -208,7 +208,10 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
     )
     parser.add_argument(
-        "--cache-size", type=int, default=2, help="cache size for GPU stream async operations"
+        "--cache-size",
+        type=int,
+        default=2,
+        help="cache size for GPU stream async operations",
     )
     parser.add_argument(
         "--match_thresh",
@@ -456,7 +459,8 @@ def main(args, num_gpu):
         #     gpus["pose"] = torch.device("cuda", 0)
         #     gpus["encoder"] = torch.device("cuda", 1)
 
-        torch.cuda.set_device(gpus["detection"].index)
+        # Set the detection device as the default device
+        torch.cuda.set_device(gpus["detection"])
 
         # TODO: get rid of this, set in cfg (detector.input_size, etc)
         exp = None
@@ -629,7 +633,7 @@ def main(args, num_gpu):
                     #     std=(0.229, 0.224, 0.225),
                     # ),
                     embedded_data_loader=stitched_dataset,
-                    #embedded_data_loader_cache_size=6,
+                    # embedded_data_loader_cache_size=6,
                     embedded_data_loader_cache_size=args.cache_size,
                     # stream_tensors=True,
                     # original_image_only=tracker == "centertrack",
@@ -943,13 +947,13 @@ def run_mmtrack(
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            #cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            # cur_frame=make_channels_last(origin_imgs[frame_index]),
                             cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
-                            #show=args.show_image,
+                            # show=args.show_image,
                         )
                     )
                 else:

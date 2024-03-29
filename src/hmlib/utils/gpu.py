@@ -313,6 +313,43 @@ class StreamTensorToDtype(StreamTensor):
                 self._event.record()
 
 
+def async_to(
+    tensor: Union[torch.tensor, StreamTensor],
+    device: Union[torch.device, str, None] = None,
+    dtype: Union[torch.dtype, None] = None,
+) -> StreamTensor:
+    assert device is not None or dtype is not None
+    if isinstance(tensor, StreamTensor):
+        assert tensor.owns_stream
+        stream = tensor.stream
+        with torch.cuda.stream(stream):
+            if device is not None:
+                assert (
+                    device == tensor.device
+                )  # Need to handle this case, do we need to sync first?
+                tensor._tensor = tensor.ref().to(device=device, non_blocking=True)
+                tensor._event = torch.cuda.Event()
+                tensor._event.record()
+            if dtype is not None:
+                tensor._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
+                tensor._event = torch.cuda.Event()
+                tensor._event.record()
+        return tensor
+    else:
+        # How do we do this across two devices?
+        stream = torch.cuda.Stream(device if device.type != "cpu" else tensor.device)
+        with torch.cuda.stream(stream):
+            if device is not None:
+                tensor = tensor.to(device=device, non_blocking=True)
+            if dtype is not None:
+                tensor = tensor.to(dtype=dtype, non_blocking=True)
+            event = torch.cuda.Event()
+            event.record()
+            return StreamCheckpoint(
+                tensor=tensor, stream=stream, event=event, owns_stream=True
+            )
+
+
 def get_gpu_capabilities():
     if not torch.cuda.is_available():
         return None
