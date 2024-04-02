@@ -451,16 +451,24 @@ def select_gpus(
         # Multi-Pose gets the biggest, baddest one
         multipose_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if inference:
-        if is_encoding:
-            video_encoding_device = torch.device(
-                "cuda", gpu_allocator.allocate_modern()
-            )
-        if gpu_allocator.free_count():
-            detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+        if is_multipose:
+            detection_device = multipose_device
         else:
-            detection_device = (
-                video_encoding_device if not multipose_device else multipose_device
-            )
+            if gpu_allocator.free_count():
+                detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+            else:
+                assert multipose_device is not None
+                detection_device = multipose_device
+
+        if is_encoding:
+            if gpu_allocator.free_count():
+                video_encoding_device = torch.device(
+                    "cuda", gpu_allocator.allocate_modern()
+                )
+            else:
+                video_encoding_device = (
+                    detection_device if not multipose_device else multipose_device
+                )
 
         if is_stitching:
             if gpu_allocator.free_count():

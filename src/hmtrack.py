@@ -643,16 +643,10 @@ def main(args, num_gpu):
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
-                    return_origin_img=True,
                     start_frame_number=args.start_frame,
-                    data_dir=os.path.join(get_yolox_datadir(), "hockeyTraining"),
-                    json_file="test.json",
                     batch_size=args.batch_size,
-                    max_input_queue_size=args.cache_size,
-                    # clip_original=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
                     max_frames=args.max_frames,
                     device=gpus["detection"],
-                    original_image_only=tracker == "centertrack",
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                 )
@@ -851,36 +845,6 @@ def run_mmtrack(
                 else:
                     get_timer = None
 
-                # for i, img in enumerate(data["img"]):
-                #     # collate adds a stupid batch size of 1
-                #     data["img"][i] = make_channels_first(data["img"][i]).to(
-                #         torch.float, non_blocking=True
-                #     )
-                #     # data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
-                #     #     torch.float, non_blocking=True
-                #     # )
-
-                # Expand batch tensors into list of tensors
-                # if len(data["img"]) == 1:
-                #     all_images = []
-                #     all_metas = []
-                #     for outer_index, img in enumerate(data["img"]):
-                #         if img.ndim == 4 and img.shape[0] != 1:
-                #             for i in range(img.shape[0]):
-                #                 all_images.append(img[i].unsqueeze(0))
-                #                 all_metas.append(
-                #                     copy.deepcopy(data["img_metas"][outer_index])
-                #                 )
-                #                 if i:
-                #                     all_metas[-1].data["frame_id"] = (
-                #                         all_metas[0].data["frame_id"] + i
-                #                     )
-                #     if all_metas:
-                #         data['img'] = all_images
-                #         data["img_metas"] = all_metas
-                # assert len(data["img"]) == 1
-                # data["img"] = data["img"][0]
-
                 data = collate([data], samples_per_gpu=batch_size)
                 if next(model.parameters()).is_cuda:
                     # scatter to specified GPU
@@ -904,13 +868,14 @@ def run_mmtrack(
 
                 # forward the model
                 detect_timer.tic()
-                if fp16:
-                    with autocast():
-                        tracking_results = model(
-                            return_loss=False, rescale=True, **data
-                        )
-                else:
-                    tracking_results = model(return_loss=False, rescale=True, **data)
+                for i in range(100000):
+                    if fp16:
+                        with autocast():
+                            tracking_results = model(
+                                return_loss=False, rescale=True, **data
+                            )
+                    else:
+                        tracking_results = model(return_loss=False, rescale=True, **data)
                 detect_timer.toc()
 
             # detect_timer.toc()
