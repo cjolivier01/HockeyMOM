@@ -868,7 +868,7 @@ def run_mmtrack(
 
                 # forward the model
                 detect_timer.tic()
-                for i in range(100000):
+                for i in range(1):
                     if fp16:
                         with autocast():
                             tracking_results = model(
