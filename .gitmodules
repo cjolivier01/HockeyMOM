@@ -38,3 +38,6 @@
 [submodule "models/centerpoint"]
 	path = models/centerpoint
 	url = ssh://git@github.com/cjolivier01/CenterPoint
+[submodule "openmm"]
+	path = openmm
+	url = ssh://git@github.com/cjolivier01/openmm
