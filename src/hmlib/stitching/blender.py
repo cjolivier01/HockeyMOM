@@ -810,7 +810,7 @@ def stitch_video(
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
     dtype: torch.dtype = torch.float16,
-    perf_only: Optional[bool] = True,
+    perf_only: Optional[bool] = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -877,8 +877,10 @@ def stitch_video(
         ),
     )
 
-    def to_tensor(t):
+    def to_tensor(t, no_sync: bool = False):
         if isinstance(t, StreamTensor):
+            if no_sync:
+                return t.ref()
             return t.get()
         if isinstance(t, np.ndarray):
             t = torch.from_numpy(t)
@@ -919,11 +921,11 @@ def stitch_video(
 
                 get_timer.tic()
                 sinfo_1 = core.StitchImageInfo()
-                sinfo_1.image = to_tensor(source_tensor_1)
+                sinfo_1.image = to_tensor(source_tensor_1, no_sync=True)
                 sinfo_1.xy_pos = xy_pos_1
 
                 sinfo_2 = core.StitchImageInfo()
-                sinfo_2.image = to_tensor(source_tensor_2)
+                sinfo_2.image = to_tensor(source_tensor_2, no_sync=True)
                 sinfo_2.xy_pos = xy_pos_2
                 get_timer.toc()
 
@@ -1060,6 +1062,7 @@ def stitch_video(
                         all_timer = Timer()
 
                 if show:
+                    blended = to_tensor(blended)
                     for i in range(len(blended)):
                         show_image("stitched", blended[i], wait=False)
                 all_timer.tic()
