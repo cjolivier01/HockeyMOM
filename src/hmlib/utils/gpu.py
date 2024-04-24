@@ -1,7 +1,7 @@
 import torch
 import time
 import numpy as np
-from typing import Dict, List, Tuple, Union, Set, Optional
+from typing import Any, Dict, List, Tuple, Union, Set, Optional
 
 from hmlib.utils.utils import create_queue
 
@@ -12,11 +12,15 @@ class GpuAllocator:
             gpus = [i for i in range(torch.cuda.device_count())]
         gpu_count = min(torch.cuda.device_count(), len(gpus))
         self._gpus = gpus[: gpu_count + 1]
-        self._used_gpus = dict()
-        self._named_allocations = dict()
-        self._last_allocated = None
+        self._used_gpus: Dict = dict()
+        self._named_allocations: Dict = dict()
+        self._last_allocated: int = None
 
-    def allocate_modern(self, name: str = None):
+        gpu_info = get_gpu_capabilities()
+        for i in range(len(gpu_info)):
+            print(f"GPU {i}: {gpu_info[i]['name']}")
+
+    def allocate_modern(self, name: Optional[Union[str, None]] = None):
         """
         Allocate GPU with highest compute capability
         """
@@ -36,7 +40,7 @@ class GpuAllocator:
         else:
             return self._last_allocated
 
-    def allocate_fast(self, name: str = None):
+    def allocate_fast(self, name: Optional[Union[str, None]] = None):
         """
         Allocate GPU with the most multiprocessing cores
         """
@@ -381,7 +385,7 @@ def get_gpu_capabilities():
 
 def get_gpu_with_highest_compute_capability(
     allowed_gpus: Union[List[int], None] = None,
-    disallowed_gpus: Union[List[int], Set[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], Dict[int, Any], None] = None,
 ) -> Tuple[Union[int, None], Union[Dict, None]]:
     gpus = get_gpu_capabilities()
     if gpus is None:
