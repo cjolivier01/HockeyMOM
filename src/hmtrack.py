@@ -88,6 +88,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="url used to set up distributed training",
     )
     parser.add_argument("-b", "--batch-size", type=int, default=1, help="batch size")
+    parser.add_argument("--root-dir", type=str, default=ROOT_DIR, help="Root directory")
     parser.add_argument(
         "--local_rank", default=0, type=int, help="local rank for dist training"
     )
@@ -514,7 +515,7 @@ def main(args, num_gpu):
                             upper_border_lines=cam_args.top_border_lines,
                             lower_border_lines=cam_args.bottom_border_lines,
                             original_clip_box=get_clip_box(
-                                game_id=args.game_id, root_dir=ROOT_DIR
+                                game_id=args.game_id, root_dir=args.root_dir
                             ),
                         )
                     )
@@ -672,7 +673,9 @@ def main(args, num_gpu):
             fps=dataloader.fps,
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
-            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=ROOT_DIR),
+            original_clip_box=get_clip_box(
+                game_id=args.game_id, root_dir=args.root_dir
+            ),
             device=gpus["camera"],
             video_out_device=gpus["encoder"],
             data_type="mot",
@@ -1070,7 +1073,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     game_config = get_config(
-        game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=ROOT_DIR
+        game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=args.root_dir
     )
 
     # Set up the task flags
