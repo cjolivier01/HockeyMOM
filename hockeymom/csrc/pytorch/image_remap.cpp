@@ -9,7 +9,7 @@ namespace ops {
 
 namespace {
 
-//#define DO_EXTRA_PADDING
+// #define DO_EXTRA_PADDING
 
 constexpr std::int64_t kUnmappedPixelValue = 65535;
 #ifdef DO_EXTRA_PADDING
@@ -80,12 +80,6 @@ ImageRemapper::ImageRemapper(
       dtype_(dtype),
       add_alpha_channel_(add_alpha_channel),
       interpolation_(interpolation ? *interpolation : "") {
-  // working_width_ = std::max(src_width_, dest_width_);
-  // working_height_ = std::max(src_height_, dest_height_);
-
-  // working_width_ = dest_width_;
-  // working_height_ = dest_height_;
-
   working_width_ = src_width_;
   working_height_ = src_height_;
 }
@@ -191,17 +185,18 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     options =
         options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
     if (!torch::is_floating_point(source_tensor)) {
-      source_tensor = source_tensor.to(at::TensorOptions().dtype(dtype_));
+      source_tensor = source_tensor.to(
+          at::TensorOptions().dtype(dtype_), /*non_blocking=*/true);
     }
     destination_tensor =
         torch::nn::functional::grid_sample(source_tensor, grid_, options);
     if (destination_tensor.dtype() != dtype_) {
       if (dtype_ == at::ScalarType::Byte) {
-        destination_tensor =
-            destination_tensor.clamp(0, 255.0).to(torch::kByte);
+        destination_tensor = destination_tensor.clamp(0, 255.0).to(
+            torch::kByte, /*non_blocking=*/true);
       } else {
-        destination_tensor =
-            destination_tensor.to(at::TensorOptions().dtype(dtype_));
+        destination_tensor = destination_tensor.to(
+            at::TensorOptions().dtype(dtype_), /*non_blocking=*/true);
       }
     }
   }
