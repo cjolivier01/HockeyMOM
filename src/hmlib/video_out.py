@@ -275,7 +275,7 @@ class VideoOutput:
                 f"using device: {device} ({output_video_path})"
             )
         self._args = args
-        
+
         self._device = (
             device if isinstance(device, torch.device) else torch.device(device)
         )
@@ -344,12 +344,12 @@ class VideoOutput:
             self.watermark_height = image_height(self.watermark)
             self.watermark_width = image_width(self.watermark)
             self.watermark_rgb_channels = self.watermark[:, :, :3]
-            self.watermark_alpha_channel = self.watermark[:, :, 3]
+            watermark_alpha_channel = self.watermark[:, :, 3]
             self.watermark_mask = cv2.merge(
                 [
-                    self.watermark_alpha_channel,
-                    self.watermark_alpha_channel,
-                    self.watermark_alpha_channel,
+                    watermark_alpha_channel,
+                    watermark_alpha_channel,
+                    watermark_alpha_channel,
                 ]
             )
 
@@ -357,11 +357,14 @@ class VideoOutput:
                 self.watermark_rgb_channels = torch.from_numpy(
                     self.watermark_rgb_channels
                 ).to(self._device)
-                self.watermark_alpha_channel = torch.from_numpy(
-                    self.watermark_alpha_channel
-                ).to(self._device)
-                self.watermark_mask = torch.from_numpy(self.watermark_mask).to(
-                    self._device
+                self.watermark_mask = (
+                    torch.from_numpy(self.watermark_mask)
+                    .to(self._device)
+                    .to(torch.half)
+                )
+                # Scale mask to [0, 1]
+                self.watermark_mask = self.watermark_mask / torch.max(
+                    self.watermark_mask
                 )
         else:
             self.watermark = None
@@ -604,7 +607,7 @@ class VideoOutput:
             if online_im.device.type != "cpu" and self._device.type == "cpu":
                 # max = torch.max(online_im)
                 online_im = online_im.cpu()
-                
+
             if online_im.ndim == 3:
                 online_im = online_im.unsqueeze(0)
                 current_box = current_box.unsqueeze(0)
@@ -789,7 +792,6 @@ class VideoOutput:
                 #
                 # Watermark
                 #
-                online_im = _to_uint8(online_im, non_blocking=True)
                 if self.has_args() and self._args.use_watermark:
                     y = int(image_height(online_im) - self.watermark_height)
                     x = int(
@@ -804,6 +806,8 @@ class VideoOutput:
                         x=x,
                         y=y,
                     )
+
+                online_im = _to_uint8(online_im, non_blocking=True)
 
                 if self._image_color_scaler is not None:
                     online_im = self._image_color_scaler.maybe_scale_image_colors(
