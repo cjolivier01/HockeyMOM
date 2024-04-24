@@ -860,15 +860,12 @@ def stitch_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    # torch.cuda.synchronize()
-
     v1_iter = CachedIterator(
         iterator=v1_iter,
         cache_size=queue_size,
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            # scale_down_factor=255.0,
         ),
     )
     v2_iter = CachedIterator(
@@ -877,7 +874,6 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            # scale_down_factor=255.0,
         ),
     )
 
@@ -942,6 +938,8 @@ def stitch_video(
                 blended = blended_stream_tensor
 
                 if not output_video and perf_only:
+                    # We will lose frames here, but just in order to give
+                    # the GPU a little time
                     stitched_frames.append(blended)
                     if len(stitched_frames) >= queue_size:
                         blended = stitched_frames[-1]
