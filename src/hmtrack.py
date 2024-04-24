@@ -364,6 +364,11 @@ class FakeExp:
         self.test_size = None
 
 
+def is_stitching(input_video: str) -> bool:
+    input_video_files = input_video.split(",")
+    return len(input_video_files) == 2 or os.path.isdir(args.input_video)
+
+
 def main(args, num_gpu):
     dataloader = None
 
@@ -446,7 +451,11 @@ def main(args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
-        gpus = select_gpus(allowed_gpus=args.gpus, is_multipose=args.multi_pose)
+        gpus = select_gpus(
+            allowed_gpus=args.gpus,
+            is_stitching=is_stitching(args.input_video),
+            is_multipose=args.multi_pose,
+        )
 
         # if socket.gethostname().startswith("chriso-monster"):
         #     gpus["stitching"] = torch.device("cuda", 0)
@@ -534,7 +543,7 @@ def main(args, num_gpu):
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
-            if len(input_video_files) == 2 or os.path.isdir(args.input_video):
+            if is_stitching(args.input_video):
                 project_file_name = "autooptimiser_out.pto"
 
                 if len(input_video_files) == 2:
@@ -875,7 +884,9 @@ def run_mmtrack(
                                 return_loss=False, rescale=True, **data
                             )
                     else:
-                        tracking_results = model(return_loss=False, rescale=True, **data)
+                        tracking_results = model(
+                            return_loss=False, rescale=True, **data
+                        )
                 detect_timer.toc()
 
             # detect_timer.toc()

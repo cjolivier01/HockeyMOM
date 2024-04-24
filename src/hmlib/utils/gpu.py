@@ -466,6 +466,15 @@ def select_gpus(
         if is_multipose:
             detection_device = multipose_device
         else:
+            if True:
+                if is_stitching:
+                    if gpu_allocator.free_count():
+                        stitching_device = torch.device(
+                            "cuda", gpu_allocator.allocate_fast()
+                        )
+                    else:
+                        stitching_device = detection_device
+
             if gpu_allocator.free_count():
                 detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
             else:
@@ -482,7 +491,7 @@ def select_gpus(
                     detection_device if not multipose_device else multipose_device
                 )
 
-        if is_stitching:
+        if is_stitching and stitching_device is not None:
             if gpu_allocator.free_count():
                 stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
             else:
@@ -492,7 +501,7 @@ def select_gpus(
             for i in range(rank):
                 _ = gpu_allocator.allocate_fast()
             detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
-        if is_stitching:
+        if is_stitching and stitching_device is not None:
             stitching_device = detection_device
     #
     # END GPU SELECTION
