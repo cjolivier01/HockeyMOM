@@ -336,7 +336,8 @@ class CamTrackPostProcessor:
             traceback.print_exc()
             raise
         finally:
-            self._video_output_campp.stop()
+            if self._video_output_campp is not None:
+                self._video_output_campp.stop()
 
     def _postprocess_frame_worker(self):
         if self._args.crop_output_image:

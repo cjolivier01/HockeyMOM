@@ -155,6 +155,8 @@ def paste_watermark_at_position(
     dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int
 ):
     assert dest_image.ndim == 4
+    assert dest_image.device == watermark_rgb_channels.device
+    assert dest_image.device == watermark_mask.device
     watermark_height = image_height(watermark_rgb_channels)
     watermark_width = image_width(watermark_rgb_channels)
     dest_image[:, y : y + watermark_height, x : x + watermark_width] = (
@@ -273,6 +275,7 @@ class VideoOutput:
                 f"using device: {device} ({output_video_path})"
             )
         self._args = args
+        
         self._device = (
             device if isinstance(device, torch.device) else torch.device(device)
         )
@@ -338,8 +341,8 @@ class VideoOutput:
                 watermark_image_path,
                 cv2.IMREAD_UNCHANGED,
             )
-            self.watermark_height = self.watermark.shape[0]
-            self.watermark_width = self.watermark.shape[1]
+            self.watermark_height = image_height(self.watermark)
+            self.watermark_width = image_width(self.watermark)
             self.watermark_rgb_channels = self.watermark[:, :, :3]
             self.watermark_alpha_channel = self.watermark[:, :, 3]
             self.watermark_mask = cv2.merge(
@@ -601,7 +604,7 @@ class VideoOutput:
             if online_im.device.type != "cpu" and self._device.type == "cpu":
                 # max = torch.max(online_im)
                 online_im = online_im.cpu()
-
+                
             if online_im.ndim == 3:
                 online_im = online_im.unsqueeze(0)
                 current_box = current_box.unsqueeze(0)
