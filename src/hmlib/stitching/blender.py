@@ -810,7 +810,7 @@ def stitch_video(
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
     dtype: torch.dtype = torch.float16,
-    perf_only: Optional[bool] = False,
+    perf_only: Optional[bool] = True,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -941,11 +941,10 @@ def stitch_video(
                     # We will lose frames here, but just in order to give
                     # the GPU a little time
                     stitched_frames.append(blended)
-                    if len(stitched_frames) >= queue_size:
+                    if len(stitched_frames) >= queue_size + 2:
                         blended = stitched_frames[-1]
                         del stitched_frames[-1]
                         blended = blended.get()
-                    main_stream.synchronize()
                     stitch_timer.toc()
                 elif not output_video:
                     main_stream.synchronize()
