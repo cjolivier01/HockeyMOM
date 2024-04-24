@@ -99,7 +99,7 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN")
 set(TORCH_PYTHON_LIBS torch_python)
 
 target_include_directories(hm PUBLIC ./include)
-set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
+set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
@@ -129,7 +129,7 @@ target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
 #message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
 set_target_properties(
   _hockeymom PROPERTIES 
-  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}:/usr/local/lib"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 

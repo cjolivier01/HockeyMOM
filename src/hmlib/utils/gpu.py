@@ -1,7 +1,7 @@
 import torch
 import time
 import numpy as np
-from typing import Dict, List, Tuple, Union, Set
+from typing import Dict, List, Tuple, Union, Set, Optional
 
 from hmlib.utils.utils import create_queue
 
@@ -101,7 +101,8 @@ class CachedIterator:
 
 
 class StreamTensorBase:
-    pass
+    def size(self, index: int) -> int:
+        assert False and "Not implemented"
 
 
 class StreamTensor(StreamTensorBase):
@@ -109,10 +110,10 @@ class StreamTensor(StreamTensorBase):
         self,
         tensor: Union[torch.Tensor, StreamTensorBase],
         stream: Union[torch.cuda.Stream, None] = None,
-        event: Union[torch.cuda.Event, None] = None,
-        owns_stream: Union[bool, None] = None,
-        verbose: bool = True,
-        print_thresh: float = 0.001,
+        event: Optional[Union[torch.cuda.Event, None]] = None,
+        owns_stream: Optional[Union[bool, None]] = None,
+        verbose: Optional[bool] = True,
+        print_thresh: Optional[float] = 0.001,
     ):
         self._tensor = tensor
         self._stream = stream
@@ -238,11 +239,18 @@ class StreamCheckpoint(StreamTensor):
         self,
         tensor: torch.Tensor,
         stream: torch.cuda.Stream,
-        event: torch.cuda.Event = None,
-        owns_stream: bool = None,
+        event: Optional[Union[torch.cuda.Event, None]] = None,
+        owns_stream: Optional[Union[bool, None]] = None,
+        verbose: Optional[bool] = True,
+        print_thresh: Optional[float] = 0.001,
     ):
         super(StreamCheckpoint, self).__init__(
-            tensor=tensor, stream=stream, event=event, owns_stream=owns_stream
+            tensor=tensor,
+            stream=stream,
+            event=event,
+            owns_stream=owns_stream,
+            verbose=verbose,
+            print_thresh=print_thresh,
         )
         if self._stream is not None:
             with torch.cuda.stream(stream):

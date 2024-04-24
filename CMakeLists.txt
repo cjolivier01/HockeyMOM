@@ -123,6 +123,8 @@ find_package(Threads REQUIRED)
 message(STATUS " CMAKE_THREAD_LIBS_INIT=${CMAKE_THREAD_LIBS_INIT}")
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 
+link_directories($ENV{CONDA_PREFIX}/lib)
+
 #
 # FFMpeg
 #
@@ -146,7 +148,6 @@ set(FFMPEG_LIBS ${AVCODEC_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVFORMAT_LIBRARIES}
 #
 # FFMpeg-
 #
-link_directories($ENV{CONDA_PREFIX}/lib)
 #include_directories(/usr/include/opencv4)
 # find_package(
 # Threads REQUIRED

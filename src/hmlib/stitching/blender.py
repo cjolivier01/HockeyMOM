@@ -6,7 +6,7 @@ import os
 import argparse
 import datetime
 import numpy as np
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 import cv2
 
 import torch
@@ -31,6 +31,7 @@ from hmlib.utils.gpu import (
     StreamTensorToDtype,
     CachedIterator,
     StreamTensor,
+    StreamCheckpoint,
     GpuAllocator,
 )
 from hmlib.hm_opts import hm_opts, copy_opts
@@ -809,6 +810,7 @@ def stitch_video(
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
     dtype: torch.dtype = torch.float16,
+    perf_only: Optional[bool] = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -866,7 +868,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            #scale_down_factor=255.0,
+            # scale_down_factor=255.0,
         ),
     )
     v2_iter = CachedIterator(
@@ -875,7 +877,7 @@ def stitch_video(
         pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
             tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
             dtype=dtype,
-            #scale_down_factor=255.0,
+            # scale_down_factor=255.0,
         ),
     )
 
@@ -910,6 +912,9 @@ def stitch_video(
         frame_ids = torch.tensor(frame_ids, dtype=torch.int64, device=device)
         frame_ids = frame_ids + frame_id
         try:
+
+            stitched_frames = []
+
             while True:
                 io_timer.tic()
                 source_tensor_1 = next(v1_iter)
@@ -928,12 +933,28 @@ def stitch_video(
 
                 stitch_timer.tic()
                 blended_stream_tensor = stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                blended_stream_tensor = StreamCheckpoint(
+                    tensor=blended_stream_tensor,
+                    stream=main_stream,
+                    owns_stream=False,
+                    verbose=False,
+                )
                 blended = blended_stream_tensor
 
-                main_stream.synchronize()
-                stitch_timer.toc()
-
-                if output_video:
+                if not output_video and perf_only:
+                    stitched_frames.append(blended)
+                    if len(stitched_frames) >= queue_size:
+                        blended = stitched_frames[-1]
+                        del stitched_frames[-1]
+                        blended = blended.get()
+                    main_stream.synchronize()
+                    stitch_timer.toc()
+                elif not output_video:
+                    main_stream.synchronize()
+                    stitch_timer.toc()
+                else:
+                    main_stream.synchronize()
+                    stitch_timer.toc()
                     video_dim_height, video_dim_width = get_dims_for_output_video(
                         height=blended.shape[-2],
                         width=blended.shape[-1],
@@ -1008,8 +1029,6 @@ def stitch_video(
                         #     )
                         #     frame_ids += 1
                     del my_blended
-                else:
-                    pass
 
                 if batch_count:
                     all_timer.toc()
@@ -1069,6 +1088,8 @@ def main(args):
     gpu_allocator = GpuAllocator(gpus=None)
     if not args.video_dir and args.game_id:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
+    fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
+    video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
     with torch.no_grad():
         stitch_video(
             # blend_video(
@@ -1086,13 +1107,13 @@ def main(args):
             show=args.show_image,
             start_frame_number=0,
             output_video=args.output_file,
-            output_device=torch.device("cuda", gpu_allocator.allocate_modern()),
+            output_device=video_gpu,
             rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
             remap_on_async_stream=False,
-            device=torch.device("cuda", gpu_allocator.allocate_fast()),
+            device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
         )
 
