@@ -478,8 +478,12 @@ def select_gpus(
             if gpu_allocator.free_count():
                 detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
             else:
-                assert multipose_device is not None
-                detection_device = multipose_device
+                if is_multipose:
+                    assert multipose_device is not None
+                    detection_device = multipose_device
+                elif detection_device is None:
+                    detection_device = stitching_device
+                    assert detection_device is not None
 
         if is_encoding:
             if gpu_allocator.free_count():

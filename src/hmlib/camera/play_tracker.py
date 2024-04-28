@@ -368,10 +368,10 @@ class PlayTracker(torch.nn.Module):
         # Some players may be off-screen, so their box may go over an edge
         current_box = self._hockey_mom.clamp(current_box)
 
-        fast_roi_bounding_box = self._current_roi.forward(
+        fast_roi_bounding_box = self._current_roi(
             current_box, stop_on_dir_change=False
         )
-        current_box = self._current_roi_aspect.forward(
+        current_box = self._current_roi_aspect(
             fast_roi_bounding_box, stop_on_dir_change=True
         )
 
