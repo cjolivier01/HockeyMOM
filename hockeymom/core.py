@@ -11,7 +11,7 @@ from ._hockeymom import (
 
 # Classes
 from ._hockeymom import (
-    #HMPostprocessConfig,
+    HMPostprocessConfig,
     #ImagePostProcessor,
     HmNona,
     EnBlender,

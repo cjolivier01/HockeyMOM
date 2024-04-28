@@ -905,13 +905,14 @@ def run_mmtrack(
                     tracking_results, pose_results, returned_outputs, vis_frame = (
                         multi_pose_task(
                             pose_model=pose_model,
-                            # cur_frame=make_channels_last(origin_imgs[frame_index]),
-                            cur_frame=make_channels_last(data["img"][frame_index]),
+                            cur_frame=make_channels_last(origin_imgs[frame_index]),
+                            # cur_frame=make_channels_last(data["img"][frame_index]),
                             dataset=pose_dataset_type,
                             dataset_info=pose_dataset_info,
                             tracking_results=tracking_results,
                             smooth=args.smooth,
                             # show=args.show_image,
+                            show=True,
                         )
                     )
                 else:
@@ -1035,8 +1036,8 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        cur_frame.to("cpu").numpy(),
-        # cur_frame,
+        # cur_frame.to("cpu").numpy(),
+        cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
         format="xyxy",
@@ -1052,9 +1053,10 @@ def multi_pose_task(
     vis_frame = None
     # show the results
     if show:
+        # assert cur_frame.size(0) == 1
         vis_frame = vis_pose_tracking_result(
             pose_model,
-            cur_frame.to("cpu").numpy(),
+            cur_frame.squeeze(0).to("cpu").numpy(),
             pose_results,
             radius=args.radius,
             thickness=args.thickness,
@@ -1063,6 +1065,7 @@ def multi_pose_task(
             kpt_score_thr=args.kpt_thr,
             show=False,
         )
+        # vis_frame = np.expand_dims(vis_frame, axis=0)
     duration = time.time() - start
     print(f"pose took {duration} seconds")
     return tracking_results, pose_results, returned_outputs, vis_frame
