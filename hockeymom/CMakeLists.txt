@@ -94,12 +94,12 @@ target_link_libraries(hm PRIVATE yaml-cpp)
 # set(OPENCV_MODULES videoio opencv_imgproc opencv_imgcodecs)
 # target_link_libraries(hm PRIVATE ${OPENCV_MODULES})
 
-set(CMAKE_INSTALL_RPATH "$ORIGIN")
+#set(CMAKE_INSTALL_RPATH "$ORIGIN:/usr/local/lib")
 
 set(TORCH_PYTHON_LIBS torch_python)
 
 target_include_directories(hm PUBLIC ./include)
-set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
+#set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
@@ -109,7 +109,7 @@ target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
 
 set_target_properties(
   hm PROPERTIES 
-  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}:/usr/local/lib"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 
