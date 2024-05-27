@@ -466,7 +466,7 @@ def select_gpus(
         if is_multipose:
             detection_device = multipose_device
         else:
-            if False:
+            if True:
                 if is_stitching:
                     if gpu_allocator.free_count():
                         stitching_device = torch.device(
