@@ -1,11 +1,11 @@
 #!/bin/bash
 
-EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_bytetrack.py"
+#EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_bytetrack.py"
+EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_end_to_end.py"
 
 #START_FRAME=0
 
 BATCH_SIZE=1
-
 
 #WRAPPER_CMD="nsys profile --show-outputs=true --wait=primary --trace=cuda,nvtx,cublas,cudnn,openacc --python-sampling=true --python-backtrace=cuda"
 #WRAPPER_CMD="nsys profile"
