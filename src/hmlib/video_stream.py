@@ -474,6 +474,7 @@ class VideoStreamReader:
         self._video_info = None
         self._iter = None
         self._ss = 0.0
+        self._torchaudio_stream = False
         self.open()
 
     @property
@@ -541,7 +542,7 @@ class VideoStreamReader:
             timestamp = float(frame_number) / self.fps
         else:
             frame_number = timestamp * self.fps
-        if isinstance(self._video_in, torchaudio.io.StreamReader):
+        if self._torchaudio_stream:
             self._video_in.seek(timestamp=timestamp, mode="precise")
         elif isinstance(self._video_in, torchvision.io.VideoReader):
             self._video_in.seek(time_s=timestamp)
@@ -575,6 +576,7 @@ class VideoStreamReader:
                 self._type = "cv2"
         if self._type == "torchaudio":
             self._video_in = torchaudio.io.StreamReader(src=self._filename)
+            self._torchaudio_stream = True
             self._add_stream()
         elif self._type == "torchvision":
             self._video_in = torchvision.io.VideoReader(
@@ -593,7 +595,7 @@ class VideoStreamReader:
 
     def close(self):
         if self._video_in is not None:
-            if isinstance(self._video_in, torchaudio.io.StreamReader):
+            if self._torchaudio_stream:
                 self._video_in.remove_stream(0)
             elif isinstance(self._video_in, torchvision.io.VideoReader):
                 pass
