@@ -97,3 +97,5 @@ rink:
       - 629
     - - 981
       - 682
+    projected_height: 300
+    projected_width: 300
