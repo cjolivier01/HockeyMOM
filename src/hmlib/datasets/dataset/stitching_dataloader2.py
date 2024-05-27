@@ -452,7 +452,7 @@ class StitchDataset:
                 name="STITCH-OUT",
                 simple_save=True,
             )
-        assert False and "What's up with the / 255.0 down there?"
+        # assert False and "What's up with the / 255.0 down there?"
         image_proc_data = ImageProcData(
             frame_id=frame_id,
             # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
