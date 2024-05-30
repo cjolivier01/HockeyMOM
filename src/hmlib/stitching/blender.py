@@ -1088,8 +1088,8 @@ def main(args):
     gpu_allocator = GpuAllocator(gpus=None)
     if not args.video_dir and args.game_id:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
-    fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
     video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
+    fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
     with torch.no_grad():
         stitch_video(
             # blend_video(
