@@ -178,6 +178,12 @@ class hm_opts(object):
             action="store_true",
             help="Don't save the output video",
         )
+        parser.add_argument(
+            "--track-ids",
+            type=str,
+            default=None,
+            help="Comma-separated list of tracking IDs to track specifically (when online)",
+        )
         return parser
 
     def parse(self, args=""):

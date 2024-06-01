@@ -210,6 +210,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="cache size for GPU stream async operations",
     )
     parser.add_argument(
+        "--stitch-cache-size",
+        type=int,
+        default=None,
+        help="cache size for GPU stitching async operations",
+    )
+    parser.add_argument(
         "--match_thresh",
         type=float,
         default=0.9,
@@ -628,8 +634,12 @@ def main(args, num_gpu):
                     # batch_size=args.batch_size,
                     batch_size=1,
                     embedded_data_loader=stitched_dataset,
-                    embedded_data_loader_cache_size=6,
-                    # embedded_data_loader_cache_size=args.cache_size,
+                    # embedded_data_loader_cache_size=6,
+                    embedded_data_loader_cache_size=(
+                        args.cache_size
+                        if args.stitch_cache_size is None
+                        else args.stitch_cache_size
+                    ),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,

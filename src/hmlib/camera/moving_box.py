@@ -110,7 +110,7 @@ class ResizingBox(BasicBox):
     def draw(
         self,
         img: np.array,
-        draw_threasholds: bool = True,
+        draw_thresholds: bool = True,
         following_box: BasicBox = None,
     ):
         if self._sticky_sizing:
@@ -150,7 +150,7 @@ class ResizingBox(BasicBox):
             )
 
             # Sizing thresholds
-            if draw_threasholds:
+            if draw_thresholds:
                 grow_width, grow_height, shrink_width, shrink_height = (
                     self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
                 )
@@ -484,11 +484,11 @@ class MovingBox(ResizingBox):
     def draw(
         self,
         img: np.array,
-        draw_threasholds: bool = False,
+        draw_thresholds: bool = False,
         following_box: BasicBox = None,
     ):
         super().draw(
-            img=img, draw_threasholds=draw_threasholds, following_box=following_box
+            img=img, draw_thresholds=draw_thresholds, following_box=following_box
         )
         draw_box = self.bounding_box()
         img = vis.plot_rectangle(
@@ -500,7 +500,7 @@ class MovingBox(ResizingBox):
             text_scale=2,
         )
         # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
-        if draw_threasholds and self._sticky_translation:
+        if draw_thresholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
             center_tensor = center(self.bounding_box())
             my_center = [int(i) for i in center_tensor]
