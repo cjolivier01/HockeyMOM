@@ -65,6 +65,12 @@ def make_parser():
         help="Queue size",
     )
     parser.add_argument(
+        "--start-frame-number",
+        default=0,
+        type=int,
+        help="Start frame number",
+    )
+    parser.add_argument(
         "--python",
         action="store_true",
         help="Python blending path",
@@ -484,7 +490,7 @@ def blend_video(
         raise AssertionError(f"Could not open video file: {video_file_1}")
     else:
         if lfo or start_frame_number:
-            cap_1.seek(lfo + start_frame_number)
+            cap_1.seek(frame_number=lfo + start_frame_number)
 
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
@@ -497,7 +503,7 @@ def blend_video(
         raise AssertionError(f"Could not open video file: {video_file_2}")
     else:
         if rfo or start_frame_number:
-            cap_2.seek(rfo + start_frame_number)
+            cap_2.seek(frame_number=rfo + start_frame_number)
 
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
@@ -828,7 +834,7 @@ def stitch_video(
         raise AssertionError(f"Could not open video file: {video_file_1}")
     else:
         if lfo or start_frame_number:
-            cap_1.seek(lfo + start_frame_number)
+            cap_1.seek(frame_number=lfo + start_frame_number)
 
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
@@ -841,7 +847,7 @@ def stitch_video(
         raise AssertionError(f"Could not open video file: {video_file_2}")
     else:
         if rfo or start_frame_number:
-            cap_2.seek(rfo + start_frame_number)
+            cap_2.seek(frame_number=rfo + start_frame_number)
 
     main_stream = torch.cuda.Stream(device=device)
 
@@ -1102,10 +1108,9 @@ def main(args):
             lfo=args.lfo,
             rfo=args.rfo,
             python_blend=args.python,
-            # python_blend=False,
+            start_frame_number=args.start_frame_number,
             interpolation="bilinear",
             show=args.show_image,
-            start_frame_number=0,
             output_video=args.output_file,
             output_device=video_gpu,
             rotation_angle=args.rotation_angle,
