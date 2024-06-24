@@ -65,7 +65,7 @@ def other_impl(game_id: str, image_path: str):
     drawing = False  # True if mouse is pressed
     aborted = False
 
-    print("UPPER")
+    print("UPPER (type 'U' for upper, 'L' for lower)")
 
     def draw_line(event, x, y, flags, param):
         nonlocal current_line, drawing, is_upper, img

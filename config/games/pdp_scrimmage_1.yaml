@@ -1,4 +1,6 @@
 game:
+  name: "pdp_+scrimmage_1"
+  rink: "vallco"
   boundaries:
     upper:
     - - 25
@@ -93,3 +95,5 @@ rink:
       - 767
     - - 3881
       - 682
+  camera:
+    fixed_edge_rotation_angle: 40
