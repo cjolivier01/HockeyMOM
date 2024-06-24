@@ -85,15 +85,16 @@ game:
       - 4093
       - 834
 rink:
-  scoreboard:
-    perspective_polygon:
-    - - 3921
-      - 561
-    - - 4010
-      - 639
-    - - 3974
-      - 767
-    - - 3881
-      - 682
+  # Scoreboard is wobbly
+  # scoreboard:
+  #   perspective_polygon:
+  #   - - 3921
+  #     - 561
+  #   - - 4010
+  #     - 639
+  #   - - 3974
+  #     - 767
+  #   - - 3881
+  #     - 682
   camera:
     fixed_edge_rotation_angle: 40
