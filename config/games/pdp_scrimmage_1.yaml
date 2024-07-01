@@ -1,5 +1,5 @@
 game:
-  name: "pdp_+scrimmage_1"
+  name: "pdp_scrimmage_1"
   rink: "vallco"
   boundaries:
     upper:
@@ -85,16 +85,5 @@ game:
       - 4093
       - 834
 rink:
-  # Scoreboard is wobbly
-  # scoreboard:
-  #   perspective_polygon:
-  #   - - 3921
-  #     - 561
-  #   - - 4010
-  #     - 639
-  #   - - 3974
-  #     - 767
-  #   - - 3881
-  #     - 682
   camera:
     fixed_edge_rotation_angle: 40
