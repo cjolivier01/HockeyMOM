@@ -23,7 +23,7 @@ def preexec_fn():
 
 @classinstancememoize
 class BasicVideoInfo:
-    def __init__(self, video_file: str, use_ffprobe: bool = True):
+    def __init__(self, video_file: str, use_ffprobe: bool = False):
         if use_ffprobe:
             probe = FFProbe(video_file)
             self._ffstream: FFStream = None
