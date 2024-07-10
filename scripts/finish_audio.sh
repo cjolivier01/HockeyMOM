@@ -1,4 +1,7 @@
 #!/bin/bash
+#
+# Copy audo from source file to tracking_output-with-audio.mkv file, given the game-id
+#
 set -e
 
 # This function parses command line arguments
