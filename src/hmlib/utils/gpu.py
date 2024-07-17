@@ -215,6 +215,13 @@ class StreamTensor(StreamTensorBase):
     #             owns_stream=self._owns_stream,
     #         )
 
+    def new_checkpoint(self):
+        assert self._stream is not None
+        assert torch.cuda.current_stream(self.ref().device) == self._stream
+        assert self._event is not None
+        self._event = torch.cuda.Event()
+        self._event.record()
+
     def get(self):
         if self._stream is not None:
             if self._event is not None:
@@ -294,6 +301,19 @@ class StreamTensor(StreamTensorBase):
         else:
             self._tensor = tensor
 
+    def call_with_checkpoint(self, fn, *args, **kwargs):
+        if torch.cuda.current_stream(self.device) == self._stream:
+            self._set_ref(fn(self.ref(), *args, **kwargs))
+            self._event = torch.cuda.Event()
+            self._event.record()
+        else:
+            assert self._stream is not None
+            with torch.cuda.stream(self._stream):
+                self._set_ref(fn(self.ref(), *args, **kwargs))
+                self._event = torch.cuda.Event()
+                self._event.record()
+        return self
+
     def __truediv__(self, other):
         assert isinstance(other, (int, float))
         assert self._owns_stream
@@ -302,8 +322,16 @@ class StreamTensor(StreamTensorBase):
             self._event = torch.cuda.Event()
             self._event.record()
 
-    def permute(self, *args):
-        self._set_ref(self.ref().permute(*args))
+    def permute(self, *args, **kwargs):
+        self._set_ref(self.ref().permute(*args, **kwargs))
+        return self
+
+    def unsqueeze(self, *args, **kwargs):
+        self._set_ref(self.ref().unsqueeze(*args, **kwargs))
+        return self
+
+    def squeeze(self, *args, **kwargs):
+        self._set_ref(self.ref().squeeze(*args, **kwargs))
         return self
 
     def to(self, *args, **kwargs):

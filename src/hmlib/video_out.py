@@ -216,7 +216,7 @@ def _to_uint8(
     tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False
 ):
     assert not apply_scale
-    if not isinstance(tensor, torch.Tensor):
+    if isinstance(tensor, np.ndarray):
         assert tensor.dtype == np.uint8
         return tensor
     if tensor.dtype != torch.uint8:
@@ -230,9 +230,16 @@ def _to_uint8(
                 )
             )
         else:
-            return tensor.clamp(min=0, max=255.0).to(
-                torch.uint8, non_blocking=non_blocking
-            )
+            # There has got to be a more elegant way to do this with reflection
+            def _clamp(t, *args, **kwargs):
+                return t.clamp(*args, **kwargs).to(
+                    torch.uint8, non_blocking=non_blocking
+                )
+
+            if isinstance(tensor, StreamTensor):
+                return tensor.call_with_checkpoint(_clamp, min=0, max=255.0)
+            else:
+                return _clamp(tensor, min=0, max=255.0)
     return tensor
 
 
@@ -245,6 +252,21 @@ def image_wh(image: torch.Tensor):
     return torch.tensor(
         [image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device
     )
+
+
+def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
+    if isinstance(tensor, StreamTensor):
+        return tensor.ref()
+    return tensor
+
+
+def tensor_checkpoint(
+    tensor: Union[torch.Tensor, StreamTensor]
+) -> Union[torch.Tensor, StreamTensor]:
+    if isinstance(tensor, StreamTensor):
+        tensor.new_checkpoint()
+        return tensor
+    return tensor
 
 
 class VideoOutput:
@@ -395,6 +417,9 @@ class VideoOutput:
         self._imgproc_queue.put(None)
         self._imgproc_thread.join()
         self._imgproc_thread = None
+
+    def is_cuda_encoder(self):
+        return "nvenc" in self._fourcc
 
     def append(self, img_proc_data: ImageProcData):
         with TimeTracker(
@@ -573,9 +598,7 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
-
-            # show_image("online_im", online_im, wait=False)
-
+            
             if last_frame_id is None:
                 last_frame_id = frame_id
             else:
@@ -599,13 +622,15 @@ class VideoOutput:
                     device=self._device,
                 )
 
-            if isinstance(online_im, StreamTensor):
-                # TODO: Can we delay this?
-                online_im = online_im.get()
+            # if isinstance(online_im, StreamTensor):
+            #     # TODO: Can we delay this?
+            #     cuda_stream = online_im._stream
+            #     # online_im = online_im.get()
 
             # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type == "cpu":
-                # max = torch.max(online_im)
+                if isinstance(online_im, StreamTensor):
+                    online_im = online_im.get()
                 online_im = online_im.cpu()
 
             if online_im.ndim == 3:
@@ -621,14 +646,10 @@ class VideoOutput:
                 if self._device is not None and (
                     not self._simple_save or "nvenc" in self._fourcc
                 ):
-                    if not isinstance(online_im, torch.Tensor):
+                    if isinstance(online_im, np.ndarray):
                         # if online_im.shape[-1] not in [3, 4]:
                         #     online_im = online_im.transpose(1, 2, 0)
                         online_im = torch.from_numpy(online_im)
-                    if online_im.ndim == 4:
-                        # assert online_im.shape[0] == 1  # batch size of 1 here only atm
-                        # online_im = online_im.squeeze(0)
-                        pass
                     online_im = make_channels_last(online_im)
                     if str(online_im.device) != str(self._device):
                         online_im = online_im.to(self._device, non_blocking=True)
@@ -807,7 +828,9 @@ class VideoOutput:
                         y=y,
                     )
 
+                # online_im = online_im.get()
                 online_im = _to_uint8(online_im, non_blocking=True)
+                # cuda_stream.synchronize()
 
                 if self._image_color_scaler is not None:
                     online_im = self._image_color_scaler.maybe_scale_image_colors(
@@ -866,8 +889,8 @@ class VideoOutput:
                             cv2.waitKey(1)
 
                 # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
-                if cuda_stream is not None:
-                    cuda_stream.synchronize()
+                # if cuda_stream is not None:
+                #     cuda_stream.synchronize()
 
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]

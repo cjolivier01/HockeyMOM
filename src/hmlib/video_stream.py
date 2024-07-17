@@ -7,6 +7,7 @@ import torchvision
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.image import resize_image
 from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.gpu import StreamTensor
 
 from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
@@ -86,6 +87,7 @@ class VideoStreamWriter:
         codec: str,
         format: str = "bgr24",
         batch_size: int = 3,
+        cache_size: int = 4,
         bit_rate: int = int(55e6),
         device: torch.device = None,
         lossless: bool = False,
@@ -135,6 +137,7 @@ class VideoStreamWriter:
         self._video_f = None
         self._device = device
         self._lossless = lossless
+        self._cache_size = cache_size
         assert batch_size >= 1
         self._batch_size = batch_size
         self._batch_count = 0
@@ -162,7 +165,7 @@ class VideoStreamWriter:
                     image = image.transpose(2, 0, 1)
         else:
             if image.shape[-1] == 3 and self._device is not None:
-                if isinstance(image, torch.Tensor):
+                if not isinstance(image, np.ndarray):
                     image = image.permute(0, 3, 1, 2)
                 else:
                     image = image.transpose(0, 3, 1, 2)
@@ -230,24 +233,55 @@ class VideoStreamWriter:
 
     def close(self):
         if self._video_f is not None:
+            self._finish()
             self._video_f.close()
             self._video_f = None
 
     def release(self):
         self.close()
 
-    def flush(self, flush_video_file: bool = True):
+    def _finish(self):
+        self.flush(flush_video_file=True, flush_all=True)
+
+    def flush(self, flush_video_file: bool = True, flush_all: bool = False):
+        def _get_tensor(t):
+            if isinstance(t, StreamTensor):
+                return t.get()
+            return t
+
         if self._batch_items:
-            if len(self._batch_items[0].shape) == 3:
-                image_batch = torch.stack(self._batch_items)
+            if flush_all:
+                batch_items = self._batch_items
+                self._batch_items.clear()
+            elif len(self._batch_items) <= self._cache_size:
+                # Don't have at least cache_size items yet
+                return
             else:
-                image_batch = torch.cat(self._batch_items, dim=0)
-            self._batch_items.clear()
+                flush_item_count = len(self._batch_items) - self._cache_size
+                assert flush_item_count
+                batch_items = self._batch_items[0:flush_item_count]
+                self._batch_items = self._batch_items[flush_item_count:]
+            batch_items = [_get_tensor(img) for img in batch_items]
+            if len(batch_items) == 1:
+                image_batch = batch_items[0]
+                if len(image_batch.shape) == 3:
+                    image_batch = image_batch.unsqueeze(0)
+            else:
+                if len(batch_items[0].shape) == 3:
+                    image_batch = torch.stack(batch_items)
+                else:
+                    image_batch = torch.cat(batch_items, dim=0)
             frame_count = len(image_batch)
-            self._video_out.write_video_chunk(
-                i=0,
-                chunk=image_batch,
-            )
+            if isinstance(image_batch, StreamTensor):
+                self._video_out.write_video_chunk(
+                    i=0,
+                    chunk=image_batch,
+                )
+            else:
+                self._video_out.write_video_chunk(
+                    i=0,
+                    chunk=image_batch,
+                )
             self._frame_counter += frame_count
 
         if flush_video_file and self._video_f is not None:
@@ -287,8 +321,8 @@ class VideoStreamWriter:
             if not self._codec.endswith("_nvenc") and images.device.type != "cpu":
                 images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
-        if len(self._batch_items) >= self._batch_size:
-            self.flush(flush_video_file=False)
+        # if len(self._batch_items) >= self._batch_size:
+        self.flush(flush_video_file=False)
         self._batch_count += 1
         if self._timer.start_time != 0:
             self._timer.toc()

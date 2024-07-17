@@ -453,10 +453,13 @@ class StitchDataset:
                 simple_save=True,
             )
         # assert False and "What's up with the / 255.0 down there?"
+        if not self._video_output.is_cuda_encoder():
+            stitched_frame = to_tensor(stitched_frame)
         image_proc_data = ImageProcData(
             frame_id=frame_id,
             # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            img=to_tensor(stitched_frame),
+            #img=to_tensor(stitched_frame),
+            img=stitched_frame,
             # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
         )
