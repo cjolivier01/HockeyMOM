@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+from typing import Any, Optional
 from hmlib.config import get_nested_value
 
 
@@ -28,15 +29,25 @@ class hm_opts(object):
         parser.add_argument(
             "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
         )
-        parser.add_argument(
-            "--debug", default=0, type=int, help="debug level"
-        )
+        parser.add_argument("--debug", default=0, type=int, help="debug level")
         # stitching
         parser.add_argument(
             "--game-id",
             default=None,
             type=str,
             help="Game ID",
+        )
+        parser.add_argument(
+            "--cache-size",
+            type=int,
+            default=2,
+            help="cache size for GPU stream async operations",
+        )
+        parser.add_argument(
+            "--stitch-cache-size",
+            type=int,
+            default=None,
+            help="cache size for GPU stitching async operations",
         )
         parser.add_argument(
             "--fp16",
@@ -68,7 +79,7 @@ class hm_opts(object):
             "--decoder",
             "--video-stream-decode-method",
             dest="video_stream_decode_method",
-            #default="ffmpeg",
+            # default="ffmpeg",
             default="cv2",
             type=str,
             help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
@@ -200,7 +211,7 @@ class hm_opts(object):
     ]
 
     @staticmethod
-    def init(opt, parser: argparse.ArgumentParser = None):
+    def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if getattr(opt, "tracker", "") == "centertrack":
             if hasattr(opt, "test_size") and (
@@ -236,3 +247,9 @@ class hm_opts(object):
                             setattr(opt, k, v)
 
         return opt
+
+
+def preferred_arg(preferred_arg: Any, backup_arg: Any):
+    if preferred_arg is not None:
+        return preferred_arg
+    return backup_arg

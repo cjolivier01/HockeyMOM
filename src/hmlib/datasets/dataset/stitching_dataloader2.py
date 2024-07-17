@@ -540,9 +540,7 @@ class StitchDataset:
                         start_frame_number=self._start_frame_number,
                         frame_stride_count=self._num_workers,
                         max_frames=max_for_worker,
-                        max_input_queue_size=int(
-                            self._max_input_queue_size / self._num_workers + 1
-                        ),
+                        max_input_queue_size=self._max_input_queue_size,
                         remapping_device=self._remapping_device,
                     )
                 )

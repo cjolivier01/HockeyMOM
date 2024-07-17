@@ -6,6 +6,7 @@ import os
 import time
 import argparse
 import cv2
+from typing import Any
 
 import torch
 
@@ -16,7 +17,7 @@ from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
 from hmlib.utils.gpu import StreamTensor, GpuAllocator, CachedIterator
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.hm_opts import hm_opts
+from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
@@ -91,7 +92,7 @@ def stitch_videos(
         num_workers=1,
         remap_thread_count=1,
         blend_thread_count=1,
-        max_input_queue_size=6,
+        max_input_queue_size=cache_size,
         fork_workers=False,
         image_roi=(
             get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
@@ -125,7 +126,8 @@ def stitch_videos(
                 assert stitched_image.ndim == 4
                 logger.info(
                     "Dataset frame {} ({:.2f} fps)".format(
-                        i * stitched_image.size(0), 1.0 / max(1e-5, dataset_timer.average_time)
+                        i * stitched_image.size(0),
+                        1.0 / max(1e-5, dataset_timer.average_time),
                     )
                 )
                 if i % 100 == 0:
@@ -269,7 +271,7 @@ def remap_video(
 def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
-    gpu_allocator = GpuAllocator(gpus=None)
+    gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     with torch.no_grad():
         if False:
             remap_video(
@@ -296,6 +298,7 @@ def main(args):
                 blend_mode=args.blend_mode,
                 remap_on_async_stream=False,
                 ignore_clip_box=True,
+                cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
                 remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
                 encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
                 dtype=torch.half if args.fp16 else torch.float,

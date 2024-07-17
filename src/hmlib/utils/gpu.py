@@ -1,15 +1,21 @@
 import torch
 import time
+import queue
 import numpy as np
+from threading import Thread
 from typing import Any, Dict, List, Tuple, Union, Set, Optional
 
 from hmlib.utils.utils import create_queue
 
 
 class GpuAllocator:
-    def __init__(self, gpus: List[int]):
+    def __init__(self, gpus: str | List[int]):
         if gpus is None:
             gpus = [i for i in range(torch.cuda.device_count())]
+        elif isinstance(gpus, str):
+            gpus = gpus.split(",")
+        if hasattr(gpus, "__iter__"):
+            gpus = [int(i) for i in gpus]
         gpu_count = min(torch.cuda.device_count(), len(gpus))
         self._gpus = gpus[: gpu_count + 1]
         self._used_gpus: Dict = dict()
@@ -67,7 +73,7 @@ class GpuAllocator:
         return len(self._gpus) - len(self._used_gpus)
 
 
-class CachedIterator:
+class SimpleCachedIterator:
     def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
         self._iterator = iterator
         self._q = create_queue(mp=False) if cache_size else None
@@ -102,6 +108,74 @@ class CachedIterator:
             except StopIteration:
                 self._q.put(None)
         return result_item
+
+
+class ThreadedCachedIterator:
+    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
+        self._iterator = iterator
+        self._q = create_queue(mp=False) if cache_size else None
+        self._pre_callback_fn = pre_callback_fn
+        self._save_cache_size = cache_size
+        self._pull_queue_to_worker: queue.Queue = queue.Queue()
+        self._pull_thread = Thread(target=self._pull_worker)
+        for i in range(cache_size):
+            self._pull_queue_to_worker.put("ok")
+
+        # Finally, start the worker thread
+        self._pull_thread.start()
+
+    def _pull_worker(self):
+        try:
+            while True:
+                msg = self._pull_queue_to_worker.get()
+                if msg is None:
+                    raise StopIteration()
+                item = next(self._iterator)
+                if self._pre_callback_fn is not None:
+                    item = self._pre_callback_fn(item)
+                self._q.put(item)
+        except StopIteration:
+            self._q.put(None)
+            return
+        except Exception as ex:
+            print(ex)
+            print(f"ThreadedCachedIterator exiting due to exception: {ex}")
+            raise
+
+    def _stop(self):
+        if self._pull_thread is not None:
+            self._pull_queue_to_worker.put(None)
+            self._pull_thread.join()
+            self._pull_thread = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._q is None:
+            result_item = next(self._iterator)
+            if self._pre_callback_fn is not None:
+                result_item = self._pre_callback_fn(result_item)
+        else:
+            get_next_cached_start = time.time()
+            result_item = self._q.get()
+            if result_item is None:
+                raise StopIteration()
+            get_next_cached_duration = time.time() - get_next_cached_start
+            # if get_next_cached_duration > 10 / 1000:
+            #     print(
+            #         f"Waited {get_next_cached_duration * 1000} ms "
+            #         f"for the next cached item for cache size of {self._save_cache_size}"
+            #     )
+            self._pull_queue_to_worker.put("ok")
+        return result_item
+
+    def __del__(self):
+        self._stop()
+
+
+# CachedIterator = ThreadedCachedIterator
+CachedIterator = SimpleCachedIterator
 
 
 class StreamTensorBase:
@@ -160,9 +234,10 @@ class StreamTensor(StreamTensorBase):
             and self._sync_duraton is not None
             and self._sync_duraton > self._print_thresh
         ):
-            print(
-                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
-            )
+            # print(
+            #     f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            # )
+            pass
         return self._tensor
 
     @property

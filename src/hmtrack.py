@@ -204,18 +204,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
     )
     parser.add_argument(
-        "--cache-size",
-        type=int,
-        default=2,
-        help="cache size for GPU stream async operations",
-    )
-    parser.add_argument(
-        "--stitch-cache-size",
-        type=int,
-        default=None,
-        help="cache size for GPU stitching async operations",
-    )
-    parser.add_argument(
         "--match_thresh",
         type=float,
         default=0.9,
