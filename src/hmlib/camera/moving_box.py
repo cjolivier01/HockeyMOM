@@ -241,15 +241,6 @@ class ResizingBox(BasicBox):
         current_w = width(bbox)
         current_h = height(bbox)
 
-        # if self._fixed_aspect_ratio is not None:
-        #     # Apply aspect ratio
-        #     if dest_width / dest_height < self._fixed_aspect_ratio:
-        #         # Constrain by height
-        #         dest_width = dest_height * self._fixed_aspect_ratio
-        #     else:
-        #         # Constrain by width
-        #         dest_height = dest_width / self._fixed_aspect_ratio
-
         dw = dest_width - current_w
         dh = dest_height - current_h
 
@@ -261,13 +252,6 @@ class ResizingBox(BasicBox):
             grow_width, grow_height, shrink_width, shrink_height = (
                 self._get_grow_wh_and_shrink_wh(bbox=bbox)
             )
-
-            # scale_amount = 0.1
-            # req_w_diff = current_w * scale_amount
-            # req_h_diff = current_h * scale_amount
-            # dw_thresh = False
-            # dh_thresh = False
-            # want_bigger = False
 
             dw_thresh = torch.logical_and(dw < 0, dw < -shrink_width)
             want_bigger_w = torch.logical_and(dw > 0, dw > grow_width)
@@ -523,41 +507,6 @@ class MovingBox(ResizingBox):
             if following_box is not None:
                 following_bbox = following_box.bounding_box()
                 following_bbox_center = center(following_bbox)
-                # dashed box representing the following box inscribed at our center
-
-                #     scaled_following_box = scale_box(
-                #         following_bbox.clone(),
-                #         scale_width=self._scale_width,
-                #         scale_height=self._scale_height,
-                #     )
-                #     inscribed = move_box_to_center(
-                #         scaled_following_box.clone(), center(self.bounding_box())
-                #     )
-                #     img = vis.draw_dashed_rectangle(
-                #         img, box=inscribed, color=(255, 255, 255), thickness=1
-                #     )
-
-                #     # Sizing thresholds
-                #     grow_width, grow_height, shrink_width, shrink_height = (
-                #         self._get_grow_wh_and_shrink_wh(bbox=draw_box)
-                #     )
-                #     grow_box = make_box_at_center(
-                #         center_point=center_tensor,
-                #         w=my_width + grow_width,
-                #         h=my_height + grow_height,
-                #     )
-                #     shrink_box = make_box_at_center(
-                #         center_point=center_tensor,
-                #         w=my_width - shrink_width,
-                #         h=my_height - shrink_height,
-                #     )
-
-                #     img = vis.draw_centered_lines(
-                #         img, bbox=grow_box, thickness=4, color=(0, 255, 0)
-                #     )
-                #     img = vis.draw_centered_lines(
-                #         img, bbox=shrink_box, thickness=4, color=(0, 0, 255)
-                #     )
 
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
@@ -622,7 +571,6 @@ class MovingBox(ResizingBox):
         sticky_size = width(self.bounding_box()) / 10
         sticky_size = min(sticky_size, max_sticky_size)
 
-        # max_sticky_size = self._max_speed_x * 6 + gaussian_add
         unsticky_size = sticky_size * 3 / 4
 
         return sticky_size, unsticky_size
@@ -635,19 +583,6 @@ class MovingBox(ResizingBox):
         my = self._max_speed_y * scale
         self._current_speed_x = torch.clamp(self._current_speed_x, min=-mx, max=mx)
         self._current_speed_ = torch.clamp(self._current_speed_y, min=-my, max=my)
-
-    # def set_speed(
-    #     self,
-    #     speed_x: torch.Tensor,
-    #     speed_y: torch.Tensor,
-    #     use_constraints: bool = True,
-    # ):
-    #     if speed_x is not None:
-    #         self._current_speed_x = speed_x
-    #     if speed_y is not None:
-    #         self._current_speed_y = speed_y
-    #     if use_constraints:
-    #         self._clamp_speed()
 
     def adjust_speed(
         self,
@@ -739,11 +674,6 @@ class MovingBox(ResizingBox):
             s1 = torch.sign(total_diff)
             s2 = torch.sign(velocity)
             changed_direction = s1 * s2
-            # if self._following_box is not None:
-            #     if changed_direction[0] or changed_direction[1]:
-            #         print(f"Changed direction: {changed_direction}")
-            #     else:
-            #         print(f"Same direction")
 
             # Reduce velocity on axes that changed direction
             # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
@@ -759,15 +689,6 @@ class MovingBox(ResizingBox):
                 # Unstick at zero velocity
                 self._current_speed_x = self._zero.clone()
                 self._current_speed_y = self._zero.clone()
-
-            # if self._translation_is_frozen:
-            #     print("Translation FROZEN")
-            # else:
-            #     print("Translation unfrozen")
-
-            # clamp to max velocities
-            # self._current_speed_x = torch.clamp(self._current_speed_x, -self._max_speed_x, self._max_speed_x)
-            # self._current_speed_xy= torch.clamp(self._current_speed_y, -self._max_speed_y, self._max_speed_y)
         # END Sticky Translation
 
         if not self.is_nonstop():
@@ -814,15 +735,6 @@ class MovingBox(ResizingBox):
     def next_position(self):
         # if arena_box is None:
         arena_box = self._arena_box
-        # if self._following_box is not None:
-        #     dest_box = self._following_box.bounding_box()
-        #     dest_box = scale_box(
-        #         dest_box, scale_width=self._scale_width, scale_height=self._scale_height
-        #     )
-        #     self.set_destination(
-        #         dest_box=dest_box,
-        #         stop_on_dir_change=True,
-        #     )
 
         # BEGIN Sticky Translation
         if self._translation_is_frozen and not self.is_nonstop():
