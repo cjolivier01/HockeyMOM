@@ -253,6 +253,8 @@ class VideoStreamWriter:
             if flush_all:
                 batch_items = self._batch_items
                 self._batch_items.clear()
+                if not batch_items:
+                    return
             elif len(self._batch_items) <= self._cache_size:
                 # Don't have at least cache_size items yet
                 return

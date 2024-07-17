@@ -184,8 +184,13 @@ class ImageProcData:
         else:
             self.current_box = current_box.clone()
         if not isinstance(self.frame_id, torch.Tensor):
-            assert img.ndim == 3 or img.size(0) == 1  # single image only
-            self.frame_id = torch.tensor([self.frame_id], dtype=torch.int64)
+            frame_count = 1
+            if img.ndim == 4:
+                frame_count = img.shape[0]
+            # assert img.ndim == 3 or img.size(0) == 1  # single image only
+            self.frame_id = torch.tensor(
+                [self.frame_id + i for i in range(frame_count)], dtype=torch.int64
+            )
 
     def dump(self):
         print(f"frame_id={self.frame_id}, current_box={self.current_box}")
@@ -598,12 +603,12 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
-            
+
             if last_frame_id is None:
-                last_frame_id = frame_id
+                last_frame_id = frame_id[-1]
             else:
-                assert frame_id == last_frame_id + 1
-                last_frame_id = frame_id
+                assert frame_id[0] == last_frame_id + 1
+                last_frame_id = frame_id[-1]
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)

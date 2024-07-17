@@ -39,7 +39,10 @@ ROOT_DIR = os.getcwd()
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument(
-        "--num_workers", default=1, type=int, help="Number of stitching workers"
+        "--num-workers", default=1, type=int, help="Number of stitching workers"
+    )
+    parser.add_argument(
+        "--batch-size", default=1, type=int, help="Batch size"
     )
     return parser
 
@@ -55,6 +58,7 @@ def stitch_videos(
     blend_mode: str = "multiblend",
     start_frame_number: int = 0,
     max_frames: int = None,
+    batch_size: int = 1,
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
     remapping_device: torch.device = torch.device("cuda", 0),
@@ -89,6 +93,7 @@ def stitch_videos(
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
+        batch_size=batch_size,
         num_workers=1,
         remap_thread_count=1,
         blend_thread_count=1,
@@ -290,6 +295,7 @@ def main(args):
                 video_right,
                 lfo=args.lfo,
                 rfo=args.rfo,
+                batch_size=args.batch_size,
                 project_file_name=args.project_file,
                 game_id=args.game_id,
                 show=args.show_image,
