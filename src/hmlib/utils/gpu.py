@@ -345,7 +345,7 @@ def tensor_call(
     tensor: Union[torch.Tensor, StreamTensor], fn: Callable, *args, **kwargs
 ) -> Union[torch.Tensor, StreamTensor]:
     if isinstance(tensor, torch.Tensor):
-        return fn(*args, **kwargs)
+        return fn(tensor, *args, **kwargs)
     return tensor.call_with_checkpoint(fn, *args, **kwargs)
 
 
