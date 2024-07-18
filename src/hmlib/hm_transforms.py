@@ -1,6 +1,6 @@
 import numbers
 import warnings
-from typing import Dict, List, Optional, Tuple, Union, no_type_check
+from typing import Dict, List, Optional, Tuple, Union, Callable
 
 import cv2
 import mmcv
@@ -24,6 +24,7 @@ from hmlib.utils.image import (
     make_channels_last,
     resize_image,
 )
+from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.stitching.laplacian_blend import show_image
 
 from .cv2_to_torch import warp_affine_pytorch
@@ -153,22 +154,29 @@ def hm_imresize(
         pil_image = Image.fromarray(img)
         pil_image = pil_image.resize(size, pillow_interp_codes[interpolation])
         resized_img = np.array(pil_image)
-    elif isinstance(img, torch.Tensor):
+    elif isinstance(img, torch.Tensor | StreamTensor):
         w = size[0]
         h = size[1]
-        if img.dim() == 4:
+        if img.ndim == 4:
             # Probably doesn't work
             permuted = img.shape[-1] == 3 or img.shape[-1] == 4
             if permuted:
                 # H, W, C -> C, W, H
                 img = img.permute(0, 3, 2, 1)
             assert img.shape[1] == 3 or img.shape[1] == 4
-            resized_img = F.resize(
-                img=img,
+            resized_img = tensor_call(
+                img,
+                F.resize,
                 size=(w, h) if permuted else (h, w),
                 interpolation=pillow_interp_codes[interpolation],
                 antialias=True,
             )
+            # resized_img = F.resize(
+            #     img=img,
+            #     size=(w, h) if permuted else (h, w),
+            #     interpolation=pillow_interp_codes[interpolation],
+            #     antialias=True,
+            # )
             if permuted:
                 # C, W, H -> H, W, C
                 resized_img = resized_img.permute(0, 3, 2, 1)
@@ -341,19 +349,26 @@ def hm_impad(
         "reflect": cv2.BORDER_REFLECT_101,
         "symmetric": cv2.BORDER_REFLECT,
     }
-    if isinstance(img, torch.Tensor):
+    if isinstance(img, torch.Tensor | StreamTensor):
         if img.ndim == 3:
             img = img.permute(2, 0, 1)
         else:
             assert img.ndim == 4
             if img.shape[-1] in (3, 4):
                 img = img.permute(0, 3, 1, 2)
-        img = torch.nn.functional.pad(
+        img = tensor_call(
             img,
+            torch.nn.functional.pad,
             (padding[0], padding[2], padding[1], padding[3]),
             padding_mode,
             value=pad_val,
         )
+        # img = torch.nn.functional.pad(
+        #     img,
+        #     (padding[0], padding[2], padding[1], padding[3]),
+        #     padding_mode,
+        #     value=pad_val,
+        # )
         if img.ndim == 3:
             img = img.permute(1, 2, 0)
         else:
@@ -1015,19 +1030,21 @@ class HmTopDownAffine:
                         ih = image_height(img)
                         iw = image_width(img)
                         c = c.copy()
-                        c[0] -= float(ih)/2
+                        c[0] -= float(ih) / 2
                         c[0] /= ih
-                        c[1] -= float(iw)/2
+                        c[1] -= float(iw) / 2
                         c[1] /= iw
                         trans = get_affine_transform(c, s, r, image_size)
                         # img = torch.clamp(img, min=0, max=255.0)
                         img = make_channels_first(img)
                         if not torch.is_floating_point(img):
                             img = img.to(torch.float, non_blocking=True)
-                        
+
                         img = warp_affine_pytorch(
-                            img.cpu(), # NOTE MAKING CPU TENSOR
-                            torch.from_numpy(trans).to(img.device, non_blocking=True).cpu(),
+                            img.cpu(),  # NOTE MAKING CPU TENSOR
+                            torch.from_numpy(trans)
+                            .to(img.device, non_blocking=True)
+                            .cpu(),
                             (int(image_size[1]), int(image_size[0])),
                         )
                         # img = resize_image(img, new_width=288, new_height=384)
@@ -1117,32 +1134,36 @@ class HmTopDownAffine:
         self.use_udp = use_udp
 
     def __call__(self, results):
-        image_size = results['ann_info']['image_size']
+        image_size = results["ann_info"]["image_size"]
 
-        img = results['img']
-        joints_3d = results['joints_3d']
-        joints_3d_visible = results['joints_3d_visible']
-        c = results['center']
-        s = results['scale']
-        r = results['rotation']
+        img = results["img"]
+        joints_3d = results["joints_3d"]
+        joints_3d_visible = results["joints_3d_visible"]
+        c = results["center"]
+        s = results["scale"]
+        r = results["rotation"]
 
         if self.use_udp:
             trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
             if not isinstance(img, list):
                 img = cv2.warpAffine(
                     img,
-                    trans, (int(image_size[0]), int(image_size[1])),
-                    flags=cv2.INTER_LINEAR)
+                    trans,
+                    (int(image_size[0]), int(image_size[1])),
+                    flags=cv2.INTER_LINEAR,
+                )
             else:
                 img = [
                     cv2.warpAffine(
                         i,
-                        trans, (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR) for i in img
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    for i in img
                 ]
 
-            joints_3d[:, 0:2] = \
-                warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
+            joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
 
         else:
             if r == 0 and isinstance(img, torch.Tensor):
@@ -1152,22 +1173,26 @@ class HmTopDownAffine:
                 if not isinstance(img, list):
                     img = cv2.warpAffine(
                         img,
-                        trans, (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR)
+                        trans,
+                        (int(image_size[0]), int(image_size[1])),
+                        flags=cv2.INTER_LINEAR,
+                    )
                 else:
                     img = [
                         cv2.warpAffine(
                             i,
-                            trans, (int(image_size[0]), int(image_size[1])),
-                            flags=cv2.INTER_LINEAR) for i in img
+                            trans,
+                            (int(image_size[0]), int(image_size[1])),
+                            flags=cv2.INTER_LINEAR,
+                        )
+                        for i in img
                     ]
-                for i in range(results['ann_info']['num_joints']):
+                for i in range(results["ann_info"]["num_joints"]):
                     if joints_3d_visible[i, 0] > 0.0:
-                        joints_3d[i,
-                                0:2] = affine_transform(joints_3d[i, 0:2], trans)
+                        joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
 
-        results['img'] = img
-        results['joints_3d'] = joints_3d
-        results['joints_3d_visible'] = joints_3d_visible
+        results["img"] = img
+        results["joints_3d"] = joints_3d
+        results["joints_3d_visible"] = joints_3d_visible
 
         return results

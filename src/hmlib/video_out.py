@@ -603,6 +603,8 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
             frame_id = imgproc_data.frame_id
+            if frame_id.ndim == 0:
+                frame_id = frame_id.unsqueeze(0)
 
             if last_frame_id is None:
                 last_frame_id = frame_id[-1]
@@ -923,7 +925,7 @@ class VideoOutput:
                     logger.info(
                         "Image Post-Processing {} frame {} ({:.2f} fps)".format(
                             self._name,
-                            imgproc_data.frame_id[0],
+                            frame_id[0],
                             batch_size * 1.0 / max(1e-5, timer.average_time),
                         )
                     )
@@ -942,7 +944,7 @@ class VideoOutput:
                     ):
                         logger.info(
                             "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
-                                imgproc_data.frame_id[0],
+                                frame_id[0],
                                 batch_size
                                 * 1.0
                                 / max(1e-5, final_all_timer.average_time),

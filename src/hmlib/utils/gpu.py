@@ -3,7 +3,7 @@ import time
 import queue
 import numpy as np
 from threading import Thread
-from typing import Any, Dict, List, Tuple, Union, Set, Optional
+from typing import Any, Callable, Dict, List, Tuple, Union, Set, Optional
 
 from hmlib.utils.utils import create_queue
 
@@ -339,6 +339,14 @@ class StreamTensor(StreamTensorBase):
 
     def __len__(self):
         return self._tensor.shape[0]
+
+
+def tensor_call(
+    tensor: Union[torch.Tensor, StreamTensor], fn: Callable, *args, **kwargs
+) -> Union[torch.Tensor, StreamTensor]:
+    if isinstance(tensor, torch.Tensor):
+        return fn(*args, **kwargs)
+    return tensor.call_with_checkpoint(fn, *args, **kwargs)
 
 
 class StreamCheckpoint(StreamTensor):

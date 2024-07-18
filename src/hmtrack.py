@@ -65,7 +65,7 @@ from hmlib.video_stream import time_to_frame
 from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_nested_value
 from hmlib.utils.image import make_channels_last, make_channels_first
-from hmlib.utils.gpu import CachedIterator, StreamTensor
+from hmlib.utils.gpu import CachedIterator, StreamTensor, tensor_call
 
 ROOT_DIR = os.getcwd()
 
@@ -821,6 +821,9 @@ def run_mmtrack(
         with torch.no_grad():
             # init tracker
             frame_id = info_imgs[2][0]
+
+            # if isinstance(origin_imgs, StreamTensor):
+            #     origin_imgs = origin_imgs.get()
 
             batch_size = origin_imgs.shape[0]
 

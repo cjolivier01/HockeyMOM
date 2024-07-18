@@ -410,7 +410,7 @@ class CamTrackPostProcessor:
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
                 imgproc_data = ImageProcData(
-                    frame_id=frame_id.item(),
+                    frame_id=frame_id,
                     img=online_im,
                     current_box=current_box,
                 )

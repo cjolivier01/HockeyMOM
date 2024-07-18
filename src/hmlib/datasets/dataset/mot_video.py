@@ -330,8 +330,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
+            # if not isinstance(img0, np.ndarray):
+            #     # Set a breakpoint here to catch only the post-stitch dataloader
+            #     pass
+
             if isinstance(img0, StreamTensor):
-                img0 = img0.get()
+                # img0 = img0.get()
+                pass
             elif isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
 
