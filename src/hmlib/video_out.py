@@ -37,6 +37,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.gpu import (
     get_gpu_capabilities,
+    CachedIterator,
     StreamTensor,
     StreamTensorToDevice,
 )
@@ -58,7 +59,31 @@ from hmlib.utils.box_functions import (
 )
 
 from hmlib.scoreboard.scoreboard import Scoreboard
-from hmlib.config import get_game_config, save_game_config, get_nested_value
+from hmlib.config import get_nested_value
+
+
+class IterableQueue:
+    def __init__(self, queue):
+        self.queue = queue
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        item = self.queue.get()
+        if item is None:
+            raise StopIteration()
+        return item
+
+
+def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
+    """
+    Give up on the stream and get the sync'd tensor
+    """
+    if isinstance(tensor, StreamTensor):
+        tensor._verbose = True
+        return tensor.get()
+    return tensor
 
 
 @contextmanager
@@ -592,10 +617,17 @@ class VideoOutput:
 
         last_frame_id = None
 
+        iqueue = IterableQueue(self._imgproc_queue)
+        imgproc_iter = iter(iqueue)
+
+        cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
+
         while True:
             batch_count += 1
-            imgproc_data = self._imgproc_queue.get()
-            if imgproc_data is None:
+            try:
+                # imgproc_data = next(imgproc_iter)
+                imgproc_data = next(cached_imgproc_iter)
+            except StopIteration:
                 break
 
             timer.tic()
@@ -669,12 +701,14 @@ class VideoOutput:
                 #
                 scoreboard_img = None
                 if scoreboard is not None:
+                    online_im = slow_to_tensor(online_im)
                     scoreboard_img = make_channels_last(scoreboard.forward(online_im))
 
                 #
                 # Perspective rotation
                 #
                 if self.has_args() and self._args.fixed_edge_rotation:
+                    online_im = slow_to_tensor(online_im)
                     online_im = _to_float(
                         online_im,
                         non_blocking=True,
@@ -750,6 +784,7 @@ class VideoOutput:
                 # Crop to output video frame image
                 #
                 if self.has_args() and self._args.crop_output_image:
+                    online_im = slow_to_tensor(online_im)
                     online_im = _to_float(
                         online_im,
                         non_blocking=True,
