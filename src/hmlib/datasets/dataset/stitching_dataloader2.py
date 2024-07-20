@@ -25,7 +25,13 @@ from hmlib.stitching.synchronize import (
 from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator, async_to, allocate_stream
+from hmlib.utils.gpu import (
+    StreamTensor,
+    StreamCheckpoint,
+    CachedIterator,
+    async_to,
+    allocate_stream,
+)
 from hmlib.video_out import (
     VideoOutput,
     ImageProcData,
@@ -172,10 +178,12 @@ class StitchDataset:
         remapping_device: torch.device = None,
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
+        verbose: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._dtype = dtype
+        self._verbose = verbose
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
         self._remap_on_async_stream = remap_on_async_stream
@@ -387,7 +395,7 @@ class StitchDataset:
             sinfo_1.xy_pos = self._xy_pos_1
 
             sinfo_2 = core.StitchImageInfo()
-            #sinfo_2.image = to_tensor(_prepare_image(imgs_2))
+            # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
             sinfo_2.image = _prepare_image(to_tensor(imgs_2))
             sinfo_2.xy_pos = self._xy_pos_2
 
@@ -397,7 +405,9 @@ class StitchDataset:
                 #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
                 # )
                 blended_stream_tensor = StreamCheckpoint(
-                    tensor=blended_stream_tensor, stream=self._remapping_stream, owns_stream=False,
+                    tensor=blended_stream_tensor,
+                    stream=self._remapping_stream,
+                    owns_stream=False,
                 )
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
@@ -464,7 +474,7 @@ class StitchDataset:
         image_proc_data = ImageProcData(
             frame_id=frame_id,
             # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            #img=to_tensor(stitched_frame),
+            # img=to_tensor(stitched_frame),
             img=stitched_frame,
             # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.clone(),
@@ -625,7 +635,7 @@ class StitchDataset:
         self._current_frame += stitched_frame.shape[0]
         self._next_timer.toc()
 
-        if self._batch_count % 50 == 0:
+        if self._verbose and self._batch_count % 50 == 0:
             logger.info(
                 "Stitching dataset __next__ wait speed {} ({:.2f} fps)".format(
                     self._current_frame,

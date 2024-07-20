@@ -2,7 +2,7 @@ import traceback
 import threading
 from contextlib import contextmanager
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import time
 import cv2
@@ -54,11 +54,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         game_id: str = None,
         clip_original=None,
         video_id: int = 1,
-        # data_dir=None,
-        # json_file: str = "train.json",
-        # name: str = "train",
         preproc=None,
-        # return_origin_img=False,
         max_frames: int = 0,
         batch_size: int = 1,
         start_frame_number: int = 0,
@@ -74,8 +70,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         log_messages: bool = False,
         dtype: torch.dtype = None,
         data_pipeline: Compose = None,
-        # scale_rgb_down: bool = False,
-        # output_type: torch.dtype = None
     ):
         assert not isinstance(img_size, str)
         self._path = path
@@ -87,11 +81,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._preproc = preproc
         self._dtype = dtype
         self._data_pipeline = data_pipeline
-        # self._scale_rgb_down = scale_rgb_down
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
-        # self._output_type = output_type
         self.clip_original = clip_original
         self.calculated_clip_box = None
         if img_size is None:
@@ -130,7 +122,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._embedded_data_loader_iter = None
         self._stream_tensors = stream_tensors
         self._cuda_stream = None
-        # assert self._embedded_data_loader is None or path is None
 
         # Optimize the clip box
         if self.clip_original is not None:
@@ -193,6 +184,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     def _next_frame_worker(self):
         try:
             self._open_video()
+
+            # Create the CUDA stream outside of the main loop
+            if self._cuda_stream is None and self._device.type == "cuda":
+                self._cuda_stream = allocate_stream(self._device)
+
             while True:
                 cmd = self._to_worker_queue.get()
                 if cmd != "ok":
@@ -319,13 +315,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         ALL_NON_BLOCKING = True
 
-        # cuda_stream = None
-        # if self._stream_tensors and self._is_cuda():
-        #     # cuda_stream = torch.cuda.Stream(self._device)
-        #     cuda_stream = allocate_stream(self._device)
-        
-        if self._cuda_stream is None:
-            self._cuda_stream = allocate_stream(self._device)
         cuda_stream = self._cuda_stream
 
         with optional_with(
@@ -386,14 +375,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if clipped_image is not None:
                         original_img0 = clipped_image["img"]
                         del data_item["clipped_image"]
-                        # if torch.is_floating_point(original_img0):
-                        #     original_img0 /= 255
 
                 if isinstance(img, list):
+                    assert len(img) == 1
                     img = img[0]
                     data = data_item
-                # quick_show(torch.clamp(img0 * 255, min=0, max=255).to(torch.uint8), wait=True)
-
             else:
                 if self.clip_original is not None:
                     if self.calculated_clip_box is None:
@@ -414,14 +400,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                             self.calculated_clip_box[1] : self.calculated_clip_box[3],
                             self.calculated_clip_box[0] : self.calculated_clip_box[2],
                         ]
+                original_img0 = img0
 
                 if not self._original_image_only:
-                    original_img0 = img0
                     if self._dtype is not None and img0.dtype != self._dtype:
                         img0 = img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
-                    original_img0 = img0
                     if self._dtype is not None and self._dtype != original_img0.dtype:
                         original_img0 = original_img0.to(
                             self._dtype, non_blocking=ALL_NON_BLOCKING
@@ -452,36 +437,53 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         self._count += self._batch_size
 
-        if cuda_stream is not None:
-            original_img0 = StreamTensor(
-                tensor=original_img0,
-                stream=cuda_stream,
-                event=torch.cuda.Event(),
-                owns_stream=False,
-            )
+        # BEGIN _wrap_original_image
+        # Do this last, after any cuda events are taken for the non-original image
+        def _wrap_original_image(
+            orig_img: torch.Tensor,
+        ) -> Union[StreamTensor, torch.Tensor]:
+            assert isinstance(orig_img, torch.Tensor)
+            if cuda_stream is not None:
+                if (
+                    not self._original_image_only
+                    and self._device_for_original_image is not None
+                    and self._device_for_original_image != orig_img.device
+                ):
+                    orig_img = orig_img.to(
+                        self._device_for_original_image, non_blocking=True
+                    )
+                return StreamTensor(
+                    tensor=orig_img,
+                    stream=None,
+                    event=torch.cuda.Event(),
+                    owns_stream=False,
+                )
+            return orig_img
+
+        # END _wrap_original_image
 
         if self._data_pipeline is not None:
             if cuda_stream is not None:
                 for i, img in enumerate(data["img"]):
                     img = StreamTensor(
                         tensor=img,
-                        stream=cuda_stream,
+                        stream=None,
                         event=torch.cuda.Event(),
                         owns_stream=False,
                     )
                     data["img"][i] = img
-            return original_img0, data, None, imgs_info, ids
+            return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
-            return original_img0, None, None, imgs_info, ids
+            return _wrap_original_image(original_img0), None, None, imgs_info, ids
         else:
             if cuda_stream is not None:
                 img = StreamTensor(
                     tensor=img,
-                    stream=cuda_stream,
+                    stream=None,
                     event=torch.cuda.Event(),
                     owns_stream=False,
                 )
-            return original_img0, img, None, imgs_info, ids
+            return _wrap_original_image(original_img0), img, None, imgs_info, ids
 
     def __next__(self):
         self._timer.tic()

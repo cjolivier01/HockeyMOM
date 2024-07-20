@@ -1,6 +1,7 @@
 import torch
 import time
 import queue
+from contextlib import nullcontext
 import numpy as np
 from threading import Thread
 from typing import Any, Callable, Dict, List, Tuple, Union, Set, Optional
@@ -238,6 +239,7 @@ class StreamTensor(StreamTensorBase):
         print_thresh: Optional[float] = 0.001,
     ):
         assert not isinstance(stream, StreamTensorBase)
+        assert isinstance(tensor, torch.Tensor)
         self._tensor = tensor
         self._stream = stream
         self._event = event
@@ -258,6 +260,7 @@ class StreamTensor(StreamTensorBase):
         self._event.record()
 
     def _clear_stream(self):
+        self._event = None
         if isinstance(self._tensor, StreamTensor):
             assert False
             assert self._stream is None
@@ -273,7 +276,8 @@ class StreamTensor(StreamTensorBase):
             return self._tensor.get()
         if self._stream is not None:
             if self._event is not None:
-                with torch.cuda.stream(self._stream):
+                # with torch.cuda.stream(self._stream):
+                with nullcontext():
                     start = time.time()
                     self._event.synchronize()
                     self._sync_duraton = time.time() - start
@@ -353,6 +357,7 @@ class StreamTensor(StreamTensorBase):
     def call_with_checkpoint(self, fn, *args, **kwargs):
         if self.stream is None:
             pass
+        assert self._owns_stream
         if torch.cuda.current_stream(self.device) == self.stream:
             self._set_ref(fn(self.ref(), *args, **kwargs))
             self._event = torch.cuda.Event()
