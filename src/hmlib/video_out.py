@@ -161,6 +161,8 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # H, W, C -> C, W, H
             img = img.permute(0, 3, 2, 1)
             angle = -angle
+            if current_dtype == torch.half:
+                img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(
                 img=img,
                 angle=angle,
@@ -175,6 +177,9 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # H, W, C -> C, W, H
             img = img.permute(2, 1, 0)
             angle = -angle
+            current_dtype = img.dtype
+            if current_dtype == torch.half:
+                img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(
                 img=img,
                 angle=angle,
