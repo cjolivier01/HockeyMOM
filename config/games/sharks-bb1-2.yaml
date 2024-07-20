@@ -114,6 +114,8 @@ rink:
     follower_box_scale_width: 1.25
     follower_box_scale_height: 1.25
   scoreboard:
+    projected_height: 150
+    projected_width: 400
     perspective_polygon:
     - - 1142
       - 1015
