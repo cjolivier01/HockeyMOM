@@ -649,8 +649,8 @@ class VideoOutput:
         cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
 
         cuda_stream = None
-        if self._device.type == "cuda":
-            cuda_stream = torch.cuda.Stream(self._device)
+        # if self._device.type == "cuda":
+        #     cuda_stream = torch.cuda.Stream(self._device)
 
         while True:
             batch_count += 1
@@ -980,6 +980,7 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
+                        # cuda_stream.synchronize()
                         online_im = StreamTensor(
                             tensor=online_im, event=torch.cuda.Event()
                         )
