@@ -274,16 +274,10 @@ class VideoStreamWriter:
                 else:
                     image_batch = torch.cat(batch_items, dim=0)
             frame_count = len(image_batch)
-            if isinstance(image_batch, StreamTensor):
-                self._video_out.write_video_chunk(
-                    i=0,
-                    chunk=image_batch,
-                )
-            else:
-                self._video_out.write_video_chunk(
-                    i=0,
-                    chunk=image_batch,
-                )
+            self._video_out.write_video_chunk(
+                i=0,
+                chunk=image_batch,
+            )
             self._frame_counter += frame_count
 
         if flush_video_file and self._video_f is not None:
