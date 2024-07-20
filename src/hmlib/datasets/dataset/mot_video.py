@@ -23,6 +23,7 @@ from hmlib.utils.gpu import (
     # StreamTensorToDtype,
     StreamTensorToDevice,
     CachedIterator,
+    allocate_stream,
 )
 from hmlib.video_out import quick_show
 
@@ -128,6 +129,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._embedded_data_loader = embedded_data_loader
         self._embedded_data_loader_iter = None
         self._stream_tensors = stream_tensors
+        self._cuda_stream = None
         # assert self._embedded_data_loader is None or path is None
 
         # Optimize the clip box
@@ -317,9 +319,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         ALL_NON_BLOCKING = True
 
-        cuda_stream = None
-        if self._stream_tensors and self._is_cuda():
-            cuda_stream = torch.cuda.Stream(self._device)
+        # cuda_stream = None
+        # if self._stream_tensors and self._is_cuda():
+        #     # cuda_stream = torch.cuda.Stream(self._device)
+        #     cuda_stream = allocate_stream(self._device)
+        
+        if self._cuda_stream is None:
+            self._cuda_stream = allocate_stream(self._device)
+        cuda_stream = self._cuda_stream
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
@@ -450,14 +457,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 tensor=original_img0,
                 stream=cuda_stream,
                 event=torch.cuda.Event(),
-                owns_stream=True,
+                owns_stream=False,
             )
 
         if self._data_pipeline is not None:
             if cuda_stream is not None:
                 for i, img in enumerate(data["img"]):
                     img = StreamTensor(
-                        tensor=img, stream=cuda_stream, event=torch.cuda.Event()
+                        tensor=img,
+                        stream=cuda_stream,
+                        event=torch.cuda.Event(),
+                        owns_stream=False,
                     )
                     data["img"][i] = img
             return original_img0, data, None, imgs_info, ids
@@ -466,7 +476,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         else:
             if cuda_stream is not None:
                 img = StreamTensor(
-                    tensor=img, stream=cuda_stream, event=torch.cuda.Event()
+                    tensor=img,
+                    stream=cuda_stream,
+                    event=torch.cuda.Event(),
+                    owns_stream=False,
                 )
             return original_img0, img, None, imgs_info, ids
 

@@ -501,7 +501,7 @@ def make_channels_first(img: torch.Tensor):
     return img
 
 
-def make_channels_last(img: torch.Tensor):
+def make_channels_last(img: torch.Tensor | StreamTensor):
     if len(img.shape) == 4:
         if img.shape[1] in [1, 3, 4]:
             return _permute(img, 0, 2, 3, 1)

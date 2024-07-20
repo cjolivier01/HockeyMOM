@@ -13,7 +13,7 @@ import multiprocessing
 import queue
 from contextlib import contextmanager
 import PIL
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 import torchvision as tv
@@ -84,6 +84,26 @@ def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
         tensor._verbose = True
         return tensor.get()
     return tensor
+
+
+class SidebandQueue:
+    def __init__(self):
+        self._q = queue.Queue()
+        self._counter = 1
+        self._map: Dict[int, Any] = {}
+
+    def put(self, obj: Any):
+        ctr = self._counter
+        self._counter += 1
+        self._map[ctr] = obj
+        self._q.put(ctr)
+
+    def get(self) -> Any:
+        ctr = self._q.get()
+        return self._map.pop(ctr)
+
+    def qsize(self):
+        return len(self._map)
 
 
 @contextmanager
@@ -345,7 +365,9 @@ class VideoOutput:
         self._use_fork = use_fork
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
-        self._imgproc_queue = create_queue(mp=use_fork)
+        # self._imgproc_queue = create_queue(mp=use_fork)
+        # self._imgproc_queue = queue.Queue()
+        self._imgproc_queue = SidebandQueue()
         self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
@@ -634,6 +656,13 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
+
+            # torch.cuda.synchronize()
+
+            if isinstance(online_im, StreamTensor) and not online_im.owns_stream:
+                online_im._verbose = True
+                online_im = online_im.get()
+
             frame_id = imgproc_data.frame_id
             if frame_id.ndim == 0:
                 frame_id = frame_id.unsqueeze(0)

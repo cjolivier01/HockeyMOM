@@ -6,6 +6,50 @@ from threading import Thread
 from typing import Any, Callable, Dict, List, Tuple, Union, Set, Optional
 
 from hmlib.utils.utils import create_queue
+from .containers import LinkedList
+
+
+_CUDA_STREAMS: Dict[int, LinkedList] = {}
+_CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
+
+
+def _get_stream_llist(device: torch.device) -> LinkedList | None:
+    assert isinstance(device, torch.device)
+    if device.type != "cuda":
+        return None
+    device_index = device.index
+    llist = _CUDA_STREAMS.get(device_index, None)
+    if llist is None:
+        llist = LinkedList()
+        _CUDA_STREAMS[device_index] = llist
+    return llist
+
+
+def allocate_stream(device: torch.device) -> torch.cuda.Stream | None:
+    llist = _get_stream_llist(device)
+    if llist is None:
+        return None
+    try:
+        stream = llist.pop_back()
+        assert stream in _CUDA_STREAMS_SET
+        _CUDA_STREAMS_SET.remove(stream)
+        return stream
+    except IndexError:
+        return torch.cuda.Stream(device)
+
+
+def free_stream(stream: torch.cuda.Stream) -> None:
+    # if stream is None:
+    #     return
+    # llist = _get_stream_llist(device=stream.device)
+    # if llist is None:
+    #     return
+    # if stream in _CUDA_STREAMS_SET:
+    #     print("OOPS! uoisdhfwiofhuiwehuof")
+    # assert stream not in _CUDA_STREAMS_SET
+    # _CUDA_STREAMS_SET.add(stream)
+    # llist.push_front(stream)
+    pass
 
 
 class GpuAllocator:
@@ -193,6 +237,7 @@ class StreamTensor(StreamTensorBase):
         verbose: Optional[bool] = True,
         print_thresh: Optional[float] = 0.001,
     ):
+        assert not isinstance(stream, StreamTensorBase)
         self._tensor = tensor
         self._stream = stream
         self._event = event
@@ -222,20 +267,37 @@ class StreamTensor(StreamTensorBase):
         self._event = torch.cuda.Event()
         self._event.record()
 
+    def _clear_stream(self):
+        if isinstance(self._tensor, StreamTensor):
+            assert False
+            assert self._stream is None
+            self._tensor._clear_stream()
+        elif self._stream is not None:
+            if self._owns_stream:
+                free_stream(self._stream)
+            self._stream = None
+
     def get(self):
+        if isinstance(self._tensor, StreamTensor):
+            assert self._stream is None
+            return self._tensor.get()
         if self._stream is not None:
             if self._event is not None:
                 with torch.cuda.stream(self._stream):
                     start = time.time()
                     self._event.synchronize()
                     self._sync_duraton = time.time() - start
+                self._event = None
             else:
                 assert False
                 self._stream.synchronize()
+            self._clear_stream()
         elif self._event is not None:
             start = time.time()
             self._event.synchronize()
             self._sync_duraton = time.time() - start
+            self._event = None
+            self._clear_stream()
         if (
             self._verbose
             and self._sync_duraton is not None
@@ -257,10 +319,7 @@ class StreamTensor(StreamTensorBase):
     def stream(self):
         if isinstance(self._tensor, StreamTensor):
             return self._tensor.stream
-        if self._owns_stream:
-            return self._stream
-        else:
-            return None
+        return self._stream
 
     @property
     def dtype(self):
@@ -302,13 +361,15 @@ class StreamTensor(StreamTensorBase):
             self._tensor = tensor
 
     def call_with_checkpoint(self, fn, *args, **kwargs):
-        if torch.cuda.current_stream(self.device) == self._stream:
+        if self.stream is None:
+            pass
+        if torch.cuda.current_stream(self.device) == self.stream:
             self._set_ref(fn(self.ref(), *args, **kwargs))
             self._event = torch.cuda.Event()
             self._event.record()
         else:
-            assert self._stream is not None
-            with torch.cuda.stream(self._stream):
+            assert self.stream is not None
+            with torch.cuda.stream(self.stream):
                 self._set_ref(fn(self.ref(), *args, **kwargs))
                 self._event = torch.cuda.Event()
                 self._event.record()
@@ -316,7 +377,7 @@ class StreamTensor(StreamTensorBase):
 
     def __truediv__(self, other):
         assert isinstance(other, (int, float))
-        assert self._owns_stream
+        assert self.owns_stream
         with torch.cuda.stream(self._stream):
             self._set_ref(self.ref() / other)
             self._event = torch.cuda.Event()
@@ -390,9 +451,7 @@ class StreamTensorToDevice(StreamTensor):
             tensor = torch.from_numpy(tensor)
         if tensor.device != device:
             if stream is None:
-                stream = torch.cuda.Stream(
-                    device=device if device.type == "cuda" else tensor.device
-                )
+                stream = allocate_stream(device) if device.type == "cuda" else None
             with torch.cuda.stream(stream=stream):
                 tensor = tensor.to(device, non_blocking=True)
                 self._event = torch.cuda.Event()
@@ -428,7 +487,9 @@ class StreamTensorToDtype(StreamTensor):
                 self._event = torch.cuda.Event()
                 self._event.record()
         else:
-            self._stream = torch.cuda.Stream(tensor.device)
+            self._stream = (
+                allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
+            )
             with torch.cuda.stream(stream=self._stream):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
                 if contiguous:
@@ -461,7 +522,9 @@ def async_to(
         return tensor
     else:
         # How do we do this across two devices?
-        stream = torch.cuda.Stream(device if device.type != "cpu" else tensor.device)
+        stream = (
+            allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
+        )
         with torch.cuda.stream(stream):
             if device is not None:
                 tensor = tensor.to(device=device, non_blocking=True)

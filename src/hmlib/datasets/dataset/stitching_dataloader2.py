@@ -25,7 +25,7 @@ from hmlib.stitching.synchronize import (
 from hmlib.stitching.blender import create_stitcher
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator, async_to
+from hmlib.utils.gpu import StreamTensor, StreamCheckpoint, CachedIterator, async_to, allocate_stream
 from hmlib.video_out import (
     VideoOutput,
     ImageProcData,
@@ -371,27 +371,33 @@ class StitchDataset:
                 img = async_to(img, device=self._remapping_device)
                 # img = img.to(self._remapping_device, non_blocking=True)
             if img.dtype != self._dtype:
-                img = async_to(img, dtype=self._dtype)
-                # img = img.to(self._dtype, non_blocking=True)
+                # img = async_to(img, dtype=self._dtype)
+                img = img.to(self._dtype, non_blocking=True)
             return img
 
         stream = None
         # if imgs_1.device.type == "cpu":
         #     stream = self._remapping_stream
         stream = self._remapping_stream
+        # stream = allocate_stream(imgs_1.device)
         with optional_with(torch.cuda.stream(stream) if stream is not None else None):
             sinfo_1 = core.StitchImageInfo()
-            sinfo_1.image = to_tensor(_prepare_image(imgs_1))
+            # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
+            sinfo_1.image = _prepare_image(to_tensor(imgs_1))
             sinfo_1.xy_pos = self._xy_pos_1
 
             sinfo_2 = core.StitchImageInfo()
-            sinfo_2.image = to_tensor(_prepare_image(imgs_2))
+            #sinfo_2.image = to_tensor(_prepare_image(imgs_2))
+            sinfo_2.image = _prepare_image(to_tensor(imgs_2))
             sinfo_2.xy_pos = self._xy_pos_2
 
             blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
             if stream is not None:
+                # blended_stream_tensor = StreamCheckpoint(
+                #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
+                # )
                 blended_stream_tensor = StreamCheckpoint(
-                    tensor=blended_stream_tensor, stream=self._remapping_stream
+                    tensor=blended_stream_tensor, stream=self._remapping_stream, owns_stream=False,
                 )
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
@@ -626,9 +632,11 @@ class StitchDataset:
                     self._batch_size * 1.0 / max(1e-5, self._next_timer.average_time),
                 )
             )
-        if self._batch_count == 1:
-            print("Saving first stitched frame to s.png")
-            cv2.imwrite("s.png", make_visible_image(to_tensor(stitched_frame)[0]))
+        # if self._batch_count == 1:
+        #     print("Saving first stitched frame to s.png")
+        #     torch.cuda.synchronize()
+        #     stitched_frame = stitched_frame.ref()
+        #     cv2.imwrite("s.png", make_visible_image(stitched_frame[0]))
 
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
         return stitched_frame
