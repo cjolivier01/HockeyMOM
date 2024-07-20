@@ -323,7 +323,6 @@ class VideoStreamWriter:
             if not self._codec.endswith("_nvenc") and images.device.type != "cpu":
                 images = images.cpu()
         self._batch_items.append(self._make_proper_permute(images))
-        # if len(self._batch_items) >= self._batch_size:
         self.flush(flush_video_file=False)
         self._batch_count += 1
         if self._timer.start_time != 0:
