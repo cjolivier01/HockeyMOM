@@ -885,9 +885,6 @@ class VideoOutput:
                     online_im[:, : scoreboard.height, : scoreboard.width, :] = (
                         scoreboard_img
                     )
-                    # online_im[:, : scoreboard.height, : scoreboard.width, :] = (
-                    #     scoreboard_img[:, scoreboard.height, : scoreboard.width, :]
-                    # )
 
                 #
                 # Watermark
@@ -907,9 +904,7 @@ class VideoOutput:
                         y=y,
                     )
 
-                # online_im = online_im.get()
                 online_im = _to_uint8(online_im, non_blocking=True)
-                # cuda_stream.synchronize()
 
                 if self._image_color_scaler is not None:
                     online_im = self._image_color_scaler.maybe_scale_image_colors(
@@ -980,7 +975,6 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
-                        # cuda_stream.synchronize()
                         online_im = StreamTensor(
                             tensor=online_im, event=torch.cuda.Event()
                         )
