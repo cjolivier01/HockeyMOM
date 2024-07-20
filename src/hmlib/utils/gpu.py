@@ -250,16 +250,6 @@ class StreamTensor(StreamTensorBase):
         self._sync_duraton = None
         self._verbose = verbose
 
-    # def clone(self):
-    #     #assert self._owns_stream
-    #     with torch.cuda.stream(self._stream):
-    #         return StreamTensor(
-    #             tensor=self.ref().clone(),
-    #             stream=self._stream,
-    #             event=torch.cuda.Event(),
-    #             owns_stream=self._owns_stream,
-    #         )
-
     def new_checkpoint(self):
         assert self._stream is not None
         assert torch.cuda.current_stream(self.ref().device) == self._stream
@@ -303,9 +293,9 @@ class StreamTensor(StreamTensorBase):
             and self._sync_duraton is not None
             and self._sync_duraton > self._print_thresh
         ):
-            # print(
-            #     f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
-            # )
+            print(
+                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            )
             pass
         return self._tensor
 
