@@ -370,45 +370,46 @@ class StitchDataset:
 
         # assert ids_1 == ids_2
 
-        assert isinstance(images, list)
-        assert len(images) == 2
+        with torch.no_grad():
+            assert isinstance(images, list)
+            assert len(images) == 2
 
-        def _prepare_image(img: torch.Tensor):
-            img = make_channels_first(img)
-            if img.device != self._remapping_device:
-                img = async_to(img, device=self._remapping_device)
-                # img = img.to(self._remapping_device, non_blocking=True)
-            if img.dtype != self._dtype:
-                # img = async_to(img, dtype=self._dtype)
-                img = img.to(self._dtype, non_blocking=True)
-            return img
+            def _prepare_image(img: torch.Tensor):
+                img = make_channels_first(img)
+                if img.device != self._remapping_device:
+                    img = async_to(img, device=self._remapping_device)
+                    # img = img.to(self._remapping_device, non_blocking=True)
+                if img.dtype != self._dtype:
+                    # img = async_to(img, dtype=self._dtype)
+                    img = img.to(self._dtype, non_blocking=True)
+                return img
 
-        stream = None
-        # if imgs_1.device.type == "cpu":
-        #     stream = self._remapping_stream
-        stream = self._remapping_stream
-        # stream = allocate_stream(imgs_1.device)
-        with optional_with(torch.cuda.stream(stream) if stream is not None else None):
-            sinfo_1 = core.StitchImageInfo()
-            # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
-            sinfo_1.image = _prepare_image(to_tensor(imgs_1))
-            sinfo_1.xy_pos = self._xy_pos_1
+            stream = None
+            # if imgs_1.device.type == "cpu":
+            #     stream = self._remapping_stream
+            stream = self._remapping_stream
+            # stream = allocate_stream(imgs_1.device)
+            with optional_with(torch.cuda.stream(stream) if stream is not None else None):
+                sinfo_1 = core.StitchImageInfo()
+                # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
+                sinfo_1.image = _prepare_image(to_tensor(imgs_1))
+                sinfo_1.xy_pos = self._xy_pos_1
 
-            sinfo_2 = core.StitchImageInfo()
-            # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
-            sinfo_2.image = _prepare_image(to_tensor(imgs_2))
-            sinfo_2.xy_pos = self._xy_pos_2
+                sinfo_2 = core.StitchImageInfo()
+                # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
+                sinfo_2.image = _prepare_image(to_tensor(imgs_2))
+                sinfo_2.xy_pos = self._xy_pos_2
 
-            blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
-            if stream is not None:
-                # blended_stream_tensor = StreamCheckpoint(
-                #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
-                # )
-                blended_stream_tensor = StreamCheckpoint(
-                    tensor=blended_stream_tensor,
-                    stream=self._remapping_stream,
-                    owns_stream=False,
-                )
+                blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                if stream is not None:
+                    # blended_stream_tensor = StreamCheckpoint(
+                    #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
+                    # )
+                    blended_stream_tensor = StreamCheckpoint(
+                        tensor=blended_stream_tensor,
+                        stream=self._remapping_stream,
+                        owns_stream=False,
+                    )
 
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         self._ordering_queue.put((ids_1, blended_stream_tensor))

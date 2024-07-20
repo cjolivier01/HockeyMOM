@@ -7,6 +7,7 @@ from __future__ import print_function
 import time
 import os
 import cv2
+from contextlib import nullcontext
 import numpy as np
 import traceback
 import multiprocessing
@@ -633,8 +634,6 @@ class VideoOutput:
 
         scoreboard = None
 
-        cuda_stream = None
-
         batch_count = 0
 
         last_frame_id = None
@@ -643,6 +642,10 @@ class VideoOutput:
         imgproc_iter = iter(iqueue)
 
         cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
+
+        cuda_stream = None
+        if self._device.type == "cuda":
+            cuda_stream = torch.cuda.Stream(self._device)
 
         while True:
             batch_count += 1
@@ -656,8 +659,6 @@ class VideoOutput:
 
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
-
-            # torch.cuda.synchronize()
 
             if isinstance(online_im, StreamTensor) and not online_im.owns_stream:
                 online_im._verbose = True
@@ -708,8 +709,10 @@ class VideoOutput:
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
             batch_size = online_im.shape[0]
 
-            with optional_with(
-                torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
+            with (
+                torch.cuda.stream(cuda_stream)
+                if cuda_stream is not None
+                else nullcontext()
             ):
                 if self._device is not None and (
                     not self._simple_save or "nvenc" in self._fourcc
@@ -972,6 +975,9 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
+                        online_im = StreamTensor(
+                            tensor=online_im, event=torch.cuda.Event()
+                        )
                         self._output_video.write(online_im)
                 if self._save_frame_dir:
                     # frame_id should start with 1

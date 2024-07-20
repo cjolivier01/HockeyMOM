@@ -319,12 +319,15 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
-        ):
+        ), torch.no_grad():
             # Read image
             res, img0 = self._read_next_image()
             if not res or img0 is None:
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
+
+            if self._data_pipeline is not None:
+                pass
 
             # if not isinstance(img0, np.ndarray):
             #     # Set a breakpoint here to catch only the post-stitch dataloader
@@ -355,9 +358,20 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._next_frame_id += len(ids)
 
             if self._data_pipeline is not None:
-                original_img0 = img0
                 # if torch.is_floating_point(img0):
                 #     img0 = img0 * 255
+                
+                if isinstance(img0, StreamTensor):
+                    img0 = img0.get()
+
+                if img0.dtype != self._dtype:
+                    # sanity check on what we're assuming here
+                    assert self._dtype == torch.half
+                    assert img0.dtype == torch.float or img0.dtype == torch.uint8
+                    img0 = img0.to(dtype=self._dtype, non_blocking=True)
+
+                original_img0 = img0
+
                 data_item = dict(
                     img=make_channels_last(img0),
                     img_info=dict(frame_id=ids[0]),
