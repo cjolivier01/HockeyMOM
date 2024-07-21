@@ -169,6 +169,8 @@ class VideoStreamWriter:
                     image = image.permute(0, 3, 1, 2)
                 else:
                     image = image.transpose(0, 3, 1, 2)
+        assert image.shape[-2] == self._height
+        assert image.shape[-1] == self._width
         return image
 
     def _add_stream(self):
@@ -252,7 +254,7 @@ class VideoStreamWriter:
         if self._batch_items:
             if flush_all:
                 batch_items = self._batch_items
-                self._batch_items.clear()
+                self._batch_items = []
                 if not batch_items:
                     return
             elif len(self._batch_items) <= self._cache_size:
@@ -263,6 +265,8 @@ class VideoStreamWriter:
                 assert flush_item_count
                 batch_items = self._batch_items[0:flush_item_count]
                 self._batch_items = self._batch_items[flush_item_count:]
+            if not batch_items:
+                return
             batch_items = [_get_tensor(img) for img in batch_items]
             if len(batch_items) == 1:
                 image_batch = batch_items[0]

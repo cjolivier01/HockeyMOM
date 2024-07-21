@@ -643,6 +643,8 @@ def make_showable_type(
         if img.ndim == 2:
             # 2D grayscale
             img = img.unsqueeze(0).repeat(3, 1, 1)
+        if len(img.shape) == 4 and img.shape[0] == 1:
+            img = img.squeeze(0)
         assert len(img.shape) == 3
         img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.float, torch.float64]:
