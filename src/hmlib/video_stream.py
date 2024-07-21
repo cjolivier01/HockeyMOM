@@ -246,7 +246,8 @@ class VideoStreamWriter:
     def flush(self, flush_video_file: bool = True, flush_all: bool = False):
         def _get_tensor(t):
             if isinstance(t, StreamTensor):
-                return t.get()
+                # return t.get()
+                return t.wait()
             return t
 
         # flush_all = True
