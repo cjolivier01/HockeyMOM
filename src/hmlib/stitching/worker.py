@@ -24,6 +24,7 @@ from hmlib.stitching.blender import create_blender_config
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import StreamTensorToDevice, StreamTensorToDtype, CachedIterator
+from hmlib.utils.containers import create_queue
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128
@@ -54,13 +55,6 @@ def INFO(*args, **kwargs):
     if not _VERBOSE:
         return
     print(*args, **kwargs)
-
-
-def create_queue(mp: bool):
-    if mp:
-        return multiprocessing.Queue()
-    else:
-        return queue.Queue()
 
 
 def safe_put_queue(queue, object):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import queue
 from threading import Lock
 from typing import Any, Optional
@@ -119,3 +120,11 @@ class IterableQueue:
         if item is None:
             raise StopIteration()
         return item
+
+
+def create_queue(mp: bool):
+    if mp:
+        assert False
+        return multiprocessing.Queue()
+    else:
+        return SidebandQueue()

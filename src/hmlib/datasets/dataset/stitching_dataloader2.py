@@ -24,6 +24,7 @@ from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 from hmlib.stitching.blender import create_stitcher
+from hmlib.utils.containers import create_queue
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.utils.gpu import (
@@ -55,8 +56,6 @@ def _get_dir_name(path):
 
 
 from hmlib.stitching.stitch_worker import (
-    # StitchingWorker,
-    create_queue,
     safe_put_queue,
     INFO,
     _LARGE_NUMBER_OF_FRAMES,

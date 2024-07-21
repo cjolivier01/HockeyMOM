@@ -14,7 +14,7 @@ from mmdet.datasets.pipelines import Compose
 from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
-from hmlib.utils.utils import create_queue
+from hmlib.utils.containers import create_queue
 from hmlib.utils.image import make_channels_last
 from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import (

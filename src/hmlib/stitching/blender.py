@@ -25,7 +25,6 @@ from hmlib.video_out import (
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
-from hmlib.utils.utils import create_queue
 from hmlib.utils.gpu import (
     StreamTensorToDevice,
     StreamTensorToDtype,

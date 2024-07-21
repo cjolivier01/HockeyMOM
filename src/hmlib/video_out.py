@@ -7,11 +7,8 @@ from __future__ import print_function
 import time
 import os
 import cv2
-from contextlib import nullcontext
 import numpy as np
 import traceback
-import multiprocessing
-import queue
 from contextlib import contextmanager
 import PIL
 from typing import Any, Dict, List, Tuple, Union
@@ -25,7 +22,6 @@ from PIL import Image
 from threading import Thread
 
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.utils import create_queue
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.image import (
@@ -43,7 +39,7 @@ from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensorToDevice,
 )
-from hmlib.utils.containers import SidebandQueue, IterableQueue
+from hmlib.utils.containers import SidebandQueue, IterableQueue, create_queue
 from hmlib.utils.image import (
     make_channels_last,
     image_width,
@@ -340,9 +336,10 @@ class VideoOutput:
         self._use_fork = use_fork
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
-        # self._imgproc_queue = create_queue(mp=use_fork)
+        self._imgproc_queue = create_queue(mp=use_fork)
+        assert isinstance(self._imgproc_queue, SidebandQueue)
         # self._imgproc_queue = queue.Queue()
-        self._imgproc_queue = SidebandQueue()
+        # self._imgproc_queue = SidebandQueue()
         self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
@@ -648,7 +645,7 @@ class VideoOutput:
             online_im = imgproc_data.img
 
             if isinstance(online_im, StreamTensor):
-                assert not online_im.owns_stream
+                # assert not online_im.owns_stream
                 online_im._verbose = True
                 online_im = online_im.get()
                 torch.cuda.synchronize()
@@ -942,10 +939,7 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
-                        # online_im = StreamCheckpoint(
-                        #     tensor=online_im,
-                        #     owns_stream=False,
-                        # )
+                        # online_im = StreamCheckpoint(tensor=online_im)
                         # online_im = online_im.get()
                         # cuda_stream.synchronize()
                         # torch.cuda.synchronize()

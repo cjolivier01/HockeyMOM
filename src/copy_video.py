@@ -3,42 +3,21 @@ Experiments in stitching
 """
 
 import argparse
-import datetime
 import os
 from contextlib import nullcontext
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 
-import hockeymom.core as core
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.hm_opts import copy_opts, hm_opts
-from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.remapper import read_frame_batch
-from hmlib.stitching.synchronize import get_image_geo_position, synchronize_by_audio
-from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import (
-    CachedIterator,
-    GpuAllocator,
-    StreamCheckpoint,
-    StreamTensor,
-    StreamTensorToDevice,
-    StreamTensorToDtype,
-)
-from hmlib.utils.image import image_height, image_width
-from hmlib.utils.utils import create_queue
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.video_out import (
-    ImageProcData,
-    VideoOutput,
-    optional_with,
-    resize_image,
-    rotate_image,
-)
-from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
+from hmlib.hm_opts import hm_opts
+from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.gpu import CachedIterator, GpuAllocator
+from hmlib.utils.image import image_height, image_width
+from hmlib.video_out import ImageProcData, VideoOutput
+from hmlib.video_stream import VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 
@@ -109,20 +88,6 @@ def gpu_index(want: int = 1):
 
 def stream_context(stream: Optional[torch.cuda.Stream]):
     return torch.cuda.stream(stream) if stream is not None else nullcontext()
-
-
-# def to_tensor(t, no_sync: bool = False):
-#     if isinstance(t, StreamTensor):
-#         if no_sync:
-#             return t.ref()
-#         return t.get()
-#     if isinstance(t, np.ndarray):
-#         t = torch.from_numpy(t)
-#     if t.device != device:
-#         t = t.to(device, non_blocking=False)
-#     if t.dtype == torch.uint8:
-#         t = t.to(dtype, non_blocking=False)
-#     return t
 
 
 def copy_video(

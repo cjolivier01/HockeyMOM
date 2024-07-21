@@ -7,8 +7,7 @@ import numpy as np
 from threading import Thread
 from typing import Any, Callable, Dict, List, Tuple, Union, Set, Optional
 
-from hmlib.utils.utils import create_queue
-from .containers import LinkedList
+from .containers import LinkedList, create_queue
 
 
 _CUDA_STREAMS: Dict[int, LinkedList] = {}
@@ -174,7 +173,7 @@ class ThreadedCachedIterator:
         self._q = create_queue(mp=False) if cache_size else None
         self._pre_callback_fn = pre_callback_fn
         self._save_cache_size = cache_size
-        self._pull_queue_to_worker: queue.Queue = queue.Queue()
+        self._pull_queue_to_worker = create_queue(mp=False)
         self._pull_thread = Thread(target=self._pull_worker)
         for i in range(cache_size):
             self._pull_queue_to_worker.put("ok")
@@ -457,24 +456,23 @@ class StreamTensorToDevice(StreamTensor):
         self,
         tensor: torch.Tensor,
         device: torch.device,
-        contiguous: bool = False,
         stream: Union[None, torch.cuda.Stream] = None,
         verbose: bool = True,
     ):
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
-        if tensor.device != device:
-            if stream is None:
-                stream = allocate_stream(device) if device.type == "cuda" else None
-            with torch.cuda.stream(stream=stream):
-                tensor = tensor.to(device, non_blocking=True)
-                self._event = torch.cuda.Event()
-                self._event.record()
-        if contiguous:
-            tensor = tensor.contiguous()
-        super(StreamTensorToDevice, self).__init__(
-            tensor=tensor, stream=stream, event=self._event, verbose=verbose
-        )
+        super(StreamTensorToDevice, self).__init__(tensor=tensor, verbose=verbose)
+        if tensor.device == device:
+            return
+        if stream is None:
+            stream = allocate_stream(device) if device.type == "cuda" else None
+            self._stream = stream
+            self._owns_stream = True
+        with torch.cuda.stream(stream=stream):
+            tensor = tensor.to(device, non_blocking=True)
+            assert self._event is None
+            self._event = torch.cuda.Event()
+            self._event.record()
 
 
 class StreamTensorToDtype(StreamTensor):

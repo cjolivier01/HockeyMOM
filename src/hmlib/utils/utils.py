@@ -181,12 +181,6 @@ def encode_delta(gt_box_list, fg_anchor_list):
     return np.stack((dx, dy, dw, dh), axis=1)
 
 
-def create_queue(mp: bool):
-    if mp:
-        return multiprocessing.Queue()
-    else:
-        return queue.Queue()
-
 def classinstancememoize(cls):
     cache = {}
 

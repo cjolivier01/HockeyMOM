@@ -11,7 +11,6 @@ import time
 from typing import Tuple
 import multiprocessing
 
-import queue
 from typing import List
 
 from hockeymom import core
@@ -59,13 +58,6 @@ def INFO(*args, **kwargs):
     if not _VERBOSE:
         return
     print(*args, **kwargs)
-
-
-def create_queue(mp: bool):
-    if mp:
-        return multiprocessing.Queue()
-    else:
-        return queue.Queue()
 
 
 def safe_put_queue(queue, object):
@@ -163,12 +155,12 @@ class StitchingWorker:
             img = img.ascontiguousarray(img)
         return img
 
-    def _is_ready_to_exit(self):
-        try:
-            self._to_worker_queue.get_nowait()
-            return True
-        except queue.Empty:
-            return False
+    # def _is_ready_to_exit(self):
+    #     try:
+    #         self._to_worker_queue.get_nowait()
+    #         return True
+    #     except queue.Empty:
+    #         return False
 
     def start(self, fork: bool):
         # if fork:

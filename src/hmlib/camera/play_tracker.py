@@ -10,7 +10,6 @@ from typing import List, Dict, Set
 import torch
 
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.utils import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.camera.moving_box import MovingBox

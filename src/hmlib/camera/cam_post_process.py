@@ -13,7 +13,7 @@ import torch
 
 from threading import Thread
 
-from hmlib.utils.utils import create_queue
+from hmlib.utils.containers import create_queue
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 
