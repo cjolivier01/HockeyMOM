@@ -20,7 +20,6 @@ from hmlib.video_out import (
     ImageProcData,
     resize_image,
     rotate_image,
-    optional_with,
 )
 from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
@@ -32,6 +31,7 @@ from hmlib.utils.gpu import (
     StreamTensor,
     StreamCheckpoint,
     GpuAllocator,
+    cuda_stream_scope,
 )
 from hmlib.hm_opts import hm_opts, copy_opts
 
@@ -895,10 +895,7 @@ def stitch_video(
             t = t.to(dtype, non_blocking=False)
         return t
 
-    with optional_with(
-        # None
-        torch.cuda.stream(main_stream)
-    ):
+    with cuda_stream_scope(main_stream):
         stitcher.to(device)
 
         video_out = None

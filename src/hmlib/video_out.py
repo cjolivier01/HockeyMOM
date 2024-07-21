@@ -38,6 +38,7 @@ from hmlib.utils.gpu import (
     StreamTensor,
     StreamCheckpoint,
     StreamTensorToDevice,
+    cuda_stream_scope,
 )
 from hmlib.utils.containers import SidebandQueue, IterableQueue, create_queue
 from hmlib.utils.image import (
@@ -71,16 +72,16 @@ def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
     return tensor
 
 
-@contextmanager
-def optional_with(resource):
-    """A context manager that works even if the resource is None."""
-    if resource is None:
-        # If the resource is None, yield nothing but still enter the with block
-        yield None
-    else:
-        # If the resource is not None, use it as a normal context manager
-        with resource as r:
-            yield r
+# @contextmanager
+# def optional_with(resource):
+#     """A context manager that works even if the resource is None."""
+#     if resource is None:
+#         # If the resource is None, yield nothing but still enter the with block
+#         yield None
+#     else:
+#         # If the resource is not None, use it as a normal context manager
+#         with resource as r:
+#             yield r
 
 
 def quick_show(img: torch.Tensor, wait: bool = False):
@@ -440,8 +441,9 @@ class VideoOutput:
 
     def stop(self):
         self._imgproc_queue.put(None)
-        self._imgproc_thread.join()
-        self._imgproc_thread = None
+        if self._imgproc_thread is not None:
+            self._imgproc_thread.join()
+            self._imgproc_thread = None
 
     def is_cuda_encoder(self):
         return "nvenc" in self._fourcc
@@ -622,67 +624,65 @@ class VideoOutput:
 
         last_frame_id = None
 
-        iqueue = IterableQueue(self._imgproc_queue)
-        imgproc_iter = iter(iqueue)
-
-        cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
-
         cuda_stream = None
         # if self._device.type == "cuda":
         #     cuda_stream = torch.cuda.Stream(self._device)
 
-        while True:
-            batch_count += 1
-            try:
-                # imgproc_data = next(imgproc_iter)
-                imgproc_data = next(cached_imgproc_iter)
-            except StopIteration:
-                break
+        with cuda_stream_scope(cuda_stream):
+            iqueue = IterableQueue(self._imgproc_queue)
+            imgproc_iter = iter(iqueue)
 
-            timer.tic()
+            cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
 
-            current_box = imgproc_data.current_box
-            online_im = imgproc_data.img
+            while True:
+                batch_count += 1
+                try:
+                    # imgproc_data = next(imgproc_iter)
+                    imgproc_data = next(cached_imgproc_iter)
+                except StopIteration:
+                    break
 
-            if isinstance(online_im, StreamTensor):
-                # assert not online_im.owns_stream
-                online_im._verbose = True
-                online_im = online_im.get()
-                torch.cuda.synchronize()
-                # cv2.imshow("online_im", make_visible_image(online_im))
-                # cv2.waitKey(0)
+                timer.tic()
 
-            frame_id = imgproc_data.frame_id
-            if frame_id.ndim == 0:
-                frame_id = frame_id.unsqueeze(0)
+                current_box = imgproc_data.current_box
+                online_im = imgproc_data.img
 
-            if last_frame_id is None:
-                last_frame_id = frame_id[-1]
-            else:
-                assert frame_id[0] == last_frame_id + 1
-                last_frame_id = frame_id[-1]
+                if isinstance(online_im, StreamTensor):
+                    # assert not online_im.owns_stream
+                    online_im._verbose = True
+                    online_im = online_im.get()
+                    # torch.cuda.synchronize()
+                    # cv2.imshow("online_im", make_visible_image(online_im))
+                    # cv2.waitKey(0)
 
-            if isinstance(online_im, np.ndarray):
-                online_im = torch.from_numpy(online_im)
+                frame_id = imgproc_data.frame_id
+                if frame_id.ndim == 0:
+                    frame_id = frame_id.unsqueeze(0)
 
-            # assert online_im.device.type == "cpu" or online_im.device == self._device
-            if online_im.device.type != "cpu" and self._device.type == "cpu":
-                # if isinstance(online_im, StreamTensor):
-                #     online_im = online_im.get()
-                online_im = online_im.cpu()
+                if last_frame_id is None:
+                    last_frame_id = frame_id[-1]
+                else:
+                    assert frame_id[0] == last_frame_id + 1
+                    last_frame_id = frame_id[-1]
 
-            if online_im.ndim == 3:
-                online_im = online_im.unsqueeze(0)
-                current_box = current_box.unsqueeze(0)
+                if isinstance(online_im, np.ndarray):
+                    online_im = torch.from_numpy(online_im)
 
-            # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
-            batch_size = online_im.shape[0]
+                # assert online_im.device.type == "cpu" or online_im.device == self._device
+                if online_im.device.type != "cpu" and self._device.type == "cpu":
+                    # if isinstance(online_im, StreamTensor):
+                    #     online_im = online_im.get()
+                    online_im = online_im.cpu()
 
-            # torch.cuda.synchronize()
+                if online_im.ndim == 3:
+                    online_im = online_im.unsqueeze(0)
+                    current_box = current_box.unsqueeze(0)
 
-            with optional_with(
-                torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
-            ):
+                # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
+                batch_size = online_im.shape[0]
+
+                # torch.cuda.synchronize()
+
                 if self._device is not None and (
                     not self._simple_save or "nvenc" in self._fourcc
                 ):
@@ -941,7 +941,8 @@ class VideoOutput:
                     else:
                         # online_im = StreamCheckpoint(tensor=online_im)
                         # online_im = online_im.get()
-                        # cuda_stream.synchronize()
+                        if cuda_stream is not None:
+                            cuda_stream.synchronize()
                         # torch.cuda.synchronize()
                         self._output_video.write(online_im)
                 if self._save_frame_dir:
