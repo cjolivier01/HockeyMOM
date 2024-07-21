@@ -249,7 +249,7 @@ class VideoStreamWriter:
                 return t.get()
             return t
 
-        flush_all = True
+        # flush_all = True
 
         if self._batch_items:
             if flush_all:

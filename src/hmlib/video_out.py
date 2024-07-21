@@ -624,21 +624,23 @@ class VideoOutput:
 
         last_frame_id = None
 
+        default_cuda_stream = None
         cuda_stream = None
-        # if self._device.type == "cuda":
-        #     cuda_stream = torch.cuda.Stream(self._device)
+
+        if self._device.type == "cuda":
+            default_cuda_stream = torch.cuda.current_stream(self._device)
+            cuda_stream = torch.cuda.Stream(self._device)
 
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
 
-            cached_imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
+            imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
 
             while True:
                 batch_count += 1
                 try:
-                    # imgproc_data = next(imgproc_iter)
-                    imgproc_data = next(cached_imgproc_iter)
+                    imgproc_data = next(imgproc_iter)
                 except StopIteration:
                     break
 
@@ -651,9 +653,6 @@ class VideoOutput:
                     # assert not online_im.owns_stream
                     online_im._verbose = True
                     online_im = online_im.get()
-                    # torch.cuda.synchronize()
-                    # cv2.imshow("online_im", make_visible_image(online_im))
-                    # cv2.waitKey(0)
 
                 frame_id = imgproc_data.frame_id
                 if frame_id.ndim == 0:
@@ -670,8 +669,6 @@ class VideoOutput:
 
                 # assert online_im.device.type == "cpu" or online_im.device == self._device
                 if online_im.device.type != "cpu" and self._device.type == "cpu":
-                    # if isinstance(online_im, StreamTensor):
-                    #     online_im = online_im.get()
                     online_im = online_im.cpu()
 
                 if online_im.ndim == 3:
@@ -687,8 +684,6 @@ class VideoOutput:
                     not self._simple_save or "nvenc" in self._fourcc
                 ):
                     if isinstance(online_im, np.ndarray):
-                        # if online_im.shape[-1] not in [3, 4]:
-                        #     online_im = online_im.transpose(1, 2, 0)
                         online_im = torch.from_numpy(online_im)
                     online_im = make_channels_last(online_im)
                     if str(online_im.device) != str(self._device):
@@ -926,10 +921,6 @@ class VideoOutput:
                             )
                             cv2.waitKey(1)
 
-                # Synchronzie at the end whether we are saving or not, or else perf numbers aren't real
-                # if cuda_stream is not None:
-                #     cuda_stream.synchronize()
-
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
@@ -939,12 +930,14 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
-                        # online_im = StreamCheckpoint(tensor=online_im)
-                        # online_im = online_im.get()
-                        if cuda_stream is not None:
-                            cuda_stream.synchronize()
-                        # torch.cuda.synchronize()
-                        self._output_video.write(online_im)
+                        online_im = StreamCheckpoint(tensor=online_im)
+                        with cuda_stream_scope(default_cuda_stream):
+                            # IMPORTANT:
+                            # The encode is going to use thedefault stream,
+                            # so call write() under that stream so that any actions
+                            # taken while pushing occur on the same stream as the
+                            # ultimate encoding
+                            self._output_video.write(online_im)
                 if self._save_frame_dir:
                     # frame_id should start with 1
                     assert imgproc_data.frame_id
