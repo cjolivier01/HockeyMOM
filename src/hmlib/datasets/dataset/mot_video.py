@@ -20,8 +20,9 @@ from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import (
     async_to,
     StreamTensor,
+    StreamCheckpoint,
     # StreamTensorToDtype,
-    StreamTensorToDevice,
+    # StreamTensorToDevice,
     CachedIterator,
     allocate_stream,
 )
@@ -316,6 +317,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         ALL_NON_BLOCKING = True
 
         cuda_stream = self._cuda_stream
+        # cuda_stream = None
 
         with optional_with(
             torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
@@ -360,15 +362,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._data_pipeline is not None:
                 # if torch.is_floating_point(img0):
                 #     img0 = img0 * 255
-                
+
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
-                if img0.dtype != self._dtype:
-                    # sanity check on what we're assuming here
-                    assert self._dtype == torch.half
-                    assert img0.dtype == torch.float or img0.dtype == torch.uint8
-                    img0 = img0.to(dtype=self._dtype, non_blocking=True)
+                # if img0.dtype != self._dtype:
+                #     # sanity check on what we're assuming here
+                #     img0 = img0.to(dtype=self._dtype, non_blocking=True)
 
                 original_img0 = img0
 
@@ -455,7 +455,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # Do this last, after any cuda events are taken for the non-original image
         def _wrap_original_image(
             orig_img: torch.Tensor,
-        ) -> Union[StreamTensor, torch.Tensor]:
+        ) -> Union[StreamCheckpoint, torch.Tensor]:
             assert isinstance(orig_img, torch.Tensor)
             if cuda_stream is not None:
                 if (
@@ -466,12 +466,15 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     orig_img = orig_img.to(
                         self._device_for_original_image, non_blocking=True
                     )
-                return StreamTensor(
+                # cuda_stream.synchronize()
+                # torch.cuda.synchronize()
+                return StreamCheckpoint(
                     tensor=orig_img,
-                    stream=None,
-                    event=torch.cuda.Event(),
-                    owns_stream=False,
+                    # stream=cuda_stream,
+                    # event=torch.cuda.Event(),
+                    # owns_stream=False,
                 )
+            # torch.cuda.synchronize()
             return orig_img
 
         # END _wrap_original_image
@@ -479,11 +482,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._data_pipeline is not None:
             if cuda_stream is not None:
                 for i, img in enumerate(data["img"]):
-                    img = StreamTensor(
+                    img = StreamCheckpoint(
                         tensor=img,
-                        stream=None,
-                        event=torch.cuda.Event(),
-                        owns_stream=False,
+                        # stream=None,
+                        # event=torch.cuda.Event(),
+                        # owns_stream=False,
                     )
                     data["img"][i] = img
             return _wrap_original_image(original_img0), data, None, imgs_info, ids
@@ -491,11 +494,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             return _wrap_original_image(original_img0), None, None, imgs_info, ids
         else:
             if cuda_stream is not None:
-                img = StreamTensor(
+                img = StreamCheckpoint(
                     tensor=img,
-                    stream=None,
-                    event=torch.cuda.Event(),
-                    owns_stream=False,
+                    # stream=None,
+                    # event=torch.cuda.Event(),
+                    # owns_stream=False,
                 )
             return _wrap_original_image(original_img0), img, None, imgs_info, ids
 
