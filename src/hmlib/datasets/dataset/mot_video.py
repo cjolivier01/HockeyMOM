@@ -25,6 +25,7 @@ from hmlib.utils.gpu import (
     # StreamTensorToDevice,
     CachedIterator,
     allocate_stream,
+    cuda_stream_scope,
 )
 from hmlib.video_out import quick_show
 
@@ -319,9 +320,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         cuda_stream = self._cuda_stream
         # cuda_stream = None
 
-        with optional_with(
-            torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
-        ), torch.no_grad():
+        with cuda_stream_scope(cuda_stream), torch.no_grad():
+        # with optional_with(
+        #     torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
+        # ), torch.no_grad():
             # Read image
             res, img0 = self._read_next_image()
             if not res or img0 is None:

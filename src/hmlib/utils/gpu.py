@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import torch
 import time
 import queue
@@ -51,6 +52,18 @@ def free_stream(stream: torch.cuda.Stream) -> None:
     # _CUDA_STREAMS_SET.add(stream)
     # llist.push_front(stream)
     pass
+
+
+@contextmanager
+def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
+    """A context manager that works even if the resource is None."""
+    if stream is None:
+        # If the resource is None, yield nothing but still enter the with block
+        yield None
+    else:
+        # If the resource is not None, use it as a normal context manager
+        with torch.cuda.stream(stream) as r:
+            yield r
 
 
 class GpuAllocator:
@@ -221,10 +234,6 @@ class ThreadedCachedIterator:
 
 # CachedIterator = ThreadedCachedIterator
 CachedIterator = SimpleCachedIterator
-
-
-# def cuda_strean_scope(stream: Union[torch.cuda.Stream, None]):
-#     return torch.cuda.stream(stream) if stream is not None else nullcontext()
 
 
 class StreamTensorBase:
