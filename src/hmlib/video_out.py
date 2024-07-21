@@ -68,7 +68,8 @@ def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
     """
     if isinstance(tensor, StreamTensor):
         tensor._verbose = True
-        return tensor.get()
+        # return tensor.get()
+        return tensor.wait()
     return tensor
 
 
@@ -652,7 +653,8 @@ class VideoOutput:
                 if isinstance(online_im, StreamTensor):
                     # assert not online_im.owns_stream
                     online_im._verbose = True
-                    online_im = online_im.get()
+                    # online_im = online_im.get()
+                    online_im = online_im.wait(cuda_stream)
 
                 frame_id = imgproc_data.frame_id
                 if frame_id.ndim == 0:

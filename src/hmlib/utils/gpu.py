@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 import torch
 import time
-import queue
 from contextlib import nullcontext
 import numpy as np
 from threading import Thread
@@ -279,20 +278,27 @@ class StreamTensor(StreamTensorBase):
                 free_stream(self._stream)
             self._stream = None
 
-    def wait(self, new_stream: torch.cuda.Stream) -> torch.Tensor:
+    def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
+        if new_stream is None:
+            new_stream = torch.cuda.current_stream(self._tensor.device)
+        if self._stream is not None:
+            # Probably not necessary, or you want to call synchronize on the event
+            assert self._stream != new_stream
         if self._event is not None:
             self._event.wait(new_stream)
+            self._event = None
         else:
             assert self._stream is None
         self._clear_stream()
         t = self._tensor
+        self._tensor = None
         return t
 
     def get(self) -> torch.Tensor:
         if self._stream is not None:
             if self._event is not None:
-                with torch.cuda.stream(self._stream):
-                    # with nullcontext():
+                # with torch.cuda.stream(self._stream):
+                with nullcontext():
                     start = time.time()
                     self._event.synchronize()
                     self._sync_duraton = time.time() - start
@@ -316,7 +322,9 @@ class StreamTensor(StreamTensorBase):
             #     f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
             # )
             pass
-        return self._tensor
+        t = self._tensor
+        self._tensor = None
+        return t
 
     @property
     def sync_duration(self):
@@ -465,11 +473,11 @@ class StreamTensorToDevice(StreamTensor):
         if tensor.device == device:
             return
         if stream is None:
-            stream = allocate_stream(device) if device.type == "cuda" else None
+            stream = allocate_stream(tensor.device) if device.type == "cuda" else None
             self._stream = stream
             self._owns_stream = True
         with torch.cuda.stream(stream=stream):
-            tensor = tensor.to(device, non_blocking=True)
+            self._tensor = tensor.to(device, non_blocking=True)
             assert self._event is None
             self._event = torch.cuda.Event()
             self._event.record()
