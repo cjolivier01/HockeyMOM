@@ -8,6 +8,7 @@ import threading
 import argparse
 import torch
 import traceback
+from contextlib import nullcontext
 import numpy as np
 from typing import List, Union
 
@@ -65,6 +66,7 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):
         return tensor
     if isinstance(tensor, StreamTensor):
+        # return tensor.wait(torch.cuda.current_stream(tensor.device))
         return tensor.get()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
@@ -286,8 +288,7 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                # dtype=self._dtype,
-                dtype=torch.float16,
+                dtype=self._dtype,
                 device=remapping_device,
             )
         )
@@ -300,7 +301,7 @@ class StitchDataset:
                 start_frame_number=start_frame_number,
                 original_image_only=True,
                 stream_tensors=True,
-                # dtype=self._dtype,
+                dtype=self._dtype,
                 device=remapping_device,
             )
         )
@@ -389,7 +390,9 @@ class StitchDataset:
             #     stream = self._remapping_stream
             stream = self._remapping_stream
             # stream = allocate_stream(imgs_1.device)
-            with optional_with(torch.cuda.stream(stream) if stream is not None else None):
+            with optional_with(
+                torch.cuda.stream(stream) if stream is not None else None
+            ):
                 sinfo_1 = core.StitchImageInfo()
                 # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
                 sinfo_1.image = _prepare_image(to_tensor(imgs_1))
@@ -400,17 +403,19 @@ class StitchDataset:
                 sinfo_2.image = _prepare_image(to_tensor(imgs_2))
                 sinfo_2.xy_pos = self._xy_pos_2
 
-                blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                blended_stream_tensor = self._stitcher.forward(
+                    inputs=[sinfo_1, sinfo_2]
+                )
                 if stream is not None:
                     # blended_stream_tensor = StreamCheckpoint(
                     #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
                     # )
                     blended_stream_tensor = StreamCheckpoint(
                         tensor=blended_stream_tensor,
-                        stream=self._remapping_stream,
-                        owns_stream=False,
                     )
+                    stream.synchronize()
 
+        # torch.cuda.synchronize()
         self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
         self._ordering_queue.put((ids_1, blended_stream_tensor))
         self._prepare_next_frame_timer.toc()
@@ -478,8 +483,9 @@ class StitchDataset:
             # img=to_tensor(stitched_frame),
             img=stitched_frame,
             # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            current_box=self._video_output_box.clone(),
+            current_box=self._video_output_box.detach().clone(),
         )
+        torch.cuda.synchronize()
         self._video_output.append(image_proc_data)
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):

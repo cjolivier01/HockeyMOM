@@ -179,11 +179,9 @@ class VideoStreamWriter:
             preset = "lossless"
             rate_control = "constqp"
         else:
-            # preset = "slow"
             preset = "p7"
             rate_control = "cbr"
         options = {
-            # "preset": preset,
             "rc": rate_control,
             "minrate": "55M",
             "maxrate": "55M",
@@ -250,6 +248,8 @@ class VideoStreamWriter:
             if isinstance(t, StreamTensor):
                 return t.get()
             return t
+
+        flush_all = True
 
         if self._batch_items:
             if flush_all:

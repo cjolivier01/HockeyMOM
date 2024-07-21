@@ -223,6 +223,10 @@ class ThreadedCachedIterator:
 CachedIterator = SimpleCachedIterator
 
 
+# def cuda_strean_scope(stream: Union[torch.cuda.Stream, None]):
+#     return torch.cuda.stream(stream) if stream is not None else nullcontext()
+
+
 class StreamTensorBase:
     def size(self, index: int) -> int:
         assert False and "Not implemented"
@@ -231,10 +235,10 @@ class StreamTensorBase:
 class StreamTensor(StreamTensorBase):
     def __init__(
         self,
-        tensor: Union[torch.Tensor, StreamTensorBase],
-        stream: Union[torch.cuda.Stream, None] = None,
-        event: Optional[Union[torch.cuda.Event, None]] = None,
-        owns_stream: Optional[Union[bool, None]] = None,
+        tensor: torch.Tensor,
+        stream: Optional[torch.cuda.Stream] = None,
+        event: Optional[torch.cuda.Event] = None,
+        owns_stream: Optional[bool] = None,
         verbose: Optional[bool] = True,
         print_thresh: Optional[float] = 0.001,
     ):
@@ -244,13 +248,10 @@ class StreamTensor(StreamTensorBase):
         self._stream = stream
         self._event = event
         self._print_thresh = print_thresh
-        if not isinstance(tensor, StreamTensor):
-            # assert owns_stream is None
-            self._owns_stream = owns_stream
-        else:
-            self._owns_stream = owns_stream
+        self._owns_stream = owns_stream
         self._sync_duraton = None
         self._verbose = verbose
+        assert self._event is None
 
     def new_checkpoint(self):
         assert self._stream is not None
@@ -270,14 +271,20 @@ class StreamTensor(StreamTensorBase):
                 free_stream(self._stream)
             self._stream = None
 
-    def get(self):
-        if isinstance(self._tensor, StreamTensor):
+    def wait(self, new_stream: torch.cuda.Stream) -> torch.Tensor:
+        if self._event is not None:
+            self._event.wait(new_stream)
+        else:
             assert self._stream is None
-            return self._tensor.get()
+        self._clear_stream()
+        t = self._tensor
+        return t
+
+    def get(self) -> torch.Tensor:
         if self._stream is not None:
             if self._event is not None:
-                # with torch.cuda.stream(self._stream):
-                with nullcontext():
+                with torch.cuda.stream(self._stream):
+                    # with nullcontext():
                     start = time.time()
                     self._event.synchronize()
                     self._sync_duraton = time.time() - start
@@ -297,9 +304,9 @@ class StreamTensor(StreamTensorBase):
             and self._sync_duraton is not None
             and self._sync_duraton > self._print_thresh
         ):
-            print(
-                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
-            )
+            # print(
+            #     f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            # )
             pass
         return self._tensor
 
@@ -409,12 +416,13 @@ class StreamCheckpoint(StreamTensor):
     def __init__(
         self,
         tensor: torch.Tensor,
-        stream: torch.cuda.Stream,
-        event: Optional[Union[torch.cuda.Event, None]] = None,
-        owns_stream: Optional[Union[bool, None]] = None,
+        stream: Optional[torch.cuda.Stream] = None,
+        event: Optional[torch.cuda.Event] = None,
+        owns_stream: Optional[bool] = None,
         verbose: Optional[bool] = True,
         print_thresh: Optional[float] = 0.001,
     ):
+        assert isinstance(tensor, torch.Tensor)
         super(StreamCheckpoint, self).__init__(
             tensor=tensor,
             stream=stream,
@@ -424,10 +432,12 @@ class StreamCheckpoint(StreamTensor):
             print_thresh=print_thresh,
         )
         if self._stream is not None:
-            with torch.cuda.stream(stream):
+            with torch.cuda.stream(self._stream):
                 self._event = torch.cuda.Event()
                 self._event.record()
         else:
+            # We can;t own it if we don't have it
+            assert not self._owns_stream
             if tensor.device.type == "cuda":
                 self._event = torch.cuda.Event()
                 self._event.record()
@@ -498,6 +508,7 @@ def async_to(
     device: Union[torch.device, str, None] = None,
     dtype: Union[torch.dtype, None] = None,
 ) -> StreamTensor:
+    assert False
     assert device is not None or dtype is not None
     if isinstance(tensor, StreamTensor):
         assert tensor.owns_stream

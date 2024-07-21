@@ -40,8 +40,10 @@ from hmlib.utils.gpu import (
     get_gpu_capabilities,
     CachedIterator,
     StreamTensor,
+    StreamCheckpoint,
     StreamTensorToDevice,
 )
+from hmlib.utils.containers import SidebandQueue, IterableQueue
 from hmlib.utils.image import (
     make_channels_last,
     image_width,
@@ -63,20 +65,6 @@ from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.config import get_nested_value
 
 
-class IterableQueue:
-    def __init__(self, queue):
-        self.queue = queue
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        item = self.queue.get()
-        if item is None:
-            raise StopIteration()
-        return item
-
-
 def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
@@ -85,26 +73,6 @@ def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
         tensor._verbose = True
         return tensor.get()
     return tensor
-
-
-class SidebandQueue:
-    def __init__(self):
-        self._q = queue.Queue()
-        self._counter = 1
-        self._map: Dict[int, Any] = {}
-
-    def put(self, obj: Any):
-        ctr = self._counter
-        self._counter += 1
-        self._map[ctr] = obj
-        self._q.put(ctr)
-
-    def get(self) -> Any:
-        ctr = self._q.get()
-        return self._map.pop(ctr)
-
-    def qsize(self):
-        return len(self._map)
 
 
 @contextmanager
@@ -141,7 +109,6 @@ def quick_show(img: torch.Tensor, wait: bool = False):
 
 
 def get_best_codec(gpu_number: int, width: int, height: int):
-    # return "XVID", False
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if (
@@ -152,6 +119,7 @@ def get_best_codec(gpu_number: int, width: int, height: int):
         return "hevc_nvenc", True
     else:
         return "XVID", False
+    # return "XVID", False
 
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
@@ -293,6 +261,7 @@ def _to_uint8(
                 )
 
             if isinstance(tensor, StreamTensor):
+                assert False
                 return tensor.call_with_checkpoint(_clamp, min=0, max=255.0)
             else:
                 return _clamp(tensor, min=0, max=255.0)
@@ -396,11 +365,12 @@ class VideoOutput:
                 )
                 if not is_gpu:
                     print(f"Can't use GPU for output video {output_video_path}")
-                    self._device = torch.device("cpu")
+                    # self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"
             print(
-                f"Output video {self._name} {int(self._output_frame_width)}x{int(self._output_frame_height)} will use codec: {self._fourcc}"
+                f"Output video {self._name} {int(self._output_frame_width)}x"
+                f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
             )
         else:
             self._fourcc = fourcc
@@ -637,6 +607,20 @@ class VideoOutput:
 
         scoreboard = None
 
+        if self._scoreboard_points:
+            scoreboard = Scoreboard(
+                src_pts=self._scoreboard_points,
+                dest_width=get_nested_value(
+                    self._args.game_config, "rink.scoreboard.projected_width"
+                ),
+                dest_height=get_nested_value(
+                    self._args.game_config, "rink.scoreboard.projected_height"
+                ),
+                clip_box=self._original_clip_box,
+                dtype=torch.float,
+                device=self._device,
+            )
+
         batch_count = 0
 
         last_frame_id = None
@@ -663,9 +647,13 @@ class VideoOutput:
             current_box = imgproc_data.current_box
             online_im = imgproc_data.img
 
-            if isinstance(online_im, StreamTensor) and not online_im.owns_stream:
+            if isinstance(online_im, StreamTensor):
+                assert not online_im.owns_stream
                 online_im._verbose = True
                 online_im = online_im.get()
+                torch.cuda.synchronize()
+                # cv2.imshow("online_im", make_visible_image(online_im))
+                # cv2.waitKey(0)
 
             frame_id = imgproc_data.frame_id
             if frame_id.ndim == 0:
@@ -680,29 +668,10 @@ class VideoOutput:
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
 
-            if scoreboard is None and self._scoreboard_points:
-                scoreboard = Scoreboard(
-                    src_pts=self._scoreboard_points,
-                    dest_width=get_nested_value(
-                        self._args.game_config, "rink.scoreboard.projected_width"
-                    ),
-                    dest_height=get_nested_value(
-                        self._args.game_config, "rink.scoreboard.projected_height"
-                    ),
-                    clip_box=self._original_clip_box,
-                    dtype=torch.float,
-                    device=self._device,
-                )
-
-            # if isinstance(online_im, StreamTensor):
-            #     # TODO: Can we delay this?
-            #     cuda_stream = online_im._stream
-            #     # online_im = online_im.get()
-
             # assert online_im.device.type == "cpu" or online_im.device == self._device
             if online_im.device.type != "cpu" and self._device.type == "cpu":
-                if isinstance(online_im, StreamTensor):
-                    online_im = online_im.get()
+                # if isinstance(online_im, StreamTensor):
+                #     online_im = online_im.get()
                 online_im = online_im.cpu()
 
             if online_im.ndim == 3:
@@ -712,10 +681,10 @@ class VideoOutput:
             # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
             batch_size = online_im.shape[0]
 
-            with (
-                torch.cuda.stream(cuda_stream)
-                if cuda_stream is not None
-                else nullcontext()
+            # torch.cuda.synchronize()
+
+            with optional_with(
+                torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
             ):
                 if self._device is not None and (
                     not self._simple_save or "nvenc" in self._fourcc
@@ -973,9 +942,13 @@ class VideoOutput:
                         for img in online_im:
                             self._output_video.write(img)
                     else:
-                        online_im = StreamTensor(
-                            tensor=online_im, event=torch.cuda.Event()
-                        )
+                        # online_im = StreamCheckpoint(
+                        #     tensor=online_im,
+                        #     owns_stream=False,
+                        # )
+                        # online_im = online_im.get()
+                        # cuda_stream.synchronize()
+                        # torch.cuda.synchronize()
                         self._output_video.write(online_im)
                 if self._save_frame_dir:
                     # frame_id should start with 1

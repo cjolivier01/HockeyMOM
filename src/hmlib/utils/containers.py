@@ -1,6 +1,8 @@
 from __future__ import annotations
-from typing import Any, Optional
+
+import queue
 from threading import Lock
+from typing import Any, Optional
 
 
 class LLNode:
@@ -83,3 +85,37 @@ class LinkedList:
 
     def __repr__(self) -> str:
         return "LinkedList([" + ", ".join(map(str, self)) + "])"
+
+
+class SidebandQueue:
+    def __init__(self):
+        self._q = queue.Queue()
+        self._counter = 1
+        self._map: Dict[int, Any] = {}
+
+    def put(self, obj: Any):
+        ctr = self._counter
+        self._counter += 1
+        self._map[ctr] = obj
+        self._q.put(ctr)
+
+    def get(self) -> Any:
+        ctr = self._q.get()
+        return self._map.pop(ctr)
+
+    def qsize(self):
+        return len(self._map)
+
+
+class IterableQueue:
+    def __init__(self, queue):
+        self.queue = queue
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        item = self.queue.get()
+        if item is None:
+            raise StopIteration()
+        return item
