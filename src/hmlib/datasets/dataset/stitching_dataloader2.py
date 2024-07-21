@@ -66,8 +66,8 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):
         return tensor
     if isinstance(tensor, StreamTensor):
-        # return tensor.wait(torch.cuda.current_stream(tensor.device))
-        return tensor.get()
+        return tensor.wait(torch.cuda.current_stream(tensor.device))
+        # return tensor.get()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
     else:
