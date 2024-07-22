@@ -310,6 +310,7 @@ class VideoStreamWriter:
         return None
 
     def append(self, images: torch.Tensor):
+        assert images.device == self._device
         if self._streaming:
             frame = self._streaming_drop_frame_interval_counter
             self._streaming_drop_frame_interval_counter += 1
