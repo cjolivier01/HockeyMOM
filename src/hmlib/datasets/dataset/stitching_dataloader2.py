@@ -293,6 +293,9 @@ class StitchDataset:
             if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
                 frame_step_2 = int(int_ratio)
 
+        # TODO: must correct for lfo, which is generally calculated based upon
+        # one video or the other's frame number.
+        # Should turn this into a time seek instead.
         dataloaders = []
         dataloaders.append(
             MOTLoadVideoWithOrig(
