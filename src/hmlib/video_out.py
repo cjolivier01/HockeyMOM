@@ -468,11 +468,16 @@ class VideoOutput:
                 and img_proc_data.img.device != self._device
             ):
                 if isinstance(img_proc_data.img, torch.Tensor):
-                    img_proc_data.img = StreamTensorToDevice(
-                        tensor=img_proc_data.img,
-                        device=self._device,
-                        verbose=False,
-                    )
+                    # img_proc_data.img = img_proc_data.img.to(
+                    #     device=self._device, non_blocking=True
+                    # )
+                    # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
+                    # img_proc_data.img = StreamTensorToDevice(
+                    #     tensor=img_proc_data.img,
+                    #     device=self._device,
+                    #     verbose=False,
+                    # )
+                    pass
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
