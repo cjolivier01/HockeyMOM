@@ -72,6 +72,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         log_messages: bool = False,
         dtype: torch.dtype = None,
         data_pipeline: Compose = None,
+        frame_step: int = 1,
     ):
         assert not isinstance(img_size, str)
         self._path = path
@@ -82,6 +83,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._decoder_device = decoder_device
         self._preproc = preproc
         self._dtype = dtype
+        self._frame_step = frame_step
         self._data_pipeline = data_pipeline
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
@@ -156,7 +158,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 )
             assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
             if self._start_frame_number:
-                self.cap.seek(frame_number=self._start_frame_number)
+                self.cap.seek(frame_number=self._start_frame_number * self._frame_step)
             self._vid_iter = iter(self.cap)
         else:
             self.vn = len(self._embedded_data_loader)
@@ -237,7 +239,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _read_next_image(self):
         if self.cap is not None:
-            img = next(self._vid_iter)
+            for _ in range(self._frame_step):
+                img = next(self._vid_iter)
             return True, img
         else:
             try:
@@ -321,9 +324,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # cuda_stream = None
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
-        # with optional_with(
-        #     torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
-        # ), torch.no_grad():
+            # with optional_with(
+            #     torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
+            # ), torch.no_grad():
             # Read image
             res, img0 = self._read_next_image()
             if not res or img0 is None:

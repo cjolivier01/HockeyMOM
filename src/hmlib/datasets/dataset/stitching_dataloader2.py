@@ -278,6 +278,21 @@ class StitchDataset:
         remapping_device: torch.device,
         dataset_name: str = "crowdhuman",
     ):
+
+        frame_step_1 = 1
+        frame_step_2 = 1
+
+        if self._video_1_info.fps > self._video_2_info.fps:
+            int_ratio = self._video_1_info.fps // self._video_2_info.fps
+            float_ratio = self._video_1_info.fps / self._video_2_info.fps
+            if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                frame_step_1 = int(int_ratio)
+        elif self._video_2_info.fps > self._video_1_info.fps:
+            int_ratio = self._video_2_info.fps // self._video_1_info.fps
+            float_ratio = self._video_2_info.fps / self._video_1_info.fps
+            if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                frame_step_2 = int(int_ratio)
+
         dataloaders = []
         dataloaders.append(
             MOTLoadVideoWithOrig(
@@ -290,6 +305,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
+                frame_step=frame_step_1,
             )
         )
         dataloaders.append(
@@ -303,6 +319,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
+                frame_step=frame_step_2,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(
