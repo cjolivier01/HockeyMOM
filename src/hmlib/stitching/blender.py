@@ -759,7 +759,9 @@ def create_stitcher(
     xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
 
     source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
+    assert source_tensor_1 is not None
     source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
+    assert source_tensor_2 is not None
 
     remap_info_1 = core.RemapImageInfo()
     remap_info_1.src_width = int(image_width(source_tensor_1))
