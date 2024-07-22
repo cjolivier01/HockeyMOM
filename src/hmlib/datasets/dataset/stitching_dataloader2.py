@@ -636,6 +636,12 @@ class StitchDataset:
             image_roi=self._image_roi,
         )
 
+        # if self._batch_count == 1:
+        #     frame_path = os.path.join(_get_dir_name(self._video_file_1), "s.png")
+        #     print(f"Saving first stitched frame to {frame_path}")
+        #     stitched_frame = stitched_frame.get()
+        #     cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
+
         self._send_frame_to_video_out(frame_id=frame_id, stitched_frame=stitched_frame)
         assert stitched_frame.ndim == 4
         # maybe nested batches can be some multiple of, so can remove this check if necessary
@@ -650,11 +656,6 @@ class StitchDataset:
                     self._batch_size * 1.0 / max(1e-5, self._next_timer.average_time),
                 )
             )
-        # if self._batch_count == 1:
-        #     print("Saving first stitched frame to s.png")
-        #     torch.cuda.synchronize()
-        #     stitched_frame = stitched_frame.ref()
-        #     cv2.imwrite("s.png", make_visible_image(stitched_frame[0]))
 
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
         return stitched_frame

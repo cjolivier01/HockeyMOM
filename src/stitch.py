@@ -121,9 +121,9 @@ def stitch_videos(
         dataset_timer = Timer()
         for i, stitched_image in enumerate(data_loader_iter):
 
-            if isinstance(stitched_image, StreamTensor):
-                stitched_image._verbose = False
-                stitched_image = stitched_image.get()
+            # if isinstance(stitched_image, StreamTensor):
+            #     stitched_image._verbose = False
+            #     stitched_image = stitched_image.get()
 
             if i > 1:
                 dataset_timer.toc()

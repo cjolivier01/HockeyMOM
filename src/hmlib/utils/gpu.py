@@ -278,7 +278,9 @@ class StreamTensor(StreamTensorBase):
                 free_stream(self._stream)
             self._stream = None
 
+
     def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
+        assert self._tensor is not None
         if new_stream is None:
             new_stream = torch.cuda.current_stream(self._tensor.device)
         if self._stream is not None:
@@ -295,6 +297,7 @@ class StreamTensor(StreamTensorBase):
         return t
 
     def get(self) -> torch.Tensor:
+        assert self._tensor is not None
         if self._stream is not None:
             if self._event is not None:
                 # with torch.cuda.stream(self._stream):
