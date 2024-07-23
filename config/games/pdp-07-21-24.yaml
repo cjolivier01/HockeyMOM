@@ -106,5 +106,6 @@ rink:
       - 982
   camera:
     fixed_edge_scaling_factor: 0.8
+    fixed_edge_rotation_angle: 40
     follower_box_scale_width: 1.4
     follower_box_scale_height: 1.4
