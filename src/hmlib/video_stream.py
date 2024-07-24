@@ -236,6 +236,7 @@ class VideoStreamWriter:
             self._finish()
             self._video_f.close()
             self._video_f = None
+            print(f"VideoStreamWriter wrote {self._frame_counter} frames")
 
     def release(self):
         self.close()
@@ -249,8 +250,6 @@ class VideoStreamWriter:
                 # return t.get()
                 return t.wait()
             return t
-
-        # flush_all = True
 
         if self._batch_items:
             if flush_all:
@@ -344,12 +343,14 @@ class CVVideoCaptureIterator:
     def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
         self._cap = cap
         self._batch_size = batch_size
+        self.frames_delivered_count = 0
 
     def __next__(self):
         if self._batch_size == 1:
             res, frame = self._cap.read()
             if not res:
                 raise StopIteration()
+            self.frames_delivered_count += 1
             return np.expand_dims(frame.transpose(2, 0, 1), axis=0)
         else:
             frames = []
@@ -358,7 +359,14 @@ class CVVideoCaptureIterator:
                 if not res:
                     raise StopIteration()
                 frames.append(frame.transpose(2, 0, 1))
+            self.frames_delivered_count += 1
             return np.stack(frames)
+
+    def __del__(self):
+        if hasattr(self, "frames_delivered_count"):
+            print(
+                f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames"
+            )
 
 
 class VideoReaderIterator:
@@ -510,6 +518,7 @@ class VideoStreamReader:
         self._iter = None
         self._ss = 0.0
         self._torchaudio_stream = False
+        self._frames_delivered_count = 0
         self.open()
 
     @property
@@ -640,6 +649,12 @@ class VideoStreamReader:
                 pass
             else:
                 assert False
+            if self._video_in is not None and hasattr(
+                self._video_in, "frames_delivered_count"
+            ):
+                print(
+                    f"VideoStreamReader delivered {self._video_in.frames_delivered_count} frames"
+                )
             self._video_in = None
             self._iter = None
         return
