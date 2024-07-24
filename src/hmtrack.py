@@ -23,7 +23,7 @@ from mmpose.apis import (
 from mmpose.core import Smoother
 from mmpose.datasets import DatasetInfo
 from mmtrack.apis import init_model
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from hmlib.datasets import get_yolox_datadir
@@ -31,14 +31,8 @@ from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.py_utils import find_item_in_module
 
-if False:
-    from hmlib.datasets.dataset.stitching_dataloader1 import StitchDataset
-else:
-    from hmlib.datasets.dataset.stitching_dataloader2 import (
-        StitchDataset,
-    )
+from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 
-import hmlib.datasets as datasets
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
