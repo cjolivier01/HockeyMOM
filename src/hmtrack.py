@@ -368,6 +368,8 @@ def main(args, num_gpu):
         game_config = args.game_config
 
         tracker = get_nested_value(game_config, "model.tracker.type")
+        if args.output_fps is None:
+            args.output_fps = get_nested_value(game_config, "camera.output-fps")
 
         if args.lfo is None and args.rfo is None:
             if (
@@ -654,7 +656,7 @@ def main(args, num_gpu):
         postprocessor = CamTrackHead(
             opt=args,
             args=cam_args,
-            fps=dataloader.fps,
+            fps=dataloader.fps if args.output_fps is None else args.output_fps,
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
             original_clip_box=get_clip_box(

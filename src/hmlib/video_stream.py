@@ -99,6 +99,9 @@ class VideoStreamWriter:
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
+        
+        self._fps = 29.97
+        
         self._stream_fps = stream_fps
         self._stream_frame_indexes = set(
             [

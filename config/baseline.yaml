@@ -5,11 +5,13 @@ camera:
   name: null
   make: null
   model: null
+  output-fps: null
   mount:
     - offset_80:
       resolution: null
     - offset_90:
       resolution: null
+
 #
 # Rink config
 #

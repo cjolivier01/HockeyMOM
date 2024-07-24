@@ -1,6 +1,6 @@
 import os
 import yaml
-from typing import List, Dict
+from typing import List, Dict, Optional
 from functools import lru_cache
 
 def load_config_file(
@@ -48,7 +48,7 @@ def get_rink_config(rink: str, root_dir: str):
 
 
 def get_camera_config(camera: str, root_dir: str):
-    return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera)
+    return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera.lower())
 
 
 def get_item(key: str, maps: List[Dict]):
@@ -58,7 +58,7 @@ def get_item(key: str, maps: List[Dict]):
     return None
 
 
-def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None):
+def get_config(root_dir: str, game_id: str, rink: Optional[str] = None, camera: Optional[str] = None):
     """
     Get a consolidated configuration.
     Direct parameters override parameters whihc are in the higher-level yaml
