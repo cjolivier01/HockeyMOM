@@ -736,7 +736,7 @@ def main(args, num_gpu):
                 "postprocessor": postprocessor,
             }
 
-            *_, summary = run_mmtrack(
+            run_mmtrack(
                 model=model,
                 pose_model=pose_model,
                 pose_dataset_type=pose_dataset,
@@ -783,201 +783,204 @@ def run_mmtrack(
     input_cache_size: int = 2,
     fp16: bool = False,
 ):
-    cuda_stream = torch.cuda.Stream(device)
-    with torch.cuda.stream(cuda_stream):
-        dataloader_iterator = CachedIterator(
-            iterator=iter(dataloader), cache_size=input_cache_size
-        )
-        # print("WARNING: Not cacheing data loader")
-
-        get_timer = Timer()
-        detect_timer = None
-
-        last_frame_id = None
-
-        model.eval()
-
-        if True:
-            # INFO logging
-            handler = logging.StreamHandler(sys.stdout)
-            logger.setLevel(max(logger.level, logging.INFO))
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    try:
+        cuda_stream = torch.cuda.Stream(device)
+        with torch.cuda.stream(cuda_stream):
+            dataloader_iterator = CachedIterator(
+                iterator=iter(dataloader), cache_size=input_cache_size
             )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
+            # print("WARNING: Not cacheing data loader")
 
-        for cur_iter, (
-            origin_imgs,
-            data,
-            _,
-            info_imgs,
-            ids,
-        ) in enumerate(dataloader_iterator):
-            # info_imgs is 4 scalar tensors: height, width, frame_id, video_id
-            with torch.no_grad():
-                # init tracker
-                frame_id = info_imgs[2][0]
+            get_timer = Timer()
+            detect_timer = None
 
-                # if isinstance(origin_imgs, StreamTensor):
-                #     origin_imgs = origin_imgs.get()
+            last_frame_id = None
 
-                batch_size = origin_imgs.shape[0]
+            model.eval()
 
-                if last_frame_id is None:
-                    last_frame_id = int(frame_id)
-                else:
-                    assert int(frame_id) == last_frame_id + batch_size
-                    last_frame_id = int(frame_id)
+            if True:
+                # INFO logging
+                handler = logging.StreamHandler(sys.stdout)
+                logger.setLevel(max(logger.level, logging.INFO))
+                formatter = logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
 
-                batch_size = origin_imgs.shape[0]
+            for cur_iter, (
+                origin_imgs,
+                data,
+                _,
+                info_imgs,
+                ids,
+            ) in enumerate(dataloader_iterator):
+                # info_imgs is 4 scalar tensors: height, width, frame_id, video_id
+                with torch.no_grad():
+                    # init tracker
+                    frame_id = info_imgs[2][0]
 
-                if detect_timer is None:
-                    detect_timer = Timer()
+                    # if isinstance(origin_imgs, StreamTensor):
+                    #     origin_imgs = origin_imgs.get()
 
-                # show_image("image", data["img"][0] / 255, wait=False)
+                    batch_size = origin_imgs.shape[0]
 
-                # detect_timer.tic()
-
-                if False:
-                    img = tensor_to_image(origin_imgs)
-                    results = my_inference_mot(  # DOTO: return proper data and img_meta items (one for each frame)
-                        model,
-                        make_channels_last(img.squeeze(0)).cpu().numpy(),
-                        frame_id=frame_id,
-                    )
-                else:
-                    if isinstance(data["img"][0], StreamTensor):
-                        get_timer.tic()
-                        for i in range(len(data["img"])):
-                            data["img"][i] = data["img"][i].get()
-                        get_timer.toc()
+                    if last_frame_id is None:
+                        last_frame_id = int(frame_id)
                     else:
-                        get_timer = None
+                        assert int(frame_id) == last_frame_id + batch_size
+                        last_frame_id = int(frame_id)
 
-                    data = collate([data], samples_per_gpu=batch_size)
-                    if next(model.parameters()).is_cuda:
-                        # scatter to specified GPU
-                        data = scatter(data, [device])[0]
+                    batch_size = origin_imgs.shape[0]
+
+                    if detect_timer is None:
+                        detect_timer = Timer()
+
+                    # show_image("image", data["img"][0] / 255, wait=False)
+
+                    # detect_timer.tic()
+
+                    if False:
+                        img = tensor_to_image(origin_imgs)
+                        results = my_inference_mot(  # DOTO: return proper data and img_meta items (one for each frame)
+                            model,
+                            make_channels_last(img.squeeze(0)).cpu().numpy(),
+                            frame_id=frame_id,
+                        )
                     else:
-                        for m in model.modules():
-                            assert not isinstance(
-                                m, RoIPool
-                            ), "CPU inference with RoIPool is not supported currently."
-                        # just get the actual data from DataContainer
-                        data["img_metas"] = data["img_metas"][0].data
+                        if isinstance(data["img"][0], StreamTensor):
+                            get_timer.tic()
+                            for i in range(len(data["img"])):
+                                data["img"][i] = data["img"][i].get()
+                            get_timer.toc()
+                        else:
+                            get_timer = None
 
-                    for i, img in enumerate(data["img"]):
-                        # collate adds a stupid batch size of 1
-                        # data["img"][i] = make_channels_first(data["img"][i]).to(
-                        #     torch.float, non_blocking=True
-                        # )
-                        data["img"][i] = make_channels_first(
-                            data["img"][i].squeeze(0)
-                        ).to(torch.float16 if fp16 else torch.float, non_blocking=True)
+                        data = collate([data], samples_per_gpu=batch_size)
+                        if next(model.parameters()).is_cuda:
+                            # scatter to specified GPU
+                            data = scatter(data, [device])[0]
+                        else:
+                            for m in model.modules():
+                                assert not isinstance(
+                                    m, RoIPool
+                                ), "CPU inference with RoIPool is not supported currently."
+                            # just get the actual data from DataContainer
+                            data["img_metas"] = data["img_metas"][0].data
 
-                    # forward the model
-                    detect_timer.tic()
-                    for i in range(1):
-                        with torch.no_grad():
-                            with autocast() if fp16 else nullcontext():
-                                tracking_results = model(
-                                    return_loss=False, rescale=True, **data
+                        for i, img in enumerate(data["img"]):
+                            # collate adds a stupid batch size of 1
+                            # data["img"][i] = make_channels_first(data["img"][i]).to(
+                            #     torch.float, non_blocking=True
+                            # )
+                            data["img"][i] = make_channels_first(
+                                data["img"][i].squeeze(0)
+                            ).to(torch.float16 if fp16 else torch.float, non_blocking=True)
+
+                        # forward the model
+                        detect_timer.tic()
+                        for i in range(1):
+                            with torch.no_grad():
+                                with autocast() if fp16 else nullcontext():
+                                    tracking_results = model(
+                                        return_loss=False, rescale=True, **data
+                                    )
+                        detect_timer.toc()
+
+                    # detect_timer.toc()
+
+                    # del data
+
+                    det_bboxes = tracking_results["det_bboxes"]
+                    track_bboxes = tracking_results["track_bboxes"]
+
+                    for frame_index in range(len(origin_imgs)):
+
+                        if pose_model is not None:
+                            pose_model.eval()
+                            tracking_results, pose_results, returned_outputs, vis_frame = (
+                                multi_pose_task(
+                                    pose_model=pose_model,
+                                    cur_frame=make_channels_last(origin_imgs[frame_index]),
+                                    # cur_frame=make_channels_last(data["img"][frame_index]),
+                                    dataset=pose_dataset_type,
+                                    dataset_info=pose_dataset_info,
+                                    tracking_results=tracking_results,
+                                    smooth=args.smooth,
+                                    # show=args.show_image,
+                                    show=True,
                                 )
-                    detect_timer.toc()
+                            )
+                        else:
+                            vis_frame = None
 
-                # detect_timer.toc()
+                        if vis_frame is not None:
+                            if isinstance(vis_frame, np.ndarray):
+                                vis_frame = torch.from_numpy(vis_frame)
+                            origin_imgs[frame_index] = make_channels_first(vis_frame).to(
+                                device=origin_imgs.device, non_blocking=True
+                            )
 
-                # del data
+                        frame_id = info_imgs[2][frame_index]
+                        detections = det_bboxes[frame_index]
+                        tracking_items = track_bboxes[frame_index]
 
-                det_bboxes = tracking_results["det_bboxes"]
-                track_bboxes = tracking_results["track_bboxes"]
+                        track_ids = tracking_items[:, 0]
+                        bboxes = tracking_items[:, 1:5]
+                        scores = tracking_items[:, -1]
 
-                for frame_index in range(len(origin_imgs)):
+                        online_tlwhs = torch.from_numpy(bboxes)
+                        online_ids = torch.from_numpy(track_ids).to(torch.int64)
+                        online_scores = torch.from_numpy(scores)
 
-                    if pose_model is not None:
-                        pose_model.eval()
-                        tracking_results, pose_results, returned_outputs, vis_frame = (
-                            multi_pose_task(
-                                pose_model=pose_model,
-                                cur_frame=make_channels_last(origin_imgs[frame_index]),
-                                # cur_frame=make_channels_last(data["img"][frame_index]),
-                                dataset=pose_dataset_type,
-                                dataset_info=pose_dataset_info,
-                                tracking_results=tracking_results,
-                                smooth=args.smooth,
-                                # show=args.show_image,
-                                show=True,
+                        # make boxes tlwh
+                        online_tlwhs[:, 2] = (
+                            online_tlwhs[:, 2] - online_tlwhs[:, 0]
+                        )  # width = x2 - x1
+                        online_tlwhs[:, 3] = (
+                            online_tlwhs[:, 3] - online_tlwhs[:, 1]
+                        )  # height = y2 - y1
+
+                        if postprocessor is not None:
+                            if isinstance(origin_imgs, StreamTensor):
+                                origin_imgs = origin_imgs.get()
+                            tracking_results, detections, online_tlwhs = (
+                                postprocessor.process_tracking(
+                                    tracking_results=tracking_results,
+                                    frame_id=frame_id,
+                                    online_tlwhs=online_tlwhs,
+                                    online_ids=online_ids,
+                                    online_scores=online_scores,
+                                    detections=detections,
+                                    info_imgs=info_imgs,
+                                    letterbox_img=None,
+                                    original_img=origin_imgs[frame_index].unsqueeze(0),
+                                )
+                            )
+
+                        # if pose_model is not None:
+                        #     multi_pose_task(
+                        #         pose_model=pose_model,
+                        #         cur_frame=make_channels_last(origin_imgs[frame_index]),
+                        #         dataset=pose_dataset_type,
+                        #         dataset_info=pose_dataset_info,
+                        #         tracking_results=tracking_results,
+                        #         smooth=args.smooth,
+                        #         show=args.show_image,
+                        #     )
+                    # end frame loop
+
+                    if cur_iter % 50 == 0:
+                        # print(
+                        logger.info(
+                            "mmtrack tracking, frame {} ({:.2f} fps)".format(
+                                frame_id,
+                                batch_size * 1.0 / max(1e-5, detect_timer.average_time),
                             )
                         )
-                    else:
-                        vis_frame = None
-
-                    if vis_frame is not None:
-                        if isinstance(vis_frame, np.ndarray):
-                            vis_frame = torch.from_numpy(vis_frame)
-                        origin_imgs[frame_index] = make_channels_first(vis_frame).to(
-                            device=origin_imgs.device, non_blocking=True
-                        )
-
-                    frame_id = info_imgs[2][frame_index]
-                    detections = det_bboxes[frame_index]
-                    tracking_items = track_bboxes[frame_index]
-
-                    track_ids = tracking_items[:, 0]
-                    bboxes = tracking_items[:, 1:5]
-                    scores = tracking_items[:, -1]
-
-                    online_tlwhs = torch.from_numpy(bboxes)
-                    online_ids = torch.from_numpy(track_ids).to(torch.int64)
-                    online_scores = torch.from_numpy(scores)
-
-                    # make boxes tlwh
-                    online_tlwhs[:, 2] = (
-                        online_tlwhs[:, 2] - online_tlwhs[:, 0]
-                    )  # width = x2 - x1
-                    online_tlwhs[:, 3] = (
-                        online_tlwhs[:, 3] - online_tlwhs[:, 1]
-                    )  # height = y2 - y1
-
-                    if postprocessor is not None:
-                        if isinstance(origin_imgs, StreamTensor):
-                            origin_imgs = origin_imgs.get()
-                        tracking_results, detections, online_tlwhs = (
-                            postprocessor.process_tracking(
-                                tracking_results=tracking_results,
-                                frame_id=frame_id,
-                                online_tlwhs=online_tlwhs,
-                                online_ids=online_ids,
-                                online_scores=online_scores,
-                                detections=detections,
-                                info_imgs=info_imgs,
-                                letterbox_img=None,
-                                original_img=origin_imgs[frame_index].unsqueeze(0),
-                            )
-                        )
-
-                    # if pose_model is not None:
-                    #     multi_pose_task(
-                    #         pose_model=pose_model,
-                    #         cur_frame=make_channels_last(origin_imgs[frame_index]),
-                    #         dataset=pose_dataset_type,
-                    #         dataset_info=pose_dataset_info,
-                    #         tracking_results=tracking_results,
-                    #         smooth=args.smooth,
-                    #         show=args.show_image,
-                    #     )
-                # end frame loop
-
-                if cur_iter % 50 == 0:
-                    # print(
-                    logger.info(
-                        "mmtrack tracking, frame {} ({:.2f} fps)".format(
-                            frame_id,
-                            batch_size * 1.0 / max(1e-5, detect_timer.average_time),
-                        )
-                    )
-                    detect_timer = Timer()
+                        detect_timer = Timer()
+    except StopIteration:
+        print("run_mmtrack reached end of dataset")
 
 
 def process_mmtracking_results(mmtracking_results):

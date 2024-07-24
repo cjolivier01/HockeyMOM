@@ -563,7 +563,8 @@ class FFStream:
             try:
                 b = int(self.__dict__["bit_rate"])
             except Exception as e:
-                print("None integer bitrate")
+                if self.__dict__["bit_rate"] != "N/A":
+                    print("None integer bitrate")
         return b
 
     def realFrameRate(self) -> float:

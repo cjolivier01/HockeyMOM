@@ -134,6 +134,7 @@ class SimpleCachedIterator:
         self._iterator = iterator
         self._q = create_queue(mp=False) if cache_size else None
         self._pre_callback_fn = pre_callback_fn
+        self._eof_reached = False
         for _ in range(cache_size):
             try:
                 item = next(self._iterator)
@@ -141,6 +142,7 @@ class SimpleCachedIterator:
                     item = self._pre_callback_fn(item)
                 self._q.put(item)
             except StopIteration:
+                self._eof_reached = True
                 self._q.put(None)
                 break
 
@@ -157,11 +159,13 @@ class SimpleCachedIterator:
             if result_item is None:
                 raise StopIteration
             try:
-                cached_item = next(self._iterator)
-                if self._pre_callback_fn is not None:
-                    cached_item = self._pre_callback_fn(cached_item)
-                self._q.put(cached_item)
+                if not self._eof_reached:
+                    cached_item = next(self._iterator)
+                    if self._pre_callback_fn is not None:
+                        cached_item = self._pre_callback_fn(cached_item)
+                    self._q.put(cached_item)
             except StopIteration:
+                self._eof_reached = True
                 self._q.put(None)
         return result_item
 
