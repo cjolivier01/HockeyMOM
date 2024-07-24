@@ -60,12 +60,6 @@ class BasicVideoInfo:
             cap.release()
 
 
-def start_time_to_frame(start_time: str):
-    """
-    Start time in HH:MM:SS.SSSS format
-    """
-
-
 def fourcc_to_int(fourcc):
     """
     Convert a FOURCC code to an integer.
