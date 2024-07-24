@@ -126,6 +126,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._embedded_data_loader_iter = None
         self._stream_tensors = stream_tensors
         self._cuda_stream = None
+        self._frame_read_count = 0
 
         # Optimize the clip box
         if self.clip_original is not None:
@@ -223,6 +224,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             return
         self._to_worker_queue.put("stop")
         self._thread.join()
+        print(
+            f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {self._path}"
+        )
 
     def __iter__(self):
         self._timer = Timer()
@@ -531,6 +535,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 self._timer = Timer()
                 self._timer_counter = 0
         self._next_counter += 1
+        self._frame_read_count += 1
         return results
 
     def __len__(self):
