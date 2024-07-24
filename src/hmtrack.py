@@ -747,8 +747,6 @@ def main(args, num_gpu):
                 input_cache_size=args.cache_size,
                 **other_kwargs,
             )
-        if not args.infer:
-            logger.info("\n" + str(summary))
         logger.info("Completed")
     except Exception as ex:
         print(ex)
@@ -875,7 +873,10 @@ def run_mmtrack(
                             # )
                             data["img"][i] = make_channels_first(
                                 data["img"][i].squeeze(0)
-                            ).to(torch.float16 if fp16 else torch.float, non_blocking=True)
+                            ).to(
+                                torch.float16 if fp16 else torch.float,
+                                non_blocking=True,
+                            )
 
                         # forward the model
                         detect_timer.tic()
@@ -898,18 +899,21 @@ def run_mmtrack(
 
                         if pose_model is not None:
                             pose_model.eval()
-                            tracking_results, pose_results, returned_outputs, vis_frame = (
-                                multi_pose_task(
-                                    pose_model=pose_model,
-                                    cur_frame=make_channels_last(origin_imgs[frame_index]),
-                                    # cur_frame=make_channels_last(data["img"][frame_index]),
-                                    dataset=pose_dataset_type,
-                                    dataset_info=pose_dataset_info,
-                                    tracking_results=tracking_results,
-                                    smooth=args.smooth,
-                                    # show=args.show_image,
-                                    show=True,
-                                )
+                            (
+                                tracking_results,
+                                pose_results,
+                                returned_outputs,
+                                vis_frame,
+                            ) = multi_pose_task(
+                                pose_model=pose_model,
+                                cur_frame=make_channels_last(origin_imgs[frame_index]),
+                                # cur_frame=make_channels_last(data["img"][frame_index]),
+                                dataset=pose_dataset_type,
+                                dataset_info=pose_dataset_info,
+                                tracking_results=tracking_results,
+                                smooth=args.smooth,
+                                # show=args.show_image,
+                                show=True,
                             )
                         else:
                             vis_frame = None
@@ -917,9 +921,9 @@ def run_mmtrack(
                         if vis_frame is not None:
                             if isinstance(vis_frame, np.ndarray):
                                 vis_frame = torch.from_numpy(vis_frame)
-                            origin_imgs[frame_index] = make_channels_first(vis_frame).to(
-                                device=origin_imgs.device, non_blocking=True
-                            )
+                            origin_imgs[frame_index] = make_channels_first(
+                                vis_frame
+                            ).to(device=origin_imgs.device, non_blocking=True)
 
                         frame_id = info_imgs[2][frame_index]
                         detections = det_bboxes[frame_index]
