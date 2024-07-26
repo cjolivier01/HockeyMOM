@@ -56,14 +56,15 @@ if [ ! -z "${AUDIO_FILE}" ]; then
 fi
 
 if [ -z "${INPUT_VIDEO_WITH_AUDIO}" ]; then
-  INPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/stitched_output-with-audio.mkv"
+  # mkv screws upt he fps
+  # INPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/stitched_output-with-audio.mkv"
   if [ ! -f "${INPUT_VIDEO_WITH_AUDIO}" ]; then
     INPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/stitched_output-with-audio.mp4"
   fi
 fi
 
 INPUT_VIDEO_NO_AUDIO="./output_workdirs/${GAME_ID}/tracking_output.mkv"
-OUTPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/tracking_output-with-audio.mkv"
+OUTPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/tracking_output-with-audio.mp4"
 ffmpeg \
   -i "${INPUT_VIDEO_WITH_AUDIO}" \
   -i "${INPUT_VIDEO_NO_AUDIO}" \
