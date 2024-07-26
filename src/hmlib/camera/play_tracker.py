@@ -509,9 +509,10 @@ class PlayTracker(torch.nn.Module):
                     # Cut the speed quickly due to overshoot
                     # self._current_roi.scale_speed(ratio_x=0.6)
                     self._current_roi.scale_speed(
-                        ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
+                        ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
+                        clamp_to_max=True,
                     )
-                    # print("Reducing group x velocity due to overshoot")
+                    print("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
 

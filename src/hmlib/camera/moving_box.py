@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 import torch
 
 from hmlib.builder import HM
@@ -582,14 +582,14 @@ class MovingBox(ResizingBox):
         mx = self._max_speed_x * scale
         my = self._max_speed_y * scale
         self._current_speed_x = torch.clamp(self._current_speed_x, min=-mx, max=mx)
-        self._current_speed_ = torch.clamp(self._current_speed_y, min=-my, max=my)
+        self._current_speed_y = torch.clamp(self._current_speed_y, min=-my, max=my)
 
     def adjust_speed(
         self,
-        accel_x: torch.Tensor = None,
-        accel_y: torch.Tensor = None,
-        scale_constraints: float = None,
-        nonstop_delay: torch.Tensor = None,
+        accel_x: Optional[torch.Tensor] = None,
+        accel_y: Optional[torch.Tensor] = None,
+        scale_constraints: Optional[float] = None,
+        nonstop_delay: Optional[torch.Tensor] = None,
     ):
         if scale_constraints is not None:
             mult = scale_constraints
@@ -616,9 +616,12 @@ class MovingBox(ResizingBox):
 
     def scale_speed(
         self,
-        ratio_x: torch.Tensor = None,
-        ratio_y: torch.Tensor = None,
+        ratio_x: Optional[torch.Tensor] = None,
+        ratio_y: Optional[torch.Tensor] = None,
+        clamp_to_max: Optional[bool] = False,
     ):
+        if clamp_to_max:
+            self._clamp_speed()
         if ratio_x is not None:
             self._current_speed_x *= ratio_x
 
