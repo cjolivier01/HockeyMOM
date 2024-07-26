@@ -461,9 +461,11 @@ class StitchDataset:
             self._coordinator_thread.join()
             self._coordinator_thread = None
 
-    def _send_frame_to_video_out(self, frame_id: int, stitched_frame: torch.Tensor):
+    def _send_frame_to_video_out(
+        self, frame_id: int, stitched_frame: Union[StreamTensor, torch.Tensor]
+    ) -> Union[StreamTensor, torch.Tensor]:
         if not self._output_stitched_video_file:
-            return
+            return stitched_frame
         if self._video_output is None:
             args = argparse.Namespace()
             args.fixed_edge_rotation = False
@@ -506,8 +508,9 @@ class StitchDataset:
             # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             current_box=self._video_output_box.detach().clone(),
         )
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
         self._video_output.append(image_proc_data)
+        return stitched_frame
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
@@ -662,8 +665,10 @@ class StitchDataset:
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
 
-        self._send_frame_to_video_out(frame_id=frame_id, stitched_frame=stitched_frame)
         assert stitched_frame.ndim == 4
+        stitched_frame = self._send_frame_to_video_out(
+            frame_id=frame_id, stitched_frame=stitched_frame
+        )
         # maybe nested batches can be some multiple of, so can remove this check if necessary
         assert self._batch_size == stitched_frame.shape[0]
         self._current_frame += stitched_frame.shape[0]
