@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 import shutil
@@ -38,7 +40,6 @@ class ScrollOutput:
         self.capture.append(msg)
         if len(self.capture) > self.lines:
             self.capture.pop(0)
-        # self.refresh()
 
     def flush(self):
         pass
@@ -64,8 +65,7 @@ class ScrollOutput:
         # print(f"Callback received log: {message}", file=sys.stderr)
         self.write(message)
 
-    def register_logger(self, logger):
-
+    def register_logger(self, logger) -> ScrollOutput:
         # Remove all existing handlers
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
@@ -76,21 +76,22 @@ class ScrollOutput:
             logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         )
         logger.addHandler(callback_handler)
+        return self
 
 
 class ProgressBar:
     def __init__(
         self,
         table_map: OrderedDict[Any, Any] = OrderedDict(),
-        total: Optional[int] = 0,
+        total: int = 0,
         iterator: Optional[Iterator[Any]] = None,
         scroll_output: Optional[ScrollOutput] = None,
         bar_length: Optional[int] = None,
         update_rate: int = 1,
         table_callback: Optional[Callable] = None,
     ):
-        self.total = total
-        self.counter = 0
+        self._total = total
+        self._counter: int = 0
         self.table_map = table_map
         self.original_stdout = logging_out
         self.scroll_output = scroll_output
@@ -117,6 +118,14 @@ class ProgressBar:
         for cb in self.table_callbacks:
             cb(table_map)
 
+    @property
+    def total(self) -> int:
+        return self._total
+
+    @property
+    def current(self) -> int:
+        return self._counter
+
     def __iter__(self):
         return self
 
@@ -129,23 +138,23 @@ class ProgressBar:
                 self.refresh()
                 raise
         else:
-            if self.counter >= self.total:
+            if self._counter >= self._total:
                 self.refresh()
                 raise StopIteration()
 
-        if not self.bar_length and self.counter % self.terminal_width_interval == 0:
+        if not self.bar_length and self._counter % self.terminal_width_interval == 0:
             self.terminal_width = _get_terminal_width()
 
-        if self.counter % self.update_rate == 0:
+        if self._counter % self.update_rate == 0:
             self._run_callbacks(table_map=self.table_map)
             self.refresh()
             if next_item is None:
                 time.sleep(0.1)  # Simulating work by sleeping
-        self.counter += 1
+        self._counter += 1
         return next_item
 
     def refresh(self):
-        if self.counter > 0:
+        if self._counter > 0:
             if self.scroll_output is not None:
                 self.scroll_output.reset()
             progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
@@ -159,17 +168,17 @@ class ProgressBar:
         return self.bar_length if self.bar_length else min(self.terminal_width - 10, 80)
 
     def print_progress_bar(self):
-        counter = self.counter + 1
-        if self.total - self.counter < self.update_rate:
+        counter = self._counter + 1
+        if self._total - self._counter < self.update_rate:
             # There won't be another update, so fill the bar up all of the way
             percent = 100
         else:
-            percent = (self.counter / self.total) * 100
+            percent = (self._counter / self._total) * 100
         bar_length = self._get_bar_width()
-        filled_length = int(bar_length * self.counter // self.total)
+        filled_length = int(bar_length * self._counter // self._total)
         bar = "█" * filled_length + "-" * (bar_length - filled_length)
         progress_out.write(
-            f"\r\x1b[2KProgress: |{bar}| {percent:.1f}% Complete {self.counter}/{self.total}\n"
+            f"\r\x1b[2KProgress: |{bar}| {percent:.1f}% Complete {self._counter}/{self._total}\n"
         )
         progress_out.flush()
         self._line_count += 1

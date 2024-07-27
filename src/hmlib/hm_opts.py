@@ -1,9 +1,8 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import argparse
 from typing import Any, Optional
+
 from hmlib.config import get_nested_value
 
 
@@ -195,6 +194,21 @@ class hm_opts(object):
             default=None,
             help="Comma-separated list of tracking IDs to track specifically (when online)",
         )
+        #
+        # Progress Bar
+        #
+        parser.add_argument(
+            "--no-progress-bar",
+            action="store_true",
+            help="Don't use the progress bar",
+        )
+        parser.add_argument(
+            "--progress-bar-lines",
+            type=int,
+            default=4,
+            help="Number of logging lines in the progrsss bar",
+        )
+
         return parser
 
     def parse(self, args=""):

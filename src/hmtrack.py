@@ -658,16 +658,17 @@ def main(args, num_gpu):
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
 
-        use_progress_bar: bool = True
         scroll_output: Optional[ScrollOutput] = None
 
-        if use_progress_bar:
-            total_frame_count = len(dataloader)
-            scroll_output = ScrollOutput()
-            scroll_output.register_logger(logger)
+        if not args.no_progress_bar:
+            # total_frame_count = len(dataloader)
+            # scroll_output = ScrollOutput(lines=args.progress_bar_lines)
+            # scroll_output.register_logger(logger)
             progress_bar = ProgressBar(
-                total=total_frame_count,
-                scroll_output=scroll_output,
+                total=len(dataloader),
+                scroll_output=ScrollOutput(
+                    lines=args.progress_bar_lines
+                ).register_logger(logger),
                 update_rate=20,
             )
         else:
