@@ -56,8 +56,7 @@ class ScrollOutput:
                 line.replace("\n", "\r")
             else:
                 line = ""
-            progress_out.write(f"\x1b[2K{i}: " + line + "\n")
-        # progress_out.write(f"\x1b[0G\x1b[{self.lines}A")
+            progress_out.write(f"\x1b[2K│ " + line + "\n")
         progress_out.flush()
 
     def my_callback(self, message):
