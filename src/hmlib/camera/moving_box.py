@@ -626,7 +626,7 @@ class MovingBox(ResizingBox):
             self._current_speed_x *= ratio_x
 
         if ratio_y is not None:
-            self._current_speed_y += ratio_y
+            self._current_speed_y *= ratio_y
 
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """

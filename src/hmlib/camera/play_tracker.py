@@ -38,7 +38,7 @@ def scale_box(box, from_img, to_img):
     w_scale = to_sz[1] / from_sz[1]
     h_scale = to_sz[0] / from_sz[0]
     new_box = [box[0] * w_scale, box[1] * h_scale, box[2] * w_scale, box[3] * h_scale]
-    print(f"from={box} -> to={new_box}")
+    logger.info(f"from={box} -> to={new_box}")
     return new_box
 
 
@@ -67,7 +67,7 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
         if boundaries is not None:
             # TODO: boundaries could be done with the box edges
             if boundaries.is_point_outside(center):
-                # print(f"ignoring: {center}")
+                # logger.info(f"ignoring: {center}")
                 continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
@@ -243,7 +243,7 @@ class PlayTracker(torch.nn.Module):
                     )
                     if len(tracking_ids_in_this_cluster) != 0:
                         if len(tracking_ids_in_this_cluster) > 1:
-                            print(
+                            logger.warn(
                                 f"Warning: Found more than one tracking ID in a single frame: {tracking_ids_in_this_cluster}"
                             )
                         have_tracking_ids_boxes_map[cluster_count] = (
@@ -365,7 +365,7 @@ class PlayTracker(torch.nn.Module):
                 speeds=[],
                 line_thickness=2,
             )
-            # print(f"Tracking {len(online_ids)} players...")
+            # logger.info(f"Tracking {len(online_ids)} players...")
             if largest_bbox is not None:
                 online_im = vis.plot_rectangle(
                     online_im,
@@ -458,7 +458,7 @@ class PlayTracker(torch.nn.Module):
         # Breakway detection
         #
         if group_x_velocity:
-            # print(f"frame {frame_id} group x velocity: {group_x_velocity}")
+            # logger.info(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 cv2.circle(
                     online_im,
@@ -512,7 +512,7 @@ class PlayTracker(torch.nn.Module):
                         ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
                         clamp_to_max=True,
                     )
-                    print("Reducing group x velocity due to overshoot")
+                    logger.info("Reducing group x velocity due to overshoot")
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
