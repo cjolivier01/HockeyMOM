@@ -118,20 +118,21 @@ def stitch_videos(
 
     use_progress_bar: bool = True
     scroll_output: Optional[ScrollOutput] = None
-    # if use_progress_bar:
 
-    scroll_output = ScrollOutput()
-    
-    scroll_output.register_logger(logger)
-    
-    table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
-    progress_bar = ProgressBar(
-        table_map=table_map,
-        total=len(data_loader),
-        iterator=data_loader_iter,
-        scroll_output=scroll_output,
-    )
-    data_loader_iter = progress_bar
+    if use_progress_bar:
+
+        scroll_output = ScrollOutput()
+        
+        scroll_output.register_logger(logger)
+        
+        table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
+        progress_bar = ProgressBar(
+            table_map=table_map,
+            total=len(data_loader),
+            iterator=data_loader_iter,
+            scroll_output=scroll_output,
+        )
+        data_loader_iter = progress_bar
 
     try:
         # with progress_bar.stdout_redirect():
