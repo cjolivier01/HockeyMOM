@@ -1,5 +1,6 @@
 import sys
 import time
+import shutil
 from typing import Any, Callable, Dict, Iterator, Optional
 import contextlib
 import logging
@@ -9,6 +10,11 @@ from collections import OrderedDict
 
 progress_out = sys.stderr
 logging_out = sys.stdout
+
+
+def _get_terminal_width():
+    width = shutil.get_terminal_size().columns
+    return width
 
 
 class CallbackStreamHandler(logging.StreamHandler):
@@ -81,7 +87,7 @@ class ProgressBar:
         total: Optional[int] = 0,
         iterator: Optional[Iterator[Any]] = None,
         scroll_output: Optional[ScrollOutput] = None,
-        bar_length: int = 60,
+        bar_length: Optional[int] = None,
         update_rate: int = 1,
         table_callback: Optional[Callable] = None,
     ):
@@ -91,9 +97,14 @@ class ProgressBar:
         self.original_stdout = logging_out
         self.scroll_output = scroll_output
         self.iterator = iterator
-        self.bar_length = bar_length
         self.update_rate = update_rate
         self.table_callback = table_callback
+        self.bar_length = bar_length
+        if not self.bar_length:
+            self.terminal_width = _get_terminal_width()
+            self.terminal_width_interval = 100
+        else:
+            self.terminal_width = None
 
     def __iter__(self):
         return self
@@ -105,6 +116,9 @@ class ProgressBar:
         else:
             if self.counter >= self.total:
                 raise StopIteration
+
+        if not self.bar_length and self.counter % self.terminal_width_interval == 0:
+            self.terminal_width = _get_terminal_width()
 
         if self.counter % self.update_rate == 0:
             # Update stats (callback?)
@@ -126,9 +140,12 @@ class ProgressBar:
         self.counter += 1
         return next_item
 
+    def _get_bar_width(self):
+        return self.bar_length if self.bar_length else min(self.terminal_width - 10, 80)
+
     def print_progress_bar(self):
         percent = (self.counter / self.total) * 100
-        bar_length = self.bar_length
+        bar_length = self._get_bar_width()
         filled_length = int(bar_length * self.counter // self.total)
         bar = "█" * filled_length + "-" * (bar_length - filled_length)
         progress_out.write(
