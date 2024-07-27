@@ -5,6 +5,7 @@ import sys
 import time
 import traceback
 import warnings
+from collections import OrderedDict
 from contextlib import nullcontext
 from typing import Any, List, Optional
 
@@ -657,6 +658,21 @@ def main(args, num_gpu):
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
 
+        use_progress_bar: bool = True
+        scroll_output: Optional[ScrollOutput] = None
+
+        if use_progress_bar:
+            total_frame_count = len(dataloader)
+            scroll_output = ScrollOutput()
+            scroll_output.register_logger(logger)
+            progress_bar = ProgressBar(
+                total=total_frame_count,
+                scroll_output=scroll_output,
+                update_rate=20,
+            )
+        else:
+            progress_bar = None
+
         # TODO: can this be part of the openmm pipeline?
         postprocessor = CamTrackHead(
             opt=args,
@@ -746,6 +762,7 @@ def main(args, num_gpu):
                 device=gpus["detection"],
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
+                progress_bar=progress_bar,
                 **other_kwargs,
             )
         logger.info("Completed")
@@ -778,6 +795,7 @@ def run_mmtrack(
     config,
     dataloader,
     postprocessor,
+    progress_bar: Optional[ProgressBar] = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -798,35 +816,15 @@ def run_mmtrack(
 
             model.eval()
 
-            if False:
-                # INFO logging
-                handler = logging.StreamHandler(sys.stdout)
-                logger.setLevel(max(logger.level, logging.INFO))
-                formatter = logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-                handler.setFormatter(formatter)
-                logger.addHandler(handler)
+            if progress_bar is not None:
+                dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
-            # frame_count = 0
-            # dataset_delivery_fps = 0.0
+                def _table_callback(table_map: OrderedDict[Any, Any]):
+                    if wraparound_timer is not None:
+                        fps = batch_size / max(1e-5, wraparound_timer.average_time)
+                        table_map["HMTrack FPS"] = "{:.2f}".format(fps)
 
-            use_progress_bar: bool = True
-            scroll_output: Optional[ScrollOutput] = None
-
-            if use_progress_bar:
-                total_frame_count = len(dataloader)
-                scroll_output = ScrollOutput()
-
-                scroll_output.register_logger(logger)
-
-                progress_bar = ProgressBar(
-                    total=total_frame_count,
-                    iterator=dataloader_iterator,
-                    scroll_output=scroll_output,
-                    update_rate=20,
-                )
-                dataloader_iterator = progress_bar
+                progress_bar.add_table_callback(_table_callback)
 
             for cur_iter, (
                 origin_imgs,

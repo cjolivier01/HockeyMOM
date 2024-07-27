@@ -1,12 +1,10 @@
-import sys
-import time
-import shutil
-from typing import Any, Callable, Dict, Iterator, List, Optional
 import contextlib
 import logging
-from itertools import cycle
+import shutil
+import sys
+import time
 from collections import OrderedDict
-
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 progress_out = sys.stderr
 logging_out = sys.stdout
@@ -111,6 +109,10 @@ class ProgressBar:
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
 
+    def set_iterator(self, iterator: Iterator[Any]) -> Iterator[Any]:
+        self.iterator = iterator
+        return iter(self)
+
     def _run_callbacks(self, table_map: OrderedDict[Any, Any]):
         for cb in self.table_callbacks:
             cb(table_map)
@@ -121,36 +123,43 @@ class ProgressBar:
     def __next__(self):
         next_item = None
         if self.iterator is not None:
-            next_item = next(self.iterator)
+            try:
+                next_item = next(self.iterator)
+            except StopIteration:
+                self.refresh()
+                raise
         else:
             if self.counter >= self.total:
-                raise StopIteration
+                self.refresh()
+                raise StopIteration()
 
         if not self.bar_length and self.counter % self.terminal_width_interval == 0:
             self.terminal_width = _get_terminal_width()
 
         if self.counter % self.update_rate == 0:
             self._run_callbacks(table_map=self.table_map)
-
-            if self.counter > 0:
-                if self.scroll_output is not None:
-                    self.scroll_output.reset()
-                progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
-
-            self._line_count = 0
-            self.print_table()
-            self.print_progress_bar()
-            if self.scroll_output is not None:
-                self.scroll_output.refresh()
+            self.refresh()
             if next_item is None:
                 time.sleep(0.1)  # Simulating work by sleeping
         self.counter += 1
         return next_item
 
+    def refresh(self):
+        if self.counter > 0:
+            if self.scroll_output is not None:
+                self.scroll_output.reset()
+            progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
+        self._line_count = 0
+        self.print_table()
+        self.print_progress_bar()
+        if self.scroll_output is not None:
+            self.scroll_output.refresh()
+
     def _get_bar_width(self):
         return self.bar_length if self.bar_length else min(self.terminal_width - 10, 80)
 
     def print_progress_bar(self):
+        counter = self.counter + 1
         if self.total - self.counter < self.update_rate:
             # There won't be another update, so fill the bar up all of the way
             percent = 100
@@ -167,16 +176,24 @@ class ProgressBar:
 
     def print_table(self):
         rows = min(3, len(self.table_map))
-        progress_out.write("\x1b[2K____________________________\n")
+        # Top border
+        bar_width = self._get_bar_width()
+        progress_out.write("\x1b[2K┌" + "─" * (bar_width - 2) + "┐\n")
+        # progress_out.write("\x1b[2K" + () + "\n")
         self._line_count += 1
         if rows:
             keys = list(self.table_map.keys())
             for i in range(rows):
                 key = keys[i]
                 value = self.table_map[key]
-                progress_out.write(f"\x1b[2K{key}: {value}\n")
+                # Table line
+                kv_string = f"{key}: {value}"
+                n_chars = bar_width - 4
+                progress_out.write(f"\x1b[2K│ {kv_string:<{n_chars}} │\n")
                 self._line_count += 1
-            progress_out.write("\x1b[2K____________________________\n")
+            # Bottom border
+            # progress_out.write("\x1b[2K____________________________\n")
+            progress_out.write("\x1b[2K└" + "─" * (bar_width - 2) + "┘\n")
         progress_out.flush()
         self._line_count += 1
 
@@ -189,7 +206,7 @@ class ProgressBar:
 
 # Example usage
 if __name__ == "__main__":
-    table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
+    table_map = OrderedDict({"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"})
     # Redirect stdout to scroll output handler
     scroll_output = ScrollOutput()
     progress_bar = ProgressBar(
