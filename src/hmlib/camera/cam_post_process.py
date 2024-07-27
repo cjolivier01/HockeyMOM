@@ -1,34 +1,22 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
-import time
-import os
 import argparse
+import os
+import time
 import traceback
-
-from typing import List, Dict
+from threading import Thread
+from typing import Dict, List
 
 import torch
 
-from threading import Thread
-
-from hmlib.utils.containers import create_queue
+from hmlib.camera.play_tracker import PlayTracker
+from hmlib.config import get_nested_value
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-
-# from hmlib.camera.moving_box import MovingBox
-from hmlib.video_out import ImageProcData, VideoOutput
-
-# from hmlib.camera.clusters import ClusterMan
-from hmlib.camera.play_tracker import PlayTracker
-
-# from hmlib.utils.image import ImageHorizontalGaussianDistribution, make_visible_image
-# from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.config import get_nested_value
-
 from hmlib.utils.box_functions import aspect_ratio
-
+from hmlib.utils.containers import create_queue
+from hmlib.utils.progress_bar import ProgressBar
+from hmlib.video_out import ImageProcData, VideoOutput
 from hockeymom import core
 
 MAX_CROPPED_WIDTH = 4096
@@ -224,6 +212,7 @@ class CamTrackPostProcessor:
         use_fork: bool = False,
         video_out_device: str = None,
         no_frame_postprocessing: bool = False,
+        progress_bar: ProgressBar | None = None,
     ):
         self._args = args
         self._no_frame_postprocessing = no_frame_postprocessing
@@ -256,6 +245,7 @@ class CamTrackPostProcessor:
             hockey_mom=hockey_mom,
             device=device,
             original_clip_box=original_clip_box,
+            progress_bar=progress_bar,
             args=args,
         )
 
