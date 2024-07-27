@@ -2,11 +2,24 @@ import sys
 import time
 from typing import Any, Dict, Iterator, Optional
 import contextlib
+import logging
 from itertools import cycle
 
 
 progress_out = sys.stderr
 logging_out = sys.stdout
+
+
+class CallbackStreamHandler(logging.StreamHandler):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def emit(self, record):
+        # Use the handler's own formatter to format the record
+        message = self.format(record)
+        # Call the callback with the formatted message
+        self.callback(message)
 
 
 class ScrollOutput:
@@ -41,6 +54,24 @@ class ScrollOutput:
         # progress_out.write(f"\x1b[0G\x1b[{self.lines}A")
         progress_out.flush()
 
+    def my_callback(self, message):
+        # Here you handle the message. For now, we'll just print it.
+        # print(f"Callback received log: {message}", file=sys.stderr)
+        self.write(message)
+
+    def register_logger(self, logger):
+
+        # Remove all existing handlers
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+
+        # Create and add our custom handler
+        callback_handler = CallbackStreamHandler(self.my_callback)
+        callback_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
+        logger.addHandler(callback_handler)
+
 
 class ProgressBar:
     def __init__(
@@ -49,6 +80,7 @@ class ProgressBar:
         total: Optional[int] = 0,
         iterator: Optional[Iterator[Any]] = None,
         scroll_output: Optional[ScrollOutput] = None,
+        bar_length: int = 60,
     ):
         self.total = total
         self.counter = 0
@@ -56,6 +88,7 @@ class ProgressBar:
         self.original_stdout = logging_out
         self.scroll_output = scroll_output
         self.iterator = iterator
+        self.bar_length = bar_length
 
     def __iter__(self):
         return self
@@ -83,7 +116,7 @@ class ProgressBar:
 
     def print_progress_bar(self):
         percent = (self.counter / self.total) * 100
-        bar_length = 30
+        bar_length = self.bar_length
         filled_length = int(bar_length * self.counter // self.total)
         bar = "█" * filled_length + "-" * (bar_length - filled_length)
         progress_out.write(f"\r\x1b[2KProgress: |{bar}| {percent:.1f}% Complete\n")

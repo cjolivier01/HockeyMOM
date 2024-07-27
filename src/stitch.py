@@ -38,6 +38,9 @@ from hockeymom import core
 ROOT_DIR = os.getcwd()
 
 
+
+
+
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument(
@@ -118,6 +121,9 @@ def stitch_videos(
     # if use_progress_bar:
 
     scroll_output = ScrollOutput()
+    
+    scroll_output.register_logger(logger)
+    
     table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
     progress_bar = ProgressBar(
         table_map=table_map,

@@ -7,18 +7,14 @@ def get_logger(name='root'):
         # fmt='%(asctime)s [%(levelname)s]: %(filename)s(%(funcName)s:%(lineno)s) >> %(message)s')
         fmt='%(asctime)s [%(levelname)s]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-    #handler = logging.StreamHandler()
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(sys.stderr)
+    # handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
     logger = logging.getLogger(name)
 
     logger.setLevel(logging.DEBUG)
     #logger.setLevel(logging.INFO)
-
-    # Remove all existing handlers
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
 
     logger.addHandler(handler)
     return logger
