@@ -30,6 +30,10 @@ class CallbackStreamHandler(logging.StreamHandler):
 
 
 class ScrollOutput:
+    """
+    Class for maintaining a dynamioc text scrolling area
+    """
+
     def __init__(self, lines=4):
         self.capture = []
         self.lines = lines
@@ -59,18 +63,17 @@ class ScrollOutput:
             progress_out.write(f"\x1b[2K│ " + line + "\n")
         progress_out.flush()
 
-    def my_callback(self, message):
-        # Here you handle the message. For now, we'll just print it.
-        # print(f"Callback received log: {message}", file=sys.stderr)
-        self.write(message)
-
     def register_logger(self, logger) -> ScrollOutput:
+        """
+        Register a callback stream handler which
+        redirects logging to this class' "write" function.
+        """
         # Remove all existing handlers
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
 
         # Create and add our custom handler
-        callback_handler = CallbackStreamHandler(self.my_callback)
+        callback_handler = CallbackStreamHandler(self.write)
         callback_handler.setFormatter(
             logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         )
