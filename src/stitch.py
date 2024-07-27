@@ -156,41 +156,38 @@ def stitch_videos(
         data_loader_iter = progress_bar
 
     try:
-        # with progress_bar.stdout_redirect():
-        with contextlib.redirect_stdout(scroll_output):
-            # with contextlib.nullcontext():
-            start = None
+        start = None
 
-            dataset_timer = Timer()
-            for i, stitched_image in enumerate(data_loader_iter):
-                # if isinstance(stitched_image, StreamTensor):
-                #     stitched_image._verbose = False
-                #     stitched_image = stitched_image.get()
+        dataset_timer = Timer()
+        for i, stitched_image in enumerate(data_loader_iter):
+            # if isinstance(stitched_image, StreamTensor):
+            #     stitched_image._verbose = False
+            #     stitched_image = stitched_image.get()
 
-                if i > 1:
-                    dataset_timer.toc()
-                if (i + 1) % 20 == 0:
-                    assert stitched_image.ndim == 4
-                    dataset_delivery_fps = batch_size / max(
-                        1e-5, dataset_timer.average_time
+            if i > 1:
+                dataset_timer.toc()
+            if (i + 1) % 20 == 0:
+                assert stitched_image.ndim == 4
+                dataset_delivery_fps = batch_size / max(
+                    1e-5, dataset_timer.average_time
+                )
+                logger.info(
+                    "Dataset frame {} ({:.2f} fps)".format(
+                        i * batch_size,
+                        batch_size / max(1e-5, dataset_timer.average_time),
                     )
-                    logger.info(
-                        "Dataset frame {} ({:.2f} fps)".format(
-                            i * batch_size,
-                            batch_size / max(1e-5, dataset_timer.average_time),
-                        )
-                    )
-                    if i % 100 == 0:
-                        dataset_timer = Timer()
+                )
+                if i % 100 == 0:
+                    dataset_timer = Timer()
 
-                frame_count += batch_size
+            frame_count += batch_size
 
-                if show:
-                    show_image("stitched_image", stitched_image, wait=False)
+            if show:
+                show_image("stitched_image", stitched_image, wait=False)
 
-                if i == 1:
-                    start = time.time()
-                dataset_timer.tic()
+            if i == 1:
+                start = time.time()
+            dataset_timer.tic()
 
         if start is not None:
             duration = time.time() - start
