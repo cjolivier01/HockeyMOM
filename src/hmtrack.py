@@ -1100,7 +1100,21 @@ def multi_pose_task(
     return tracking_results, pose_results, returned_outputs, vis_frame
 
 
+def setup_logging():
+    # INFO logging
+    # handler = logging.StreamHandler(sys.stdout)
+    # logger.setLevel(max(logger.level, logging.INFO))
+    # formatter = logging.Formatter(
+    #     "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    # )
+    # handler.setFormatter(formatter)
+    # logger.addHandler(handler)
+    logger.info("Logger initialized")
+
+
 if __name__ == "__main__":
+    setup_logging()
+
     parser = make_parser()
     args = parser.parse_args()
 

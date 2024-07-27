@@ -5,9 +5,9 @@ import torchaudio
 import torchvision
 
 from hmlib.tracking_utils.log import logger
-from hmlib.utils.image import resize_image
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import resize_image
 
 from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
@@ -99,7 +99,7 @@ class VideoStreamWriter:
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
-        
+
         self._stream_fps = stream_fps
         self._stream_frame_indexes = set(
             [
@@ -364,8 +364,8 @@ class CVVideoCaptureIterator:
             return np.stack(frames)
 
     def __del__(self):
-        if hasattr(self, "frames_delivered_count"):
-            print(
+        if hasattr(self, "frames_delivered_count") and self.frames_delivered_count:
+            logger.info(
                 f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames"
             )
 

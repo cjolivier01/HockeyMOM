@@ -228,7 +228,6 @@ class PlayTracker(torch.nn.Module):
             self._cluster_man = ClusterMan(
                 sizes=cluster_counts, device=self._kmeans_cuda_device()
             )
-
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
         )
