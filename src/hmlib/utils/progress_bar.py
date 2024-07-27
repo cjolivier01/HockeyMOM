@@ -151,7 +151,11 @@ class ProgressBar:
         return self.bar_length if self.bar_length else min(self.terminal_width - 10, 80)
 
     def print_progress_bar(self):
-        percent = (self.counter / self.total) * 100
+        if self.total - self.counter < self.update_rate:
+            # There won't be another update, so fill the bar up all of the way
+            percent = 100
+        else:
+            percent = (self.counter / self.total) * 100
         bar_length = self._get_bar_width()
         filled_length = int(bar_length * self.counter // self.total)
         bar = "█" * filled_length + "-" * (bar_length - filled_length)
@@ -165,13 +169,14 @@ class ProgressBar:
         rows = min(3, len(self.table_map))
         progress_out.write("\x1b[2K____________________________\n")
         self._line_count += 1
-        keys = list(self.table_map.keys())
-        for i in range(rows):
-            key = keys[i]
-            value = self.table_map[key]
-            progress_out.write(f"\x1b[2K{key}: {value}\n")
-            self._line_count += 1
-        progress_out.write("\x1b[2K____________________________\n")
+        if rows:
+            keys = list(self.table_map.keys())
+            for i in range(rows):
+                key = keys[i]
+                value = self.table_map[key]
+                progress_out.write(f"\x1b[2K{key}: {value}\n")
+                self._line_count += 1
+            progress_out.write("\x1b[2K____________________________\n")
         progress_out.flush()
         self._line_count += 1
 
