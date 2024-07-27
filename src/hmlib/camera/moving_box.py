@@ -67,10 +67,10 @@ class ResizingBox(BasicBox):
         max_width: torch.Tensor,
         max_height: torch.Tensor,
         sticky_sizing: bool = False,
-        width_change_threshold: torch.Tensor = None,
-        width_change_threshold_low: torch.Tensor = None,
-        height_change_threshold: torch.Tensor = None,
-        height_change_threshold_low: torch.Tensor = None,
+        width_change_threshold: Optional[torch.Tensor] = None,
+        width_change_threshold_low: Optional[torch.Tensor] = None,
+        height_change_threshold: Optional[torch.Tensor] = None,
+        height_change_threshold_low: Optional[torch.Tensor] = None,
         device: str = None,
     ):
         super(ResizingBox, self).__init__(bbox=bbox, device=device)
@@ -111,7 +111,7 @@ class ResizingBox(BasicBox):
         self,
         img: np.array,
         draw_thresholds: bool = True,
-        following_box: BasicBox = None,
+        following_box: Optional[BasicBox] = None,
     ):
         if self._sticky_sizing:
             assert following_box is not None  # why?
@@ -130,11 +130,12 @@ class ResizingBox(BasicBox):
                     image=img, bbox=corner_box, color=(255, 255, 255), thickness=1
                 )
 
-            scaled_following_box = scale_box(
-                following_bbox,
-                scale_width=self._scale_width,
-                scale_height=self._scale_height,
-            )
+            if hasattr(self, "_scale_width"):
+                scaled_following_box = scale_box(
+                    following_bbox,
+                    scale_width=self._scale_width,
+                    scale_height=self._scale_height,
+                )
 
             inscribed = move_box_to_center(
                 scaled_following_box.clone(), center(my_bbox)
@@ -192,8 +193,8 @@ class ResizingBox(BasicBox):
 
     def _adjust_size(
         self,
-        accel_w: torch.Tensor = None,
-        accel_h: torch.Tensor = None,
+        accel_w: Optional[torch.Tensor] = None,
+        accel_h: Optional[torch.Tensor] = None,
         use_constraints: bool = True,
     ):
         if self._size_is_frozen:
@@ -330,16 +331,16 @@ class MovingBox(ResizingBox):
         max_height: torch.Tensor,
         min_width: int = 10,
         min_height: int = 10,
-        scale_width: torch.Tensor = None,
-        scale_height: torch.Tensor = None,
-        arena_box: torch.Tensor = None,
-        fixed_aspect_ratio: torch.Tensor = None,
+        scale_width: Optional[torch.Tensor] = None,
+        scale_height: Optional[torch.Tensor] = None,
+        arena_box: Optional[torch.Tensor] = None,
+        fixed_aspect_ratio: Optional[torch.Tensor] = None,
         sticky_translation: bool = False,
         sticky_sizing: bool = False,
-        width_change_threshold: torch.Tensor = None,
-        width_change_threshold_low: torch.Tensor = None,
-        height_change_threshold: torch.Tensor = None,
-        height_change_threshold_low: torch.Tensor = None,
+        width_change_threshold: Optional[torch.Tensor] = None,
+        width_change_threshold_low: Optional[torch.Tensor] = None,
+        height_change_threshold: Optional[torch.Tensor] = None,
+        height_change_threshold_low: Optional[torch.Tensor] = None,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
@@ -627,6 +628,12 @@ class MovingBox(ResizingBox):
 
         if ratio_y is not None:
             self._current_speed_y *= ratio_y
+
+    def get_size_scale(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get the width and height scale that we adjust the initial target rectangle to
+        """
+        return self._scale_width, self._scale_height
 
     def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
         """

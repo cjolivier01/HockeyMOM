@@ -83,7 +83,11 @@ def move_box_to_center(box: torch.Tensor, center_point: torch.Tensor):
     return moved_box
 
 
-def scale_box(box: torch.Tensor, scale_width: torch.Tensor, scale_height: torch.Tensor):
+def scale_box(
+    box: torch.Tensor,
+    scale_width: torch.Tensor | float,
+    scale_height: torch.Tensor | float,
+) -> torch.Tensor:
     center_point = center(box)
     w = width(box) * scale_width
     h = height(box) * scale_height

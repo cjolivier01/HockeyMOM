@@ -91,6 +91,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="pls input your expriment description file",
     )
     parser.add_argument(
+        "--no-wide-start",
+        default=False,
+        action="store_true",
+        help="Don't start with a tracking box of the entire input frame. Immediately track to player detections.",
+    )
+    parser.add_argument(
         "--infer",
         default=False,
         action="store_true",

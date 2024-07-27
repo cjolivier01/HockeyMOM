@@ -1,45 +1,42 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
+
+import argparse
+from typing import Dict, List, Optional, Set
 
 import cv2
-import argparse
-
-from typing import List, Dict, Set
-
 import torch
 
+from hmlib.builder import HM, PIPELINES
+from hmlib.camera.clusters import ClusterMan
+from hmlib.camera.moving_box import MovingBox
+from hmlib.config import get_nested_value
 from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.camera.moving_box import MovingBox
-from hmlib.camera.clusters import ClusterMan
-from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.config import get_nested_value
-from hmlib.builder import HM, PIPELINES
-
 from hmlib.utils.box_functions import (
-    width,
-    height,
     center,
     center_batch,
+    clamp_box,
+    get_enclosing_box,
+    height,
     make_box_at_center,
     remove_largest_bbox,
-    get_enclosing_box,
+    scale_box,
+    tlwh_centers,
     tlwh_to_tlbr_single,
+    width,
 )
 
-from hmlib.utils.box_functions import tlwh_centers
 
-
-def scale_box(box, from_img, to_img):
-    from_sz = (from_img.shape[1], from_img.shape[0])
-    to_sz = (to_img.shape[1], to_img.shape[0])
-    w_scale = to_sz[1] / from_sz[1]
-    h_scale = to_sz[0] / from_sz[0]
-    new_box = [box[0] * w_scale, box[1] * h_scale, box[2] * w_scale, box[3] * h_scale]
-    logger.info(f"from={box} -> to={new_box}")
-    return new_box
+# def scale_box(box, from_img, to_img):
+#     from_sz = (from_img.shape[1], from_img.shape[0])
+#     to_sz = (to_img.shape[1], to_img.shape[0])
+#     w_scale = to_sz[1] / from_sz[1]
+#     h_scale = to_sz[0] / from_sz[0]
+#     new_box = [box[0] * w_scale, box[1] * h_scale, box[2] * w_scale, box[3] * h_scale]
+#     logger.info(f"from={box} -> to={new_box}")
+#     return new_box
 
 
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
@@ -116,7 +113,7 @@ class PlayTracker(torch.nn.Module):
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
         self._timer = Timer()
-        self._cluster_man = None
+        self._cluster_man: Optional[ClusterMan] = None
         self._original_clip_box = original_clip_box
         self._breakaway_detection = BreakawayDetection(args.game_config)
 
@@ -136,9 +133,7 @@ class PlayTracker(torch.nn.Module):
         self._previous_cluster_union_box = None
         self._last_temporal_box = None
         self._last_sticky_temporal_box = None
-        self._last_dx_shrink_size = 0
-        self._center_dx_shift = 0
-        self._frame_counter = 0
+        self._frame_counter: int = 0
 
         start_box = self._hockey_mom._video_frame.bounding_box()
         self._current_roi = MovingBox(
@@ -204,6 +199,31 @@ class PlayTracker(torch.nn.Module):
     def _kmeans_cuda_device(self):
         return "cpu"
 
+    def set_initial_tracking_box(self, box: torch.Tensor):
+        """
+        Set the initial tracking boxes
+        """
+        assert self._frame_counter <= 1, "Not currently meant for setting at runtime"
+        frame_box = start_box = self._hockey_mom._video_frame.bounding_box()
+        fw, fh = width(frame_box), height(frame_box)
+        # Should fit in the video frame
+        assert width(box) <= fw and height(box) <= fh
+        scale_w, scale_h = self._current_roi.get_size_scale()
+        box_roi = clamp_box(
+            box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
+            clamp_box=frame_box,
+        )
+        # We set the roi box to be this exact size
+        self._current_roi.set_bbox(box_roi)
+        # Then we scale up as needed for the aspect roi
+        box_roi = self._current_roi.bounding_box()
+        scale_w, scale_h = self._current_roi_aspect.get_size_scale()
+        box_roi = clamp_box(
+            box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
+            clamp_box=frame_box,
+        )
+        self._current_roi_aspect.set_bbox(box_roi)
+
     def get_cluster_boxes(
         self,
         online_tlwhs: torch.Tensor,
@@ -255,15 +275,15 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         if have_tracking_ids_boxes_map:
             values = [v for v in have_tracking_ids_boxes_map.values()]
-            boxes_list = torch.stack(values)
-            widths = boxes_list[:, 3] - boxes_list[:, 1]
-            heights = boxes_list[:, 2] - boxes_list[:, 0]
+            boxes_list: torch.Tensor = torch.stack(values)
+            widths: torch.Tensor = boxes_list[:, 3] - boxes_list[:, 1]
+            heights: torch.Tensor = boxes_list[:, 2] - boxes_list[:, 0]
             areas = widths * heights
             min_area_index = torch.argmin(areas)
             boxes_list = boxes_list[min_area_index].unsqueeze(0)
             boxes_map = {0: boxes_list[0]}
         else:
-            boxes_list = torch.stack(boxes_list)
+            boxes_list: torch.Tensor = torch.stack(boxes_list)
 
         return boxes_map, boxes_list
 
@@ -280,14 +300,6 @@ class PlayTracker(torch.nn.Module):
         self._frame_counter += 1
 
         largest_bbox = None
-
-        # Exclude detections outside of an optional bounding box
-        # online_tlwhs, online_ids = prune_by_inclusion_box(
-        #     online_tlwhs,
-        #     online_ids,
-        #     self._args.detection_inclusion_box,
-        #     boundaries=self._boundaries,
-        # )
 
         if self._args.cam_ignore_largest and len(online_tlwhs):
             # Don't remove unless we have at least 4 online items being tracked
@@ -414,6 +426,10 @@ class PlayTracker(torch.nn.Module):
         # Some players may be off-screen, so their box may go over an edge
         current_box = self._hockey_mom.clamp(current_box)
 
+        # Maybe set initial box sizes if we aren't starting with a wide frame
+        if self._frame_counter == 1 and self._args.no_wide_start:
+            self.set_initial_tracking_box(current_box)
+
         fast_roi_bounding_box = self._current_roi(current_box, stop_on_dir_change=False)
         current_box = self._current_roi_aspect(
             fast_roi_bounding_box, stop_on_dir_change=True
@@ -489,10 +505,12 @@ class PlayTracker(torch.nn.Module):
                     )
                 should_adjust_speed = torch.logical_or(
                     torch.logical_and(
-                        group_x_velocity > 0, roi_center[0] < edge_center[0]
+                        group_x_velocity > 0,
+                        roi_center[0] < edge_center[0],
                     ),
                     torch.logical_and(
-                        group_x_velocity < 0, roi_center[0] > edge_center[0]
+                        group_x_velocity < 0,
+                        roi_center[0] > edge_center[0],
                     ),
                 )
                 if should_adjust_speed.item():
@@ -508,13 +526,27 @@ class PlayTracker(torch.nn.Module):
                         ),
                     )
                 else:
+                    should_cut_speed = torch.logical_or(
+                        torch.logical_and(
+                            self._current_roi._current_speed_x < 0,
+                            roi_center[0] < edge_center[0],
+                        ),
+                        torch.logical_and(
+                            self._current_roi._current_speed_x > 0,
+                            roi_center[0] > edge_center[0],
+                        ),
+                    )
                     # Cut the speed quickly due to overshoot
                     # self._current_roi.scale_speed(ratio_x=0.6)
-                    self._current_roi.scale_speed(
-                        ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
-                        clamp_to_max=True,
-                    )
-                    logger.info("Reducing group x velocity due to overshoot")
+                    if should_cut_speed:
+                        self._current_roi.scale_speed(
+                            ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
+                            clamp_to_max=True,
+                        )
+                        logger.info(
+                            f"Reducing group x velocity due to overshoot: group_x_velocity={group_x_velocity}, "
+                            f"current_speed_x={self._current_roi._current_speed_x}"
+                        )
 
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
 

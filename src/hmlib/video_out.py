@@ -714,7 +714,11 @@ class VideoOutput:
                 #
                 # Perspective rotation
                 #
-                if self.has_args() and self._args.fixed_edge_rotation:
+                if (
+                    self.has_args()
+                    and self._args.fixed_edge_rotation
+                    and self._args.fixed_edge_rotation_angle
+                ):
                     online_im = slow_to_tensor(online_im)
                     online_im = _to_float(
                         online_im,
