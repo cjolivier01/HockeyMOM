@@ -8,6 +8,7 @@ import argparse
 import contextlib
 import cv2
 from typing import Any
+from collections import OrderedDict
 
 import torch
 
@@ -125,9 +126,8 @@ def stitch_videos(
         
         scroll_output.register_logger(logger)
         
-        table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
         progress_bar = ProgressBar(
-            table_map=table_map,
+            # table_map=table_map,
             total=len(data_loader),
             iterator=data_loader_iter,
             scroll_output=scroll_output,
