@@ -495,7 +495,7 @@ class PlayTracker(torch.nn.Module):
                         color=(128, 255, 128),
                         thickness=4,
                     )
-                if True:
+                if False:
                     should_adjust_speed = torch.logical_or(
                         torch.logical_and(
                             # Moving to the right, and our ROI center
