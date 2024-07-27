@@ -49,8 +49,8 @@ def make_parser():
 
 
 def convert_seconds_to_hms(total_seconds):
-    hours = total_seconds // 3600  # Calculate the number of hours
-    minutes = (total_seconds % 3600) // 60  # Calculate the remaining minutes
+    hours = int(total_seconds // 3600)  # Calculate the number of hours
+    minutes = int((total_seconds % 3600) // 60)  # Calculate the remaining minutes
     seconds = int(total_seconds % 60)  # Calculate the remaining seconds
 
     # Format the time in "HH:MM:SS" format
