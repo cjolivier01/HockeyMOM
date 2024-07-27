@@ -5,6 +5,7 @@ Experiments in stitching
 import os
 import time
 import argparse
+import contextlib
 import cv2
 from typing import Any
 
@@ -16,6 +17,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.config import get_clip_box
 from hmlib.stitching.remapper import ImageRemapper
 from hmlib.utils.gpu import StreamTensor, GpuAllocator, CachedIterator
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.stitching.synchronize import (
@@ -41,9 +43,7 @@ def make_parser():
     parser.add_argument(
         "--num-workers", default=1, type=int, help="Number of stitching workers"
     )
-    parser.add_argument(
-        "--batch-size", default=1, type=int, help="Batch size"
-    )
+    parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     return parser
 
 
@@ -113,39 +113,54 @@ def stitch_videos(
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
 
+    use_progress_bar: bool = True
+    scroll_output: Optional[ScrollOutput] = None
+    # if use_progress_bar:
+
+    scroll_output = ScrollOutput()
+    table_map = {"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"}
+    progress_bar = ProgressBar(
+        table_map=table_map,
+        total=len(data_loader),
+        iterator=data_loader_iter,
+        scroll_output=scroll_output,
+    )
+    data_loader_iter = progress_bar
+
     try:
+        # with progress_bar.stdout_redirect():
+        with contextlib.redirect_stdout(scroll_output):
+            # with contextlib.nullcontext():
+            frame_count = 0
+            start = None
 
-        frame_count = 0
-        start = None
+            dataset_timer = Timer()
+            for i, stitched_image in enumerate(data_loader_iter):
+                # if isinstance(stitched_image, StreamTensor):
+                #     stitched_image._verbose = False
+                #     stitched_image = stitched_image.get()
 
-        dataset_timer = Timer()
-        for i, stitched_image in enumerate(data_loader_iter):
-
-            # if isinstance(stitched_image, StreamTensor):
-            #     stitched_image._verbose = False
-            #     stitched_image = stitched_image.get()
-
-            if i > 1:
-                dataset_timer.toc()
-            if (i + 1) % 20 == 0:
-                assert stitched_image.ndim == 4
-                logger.info(
-                    "Dataset frame {} ({:.2f} fps)".format(
-                        i * stitched_image.size(0),
-                        1.0 / max(1e-5, dataset_timer.average_time),
+                if i > 1:
+                    dataset_timer.toc()
+                if (i + 1) % 20 == 0:
+                    assert stitched_image.ndim == 4
+                    logger.info(
+                        "Dataset frame {} ({:.2f} fps)".format(
+                            i * stitched_image.size(0),
+                            1.0 / max(1e-5, dataset_timer.average_time),
+                        )
                     )
-                )
-                if i % 100 == 0:
-                    dataset_timer = Timer()
+                    if i % 100 == 0:
+                        dataset_timer = Timer()
 
-            frame_count += 1
+                frame_count += 1
 
-            if show:
-                show_image("stitched_image", stitched_image, wait=False)
+                if show:
+                    show_image("stitched_image", stitched_image, wait=False)
 
-            if i == 1:
-                start = time.time()
-            dataset_timer.tic()
+                if i == 1:
+                    start = time.time()
+                dataset_timer.tic()
 
         if start is not None:
             duration = time.time() - start

@@ -458,7 +458,10 @@ class VideoOutput:
                 counter += 1
                 if (
                     not self.has_args()
-                    or (not self._args.show_image and not self._args.debug)
+                    or (
+                        not self._args.show_image
+                        and (not hasattr(self._args, "debug") or not self._args.debug)
+                    )
                 ) and counter % 10 == 0:
                     print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.001)
