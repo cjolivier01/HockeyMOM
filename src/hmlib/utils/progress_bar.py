@@ -156,7 +156,7 @@ class ProgressBar:
 
     def print_table(self):
         rows = min(3, len(self.table_map))
-        progress_out.write("\x1b[2K----------------------------\n")
+        progress_out.write("\x1b[2K____________________________\n")
         self._line_count += 1
         keys = list(self.table_map.keys())
         for i in range(rows):
@@ -164,7 +164,7 @@ class ProgressBar:
             value = self.table_map[key]
             progress_out.write(f"\x1b[2K{key}: {value}\n")
             self._line_count += 1
-        progress_out.write("\x1b[2K----------------------------\n")
+        progress_out.write("\x1b[2K____________________________\n")
         progress_out.flush()
         self._line_count += 1
 
