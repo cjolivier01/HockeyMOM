@@ -122,7 +122,7 @@ def stitch_videos(
     if use_progress_bar:
 
         def _table_callback(table_map: OrderedDict):
-            table_map["Stithing Dataset Delivery FPS"] = "{:.2f}".format(
+            table_map["Stitching Dataset Delivery FPS"] = "{:.2f}".format(
                 dataset_delivery_fps
             )
 
