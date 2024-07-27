@@ -1,27 +1,23 @@
+import math
+from typing import Dict, List, Tuple
+
 import cameratransform as ct
 import cv2
-import math
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import Dict, List, Tuple
-from fast_pytorch_kmeans import KMeans
-import matplotlib.pyplot as plt
-
 import torch
+from fast_pytorch_kmeans import KMeans
 
+from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import (
-    width,
-    height,
+    aspect_ratio,
     center,
-    # center_x_distance,
     clamp_box,
     clamp_value,
-    aspect_ratio,
+    height,
     make_box_at_center,
     tlwh_to_tlbr_single,
-    # translate_box_to_edge,
-    # shift_box_to_edge,
-    # scale_box_to_fit,
+    width,
 )
 
 # nosec B101
@@ -82,7 +78,7 @@ class VideoFrame(object):
         # Make sure shape indexes haven't been screwed up
         assert bool(image_width > 10)
         assert bool(image_height > 10)
-        assert bool(image_height < image_width) # Usually the case, but not required
+        assert bool(image_height < image_width)  # Usually the case, but not required
         self._image_width = _as_scalar(image_width)
         self._image_height = _as_scalar(image_height)
         self._vertical_center = self._image_height / 2
@@ -170,7 +166,7 @@ class TlwhHistory(object):
                     - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
                 ) / float(X_SPEED_HISTORY_LENGTH)
                 # x speed from last X_SPEED_HISTORY_LENGTH frames
-                # print(f"id {self.id_} has image x speed {self._current_image_x_speed}")
+                # logger.info(f"id {self.id_} has image x speed {self._current_image_x_speed}")
             else:
                 self._current_image_x_speed = 0.0
         else:
@@ -278,7 +274,7 @@ class HockeyMOM:
         self._camera_box_max_speed_y = self._to_scalar_float(
             max(image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
         )
-        print(
+        logger.info(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
 
@@ -291,7 +287,7 @@ class HockeyMOM:
         self._camera_box_max_accel_y = self._to_scalar_float(1)
         # self._camera_box_max_accel_x = max(self._camera_box_max_speed_x / 20.0, 1)
         # self._camera_box_max_accel_y = max(self._camera_box_max_speed_y / 20.0, 1)
-        print(
+        logger.info(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
 
@@ -409,13 +405,13 @@ class HockeyMOM:
     #         )
     #     torch_tensors = []
     #     for n in self._online_image_center_points:
-    #         # print(n)
+    #         # logger.info(n)
     #         torch_tensors.append(n.to(device))
     #     tt = torch.cat(torch_tensors, dim=0)
     #     tt = torch.reshape(tt, (len(torch_tensors), 2))
-    #     # print(tt)
+    #     # logger.info(tt)
     #     labels = self._kmeans_objects[n_clusters].fit_predict(tt)
-    #     # print(labels)
+    #     # logger.info(labels)
     #     self._cluster_counts[n_clusters] = [0 for i in range(n_clusters)]
     #     cluster_counts = self._cluster_counts[n_clusters]
     #     cluster_label_ids = self._cluster_label_ids[n_clusters]
@@ -690,7 +686,7 @@ class HockeyMOM:
 
     @classmethod
     def print_box(cls, box):
-        print(cls.box_str(box))
+        logger.info(cls.box_str(box))
 
     @classmethod
     def move_box_center_to_point(cls, box, point):
@@ -860,7 +856,7 @@ class HockeyMOM:
         new_box = make_box_at_center(box_center, new_w, new_h)
 
         if verbose:
-            print(f"frame_id={frame_id}, ar={aspect_ratio(new_box)}")
+            logger.info(f"frame_id={frame_id}, ar={aspect_ratio(new_box)}")
         assert torch.isclose(aspect_ratio(new_box), desired_aspect_ratio)
 
         if extra_validation:
@@ -890,11 +886,11 @@ class HockeyMOM:
             dist_from_center_x = current_center[0] - half_frame_width
         dist_center_ratio = dist_from_center_x / float(self._video_frame.width)
         if verbose:
-            print(f"dist_center_ratio={dist_center_ratio}")
+            logger.info(f"dist_center_ratio={dist_center_ratio}")
         box_scaling = edge_scaling_factor * dist_center_ratio
         width_reduction = w * box_scaling
         if verbose:
-            print(f"width_reduction={width_reduction}")
+            logger.info(f"width_reduction={width_reduction}")
         if width_reduction == 0.0:
             return box
 
@@ -924,11 +920,11 @@ class HockeyMOM:
             assert height(box) <= self._video_frame.height
         else:
             if width(box) > self._video_frame.width:
-                print(
+                logger.info(
                     f"ERROR: Width {width(box)} is too wide! Larger than video frame width of {self._video_frame.width}"
                 )
             if height(box) > self._video_frame.height:
-                print(
+                logger.info(
                     f"ERROR: Height {height(box)} is too tall! Larger than video frame width of {self._video_frame.height}"
                 )
 
@@ -956,7 +952,7 @@ class HockeyMOM:
         # Don't move up and down
         dy = 0
         # if verbose:
-        #     print(f"Moving box by {dx} x {dy}")
+        #     logger.info(f"Moving box by {dx} x {dy}")
         return box + torch.tensor(
             [dx, dy, dx, dy], dtype=torch.float, device=box.device
         )
@@ -969,7 +965,7 @@ class HockeyMOM:
         assert False
         dx = proposed_point[0] - last_point[0]
         dy = proposed_point[1] - last_point[1]
-        # print(f"want: dx={dx}, dy={dy}")
+        # logger.info(f"want: dx={dx}, dy={dy}")
 
         acceleration_dx = dx - self._current_camera_box_speed_x
         acceleration_dy = dy - self._current_camera_box_speed_y
@@ -982,10 +978,10 @@ class HockeyMOM:
         )
 
         # if verbose:
-        #     print(
+        #     logger.info(
         #         f"attempted accel x : {acceleration_dx}, allowed: {allowed_acceleration_dx}"
         #     )
-        #     print(
+        #     logger.info(
         #         f"attempted accel y : {acceleration_dy}, allowed: {allowed_acceleration_dy}"
         #     )
 
@@ -1023,7 +1019,7 @@ class HockeyMOM:
             self._current_camera_box_speed_y,
             self._camera_box_max_speed_y,
         )
-        # print(
+        # logger.info(
         #     f"change in speed speed: {old_speed_x} -> {self._current_camera_box_speed_y}"
         # )
 
@@ -1158,7 +1154,7 @@ if __name__ == "__main__":
     """
     file_path: str = "/home/colivier/src/hockeymom/h-demo/frame/00000.png"
     for var in range(1, 200, 1):
-        print(f"focal_length={var}")
+        logger.info(f"focal_length={var}")
         # print(f"sensor_size={var}")
         # print(f'tilt_degrees={var}')
         # print(f'roll_degrees={var}')

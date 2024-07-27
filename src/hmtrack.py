@@ -6,7 +6,7 @@ import time
 import traceback
 import warnings
 from contextlib import nullcontext
-from typing import List
+from typing import Any, List, Optional
 
 import numpy as np
 import torch
@@ -26,13 +26,6 @@ from mmtrack.apis import init_model
 from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from hmlib.datasets import get_yolox_datadir
-from hmlib.stitching.synchronize import configure_video_stitching
-from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.utils.py_utils import find_item_in_module
-
-from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
-
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
@@ -42,14 +35,20 @@ from hmlib.config import (
     set_nested_value,
     update_config,
 )
+from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus, tensor_call
 from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+from hmlib.utils.py_utils import find_item_in_module
 from hmlib.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
@@ -791,6 +790,7 @@ def run_mmtrack(
             )
             # print("WARNING: Not cacheing data loader")
 
+            wraparound_timer = None
             get_timer = Timer()
             detect_timer = None
 
@@ -798,7 +798,7 @@ def run_mmtrack(
 
             model.eval()
 
-            if True:
+            if False:
                 # INFO logging
                 handler = logging.StreamHandler(sys.stdout)
                 logger.setLevel(max(logger.level, logging.INFO))
@@ -807,6 +807,26 @@ def run_mmtrack(
                 )
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
+
+            # frame_count = 0
+            # dataset_delivery_fps = 0.0
+
+            use_progress_bar: bool = True
+            scroll_output: Optional[ScrollOutput] = None
+
+            if use_progress_bar:
+                total_frame_count = len(dataloader)
+                scroll_output = ScrollOutput()
+
+                scroll_output.register_logger(logger)
+
+                progress_bar = ProgressBar(
+                    total=total_frame_count,
+                    iterator=dataloader_iterator,
+                    scroll_output=scroll_output,
+                    update_rate=20,
+                )
+                dataloader_iterator = progress_bar
 
             for cur_iter, (
                 origin_imgs,
@@ -985,6 +1005,12 @@ def run_mmtrack(
                             )
                         )
                         detect_timer = Timer()
+                        wraparound_timer = Timer()
+                    elif wraparound_timer is None:
+                        wraparound_timer = Timer()
+                    else:
+                        wraparound_timer.toc()
+                    wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")
 

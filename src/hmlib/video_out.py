@@ -1,65 +1,51 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
-# from numba import njit
-
-import time
 import os
-import cv2
-import numpy as np
+import time
 import traceback
 from contextlib import contextmanager
-import PIL
+from threading import Thread
 from typing import Any, Dict, List, Tuple, Union
 
+import cv2
+import numpy as np
+import PIL
 import torch
 import torchvision as tv
-
-from torchvision.transforms import functional as F
 from PIL import Image
+from torchvision.io import write_video
+from torchvision.transforms import functional as F
 
-from threading import Thread
-
-from hmlib.tracking_utils import visualization as vis
+from hmlib.config import get_nested_value
+from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.tracking_utils.visualization import get_complete_monitor_width
-from hmlib.utils.image import (
-    ImageHorizontalGaussianDistribution,
-    ImageColorScaler,
-    make_channels_last,
-    make_visible_image,
-)
+from hmlib.utils.progress_bar import ProgressBar
+from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.tracking_utils.visualization import get_complete_monitor_width
+from hmlib.utils.box_functions import center, height, width
+from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.gpu import (
-    get_gpu_capabilities,
     CachedIterator,
-    StreamTensor,
     StreamCheckpoint,
+    StreamTensor,
     StreamTensorToDevice,
     cuda_stream_scope,
+    get_gpu_capabilities,
 )
-from hmlib.utils.containers import SidebandQueue, IterableQueue, create_queue
 from hmlib.utils.image import (
-    make_channels_last,
-    image_width,
-    image_height,
-    resize_image,
+    ImageColorScaler,
+    ImageHorizontalGaussianDistribution,
     crop_image,
+    image_height,
+    image_width,
+    make_channels_last,
+    make_visible_image,
+    resize_image,
 )
+
 from .video_stream import VideoStreamWriter
-
-from torchvision.io import write_video
-
-from hmlib.utils.box_functions import (
-    center,
-    width,
-    height,
-)
-
-from hmlib.scoreboard.scoreboard import Scoreboard
-from hmlib.config import get_nested_value
 
 
 def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -210,10 +196,10 @@ class ImageProcData:
             )
 
     def dump(self):
-        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
+        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
     def dump(self):
-        print(f"frame_id={self.frame_id}, current_box={self.current_box}")
+        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
 def _to_float(
@@ -313,9 +299,10 @@ class VideoOutput:
         image_channel_adjustment: List[float] = None,
         print_interval: int = 50,
         original_clip_box: torch.Tensor = None,
+        progress_bar: ProgressBar | None = None,
     ):
         if device is not None:
-            print(
+            logger.info(
                 f"Video output {output_frame_width}x{output_frame_height} "
                 f"using device: {device} ({output_video_path})"
             )
@@ -328,6 +315,7 @@ class VideoOutput:
         self._simple_save = simple_save
         self._fps = fps
         self._skip_final_save = skip_final_save
+        self._progress_bar = progress_bar
         assert output_frame_width > 4 and output_frame_height > 4
         self._output_frame_width = output_frame_width
         self._output_frame_height = output_frame_height
@@ -340,8 +328,6 @@ class VideoOutput:
         self._imgproc_thread = None
         self._imgproc_queue = create_queue(mp=use_fork)
         assert isinstance(self._imgproc_queue, SidebandQueue)
-        # self._imgproc_queue = queue.Queue()
-        # self._imgproc_queue = SidebandQueue()
         self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
@@ -363,11 +349,11 @@ class VideoOutput:
                     height=int(output_frame_height),
                 )
                 if not is_gpu:
-                    print(f"Can't use GPU for output video {output_video_path}")
+                    logger.info(f"Can't use GPU for output video {output_video_path}")
                     # self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"
-            print(
+            logger.info(
                 f"Output video {self._name} {int(self._output_frame_width)}x"
                 f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
             )
@@ -424,6 +410,10 @@ class VideoOutput:
         if start:
             self.start()
 
+    def set_progress_bar(self, progress_bar: ProgressBar):
+        # TODO: hook any callbacks here?
+        self._progress_bar = progress_bar
+
     def start(self):
         if self._use_fork:
             self._child_pid = os.fork()
@@ -463,7 +453,9 @@ class VideoOutput:
                         and (not hasattr(self._args, "debug") or not self._args.debug)
                     )
                 ) and counter % 10 == 0:
-                    print(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+                    logger.info(
+                        f"Video out queue too large: {self._imgproc_queue.qsize()}"
+                    )
                 time.sleep(0.001)
 
             # Maybe move devices on a different stream
@@ -514,7 +506,7 @@ class VideoOutput:
         # 4K @ 55M
         desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
         desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
-        print(
+        logger.info(
             f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
         )
         return desired_bit_rate
@@ -570,7 +562,7 @@ class VideoOutput:
         return torch.float16 if self._args.fp16 else torch.float
 
     def _final_image_processing(self):
-        print("VideoOutput thread started.")
+        logger.info("VideoOutput thread started.")
         plot_interias = False
         show_image_interval = 1
         skip_frames_before_show = 0
@@ -754,7 +746,7 @@ class VideoOutput:
                                     self._args.fixed_edge_rotation_angle[1]
                                 )
 
-                        # print(f"gaussian={gaussian}")
+                        # logger.info(f"gaussian={gaussian}")
                         angle = (
                             fixed_edge_rotation_angle
                             - fixed_edge_rotation_angle * gaussian
@@ -778,7 +770,7 @@ class VideoOutput:
                         # END PERFORMANCE HACK
                         #
 
-                        # print(f"angle={angle}")
+                        # logger.info(f"angle={angle}")
                         img = rotate_image(
                             img=img,
                             angle=angle,
@@ -787,7 +779,7 @@ class VideoOutput:
                         rotated_images.append(img)
                         current_boxes.append(bbox)
                     # duration = time.time() - start
-                    # print(f"rotate image took {duration} seconds")
+                    # logger.info(f"rotate image took {duration} seconds")
                     online_im = torch.stack(rotated_images)
                     current_box = torch.stack(current_boxes)
 
@@ -804,7 +796,7 @@ class VideoOutput:
                     # assert torch.isclose(
                     #     aspect_ratio(current_box), self._output_aspect_ratio,
                     # )
-                    # print(f"crop ar={aspect_ratio(current_box)}")
+                    # logger.info(f"crop ar={aspect_ratio(current_box)}")
                     cropped_images = []
                     for img, bbox in zip(online_im, current_box):
                         intbox = [int(i) for i in bbox]
@@ -814,14 +806,14 @@ class VideoOutput:
                         x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
                         assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
                         if y1 >= src_image_height or y2 >= src_image_height:
-                            print(
+                            logger.info(
                                 f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
                             )
                             # assert y1 < img.shape[0] and y2 < img.shape[0]
                             y1 = min(y1, src_image_height)
                             y2 = min(y2, src_image_height)
                         if x1 >= src_image_width or x2 >= src_image_width:
-                            print(
+                            logger.info(
                                 f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
                             )
                             # assert x1 < img.shape[1] and x2 < img.shape[1]

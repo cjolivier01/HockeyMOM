@@ -289,7 +289,7 @@ class CamTrackPostProcessor:
                     if not self._args.debug and not self._args.show_image:
                         wait_count += 1
                         if wait_count % 100 == 0:
-                            print("Cam post-process queue too large")
+                            logger.info("Cam post-process queue too large")
                     time.sleep(0.001)
                 if self._async_post_processing:
                     self._queue.put(

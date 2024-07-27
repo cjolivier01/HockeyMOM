@@ -25,14 +25,9 @@ from hmlib.stitching.synchronize import (
     configure_video_stitching,
 )
 
-if False:
-    from hmlib.datasets.dataset.stitching_dataloader1 import (
-        StitchDataset,
-    )
-else:
-    from hmlib.datasets.dataset.stitching_dataloader2 import (
-        StitchDataset,
-    )
+from hmlib.datasets.dataset.stitching_dataloader2 import (
+    StitchDataset,
+)
 
 from hockeymom import core
 

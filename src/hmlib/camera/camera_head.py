@@ -1,15 +1,13 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
-import torch
-
 from typing import Dict, List
 
-#from yolox.evaluators.mot_evaluator import TrackingHead
-from hmlib.camera.camera import HockeyMOM
+import torch
+
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
+from hmlib.camera.camera import HockeyMOM
+from hmlib.tracking_utils.log import logger
 
 
 def to_rgb_non_planar(image):
@@ -112,7 +110,7 @@ class CamTrackHead:
     ):
         self._counter += 1
         if self._counter % 100 == 0:
-            print(f"open file count: {get_open_files_count()}")
+            logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return detections, online_tlwhs
         if letterbox_img is not None:

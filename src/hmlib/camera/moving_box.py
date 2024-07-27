@@ -1,23 +1,25 @@
+from typing import Optional, Tuple, Union
+
 import cv2
 import numpy as np
-from typing import Optional, Tuple, Union
 import torch
 
 from hmlib.builder import HM
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import (
-    width,
-    height,
-    center,
-    clamp_box,
     aspect_ratio,
-    make_box_at_center,
-    shift_box_to_edge,
-    scale_box,
+    center,
     check_for_box_overshoot,
+    clamp_box,
+    height,
+    make_box_at_center,
     move_box_to_center,
+    scale_box,
+    shift_box_to_edge,
+    width,
 )
+from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 
 class BasicBox(torch.nn.Module):
@@ -140,7 +142,7 @@ class ResizingBox(BasicBox):
             inscribed = move_box_to_center(
                 scaled_following_box.clone(), center(my_bbox)
             )
-            # print(
+            # logger.info(
             #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
             # )
             img = vis.draw_dashed_rectangle(
@@ -566,7 +568,7 @@ class MovingBox(ResizingBox):
         )
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
-        # print(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
+        # logger.info(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
 
         max_sticky_size = self._max_speed_x * 5 + gaussian_add
         sticky_size = width(self.bounding_box()) / 10
@@ -670,7 +672,7 @@ class MovingBox(ResizingBox):
             self._current_speed_x *= edge_ok[0]
             self._current_speed_y *= edge_ok[1]
             total_diff *= edge_ok
-            # print(total_diff)
+            # logger.info(total_diff)
 
         # BEGIN Sticky Translation
         if self._sticky_translation and not self.is_nonstop():
@@ -786,7 +788,7 @@ class MovingBox(ResizingBox):
         self._bbox = new_box
 
         if self._nonstop_delay != self._zero:
-            # print(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
+            # logger.info(f"self._nonstop_delay_counter={self._nonstop_delay_counter.item()}")
             self._nonstop_delay_counter += 1
             if self._nonstop_delay_counter > self._nonstop_delay:
                 self._nonstop_delay = self._zero
