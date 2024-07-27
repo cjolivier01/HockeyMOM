@@ -1,7 +1,7 @@
 import sys
 import time
 import shutil
-from typing import Any, Callable, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 import contextlib
 import logging
 from itertools import cycle
@@ -98,13 +98,22 @@ class ProgressBar:
         self.scroll_output = scroll_output
         self.iterator = iterator
         self.update_rate = update_rate
-        self.table_callback = table_callback
+        self.table_callbacks: List[Callable] = []
         self.bar_length = bar_length
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
             self.terminal_width_interval = 100
         else:
             self.terminal_width = None
+        if table_callback is not None:
+            self.add_table_callback(table_callback)
+
+    def add_table_callback(self, callback: Callable):
+        self.table_callbacks.append(callback)
+
+    def _run_callbacks(self, table_map: OrderedDict[Any, Any]):
+        for cb in self.table_callbacks:
+            cb(table_map)
 
     def __iter__(self):
         return self
@@ -121,9 +130,7 @@ class ProgressBar:
             self.terminal_width = _get_terminal_width()
 
         if self.counter % self.update_rate == 0:
-            # Update stats (callback?)
-            if self.table_callback is not None:
-                self.table_callback(self.table_map)
+            self._run_callbacks(table_map=self.table_map)
 
             if self.counter > 0:
                 if self.scroll_output is not None:
