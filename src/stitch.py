@@ -39,9 +39,6 @@ from hockeymom import core
 ROOT_DIR = os.getcwd()
 
 
-
-
-
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument(
@@ -117,21 +114,28 @@ def stitch_videos(
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
 
+    dataset_delivery_fps = 0.0
+
     use_progress_bar: bool = True
     scroll_output: Optional[ScrollOutput] = None
 
     if use_progress_bar:
 
+        def _table_callback(table_map: OrderedDict):
+            table_map["Stithing Dataset Delivery FPS"] = "{:.2f}".format(
+                dataset_delivery_fps
+            )
+
         scroll_output = ScrollOutput()
-        
+
         scroll_output.register_logger(logger)
-        
+
         progress_bar = ProgressBar(
-            # table_map=table_map,
             total=len(data_loader),
             iterator=data_loader_iter,
             scroll_output=scroll_output,
             update_rate=20,
+            table_callback=_table_callback,
         )
         data_loader_iter = progress_bar
 
@@ -152,10 +156,13 @@ def stitch_videos(
                     dataset_timer.toc()
                 if (i + 1) % 20 == 0:
                     assert stitched_image.ndim == 4
+                    dataset_delivery_fps = batch_size / max(
+                        1e-5, dataset_timer.average_time
+                    )
                     logger.info(
                         "Dataset frame {} ({:.2f} fps)".format(
-                            i * stitched_image.size(0),
-                            1.0 / max(1e-5, dataset_timer.average_time),
+                            i * batch_size,
+                            batch_size / max(1e-5, dataset_timer.average_time),
                         )
                     )
                     if i % 100 == 0:
