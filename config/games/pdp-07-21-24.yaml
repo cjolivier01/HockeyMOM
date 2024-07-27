@@ -109,3 +109,10 @@ rink:
     fixed_edge_rotation_angle: 40
     follower_box_scale_width: 1.4
     follower_box_scale_height: 1.4
+    #
+    # Configuration for breakaways
+    #
+    breakaway_detection:
+      # When over-shooting the breakaway players, what scale do we apply
+      # to the current speed each frame in order to slow it down?
+      overshoot_scale_speed_ratio: 0.2

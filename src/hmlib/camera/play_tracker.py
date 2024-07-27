@@ -475,6 +475,8 @@ class PlayTracker(torch.nn.Module):
             )
 
             # If group x velocity is in different direction than current speed, behave a little differently
+            if frame_id == 7500:
+                pass
             if self._current_roi is not None:
                 roi_center = center(self._current_roi_aspect.bounding_box())
                 if self._args.plot_individual_player_tracking:
