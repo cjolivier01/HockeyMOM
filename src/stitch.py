@@ -131,6 +131,7 @@ def stitch_videos(
             total=len(data_loader),
             iterator=data_loader_iter,
             scroll_output=scroll_output,
+            update_rate=20,
         )
         data_loader_iter = progress_bar
 

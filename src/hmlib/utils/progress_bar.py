@@ -1,9 +1,10 @@
 import sys
 import time
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 import contextlib
 import logging
 from itertools import cycle
+from collections import OrderedDict
 
 
 progress_out = sys.stderr
@@ -76,11 +77,13 @@ class ScrollOutput:
 class ProgressBar:
     def __init__(
         self,
-        table_map: Dict[Any, Any] = {},
+        table_map: OrderedDict[Any, Any] = OrderedDict(),
         total: Optional[int] = 0,
         iterator: Optional[Iterator[Any]] = None,
         scroll_output: Optional[ScrollOutput] = None,
         bar_length: int = 60,
+        update_rate: int = 1,
+        table_callback: Optional[Callable] = None,
     ):
         self.total = total
         self.counter = 0
@@ -89,6 +92,8 @@ class ProgressBar:
         self.scroll_output = scroll_output
         self.iterator = iterator
         self.bar_length = bar_length
+        self.update_rate = update_rate
+        self.table_callback = table_callback
 
     def __iter__(self):
         return self
@@ -100,18 +105,25 @@ class ProgressBar:
         else:
             if self.counter >= self.total:
                 raise StopIteration
-        self.counter += 1
-        if self.counter > 1:
+
+        if self.counter % self.update_rate == 0:
+            # Update stats (callback?)
+            if self.table_callback is not None:
+                self.table_callback(self.table_map)
+
+            if self.counter > 0:
+                if self.scroll_output is not None:
+                    self.scroll_output.reset()
+                progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
+
+            self._line_count = 0
+            self.print_table()
+            self.print_progress_bar()
             if self.scroll_output is not None:
-                self.scroll_output.reset()
-            progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
-        self._line_count = 0
-        self.print_table()
-        self.print_progress_bar()
-        if self.scroll_output is not None:
-            self.scroll_output.refresh()
-        if next_item is None:
-            time.sleep(0.1)  # Simulating work by sleeping
+                self.scroll_output.refresh()
+            if next_item is None:
+                time.sleep(0.1)  # Simulating work by sleeping
+        self.counter += 1
         return next_item
 
     def print_progress_bar(self):
@@ -119,7 +131,9 @@ class ProgressBar:
         bar_length = self.bar_length
         filled_length = int(bar_length * self.counter // self.total)
         bar = "█" * filled_length + "-" * (bar_length - filled_length)
-        progress_out.write(f"\r\x1b[2KProgress: |{bar}| {percent:.1f}% Complete\n")
+        progress_out.write(
+            f"\r\x1b[2KProgress: |{bar}| {percent:.1f}% Complete {self.counter}/{self.total}\n"
+        )
         progress_out.flush()
         self._line_count += 1
 
