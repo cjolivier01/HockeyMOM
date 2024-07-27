@@ -48,6 +48,15 @@ def make_parser():
     return parser
 
 
+def convert_seconds_to_hms(total_seconds):
+    hours = total_seconds // 3600  # Calculate the number of hours
+    minutes = (total_seconds % 3600) // 60  # Calculate the remaining minutes
+    seconds = int(total_seconds % 60)  # Calculate the remaining seconds
+
+    # Format the time in "HH:MM:SS" format
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
 def stitch_videos(
     dir_name: str,
     video_left: str = "left.mp4",
@@ -114,24 +123,31 @@ def stitch_videos(
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
 
+    frame_count = 0
     dataset_delivery_fps = 0.0
 
     use_progress_bar: bool = True
     scroll_output: Optional[ScrollOutput] = None
 
     if use_progress_bar:
+        total_frame_count = len(data_loader)
 
         def _table_callback(table_map: OrderedDict):
             table_map["Stitching Dataset Delivery FPS"] = "{:.2f}".format(
                 dataset_delivery_fps
             )
+            if dataset_delivery_fps > 0:
+                remaining_secs = (
+                    total_frame_count - frame_count
+                ) / dataset_delivery_fps
+                table_map["Time Remaining"] = convert_seconds_to_hms(remaining_secs)
 
         scroll_output = ScrollOutput()
 
         scroll_output.register_logger(logger)
 
         progress_bar = ProgressBar(
-            total=len(data_loader),
+            total=total_frame_count,
             iterator=data_loader_iter,
             scroll_output=scroll_output,
             update_rate=20,
@@ -143,7 +159,6 @@ def stitch_videos(
         # with progress_bar.stdout_redirect():
         with contextlib.redirect_stdout(scroll_output):
             # with contextlib.nullcontext():
-            frame_count = 0
             start = None
 
             dataset_timer = Timer()
@@ -168,7 +183,7 @@ def stitch_videos(
                     if i % 100 == 0:
                         dataset_timer = Timer()
 
-                frame_count += 1
+                frame_count += batch_size
 
                 if show:
                     show_image("stitched_image", stitched_image, wait=False)
