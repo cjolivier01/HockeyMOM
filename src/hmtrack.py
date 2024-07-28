@@ -665,12 +665,17 @@ def main(args, num_gpu):
             # total_frame_count = len(dataloader)
             # scroll_output = ScrollOutput(lines=args.progress_bar_lines)
             # scroll_output.register_logger(logger)
+            table_map = OrderedDict()
+            if is_stitching(args.input_video):
+                table_map["Stitching"] = "ENABLED"
+
             progress_bar = ProgressBar(
                 total=len(dataloader),
                 scroll_output=ScrollOutput(
                     lines=args.progress_bar_lines
                 ).register_logger(logger),
                 update_rate=args.print_interval,
+                table_map=table_map,
             )
         else:
             progress_bar = None
