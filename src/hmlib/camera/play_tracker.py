@@ -447,6 +447,7 @@ class PlayTracker(torch.nn.Module):
         current_box: torch.Tensor,
         online_im: torch.Tensor,
         speed_adjust_box: MovingBox,
+        average_current_box: bool = True,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, np.ndarray]]:
         #
         # BEGIN Breakway detection
@@ -474,9 +475,16 @@ class PlayTracker(torch.nn.Module):
             edge_center = torch.tensor(
                 edge_center, dtype=torch.float, device=current_box.device
             )
-            current_box = make_box_at_center(
-                edge_center, width(current_box), height(current_box)
-            )
+
+            if average_current_box:
+                average_center = (edge_center + center(current_box)) / 2.0
+                current_box = make_box_at_center(
+                    average_center, width(current_box), height(current_box)
+                )
+            else:
+                current_box = make_box_at_center(
+                    edge_center, width(current_box), height(current_box)
+                )
 
             # If group x velocity is in different direction than current speed, behave a little differently
             if speed_adjust_box is not None:
