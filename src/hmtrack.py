@@ -490,8 +490,16 @@ def main(args, num_gpu):
         )
 
         # Set the detection device as the default device
-        if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
-            torch.cuda.set_device(gpus["detection"].index)
+        # if not using_precalculated_tracking:
+        #     if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
+        #         torch.cuda.set_device(gpus["detection"].index)
+
+        main_device = torch.device("cuda")
+        for name in ["detection", "stitching", "encoder"]:
+            if name in gpus:
+                main_device = gpus[name]
+                torch.cuda.set_device(main_device)
+                break
 
         # Set up for pose
         pose_model = None
@@ -504,9 +512,7 @@ def main(args, num_gpu):
             args.checkpoint = None
             if not using_precalculated_tracking:
                 if args.tracking or args.multi_pose:
-                    model = init_model(
-                        args.config, args.checkpoint, device=gpus["detection"]
-                    )
+                    model = init_model(args.config, args.checkpoint, device=main_device)
                     cfg = model.cfg.copy()
                     pipeline = cfg.data.inference.pipeline
                     pipeline[0].type = "LoadImageFromWebcam"
@@ -659,14 +665,13 @@ def main(args, num_gpu):
                     args.max_frames = time_to_frame(
                         time_str=args.max_time, fps=vid_info.fps
                     )
-
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
                     start_frame_number=args.start_frame,
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
-                    device=gpus["detection"],
+                    device=main_device,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                 )
@@ -719,7 +724,7 @@ def main(args, num_gpu):
             trt_file = None
             decoder = None
             if model is not None:
-                model = model.to(gpus["detection"])
+                model = model.to(main_device)
                 model.eval()
 
                 if not args.speed and not args.trt:
@@ -757,7 +762,7 @@ def main(args, num_gpu):
             }
 
             # start evaluate
-            args.device = gpus["detection"]
+            args.device = main_device
 
             *_, summary = eval_functions[tracker]["function"](
                 model=model,
@@ -769,7 +774,7 @@ def main(args, num_gpu):
                 decoder=decoder,
                 test_size=exp.test_size,
                 result_folder=results_folder,
-                device=gpus["detection"],
+                device=main_device,
             )
         else:
             other_kwargs = {
@@ -783,7 +788,7 @@ def main(args, num_gpu):
                 pose_dataset_type=pose_dataset,
                 pose_dataset_info=pose_dataset_info,
                 config=args.game_config,
-                device=gpus["detection"],
+                device=main_device,
                 tracking_data=tracking_data,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
