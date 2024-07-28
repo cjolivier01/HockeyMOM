@@ -115,15 +115,16 @@ class MOTTrackingData:
             return None
 
     # Function to extract tracking info by frame
-    def get_tracking_info_by_frame(self, frame_number: int):
+    def get_tracking_info_by_frame(self, frame_id: int):
+        frame_id = int(frame_id)
         # Filter the DataFrame for the specified frame
-        frame_data = self.data[self.data["Frame"] == frame_number]
+        frame_data = self.data[self.data["Frame"] == frame_id]
         # Extract columns as NumPy arrays
         tracking_ids = frame_data["ID"].to_numpy()
         scores = frame_data["Confidence"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
 
-        return tracking_ids, scores, tlbr
+        return tracking_ids, scores, tlwh
 
 
 def convert_tlbr_to_tlwh(tlbr: np.ndarray):

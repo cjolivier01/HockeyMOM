@@ -1022,10 +1022,12 @@ def run_mmtrack(
                                 online_tlwhs[:, 3] - online_tlwhs[:, 1]
                             )  # height = y2 - y1
                         else:
-                            track_ids, bboxes, scores = (
+                            track_ids, scores, bboxes = (
                                 tracking_data.get_tracking_info_by_frame(frame_id)
                             )
+                            detections = bboxes
                             online_tlwhs = torch.from_numpy(bboxes)
+                            tracking_results = None
 
                         online_ids = torch.from_numpy(track_ids)
                         online_scores = torch.from_numpy(scores)
@@ -1059,7 +1061,7 @@ def run_mmtrack(
                         #     )
                     # end frame loop
 
-                    if cur_iter % 50 == 0:
+                    if detect_timer is not None and cur_iter % 50 == 0:
                         # print(
                         logger.info(
                             "mmtrack tracking, frame {} ({:.2f} fps)".format(
@@ -1067,9 +1069,9 @@ def run_mmtrack(
                                 batch_size * 1.0 / max(1e-5, detect_timer.average_time),
                             )
                         )
+                        detect_timer = Timer()
 
                     if cur_iter % 200 == 0:
-                        detect_timer = Timer()
                         wraparound_timer = Timer()
                     elif wraparound_timer is None:
                         wraparound_timer = Timer()
