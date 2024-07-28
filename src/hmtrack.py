@@ -669,7 +669,7 @@ def main(args, num_gpu):
                 scroll_output=ScrollOutput(
                     lines=args.progress_bar_lines
                 ).register_logger(logger),
-                update_rate=20,
+                update_rate=args.print_interval,
             )
         else:
             progress_bar = None

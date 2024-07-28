@@ -208,6 +208,12 @@ class hm_opts(object):
             default=4,
             help="Number of logging lines in the progrsss bar",
         )
+        parser.add_argument(
+            "--print-interval",
+            type=int,
+            default=20,
+            help="How many iterations between log progress printing",
+        )
 
         return parser
 
