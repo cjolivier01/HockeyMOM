@@ -14,6 +14,11 @@ class MOTTrackingData:
         self.first_write = True
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
+        if input_file:
+            self.read_data()
+
+    def has_input_data(self):
+        return self.input_file is not None
 
     def read_data(self):
         """Read MOT tracking data from a CSV file."""
@@ -107,6 +112,18 @@ class MOTTrackingData:
             return self.data[self.data["Frame"] == frame_number]
         else:
             print("No data loaded.")
+            return None
+
+    # Function to extract tracking info by frame
+    def get_tracking_info_by_frame(self, frame_number: int):
+        # Filter the DataFrame for the specified frame
+        frame_data = self.data[self.data["Frame"] == frame_number]
+        # Extract columns as NumPy arrays
+        tracking_ids = frame_data["ID"].to_numpy()
+        scores = frame_data["Confidence"].to_numpy()
+        tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
+
+        return tracking_ids, scores, tlbr
 
 
 def convert_tlbr_to_tlwh(tlbr: np.ndarray):

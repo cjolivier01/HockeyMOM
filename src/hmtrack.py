@@ -263,6 +263,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="Input video file(s)",
     )
+    parser.add_argument(
+        "--input-tracking-data",
+        type=str,
+        default=None,
+        help="Input tracking data file and use instead of AI calling tracker",
+    )
 
     # Pose args
     parser.add_argument(
@@ -529,10 +535,15 @@ def main(args, num_gpu):
         else:
             assert False and "No longer supported"
 
-        # tracking_data = MOTTrackingData(
-        #     output_file=os.path.join(results_folder, "results.csv"),
-        #     write_interval=100,
-        # )
+        tracking_data = MOTTrackingData(
+            input_file=args.input_tracking_data,
+            output_file=(
+                os.path.join(results_folder, "results.csv")
+                if args.input_tracking_data is None
+                else None
+            ),
+            write_interval=100,
+        )
 
         dataloader = None
         postprocessor = None
@@ -880,6 +891,10 @@ def run_mmtrack(
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
 
+            using_precalculated_tracking = (
+                tracking_data is not None and tracking_data.has_input_data()
+            )
+
             for cur_iter, (
                 origin_imgs,
                 data,
@@ -905,21 +920,10 @@ def run_mmtrack(
 
                     batch_size = origin_imgs.shape[0]
 
-                    if detect_timer is None:
-                        detect_timer = Timer()
+                    if not using_precalculated_tracking:
+                        if detect_timer is None:
+                            detect_timer = Timer()
 
-                    # show_image("image", data["img"][0] / 255, wait=False)
-
-                    # detect_timer.tic()
-
-                    if False:
-                        img = tensor_to_image(origin_imgs)
-                        results = my_inference_mot(  # DOTO: return proper data and img_meta items (one for each frame)
-                            model,
-                            make_channels_last(img.squeeze(0)).cpu().numpy(),
-                            frame_id=frame_id,
-                        )
-                    else:
                         if isinstance(data["img"][0], StreamTensor):
                             get_timer.tic()
                             for i in range(len(data["img"])):
@@ -941,10 +945,6 @@ def run_mmtrack(
                             data["img_metas"] = data["img_metas"][0].data
 
                         for i, img in enumerate(data["img"]):
-                            # collate adds a stupid batch size of 1
-                            # data["img"][i] = make_channels_first(data["img"][i]).to(
-                            #     torch.float, non_blocking=True
-                            # )
                             data["img"][i] = make_channels_first(
                                 data["img"][i].squeeze(0)
                             ).to(
@@ -961,76 +961,74 @@ def run_mmtrack(
                                         return_loss=False, rescale=True, **data
                                     )
                         detect_timer.toc()
-
-                    # detect_timer.toc()
-
-                    # del data
-
-                    det_bboxes = tracking_results["det_bboxes"]
-                    track_bboxes = tracking_results["track_bboxes"]
+                        det_bboxes = tracking_results["det_bboxes"]
+                        track_bboxes = tracking_results["track_bboxes"]
 
                     for frame_index in range(len(origin_imgs)):
-
-                        if pose_model is not None:
-                            pose_model.eval()
-                            (
-                                tracking_results,
-                                pose_results,
-                                returned_outputs,
-                                vis_frame,
-                            ) = multi_pose_task(
-                                pose_model=pose_model,
-                                cur_frame=make_channels_last(origin_imgs[frame_index]),
-                                # cur_frame=make_channels_last(data["img"][frame_index]),
-                                dataset=pose_dataset_type,
-                                dataset_info=pose_dataset_info,
-                                tracking_results=tracking_results,
-                                smooth=args.smooth,
-                                # show=args.show_image,
-                                show=True,
-                            )
-                        else:
-                            vis_frame = None
-
-                        if vis_frame is not None:
-                            if isinstance(vis_frame, np.ndarray):
-                                vis_frame = torch.from_numpy(vis_frame)
-                            origin_imgs[frame_index] = make_channels_first(
-                                vis_frame
-                            ).to(device=origin_imgs.device, non_blocking=True)
-
                         frame_id = info_imgs[2][frame_index]
-                        detections = det_bboxes[frame_index]
-                        tracking_items = track_bboxes[frame_index]
 
-                        track_ids = tracking_items[:, 0].astype(np.int64)
-                        bboxes = tracking_items[:, 1:5]
-                        scores = tracking_items[:, -1]
+                        if not using_precalculated_tracking:
+                            if pose_model is not None:
+                                pose_model.eval()
+                                (
+                                    tracking_results,
+                                    pose_results,
+                                    returned_outputs,
+                                    vis_frame,
+                                ) = multi_pose_task(
+                                    pose_model=pose_model,
+                                    cur_frame=make_channels_last(
+                                        origin_imgs[frame_index]
+                                    ),
+                                    # cur_frame=make_channels_last(data["img"][frame_index]),
+                                    dataset=pose_dataset_type,
+                                    dataset_info=pose_dataset_info,
+                                    tracking_results=tracking_results,
+                                    smooth=args.smooth,
+                                    # show=args.show_image,
+                                    show=True,
+                                )
+                            else:
+                                vis_frame = None
 
-                        if tracking_data is not None:
-                            tracking_data.add_frame_records(
-                                frame_id=frame_id,
-                                tracking_ids=track_ids,
-                                tlbr=bboxes,
-                                scores=scores,
+                            if vis_frame is not None:
+                                if isinstance(vis_frame, np.ndarray):
+                                    vis_frame = torch.from_numpy(vis_frame)
+                                origin_imgs[frame_index] = make_channels_first(
+                                    vis_frame
+                                ).to(device=origin_imgs.device, non_blocking=True)
+
+                            detections = det_bboxes[frame_index]
+                            tracking_items = track_bboxes[frame_index]
+
+                            track_ids = tracking_items[:, 0].astype(np.int64)
+                            bboxes = tracking_items[:, 1:5]
+                            scores = tracking_items[:, -1]
+
+                            if tracking_data is not None:
+                                tracking_data.add_frame_records(
+                                    frame_id=frame_id,
+                                    tracking_ids=track_ids,
+                                    tlbr=bboxes,
+                                    scores=scores,
+                                )
+
+                            online_tlwhs = torch.from_numpy(bboxes)
+                            # make boxes tlwh
+                            online_tlwhs[:, 2] = (
+                                online_tlwhs[:, 2] - online_tlwhs[:, 0]
+                            )  # width = x2 - x1
+                            online_tlwhs[:, 3] = (
+                                online_tlwhs[:, 3] - online_tlwhs[:, 1]
+                            )  # height = y2 - y1
+                        else:
+                            track_ids, bboxes, scores = (
+                                tracking_data.get_tracking_info_by_frame(frame_id)
                             )
+                            online_tlwhs = torch.from_numpy(bboxes)
 
-                            # if number_of_batches_processed == 0:
-                            #     # Test getting the first frame back
-                            #     frame_data = tracking_data.get_data_by_frame(frame_id)
-                            #     tracking_data.write_data(sys.stdout)
-
-                        online_tlwhs = torch.from_numpy(bboxes)
                         online_ids = torch.from_numpy(track_ids)
                         online_scores = torch.from_numpy(scores)
-
-                        # make boxes tlwh
-                        online_tlwhs[:, 2] = (
-                            online_tlwhs[:, 2] - online_tlwhs[:, 0]
-                        )  # width = x2 - x1
-                        online_tlwhs[:, 3] = (
-                            online_tlwhs[:, 3] - online_tlwhs[:, 1]
-                        )  # height = y2 - y1
 
                         if postprocessor is not None:
                             if isinstance(origin_imgs, StreamTensor):
