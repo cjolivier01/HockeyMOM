@@ -386,7 +386,10 @@ class PlayTracker(torch.nn.Module):
             current_box = self._hockey_mom._video_frame.bounding_box()
 
         current_box, online_im = self.calculate_breakaway(
-            current_box, online_im, self._current_roi
+            current_box=current_box,
+            online_im=online_im,
+            speed_adjust_box=self._current_roi,
+            average_current_box=True,
         )
 
         #
@@ -447,7 +450,7 @@ class PlayTracker(torch.nn.Module):
         current_box: torch.Tensor,
         online_im: torch.Tensor,
         speed_adjust_box: MovingBox,
-        average_current_box: bool = True,
+        average_current_box: bool,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, np.ndarray]]:
         #
         # BEGIN Breakway detection
