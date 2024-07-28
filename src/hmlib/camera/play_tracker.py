@@ -187,15 +187,10 @@ class PlayTracker(torch.nn.Module):
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
-    def train(self):
-        self._current_roi.train()
-        self._current_roi_aspect.train()
-        return super().train()
-
-    def eval(self):
-        self._current_roi.eval()
-        self._current_roi_aspect.eval()
-        return super().eval()
+    def train(self, mode: bool = True):
+        self._current_roi.train(mode)
+        self._current_roi_aspect.train(mode)
+        return super().train(mode)
 
     def get_arena_box(self):
         return self._hockey_mom._video_frame.bounding_box()
