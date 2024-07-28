@@ -222,62 +222,32 @@ class PlayTracker(torch.nn.Module):
         online_tlwhs: torch.Tensor,
         online_ids: torch.Tensor,
         cluster_counts: List[int],
-        tracking_ids: Set[int],  # Track specific id's
     ):
         if self._cluster_man is None:
             self._cluster_man = ClusterMan(
                 sizes=cluster_counts, device=self._kmeans_cuda_device()
             )
+
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
         )
         boxes_map = dict()
         boxes_list = []
-
-        have_tracking_ids_boxes_map: Dict[int, torch.Tensor] = dict()
-
         for cluster_count in cluster_counts:
             largest_cluster_ids = self._cluster_man.prune_not_in_largest_cluster(
                 num_clusters=cluster_count, ids=online_ids
             )
-
             if len(largest_cluster_ids):
                 largest_cluster_ids_box = self._hockey_mom.get_current_bounding_box(
                     largest_cluster_ids
                 )
                 boxes_map[cluster_count] = largest_cluster_ids_box
                 boxes_list.append(largest_cluster_ids_box)
-                if len(tracking_ids):
-                    tracking_ids_in_this_cluster = (
-                        self._cluster_man.prune_not_in_largest_cluster(
-                            num_clusters=cluster_count, ids=tracking_ids
-                        )
-                    )
-                    if len(tracking_ids_in_this_cluster) != 0:
-                        if len(tracking_ids_in_this_cluster) > 1:
-                            logger.warn(
-                                f"Warning: Found more than one tracking ID in a single frame: {tracking_ids_in_this_cluster}"
-                            )
-                        have_tracking_ids_boxes_map[cluster_count] = (
-                            largest_cluster_ids_box
-                        )
             else:
                 largest_cluster_ids_box = None
         if not boxes_map:
             return {}, None
-        if have_tracking_ids_boxes_map:
-            values = [v for v in have_tracking_ids_boxes_map.values()]
-            boxes_list: torch.Tensor = torch.stack(values)
-            widths: torch.Tensor = boxes_list[:, 3] - boxes_list[:, 1]
-            heights: torch.Tensor = boxes_list[:, 2] - boxes_list[:, 0]
-            areas = widths * heights
-            min_area_index = torch.argmin(areas)
-            boxes_list = boxes_list[min_area_index].unsqueeze(0)
-            boxes_map = {0: boxes_list[0]}
-        else:
-            boxes_list: torch.Tensor = torch.stack(boxes_list)
-
-        return boxes_map, boxes_list
+        return boxes_map, torch.stack(boxes_list)
 
     def forward(self, online_targets_and_img):
         self._timer.tic()
@@ -314,14 +284,7 @@ class PlayTracker(torch.nn.Module):
         #
         cluster_counts = [3, 2]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
-            online_tlwhs,
-            online_ids,
-            cluster_counts=cluster_counts,
-            tracking_ids=(
-                torch.tensor(list(self._track_ids), dtype=torch.int32)
-                if self._track_ids
-                else []
-            ),
+            online_tlwhs, online_ids, cluster_counts=cluster_counts
         )
 
         if cluster_boxes_map:
@@ -483,8 +446,6 @@ class PlayTracker(torch.nn.Module):
             )
 
             # If group x velocity is in different direction than current speed, behave a little differently
-            if frame_id == 7500:
-                pass
             if self._current_roi is not None:
                 roi_center = center(self._current_roi_aspect.bounding_box())
                 if self._args.plot_individual_player_tracking:
@@ -563,12 +524,10 @@ class PlayTracker(torch.nn.Module):
                     # Previous way
                     should_adjust_speed = torch.logical_or(
                         torch.logical_and(
-                            group_x_velocity > 0,
-                            roi_center[0] < edge_center[0],
+                            group_x_velocity > 0, roi_center[0] < edge_center[0]
                         ),
                         torch.logical_and(
-                            group_x_velocity < 0,
-                            roi_center[0] > edge_center[0],
+                            group_x_velocity < 0, roi_center[0] > edge_center[0]
                         ),
                     )
                     if should_adjust_speed.item():
@@ -584,27 +543,12 @@ class PlayTracker(torch.nn.Module):
                             ),
                         )
                     else:
-                        should_cut_speed = torch.logical_or(
-                            torch.logical_and(
-                                self._current_roi._current_speed_x < 0,
-                                roi_center[0] < edge_center[0],
-                            ),
-                            torch.logical_and(
-                                self._current_roi._current_speed_x > 0,
-                                roi_center[0] > edge_center[0],
-                            ),
-                        )
                         # Cut the speed quickly due to overshoot
                         # self._current_roi.scale_speed(ratio_x=0.6)
-                        if should_cut_speed:
-                            self._current_roi.scale_speed(
-                                ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
-                                clamp_to_max=True,
-                            )
-                            logger.info(
-                                f"Reducing group x velocity due to overshoot: group_x_velocity={group_x_velocity}, "
-                                f"current_speed_x={self._current_roi._current_speed_x}"
-                            )
+                        self._current_roi.scale_speed(
+                            ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
+                        )
+
         return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
 
