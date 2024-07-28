@@ -12,19 +12,6 @@ class MOTTrackingData:
         self.output_file = output_file
         self.write_interval = write_interval
         self.first_write = True
-        # self.empty_data = pd.DataFrame(
-        #     columns=[
-        #         "Frame",
-        #         "ID",
-        #         "BBox_X",
-        #         "BBox_Y",
-        #         "BBox_W",
-        #         "BBox_H",
-        #         "Confidence",
-        #         "Class",
-        #         "Visibility",
-        #     ]
-        # )
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
 
@@ -107,50 +94,12 @@ class MOTTrackingData:
                 }
             )
             self._dataframe_list.append(new_record)
-            # self.data = pd.concat([self.data, new_record], ignore_index=True)
             self.counter += 1
 
             if self.counter >= self.write_interval:
                 self.write_data(self.output_file)
                 self.first_write = False
                 self.counter = 0  # Reset the counter after writing
-
-    # def add_record(
-    #     self,
-    #     frame,
-    #     obj_id,
-    #     bbox_x,
-    #     bbox_y,
-    #     bbox_w,
-    #     bbox_h,
-    #     confidence=1,
-    #     obj_class=-1,
-    #     visibility=-1,
-    # ):
-    #     """
-    #     Add a record to the MOT tracking data and write incrementally
-    #     every self.write_interval frames.
-    #     """
-    #     new_record = pd.DataFrame(
-    #         {
-    #             "Frame": [frame],
-    #             "ID": [obj_id],
-    #             "BBox_X": [bbox_x],
-    #             "BBox_Y": [bbox_y],
-    #             "BBox_W": [bbox_w],
-    #             "BBox_H": [bbox_h],
-    #             "Confidence": [confidence],
-    #             "Class": [obj_class],
-    #             "Visibility": [visibility],
-    #         }
-    #     )
-    #     self.data = pd.concat([self.data, new_record], ignore_index=True)
-    #     self.counter += 1
-
-    #     if self.counter >= self.write_interval:
-    #         self.write_data(self.output_file)
-    #         self.first_write = False
-    #         self.counter = 0  # Reset the counter after writing
 
     def get_data_by_frame(self, frame_number):
         """Get all tracking data for a specific frame."""
@@ -184,13 +133,3 @@ def convert_tlbr_to_tlwh(tlbr: np.ndarray):
 
     # Stack the results into a new tensor and return
     return np.stack([x, y, w, h], axis=1)
-
-
-if __name__ == "__main__":
-    # Example usage:
-    tracker = MOTTrackingData()
-    for i in range(1000):  # Simulate adding multiple records
-        tracker.add_record(i // 10 + 1, i % 10 + 1, 100, 150, 50, 60)
-
-    # Write any remaining data that hasn't been written yet
-    tracker.write_data("tracking_data.csv", header=False)
