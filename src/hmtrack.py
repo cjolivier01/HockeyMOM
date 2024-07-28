@@ -453,12 +453,6 @@ def main(args, num_gpu):
             is_multipose=args.multi_pose,
         )
 
-        # if socket.gethostname().startswith("chriso-monster"):
-        #     gpus["stitching"] = torch.device("cuda", 0)
-        #     gpus["detection"] = torch.device("cuda", 0)
-        #     gpus["pose"] = torch.device("cuda", 0)
-        #     gpus["encoder"] = torch.device("cuda", 1)
-
         # Set the detection device as the default device
         if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
             torch.cuda.set_device(gpus["detection"].index)
@@ -484,57 +478,6 @@ def main(args, num_gpu):
             results_folder = os.path.join(".", "output_workdirs", args.game_id)
             os.makedirs(results_folder, exist_ok=True)
 
-        # Set up for pose
-        pose_model = None
-        pose_dataset = None
-        pose_dataset_info = None
-
-        data_pipeline = None
-        if tracker == "mmtrack":
-            args.config = args.exp_file
-            args.checkpoint = None
-            if args.tracking or args.multi_pose:
-                model = init_model(
-                    args.config, args.checkpoint, device=gpus["detection"]
-                )
-                cfg = model.cfg.copy()
-                pipeline = cfg.data.inference.pipeline
-                pipeline[0].type = "LoadImageFromWebcam"
-                data_pipeline = Compose(pipeline)
-
-            # post-detection pipeline
-            if hasattr(model, "post_detection_pipeline"):
-                if cam_args.top_border_lines or cam_args.bottom_border_lines:
-                    model.post_detection_pipeline.append(
-                        BoundaryLines(
-                            upper_border_lines=cam_args.top_border_lines,
-                            lower_border_lines=cam_args.bottom_border_lines,
-                            original_clip_box=get_clip_box(
-                                game_id=args.game_id, root_dir=args.root_dir
-                            ),
-                        )
-                    )
-
-            if args.multi_pose:
-                pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
-                )
-
-                pose_dataset = pose_model.cfg.data["test"]["type"]
-                pose_dataset_info = pose_model.cfg.data["test"].get(
-                    "dataset_info", None
-                )
-                if pose_dataset_info is None:
-                    warnings.warn(
-                        "Please set `dataset_info` in the config."
-                        "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
-                        DeprecationWarning,
-                    )
-                else:
-                    pose_dataset_info = DatasetInfo(pose_dataset_info)
-        else:
-            assert False and "No longer supported"
-
         tracking_data = MOTTrackingData(
             input_file=args.input_tracking_data,
             output_file=(
@@ -544,6 +487,62 @@ def main(args, num_gpu):
             ),
             write_interval=100,
         )
+
+        using_precalculated_tracking = (
+            tracking_data is not None and tracking_data.has_input_data()
+        )
+
+        # Set up for pose
+        pose_model = None
+        pose_dataset = None
+        pose_dataset_info = None
+
+        data_pipeline = None
+        if tracker == "mmtrack":
+            args.config = args.exp_file
+            args.checkpoint = None
+            if not using_precalculated_tracking:
+                if args.tracking or args.multi_pose:
+                    model = init_model(
+                        args.config, args.checkpoint, device=gpus["detection"]
+                    )
+                    cfg = model.cfg.copy()
+                    pipeline = cfg.data.inference.pipeline
+                    pipeline[0].type = "LoadImageFromWebcam"
+                    data_pipeline = Compose(pipeline)
+
+                # post-detection pipeline
+                if hasattr(model, "post_detection_pipeline"):
+                    if cam_args.top_border_lines or cam_args.bottom_border_lines:
+                        model.post_detection_pipeline.append(
+                            BoundaryLines(
+                                upper_border_lines=cam_args.top_border_lines,
+                                lower_border_lines=cam_args.bottom_border_lines,
+                                original_clip_box=get_clip_box(
+                                    game_id=args.game_id, root_dir=args.root_dir
+                                ),
+                            )
+                        )
+
+                if args.multi_pose:
+                    pose_model = init_pose_model(
+                        args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                    )
+
+                    pose_dataset = pose_model.cfg.data["test"]["type"]
+                    pose_dataset_info = pose_model.cfg.data["test"].get(
+                        "dataset_info", None
+                    )
+                    if pose_dataset_info is None:
+                        warnings.warn(
+                            "Please set `dataset_info` in the config."
+                            "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
+                            DeprecationWarning,
+                        )
+                    else:
+                        pose_dataset_info = DatasetInfo(pose_dataset_info)
+        else:
+            assert False and "No longer supported"
 
         dataloader = None
         postprocessor = None
@@ -847,7 +846,8 @@ def run_mmtrack(
                 len(dataloader) / dataloader.fps
             )
 
-            model.eval()
+            if model is not None:
+                model.eval()
 
             wraparound_timer = None
             get_timer = Timer()
