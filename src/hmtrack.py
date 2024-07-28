@@ -809,28 +809,59 @@ def run_mmtrack(
             )
             # print("WARNING: Not cacheing data loader")
 
-            wraparound_timer = None
-            get_timer = Timer()
-            detect_timer = None
-
-            last_frame_id = None
+            #
+            # Calculate some dataset stats for our progress display
+            #
+            batch_size = dataloader.batch_size
+            total_batches_in_video = len(dataloader)
+            total_frames_in_video = batch_size * total_batches_in_video
+            number_of_batches_processed = 0
+            total_duration_str = convert_seconds_to_hms(
+                len(dataloader) / dataloader.fps
+            )
 
             model.eval()
 
-            total_batch_count = 0
-            batch_size = 1
+            wraparound_timer = None
+            get_timer = Timer()
+            detect_timer = None
+            last_frame_id = None
 
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
+                #
+                # The progress table
+                #
                 def _table_callback(table_map: OrderedDict[Any, Any]):
+                    duration_processed_in_seconds = (
+                        number_of_batches_processed * batch_size / dataloader.fps
+                    )
+                    remaining_frames_to_process = total_frames_in_video - (
+                        number_of_batches_processed * batch_size
+                    )
+                    remaining_seconds_to_process = (
+                        remaining_frames_to_process / dataloader.fps
+                    )
+
                     if wraparound_timer is not None:
-                        fps = batch_size / max(1e-5, wraparound_timer.average_time)
-                        table_map["HMTrack FPS"] = "{:.2f}".format(fps)
-                        table_map["Duration processed"] = convert_seconds_to_hms(
-                            total_batch_count * batch_size / dataloader.fps
+                        processing_fps = batch_size / max(
+                            1e-5, wraparound_timer.average_time
                         )
 
+                        table_map["HMTrack FPS"] = "{:.2f}".format(processing_fps)
+                        table_map["Dataset length"] = total_duration_str
+                        table_map["Processed"] = convert_seconds_to_hms(
+                            duration_processed_in_seconds
+                        )
+                        table_map["Remaining"] = convert_seconds_to_hms(
+                            remaining_seconds_to_process
+                        )
+                        table_map["ETA"] = convert_seconds_to_hms(
+                            remaining_frames_to_process / processing_fps
+                        )
+
+                # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
 
             for cur_iter, (
@@ -1009,13 +1040,16 @@ def run_mmtrack(
                                 batch_size * 1.0 / max(1e-5, detect_timer.average_time),
                             )
                         )
+
+                    if cur_iter % 200 == 0:
                         detect_timer = Timer()
                         wraparound_timer = Timer()
                     elif wraparound_timer is None:
                         wraparound_timer = Timer()
                     else:
                         wraparound_timer.toc()
-                    total_batch_count += 1
+
+                    number_of_batches_processed += 1
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")

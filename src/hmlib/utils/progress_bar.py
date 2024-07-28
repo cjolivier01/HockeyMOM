@@ -17,6 +17,43 @@ def _get_terminal_width():
     return width
 
 
+def write_dict_in_columns(data_dict, out_file, table_width: int) -> int:
+    lines_out = 0
+    column_width = (table_width - 2) // 2
+    # Create list of formatted key-value strings
+    kv_pairs = [f"{key}: {value}"[:column_width] for key, value in data_dict.items()]
+
+    # Ensure the list has an even number of elements
+    if len(kv_pairs) % 2 != 0:
+        kv_pairs.append("")
+
+    # Calculate the number of rows needed for two columns
+    num_rows = len(kv_pairs) // 2
+
+    # Prepare horizontal border and empty row format
+    border_top = "\x1b[2K┌" + "─" * column_width + "┬" + "─" * column_width + "┐\n"
+    row_format = (
+        "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
+    )
+    border_bottom = "\x1b[2K└" + "─" * column_width + "┴" + "─" * column_width + "┘\n"
+
+    # Print the top border
+    out_file.write(border_top)
+    lines_out += 1
+
+    # Print each row
+    for i in range(num_rows):
+        left = kv_pairs[i]
+        right = kv_pairs[i + num_rows]
+        out_file.write(row_format.format(left, right))
+        lines_out += 1
+
+    # Print the bottom border
+    out_file.write(border_bottom)
+    lines_out += 1
+    return lines_out
+
+
 class CallbackStreamHandler(logging.StreamHandler):
     def __init__(self, callback):
         super().__init__()
@@ -186,27 +223,10 @@ class ProgressBar:
         self._line_count += 1
 
     def print_table(self):
-        rows = min(3, len(self.table_map))
-        # Top border
-        bar_width = self._get_bar_width()
-        progress_out.write("\x1b[2K┌" + "─" * (bar_width - 2) + "┐\n")
-        # progress_out.write("\x1b[2K" + () + "\n")
-        self._line_count += 1
-        if rows:
-            keys = list(self.table_map.keys())
-            for i in range(rows):
-                key = keys[i]
-                value = self.table_map[key]
-                # Table line
-                kv_string = f"{key}: {value}"
-                n_chars = bar_width - 4
-                progress_out.write(f"\x1b[2K│ {kv_string:<{n_chars}} │\n")
-                self._line_count += 1
-            # Bottom border
-            # progress_out.write("\x1b[2K____________________________\n")
-            progress_out.write("\x1b[2K└" + "─" * (bar_width - 2) + "┘\n")
+        self._line_count += write_dict_in_columns(
+            self.table_map, progress_out, self._get_bar_width()
+        )
         progress_out.flush()
-        self._line_count += 1
 
     @contextlib.contextmanager
     def stdout_redirect(self):
