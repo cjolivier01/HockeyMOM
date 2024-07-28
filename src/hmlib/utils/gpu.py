@@ -1,13 +1,12 @@
-from contextlib import contextmanager
-import torch
 import time
-from contextlib import nullcontext
-import numpy as np
+from contextlib import contextmanager, nullcontext
 from threading import Thread
-from typing import Any, Callable, Dict, List, Tuple, Union, Set, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+
+import numpy as np
+import torch
 
 from .containers import LinkedList, create_queue
-
 
 _CUDA_STREAMS: Dict[int, LinkedList] = {}
 _CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
@@ -281,7 +280,6 @@ class StreamTensor(StreamTensorBase):
             if self._owns_stream:
                 free_stream(self._stream)
             self._stream = None
-
 
     def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
         assert self._tensor is not None
@@ -666,26 +664,30 @@ def select_gpus(
         multipose_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if inference:
         if is_multipose:
-            detection_device = multipose_device
+            if is_detecting:
+                detection_device = multipose_device
         else:
             if True:
                 if is_stitching:
-                    if gpu_allocator.free_count():
+                    if gpu_allocator.free_count() or not is_detecting:
                         stitching_device = torch.device(
                             "cuda", gpu_allocator.allocate_fast()
                         )
                     else:
                         stitching_device = detection_device
 
-            if gpu_allocator.free_count():
-                detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
-            else:
-                if is_multipose:
-                    assert multipose_device is not None
-                    detection_device = multipose_device
-                elif detection_device is None:
-                    detection_device = stitching_device
-                    assert detection_device is not None
+            if is_detecting:
+                if gpu_allocator.free_count():
+                    detection_device = torch.device(
+                        "cuda", gpu_allocator.allocate_fast()
+                    )
+                else:
+                    if is_multipose:
+                        assert multipose_device is not None
+                        detection_device = multipose_device
+                    elif detection_device is None:
+                        detection_device = stitching_device
+                        assert detection_device is not None
 
         if is_encoding:
             if gpu_allocator.free_count():

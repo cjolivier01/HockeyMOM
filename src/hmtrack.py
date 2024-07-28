@@ -441,22 +441,6 @@ def main(args, num_gpu):
                     else:
                         args.input_video = game_video_dir
 
-        actual_device_count = torch.cuda.device_count()
-        if not actual_device_count:
-            raise Exception("At leats one GPU is required for this application")
-        while len(args.gpus) > actual_device_count:
-            del args.gpus[-1]
-
-        gpus = select_gpus(
-            allowed_gpus=args.gpus,
-            is_stitching=is_stitching(args.input_video),
-            is_multipose=args.multi_pose,
-        )
-
-        # Set the detection device as the default device
-        if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
-            torch.cuda.set_device(gpus["detection"].index)
-
         # TODO: get rid of this, set in cfg (detector.input_size, etc)
         exp = None
         if exp is None:
@@ -491,6 +475,23 @@ def main(args, num_gpu):
         using_precalculated_tracking = (
             tracking_data is not None and tracking_data.has_input_data()
         )
+
+        actual_device_count = torch.cuda.device_count()
+        if not actual_device_count:
+            raise Exception("At leats one GPU is required for this application")
+        while len(args.gpus) > actual_device_count:
+            del args.gpus[-1]
+
+        gpus = select_gpus(
+            allowed_gpus=args.gpus,
+            is_stitching=is_stitching(args.input_video),
+            is_multipose=args.multi_pose,
+            is_detecting=not using_precalculated_tracking,
+        )
+
+        # Set the detection device as the default device
+        if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
+            torch.cuda.set_device(gpus["detection"].index)
 
         # Set up for pose
         pose_model = None
