@@ -387,6 +387,8 @@ class CamTrackPostProcessor:
             )
             self._video_output_campp.start()
 
+        self._play_tracker.eval()
+
         while True:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:

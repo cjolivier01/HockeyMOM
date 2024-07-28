@@ -1,13 +1,13 @@
 import copy
-import numpy as np
 import math
-import cv2
 from typing import List, Tuple, Union
-import torch
 
+import cv2
+import numpy as np
+import torch
 from sklearn.cluster import KMeans
 
-from hmlib.utils.image import image_width, get_complete_monitor_width
+from hmlib.utils.image import get_complete_monitor_width, image_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -26,7 +26,7 @@ def get_color(idx):
     return color
 
 
-def to_cv2(image):
+def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
     if isinstance(image, torch.Tensor):
         if image.dtype == torch.float16:
@@ -35,14 +35,6 @@ def to_cv2(image):
     if image.shape[0] in [3, 4]:
         image = image.transpose(1, 2, 0)
     return np.ascontiguousarray(image)
-
-
-def resize_image(image, max_size=800):
-    assert False  # wth
-    if max(image.shape[:2]) > max_size:
-        scale = float(max_size) / max(image.shape[:2])
-        image = cv2.resize(image, None, fx=scale, fy=scale)
-    return image
 
 
 def plot_rectangle(
@@ -62,8 +54,6 @@ def plot_rectangle(
             label=label,
             text_scale=text_scale,
         )
-    # if isinstance(img, torch.Tensor):
-    #     img = img.permute(2, 0, 1).contiguous().cpu().numpy()
     img = to_cv2(img)
     intbox = [int(i) for i in box]
     cv2.rectangle(
@@ -223,7 +213,13 @@ def _to_int(vals):
     return [int(i) for i in vals]
 
 
-def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
+def plot_line(
+    img: torch.Tensor | np.ndarray,
+    src_point,
+    dest_point,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
     img = to_cv2(img)
     cv2.line(
         img,
@@ -235,7 +231,12 @@ def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness
     return img
 
 
-def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
+def plot_point(
+    img: torch.Tensor | np.ndarray,
+    point,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
     img = to_cv2(img)
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
@@ -244,6 +245,24 @@ def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
         [x, y],
         radius=int((thickness + 1) // 2),
         color=normalize_color(img, color),
+        thickness=thickness,
+    )
+    return img
+
+
+def plot_circle(
+    img: torch.Tensor | np.ndarray,
+    center: torch.Tensor,
+    radius: int,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
+    img = to_cv2(img)
+    cv2.circle(
+        img,
+        [int(i) for i in center],
+        radius=radius,
+        color=color,
         thickness=thickness,
     )
     return img

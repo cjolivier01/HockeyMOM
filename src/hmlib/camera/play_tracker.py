@@ -1,9 +1,10 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import cv2
+import numpy as np
 import torch
 
 from hmlib.builder import HM, PIPELINES
@@ -186,6 +187,16 @@ class PlayTracker(torch.nn.Module):
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
+    def train(self):
+        self._current_roi.train()
+        self._current_roi_aspect.train()
+        return super().train()
+
+    def eval(self):
+        self._current_roi.eval()
+        self._current_roi_aspect.eval()
+        return super().eval()
+
     def get_arena_box(self):
         return self._hockey_mom._video_frame.bounding_box()
 
@@ -280,7 +291,7 @@ class PlayTracker(torch.nn.Module):
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
         #
-        # Clusters
+        # BEGIN Clusters
         #
         cluster_counts = [3, 2]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
@@ -371,11 +382,21 @@ class PlayTracker(torch.nn.Module):
                     label="union_clusters",
                     opacity_percent=25,
                 )
+        #
+        # END Clusters
+        #
 
         if current_box is None:
             assert False  # how does this happen?
             current_box = self._hockey_mom._video_frame.bounding_box()
 
+        current_box, online_im = self.calculate_breakaway(
+            current_box, online_im, self._current_roi
+        )
+
+        #
+        # Backup the last calculated box
+        #
         self._previous_cluster_union_box = current_box.clone()
 
         # Some players may be off-screen, so their box may go over an edge
@@ -385,6 +406,9 @@ class PlayTracker(torch.nn.Module):
         if self._frame_counter == 1 and self._args.no_wide_start:
             self.set_initial_tracking_box(current_box)
 
+        #
+        # Apply the new calculated play
+        #
         fast_roi_bounding_box = self._current_roi(current_box, stop_on_dir_change=False)
         current_box = self._current_roi_aspect(
             fast_roi_bounding_box, stop_on_dir_change=True
@@ -421,19 +445,33 @@ class PlayTracker(torch.nn.Module):
                 *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
             )
 
+        return frame_id, online_im, self._current_roi_aspect.bounding_box()
+
+    def calculate_breakaway(
+        self,
+        current_box: torch.Tensor,
+        online_im: torch.Tensor,
+        speed_adjust_box: MovingBox,
+    ) -> Tuple[torch.Tensor, Union[torch.Tensor, np.ndarray]]:
+        #
+        # BEGIN Breakway detection
+        #
         group_x_velocity, edge_center = self._hockey_mom.get_group_x_velocity(
             min_considered_velocity=self._breakaway_detection.min_considered_group_velocity,
             group_threshhold=self._breakaway_detection.group_ratio_threshold,
         )
-        #
-        # Breakway detection
-        #
         if group_x_velocity:
             # logger.info(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
-                cv2.circle(
+                """
+                When detecting a breakaway, draw a circle on the player
+                that represents the forward edge of the breakaway players
+                (person out in front the most, although this may be a defenseman
+                backing up, for instance)
+                """
+                online_im = vis.plot_circle(
                     online_im,
-                    [int(i) for i in edge_center],
+                    edge_center,
                     radius=30,
                     color=(255, 0, 255),
                     thickness=20,
@@ -446,8 +484,8 @@ class PlayTracker(torch.nn.Module):
             )
 
             # If group x velocity is in different direction than current speed, behave a little differently
-            if self._current_roi is not None:
-                roi_center = center(self._current_roi_aspect.bounding_box())
+            if speed_adjust_box is not None:
+                roi_center = center(speed_adjust_box.bounding_box())
                 if self._args.plot_individual_player_tracking:
                     vis.plot_line(
                         online_im,
@@ -474,11 +512,11 @@ class PlayTracker(torch.nn.Module):
                     is_overshooting_edge = False
                     # is_overshooting_edge = torch.logical_or(
                     #     torch.logical_and(
-                    #         self._current_roi._current_speed_x < 0,
+                    #         speed_adjust_box._current_speed_x < 0,
                     #         roi_center[0] < edge_center[0],
                     #     ),
                     #     torch.logical_and(
-                    #         self._current_roi._current_speed_x > 0,
+                    #         speed_adjust_box._current_speed_x > 0,
                     #         roi_center[0] > edge_center[0],
                     #     ),
                     # )
@@ -493,7 +531,7 @@ class PlayTracker(torch.nn.Module):
                     #     f"group_x_velocity={group_x_velocity}, group_y_velocity_clamped={group_y_velocity_clamped}"
                     # )
                     if should_adjust_speed and not is_overshooting_edge:
-                        self._current_roi.adjust_speed(
+                        speed_adjust_box.adjust_speed(
                             accel_x=group_x_velocity
                             * self._breakaway_detection.group_velocity_speed_ratio,
                             accel_y=group_y_velocity_clamped
@@ -507,15 +545,15 @@ class PlayTracker(torch.nn.Module):
                         )
                     else:
                         # Cut the speed quickly due to overshoot
-                        # self._current_roi.scale_speed(ratio_x=0.6)
+                        # speed_adjust_box.scale_speed(ratio_x=0.6)
                         if is_overshooting_edge:
-                            self._current_roi.scale_speed(
+                            speed_adjust_box.scale_speed(
                                 ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
                                 clamp_to_max=True,
                             )
                             # logger.info(
                             #     f"Reducing group x velocity due to overshoot: group_x_velocity={group_x_velocity}, "
-                            #     f"current_speed_x={self._current_roi._current_speed_x}"
+                            #     f"current_speed_x={speed_adjust_box._current_speed_x}"
                             # )
                         else:
                             # logger.info("Not adjusting per group velocity and no overshoot detected")
@@ -531,7 +569,7 @@ class PlayTracker(torch.nn.Module):
                         ),
                     )
                     if should_adjust_speed.item():
-                        self._current_roi.adjust_speed(
+                        speed_adjust_box.adjust_speed(
                             accel_x=group_x_velocity
                             * self._breakaway_detection.group_velocity_speed_ratio,
                             accel_y=None,
@@ -545,11 +583,13 @@ class PlayTracker(torch.nn.Module):
                     else:
                         # Cut the speed quickly due to overshoot
                         # self._current_roi.scale_speed(ratio_x=0.6)
-                        self._current_roi.scale_speed(
+                        speed_adjust_box.scale_speed(
                             ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
                         )
-
-        return frame_id, online_im, self._current_roi_aspect.bounding_box()
+        #
+        # END Breakway detection
+        #
+        return current_box, online_im
 
 
 def _scalar_like(v, device):
