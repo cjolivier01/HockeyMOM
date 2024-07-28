@@ -1,22 +1,38 @@
-from typing import Optional
+from typing import List, Optional
 
+import numpy as np
 import pandas as pd
+
+from hmlib.tracking_utils.log import logger
 
 
 class MOTTrackingData:
-    def __init__(self, file_path=None):
-        self.file_path = file_path
-        self.data = None
-        if file_path:
-            self.read_data()
+    def __init__(self, input_file=None, output_file=None, write_interval: int = 250):
+        self.input_file = input_file
+        self.output_file = output_file
+        self.write_interval = write_interval
+        self.first_write = True
+        # self.empty_data = pd.DataFrame(
+        #     columns=[
+        #         "Frame",
+        #         "ID",
+        #         "BBox_X",
+        #         "BBox_Y",
+        #         "BBox_W",
+        #         "BBox_H",
+        #         "Confidence",
+        #         "Class",
+        #         "Visibility",
+        #     ]
+        # )
+        self._dataframe_list: List[pd.DataFrame] = []
+        self.counter = 0  # Counter to track number of records since the last write
 
-    def read_data(self, input_path: Optional[str] = None):
+    def read_data(self):
         """Read MOT tracking data from a CSV file."""
-        if not input_path:
-            input_path = self.file_path
-        if input_path:
+        if self.input_file:
             self.data = pd.read_csv(
-                input_path,
+                self.input_file,
                 header=None,
                 names=[
                     "Frame",
@@ -31,74 +47,150 @@ class MOTTrackingData:
                 ],
             )
             print("Data loaded successfully.")
-        else:
-            print("File path not set.")
 
-    def write_data(self, output_path: Optional[str] = None):
+    def write_data(self, output_path=None, header=False):
         if not output_path:
-            output_path = self.file_path
-
-        """Write MOT tracking data to a CSV file."""
-        if self.data is not None:
-            self.data.to_csv(output_path, index=False, header=False)
-            print(f"Data saved successfully to {output_path}.")
+            output_path = self.output_file
         else:
-            print("No data available to save.")
+            self.output_file = output_path
 
-    def add_record(
+        """Write MOT tracking data to a CSV file incrementally."""
+        if self.output_file:
+            if self._dataframe_list:
+                data = pd.concat(self._dataframe_list, ignore_index=True)
+                mode = "a" if not self.first_write else "w"
+                data.to_csv(output_path, mode=mode, header=header, index=False)
+                self._dataframe_list = []
+                logger.info(f"Data saved successfully to {output_path}.")
+            else:
+                logger.info("No data available to save.")
+
+    def flush(self):
+        self.write_data()
+
+    def add_frame_records(
         self,
-        frame,
-        obj_id,
-        bbox_x,
-        bbox_y,
-        bbox_w,
-        bbox_h,
-        confidence=1,
-        obj_class=-1,
-        visibility=-1,
+        frame_id: int,
+        tracking_ids: np.ndarray,
+        scores: np.ndarray,
+        tlbr: Optional[np.ndarray] = None,
+        tlwh: Optional[np.ndarray] = None,
     ):
-        """Add a record to the MOT tracking data."""
-        if self.data is None:
-            self.data = pd.DataFrame(
-                columns=[
-                    "Frame",
-                    "ID",
-                    "BBox_X",
-                    "BBox_Y",
-                    "BBox_W",
-                    "BBox_H",
-                    "Confidence",
-                    "Class",
-                    "Visibility",
-                ]
-            )
+        if tlwh is None:
+            assert tlbr is not None
+            tlwh = convert_tlbr_to_tlwh(tlbr)
 
-        new_record = {
-            "Frame": frame,
-            "ID": obj_id,
-            "BBox_X": bbox_x,
-            "BBox_Y": bbox_y,
-            "BBox_W": bbox_w,
-            "BBox_H": bbox_h,
-            "Confidence": confidence,
-            "Class": obj_class,
-            "Visibility": visibility,
-        }
-        self.data = self.data.append(new_record, ignore_index=True)
+        frame_id = int(frame_id)
+        if False:
+            for tracking_id, tlwh, score in zip(tracking_ids, tlwhs, scores):
+                self.add_record(
+                    frame=frame_id,
+                    obj_id=tracking_id,
+                    bbox_x=tlwh[0],
+                    bbox_y=tlwh[1],
+                    bbox_w=tlwh[2],
+                    bbox_h=tlwh[3],
+                    confidence=score,
+                )
+        else:
+            new_record = pd.DataFrame(
+                {
+                    "Frame": [frame_id for _ in range(len(tracking_ids))],
+                    "ID": tracking_ids,
+                    "BBox_X": tlwh[:, 0],
+                    "BBox_Y": tlwh[:, 1],
+                    "BBox_W": tlwh[:, 2],
+                    "BBox_H": tlwh[:, 3],
+                    "Confidence": scores,
+                    "Class": [-1 for _ in range(len(tracking_ids))],
+                    "Visibility": [-1 for _ in range(len(tracking_ids))],
+                }
+            )
+            self._dataframe_list.append(new_record)
+            # self.data = pd.concat([self.data, new_record], ignore_index=True)
+            self.counter += 1
+
+            if self.counter >= self.write_interval:
+                self.write_data(self.output_file)
+                self.first_write = False
+                self.counter = 0  # Reset the counter after writing
+
+    # def add_record(
+    #     self,
+    #     frame,
+    #     obj_id,
+    #     bbox_x,
+    #     bbox_y,
+    #     bbox_w,
+    #     bbox_h,
+    #     confidence=1,
+    #     obj_class=-1,
+    #     visibility=-1,
+    # ):
+    #     """
+    #     Add a record to the MOT tracking data and write incrementally
+    #     every self.write_interval frames.
+    #     """
+    #     new_record = pd.DataFrame(
+    #         {
+    #             "Frame": [frame],
+    #             "ID": [obj_id],
+    #             "BBox_X": [bbox_x],
+    #             "BBox_Y": [bbox_y],
+    #             "BBox_W": [bbox_w],
+    #             "BBox_H": [bbox_h],
+    #             "Confidence": [confidence],
+    #             "Class": [obj_class],
+    #             "Visibility": [visibility],
+    #         }
+    #     )
+    #     self.data = pd.concat([self.data, new_record], ignore_index=True)
+    #     self.counter += 1
+
+    #     if self.counter >= self.write_interval:
+    #         self.write_data(self.output_file)
+    #         self.first_write = False
+    #         self.counter = 0  # Reset the counter after writing
 
     def get_data_by_frame(self, frame_number):
         """Get all tracking data for a specific frame."""
-        if self.data is not None:
+        if not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
         else:
             print("No data loaded.")
 
 
+def convert_tlbr_to_tlwh(tlbr: np.ndarray):
+    """
+    Convert bounding boxes from TLBR format to TLWH format.
+
+    Parameters:
+    - tlbr (Tensor): A tensor containing bounding boxes in TLBR format (x1, y1, x2, y2).
+
+    Returns:
+    - Tensor: Bounding boxes in TLWH format (x, y, w, h).
+    """
+    # Ensure tlbr tensor is of the shape [N, 4] where N is the number of boxes
+    if tlbr.ndim != 2 or tlbr.shape[1] != 4:
+        raise ValueError("Input tensor must be of shape [N, 4]")
+
+    # Top-left corner remains the same
+    x = tlbr[:, 0]
+    y = tlbr[:, 1]
+
+    # Width and height are calculated as differences
+    w = tlbr[:, 2] - tlbr[:, 0]
+    h = tlbr[:, 3] - tlbr[:, 1]
+
+    # Stack the results into a new tensor and return
+    return np.stack([x, y, w, h], axis=1)
+
+
 if __name__ == "__main__":
     # Example usage:
     tracker = MOTTrackingData()
-    tracker.add_record(1, 1, 100, 150, 50, 60)
-    tracker.add_record(1, 2, 120, 160, 55, 65)
-    tracker.write_data(
-        "tracking_data.csv"
-    )  # Specify the output path to save the CSV file
+    for i in range(1000):  # Simulate adding multiple records
+        tracker.add_record(i // 10 + 1, i % 10 + 1, 100, 150, 50, 60)
+
+    # Write any remaining data that hasn't been written yet
+    tracker.write_data("tracking_data.csv", header=False)

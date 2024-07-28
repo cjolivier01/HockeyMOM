@@ -49,6 +49,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus, tensor_call
 from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.utils.mot_data import MOTTrackingData
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.utils.py_utils import find_item_in_module
 from hmlib.video_stream import time_to_frame
@@ -358,9 +359,9 @@ def is_stitching(input_video: str) -> bool:
 
 def main(args, num_gpu):
     dataloader = None
+    tracking_data = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
-
     try:
 
         is_distributed = num_gpu > 1
@@ -527,6 +528,11 @@ def main(args, num_gpu):
                     pose_dataset_info = DatasetInfo(pose_dataset_info)
         else:
             assert False and "No longer supported"
+
+        # tracking_data = MOTTrackingData(
+        #     output_file=os.path.join(results_folder, "results.csv"),
+        #     write_interval=100,
+        # )
 
         dataloader = None
         postprocessor = None
@@ -767,6 +773,7 @@ def main(args, num_gpu):
                 pose_dataset_info=pose_dataset_info,
                 config=args.game_config,
                 device=gpus["detection"],
+                tracking_data=tracking_data,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
@@ -782,6 +789,8 @@ def main(args, num_gpu):
             postprocessor.stop()
             if dataloader is not None and hasattr(dataloader, "close"):
                 dataloader.close()
+            if tracking_data is not None:
+                tracking_data.flush()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
 
@@ -803,6 +812,7 @@ def run_mmtrack(
     dataloader,
     postprocessor,
     progress_bar: Optional[ProgressBar] = None,
+    tracking_data: MOTTrackingData = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -993,12 +1003,25 @@ def run_mmtrack(
                         detections = det_bboxes[frame_index]
                         tracking_items = track_bboxes[frame_index]
 
-                        track_ids = tracking_items[:, 0]
+                        track_ids = tracking_items[:, 0].astype(np.int64)
                         bboxes = tracking_items[:, 1:5]
                         scores = tracking_items[:, -1]
 
+                        if tracking_data is not None:
+                            tracking_data.add_frame_records(
+                                frame_id=frame_id,
+                                tracking_ids=track_ids,
+                                tlbr=bboxes,
+                                scores=scores,
+                            )
+
+                            # if number_of_batches_processed == 0:
+                            #     # Test getting the first frame back
+                            #     frame_data = tracking_data.get_data_by_frame(frame_id)
+                            #     tracking_data.write_data(sys.stdout)
+
                         online_tlwhs = torch.from_numpy(bboxes)
-                        online_ids = torch.from_numpy(track_ids).to(torch.int64)
+                        online_ids = torch.from_numpy(track_ids)
                         online_scores = torch.from_numpy(scores)
 
                         # make boxes tlwh
