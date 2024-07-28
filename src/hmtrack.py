@@ -15,6 +15,7 @@ import torch.backends.cudnn as cudnn
 from loguru import logger
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
+from mmcv.utils import get_logger as mmcv_get_logger
 from mmdet.datasets.pipelines import Compose
 from mmpose.apis import (
     inference_top_down_pose_model,
@@ -1142,14 +1143,8 @@ def multi_pose_task(
 
 
 def setup_logging():
-    # INFO logging
-    # handler = logging.StreamHandler(sys.stdout)
-    # logger.setLevel(max(logger.level, logging.INFO))
-    # formatter = logging.Formatter(
-    #     "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    # )
-    # handler.setFormatter(formatter)
-    # logger.addHandler(handler)
+    mmcv_logger = mmcv_get_logger("mmcv")
+    mmcv_logger.setLevel(logging.WARN)
     logger.info("Logger initialized")
 
 
