@@ -215,6 +215,15 @@ class ProgressBar:
             yield
 
 
+def convert_seconds_to_hms(total_seconds: Any) -> str:
+    hours = int(total_seconds // 3600)  # Calculate the number of hours
+    minutes = int((total_seconds % 3600) // 60)  # Calculate the remaining minutes
+    seconds = int(total_seconds % 60)  # Calculate the remaining seconds
+
+    # Format the time in "HH:MM:SS" format
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
 # Example usage
 if __name__ == "__main__":
     table_map = OrderedDict({"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"})

@@ -48,7 +48,7 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus, tensor_call
 from hmlib.utils.image import make_channels_first, make_channels_last
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.utils.py_utils import find_item_in_module
 from hmlib.video_stream import time_to_frame
 
@@ -817,6 +817,9 @@ def run_mmtrack(
 
             model.eval()
 
+            total_batch_count = 0
+            batch_size = 1
+
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
@@ -824,6 +827,9 @@ def run_mmtrack(
                     if wraparound_timer is not None:
                         fps = batch_size / max(1e-5, wraparound_timer.average_time)
                         table_map["HMTrack FPS"] = "{:.2f}".format(fps)
+                        table_map["Duration processed"] = convert_seconds_to_hms(
+                            total_batch_count * batch_size / dataloader.fps
+                        )
 
                 progress_bar.add_table_callback(_table_callback)
 
@@ -1009,6 +1015,7 @@ def run_mmtrack(
                         wraparound_timer = Timer()
                     else:
                         wraparound_timer.toc()
+                    total_batch_count += 1
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")
