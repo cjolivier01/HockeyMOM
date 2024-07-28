@@ -448,7 +448,7 @@ class PlayTracker(torch.nn.Module):
     def calculate_breakaway(
         self,
         current_box: torch.Tensor,
-        online_im: torch.Tensor,
+        online_im: Union[torch.Tensor, np.ndarray],
         speed_adjust_box: MovingBox,
         average_current_box: bool,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, np.ndarray]]:
@@ -500,98 +500,33 @@ class PlayTracker(torch.nn.Module):
                         color=(128, 255, 128),
                         thickness=4,
                     )
-                if False:
-                    should_adjust_speed = torch.logical_or(
-                        torch.logical_and(
-                            # Moving to the right, and our ROI center
-                            # is to the left of the movement edge center
-                            group_x_velocity > 0,
-                            roi_center[0] < edge_center[0],
-                        ),
-                        torch.logical_and(
-                            # Moving to the left, and our ROI center is
-                            # to the right of the movement edge center
-                            group_x_velocity < 0,
-                            roi_center[0] > edge_center[0],
+                # Previous way
+                should_adjust_speed = torch.logical_or(
+                    torch.logical_and(
+                        group_x_velocity > 0, roi_center[0] < edge_center[0]
+                    ),
+                    torch.logical_and(
+                        group_x_velocity < 0, roi_center[0] > edge_center[0]
+                    ),
+                )
+                if should_adjust_speed.item():
+                    speed_adjust_box.adjust_speed(
+                        accel_x=group_x_velocity
+                        * self._breakaway_detection.group_velocity_speed_ratio,
+                        accel_y=None,
+                        scale_constraints=self._breakaway_detection.scale_speed_constraints,
+                        nonstop_delay=torch.tensor(
+                            self._breakaway_detection.nonstop_delay_count,
+                            dtype=torch.int64,
+                            device=self._device,
                         ),
                     )
-                    is_overshooting_edge = False
-                    # is_overshooting_edge = torch.logical_or(
-                    #     torch.logical_and(
-                    #         speed_adjust_box._current_speed_x < 0,
-                    #         roi_center[0] < edge_center[0],
-                    #     ),
-                    #     torch.logical_and(
-                    #         speed_adjust_box._current_speed_x > 0,
-                    #         roi_center[0] > edge_center[0],
-                    #     ),
-                    # )
-                    # Adjust Y velocity as well
-                    group_y_velocity = edge_center[1] - roi_center[1]
-                    group_y_velocity_clamped = torch.clamp(
-                        group_y_velocity,
-                        min=-torch.abs(group_x_velocity / self._final_aspect_ratio),
-                        max=torch.abs(group_x_velocity / self._final_aspect_ratio),
-                    )
-                    # logger.info(
-                    #     f"group_x_velocity={group_x_velocity}, group_y_velocity_clamped={group_y_velocity_clamped}"
-                    # )
-                    if should_adjust_speed and not is_overshooting_edge:
-                        speed_adjust_box.adjust_speed(
-                            accel_x=group_x_velocity
-                            * self._breakaway_detection.group_velocity_speed_ratio,
-                            accel_y=group_y_velocity_clamped
-                            * self._breakaway_detection.group_velocity_speed_ratio,
-                            scale_constraints=self._breakaway_detection.scale_speed_constraints,
-                            nonstop_delay=torch.tensor(
-                                self._breakaway_detection.nonstop_delay_count,
-                                dtype=torch.int64,
-                                device=self._device,
-                            ),
-                        )
-                    else:
-                        # Cut the speed quickly due to overshoot
-                        # speed_adjust_box.scale_speed(ratio_x=0.6)
-                        if is_overshooting_edge:
-                            speed_adjust_box.scale_speed(
-                                ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio,
-                                clamp_to_max=True,
-                            )
-                            # logger.info(
-                            #     f"Reducing group x velocity due to overshoot: group_x_velocity={group_x_velocity}, "
-                            #     f"current_speed_x={speed_adjust_box._current_speed_x}"
-                            # )
-                        else:
-                            # logger.info("Not adjusting per group velocity and no overshoot detected")
-                            pass
                 else:
-                    # Previous way
-                    should_adjust_speed = torch.logical_or(
-                        torch.logical_and(
-                            group_x_velocity > 0, roi_center[0] < edge_center[0]
-                        ),
-                        torch.logical_and(
-                            group_x_velocity < 0, roi_center[0] > edge_center[0]
-                        ),
+                    # Cut the speed quickly due to overshoot
+                    # self._current_roi.scale_speed(ratio_x=0.6)
+                    speed_adjust_box.scale_speed(
+                        ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
                     )
-                    if should_adjust_speed.item():
-                        speed_adjust_box.adjust_speed(
-                            accel_x=group_x_velocity
-                            * self._breakaway_detection.group_velocity_speed_ratio,
-                            accel_y=None,
-                            scale_constraints=self._breakaway_detection.scale_speed_constraints,
-                            nonstop_delay=torch.tensor(
-                                self._breakaway_detection.nonstop_delay_count,
-                                dtype=torch.int64,
-                                device=self._device,
-                            ),
-                        )
-                    else:
-                        # Cut the speed quickly due to overshoot
-                        # self._current_roi.scale_speed(ratio_x=0.6)
-                        speed_adjust_box.scale_speed(
-                            ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
-                        )
         #
         # END Breakway detection
         #
