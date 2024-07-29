@@ -50,25 +50,28 @@ def make_video_path(game_id: str, file_name: str) -> str:
 
 
 def main(args):
+    assert args.game_id and "--gamne-id is required"
+
     video_left = make_video_path(game_id=args.game_id, file_name=args.left)
     video_right = make_video_path(game_id=args.game_id, file_name=args.right)
 
-    left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
-    right_vid = BasicVideoInfo(os.path.join(dir_name, video_right))
+    left_vid = BasicVideoInfo(video_left)
+    right_vid = BasicVideoInfo(video_right)
 
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 
     pto_project_file, lfo, rfo = configure_video_stitching(
-        dir_name,
-        video_left,
-        video_right,
-        project_file_name,
-        left_frame_offset=lfo,
-        right_frame_offset=rfo,
+        dir_name=os.path.join(os.environ["HOME"], "Videos", args.game_id),
+        video_left=video_left,
+        video_right=video_right,
+        project_file_name="my_project.pto",
+        left_frame_offset=None,
+        right_frame_offset=None,
     )
-    print(f"lfo={lfo}")
-    print(f"rfo={rfo}")
+    print(f"{pto_project_file=}")
+    print(f"{lfo=}")
+    print(f"{rfo=}")
     return
 
 
