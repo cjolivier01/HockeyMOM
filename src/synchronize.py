@@ -1,0 +1,81 @@
+"""
+Experiments in stitching
+"""
+
+import argparse
+import contextlib
+import os
+import time
+from collections import OrderedDict
+from typing import Any
+
+import cv2
+import torch
+
+from hmlib.config import get_clip_box
+from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
+from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.hm_opts import hm_opts, preferred_arg
+from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.remapper import ImageRemapper
+from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.gpu import CachedIterator, GpuAllocator, StreamTensor
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+from hockeymom import core
+
+ROOT_DIR = os.getcwd()
+
+
+def make_parser():
+    parser = argparse.ArgumentParser("YOLOX train parser")
+    parser.add_argument(
+        "--num-workers", default=1, type=int, help="Number of stitching workers"
+    )
+    parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
+    parser.add_argument(
+        "--left", default="left.mp4", type=str, help="Left file to be stitched"
+    )
+    parser.add_argument(
+        "--right", default="right.mp4", type=str, help="Right file to be stitched"
+    )
+    return parser
+
+
+def make_video_path(game_id: str, file_name: str) -> str:
+    if os.path.exists(file_name):
+        return file_name
+    return os.path.join(os.environ["HOME"], "Videos", game_id)
+
+
+def main(args):
+    video_left = make_video_path(game_id=args.game_id, file_name=args.left)
+    video_right = make_video_path(game_id=args.game_id, file_name=args.right)
+
+    left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
+    right_vid = BasicVideoInfo(os.path.join(dir_name, video_right))
+
+    total_frames = min(left_vid.frame_count, right_vid.frame_count)
+    print(f"Total possible stitched video frames: {total_frames}")
+
+    pto_project_file, lfo, rfo = configure_video_stitching(
+        dir_name,
+        video_left,
+        video_right,
+        project_file_name,
+        left_frame_offset=lfo,
+        right_frame_offset=rfo,
+    )
+    print(f"lfo={lfo}")
+    print(f"rfo={rfo}")
+    return
+
+
+if __name__ == "__main__":
+    parser = make_parser()
+    parser = hm_opts.parser(parser=parser)
+    args = parser.parse_args()
+
+    main(args)
+    print("Done.")
