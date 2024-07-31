@@ -84,7 +84,7 @@ RUN apt-get install -y \
 
 # Download FFmpeg source code
 WORKDIR /root
-RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout 11.1.5.3 && make install
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
 RUN git clone https://github.com/FFmpeg/FFmpeg.git && cd FFmpeg && git checkout n5.1.4
 
 # Configure FFmpeg with the desired codecs and options
