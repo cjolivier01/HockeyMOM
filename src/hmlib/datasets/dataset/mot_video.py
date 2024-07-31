@@ -1,39 +1,35 @@
-import traceback
 import threading
+import time
+import traceback
 from contextlib import contextmanager
-import numpy as np
 from typing import List, Tuple, Union
 
-import time
 import cv2
+import numpy as np
 import torch
+from mmdet.datasets.pipelines import Compose
 from torch.utils.data import Dataset
 
-from mmdet.datasets.pipelines import Compose
-
-from hmlib.tracking_utils.timer import Timer
 from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
+from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.image import make_channels_last
-from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.gpu import (
-    async_to,
-    StreamTensor,
-    StreamCheckpoint,
-    # StreamTensorToDtype,
-    # StreamTensorToDevice,
+from hmlib.utils.gpu import (  # StreamTensorToDtype,; StreamTensorToDevice,
     CachedIterator,
+    StreamCheckpoint,
+    StreamTensor,
     allocate_stream,
+    async_to,
     cuda_stream_scope,
 )
-from hmlib.video_out import quick_show
-
 from hmlib.utils.image import (
-    make_channels_first,
     image_height,
     image_width,
+    make_channels_first,
+    make_channels_last,
 )
+from hmlib.video_out import quick_show
+from hmlib.video_stream import VideoStreamReader
 
 
 @contextmanager
@@ -375,11 +371,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
-                # if img0.dtype != self._dtype:
-                #     # sanity check on what we're assuming here
-                #     img0 = img0.to(dtype=self._dtype, non_blocking=True)
-
                 original_img0 = img0
+
+                if torch.is_floating_point(img0) and img0.dtype != self._dtype:
+                    img0 = img0.to(dtype=self._dtype, non_blocking=True)
 
                 data_item = dict(
                     img=make_channels_last(img0),

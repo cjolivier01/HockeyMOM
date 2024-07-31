@@ -148,7 +148,6 @@ RUN pip install \
   progress \
   motmetrics \
   matplotlib \
-  lap \
   openpyxl \
   Pillow-simd \
   psutil \
