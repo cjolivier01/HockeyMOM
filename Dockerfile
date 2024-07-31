@@ -1,5 +1,3 @@
-# Use Ubuntu 22.04 as the base image
-#FROM ubuntu:22.04
 FROM nvidia/cuda:12.3.2-base-ubuntu22.04
 
 # Set environment variables for non-interactive installation
@@ -127,8 +125,8 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   && make install
 
 # Cleanup
-WORKDIR /root
-RUN rm -rf FFmpeg
+# WORKDIR /root
+# RUN rm -rf FFmpeg
 
 # Entry point
 CMD ["/bin/bash"]
