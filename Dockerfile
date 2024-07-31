@@ -79,8 +79,8 @@ RUN apt-get install -y \
 # Some more dependencies
 RUN apt-get install -y \
   vim \
-  libgnutls28-dev
-
+  libgnutls28-dev \
+  && apt-get clean
 
 # Download FFmpeg source code
 WORKDIR /root
