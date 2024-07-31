@@ -94,7 +94,7 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   --prefix="/usr/local" \
   --extra-cflags='-I/usr/local/cuda/include' \
   --extra-ldflags='-L/usr/local/cuda/lib64' \
-  --nvccflags="-gencode arch=compute_${ccap1},code=sm_${ccap1} -O2" \
+  --nvccflags="-gencode arch=compute_75,code=sm_75 -O2" \
   --disable-doc \
   --enable-decoder=aac \
   --enable-decoder=h264 \
@@ -130,9 +130,68 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   && make -j$(nproc) \
   && make install
 
+
+RUN apt-get install -y \
+  python3-pip \
+  && apt-get clean
+
+RUN pip install \
+  cython \
+  numpy==1.23.5 \
+  screeninfo \
+  yacs \
+  moviepy \
+  opencv-python \
+  PyYAML \
+  cython-bbox \
+  scipy \
+  progress \
+  motmetrics \
+  matplotlib \
+  lap \
+  openpyxl \
+  Pillow-simd \
+  psutil \
+  filterpy \
+  screeninfo \
+  gast \
+  astunparse \
+  fvcore \
+  opencv-python \
+  opencv-contrib-python \
+  cameratransform \
+  tifffile \
+  scikit-build \
+  scikit-learn \
+  lmdb \
+  loguru \
+  thop \
+  pycocotools \
+  sympy \
+  python-ipmi \
+  numba \
+  pyquaternion
+
+
+# Again, force the proper numpy version
+RUN pip install numpy==1.23.5
+
 # Cleanup
 # WORKDIR /root
 # RUN rm -rf FFmpeg
+
+WORKDIR /root
+RUN git clone https://github.com/cjolivier01/vigra && cd vigra && git checkout colivier/hm
+
+  # && mkdir build \
+  # && cd build \
+  # && ../cfig \
+  # && make $(nproc) \
+  # && make install
+
+# Cleanup
+# WORKDIR /root
+# RUN rm -rf vigra
 
 # Entry point
 CMD ["/bin/bash"]
