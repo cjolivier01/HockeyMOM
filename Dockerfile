@@ -1,6 +1,6 @@
 # Use Ubuntu 22.04 as the base image
 #FROM ubuntu:22.04
-FROM nvidia/cuda:11.6.2-base-ubuntu20.04
+FROM nvidia/cuda:12.3.2-base-ubuntu22.04
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
