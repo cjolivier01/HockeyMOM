@@ -677,7 +677,7 @@ def select_gpus(
                         stitching_device = detection_device
 
             if is_detecting:
-                if False and gpu_allocator.free_count():
+                if gpu_allocator.free_count():
                     detection_device = torch.device(
                         "cuda", gpu_allocator.allocate_fast()
                     )
