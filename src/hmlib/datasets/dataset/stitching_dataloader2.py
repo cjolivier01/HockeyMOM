@@ -2,51 +2,44 @@
 Experiments in stitching
 """
 
-import os
-import cv2
-import threading
 import argparse
-import torch
+import os
+import threading
 import traceback
 from contextlib import nullcontext
-import numpy as np
+from pathlib import Path
 from typing import List, Union
 
-from pathlib import Path
-
-from hockeymom import core
+import cv2
+import numpy as np
+import torch
 
 from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.stitching.blender import create_stitcher
+from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.stitching.synchronize import (
-    configure_video_stitching,
-)
-from hmlib.stitching.blender import create_stitcher
 from hmlib.utils.containers import create_queue
-from hmlib.stitching.laplacian_blend import show_image
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.utils.gpu import (
-    StreamTensor,
-    StreamCheckpoint,
     CachedIterator,
-    async_to,
+    StreamCheckpoint,
+    StreamTensor,
     allocate_stream,
+    async_to,
     cuda_stream_scope,
 )
-from hmlib.video_out import (
-    VideoOutput,
-    ImageProcData,
-    # optional_with,
-)
 from hmlib.utils.image import (
-    make_channels_last,
-    make_channels_first,
     image_height,
     image_width,
+    make_channels_first,
+    make_channels_last,
     make_visible_image,
 )
+from hmlib.video_out import ImageProcData, VideoOutput  # optional_with,
+from hockeymom import core
 
 
 def _get_dir_name(path):
@@ -55,11 +48,7 @@ def _get_dir_name(path):
     return Path(path).parent
 
 
-from hmlib.stitching.stitch_worker import (
-    safe_put_queue,
-    INFO,
-    _LARGE_NUMBER_OF_FRAMES,
-)
+from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
 
 
 def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
@@ -667,7 +656,8 @@ class StitchDataset:
 
         assert stitched_frame.ndim == 4
         stitched_frame = self._send_frame_to_video_out(
-            frame_id=frame_id, stitched_frame=stitched_frame
+            frame_id=frame_id,
+            stitched_frame=stitched_frame,
         )
         # maybe nested batches can be some multiple of, so can remove this check if necessary
         assert self._batch_size == stitched_frame.shape[0]

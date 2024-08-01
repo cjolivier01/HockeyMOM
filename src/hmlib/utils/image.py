@@ -5,20 +5,19 @@
 # Modified by Xingyi Zhou
 # ------------------------------------------------------------------------------
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
-import numpy as np
-import cv2
 import random
+from typing import List, Union
+
+import cv2
+import numpy as np
+import PIL
 import torch
+import torch.nn.functional as TF
 from screeninfo import get_monitors
 from torchvision.transforms import functional as F
-import torch.nn.functional as TF
-import PIL
 
-from typing import List, Union
 from hmlib.utils.gpu import StreamTensor
 
 
@@ -659,7 +658,7 @@ def make_showable_type(
 
 def make_visible_image(
     img,
-    enable_resizing: Union[bool, float] = False,
+    enable_resizing: Union[bool, float] = None,
     scale_elements: Union[float, None] = None,
 ):
     if enable_resizing is None:
