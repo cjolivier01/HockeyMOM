@@ -140,8 +140,8 @@ rink:
       - 1620
     - - 513
       - 1739
-    projected_height: 400
-    projected_width: 100
+    projected_width: 400
+    projected_height: 100
 model:
   tracker:
     type: fair
