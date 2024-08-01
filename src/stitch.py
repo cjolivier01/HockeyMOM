@@ -2,33 +2,26 @@
 Experiments in stitching
 """
 
-import os
-import time
 import argparse
 import contextlib
-import cv2
-from typing import Any
+import os
+import time
 from collections import OrderedDict
+from typing import Any
 
+import cv2
 import torch
-
+from hmlib.config import get_clip_box
+from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.hm_opts import hm_opts, preferred_arg
+from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.remapper import ImageRemapper
+from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.config import get_clip_box
-from hmlib.stitching.remapper import ImageRemapper
-from hmlib.utils.gpu import StreamTensor, GpuAllocator, CachedIterator
+from hmlib.utils.gpu import CachedIterator, GpuAllocator, StreamTensor
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hmlib.stitching.laplacian_blend import show_image
-from hmlib.hm_opts import hm_opts, preferred_arg
-from hmlib.stitching.synchronize import (
-    configure_video_stitching,
-)
-
-from hmlib.datasets.dataset.stitching_dataloader2 import (
-    StitchDataset,
-)
-
 from hockeymom import core
 
 ROOT_DIR = os.getcwd()
