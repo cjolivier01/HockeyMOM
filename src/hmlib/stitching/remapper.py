@@ -2,26 +2,29 @@
 Experiments in stitching
 """
 
+import argparse
 import os
 import time
-import argparse
-import numpy as np
 from typing import Tuple
-import cv2
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hmlib.stitching.synchronize import get_image_geo_position
+import hockeymom.core as core
 from hmlib.hm_opts import hm_opts
+from hmlib.stitching.synchronize import get_image_geo_position
+from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.image import (
+    make_channels_first,
+    make_visible_image,
+    pad_tensor_to_size_batched,
+)
 from hmlib.video_stream import VideoStreamReader
-from hmlib.utils.image import make_visible_image
 
 # from hmlib.async_worker import AsyncWorker
 
-import hockeymom.core as core
-from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.image import make_channels_first, pad_tensor_to_size_batched
 
 ROOT_DIR = os.getcwd()
 
@@ -180,12 +183,18 @@ class ImageRemapper:
             self._working_h = max(src_h, self._dest_h)
             print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
-            col_map = pad_tensor_to_size(
-                col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
-            row_map = pad_tensor_to_size(
-                row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
+            col_map = pad_tensor_to_size_batched(
+                col_map.unsqueeze(0),
+                self._working_w,
+                self._working_h,
+                self.UNMAPPED_PIXEL_VALUE,
+            ).squeeze(0)
+            row_map = pad_tensor_to_size_batched(
+                row_map.unsqueeze(0),
+                self._working_w,
+                self._working_h,
+                self.UNMAPPED_PIXEL_VALUE,
+            ).squeeze(0)
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,

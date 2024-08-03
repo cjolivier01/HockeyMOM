@@ -217,15 +217,16 @@ class ThreadedCachedIterator:
                 result_item = self._pre_callback_fn(result_item)
         else:
             get_next_cached_start = time.time()
+            t0 = time.time()
             result_item = self._q.get()
             if result_item is None:
                 raise StopIteration()
             get_next_cached_duration = time.time() - get_next_cached_start
-            # if get_next_cached_duration > 10 / 1000:
-            #     print(
-            #         f"Waited {get_next_cached_duration * 1000} ms "
-            #         f"for the next cached item for cache size of {self._save_cache_size}"
-            #     )
+            if get_next_cached_duration > 10 / 1000:
+                print(
+                    f"Waited {get_next_cached_duration * 1000} ms "
+                    f"for the next cached item for cache size of {self._save_cache_size}"
+                )
             self._pull_queue_to_worker.put("ok")
         return result_item
 
@@ -233,8 +234,8 @@ class ThreadedCachedIterator:
         self._stop()
 
 
-# CachedIterator = ThreadedCachedIterator
-CachedIterator = SimpleCachedIterator
+CachedIterator = ThreadedCachedIterator
+# CachedIterator = SimpleCachedIterator
 
 
 class StreamTensorBase:
@@ -323,9 +324,9 @@ class StreamTensor(StreamTensorBase):
             and self._sync_duraton is not None
             and self._sync_duraton > self._print_thresh
         ):
-            # print(
-            #     f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
-            # )
+            print(
+                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            )
             pass
         t = self._tensor
         # self._tensor = None

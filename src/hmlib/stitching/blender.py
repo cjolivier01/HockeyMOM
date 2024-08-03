@@ -2,43 +2,33 @@
 Experiments in stitching
 """
 
-import os
 import argparse
 import datetime
-import numpy as np
-from typing import Tuple, List, Optional
-import cv2
+import os
+from typing import List, Optional, Tuple, Union
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
-from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.image import image_width, image_height
-from hmlib.video_out import (
-    VideoOutput,
-    ImageProcData,
-    resize_image,
-    rotate_image,
-)
-from hmlib.video_stream import VideoStreamWriter, VideoStreamReader
+from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
-from hmlib.stitching.synchronize import synchronize_by_audio, get_image_geo_position
+from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
+from hmlib.stitching.synchronize import get_image_geo_position, synchronize_by_audio
+from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import (
-    StreamTensorToDevice,
-    StreamTensorToDtype,
     CachedIterator,
-    StreamTensor,
-    StreamCheckpoint,
     GpuAllocator,
+    StreamCheckpoint,
+    StreamTensor,
+    ThreadedCachedIterator,
     cuda_stream_scope,
 )
-from hmlib.hm_opts import hm_opts, copy_opts
-
-from hmlib.stitching.remapper import (
-    ImageRemapper,
-    read_frame_batch,
-)
+from hmlib.utils.image import image_height, image_width
+from hmlib.video_out import ImageProcData, VideoOutput, resize_image, rotate_image
+from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 
@@ -455,6 +445,9 @@ def blend_video(
     dir_name: str,
     basename_1: str,
     basename_2: str,
+    device: torch.device,
+    output_device: torch.device,
+    dtype: torch.dtype,
     interpolation: str = None,
     lfo: float = None,
     rfo: float = None,
@@ -462,13 +455,13 @@ def blend_video(
     show: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
-    # max_width: int = 8192,
     max_width: int = 9999,
     rotation_angle: int = 0,
     batch_size: int = 8,
-    device: torch.device = torch.device("cuda"),
     skip_final_video_save: bool = False,
     blend_mode: str = "laplacian",
+    queue_size: int = 1,
+    remap_on_async_stream: bool = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -801,6 +794,7 @@ def stitch_video(
     dir_name: str,
     basename_1: str,
     basename_2: str,
+    device: torch.device,
     output_device: torch.device,
     interpolation: str = None,
     lfo: float = None,
@@ -812,7 +806,6 @@ def stitch_video(
     max_width: int = 9999,
     rotation_angle: int = 0,
     batch_size: int = 8,
-    device: torch.device = torch.device("cuda", 0),
     skip_final_video_save: bool = False,
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
@@ -828,7 +821,7 @@ def stitch_video(
     cap_1 = VideoStreamReader(
         os.path.join(dir_name, video_file_1),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=1)}",
+        device=device,
         batch_size=batch_size,
     )
     if not cap_1 or not cap_1.isOpened():
@@ -840,7 +833,7 @@ def stitch_video(
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
         type=opts.video_stream_decode_method,
-        device=f"cuda:{gpu_index(want=2)}",
+        device=device,
         batch_size=batch_size,
     )
 
@@ -850,7 +843,25 @@ def stitch_video(
         if rfo or start_frame_number:
             cap_2.seek(frame_number=rfo + start_frame_number)
 
+    convert_stream = torch.cuda.Stream(device=device)
     main_stream = torch.cuda.Stream(device=device)
+
+    def _convert(
+        tensor: torch.Tensor, device: torch.device, dtype: torch.dtype
+    ) -> Union[torch.Tensor, StreamTensor]:
+        with torch.cuda.stream(convert_stream):
+            if isinstance(tensor, np.ndarray):
+                tensor = torch.from_numpy(tensor)
+            converted = False
+            if tensor.device != device:
+                tensor = tensor.to(device=device, non_blocking=True)
+                converted = True
+            if tensor.dtype != dtype:
+                tensor = tensor.to(dtype=dtype, non_blocking=True)
+                converted = True
+            if not converted:
+                return tensor
+            return StreamCheckpoint(tensor=tensor, verbose=True)
 
     stitcher, xy_pos_1, xy_pos_2 = create_stitcher(
         dir_name=dir_name,
@@ -870,34 +881,34 @@ def stitch_video(
     v1_iter = CachedIterator(
         iterator=v1_iter,
         cache_size=queue_size,
-        pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-            tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
-            dtype=dtype,
+        pre_callback_fn=lambda source_tensor: _convert(
+            tensor=source_tensor, device=device, dtype=dtype
         ),
     )
     v2_iter = CachedIterator(
         iterator=v2_iter,
         cache_size=queue_size,
-        pre_callback_fn=lambda source_tensor: StreamTensorToDtype(
-            tensor=StreamTensorToDevice(tensor=source_tensor, device=device),
-            dtype=dtype,
+        pre_callback_fn=lambda source_tensor: _convert(
+            tensor=source_tensor, device=device, dtype=dtype
         ),
     )
 
-    def to_tensor(t, no_sync: bool = False):
-        if isinstance(t, StreamTensor):
-            if no_sync:
-                return t.ref()
-            return t.get()
-        if isinstance(t, np.ndarray):
-            t = torch.from_numpy(t)
-        if t.device != device:
-            t = t.to(device, non_blocking=False)
-        if t.dtype == torch.uint8:
-            t = t.to(dtype, non_blocking=False)
-        return t
-
     with cuda_stream_scope(main_stream):
+
+        def to_tensor(t, no_sync: bool = False):
+            if isinstance(t, StreamTensor):
+                if no_sync:
+                    return t.ref()
+                t._verbose = True
+                return t.get()
+            if isinstance(t, np.ndarray):
+                t = torch.from_numpy(t)
+            if t.device != device:
+                t = t.to(device, non_blocking=False)
+            if t.dtype == torch.uint8:
+                t = t.to(dtype, non_blocking=False)
+            return t
+
         stitcher.to(device)
 
         video_out = None
@@ -925,11 +936,11 @@ def stitch_video(
 
                 get_timer.tic()
                 sinfo_1 = core.StitchImageInfo()
-                sinfo_1.image = to_tensor(source_tensor_1, no_sync=True)
+                sinfo_1.image = to_tensor(source_tensor_1)
                 sinfo_1.xy_pos = xy_pos_1
 
                 sinfo_2 = core.StitchImageInfo()
-                sinfo_2.image = to_tensor(source_tensor_2, no_sync=True)
+                sinfo_2.image = to_tensor(source_tensor_2)
                 sinfo_2.xy_pos = xy_pos_2
                 get_timer.toc()
 
@@ -939,7 +950,7 @@ def stitch_video(
                     tensor=blended_stream_tensor,
                     stream=main_stream,
                     owns_stream=False,
-                    verbose=False,
+                    verbose=True,
                 )
                 blended = blended_stream_tensor
 
@@ -953,7 +964,7 @@ def stitch_video(
                         blended = blended.get()
                     stitch_timer.toc()
                 elif not output_video:
-                    main_stream.synchronize()
+                    # blended.get()
                     stitch_timer.toc()
                 else:
                     main_stream.synchronize()
@@ -1089,14 +1100,14 @@ def stitch_video(
 
 def main(args):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
-    gpu_allocator = GpuAllocator(gpus=None)
+    gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
     video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
     with torch.no_grad():
-        stitch_video(
-            # blend_video(
+        # stitch_video(
+        blend_video(
             opts,
             video_file_1="left.mp4",
             video_file_2="right.mp4",

@@ -14,7 +14,7 @@ from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (  # StreamTensorToDtype,; StreamTensorToDevice,
+from hmlib.utils.gpu import (
     CachedIterator,
     StreamCheckpoint,
     StreamTensor,

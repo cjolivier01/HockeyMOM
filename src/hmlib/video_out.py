@@ -19,7 +19,6 @@ from torchvision.transforms import functional as F
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.utils.progress_bar import ProgressBar
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
@@ -44,6 +43,7 @@ from hmlib.utils.image import (
     make_visible_image,
     resize_image,
 )
+from hmlib.utils.progress_bar import ProgressBar
 
 from .video_stream import VideoStreamWriter
 
@@ -57,18 +57,6 @@ def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
         # return tensor.get()
         return tensor.wait()
     return tensor
-
-
-# @contextmanager
-# def optional_with(resource):
-#     """A context manager that works even if the resource is None."""
-#     if resource is None:
-#         # If the resource is None, yield nothing but still enter the with block
-#         yield None
-#     else:
-#         # If the resource is not None, use it as a normal context manager
-#         with resource as r:
-#             yield r
 
 
 def quick_show(img: torch.Tensor, wait: bool = False):

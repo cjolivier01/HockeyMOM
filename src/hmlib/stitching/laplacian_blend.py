@@ -1,9 +1,10 @@
-from typing import Union
+from typing import Optional, Union
 
 import cv2
-import torch
 import numpy as np
+import torch
 import torch.nn.functional as F
+
 from hmlib.utils.image import make_visible_image
 
 
@@ -77,7 +78,7 @@ def show_image(
             label,
             make_visible_image(
                 img,
-                #scale_elements=255.0,
+                # scale_elements=255.0,
                 enable_resizing=enable_resizing,
             ),
         )
@@ -127,8 +128,8 @@ class LaplacianBlend(torch.nn.Module):
         channels=3,
         kernel_size=5,
         sigma=1,
-        seam_mask: torch.Tensor = None,
-        xor_mask: torch.Tensor = None,
+        seam_mask: Optional[torch.Tensor] = None,
+        xor_mask: Optional[torch.Tensor] = None,
     ):
         super(LaplacianBlend, self).__init__()
         self.max_levels = max_levels
