@@ -223,10 +223,11 @@ class ThreadedCachedIterator:
                 raise StopIteration()
             get_next_cached_duration = time.time() - get_next_cached_start
             if get_next_cached_duration > 10 / 1000:
-                print(
-                    f"Waited {get_next_cached_duration * 1000} ms "
-                    f"for the next cached item for cache size of {self._save_cache_size}"
-                )
+                # print(
+                #     f"Waited {get_next_cached_duration * 1000} ms "
+                #     f"for the next cached item for cache size of {self._save_cache_size}"
+                # )
+                pass
             self._pull_queue_to_worker.put("ok")
         return result_item
 

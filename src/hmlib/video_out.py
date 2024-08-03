@@ -288,6 +288,7 @@ class VideoOutput:
         print_interval: int = 50,
         original_clip_box: torch.Tensor = None,
         progress_bar: ProgressBar | None = None,
+        cache_size: int = 2,
     ):
         if device is not None:
             logger.info(
@@ -302,6 +303,7 @@ class VideoOutput:
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
+        self._cache_size = cache_size
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
         assert output_frame_width > 4 and output_frame_height > 4
@@ -625,7 +627,9 @@ class VideoOutput:
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
 
-            imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=2)
+            imgproc_iter = CachedIterator(
+                iterator=imgproc_iter, cache_size=self._cache_size
+            )
 
             while True:
                 batch_count += 1

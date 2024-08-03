@@ -1,4 +1,5 @@
 #!/bin/bash
 OMP_NUM_THREADS=16 \
-	PYTHONPATH=$(pwd):$(pwd)/src:$(pwd)/xmodels/mixsort \
+  LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
+  PYTHONPATH="$(pwd)/build:$(pwd)/src" \
 	python src/hmlib/stitching/blender.py $@

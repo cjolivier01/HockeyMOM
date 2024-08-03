@@ -500,9 +500,6 @@ def blend_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    # source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size).to(device)
-    # source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size).to(device)
-
     source_tensor_1 = next(v1_iter)
     source_tensor_2 = next(v2_iter)
 
@@ -626,6 +623,7 @@ def blend_video(
                         device=blended.device,
                         skip_final_save=skip_final_video_save,
                         fourcc="auto",
+                        cache_size=queue_size,
                     )
                 if (
                     video_dim_height != blended.shape[-2]
@@ -695,8 +693,6 @@ def blend_video(
                 for i in range(len(blended)):
                     show_image("stitched", blended[i], wait=False)
 
-            # source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-            # source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
             source_tensor_1 = next(v1_iter)
             source_tensor_2 = next(v2_iter)
             timer.tic()
