@@ -114,7 +114,10 @@ class MultiDataLoaderWrapper:
     def __next__(self):
         result = []
         for it in self._iters:
-            result.append(next(it))
+            item = next(it)
+            # Should get StopIteration instead of None
+            assert item is not None
+            result.append(item)
         if not result:
             return None
         elif len(result) == 1:
@@ -230,6 +233,10 @@ class StitchDataset:
 
         self._video_1_info = BasicVideoInfo(video_file_1)
         self._video_2_info = BasicVideoInfo(video_file_2)
+        # This would affect number of frames, but actually it's supported
+        # for stitching later if one os a modulus of the other
+        assert self._video_1_info.fps == self._video_2_info.fps
+
         v1o = 0 if self._video_1_offset_frame is None else self._video_1_offset_frame
         v2o = 0 if self._video_2_offset_frame is None else self._video_2_offset_frame
         self._total_number_of_frames = int(
@@ -242,7 +249,8 @@ class StitchDataset:
         self._video_output = None
 
     def __delete__(self):
-        self.close()
+        if hasattr(self, "close"):
+            self.close()
 
     @property
     def lfo(self):
@@ -366,69 +374,74 @@ class StitchDataset:
             self._video_output = None
 
     def _prepare_next_frame(self, frame_id: int):
-        # INFO(f"_prepare_next_frame( {frame_id} )")
-        self._prepare_next_frame_timer.tic()
+        try:
+            # INFO(f"_prepare_next_frame( {frame_id} )")
+            self._prepare_next_frame_timer.tic()
 
-        stitching_worker = self._stitching_workers[self._current_worker]
-        images = next(stitching_worker)
+            stitching_worker = self._stitching_workers[self._current_worker]
+            images = next(stitching_worker)
 
-        imgs_1 = images[0][0]
-        ids_1 = images[0][-1]
+            imgs_1 = images[0][0]
+            ids_1 = images[0][-1]
 
-        imgs_2 = images[1][0]
-        # ids_2 = images[1][-1]
+            imgs_2 = images[1][0]
+            # ids_2 = images[1][-1]
 
-        # assert ids_1 == ids_2
+            # assert ids_1 == ids_2
 
-        with torch.no_grad():
-            assert isinstance(images, list)
-            assert len(images) == 2
+            with torch.no_grad():
+                assert isinstance(images, list)
+                assert len(images) == 2
 
-            def _prepare_image(img: torch.Tensor):
-                img = make_channels_first(img)
-                if img.device != self._remapping_device:
-                    img = async_to(img, device=self._remapping_device)
-                    # img = img.to(self._remapping_device, non_blocking=True)
-                if img.dtype != self._dtype:
-                    # img = async_to(img, dtype=self._dtype)
-                    img = img.to(self._dtype, non_blocking=True)
-                return img
+                def _prepare_image(img: torch.Tensor):
+                    img = make_channels_first(img)
+                    if img.device != self._remapping_device:
+                        img = async_to(img, device=self._remapping_device)
+                        # img = img.to(self._remapping_device, non_blocking=True)
+                    if img.dtype != self._dtype:
+                        # img = async_to(img, dtype=self._dtype)
+                        img = img.to(self._dtype, non_blocking=True)
+                    return img
 
-            stream = None
-            # if imgs_1.device.type == "cpu":
-            #     stream = self._remapping_stream
-            stream = self._remapping_stream
-            # stream = allocate_stream(imgs_1.device)
-            with cuda_stream_scope(stream), torch.no_grad():
-                # with optional_with(
-                #     torch.cuda.stream(stream) if stream is not None else None
-                # ):
-                sinfo_1 = core.StitchImageInfo()
-                # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
-                sinfo_1.image = _prepare_image(to_tensor(imgs_1))
-                sinfo_1.xy_pos = self._xy_pos_1
+                stream = None
+                # if imgs_1.device.type == "cpu":
+                #     stream = self._remapping_stream
+                stream = self._remapping_stream
+                # stream = allocate_stream(imgs_1.device)
+                with cuda_stream_scope(stream), torch.no_grad():
+                    # with optional_with(
+                    #     torch.cuda.stream(stream) if stream is not None else None
+                    # ):
+                    sinfo_1 = core.StitchImageInfo()
+                    # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
+                    sinfo_1.image = _prepare_image(to_tensor(imgs_1))
+                    sinfo_1.xy_pos = self._xy_pos_1
 
-                sinfo_2 = core.StitchImageInfo()
-                # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
-                sinfo_2.image = _prepare_image(to_tensor(imgs_2))
-                sinfo_2.xy_pos = self._xy_pos_2
+                    sinfo_2 = core.StitchImageInfo()
+                    # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
+                    sinfo_2.image = _prepare_image(to_tensor(imgs_2))
+                    sinfo_2.xy_pos = self._xy_pos_2
 
-                blended_stream_tensor = self._stitcher.forward(
-                    inputs=[sinfo_1, sinfo_2]
-                )
-                if stream is not None:
-                    # blended_stream_tensor = StreamCheckpoint(
-                    #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
-                    # )
-                    blended_stream_tensor = StreamCheckpoint(
-                        tensor=blended_stream_tensor
+                    blended_stream_tensor = self._stitcher.forward(
+                        inputs=[sinfo_1, sinfo_2]
                     )
-                    stream.synchronize()
+                    if stream is not None:
+                        # blended_stream_tensor = StreamCheckpoint(
+                        #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
+                        # )
+                        blended_stream_tensor = StreamCheckpoint(
+                            tensor=blended_stream_tensor
+                        )
+                        stream.synchronize()
 
-        # torch.cuda.synchronize()
-        self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
-        self._ordering_queue.put((ids_1, blended_stream_tensor))
-        self._prepare_next_frame_timer.toc()
+            # torch.cuda.synchronize()
+            self._current_worker = (self._current_worker + 1) % len(
+                self._stitching_workers
+            )
+            self._ordering_queue.put((ids_1, blended_stream_tensor))
+            self._prepare_next_frame_timer.toc()
+        except Exception as ex:
+            self._ordering_queue.put((None, None))
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
@@ -594,26 +607,30 @@ class StitchDataset:
         # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
         frame_id, stitched_frame = self._ordering_queue.get()
 
-        # INFO(f"Locally dequeued frame id: {self._current_frame}")
-        if (
-            not self._max_frames
-            or self._next_requested_frame < self._start_frame_number + self._max_frames
-        ):
-            # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
-            self._to_coordinator_queue.put(self._next_requested_frame)
-            self._next_requested_frame += self._batch_size
-        else:
-            # We were pre-requesting future frames, but we're past the
-            # frames we want, so don't ask for anymore and just return these
-            # (running out what's in the queue)
-            # INFO(
-            #     f"Next frame {self._next_requested_frame} would be above the max allowed frames, so not queueing"
-            # )
-            pass
-
         if stitched_frame is not None:
+            # INFO(f"Locally dequeued frame id: {self._current_frame}")
+            if (
+                not self._max_frames
+                or self._next_requested_frame
+                < self._start_frame_number + self._max_frames
+            ):
+                # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
+                self._to_coordinator_queue.put(self._next_requested_frame)
+                self._next_requested_frame += self._batch_size
+            else:
+                # We were pre-requesting future frames, but we're past the
+                # frames we want, so don't ask for anymore and just return these
+                # (running out what's in the queue)
+                # INFO(
+                #     f"Next frame {self._next_requested_frame} would be above the max allowed frames, so not queueing"
+                # )
+                pass
+
             self._next_frame_timer.toc()
             self._next_frame_counter += 1
+        else:
+            # No more frames
+            pass
 
         return stitched_frame
 
@@ -635,12 +652,12 @@ class StitchDataset:
         # self._next_timer.tic()
         stitched_frame = self.get_next_frame(frame_id=frame_id)
 
-        self._batch_count += 1
-
         # show_image("stitched_frame", stitched_frame.get(), wait=True)
         if stitched_frame is None:
             self.close()
             raise StopIteration()
+
+        self._batch_count += 1
 
         # Code doesn't handle strided channels efficiently
         stitched_frame = self.prepare_frame_for_video(

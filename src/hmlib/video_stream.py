@@ -360,7 +360,7 @@ class CVVideoCaptureIterator:
                 if not res:
                     raise StopIteration()
                 frames.append(frame.transpose(2, 0, 1))
-            self.frames_delivered_count += 1
+            self.frames_delivered_count += self._batch_size
             return np.stack(frames)
 
     def __del__(self):

@@ -238,29 +238,27 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return self
 
     def _read_next_image(self):
+        img = None
         if self.cap is not None:
             for _ in range(self._frame_step):
                 img = next(self._vid_iter)
-            return True, img
         else:
-            try:
-                if self._batch_size == 1:
-                    img = next(self._embedded_data_loader_iter)
-                    if self.vw is None:
-                        self.vw = image_width(img)
-                        self.vh = image_height(img)
+            if self._batch_size == 1:
+                img = next(self._embedded_data_loader_iter)
+            else:
+                imgs = []
+                for _ in range(self._batch_size):
+                    imgs.append(next(self._embedded_data_loader_iter))
+                assert imgs[0].ndim == 4
+                if isinstance(imgs[0], np.ndarray):
+                    img = np.concatenate(imgs, axis=0)
                 else:
-                    imgs = []
-                    for _ in range(self._batch_size):
-                        imgs.append(next(self._embedded_data_loader_iter))
-                    assert imgs[0].ndim == 4
-                    if isinstance(imgs[0], np.ndarray):
-                        img = np.concatenate(imgs, axis=0)
-                    else:
-                        img = torch.cat(imgs, dim=0)
-                return True, img
-            except StopIteration:
-                return False, None
+                    img = torch.cat(imgs, dim=0)
+        assert img is not None
+        if self.vw is None:
+            self.vw = image_width(img)
+            self.vh = image_height(img)
+        return True, img
 
     def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
         assert False

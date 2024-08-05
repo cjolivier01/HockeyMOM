@@ -235,6 +235,19 @@ class ProgressBar:
             yield
 
 
+class ProgressBarWith:
+
+    def __init__(self, dataloader):
+        self._len = len(dataloader)
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        return None
+
+
 def convert_seconds_to_hms(total_seconds: Any) -> str:
     hours = int(total_seconds // 3600)  # Calculate the number of hours
     minutes = int((total_seconds % 3600) // 60)  # Calculate the remaining minutes

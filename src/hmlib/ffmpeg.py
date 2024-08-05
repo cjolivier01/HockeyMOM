@@ -1,14 +1,13 @@
-import cv2
-import os
-import subprocess
-import re
-import platform
-import numpy as np
-import subprocess
-from typing import Tuple
-import subprocess
 import ctypes
+import os
+import platform
+import re
 import signal
+import subprocess
+from typing import Optional, Tuple
+
+import cv2
+import numpy as np
 from torchaudio.utils import ffmpeg_utils
 
 from hmlib.utils.utils import classinstancememoize
@@ -26,7 +25,7 @@ class BasicVideoInfo:
     def __init__(self, video_file: str, use_ffprobe: bool = True):
         if use_ffprobe:
             probe = FFProbe(video_file)
-            self._ffstream: FFStream = None
+            self._ffstream: Optional[FFStream] = None
             if not probe.video:
                 raise AssertionError(
                     f"Unable to get video stream from file: {video_file}"
@@ -36,14 +35,17 @@ class BasicVideoInfo:
                     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
                 )
             self._ffstream = probe.video[0]
-            self.frame_count = self._ffstream.frames()
+            # self.frame_count = self._ffstream.frames()
+            self.frame_count = int(
+                self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
+            )
             self.fps = self._ffstream.realFrameRate()
             sz = self._ffstream.frameSize()
             self.width = sz[0]
             self.height = sz[1]
             self.bitrate = self._ffstream.bitrate()
             self.codec = self._ffstream.codecTag()
-            #self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+            # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
         else:
             cap = cv2.VideoCapture(video_file)
             if not cap.isOpened():
@@ -86,8 +88,8 @@ def fourcc_to_int(fourcc):
 
 def duration_to_seconds(duration_str):
     # Split the duration string into hours, minutes, seconds, and nanoseconds
-    hours, minutes, seconds_ns = duration_str.split(':')
-    seconds, ns = seconds_ns.split('.')
+    hours, minutes, seconds_ns = duration_str.split(":")
+    seconds, ns = seconds_ns.split(".")
 
     # Convert hours and minutes to seconds, and nanoseconds to seconds
     total_seconds = int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(ns) / 1e9
@@ -360,6 +362,7 @@ class VideoWriter:
 Python wrapper for ffprobe command line tool. ffprobe must exist in the path.
 """
 
+
 @classinstancememoize
 class FFProbe:
     """
@@ -589,6 +592,3 @@ class FFStream:
             except Exception as e:
                 print("None integer bitrate")
         return b
-
-
-
