@@ -1,5 +1,6 @@
 """
-Experiments in stitching
+Remap an image given mapping png files (usually produced by hugin's nona,
+which is usual;;ly base dupon some homography matrix)
 """
 
 import argparse
@@ -31,19 +32,6 @@ ROOT_DIR = os.getcwd()
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
-    # parser.add_argument(
-    #     "--project-file",
-    #     "--project_file",
-    #     default="autooptimiser_out.pto",
-    #     type=str,
-    #     help="Use project file as input to stitcher",
-    # )
-    # parser.add_argument(
-    #     "--video_dir",
-    #     default=None,
-    #     type=str,
-    #     help="Video directory to find 'left.mp4' and 'right.mp4'",
-    # )
     return parser
 
 
