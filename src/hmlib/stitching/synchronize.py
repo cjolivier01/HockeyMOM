@@ -1,25 +1,18 @@
 import os
+from pathlib import Path
+from typing import List
+
 import moviepy.editor as mp
 import numpy as np
 import scipy
-import os
-
+import tifffile
 import torch
 import torch.nn.functional as F
 
-import numpy as np
-
-from typing import List
-
-from pathlib import Path
-import tifffile
-
-from hockeymom import core
-from hmlib.hm_opts import hm_opts
-
-from hmlib.tracking_utils import visualization as vis
 from hmlib.ffmpeg import extract_frame_image
-
+from hmlib.hm_opts import hm_opts
+from hmlib.tracking_utils import visualization as vis
+from hockeymom import core
 
 MULTIBLEND_BIN = os.path.join(
     os.environ["HOME"], "src", "multiblend", "src", "multiblend"
@@ -55,6 +48,8 @@ def synchronize_by_audio(
     print("Openning videos...")
     full_video0 = mp.VideoFileClip(file0_path)
     full_video1 = mp.VideoFileClip(file1_path)
+
+    seconds = min(seconds, min(full_video0.duration - 0.5, full_video1.duration - 0.5))
 
     video0 = full_video0.subclip(0, seconds)
     video1 = full_video1.subclip(0, seconds)

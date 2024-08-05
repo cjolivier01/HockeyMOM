@@ -696,6 +696,9 @@ def blend_video(
             source_tensor_1 = next(v1_iter)
             source_tensor_2 = next(v2_iter)
             timer.tic()
+    except StopIteration:
+        # All done.
+        pass
     finally:
         if video_out is not None:
             if isinstance(video_out, VideoStreamWriter):
