@@ -407,18 +407,12 @@ class StitchDataset:
                 # if imgs_1.device.type == "cpu":
                 #     stream = self._remapping_stream
                 stream = self._remapping_stream
-                # stream = allocate_stream(imgs_1.device)
                 with cuda_stream_scope(stream), torch.no_grad():
-                    # with optional_with(
-                    #     torch.cuda.stream(stream) if stream is not None else None
-                    # ):
                     sinfo_1 = core.StitchImageInfo()
-                    # sinfo_1.image = to_tensor(_prepare_image(imgs_1))
                     sinfo_1.image = _prepare_image(to_tensor(imgs_1))
                     sinfo_1.xy_pos = self._xy_pos_1
 
                     sinfo_2 = core.StitchImageInfo()
-                    # sinfo_2.image = to_tensor(_prepare_image(imgs_2))
                     sinfo_2.image = _prepare_image(to_tensor(imgs_2))
                     sinfo_2.xy_pos = self._xy_pos_2
 
@@ -426,9 +420,6 @@ class StitchDataset:
                         inputs=[sinfo_1, sinfo_2]
                     )
                     if stream is not None:
-                        # blended_stream_tensor = StreamCheckpoint(
-                        #     tensor=blended_stream_tensor, stream=stream, owns_stream=True,
-                        # )
                         blended_stream_tensor = StreamCheckpoint(
                             tensor=blended_stream_tensor
                         )
@@ -550,6 +541,8 @@ class StitchDataset:
                 print(ex)
                 traceback.print_exc()
             safe_put_queue(self._from_coordinator_queue, ex)
+        finally:
+            pass
 
     @staticmethod
     def prepare_frame_for_video(image: np.array, image_roi: np.array):

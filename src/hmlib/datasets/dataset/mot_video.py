@@ -220,6 +220,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             return
         self._to_worker_queue.put("stop")
         self._thread.join()
+        self._thread = None
         print(
             f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {self._path}"
         )
