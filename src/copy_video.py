@@ -1,5 +1,5 @@
 """
-Experiments in stitching
+For performance reasons, experiments in streaming and pipelining a simple copy
 """
 
 import argparse
@@ -16,6 +16,7 @@ from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, GpuAllocator
 from hmlib.utils.image import image_height, image_width
+from hmlib.utils.utils import calc_combined_fps
 from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.video_stream import VideoStreamWriter
 
@@ -33,6 +34,10 @@ def make_parser():
         default=1,
         type=int,
         help="Batch size",
+    )
+    parser.add_argument(
+        "--use-video-out",
+        action="store_true",
     )
     parser.add_argument(
         "-q",
@@ -102,6 +107,7 @@ def copy_video(
     skip_final_video_save: bool = False,
     queue_size: int = 1,
     dtype: torch.dtype = torch.float16,
+    use_video_out: bool = False,
 ):
     video_file = os.path.join(dir_name, video_file)
 
@@ -118,17 +124,26 @@ def copy_video(
         dtype=dtype,
     )
 
-    video_out = VideoOutput(
-        name="VideoOutput",
-        args=None,
-        output_video_path=output_video,
-        output_frame_width=video_info.width,
-        output_frame_height=video_info.height,
-        fps=video_info.fps,
-        device=output_device,
-        skip_final_save=skip_final_video_save,
-        fourcc="auto",
-    )
+    if use_video_out:
+        video_out = VideoStreamWriter(
+            filename=output_video,
+            width=video_info.width,
+            height=video_info.height,
+            codec="nvenc_hvac",
+            batch_size=1,
+        )
+    else:
+        video_out = VideoOutput(
+            name="VideoOutput",
+            args=None,
+            output_video_path=output_video,
+            output_frame_width=video_info.width,
+            output_frame_height=video_info.height,
+            fps=video_info.fps,
+            device=output_device,
+            skip_final_save=skip_final_video_save,
+            fourcc="auto",
+        )
 
     main_stream = torch.cuda.Stream(device=device)
 
@@ -150,6 +165,7 @@ def copy_video(
         try:
 
             while True:
+                all_fps = []
                 io_timer.tic()
                 source_tensor, _, _, _, frame_ids = next(v_iter)
                 io_timer.toc()
@@ -166,19 +182,16 @@ def copy_video(
                 batch_count += 1
 
                 if batch_count % 50 == 0:
-                    print(
-                        "IO:        {:.2f} fps".format(
-                            batch_size * 1.0 / max(1e-5, io_timer.average_time)
-                        )
-                    )
-                    print(
-                        "get():     {:.2f} fps".format(
-                            batch_size * 1.0 / max(1e-5, get_timer.average_time)
-                        )
-                    )
+                    fps = batch_size * 1.0 / max(1e-5, io_timer.average_time)
+                    all_fps.append(fps)
+                    print("IO:        {:.2f} fps".format(fps))
+                    fps = batch_size * 1.0 / max(1e-5, get_timer.average_time)
+                    all_fps.append(fps)
+                    print("get():     {:.2f} fps".format(fps))
                     if True and batch_count % 50 == 0:
                         io_timer = Timer()
                         get_timer = Timer()
+                    print(f"Combined fps: {calc_combined_fps(all_fps):.2f}")
         except StopIteration:
             print("Done.")
         finally:
@@ -215,6 +228,7 @@ def main(args):
             queue_size=args.queue_size,
             device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
+            use_video_out=args.use_video_out,
         )
 
 

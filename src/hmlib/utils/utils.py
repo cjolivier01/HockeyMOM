@@ -4,8 +4,7 @@ from __future__ import print_function
 
 import torch
 import numpy as np
-import multiprocessing
-import queue
+from typing import List
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -24,6 +23,18 @@ class AverageMeter(object):
         self.count += n
         if self.count > 0:
           self.avg = self.sum / self.count
+
+
+def calc_combined_fps(fps_list: List[float]) -> float:
+    # Combined FPS= XY/(X+Y)
+    mul = 1
+    add = 0
+    for fps in fps_list:
+        mul *= fps
+        add += fps
+    if add:
+        return mul / add
+    return 0
 
 
 def xyxy2xywh(x):
