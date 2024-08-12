@@ -17,13 +17,6 @@ from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
 from mmcv.utils import get_logger as mmcv_get_logger
 from mmdet.datasets.pipelines import Compose
-from mmpose.apis import (
-    inference_top_down_pose_model,
-    init_pose_model,
-    vis_pose_tracking_result,
-)
-from mmpose.core import Smoother
-from mmpose.datasets import DatasetInfo
 from mmtrack.apis import init_model
 from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -532,6 +525,11 @@ def main(args, num_gpu):
                         )
 
                 if args.multi_pose:
+                    from mmpose.apis import (
+                        init_pose_model,
+                    )
+                    from mmpose.datasets import DatasetInfo
+
                     pose_model = init_pose_model(
                         args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
                     )
@@ -1137,6 +1135,12 @@ def multi_pose_task(
 
     # keep the person class bounding boxes.
     person_results = process_mmtracking_results(tracking_results)
+
+    from mmpose.apis import (
+        inference_top_down_pose_model,
+        vis_pose_tracking_result,
+    )
+    from mmpose.core import Smoother
 
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(

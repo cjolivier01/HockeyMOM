@@ -305,6 +305,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
+                decoder_device=remapping_device,
                 frame_step=frame_step_1,
             )
         )
@@ -319,6 +320,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
+                decoder_device=remapping_device,
                 frame_step=frame_step_2,
             )
         )

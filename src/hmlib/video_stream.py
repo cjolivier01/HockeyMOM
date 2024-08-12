@@ -1,3 +1,5 @@
+from typing import Dict
+
 import cv2
 import numpy as np
 import torch
@@ -7,7 +9,7 @@ import torchvision
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import resize_image
+from hmlib.utils.image import make_channels_last, resize_image
 
 from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
@@ -55,6 +57,29 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     if resized:
         return resize_image(tensor, new_height=h, new_width=w)
     return tensor
+
+
+def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float):
+    """
+    Current HW decode returns only YUV
+    """
+    if not torch.is_floating_point(frames):
+        frames = frames.to(dtype, non_blocking=True)
+    y = frames[..., 0, :, :]
+    u = frames[..., 1, :, :]
+    v = frames[..., 2, :, :]
+
+    y /= 255
+    u = u / 255 - 0.5
+    v = v / 255 - 0.5
+
+    r = y + 1.14 * v
+    g = y + -0.396 * u - 0.581 * v
+    b = y + 2.029 * u
+
+    rgb = torch.stack([b, g, r], -1)
+    rgb = (rgb * 255).clamp(0, 255)
+    return rgb
 
 
 def time_to_frame(time_str: str, fps: float):
@@ -394,31 +419,10 @@ class TAStreamReaderIterator:
         next_chunk = next(self._iter)
         if next_chunk is None:
             raise StopIteration()
-        assert len(next_chunk) == self._batch_size
         frame = next_chunk[0]
+        assert len(frame) == self._batch_size
+        frame = yuv_to_bgr_float(frame)
         return frame
-
-    # def __next__(self):
-    #     if self._chunk is None or self._chunk_position >= len(self._chunk):
-    #         next_chunk = next(self._iter)
-    #         if next_chunk is None:
-    #             raise StopIteration()
-    #         assert len(next_chunk) == 1
-    #         self._chunk = next_chunk[0]
-    #         self._chunk_position = 0
-    #     frame = self._chunk[self._chunk_position]
-    #     self._chunk_position += 1
-    #     return frame.unsqueeze(0)
-
-
-# def get_ffmpeg_decoder_process(
-#     input_video: str,
-#     gpu_index: int,
-#     buffer_size=10**8,
-#     loglevel: str = "quiet",
-#     format: str = "bgr24",
-#     time_s: float = 0.0,
-# ):
 
 
 class FFMpegVideoReader:
@@ -462,21 +466,12 @@ class FFmpegVideoReaderIterator:
             self._process.terminate()
             raise StopIteration()
 
-        # Transform the byte read into a numpy array
-        # frame = np.frombuffer(raw_image, np.uint8).reshape(
-        #     (self._vid_info.height, self._vid_info.width, self._channels)
-        # )
-        # frame = torch.from_numpy(frame)
-        frame = (
-            torch.frombuffer(buffer=raw_image, dtype=torch.uint8)
-            # .to("cuda:0", non_blocking=False)
-            .reshape(
-                (
-                    self._batch_size,
-                    self._vid_info.height,
-                    self._vid_info.width,
-                    self._channels,
-                )
+        frame = torch.frombuffer(buffer=raw_image, dtype=torch.uint8).reshape(
+            (
+                self._batch_size,
+                self._vid_info.height,
+                self._vid_info.width,
+                self._channels,
             )
         )
         self._count += 1
@@ -501,7 +496,6 @@ class VideoStreamReader:
         batch_size: int = 1,
         device: torch.device = None,
     ):
-        # subprocess_decode_ffmpeg(filename)
         self._filename = filename
         self._type = type
         self._codec = codec
@@ -570,12 +564,24 @@ class VideoStreamReader:
 
     def _add_stream(self):
         # Add the video stream
+        hw_accel = None
+        format = None
+        decoder = None
+        decoder_options: Dict[str, str] = {}
+        if self._device.type == "cuda":
+            hw_accel = "cuda"
+            decoder = _FOURCC_TO_CODEC[self._video_info.codec.upper()]
+            decoder_options["gpu"] = str(self._device.index)
+            # format = "bgr24"
+            # format = "rgb24"
+            # format = "yuvj420p"
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,
-            decoder_option={},
-            format=self._device.type if self._device is not None else "cuda",
-            hw_accel="cuda",
+            decoder=decoder,
+            decoder_option=decoder_options,
+            format=format,
+            hw_accel=hw_accel,
         )
 
     def isOpened(self):

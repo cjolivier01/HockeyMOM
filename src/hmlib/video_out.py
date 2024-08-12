@@ -3,7 +3,6 @@ from __future__ import absolute_import, division, print_function
 import os
 import time
 import traceback
-from contextlib import contextmanager
 from threading import Thread
 from typing import Any, Dict, List, Tuple, Union
 
@@ -13,36 +12,21 @@ import PIL
 import torch
 import torchvision as tv
 from PIL import Image
-from torchvision.io import write_video
 from torchvision.transforms import functional as F
 
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
-from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.tracking_utils.visualization import get_complete_monitor_width
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
-from hmlib.utils.gpu import (
-    CachedIterator,
-    StreamCheckpoint,
-    StreamTensor,
-    StreamTensorToDevice,
-    cuda_stream_scope,
-    get_gpu_capabilities,
-)
-from hmlib.utils.image import (
-    ImageColorScaler,
-    ImageHorizontalGaussianDistribution,
-    crop_image,
-    image_height,
-    image_width,
-    make_channels_last,
-    make_visible_image,
-    resize_image,
-)
+from hmlib.utils.gpu import (CachedIterator, StreamCheckpoint, StreamTensor,
+                             cuda_stream_scope, get_gpu_capabilities)
+from hmlib.utils.image import (ImageColorScaler,
+                               ImageHorizontalGaussianDistribution, crop_image,
+                               image_height, image_width, make_channels_last,
+                               make_visible_image, resize_image)
 from hmlib.utils.progress_bar import ProgressBar
 
 from .video_stream import VideoStreamWriter

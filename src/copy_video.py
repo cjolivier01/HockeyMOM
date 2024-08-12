@@ -5,7 +5,7 @@ For performance reasons, experiments in streaming and pipelining a simple copy
 import argparse
 import os
 from contextlib import nullcontext
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import torch
@@ -13,9 +13,9 @@ import torch
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, GpuAllocator
-from hmlib.utils.image import image_height, image_width
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.video_stream import VideoStreamWriter
@@ -121,6 +121,7 @@ def copy_video(
         batch_size=batch_size,
         max_frames=args.max_frames,
         device=device,
+        decoder_device=device,
         dtype=dtype,
     )
 
@@ -172,7 +173,11 @@ def copy_video(
 
                 get_timer.tic()
                 source_tensor = source_tensor.get()
+                source_tensor = source_tensor.cpu()
                 get_timer.toc()
+
+                if show:
+                    show_image("copying frame", img=source_tensor, wait=False)
 
                 imgproc_info = ImageProcData(
                     frame_id=frame_ids, img=source_tensor, current_box=None
