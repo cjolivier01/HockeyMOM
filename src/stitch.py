@@ -191,158 +191,31 @@ def stitch_videos(
     return lfo, rfo
 
 
-def read_frame_batch(cap: cv2.VideoCapture, batch_size: int):
-    frame_list = []
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
-    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
-    for i in range(batch_size - 1):
-        res, frame = cap.read()
-        if not res or frame is None:
-            raise StopIteration()
-        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)))
-    tensor = torch.stack(frame_list)
-    return tensor
-
-
-def remap_video(
-    video_file_1: str,
-    video_file_2: str,
-    dir_name: str,
-    basename_1: str,
-    basename_2: str,
-    interpolation: str = None,
-    show: bool = False,
-):
-    cap_1 = cv2.VideoCapture(os.path.join(dir_name, video_file_1))
-    if not cap_1 or not cap_1.isOpened():
-        raise AssertionError(
-            f"Could not open video file: {os.path.join(dir_name, video_file_1)}"
-        )
-
-    cap_2 = cv2.VideoCapture(os.path.join(dir_name, video_file_2))
-    if not cap_2 or not cap_2.isOpened():
-        raise AssertionError(
-            f"Could not open video file: {os.path.join(dir_name, video_file_2)}"
-        )
-
-    blender = core.EnBlender()
-
-    device = "cuda"
-    batch_size = 1
-
-    source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-    source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
-
-    remapper_1 = ImageRemapper(
-        dir_name=dir_name,
-        basename=basename_1,
-        device=device,
-        source_hw=source_tensor_1.shape[-2:],
-        channels=source_tensor_1.shape[1],
-        interpolation=interpolation,
-    )
-    remapper_1.init(batch_size=batch_size)
-
-    remapper_2 = ImageRemapper(
-        dir_name=dir_name,
-        basename=basename_2,
-        device=device,
-        source_hw=source_tensor_2.shape[-2:],
-        channels=source_tensor_2.shape[1],
-        interpolation=interpolation,
-    )
-    remapper_2.init(batch_size=batch_size)
-
-    timer = Timer()
-    blend_timer = Timer()
-    frame_count = 0
-    while True:
-        destination_tensor_1 = remapper_1.remap(source_image=source_tensor_1)
-        destination_tensor_2 = remapper_2.remap(source_image=source_tensor_2)
-
-        destination_tensor_1 = (
-            destination_tensor_1.detach().permute(0, 2, 3, 1).contiguous().cpu()
-        )
-        destination_tensor_2 = (
-            destination_tensor_2.detach().permute(0, 2, 3, 1).contiguous().cpu()
-        )
-
-        frame_count += 1
-        if frame_count != 1:
-            timer.toc()
-
-        if frame_count % 20 == 0:
-            print(
-                "Remapping: {:.2f} fps".format(
-                    batch_size * 1.0 / max(1e-5, timer.average_time)
-                )
-            )
-            if frame_count % 50 == 0:
-                timer = Timer()
-
-        for i in range(len(destination_tensor_1)):
-            blend_timer.tic()
-            blended = blender.blend_images(
-                left_image=destination_tensor_1[i],
-                left_xy_pos=[remapper_1.xpos, remapper_1.ypos],
-                right_image=destination_tensor_2[i],
-                right_xy_pos=[remapper_2.xpos, remapper_2.ypos],
-            )
-            blend_timer.toc()
-
-            if show:
-                show_image("blended", blended, wait=False)
-
-        if frame_count % 20 == 0:
-            print(
-                "Blending: {:.2f} fps".format(1.0 / max(1e-5, blend_timer.average_time))
-            )
-            if frame_count % 50 == 0:
-                timer = Timer()
-
-        source_tensor_1 = read_frame_batch(cap_1, batch_size=batch_size)
-        source_tensor_2 = read_frame_batch(cap_2, batch_size=batch_size)
-        timer.tic()
-
-
 def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     with torch.no_grad():
-        if False:
-            remap_video(
-                video_left,
-                video_right,
-                args.video_dir,
-                "mapping_0000",
-                "mapping_0001",
-                # interpolation="bicubic",
-                show=True,
-            )
-        else:
-            stitch_videos(
-                args.video_dir,
-                video_left,
-                video_right,
-                lfo=args.lfo,
-                rfo=args.rfo,
-                batch_size=args.batch_size,
-                project_file_name=args.project_file,
-                game_id=args.game_id,
-                show=args.show_image,
-                max_frames=args.max_frames,
-                output_stitched_video_file=args.output_file,
-                blend_mode=args.blend_mode,
-                remap_on_async_stream=False,
-                ignore_clip_box=True,
-                cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
-                remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
-                encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
-                dtype=torch.half if args.fp16 else torch.float,
-            )
+        stitch_videos(
+            args.video_dir,
+            video_left,
+            video_right,
+            lfo=args.lfo,
+            rfo=args.rfo,
+            batch_size=args.batch_size,
+            project_file_name=args.project_file,
+            game_id=args.game_id,
+            show=args.show_image,
+            max_frames=args.max_frames,
+            output_stitched_video_file=args.output_file,
+            blend_mode=args.blend_mode,
+            remap_on_async_stream=False,
+            ignore_clip_box=True,
+            cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
+            remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
+            encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
+            dtype=torch.half if args.fp16 else torch.float,
+        )
 
 
 if __name__ == "__main__":
