@@ -1,6 +1,7 @@
 import time
 from contextlib import contextmanager, nullcontext
 from threading import Thread
+from hmlib.tracking_utils.log import logger
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -344,7 +345,7 @@ class StreamTensor(StreamTensorBase):
             and self._sync_duraton is not None
             and self._sync_duraton > self._print_thresh
         ):
-            print(
+            logger.info(
                 f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
             )
             pass
