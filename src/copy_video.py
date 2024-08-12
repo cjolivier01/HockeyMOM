@@ -130,7 +130,7 @@ def copy_video(
             filename=output_video,
             width=video_info.width,
             height=video_info.height,
-            codec="nvenc_hvac",
+            codec="hvac_nvenc",
             batch_size=1,
             fps=video_info.fps,
             device=device,
