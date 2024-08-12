@@ -1,5 +1,4 @@
 import threading
-import time
 import traceback
 from contextlib import contextmanager
 from typing import List, Tuple, Union
@@ -7,7 +6,6 @@ from typing import List, Tuple, Union
 import cv2
 import numpy as np
 import torch
-from mmdet.datasets.pipelines import Compose
 from torch.utils.data import Dataset
 
 from hmlib.datasets.dataset.jde import py_letterbox
@@ -19,7 +17,6 @@ from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensor,
     allocate_stream,
-    async_to,
     cuda_stream_scope,
 )
 from hmlib.utils.image import (
@@ -28,7 +25,6 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
-from hmlib.video_out import quick_show
 from hmlib.video_stream import VideoStreamReader
 
 
