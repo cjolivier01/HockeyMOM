@@ -170,6 +170,7 @@ class StitchDataset:
         encoder_device: torch.device = torch.device("cpu"),
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
+        decoder_device: torch.device = None,
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
@@ -180,6 +181,7 @@ class StitchDataset:
         self._verbose = verbose
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
+        self._decoder_device = decoder_device
         self._remap_on_async_stream = remap_on_async_stream
         self._encoder_device = as_torch_device(encoder_device)
         self._output_stitched_video_file = output_stitched_video_file
@@ -305,7 +307,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=remapping_device,
+                decoder_device=self._decoder_device,
                 frame_step=frame_step_1,
             )
         )
@@ -320,7 +322,7 @@ class StitchDataset:
                 stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=remapping_device,
+                decoder_device=self._decoder_device,
                 frame_step=frame_step_2,
             )
         )

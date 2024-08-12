@@ -135,7 +135,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     def _open_video(self):
         if self._embedded_data_loader is None:
             type = "cv2"
-            if self._decoder_device.type == "cuda":
+            if self._decoder_device is not None and self._decoder_device.type == "cuda":
                 type = "torchaudio"
             self.cap = VideoStreamReader(
                 filename=self._path,

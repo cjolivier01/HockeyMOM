@@ -59,6 +59,7 @@ def stitch_videos(
     batch_size: int = 1,
     show: bool = False,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
+    decoder_device: Optional[torch.device] = None,
     remapping_device: torch.device = torch.device("cuda", 0),
     encoder_device: torch.device = torch.device("cpu"),
     remap_on_async_stream: bool = True,
@@ -103,6 +104,7 @@ def stitch_videos(
             else None
         ),
         encoder_device=encoder_device,
+        decoder_device=decoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
@@ -214,6 +216,9 @@ def main(args):
             cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
             remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
             encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
+            decoder_device=(
+                torch.device(args.decoder_device) if args.decoder_device else None
+            ),
             dtype=torch.half if args.fp16 else torch.float,
         )
 
