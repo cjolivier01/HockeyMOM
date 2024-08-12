@@ -1,7 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
-from typing import Any, List, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import cv2
 import numpy as np
@@ -63,7 +63,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         stream_tensors: bool = False,
         log_messages: bool = False,
         dtype: torch.dtype = None,
-        data_pipeline: Any = None,
+        data_pipeline: Callable = None,
         frame_step: int = 1,
     ):
         assert not isinstance(img_size, str)
@@ -331,13 +331,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 print(f"Error loading frame: {self._count + self._start_frame_number}")
                 raise StopIteration()
 
-            if self._data_pipeline is not None:
-                pass
-
-            # if not isinstance(img0, np.ndarray):
-            #     # Set a breakpoint here to catch only the post-stitch dataloader
-            #     pass
-
             if isinstance(img0, StreamTensor):
                 # img0 = img0.get()
                 pass
@@ -363,9 +356,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._next_frame_id += len(ids)
 
             if self._data_pipeline is not None:
-                # if torch.is_floating_point(img0):
-                #     img0 = img0 * 255
-
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
