@@ -12,7 +12,6 @@ from typing import Any, List, Optional
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-from loguru import logger
 from mmcv.ops import RoIPool
 from mmcv.parallel import collate, scatter
 from mmcv.utils import get_logger as mmcv_get_logger
@@ -21,6 +20,9 @@ from mmtrack.apis import init_model
 from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+# This will register the transforms and model
+import hmlib.hm_transforms
+import hmlib.models.end_to_end
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
@@ -46,9 +48,6 @@ from hmlib.utils.mot_data import MOTTrackingData
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.utils.py_utils import find_item_in_module
 from hmlib.video_stream import time_to_frame
-
-# import hmlib.hm_transforms
-# import hmlib.models.end_to_end
 
 ROOT_DIR = os.getcwd()
 
@@ -528,9 +527,7 @@ def main(args, num_gpu):
                         )
 
                 if args.multi_pose:
-                    from mmpose.apis import (
-                        init_pose_model,
-                    )
+                    from mmpose.apis import init_pose_model
                     from mmpose.datasets import DatasetInfo
 
                     pose_model = init_pose_model(
@@ -626,6 +623,11 @@ def main(args, num_gpu):
                     # batch_size=1,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
+                    decoder_device=(
+                        torch.device(args.decoder_device)
+                        if args.decoder_device
+                        else None
+                    ),
                     # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
@@ -673,6 +675,11 @@ def main(args, num_gpu):
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
                     device=main_device,
+                    decoder_device=(
+                        torch.device(args.decoder_device)
+                        if args.decoder_device
+                        else None
+                    ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                 )
@@ -1139,10 +1146,7 @@ def multi_pose_task(
     # keep the person class bounding boxes.
     person_results = process_mmtracking_results(tracking_results)
 
-    from mmpose.apis import (
-        inference_top_down_pose_model,
-        vis_pose_tracking_result,
-    )
+    from mmpose.apis import inference_top_down_pose_model, vis_pose_tracking_result
     from mmpose.core import Smoother
 
     # test a single image, with a list of bboxes.
