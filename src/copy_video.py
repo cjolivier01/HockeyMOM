@@ -130,7 +130,7 @@ def copy_video(
             filename=output_video,
             width=video_info.width,
             height=video_info.height,
-            codec="hvac_nvenc",
+            codec="hevc_nvenc",
             batch_size=1,
             fps=video_info.fps,
             device=device,
@@ -183,6 +183,10 @@ def copy_video(
                     show_image("copying frame", img=source_tensor, wait=False)
 
                 if not use_video_out:
+                    if torch.is_floating_point(source_tensor):
+                        source_tensor = source_tensor.clamp(0, 255).to(
+                            torch.uint8, non_blocking=True
+                        )
                     video_out.append(source_tensor)
                 else:
                     imgproc_info = ImageProcData(
