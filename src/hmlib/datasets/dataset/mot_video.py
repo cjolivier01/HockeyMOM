@@ -1,7 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
-from typing import List, Tuple, Union
+from typing import Any, List, Tuple, Union
 
 import cv2
 import numpy as np
@@ -63,7 +63,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         stream_tensors: bool = False,
         log_messages: bool = False,
         dtype: torch.dtype = None,
-        data_pipeline: Compose = None,
+        data_pipeline: Any = None,
         frame_step: int = 1,
     ):
         assert not isinstance(img_size, str)
