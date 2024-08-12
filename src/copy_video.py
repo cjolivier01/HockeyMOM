@@ -173,7 +173,6 @@ def copy_video(
 
                 get_timer.tic()
                 source_tensor = source_tensor.get()
-                source_tensor = source_tensor.cpu()
                 get_timer.toc()
 
                 if show:
