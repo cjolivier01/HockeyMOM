@@ -125,14 +125,18 @@ def copy_video(
         dtype=dtype,
     )
 
-    if use_video_out:
+    if not use_video_out:
         video_out = VideoStreamWriter(
             filename=output_video,
             width=video_info.width,
             height=video_info.height,
             codec="nvenc_hvac",
             batch_size=1,
+            fps=video_info.fps,
+            device=device,
+            cache_size=queue_size,
         )
+        video_out.open()
     else:
         video_out = VideoOutput(
             name="VideoOutput",
@@ -178,10 +182,13 @@ def copy_video(
                 if show:
                     show_image("copying frame", img=source_tensor, wait=False)
 
-                imgproc_info = ImageProcData(
-                    frame_id=frame_ids, img=source_tensor, current_box=None
-                )
-                video_out.append(imgproc_info)
+                if not use_video_out:
+                    video_out.append(source_tensor)
+                else:
+                    imgproc_info = ImageProcData(
+                        frame_id=frame_ids, img=source_tensor, current_box=None
+                    )
+                    video_out.append(imgproc_info)
 
                 batch_count += 1
 

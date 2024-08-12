@@ -569,9 +569,10 @@ class VideoStreamReader:
         decoder = None
         decoder_options: Dict[str, str] = {}
         if self._device.type == "cuda":
-            hw_accel = "cuda"
+            #hw_accel = "cuda"
             decoder = _FOURCC_TO_CODEC[self._video_info.codec.upper()]
-            decoder_options["gpu"] = str(self._device.index)
+            hw_accel = str(self._device)
+            # decoder_options["gpu"] = str(self._device.index)
             # format = "bgr24"
             # format = "rgb24"
             # format = "yuvj420p"
