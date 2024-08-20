@@ -133,11 +133,5 @@ set_target_properties(
   INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}:/usr/local/lib"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
-
-# Set the RPATH
-set_target_properties(_hockeymom PROPERTIES
-    INSTALL_RPATH "/path/to/pytorch/lib"
-    BUILD_WITH_INSTALL_RPATH TRUE
-)
 add_subdirectory(csrc)
 
