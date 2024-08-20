@@ -120,6 +120,8 @@ file(GLOB_RECURSE PYXMOLPP_SOURCES
         src/**.cpp
         src/**.h
 )
+
+set(PYTHON_MODULE_EXTENSION .so) 
 pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
 target_link_libraries(_hockeymom PUBLIC hm)
@@ -134,8 +136,9 @@ set_target_properties(
 )
 
 # Set the RPATH
-# set_target_properties(_hockeymom PROPERTIES
-#     INSTALL_RPATH "/path/to/pytorch/lib"
-#     BUILD_WITH_INSTALL_RPATH TRUE
-# )
+set_target_properties(_hockeymom PROPERTIES
+    INSTALL_RPATH "/path/to/pytorch/lib"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
 add_subdirectory(csrc)
+

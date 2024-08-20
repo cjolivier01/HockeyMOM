@@ -15,7 +15,6 @@ import numpy as np
 import PIL
 import torch
 import torch.nn.functional as TF
-from screeninfo import get_monitors
 from torchvision.transforms import functional as F
 
 from hmlib.utils.gpu import StreamTensor
@@ -683,6 +682,8 @@ def make_visible_image(
 
 def get_complete_monitor_width():
     width = 0
+    from screeninfo import get_monitors
+
     for monitor in get_monitors():
         width += monitor.width
     return width
