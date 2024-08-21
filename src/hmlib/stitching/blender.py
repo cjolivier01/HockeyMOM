@@ -786,7 +786,7 @@ def create_stitcher(
         batch_size=batch_size,
         remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
-        half=dtype == torch.float16,``
+        half=dtype == torch.float16,
         levels=blender_config.levels,
         remap_on_async_stream=remap_on_async_stream,
         seam=blender_config.seam,
