@@ -23,10 +23,14 @@ from hmlib.utils.gpu import (
     GpuAllocator,
     StreamCheckpoint,
     StreamTensor,
-    ThreadedCachedIterator,
     cuda_stream_scope,
 )
-from hmlib.utils.image import image_height, image_width
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 from hmlib.video_out import ImageProcData, VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
@@ -500,8 +504,8 @@ def blend_video(
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
 
-    source_tensor_1 = next(v1_iter)
-    source_tensor_2 = next(v2_iter)
+    source_tensor_1 = make_channels_first(next(v1_iter))
+    source_tensor_2 = make_channels_first(next(v2_iter))
 
     remapper_1 = ImageRemapper(
         dir_name=dir_name,
@@ -606,12 +610,12 @@ def blend_video(
             # show_image("blended", blended, wait=False)
 
             if output_video:
-                video_dim_height, video_dim_width = get_dims_for_output_video(
-                    height=blended.shape[-2],
-                    width=blended.shape[-1],
-                    max_width=max_width,
-                )
                 if video_out is None:
+                    video_dim_height, video_dim_width = get_dims_for_output_video(
+                        height=blended.shape[-2],
+                        width=blended.shape[-1],
+                        max_width=max_width,
+                    )
                     fps = cap_1.fps
                     video_out = VideoOutput(
                         name="StitchedOutput",
@@ -623,6 +627,7 @@ def blend_video(
                         device=blended.device,
                         skip_final_save=skip_final_video_save,
                         fourcc="auto",
+                        # batch_size=batch_size,
                         cache_size=queue_size,
                     )
                 if (
@@ -649,7 +654,7 @@ def blend_video(
                             )
                         frame_id += 1
                 else:
-                    my_blended = blended.permute(0, 2, 3, 1)
+                    my_blended = make_channels_last(blended)
                     if rotation_angle:
                         my_blended = rotate_image(
                             img=my_blended,
@@ -662,15 +667,25 @@ def blend_video(
                     if show:
                         for img in my_blended:
                             show_image("stitched", img, wait=False)
-                    for i in range(len(my_blended)):
+                    if True:
                         video_out.append(
                             ImageProcData(
                                 frame_id=frame_id,
-                                img=my_blended[i],
+                                img=my_blended,
                                 current_box=None,
                             )
                         )
-                        frame_id += 1
+                        frame_id += len(my_blended)
+                    else:
+                        for i in range(len(my_blended)):
+                            video_out.append(
+                                ImageProcData(
+                                    frame_id=frame_id,
+                                    img=my_blended[i],
+                                    current_box=None,
+                                )
+                            )
+                            frame_id += 1
                 del my_blended
             else:
                 pass
@@ -693,8 +708,8 @@ def blend_video(
                 for i in range(len(blended)):
                     show_image("stitched", blended[i], wait=False)
 
-            source_tensor_1 = next(v1_iter)
-            source_tensor_2 = next(v2_iter)
+            source_tensor_1 = make_channels_first(next(v1_iter))
+            source_tensor_2 = make_channels_first(next(v2_iter))
             timer.tic()
     except StopIteration:
         # All done.
@@ -771,7 +786,7 @@ def create_stitcher(
         batch_size=batch_size,
         remap_image_info=[remap_info_1, remap_info_2],
         blender_mode=core.ImageBlenderMode.Laplacian,
-        half=dtype == torch.float16,
+        half=dtype == torch.float16,``
         levels=blender_config.levels,
         remap_on_async_stream=remap_on_async_stream,
         seam=blender_config.seam,

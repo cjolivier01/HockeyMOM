@@ -1,5 +1,8 @@
 cython
 numpy==1.23.5
+terminaltables
+seaborn
+xtcocotools
 screeninfo
 yacs
 moviepy
@@ -10,11 +13,11 @@ scipy
 progress
 motmetrics
 matplotlib
-lap
+#lap
 openpyxl
 Pillow-simd
 psutil
-tensorboard
+#tensorboard
 filterpy
 screeninfo
 gast
