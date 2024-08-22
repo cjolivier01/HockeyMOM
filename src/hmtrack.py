@@ -983,7 +983,15 @@ def run_mmtrack(
 
                         if not using_precalculated_tracking:
                             if pose_model is not None:
-                                pose_model.eval()
+                                if number_of_batches_processed == 0:
+                                    for i, item in enumerate(
+                                        pose_model.cfg.test_pipeline
+                                    ):
+                                        if item["type"] == "TopDownAffine":
+                                            pose_model.cfg.test_pipeline[i][
+                                                "type"
+                                            ] = "HmTopDownAffine"
+                                    pose_model.eval()
                                 (
                                     tracking_results,
                                     pose_results,
@@ -991,16 +999,17 @@ def run_mmtrack(
                                     vis_frame,
                                 ) = multi_pose_task(
                                     pose_model=pose_model,
-                                    cur_frame=make_channels_last(
-                                        origin_imgs[frame_index]
-                                    ),
+                                    cur_frame=make_channels_last(origin_imgs)
+                                    .wait()
+                                    .squeeze(0),
                                     # cur_frame=make_channels_last(data["img"][frame_index]),
                                     dataset=pose_dataset_type,
                                     dataset_info=pose_dataset_info,
                                     tracking_results=tracking_results,
                                     smooth=args.smooth,
                                     # show=args.show_image,
-                                    show=True,
+                                    # show=True,
+                                    show=False,
                                 )
                             else:
                                 vis_frame = None
@@ -1008,9 +1017,11 @@ def run_mmtrack(
                             if vis_frame is not None:
                                 if isinstance(vis_frame, np.ndarray):
                                     vis_frame = torch.from_numpy(vis_frame)
-                                origin_imgs[frame_index] = make_channels_first(
-                                    vis_frame
-                                ).to(device=origin_imgs.device, non_blocking=True)
+                                if isinstance(origin_imgs, StreamTensor):
+                                    origin_imgs = origin_imgs.wait()
+                                origin_imgs[frame_index] = vis_frame.to(
+                                    device=origin_imgs.device, non_blocking=True
+                                )
 
                             detections = det_bboxes[frame_index]
                             tracking_items = track_bboxes[frame_index]
@@ -1063,16 +1074,16 @@ def run_mmtrack(
                                 )
                             )
 
-                        # if pose_model is not None:
-                        #     multi_pose_task(
-                        #         pose_model=pose_model,
-                        #         cur_frame=make_channels_last(origin_imgs[frame_index]),
-                        #         dataset=pose_dataset_type,
-                        #         dataset_info=pose_dataset_info,
-                        #         tracking_results=tracking_results,
-                        #         smooth=args.smooth,
-                        #         show=args.show_image,
-                        #     )
+                        if pose_model is not None:
+                            multi_pose_task(
+                                pose_model=pose_model,
+                                cur_frame=make_channels_last(origin_imgs[frame_index]),
+                                dataset=pose_dataset_type,
+                                dataset_info=pose_dataset_info,
+                                tracking_results=tracking_results,
+                                smooth=args.smooth,
+                                show=args.show_image,
+                            )
                     # end frame loop
 
                     if detect_timer is not None and cur_iter % 50 == 0:

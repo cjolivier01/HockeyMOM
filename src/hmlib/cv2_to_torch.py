@@ -26,18 +26,25 @@ def warp_affine_pytorch(image, transform_matrix, output_size):
     """
     C, H, W = image.shape
     out_H, out_W = output_size
-
+    device = transform_matrix.device
     # Convert the 2x3 transformation matrix to 3x3
     transform_matrix = torch.tensor(transform_matrix, dtype=torch.float)
     transform_matrix = torch.cat(
-        [transform_matrix, torch.tensor([[0, 0, 1]], dtype=torch.float)], dim=0
+        [
+            transform_matrix,
+            torch.tensor([[0, 0, 1]], dtype=torch.float, device=device),
+        ],
+        dim=0,
     )
 
     # Invert the transformation matrix
     transform_matrix = torch.inverse(transform_matrix)
 
     # Create normalized 2D grid coordinates
-    xx, yy = torch.meshgrid(torch.linspace(-1, 1, out_W), torch.linspace(-1, 1, out_H))
+    xx, yy = torch.meshgrid(
+        torch.linspace(-1, 1, out_W, device=device),
+        torch.linspace(-1, 1, out_H, device=device),
+    )
     ones = torch.ones_like(xx)
     grid = torch.stack([xx, yy, ones], dim=2).reshape(-1, 3).t()
 
@@ -51,4 +58,3 @@ def warp_affine_pytorch(image, transform_matrix, output_size):
     )
 
     return transformed_image.squeeze(0)
-

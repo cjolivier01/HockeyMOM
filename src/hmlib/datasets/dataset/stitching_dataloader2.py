@@ -27,7 +27,6 @@ from hmlib.utils.gpu import (
     CachedIterator,
     StreamCheckpoint,
     StreamTensor,
-    allocate_stream,
     async_to,
     cuda_stream_scope,
 )

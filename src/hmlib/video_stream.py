@@ -225,7 +225,7 @@ class VideoStreamWriter:
             if self._codec.endswith("_nvenc"):
                 hw_accel = str(self._device)
             # Cut down the bitrate
-            self._codec_config.bit_rate /= 4
+            self._codec_config.bit_rate //= 4
             self._video_out.add_video_stream(
                 frame_rate=self._stream_fps,
                 format="bgr24",
@@ -569,7 +569,7 @@ class VideoStreamReader:
         decoder = None
         decoder_options: Dict[str, str] = {}
         if self._device.type == "cuda":
-            #hw_accel = "cuda"
+            # hw_accel = "cuda"
             decoder = _FOURCC_TO_CODEC[self._video_info.codec.upper()]
             hw_accel = str(self._device)
             # decoder_options["gpu"] = str(self._device.index)

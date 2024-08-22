@@ -1041,17 +1041,18 @@ class HmTopDownAffine:
                             img = img.to(torch.float, non_blocking=True)
 
                         img = warp_affine_pytorch(
-                            img.cpu(),  # NOTE MAKING CPU TENSOR
-                            torch.from_numpy(trans)
-                            .to(img.device, non_blocking=True)
-                            .cpu(),
+                            # img.cpu(),  # NOTE MAKING CPU TENSOR
+                            img,
+                            torch.from_numpy(trans).to(img.device, non_blocking=True)
+                            # .cpu()
+                            ,
                             (int(image_size[1]), int(image_size[0])),
                         )
                         # img = resize_image(img, new_width=288, new_height=384)
                         if img.ndim == 4:
                             assert img.shape[0] == 1
                             img = img.squeeze(0)
-                        show_image("warped", img.cpu().numpy(), wait=False)
+                        # show_image("warped", img.cpu().numpy(), wait=False)
                 else:
                     img = cv2.warpAffine(
                         img,
