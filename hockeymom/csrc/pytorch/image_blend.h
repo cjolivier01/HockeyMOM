@@ -11,7 +11,6 @@ namespace hm {
 
 namespace ops {
 
-
 class ImageBlender {
   using SizeRef = at::IntArrayRef;
 
@@ -39,9 +38,7 @@ class ImageBlender {
 
   std::pair<at::Tensor, at::Tensor> make_full(
       const at::Tensor& image_1,
-      const std::vector<int>& xy_pos_1,
       const at::Tensor& image_2,
-      const std::vector<int>& xy_pos_2,
       std::size_t level) const;
 
   at::Tensor hard_seam_blend(
@@ -76,7 +73,7 @@ class ImageBlender {
 
   const Mode mode_;
   at::ScalarType dtype_;
-  const std::size_t levels_;
+  std::size_t levels_;
   const std::size_t num_images_{2};
 
   at::Tensor seam_;

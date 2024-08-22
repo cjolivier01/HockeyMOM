@@ -9,6 +9,8 @@ namespace {
 
 bool verbose = false;
 
+constexpr std::size_t kMinPixelSizeForImage = 16;
+
 std::int64_t image_width(const at::Tensor& t) {
   const int ndims = t.ndimension();
   TORCH_CHECK(
@@ -94,8 +96,6 @@ torch::Tensor gaussian_conv2d(torch::Tensor x, const torch::Tensor& g_kernel) {
   }
 
   // Perform the convolution operation
-  // aten::conv2d(Tensor input, Tensor weight, Tensor? bias=None, int[2]
-  // stride=1, int[2] padding=0, int[2] dilation=1, int groups=1) -> Tensor
   torch::Tensor y = torch::conv2d(
       /*input=*/x,
       /*weight=*/g_kernel,
@@ -155,7 +155,7 @@ ImageBlender::ImageBlender(
     std::optional<std::string> interpolation)
     : mode_(mode),
       dtype_(half ? at::ScalarType::Half : at::ScalarType::Float),
-            levels_(levels),
+      levels_(levels),
       seam_(seam),
       xor_map_(xor_map),
       interpolation_(interpolation ? *interpolation : ""),
@@ -211,7 +211,13 @@ void ImageBlender::create_masks() {
   level_canvas_dims_.clear();
   level_canvas_dims_.emplace_back(ImageSize{.w = canvas_w, .h = canvas_h});
   for (std::size_t l = 0; l < levels_; l++) {
-    level_canvas_dims_.emplace_back(*level_canvas_dims_.rbegin() / 2);
+    ImageSize next_dim = *level_canvas_dims_.rbegin() / 2;
+    if (next_dim.w < kMinPixelSizeForImage ||
+        next_dim.h < kMinPixelSizeForImage) {
+      levels_ = l;
+      break; // should it be levels_ - 1?
+    }
+    level_canvas_dims_.emplace_back(next_dim);
   }
 
   // Now on to the masks...
@@ -312,9 +318,7 @@ at::Tensor ImageBlender::one_level_gaussian_pyramid(
 
 std::pair<at::Tensor, at::Tensor> ImageBlender::make_full(
     const at::Tensor& image_1,
-    const std::vector<int>& xy_pos_1,
     const at::Tensor& image_2,
-    const std::vector<int>& xy_pos_2,
     std::size_t level) const {
   assert(image_1.dim() == 4);
   assert(image_1.size(1) == 3 || image_1.size(0) == 4);
@@ -417,8 +421,7 @@ at::Tensor ImageBlender::hard_seam_blend(
     const std::vector<int>& xy_pos_1,
     at::Tensor&& image_2,
     const std::vector<int>& xy_pos_2) const {
-  auto [full_left, full_right] =
-      make_full(image_1, xy_pos_1, image_2, xy_pos_2, /*level=*/0);
+  auto [full_left, full_right] = make_full(image_1, image_2, /*level=*/0);
 
   int channels = image_1.size(1);
   assert(channels == 3 || channels == 4);
@@ -476,6 +479,7 @@ void ImageBlender::build_coordinate_system(
   int x2 = xy_pos_2.at(0);
   int y2 = xy_pos_2.at(1);
 
+  // align with top right of canvas
   if (y1 <= y2) {
     y2 -= y1;
     y1 = 0;
@@ -525,10 +529,10 @@ at::Tensor ImageBlender::forward(
   if (ainfos_.empty()) {
     build_coordinate_system(image_1, xy_pos_1, image_2, xy_pos_2);
   }
-  
+
   if (mode_ == Mode::HardSeam) {
     return hard_seam_blend(
-                std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
+        std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
   }
   return laplacian_pyramid_blend(
       std::move(image_1), xy_pos_1, std::move(image_2), xy_pos_2);
@@ -575,7 +579,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     const std::vector<int>& xy_pos_2) {
   at::Tensor image_left, image_right;
   if (make_all_full_first_) {
-    auto res = make_full(image_1, xy_pos_1, image_2, xy_pos_2, /*level=*/0);
+    auto res = make_full(image_1, image_2, /*level=*/0);
     image_left = res.first;
     image_right = res.second;
   } else {
@@ -607,11 +611,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
 
   if (!make_all_full_first_) {
     auto res = make_full(
-        left_small_gaussian_blurred,
-        xy_pos_1,
-        right_small_gaussian_blurred,
-        xy_pos_2,
-        levels_);
+        left_small_gaussian_blurred, right_small_gaussian_blurred, levels_);
     left_small_gaussian_blurred = res.first;
     right_small_gaussian_blurred = res.second;
   }
@@ -650,9 +650,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     if (!make_all_full_first_) {
       auto res = make_full(
           left_laplacian.at(this_level),
-          xy_pos_1,
           right_laplacian.at(this_level),
-          xy_pos_2,
           this_level);
       L_left = res.first;
       L_right = res.second;
