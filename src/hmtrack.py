@@ -457,15 +457,16 @@ def main(args, num_gpu):
             results_folder = os.path.join(".", "output_workdirs", args.game_id)
             os.makedirs(results_folder, exist_ok=True)
 
-        tracking_data = MOTTrackingData(
-            input_file=args.input_tracking_data,
-            output_file=(
-                os.path.join(results_folder, "results.csv")
-                if args.input_tracking_data is None
-                else None
-            ),
-            write_interval=100,
-        )
+        if args.input_tracking_data:
+            tracking_data = MOTTrackingData(
+                input_file=args.input_tracking_data,
+                output_file=(
+                    os.path.join(results_folder, "results.csv")
+                    if args.input_tracking_data is None
+                    else None
+                ),
+                write_interval=100,
+            )
 
         using_precalculated_tracking = (
             tracking_data is not None and tracking_data.has_input_data()
@@ -652,6 +653,7 @@ def main(args, num_gpu):
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
+                    original_image_only=tracking_data is not None,
                 )
             else:
                 assert len(input_video_files) == 1

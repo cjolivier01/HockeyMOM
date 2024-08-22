@@ -720,6 +720,10 @@ def select_gpus(
                 video_encoding_device = (
                     detection_device if not multipose_device else multipose_device
                 )
+            if video_encoding_device is None:
+                video_encoding_device = torch.device(
+                    "cuda", gpu_allocator.allocate_modern()
+                )
 
         if is_stitching and stitching_device is None:
             if gpu_allocator.free_count():
