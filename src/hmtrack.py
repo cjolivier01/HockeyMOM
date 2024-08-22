@@ -987,10 +987,15 @@ def run_mmtrack(
                                     for i, item in enumerate(
                                         pose_model.cfg.test_pipeline
                                     ):
+                                        # TODO: make a simple translatiuon function and array argument
                                         if item["type"] == "TopDownAffine":
                                             pose_model.cfg.test_pipeline[i][
                                                 "type"
                                             ] = "HmTopDownAffine"
+                                        elif item["type"] == "ToTensor":
+                                            pose_model.cfg.test_pipeline[i][
+                                                "type"
+                                            ] = "HmToTensor"
                                     pose_model.eval()
                                 (
                                     tracking_results,
