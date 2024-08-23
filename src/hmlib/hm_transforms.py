@@ -1,9 +1,10 @@
 import numbers
 import warnings
-from typing import Dict, List, Optional, Tuple, Union, Callable
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 
 import cv2
 import mmcv
+import time
 import numpy as np
 import torch
 from mmpose.core.post_processing import (
@@ -13,6 +14,7 @@ from mmpose.core.post_processing import (
     get_warp_matrix,
     warp_affine_joints,
 )
+from mmpose.core.bbox.transforms import bbox_cs2xywh
 from torchvision.transforms import functional as F
 
 from hmlib.builder import PIPELINES, POSE_PIPELINES
@@ -20,6 +22,7 @@ from hmlib.utils.image import (
     image_height,
     image_width,
     is_channels_first,
+    is_channels_last,
     make_channels_first,
     make_channels_last,
     resize_image,
@@ -74,6 +77,51 @@ if Image is not None:
             "lanczos": Image.LANCZOS,
             "hamming": Image.HAMMING,
         }
+
+
+PIPELINE_SUBSTITUTIONS: Dict[str, str] = {
+    "TopDownAffine": "HmTopDownAffine",
+    "ToTensor": "HmToTensor",
+}
+
+
+def update_data_pipeline(
+    pipeline: List[Dict[str, Any]],
+    substitutions: Dict[str, str] = PIPELINE_SUBSTITUTIONS,
+) -> List[Dict[str, Any]]:
+    for i, item in enumerate(pipeline):
+        # TODO: make a simple translatiuon function and array argument
+        type_name = item["type"]
+        if type_name in substitutions:
+            pipeline[i]["type"] = substitutions[type_name]
+    return pipeline
+
+
+def extract_subimage(img: torch.Tensor, bbox: torch.Tensor) -> torch.Tensor:
+    """
+    Extracts a subimage from an image tensor based on a bounding box.
+
+    Parameters:
+        img (torch.Tensor): The source image tensor of shape (C, H, W).
+        bbox (torch.Tensor): The bounding box tensor with values (top, left, bottom, right).
+
+    Returns:
+        torch.Tensor: The extracted subimage.
+    """
+    left, top, right, bottom = bbox
+    # Ensure coordinates are within image dimensions
+    top = max(top, 0)
+    left = max(left, 0)
+    bottom = min(bottom, image_height(img) - 1)
+    right = min(right, image_width(img) - 1)
+
+    # Extract the region of the image corresponding to the bounding box
+    if is_channels_first(img):
+        subimage = img[:, top:bottom, left:right]
+    else:
+        subimage = img[top:bottom, left:right, :]
+
+    return subimage
 
 
 def hm_imrescale(
@@ -1011,13 +1059,13 @@ class HmTopDownAffine:
                 ]
 
             joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
-
         else:
             trans = get_affine_transform(c, s, r, image_size)
             if not isinstance(img, list):
                 if isinstance(img, torch.Tensor):
                     if False:
                         device = img.device
+                        img = img.clamp(0, 255) / 255.0
                         img = cv2.warpAffine(
                             img.cpu().numpy(),
                             trans,
@@ -1029,30 +1077,75 @@ class HmTopDownAffine:
                     else:
                         ih = image_height(img)
                         iw = image_width(img)
-                        c = c.copy()
-                        c[0] -= float(ih) / 2
-                        c[0] /= ih
-                        c[1] -= float(iw) / 2
-                        c[1] /= iw
-                        trans = get_affine_transform(c, s, r, image_size)
-                        # img = torch.clamp(img, min=0, max=255.0)
-                        img = make_channels_first(img)
-                        if not torch.is_floating_point(img):
-                            img = img.to(torch.float, non_blocking=True)
+                        if r == 0:
+                            output_w = image_size[0]
+                            output_h = image_size[1]
+                            half_h = float(output_h) / 2
+                            half_w = float(output_w) / 2
+                            cx = c[0]
+                            cy = c[1]
+                            # scale_x = 4
+                            # scale_y = 4
 
-                        img = warp_affine_pytorch(
-                            # img.cpu(),  # NOTE MAKING CPU TENSOR
-                            img,
-                            torch.from_numpy(trans).to(img.device, non_blocking=True)
-                            # .cpu()
-                            ,
-                            (int(image_size[1]), int(image_size[0])),
-                        )
+                            scale_x = s[1]
+                            scale_y = s[0]
+
+                            tlwh = torch.from_numpy(
+                                bbox_cs2xywh(c, s, padding=1.25)
+                            ).to(torch.int64)
+
+                            # tlwh = torch.from_numpy(results["bbox"][:4]).to(torch.int64)
+                            tlbr = torch.tensor(
+                                [
+                                    tlwh[0],
+                                    tlwh[1],
+                                    tlwh[0] + tlwh[2],
+                                    tlwh[1] + tlwh[3],
+                                ],
+                                dtype=torch.int64,
+                            )
+
+                            # tlbr = torch.tensor(
+                            #     [
+                            #         int(cx - half_w / scale_x),
+                            #         int(cy - half_h / scale_y),
+                            #         int(cx + half_w / scale_x),
+                            #         int(cy + half_h / scale_y),
+                            #     ],
+                            #     dtype=torch.int64,
+                            # )
+                            img = extract_subimage(img=img, bbox=tlbr)
+                            img = resize_image(
+                                img, new_width=output_w, new_height=output_h
+                            )
+                        else:
+                            assert False
+                            # Does not seem to work
+                            # c = c.copy()
+                            # c[0] -= float(ih) / 2
+                            # c[0] /= ih
+                            # c[1] -= float(iw) / 2
+                            # c[1] /= iw
+                            # trans = get_affine_transform(c, s, r, image_size)
+                            trans = torch.from_numpy(trans).to(
+                                img.device, non_blocking=True
+                            )
+                            img = make_channels_first(img)
+                            if not torch.is_floating_point(img):
+                                img = img.to(torch.float, non_blocking=True)
+                            # show_image("warped", img, wait=False)
+                            img = warp_affine_pytorch(
+                                img,
+                                trans,
+                                # (int(image_size[1]), int(image_size[0])),
+                                (int(image_size[0]), int(image_size[1])),
+                            )
                         # img = resize_image(img, new_width=288, new_height=384)
                         if img.ndim == 4:
                             assert img.shape[0] == 1
                             img = img.squeeze(0)
-                        # show_image("warped", img.cpu().numpy(), wait=False)
+                        # show_image("warped", img, wait=False)
+                        # time.sleep(0.25)
                 else:
                     img = cv2.warpAffine(
                         img,
