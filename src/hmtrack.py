@@ -527,26 +527,26 @@ def main(args, num_gpu):
                             )
                         )
 
-                if args.multi_pose:
-                    from mmpose.apis import init_pose_model
-                    from mmpose.datasets import DatasetInfo
+            if args.multi_pose:
+                from mmpose.apis import init_pose_model
+                from mmpose.datasets import DatasetInfo
 
-                    pose_model = init_pose_model(
-                        args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
-                    )
+                pose_model = init_pose_model(
+                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                )
 
-                    pose_dataset = pose_model.cfg.data["test"]["type"]
-                    pose_dataset_info = pose_model.cfg.data["test"].get(
-                        "dataset_info", None
+                pose_dataset = pose_model.cfg.data["test"]["type"]
+                pose_dataset_info = pose_model.cfg.data["test"].get(
+                    "dataset_info", None
+                )
+                if pose_dataset_info is None:
+                    warnings.warn(
+                        "Please set `dataset_info` in the config."
+                        "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
+                        DeprecationWarning,
                     )
-                    if pose_dataset_info is None:
-                        warnings.warn(
-                            "Please set `dataset_info` in the config."
-                            "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
-                            DeprecationWarning,
-                        )
-                    else:
-                        pose_dataset_info = DatasetInfo(pose_dataset_info)
+                else:
+                    pose_dataset_info = DatasetInfo(pose_dataset_info)
         else:
             assert False and "No longer supported"
 
@@ -866,6 +866,16 @@ def run_mmtrack(
             if model is not None:
                 model.eval()
 
+            if pose_model is not None:
+                if number_of_batches_processed == 0:
+                    for i, item in enumerate(pose_model.cfg.test_pipeline):
+                        # TODO: make a simple translatiuon function and array argument
+                        if item["type"] == "TopDownAffine":
+                            pose_model.cfg.test_pipeline[i]["type"] = "HmTopDownAffine"
+                        elif item["type"] == "ToTensor":
+                            pose_model.cfg.test_pipeline[i]["type"] = "HmToTensor"
+                    pose_model.eval()
+
             wraparound_timer = None
             get_timer = Timer()
             detect_timer = None
@@ -986,20 +996,6 @@ def run_mmtrack(
 
                         if not using_precalculated_tracking:
                             if pose_model is not None:
-                                if number_of_batches_processed == 0:
-                                    for i, item in enumerate(
-                                        pose_model.cfg.test_pipeline
-                                    ):
-                                        # TODO: make a simple translatiuon function and array argument
-                                        if item["type"] == "TopDownAffine":
-                                            pose_model.cfg.test_pipeline[i][
-                                                "type"
-                                            ] = "HmTopDownAffine"
-                                        elif item["type"] == "ToTensor":
-                                            pose_model.cfg.test_pipeline[i][
-                                                "type"
-                                            ] = "HmToTensor"
-                                    pose_model.eval()
                                 (
                                     tracking_results,
                                     pose_results,
@@ -1082,7 +1078,26 @@ def run_mmtrack(
                                 )
                             )
 
-                        if pose_model is not None:
+                        if pose_model is not None and using_precalculated_tracking:
+                            if tracking_results is None:
+                                # Reconstruct tracking_results
+                                tracking_items = torch.from_numpy(
+                                    track_ids.astype(bboxes.dtype)
+                                ).reshape(track_ids.shape[0], 1)
+                                tracking_items = torch.cat(
+                                    [
+                                        tracking_items,
+                                        torch.from_numpy(bboxes),
+                                        torch.from_numpy(scores).reshape(
+                                            scores.shape[0], 1
+                                        ),
+                                    ],
+                                    dim=1,
+                                )
+                                tracking_results = {
+                                    "track_bboxes": [tracking_items.numpy()],
+                                }
+
                             multi_pose_task(
                                 pose_model=pose_model,
                                 cur_frame=make_channels_last(origin_imgs[frame_index]),
@@ -1090,7 +1105,8 @@ def run_mmtrack(
                                 dataset_info=pose_dataset_info,
                                 tracking_results=tracking_results,
                                 smooth=args.smooth,
-                                show=args.show_image,
+                                # show=args.show_image,
+                                show=True,
                             )
                     # end frame loop
 
@@ -1134,7 +1150,7 @@ def process_mmtracking_results(mmtracking_results):
     for track in tracking_results:
         person = {}
         person["track_id"] = int(track[0])
-        person["bbox"] = track[1:]
+        person["bbox"] = track[1:]  # will also have the score
         person_results.append(person)
     return person_results
 
@@ -1198,7 +1214,8 @@ def multi_pose_task(
             dataset=dataset,
             dataset_info=dataset_info,
             kpt_score_thr=args.kpt_thr,
-            show=False,
+            # show=False,
+            show=True,
         )
         # vis_frame = np.expand_dims(vis_frame, axis=0)
     duration = time.time() - start
