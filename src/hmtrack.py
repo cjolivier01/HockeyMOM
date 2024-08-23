@@ -214,6 +214,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--plot-pose", action="store_true", help="plot individual pose skeletons"
+    )
+    parser.add_argument(
         "--plot-all-detections",
         type=float,
         default=None,
@@ -399,6 +402,8 @@ def main(args, num_gpu):
                     assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
+
+        args.multi_pose |= args.plot_pose
 
         cam_args = DefaultArguments(
             game_config=game_config,
@@ -693,8 +698,6 @@ def main(args, num_gpu):
             dataloader = exp.get_eval_loader(
                 args.batch_size, is_distributed, args.test, return_origin_img=True
             )
-
-        scroll_output: Optional[ScrollOutput] = None
 
         if not args.no_progress_bar:
             # total_frame_count = len(dataloader)
@@ -1013,9 +1016,7 @@ def run_mmtrack(
                                     dataset_info=pose_dataset_info,
                                     tracking_results=tracking_results,
                                     smooth=args.smooth,
-                                    # show=args.show_image,
-                                    # show=True,
-                                    show=False,
+                                    show=args.plot_pose,
                                 )
                             else:
                                 vis_frame = None
@@ -1189,7 +1190,6 @@ def multi_pose_task(
     # test a single image, with a list of bboxes.
     pose_results, returned_outputs = inference_top_down_pose_model(
         pose_model,
-        # cur_frame.to("cpu").numpy(),
         cur_frame,
         person_results,
         bbox_thr=args.bbox_thr,
@@ -1199,6 +1199,7 @@ def multi_pose_task(
         return_heatmap=return_heatmap,
         outputs=output_layer_names,
     )
+    duration = time.time() - start
 
     if smoother:
         pose_results = smoother.smooth(pose_results)
@@ -1220,8 +1221,8 @@ def multi_pose_task(
             # show=True,
         )
         # vis_frame = np.expand_dims(vis_frame, axis=0)
-    duration = time.time() - start
-    print(f"pose took {duration} seconds")
+    # duration = time.time() - start
+    # print(f"pose took {duration} seconds")
     return tracking_results, pose_results, returned_outputs, vis_frame
 
 
