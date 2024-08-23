@@ -21,8 +21,9 @@ from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 # This will register the transforms and model
-import hmlib.hm_transforms
-import hmlib.models.end_to_end
+from hmlib.hm_transforms import update_data_pipeline
+
+import hmlib.models.end_to_end  # Registers the model
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
@@ -32,7 +33,6 @@ from hmlib.config import (
     set_nested_value,
     update_config,
 )
-from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
@@ -534,7 +534,9 @@ def main(args, num_gpu):
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
-
+                pose_model.cfg.test_pipeline = update_data_pipeline(
+                    pose_model.cfg.test_pipeline
+                )
                 pose_dataset = pose_model.cfg.data["test"]["type"]
                 pose_dataset_info = pose_model.cfg.data["test"].get(
                     "dataset_info", None
@@ -866,15 +868,15 @@ def run_mmtrack(
             if model is not None:
                 model.eval()
 
-            if pose_model is not None:
-                if number_of_batches_processed == 0:
-                    for i, item in enumerate(pose_model.cfg.test_pipeline):
-                        # TODO: make a simple translatiuon function and array argument
-                        if item["type"] == "TopDownAffine":
-                            pose_model.cfg.test_pipeline[i]["type"] = "HmTopDownAffine"
-                        elif item["type"] == "ToTensor":
-                            pose_model.cfg.test_pipeline[i]["type"] = "HmToTensor"
-                    pose_model.eval()
+            # if pose_model is not None:
+            #     if number_of_batches_processed == 0:
+            #         for i, item in enumerate(pose_model.cfg.test_pipeline):
+            #             # TODO: make a simple translatiuon function and array argument
+            #             if item["type"] == "TopDownAffine":
+            #                 pose_model.cfg.test_pipeline[i]["type"] = "HmTopDownAffine"
+            #             elif item["type"] == "ToTensor":
+            #                 pose_model.cfg.test_pipeline[i]["type"] = "HmToTensor"
+            #         pose_model.eval()
 
             wraparound_timer = None
             get_timer = Timer()
@@ -1105,8 +1107,8 @@ def run_mmtrack(
                                 dataset_info=pose_dataset_info,
                                 tracking_results=tracking_results,
                                 smooth=args.smooth,
-                                # show=args.show_image,
-                                show=True,
+                                show=args.show_image,
+                                # show=True,
                             )
                     # end frame loop
 
@@ -1214,8 +1216,8 @@ def multi_pose_task(
             dataset=dataset,
             dataset_info=dataset_info,
             kpt_score_thr=args.kpt_thr,
-            # show=False,
-            show=True,
+            show=False,
+            # show=True,
         )
         # vis_frame = np.expand_dims(vis_frame, axis=0)
     duration = time.time() - start
