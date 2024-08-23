@@ -116,7 +116,12 @@ class PlayTracker(torch.nn.Module):
         if args.track_ids:
             self._track_ids = set([int(i) for i in args.track_ids.split(",")])
 
-        if self._args.top_border_lines or self._args.bottom_border_lines:
+        if (
+            self._args.plot_boundaries
+            and self._args.top_border_lines
+            or self._args.bottom_border_lines
+        ):
+            # Only used for plotting the lines
             self._boundaries = BoundaryLines(
                 self._args.top_border_lines,
                 self._args.bottom_border_lines,

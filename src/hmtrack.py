@@ -993,6 +993,7 @@ def run_mmtrack(
                                         return_loss=False, rescale=True, **data
                                     )
                         detect_timer.toc()
+
                         det_bboxes = tracking_results["det_bboxes"]
                         track_bboxes = tracking_results["track_bboxes"]
 
