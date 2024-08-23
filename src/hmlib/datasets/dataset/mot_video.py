@@ -411,7 +411,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if not self._original_image_only:
                     if self._dtype is not None and img0.dtype != self._dtype:
                         img0 = img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
-                    assert False  # Don;t use this path anymore
+                    assert False  # Don't use this path anymore
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
                     if self._dtype is not None and self._dtype != original_img0.dtype:

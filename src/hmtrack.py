@@ -684,6 +684,7 @@ def main(args, num_gpu):
                     ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
+                    original_image_only=tracking_data is not None,
                 )
 
         if dataloader is None:
