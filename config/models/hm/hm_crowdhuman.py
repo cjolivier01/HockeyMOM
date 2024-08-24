@@ -22,7 +22,7 @@ samples_per_gpu_a100_40gb_yolox_s = 16
 samples_per_gpu_a100_40gb_yolox_s_tiny = 3
 samples_per_gpu_a100_40gb_yolox_l = 28
 
-#samples_per_gpu = samples_per_gpu_a100_40gb_yolox_s
+# samples_per_gpu = samples_per_gpu_a100_40gb_yolox_s
 samples_per_gpu = samples_per_gpu_a100_40gb_yolox_s_tiny
 
 image_pad_value = 114.0
@@ -102,10 +102,9 @@ lr_config = dict(
 runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 
 checkpoint_config = dict(interval=10)
-#checkpoint_config = dict(interval=1)
+# checkpoint_config = dict(interval=1)
 evaluation = dict(metric=["bbox"], interval=100)
 search_metrics = ["MOTA", "IDF1", "FN", "FP", "IDs", "MT", "ML"]
 
 # you need to set mode='dynamic' if you are using pytorch<=1.5.0
 # fp16 = dict(loss_scale=dict(init_scale=512.0))
-

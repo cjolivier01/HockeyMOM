@@ -4,7 +4,7 @@
 # model settings
 detector_standalone_model = dict(
     type="YOLOX",
-    input_size=(640, 640), # height, width
+    input_size=(640, 640),  # height, width
     random_size_range=(15, 25),
     random_size_interval=10,
     backbone=dict(type="CSPDarknet", deepen_factor=0.33, widen_factor=0.5),
