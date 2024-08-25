@@ -162,8 +162,5 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
     assert args.game_id
-    #current_file_path = os.path.dirname(os.path.abspath(__file__))
     image_path = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
-    #image_path = os.path.join(current_file_path, "..", "s.png")
-    # draw_line(img_file)
     other_impl(game_id=args.game_id, image_path=image_path)

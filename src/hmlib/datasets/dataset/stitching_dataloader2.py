@@ -663,6 +663,9 @@ class StitchDataset:
 
         if self._batch_count == 1:
             frame_path = os.path.join(_get_dir_name(self._video_file_1), "s.png")
+            print(
+                f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
+            )
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
