@@ -23,6 +23,23 @@ def get_pipeline_items(
     return results
 
 
+def set_pipeline_item_attribute(
+    data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]],
+    class_name: str,
+    attribute: str,
+    value: Any,
+) -> bool:
+    pipeline_items = get_pipeline_items(
+        data_pipeline=data_pipeline, class_name=class_name
+    )
+    if not pipeline_items:
+        return False
+    assert len(pipeline_items) == 1
+    assert hasattr(pipeline_items[0], attribute)
+    setattr(pipeline_items[0], attribute, value)
+    return True
+
+
 def replace_pipeline_class(
     data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]],
     from_class: str,
