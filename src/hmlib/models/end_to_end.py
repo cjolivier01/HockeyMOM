@@ -1,11 +1,8 @@
-from typing import Any, Union, List
+from typing import Any, List
 import torch
 
-import mmdet
 from mmcv.runner import auto_fp16
-from mmdet.datasets import PIPELINES
 from mmdet.datasets.pipelines import Compose
-from mmcv.utils import TORCH_VERSION, Registry, build_from_cfg, digit_version
 from mmtrack.models.mot.byte_track import ByteTrack
 from mmtrack.core import outs2results, results2outs
 

@@ -23,6 +23,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # This will register the transforms and model
 from hmlib.hm_transforms import update_data_pipeline
 
+# For TopDownGetBboxCenterScale
+import mmpose.datasets.pipelines.top_down_transform
+
 import hmlib.models.end_to_end  # Registers the model
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
@@ -43,6 +46,7 @@ from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus, tensor_call
+from hmlib.utils.pipeline import get_pipeline_item
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.mot_data import MOTTrackingData
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
@@ -522,15 +526,19 @@ def main(args, num_gpu):
                 # post-detection pipeline
                 if hasattr(model, "post_detection_pipeline"):
                     if cam_args.top_border_lines or cam_args.bottom_border_lines:
-                        model.post_detection_pipeline.append(
-                            BoundaryLines(
-                                upper_border_lines=cam_args.top_border_lines,
-                                lower_border_lines=cam_args.bottom_border_lines,
-                                original_clip_box=get_clip_box(
-                                    game_id=args.game_id, root_dir=args.root_dir
-                                ),
-                            )
+                        boundaries = get_pipeline_item(
+                            model.post_detection_pipeline, "BoundaryLines"
                         )
+                        if boundaries is not None:
+                            boundaries.update(
+                                {
+                                    "upper_border_lines": cam_args.top_border_lines,
+                                    "lower_border_lines": cam_args.bottom_border_lines,
+                                    "original_clip_box": get_clip_box(
+                                        game_id=args.game_id, root_dir=args.root_dir
+                                    ),
+                                }
+                            )
 
             if args.multi_pose:
                 from mmpose.apis import init_pose_model

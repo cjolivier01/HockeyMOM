@@ -23,6 +23,16 @@ def get_pipeline_items(
     return results
 
 
+def get_pipeline_item(
+    data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]], class_name: str
+) -> List[Tuple[int, Dict[str, Any]]]:
+    results = get_pipeline_items(data_pipeline=data_pipeline, class_name=class_name)
+    if not results:
+        return None
+    assert len(results) == 1
+    return results[0][1]
+
+
 def set_pipeline_item_attribute(
     data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]],
     class_name: str,

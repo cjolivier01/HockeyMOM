@@ -1,23 +1,17 @@
 import numbers
+import time
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
-import mmcv
-import time
 import numpy as np
 import torch
-from mmpose.core.post_processing import (
-    affine_transform,
-    fliplr_joints,
-    get_affine_transform,
-    get_warp_matrix,
-    warp_affine_joints,
-)
-from mmpose.core.bbox.transforms import bbox_cs2xywh
 from torchvision.transforms import functional as F
 
+import mmcv
 from hmlib.builder import PIPELINES, POSE_PIPELINES
+from hmlib.stitching.laplacian_blend import show_image
+from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -27,8 +21,15 @@ from hmlib.utils.image import (
     make_channels_last,
     resize_image,
 )
-from hmlib.utils.gpu import StreamTensor, tensor_call
-from hmlib.stitching.laplacian_blend import show_image
+from mmpose.core.bbox import bbox_xywh2cs, bbox_xywh2xyxy, bbox_xyxy2xywh
+from mmpose.core.bbox.transforms import bbox_cs2xywh
+from mmpose.core.post_processing import (
+    affine_transform,
+    fliplr_joints,
+    get_affine_transform,
+    get_warp_matrix,
+    warp_affine_joints,
+)
 
 from .cv2_to_torch import warp_affine_pytorch
 
@@ -1289,4 +1290,62 @@ class HmTopDownAffine:
         results["joints_3d"] = joints_3d
         results["joints_3d_visible"] = joints_3d_visible
 
+        return results
+
+
+@PIPELINES.register_module()
+class HmExtractBoundingBoxes:
+    def __init__(self, source_name: str = "det_bboxes"):
+        self.source_name = source_name
+
+    def __call__(self, results):
+        results["bbox"] = results[self.source_name]
+        return results
+
+
+@PIPELINES.register_module()
+class HmTopDownGetBboxCenterScale:
+    """Convert bbox from [x, y, w, h] to center and scale.
+
+    The center is the coordinates of the bbox center, and the scale is the
+    bbox width and height normalized by a scale factor.
+
+    Required key: 'bbox', 'ann_info'
+
+    Modifies key: 'center', 'scale'
+
+    Args:
+        padding (float): bbox padding scale that will be multilied to scale.
+            Default: 1.25
+    """
+
+    # Pixel std is 200.0, which serves as the normalization factor to
+    # to calculate bbox scales.
+    pixel_std: float = 200.0
+
+    def __init__(self, padding: float = 1.25):
+        self.padding = padding
+
+    def __call__(self, results):
+
+        if "center" in results and "scale" in results:
+            warnings.warn(
+                'Use the "center" and "scale" that already exist in the data '
+                "sample. The padding will still be applied."
+            )
+            results["scale"] *= self.padding
+        else:
+            bbox = results["bbox"]
+            image_size = results["ann_info"]["image_size"]
+            aspect_ratio = image_size[0] / image_size[1]
+
+            center, scale = bbox_xywh2cs(
+                bbox,
+                aspect_ratio=aspect_ratio,
+                padding=self.padding,
+                pixel_std=self.pixel_std,
+            )
+
+            results["center"] = center
+            results["scale"] = scale
         return results

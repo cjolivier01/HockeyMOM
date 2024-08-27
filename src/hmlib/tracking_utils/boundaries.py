@@ -1,5 +1,5 @@
 import time
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -10,40 +10,49 @@ from hmlib.tracking_utils import visualization as vis
 
 @PIPELINES.register_module()
 class BoundaryLines:
+
     def __init__(
         self,
-        upper_border_lines,
-        lower_border_lines,
-        original_clip_box=None,
+        upper_border_lines: Optional[torch.Tensor] = None,
+        lower_border_lines: Optional[torch.Tensor] = None,
+        original_clip_box: Optional[torch.Tensor] = None,
         det_thresh: float = 0.05,
     ):
         self._original_clip_box = original_clip_box
         self.det_thresh = det_thresh
-        if self._original_clip_box is None:
-            self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float)
-        elif not isinstance(self._original_clip_box, torch.Tensor):
-            self._original_clip_box = torch.tensor(
-                self._original_clip_box, dtype=torch.float
-            )
-        clip_upper_left = self._original_clip_box[0:2]
-        if upper_border_lines:
-            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float)
-            self._upper_borders[:, 0:2] -= clip_upper_left
-            self._upper_borders[:, 2:4] -= clip_upper_left
-            # self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
-        else:
-            self._upper_borders = None
-            self._upper_line_vectors = None
-        if lower_border_lines:
-            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float)
-            self._lower_borders[:, 0:2] -= clip_upper_left
-            self._lower_borders[:, 2:4] -= clip_upper_left
-            # self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
-        else:
-            self._lower_borders = None
-            self._lower_line_vectors = None
+        self.set_boundaries(
+            upper=upper_border_lines,
+            lower=lower_border_lines,
+            source_clip_box=original_clip_box,
+        )
         self._passes = 0
         self._duration = 0
+
+    def set_boundaries(
+        self,
+        upper: Optional[torch.Tensor] = None,
+        lower: Optional[torch.Tensor] = None,
+        source_clip_box: Optional[torch.Tensor] = None,
+    ):
+        if upper is not None:
+            self._upper_borders = torch.tensor(upper, dtype=torch.float)
+        else:
+            self._upper_borders = None
+        if lower is not None:
+            self._lower_borders = torch.tensor(lower, dtype=torch.float)
+        else:
+            self._lower_borders = None
+        if source_clip_box is not None:
+            self.adjust_for_source_clip_box(source_clip_box)
+
+    def adjust_for_source_clip_box(self, source_clip_box: torch.Tensor):
+        clip_upper_left = source_clip_box[0:2]
+        if self._upper_borders is not None:
+            self._upper_borders[:, 0:2] -= clip_upper_left
+            self._upper_borders[:, 2:4] -= clip_upper_left
+        if self._lower_borders is not None:
+            self._lower_borders[:, 0:2] -= clip_upper_left
+            self._lower_borders[:, 2:4] -= clip_upper_left
 
     def draw(self, img):
         if self._upper_borders is not None:
