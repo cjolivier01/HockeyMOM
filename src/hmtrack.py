@@ -523,7 +523,9 @@ def main(args, num_gpu):
                     pipeline[0].type = "LoadImageFromWebcam"
                     data_pipeline = Compose(pipeline)
 
-                # post-detection pipeline
+                #
+                # post-detection pipeline updates
+                #
                 if hasattr(model, "post_detection_pipeline"):
                     if cam_args.top_border_lines or cam_args.bottom_border_lines:
                         boundaries = get_pipeline_item(
