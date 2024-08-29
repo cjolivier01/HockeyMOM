@@ -7,22 +7,11 @@ import torch
 
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import (
-    # CachedIterator,
-    StreamCheckpoint,
     StreamTensor,
-    # cuda_stream_scope,
-    # get_gpu_capabilities,
 )
 
 from hmlib.utils.image import (
-    # ImageColorScaler,
-    # ImageHorizontalGaussianDistribution,
-    # crop_image,
-    # image_height,
-    # image_width,
-    # make_channels_last,
     make_visible_image,
-    # resize_image,
 )
 
 
