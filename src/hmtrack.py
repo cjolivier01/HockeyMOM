@@ -271,6 +271,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="Input tracking data file and use instead of AI calling tracker",
     )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Tracking checkpoint file"
+    )
 
     # Pose args
     parser.add_argument(
@@ -363,6 +366,40 @@ class FakeExp:
 def is_stitching(input_video: str) -> bool:
     input_video_files = input_video.split(",")
     return len(input_video_files) == 2 or os.path.isdir(args.input_video)
+
+
+def load_checkpoint_to_model(model, checkpoint):
+    from mmengine.runner.checkpoint import (
+        get_state_dict,
+        _load_checkpoint,
+        _load_checkpoint_to_model,
+    )
+
+    # checkpoint_base = _load_checkpoint(weights, map_location="cpu")
+    checkpoint_base = get_state_dict(model)
+    checkpoint = _load_checkpoint(checkpoint, map_location="cpu")
+
+    # base_state_dict = checkpoint_base["state_dict"]
+    state_dict = checkpoint["chate_dict"]
+    if "state_dict" in state_dict:
+        state_dict = state_dict["state_dict"]
+
+    new_state_dict = dict()
+    for name, value in state_dict.items():
+        name = name.replace("ema_backbone", "backbone")
+        name = name.replace("_", ".")
+        if not name.startswith("backbone."):
+            continue
+        new_state_dict[name] = value
+        if name in base_state_dict:
+            print(f"found: {name}")
+            checkpoint_base["state_dict"][name] = value
+        else:
+            print(f"extra: {name}")
+    checkpoint["state_dict"] = new_state_dict
+    # checkpoint_base["state_dict"].update(new_state_dict)
+
+    _load_checkpoint_to_model(model, checkpoint_base)
 
 
 def main(args, num_gpu):
@@ -514,10 +551,16 @@ def main(args, num_gpu):
         data_pipeline = None
         if tracker == "mmtrack":
             args.config = args.exp_file
-            args.checkpoint = None
+            # args.checkpoint = None
             if not using_precalculated_tracking:
                 if args.tracking or args.multi_pose:
-                    model = init_model(args.config, args.checkpoint, device=main_device)
+                    model = init_model(
+                        args.config,
+                        None,
+                        # args.checkpoint,
+                        device=main_device,
+                    )
+                    load_checkpoint_to_model(model, args.checkpoint)
                     cfg = model.cfg.copy()
                     pipeline = cfg.data.inference.pipeline
                     pipeline[0].type = "LoadImageFromWebcam"
