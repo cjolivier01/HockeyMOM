@@ -1,4 +1,5 @@
 import cv2
+import time
 import numpy as np
 import threading
 from typing import Optional, Union
@@ -26,8 +27,10 @@ from hmlib.utils.image import (
 
 
 class Shower:
-    def __init__(self, show_scaled: Optional[float] = None):
+
+    def __init__(self, show_scaled: Optional[float] = None, max_size: int = 4):
         self._show_scaled = show_scaled
+        self._max_size = max_size
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
@@ -62,4 +65,7 @@ class Shower:
 
     def show(self, img: Union[torch.Tensor, np.ndarray]):
         if self._thread is not None:
+            while self._q.qsize() > self._max_size:
+                print("Too many items in Shower queue...")
+                time.sleep(0.01)
             self._q.put(img)
