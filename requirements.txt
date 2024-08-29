@@ -3,6 +3,7 @@ numpy==1.23.5
 terminaltables
 seaborn
 xtcocotools
+rich
 screeninfo
 yacs
 moviepy
