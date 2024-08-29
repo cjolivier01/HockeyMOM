@@ -14,7 +14,6 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.datasets import get_yolox_datadir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.stitching.blender import create_stitcher

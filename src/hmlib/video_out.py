@@ -28,6 +28,7 @@ from hmlib.utils.image import (ImageColorScaler,
                                image_height, image_width, make_channels_last,
                                make_visible_image, resize_image)
 from hmlib.utils.progress_bar import ProgressBar
+from hmlib.ui.shower import Shower
 
 from .video_stream import VideoStreamWriter
 
@@ -380,6 +381,11 @@ class VideoOutput:
 
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
+
+        if self._args.show_image:
+            self._shower = Shower(show_scaled=self._args.show_scaled)
+        else:
+            self._shower = None
 
         if start:
             self.start()
@@ -893,16 +899,21 @@ class VideoOutput:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
                         show_img = online_im
-                        if show_img.ndim == 3:
-                            show_img = show_img.unsqueeze(0)
-                        for s_img in show_img:
-                            cv2.imshow(
-                                "online_im",
-                                make_visible_image(
-                                    s_img, enable_resizing=self._args.show_scaled
-                                ),
-                            )
-                            cv2.waitKey(1)
+                        if self._shower is not None:
+                            # Async
+                            self._shower.show(show_img)
+                        else:
+                            # Sync
+                            if show_img.ndim == 3:
+                                show_img = show_img.unsqueeze(0)
+                            for s_img in show_img:
+                                cv2.imshow(
+                                    "online_im",
+                                    make_visible_image(
+                                        s_img, enable_resizing=self._args.show_scaled
+                                    ),
+                                )
+                                cv2.waitKey(1)
 
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
