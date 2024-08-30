@@ -107,10 +107,10 @@ game:
       - 7724
       - 1323
   clip_box:
-  - 614
-  - 654
-  - 7374
-  - 2474
+  - 576
+  - 822
+  - 7480
+  - 2526
 rink:
   tracking:
     cam_ignore_largest: true
