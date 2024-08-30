@@ -1,18 +1,16 @@
-import os
-import re
-import sys
-import platform
-import subprocess
 import argparse
+import os
+import platform
+import re
+import subprocess
+import sys
+from distutils.version import LooseVersion
 
 import torch
-from setuptools import setup, Extension, find_packages
-
-# from setuptools.command.build_ext import build_ext
-
+from setuptools import Extension, find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 
-from distutils.version import LooseVersion
+# from setuptools.command.build_ext import build_ext
 
 
 _ARGS = None
@@ -162,7 +160,7 @@ if __name__ == "__main__":
 
     setup(
         name="hockeymom",
-        # version="0.1.0",
+        version="0.5.0",
         author="Christopher Olivier",
         author_email="cjolivier01@gmail.com",
         description="HockeyMOM project",
