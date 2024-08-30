@@ -86,7 +86,8 @@ def select_clip_box(game_id: str, rect_coords: List[int] = [], final_ar: float =
             cropped_height = rect_coords[3] - rect_coords[1]
             cropped_width = cropped_height * final_ar
             print(
-                f"Rectangle coordinates on original image: {rect_coords}, AR{final_ar}, cropped size: {int(cropped_width)} x {int(cropped_height)}"
+                f"Rectangle coordinates on original image: {rect_coords}, AR{final_ar}, "
+                f"cropped size: {int(cropped_width)} x {int(cropped_height)}"
             )
             break
         elif k == 27:  # Esc key
