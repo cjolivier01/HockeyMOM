@@ -41,12 +41,12 @@ def optional_with(resource):
 
 
 class MOTLoadVideoWithOrig(Dataset):  # for inference
+
     def __init__(
         self,
         path,
         img_size,
         game_id: str = None,
-        clip_original=None,
         video_id: int = 1,
         preproc=None,
         max_frames: int = 0,
@@ -80,7 +80,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
-        self.clip_original = clip_original
         self.calculated_clip_box = None
         if img_size is None:
             self.process_height = None
@@ -119,12 +118,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._stream_tensors = stream_tensors
         self._cuda_stream = None
         self._frame_read_count = 0
-
-        # Optimize the clip box
-        if self.clip_original is not None:
-            if isinstance(self.clip_original, (list, tuple)):
-                if not self.clip_original or all(item is None for item in self.clip_original):
-                    self.clip_original = None
 
         if self._image_channel_adjustment:
             assert len(self._image_channel_adjustment) == 3
@@ -276,9 +269,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 device=device,
             )
             if self._scale_inscribed_to_original.device != device:
-                self._scale_inscribed_to_original = (
-                    self._scale_inscribed_to_original.to(device)
-                )
+                self._scale_inscribed_to_original = self._scale_inscribed_to_original.to(device)
         if len(yolox_detections):
             # [0:4] detections are tlbr
             for i in range(len(yolox_detections)):
@@ -311,9 +302,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _get_next_batch(self):
         current_count = self._count.item()
-        if current_count == len(self) or (
-            self._max_frames and current_count >= self._max_frames
-        ):
+        if current_count == len(self) or (self._max_frames and current_count >= self._max_frames):
             raise StopIteration
 
         ALL_NON_BLOCKING = True
@@ -387,25 +376,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img = img[0]
                     data = data_item
             else:
-                if self.clip_original is not None:
-                    if self.calculated_clip_box is None:
-                        self.calculated_clip_box = fix_clip_box(
-                            self.clip_original, [image_height(img0), image_width(img0)]
-                        )
-                    if len(img0.shape) == 4:
-                        img0 = img0[
-                            :,
-                            :,
-                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                        ]
-                    else:
-                        assert len(img0.shape) == 3
-                        img0 = img0[
-                            :,
-                            self.calculated_clip_box[1] : self.calculated_clip_box[3],
-                            self.calculated_clip_box[0] : self.calculated_clip_box[2],
-                        ]
                 original_img0 = img0
 
                 if not self._original_image_only:
@@ -415,9 +385,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
                     if self._dtype is not None and self._dtype != original_img0.dtype:
-                        original_img0 = original_img0.to(
-                            self._dtype, non_blocking=ALL_NON_BLOCKING
-                        )
+                        original_img0 = original_img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
                     img = original_img0
 
             if self.width_t is None:
@@ -427,16 +395,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             original_img0 = make_channels_first(original_img0)
 
             imgs_info = [
-                (
-                    self.height_t.repeat(len(ids))
-                    if self._multi_width_img_info
-                    else self.height_t
-                ),
-                (
-                    self.width_t.repeat(len(ids))
-                    if self._multi_width_img_info
-                    else self.width_t
-                ),
+                (self.height_t.repeat(len(ids)) if self._multi_width_img_info else self.height_t),
+                (self.width_t.repeat(len(ids)) if self._multi_width_img_info else self.width_t),
                 ids,
                 self.video_id.repeat(len(ids)),
                 [self._path if self._path is not None else self._game_id],
@@ -456,9 +416,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     and self._device_for_original_image is not None
                     and self._device_for_original_image != orig_img.device
                 ):
-                    orig_img = orig_img.to(
-                        self._device_for_original_image, non_blocking=True
-                    )
+                    orig_img = orig_img.to(self._device_for_original_image, non_blocking=True)
                 # cuda_stream.synchronize()
                 # torch.cuda.synchronize()
                 return StreamCheckpoint(
@@ -530,23 +488,3 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vn = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
         return self.vn  # number of frames
-
-
-def is_none(val):
-    if isinstance(val, str) and val == "None":
-        return True
-    return val is None
-
-
-def fix_clip_box(clip_box, hw: List[int]):
-    if isinstance(clip_box, list):
-        if is_none(clip_box[0]):
-            clip_box[0] = 0
-        if is_none(clip_box[1]):
-            clip_box[1] = 0
-        if is_none(clip_box[2]):
-            clip_box[2] = hw[1]
-        if is_none(clip_box[3]):
-            clip_box[3] = hw[0]
-        clip_box = np.array(clip_box, dtype=np.int64)
-    return clip_box
