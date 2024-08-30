@@ -123,7 +123,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # Optimize the clip box
         if self.clip_original is not None:
             if isinstance(self.clip_original, (list, tuple)):
-                if not any(item is not None for item in self.clip_original):
+                if not self.clip_original or all(item is None for item in self.clip_original):
                     self.clip_original = None
 
         if self._image_channel_adjustment:
@@ -372,7 +372,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 data_item = self._data_pipeline(data_item)
                 img = data_item["img"]
 
-                # Maybe get back the clipped image as the "origina"
+                # Maybe get back the clipped image as the "original"
                 if "clipped_image" in data_item:
                     clipped_image = data_item["clipped_image"]
                     if isinstance(clipped_image, list):

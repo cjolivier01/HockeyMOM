@@ -520,6 +520,15 @@ def main(args, num_gpu):
                         args.checkpoint,
                         device=main_device,
                     )
+
+                    # Maybe apply a clip box in the data pipeline
+                    orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
+                    if orig_clip_box:
+                        hm_crop = get_pipeline_item(model.cfg.data.inference.pipeline, "HmCrop")
+                        if hm_crop is not None:
+                            hm_crop["rectangle"] = orig_clip_box
+
+
                     if args.checkpoint:
                         load_checkpoint_to_model(model, args.checkpoint)
                     cfg = model.cfg.copy()
@@ -670,6 +679,9 @@ def main(args, num_gpu):
                         if args.stitch_cache_size is None
                         else args.stitch_cache_size
                     ),
+                    # clip_original=get_clip_box(
+                    #     game_id=args.game_id, root_dir=args.root_dir
+                    # ),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
@@ -697,6 +709,9 @@ def main(args, num_gpu):
                     start_frame_number=args.start_frame,
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
+                    # clip_original=get_clip_box(
+                    #     game_id=args.game_id, root_dir=args.root_dir
+                    # ),
                     device=main_device,
                     decoder_device=(
                         torch.device(args.decoder_device)
