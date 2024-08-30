@@ -517,11 +517,11 @@ def main(args, num_gpu):
                 if args.tracking or args.multi_pose:
                     model = init_model(
                         args.config,
-                        None,
-                        # args.checkpoint,
+                        args.checkpoint,
                         device=main_device,
                     )
-                    load_checkpoint_to_model(model, args.checkpoint)
+                    if args.checkpoint:
+                        load_checkpoint_to_model(model, args.checkpoint)
                     cfg = model.cfg.copy()
                     pipeline = cfg.data.inference.pipeline
                     pipeline[0].type = "LoadImageFromWebcam"

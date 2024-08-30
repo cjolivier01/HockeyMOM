@@ -1,11 +1,22 @@
 import time
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
 import torch
 
 from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
+
+
+def adjust_tlbr_for_clip_box(
+    tlbr_points: torch.Tensor, clip_box: torch.Tensor
+) -> torch.Tensor:
+    clip_upper_left = clip_box[0:2]
+    if tlbr_points is not None:
+        tlbr_points = tlbr_points.clone()
+        tlbr_points[:, 0:2] -= clip_upper_left
+        tlbr_points[:, 2:4] -= clip_upper_left
+    return tlbr_points
 
 
 @PIPELINES.register_module()
@@ -15,9 +26,14 @@ class BoundaryLines:
         self,
         upper_border_lines: Optional[torch.Tensor] = None,
         lower_border_lines: Optional[torch.Tensor] = None,
-        original_clip_box: Optional[torch.Tensor] = None,
+        original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
     ):
+        if isinstance(original_clip_box, list) and len(original_clip_box):
+            assert len(original_clip_box) == 4
+            assert original_clip_box[2] > original_clip_box[0]
+            assert original_clip_box[3] > original_clip_box[1]
+            original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
         self.det_thresh = det_thresh
         self.set_boundaries(
@@ -46,13 +62,15 @@ class BoundaryLines:
             self.adjust_for_source_clip_box(source_clip_box)
 
     def adjust_for_source_clip_box(self, source_clip_box: torch.Tensor):
-        clip_upper_left = source_clip_box[0:2]
+        # clip_upper_left = source_clip_box[0:2]
         if self._upper_borders is not None:
-            self._upper_borders[:, 0:2] -= clip_upper_left
-            self._upper_borders[:, 2:4] -= clip_upper_left
+            self._upper_borders = adjust_tlbr_for_clip_box(self._upper_borders, source_clip_box)
+            # self._upper_borders[:, 0:2] -= clip_upper_left
+            # self._upper_borders[:, 2:4] -= clip_upper_left
         if self._lower_borders is not None:
-            self._lower_borders[:, 0:2] -= clip_upper_left
-            self._lower_borders[:, 2:4] -= clip_upper_left
+            self._lower_borders = adjust_tlbr_for_clip_box(self._lower_borders, source_clip_box)
+            # self._lower_borders[:, 0:2] -= clip_upper_left
+            # self._lower_borders[:, 2:4] -= clip_upper_left
 
     def draw(self, img):
         if self._upper_borders is not None:
