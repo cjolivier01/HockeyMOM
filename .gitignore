@@ -1,5 +1,6 @@
 .idea
 *.pyc
+/dist
 /*.log
 /my_env
 /*.tif
