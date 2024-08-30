@@ -1,15 +1,12 @@
 import torch
 import torch.nn.functional as F
+
 from hmlib.utils.image import (
-    image_width,
     image_height,
+    image_width,
     make_channels_first,
     make_channels_last,
 )
-
-
-import torch
-import torch.nn.functional as F
 
 
 def warp_affine_pytorch(image, transform_matrix, output_size):

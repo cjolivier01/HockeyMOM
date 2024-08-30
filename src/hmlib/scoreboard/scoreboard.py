@@ -1,30 +1,29 @@
-import os
-import cv2
 import math
+import os
 from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
-from typing import List, Tuple, Optional, Union
+from typing import List, Optional, Tuple, Union
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from PIL import Image
 from torch import Tensor
 from torch.nn import functional as F
 from torchvision.transforms import functional as TF
 
-from hmlib.utils.image import (
-    image_width,
-    image_height,
-    make_channels_first,
-    make_channels_last,
-    pad_tensor_to_size_batched,
-    make_visible_image,
-)
-
+import hmlib.tracking_utils.visualization as vis
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import resize_image
-import hmlib.tracking_utils.visualization as vis
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+    pad_tensor_to_size_batched,
+    resize_image,
+)
 
 
 class Scoreboard(torch.nn.Module):
