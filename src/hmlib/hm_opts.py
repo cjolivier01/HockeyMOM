@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import os
 from typing import Any, Optional
 
 from hmlib.config import get_nested_value
@@ -29,13 +30,28 @@ class hm_opts(object):
             "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
-        # stitching
+
+        # Identity
+        parser.add_argument(
+            "--team",
+            default=None,
+            type=str,
+            help="The primary team that represents the configuration file",
+        )
+        parser.add_argument(
+            "--season",
+            default=None,
+            type=str,
+            help="Season (if not the current)",
+        )
         parser.add_argument(
             "--game-id",
             default=None,
             type=str,
             help="Game ID",
         )
+
+        # stitching
         parser.add_argument(
             "--cache-size",
             type=int,
@@ -240,9 +256,7 @@ class hm_opts(object):
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if getattr(opt, "tracker", "") == "centertrack":
-            if hasattr(opt, "test_size") and (
-                hasattr(opt, "input_w") and hasattr(opt, "input_h")
-            ):
+            if hasattr(opt, "test_size") and (hasattr(opt, "input_w") and hasattr(opt, "input_h")):
                 from lib.opts import opts
 
                 assert not opt.test_size or (

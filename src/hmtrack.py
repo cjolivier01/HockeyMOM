@@ -26,6 +26,7 @@ import hmlib.models.end_to_end  # Registers the model
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
+    adjusted_config_path,
     get_clip_box,
     get_config,
     get_nested_value,
@@ -1285,7 +1286,7 @@ if __name__ == "__main__":
         args.tracker = get_nested_value(game_config, "model.tracker.type")
     elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
         game_config = update_config(
-            root_dir=ROOT_DIR,
+            root_dir=adjusted_config_path(ROOT_DIR, args),
             baseline_config=game_config,
             config_type="models",
             config_name="tracker_" + args.tracker,

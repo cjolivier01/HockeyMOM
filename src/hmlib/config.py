@@ -1,14 +1,23 @@
+import argparse
 import os
-import yaml
-from typing import List, Dict, Optional
 from functools import lru_cache
+from typing import Dict, List, Optional
+
+import yaml
+
+
+def adjusted_config_path(path: str, team: str, season: str, args: argparse.Namespace):
+    if team:
+        path = os.path.join(path, args.team)
+    if season:
+        path = os.path.join(path, args.season)
+    return path
+
 
 def load_config_file(
     root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
 ):
-    yaml_file_path = os.path.join(
-        root_dir, "config", config_type, config_name + ".yaml"
-    )
+    yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     if os.path.exists(yaml_file_path):
         with open(yaml_file_path, "r") as file:
             try:
@@ -22,9 +31,7 @@ def load_config_file(
 
 
 def save_config_file(root_dir: str, config_type: str, config_name: str, data: dict):
-    yaml_file_path = os.path.join(
-        root_dir, "config", config_type, config_name + ".yaml"
-    )
+    yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     with open(yaml_file_path, "w") as file:
         yaml.dump(data, file, sort_keys=False)
 
@@ -38,9 +45,7 @@ def get_game_config(game_id: str, root_dir: str):
 
 
 def save_game_config(game_id: str, root_dir: str, data: dict):
-    return save_config_file(
-        root_dir=root_dir, config_type="games", config_name=game_id, data=data
-    )
+    return save_config_file(root_dir=root_dir, config_type="games", config_name=game_id, data=data)
 
 
 def get_rink_config(rink: str, root_dir: str):
@@ -58,7 +63,9 @@ def get_item(key: str, maps: List[Dict]):
     return None
 
 
-def get_config(root_dir: str, game_id: str, rink: Optional[str] = None, camera: Optional[str] = None):
+def get_config(
+    root_dir: str, game_id: str, rink: Optional[str] = None, camera: Optional[str] = None
+):
     """
     Get a consolidated configuration.
     Direct parameters override parameters whihc are in the higher-level yaml
@@ -87,10 +94,9 @@ def get_config(root_dir: str, game_id: str, rink: Optional[str] = None, camera: 
     consolidated_config = recursive_update(consolidated_config, game_config)
     return consolidated_config
 
+
 def update_config(root_dir: str, baseline_config: dict, config_type: str, config_name: str):
-    yaml_file_path = os.path.join(
-        root_dir, "config", config_type, config_name + ".yaml"
-    )
+    yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     if not os.path.exists(yaml_file_path):
         return baseline_config
     config = load_config_file(root_dir=root_dir, config_type=config_type, config_name=config_name)
