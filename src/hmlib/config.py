@@ -73,7 +73,11 @@ def get_item(key: str, maps: List[Dict]):
 
 
 def get_config(
-    root_dir: str, game_id: str, rink: Optional[str] = None, camera: Optional[str] = None
+    root_dir: str,
+    game: Optional[Game] = None,
+    game_id: Optional[str] = None,
+    rink: Optional[str] = None,
+    camera: Optional[str] = None,
 ):
     """
     Get a consolidated configuration.
