@@ -22,6 +22,7 @@ psutil
 filterpy
 screeninfo
 gast
+typeguard
 astunparse
 fvcore
 opencv-python

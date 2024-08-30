@@ -1,14 +1,15 @@
 import argparse
 import logging
 import os
-import sys
 import time
 import traceback
 import warnings
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Any, List, Optional
+from typing import Any, Dict, Optional
 
+# For TopDownGetBboxCenterScale
+import mmpose.datasets.pipelines.top_down_transform
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -19,12 +20,7 @@ from mmdet.datasets.pipelines import Compose
 from mmtrack.apis import init_model
 from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
-
-# This will register the transforms and model
-from hmlib.hm_transforms import update_data_pipeline
-
-# For TopDownGetBboxCenterScale
-import mmpose.datasets.pipelines.top_down_transform
+from typeguard import typechecked
 
 import hmlib.models.end_to_end  # Registers the model
 from hmlib.camera.cam_post_process import DefaultArguments
@@ -40,17 +36,16 @@ from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.hm_transforms import update_data_pipeline
 from hmlib.stitching.synchronize import configure_video_stitching
-from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus, tensor_call
-from hmlib.utils.pipeline import get_pipeline_item
+from hmlib.utils.checkpoint import load_checkpoint_to_model
+from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.mot_data import MOTTrackingData
+from hmlib.utils.pipeline import get_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
-from hmlib.utils.py_utils import find_item_in_module
 from hmlib.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
@@ -366,40 +361,6 @@ class FakeExp:
 def is_stitching(input_video: str) -> bool:
     input_video_files = input_video.split(",")
     return len(input_video_files) == 2 or os.path.isdir(args.input_video)
-
-
-def load_checkpoint_to_model(model, checkpoint):
-    from mmengine.runner.checkpoint import (
-        get_state_dict,
-        _load_checkpoint,
-        _load_checkpoint_to_model,
-    )
-
-    # checkpoint_base = _load_checkpoint(weights, map_location="cpu")
-    checkpoint_base = get_state_dict(model)
-    checkpoint = _load_checkpoint(checkpoint, map_location="cpu")
-
-    # base_state_dict = checkpoint_base["state_dict"]
-    state_dict = checkpoint["chate_dict"]
-    if "state_dict" in state_dict:
-        state_dict = state_dict["state_dict"]
-
-    new_state_dict = dict()
-    for name, value in state_dict.items():
-        name = name.replace("ema_backbone", "backbone")
-        name = name.replace("_", ".")
-        if not name.startswith("backbone."):
-            continue
-        new_state_dict[name] = value
-        if name in base_state_dict:
-            print(f"found: {name}")
-            checkpoint_base["state_dict"][name] = value
-        else:
-            print(f"extra: {name}")
-    checkpoint["state_dict"] = new_state_dict
-    # checkpoint_base["state_dict"].update(new_state_dict)
-
-    _load_checkpoint_to_model(model, checkpoint_base)
 
 
 def main(args, num_gpu):
@@ -1212,6 +1173,7 @@ def process_mmtracking_results(mmtracking_results):
     return person_results
 
 
+@typechecked
 def multi_pose_task(
     pose_model,
     cur_frame,
