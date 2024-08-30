@@ -1286,7 +1286,7 @@ if __name__ == "__main__":
         args.tracker = get_nested_value(game_config, "model.tracker.type")
     elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
         game_config = update_config(
-            root_dir=adjusted_config_path(ROOT_DIR, args),
+            root_dir=ROOT_DIR,
             baseline_config=game_config,
             config_type="models",
             config_name="tracker_" + args.tracker,
