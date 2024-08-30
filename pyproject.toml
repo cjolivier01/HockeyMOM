@@ -1,7 +1,5 @@
 [tool.isort]
-skip_glob = openmm/*
+
 
 [tool.black]
-skip_glob = openmm/*
 line-length=100
-
