@@ -1,11 +1,20 @@
 import argparse
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, List, Optional
 
 import yaml
 
 
+@dataclass
+class Game:
+    game_id: Optional[str] = None
+    season: Optional[str] = None
+    team: Optional[str] = None
+
+
+# TODO: implement passing all of this in cleanly somehow
 def adjusted_config_path(path: str, team: str, season: str, args: argparse.Namespace):
     if team:
         path = os.path.join(path, args.team)
