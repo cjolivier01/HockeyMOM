@@ -82,7 +82,6 @@ def load_checkpoint_to_model(
             new_state_dict[name] = value
             found_count += 1
         else:
-            print(f"extra: {name}")
             not_found_count += 1
     base_checkpoint.update(new_state_dict)
     if found_count:
