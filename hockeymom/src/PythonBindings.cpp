@@ -1,7 +1,8 @@
 #include "hockeymom/csrc/dataloader/StitchingDataLoader.h"
-#include "hockeymom/csrc/mblend/mblend.h"
 #include "hockeymom/csrc/postprocess/ImagePostProcess.h"
+#include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
+#include "hockeymom/csrc/pytorch/image_stitch.h"
 #include "hockeymom/csrc/stitcher/HmNona.h"
 #include "hockeymom/csrc/video/video_writer.h"
 
@@ -66,15 +67,28 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("y_pos", &hm::ops::RemapperConfig::y_pos)
       .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
       .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
+      .def_readwrite("dtype", &hm::ops::RemapperConfig::dtype)
       .def_readwrite(
           "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
       .def_readwrite("interpolation", &hm::ops::RemapperConfig::interpolation)
       .def_readwrite("batch_size", &hm::ops::RemapperConfig::batch_size)
       .def_readwrite("device", &hm::ops::RemapperConfig::device);
 
+  py::class_<hm::BlenderConfig, std::shared_ptr<hm::BlenderConfig>>(
+      m, "BlenderConfig")
+      .def(py::init<>())
+      .def_readwrite("mode", &hm::BlenderConfig::mode)
+      .def_readwrite("levels", &hm::BlenderConfig::levels)
+      .def_readwrite("seam", &hm::BlenderConfig::seam)
+      .def_readwrite("xor_map", &hm::BlenderConfig::xor_map)
+      .def_readwrite("lazy_init", &hm::BlenderConfig::lazy_init)
+      .def_readwrite("interpolation", &hm::BlenderConfig::interpolation)
+      .def_readwrite("device", &hm::BlenderConfig::device);
+
   py::class_<hm::StitchingDataLoader, std::shared_ptr<hm::StitchingDataLoader>>(
       m, "StitchingDataLoader")
       .def(py::init<
+           at::ScalarType,
            std::size_t,
            std::string,
            std::string,
@@ -83,10 +97,16 @@ PYBIND11_MODULE(_hockeymom, m) {
            std::size_t,
            std::size_t,
            std::size_t>())
+      .def("fps", &hm::StitchingDataLoader::fps)
       .def(
           "configure_remapper",
           &hm::StitchingDataLoader::configure_remapper,
           py::arg("remapper_config"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "configure_blender",
+          &hm::StitchingDataLoader::configure_blender,
+          py::arg("blender_config"),
           py::call_guard<py::gil_scoped_release>())
       .def(
           "add_frame",
@@ -159,10 +179,20 @@ PYBIND11_MODULE(_hockeymom, m) {
               }
               return stitched_image->to_tensor();
             }
-          });
-
-  using SortedPyArrayUin8Queue =
-      hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
+          })
+      .def(
+          "get_stitched_pytorch_frame",
+          [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
+             std::size_t frame_id) -> std::optional<at::Tensor> {
+            py::gil_scoped_release release_gil;
+            at::Tensor stitched_image =
+                data_loader->get_stitched_pytorch_frame(frame_id);
+            if (!stitched_image.defined()) {
+              return std::nullopt;
+            }
+            return stitched_image;
+          },
+          py::arg("frame_id"));
 
   py::class_<
       hm::av::FFmpegVideoWriter,
@@ -181,6 +211,8 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def("write", &hm::av::FFmpegVideoWriter::write_v);
   ;
 
+  using SortedPyArrayUin8Queue =
+      hm::SortedQueue<std::size_t, std::unique_ptr<py::array_t<std::uint8_t>>>;
   py::class_<SortedPyArrayUin8Queue, std::shared_ptr<SortedPyArrayUin8Queue>>(
       m, "SortedPyArrayUin8Queue")
       .def(py::init<>())
@@ -270,6 +302,35 @@ PYBIND11_MODULE(_hockeymom, m) {
               matrix = sq->dequeue_smallest_key(&key);
             }
             return std::make_tuple(key, matrix->to_py_array());
+          });
+
+  using SortedTensorQueue = hm::SortedQueue<std::size_t, at::Tensor>;
+  py::class_<SortedTensorQueue, std::shared_ptr<SortedTensorQueue>>(
+      m, "SortedTensorQueue")
+      .def(py::init<>())
+      .def(
+          "enqueue",
+          [](const std::shared_ptr<SortedTensorQueue>& sq,
+             std::size_t key,
+             at::Tensor tensor) -> void {
+            sq->enqueue(key, std::move(tensor));
+          })
+      .def(
+          "dequeue_key",
+          [](const std::shared_ptr<SortedTensorQueue>& sq,
+             std::size_t key) -> at::Tensor {
+            py::gil_scoped_release release;
+            return sq->dequeue_key(key);
+          })
+      .def(
+          "dequeue_smallest_key",
+          [](const std::shared_ptr<SortedTensorQueue>& sq)
+              -> std::tuple<std::size_t, at::Tensor> {
+            std::size_t key = ~0;
+            std::unique_ptr<py::array_t<std::uint8_t>> result;
+            py::gil_scoped_release release;
+            auto tensor = sq->dequeue_smallest_key(&key);
+            return std::make_tuple(key, tensor);
           });
 
   py::class_<hm::enblend::EnBlender, std::shared_ptr<hm::enblend::EnBlender>>(
@@ -398,12 +459,14 @@ PYBIND11_MODULE(_hockeymom, m) {
               std::size_t,
               at::Tensor,
               at::Tensor,
+              at::ScalarType,
               bool,
               std::optional<std::string>>(),
           py::arg("src_width"),
           py::arg("src_height"),
           py::arg("col_map"),
           py::arg("row_map"),
+          py::arg("dtype"),
           py::arg("add_alpha_channel"),
           py::arg("interpolation"),
           py::call_guard<py::gil_scoped_release>())
@@ -422,8 +485,118 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::ops::ImageRemapper::is_initialized,
           py::call_guard<py::gil_scoped_release>())
       .def(
-          "remap",
-          &hm::ops::ImageRemapper::remap,
+          "forward",
+          &hm::ops::ImageRemapper::forward,
           py::arg("source_tensor"),
+          py::call_guard<py::gil_scoped_release>());
+
+  py::enum_<hm::ops::ImageBlender::Mode>(m, "ImageBlenderMode")
+      .value("HardSeam", hm::ops::ImageBlender::Mode::HardSeam)
+      .value("Laplacian", hm::ops::ImageBlender::Mode::Laplacian)
+      .export_values();
+
+  py::class_<hm::ops::ImageBlender, std::shared_ptr<hm::ops::ImageBlender>>(
+      m, "ImageBlender")
+      .def(
+          py::init<
+              hm::ops::ImageBlender::Mode,
+              bool,
+              std::size_t,
+              at::Tensor,
+              at::Tensor,
+              bool,
+              std::optional<std::string>>(),
+          py::arg("mode"),
+          py::arg("half"),
+          py::arg("levels"),
+          py::arg("seam"),
+          py::arg("xor_map"),
+          py::arg("lazy_init"),
+          py::arg("interpolation"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "to",
+          &hm::ops::ImageBlender::to,
+          py::arg("device"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "make_full",
+          &hm::ops::ImageBlender::forward,
+          py::arg("image_1"),
+          py::arg("xy_pos_1"),
+          py::arg("image_2"),
+          py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "forward",
+          &hm::ops::ImageBlender::forward,
+          py::arg("image_1"),
+          py::arg("xy_pos_1"),
+          py::arg("image_2"),
+          py::arg("xy_pos_2"),
+          py::call_guard<py::gil_scoped_release>());
+
+  py::class_<
+      hm::ops::StitchImageInfo,
+      std::shared_ptr<hm::ops::StitchImageInfo>>(m, "StitchImageInfo")
+      .def(py::init<>())
+      .def_readwrite("image", &hm::ops::StitchImageInfo::image)
+      .def_readwrite("xy_pos", &hm::ops::StitchImageInfo::xy_pos)
+      //.def_readwrite("cuda_stream", &hm::ops::StitchImageInfo::cuda_stream)
+      ;
+
+  py::class_<hm::ops::StreamTensor, std::shared_ptr<hm::ops::StreamTensor>>(
+      m, "StreamTensor")
+      .def(py::init<>())
+      .def(
+          "get",
+          &hm::ops::StreamTensor::get,
+          py::call_guard<py::gil_scoped_release>());
+
+  py::class_<hm::ops::RemapImageInfo, std::shared_ptr<hm::ops::RemapImageInfo>>(
+      m, "RemapImageInfo")
+      .def(py::init<>())
+      .def_readwrite("src_width", &hm::ops::RemapImageInfo::src_width)
+      .def_readwrite("src_height", &hm::ops::RemapImageInfo::src_height)
+      .def_readwrite("dtype", &hm::ops::RemapImageInfo::dtype)
+      .def_readwrite("col_map", &hm::ops::RemapImageInfo::col_map)
+      .def_readwrite("row_map", &hm::ops::RemapImageInfo::row_map)
+      .def_readwrite(
+          "add_alpha_channel", &hm::ops::RemapImageInfo::add_alpha_channel);
+
+  py::class_<hm::ops::ImageStitcher, std::shared_ptr<hm::ops::ImageStitcher>>(
+      m, "ImageStitcher")
+      .def(
+          py::init<
+              std::size_t,
+              std::vector<hm::ops::RemapImageInfo>,
+              hm::ops::ImageBlender::Mode,
+              bool,
+              std::size_t,
+              bool,
+              at::Tensor,
+              at::Tensor,
+              bool,
+              std::optional<std::string>>(),
+          py::arg("batch_size"),
+          py::arg("remap_image_info"),
+          py::arg("blender_mode"),
+          py::arg("half"),
+          py::arg("levels"),
+          py::arg("remap_on_async_stream"),
+          py::arg("seam"),
+          py::arg("xor_map"),
+          py::arg("lazy_init"),
+          py::arg("interpolation") = "bilinear",
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "to",
+          &hm::ops::ImageStitcher::to,
+          py::arg("device"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "forward",
+          &hm::ops::ImageStitcher::forward,
+          py::arg("inputs"),
           py::call_guard<py::gil_scoped_release>());
 }

@@ -20,18 +20,19 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(BUILD_DEBUG_FLAGS "-fno-omit-frame-pointer -O0 -g")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BUILD_DEBUG_FLAGS}")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${BUILD_DEBUG_FLAGS}")
+
   # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DHUGIN_DEBUG=1")
   # include_directories(${CMAKE_CURRENT_LIST_DIR}/../vigra/include)
   # link_directories(${CMAKE_CURRENT_LIST_DIR}/../vigra/build/src/impex)
 
   # set(VIGRA_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../vigra/include)
   # set(VIGRA_LIBRARIES ${CMAKE_CURRENT_LIST_DIR}/../vigra/build/src/impex/libvigraimpex.so.11)
-
 endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 17)
+
 # set(CMAKE_CXX_STANDARD 14)
 
 # OpenCV config
@@ -55,14 +56,16 @@ SET(CUDA_NVCC_FLAGS "-Xcompiler,\"-std=c++14\"")
 # SET(INSTALL_C_EXAMPLES OFF)
 # SET(EIGEN3_INCLUDE_PATH /usr/include/eigen3)
 SET(OPENCV_ENABLE_NONFREE ON)
-SET(WITH_CUDA ON)
-SET(WITH_CUDNN ON)
-SET(OPENCV_DNN_CUDA ON)
+
+# SET(WITH_CUDA ON)
+# SET(WITH_CUDNN ON)
+# SET(OPENCV_DNN_CUDA ON)
 SET(ENABLE_FAST_MATH 1)
-SET(CUDA_FAST_MATH 1)
-SET(CUDA_ARCH_BIN 6.1)
-SET(WITH_CUBLAS 1)
-SET(OPENCV_DNN_CUDA 0)
+
+# SET(CUDA_FAST_MATH 1)
+# SET(CUDA_ARCH_BIN 6.1)
+# SET(WITH_CUBLAS 1)
+# SET(OPENCV_DNN_CUDA 0)
 
 # SET(WITH_EIGEN 0)
 # SET(HAVE_opencv_python3 ON)
@@ -71,20 +74,20 @@ SET(BUILD_EXAMPLES OFF)
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules")
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/opencv_contrib/modules")
 # MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
-SET(OPENCV_EXTRA_MODULES_PATH "$ENV{HOME}/src/hockeymom/external/opencv-python/opencv_contrib/modules/")
+SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv_contrib/modules/")
 
+# include_directories(${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv/include/opencv2)
 # Detect compiler version (does not seem to work)
 # if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang|MSVC")
-#     # Using regular expression to extract major version
-#     string(REGEX MATCH "^[0-9]+" COMPILER_MAJOR_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
-#     message(STATUS "Compiler major version: ${COMPILER_MAJOR_VERSION}")
-#     set(CMAKE_CXX_FLAGS "-isystem /usr/include/c++/${COMPILER_MAJOR_VERSION} ${CMAKE_CXX_FLAGS}")
+# # Using regular expression to extract major version
+# string(REGEX MATCH "^[0-9]+" COMPILER_MAJOR_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+# message(STATUS "Compiler major version: ${COMPILER_MAJOR_VERSION}")
+# set(CMAKE_CXX_FLAGS "-isystem /usr/include/c++/${COMPILER_MAJOR_VERSION} ${CMAKE_CXX_FLAGS}")
 # else()
-#     message(WARNING "Compiler not recognized. Version detection might not be accurate.")
+# message(WARNING "Compiler not recognized. Version detection might not be accurate.")
 # endif()
 
 # set(CMAKE_CXX_FLAGS "-isystem /usr/include/c++/${COMPILER_MAJOR_VERSION} ${CMAKE_CXX_FLAGS}")
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
@@ -103,21 +106,24 @@ if(HM_BUILD_ASAN)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -UDEBUG")
 endif(HM_BUILD_ASAN)
 
-#link_directories($ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr/lib64)
-
+# link_directories($ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr/lib64)
 find_package(Torch REQUIRED)
-#message(FATAL_ERROR "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}")
+
+# message(FATAL_ERROR "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}")
 include_directories(${TORCH_INCLUDE_DIRS})
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 set(TORCH_LIBRARY_PATH "${TORCH_INSTALL_PREFIX}/lib")
 link_directories(${TORCH_LIBRARY_PATH})
 
 set(THREADS_PREFER_PTHREAD_FLAG 0)
-#set(Threads_FOUND 1)
-#add_compile_options(-pthread)
+
+# set(Threads_FOUND 1)
+# add_compile_options(-pthread)
 find_package(Threads REQUIRED)
 message(STATUS " CMAKE_THREAD_LIBS_INIT=${CMAKE_THREAD_LIBS_INIT}")
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
+
+link_directories($ENV{CONDA_PREFIX}/lib)
 
 #
 # FFMpeg
@@ -137,24 +143,19 @@ include_directories(${SWSCALE_INCLUDE_DIRS})
 
 set(FFMPEG_LIBS ${AVCODEC_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
 
-#message(FATAL_ERROR " FFMPEG_LIBS=${FFMPEG_LIBS}")
-
+# message(FATAL_ERROR " FFMPEG_LIBS=${FFMPEG_LIBS}")
 
 #
 # FFMpeg-
 #
-
-
-
-link_directories($ENV{CONDA_PREFIX}/lib)
-
+#include_directories(/usr/include/opencv4)
 # find_package(
-#   Threads REQUIRED
-#   PATHS
-#   $ENV{CONDA_PREFIX}
-#   $ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr
+# Threads REQUIRED
+# PATHS
+# $ENV{CONDA_PREFIX}
+# $ENV{CONDA_PREFIX}/x86_64-conda-linux-gnu/sysroot/usr
 # )
-#message(FATAL_ERROR "Stop here")
+# message(FATAL_ERROR "Stop here")
 
 #
 #
@@ -204,9 +205,9 @@ add_subdirectory(external)
 
 # add_subdirectory(external/eigen)
 # add_subdirectory(external/abseil-cpp)
+set(OPENCV_EXTRA_MODULES_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules)
+set(BUILD_SHARED_LIBS OFF)
 
-# set(OPENCV_EXTRA_MODULES_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules)
-# set(BUILD_SHARED_LIBS OFF)
 # add_subdirectory(external/opencv-python/opencv)
 
 # add_subdirectory(external/hugin)

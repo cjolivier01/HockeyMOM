@@ -1,0 +1,155 @@
+game:
+  # clip_box:
+  # - 200
+  # - 200
+  # - null
+  # - null
+  boundaries:
+    upper:
+    - - 145
+      - 1143
+      - 305
+      - 1130
+    - - 305
+      - 1130
+      - 478
+      - 1058
+    - - 479
+      - 1056
+      - 905
+      - 935
+    - - 905
+      - 935
+      - 1268
+      - 854
+    - - 1259
+      - 851
+      - 1645
+      - 802
+    - - 1640
+      - 802
+      - 2087
+      - 781
+    - - 2083
+      - 782
+      - 2680
+      - 778
+    - - 2679
+      - 778
+      - 3221
+      - 797
+    - - 3219
+      - 798
+      - 3716
+      - 835
+    - - 3710
+      - 836
+      - 4135
+      - 879
+    - - 4124
+      - 879
+      - 4429
+      - 942
+    - - 4426
+      - 942
+      - 4796
+      - 1037
+    - - 4796
+      - 1037
+      - 5055
+      - 1133
+    - - 2341
+      - 833
+      - 2374
+      - 835
+    - - 2770
+      - 841
+      - 2801
+      - 838
+    - - 2881
+      - 833
+      - 2925
+      - 829
+    - - 3212
+      - 850
+      - 3250
+      - 849
+    - - 2400
+      - 816
+      - 2422
+      - 814
+    - - 2491
+      - 819
+      - 2521
+      - 821
+    lower:
+    - - 89
+      - 1088
+      - 289
+      - 1060
+    - - 289
+      - 1135
+      - 937
+      - 1575
+    - - 927
+      - 1571
+      - 2307
+      - 2013
+    - - 3771
+      - 1833
+      - 4654
+      - 1425
+    - - 4650
+      - 1424
+      - 5055
+      - 1133
+    - - 5055
+      - 910
+      - 5429
+      - 901
+rink:
+  scoreboard:
+    perspective_polygon:
+    - - 647
+      - 787
+    - - 884
+      - 739
+    - - 899
+      - 799
+    - - 662
+      - 854
+    projected_height: 200
+    projected_width: 700
+  tracking:
+    #
+    # Some tracking config
+    #
+    cam_ignore_largest: true
+
+  camera:
+    follower_box_scale_width: 1.2
+    follower_box_scale_height: 1.2
+    #
+    # Configuration for breakaways
+    #
+    breakaway_detection:
+      # What ratio of the group speed should we try to
+      # apply within a single frame's speed adjustment?
+      group_velocity_speed_ratio: 0.2
+      # During a breakaway, what scale do we adjust the
+      # maximum camera speed to allow for faster-than-normal tracking?
+      scale_speed_constraints: 1.5
+      # The number of frame steps to not allow any camera-stop conditions to
+      # trigger such as cluster(s) direction change or "sticky translation" rules.
+      # This is because the clusters may not have changed enough at the
+      # beginning of a breakaway and may simply stop the camera movement
+      # due to the cluster tracking rules.
+      nonstop_delay_count: 2
+      # When over-shooting the breakaway players, what scale do we apply
+      # to the current speed each frame in order to slow it down?
+      overshoot_scale_speed_ratio: 0.6
+
+model:
+  tracker:
+    type: fair
+    conf_thres: 0.3

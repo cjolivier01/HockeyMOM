@@ -1,9 +1,5 @@
 #!/bin/bash
 
-GAME_ID="tvbb"
-
-VIDEO_DIR="${HOME}/Videos/${GAME_ID}"
-
 OMP_NUM_THREADS=24 \
-	PYTHONPATH=$(pwd):$(pwd)/models/mixsort \
-	python src/stitch.py --video_dir="${VIDEO_DIR}" --game-id=${GAME_ID} --project_file=autooptimiser_out.pto ${OFFSETS}  $@
+	PYTHONPATH=$(pwd):$(pwd)/xmodels/mixsort \
+	python src/stitch.py --game-id=${GAME_ID} --project_file=autooptimiser_out.pto ${OFFSETS}  $@

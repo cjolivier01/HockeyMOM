@@ -4,8 +4,7 @@ from __future__ import print_function
 
 import torch
 import numpy as np
-import multiprocessing
-import queue
+from typing import List
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -26,9 +25,21 @@ class AverageMeter(object):
           self.avg = self.sum / self.count
 
 
+def calc_combined_fps(fps_list: List[float]) -> float:
+    # Combined FPS= XY/(X+Y)
+    mul = 1
+    add = 0
+    for fps in fps_list:
+        mul *= fps
+        add += fps
+    if add:
+        return mul / add
+    return 0
+
+
 def xyxy2xywh(x):
     # Convert bounding box format from [x1, y1, x2, y2] to [x, y, w, h]
-    y = torch.zeros(x.shape) if x.dtype is torch.float32 else np.zeros(x.shape)
+    y = torch.zeros(x.shape) if x.dtype is torch.float else np.zeros(x.shape)
     y[:, 0] = (x[:, 0] + x[:, 2]) / 2
     y[:, 1] = (x[:, 1] + x[:, 3]) / 2
     y[:, 2] = x[:, 2] - x[:, 0]
@@ -38,7 +49,7 @@ def xyxy2xywh(x):
 
 def xywh2xyxy(x):
     # Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]
-    y = torch.zeros(x.shape) if x.dtype is torch.float32 else np.zeros(x.shape)
+    y = torch.zeros(x.shape) if x.dtype is torch.float else np.zeros(x.shape)
     y[:, 0] = (x[:, 0] - x[:, 2] / 2)
     y[:, 1] = (x[:, 1] - x[:, 3] / 2)
     y[:, 2] = (x[:, 0] + x[:, 2] / 2)
@@ -181,8 +192,17 @@ def encode_delta(gt_box_list, fg_anchor_list):
     return np.stack((dx, dy, dw, dh), axis=1)
 
 
-def create_queue(mp: bool):
-    if mp:
-        return multiprocessing.Queue()
-    else:
-        return queue.Queue()
+def classinstancememoize(cls):
+    cache = {}
+
+    def get_instance(*args, **kwargs):
+        # Sort kwargs to ensure consistent ordering
+        kwargs_tuple = tuple(sorted(kwargs.items()))
+        # Use args and sorted kwargs as the key
+        key = (args, kwargs_tuple)
+
+        if key not in cache:
+            cache[key] = cls(*args, **kwargs)
+        return cache[key]
+
+    return get_instance

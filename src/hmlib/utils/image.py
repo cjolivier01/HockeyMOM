@@ -5,16 +5,19 @@
 # Modified by Xingyi Zhou
 # ------------------------------------------------------------------------------
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
-import numpy as np
-import cv2
 import random
-import torch
+from typing import List, Union
 
-from typing import List
+import cv2
+import numpy as np
+import PIL
+import torch
+import torch.nn.functional as TF
+from torchvision.transforms import functional as F
+
+from hmlib.utils.gpu import StreamTensor
 
 
 def flip(img):
@@ -31,7 +34,7 @@ def transform_preds(coords, center, scale, output_size):
 
 # def pt_transform_preds(coords, center, scale, output_size):
 #     target_coords = torch.zeros_like(coords)
-#     zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
+#     zero = torch.tensor(0, dtype=torch.float, device=target_coords.device)
 #     trans = pt_get_affine_transform(center, scale, zero, output_size, inv=1)
 #     for p in range(coords.shape[0]):
 #         target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
@@ -40,7 +43,7 @@ def transform_preds(coords, center, scale, output_size):
 
 def pt_transform_preds(coords, center, scale, output_size, trans):
     target_coords = torch.zeros_like(coords)
-    zero = torch.tensor(0, dtype=torch.float32, device=target_coords.device)
+    zero = torch.tensor(0, dtype=torch.float, device=target_coords.device)
     if trans is None:
         trans = get_affine_transform(
             center.cpu().numpy(),
@@ -49,7 +52,7 @@ def pt_transform_preds(coords, center, scale, output_size, trans):
             output_size.cpu().numpy(),
             inv=1,
         )
-        trans = torch.from_numpy(trans).to(torch.float32).to(coords.device)
+        trans = torch.from_numpy(trans).to(torch.float).to(coords.device)
     # for p in range(coords.shape[0]):
     #     target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
     target_c = all_dets_pt_affine_transform(coords[:, 0:2], trans)
@@ -95,7 +98,7 @@ def pt_cv2_get_affine_transform(src, dst):
     src, dst: torch.Tensor
         Source and destination points, shape (3, 2)
     """
-    ones = torch.ones(3, dtype=torch.float32, device=src.device)
+    ones = torch.ones(3, dtype=torch.float, device=src.device)
     src_h = torch.cat(
         [src, ones.unsqueeze(1)], dim=1
     )  # Convert to homogeneous coordinates
@@ -111,7 +114,7 @@ def pt_get_affine_transform(
     center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
 ):
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
-        scale = torch.tensor([scale, scale], dtype=torch.float32, device=scale.device)
+        scale = torch.tensor([scale, scale], dtype=torch.float, device=scale.device)
     if isinstance(shift, np.ndarray):
         shift = torch.from_numpy(shift).to(device=center.device)
 
@@ -124,17 +127,15 @@ def pt_get_affine_transform(
     src_dir = pt_get_dir(
         torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad
     )
-    dst_dir = torch.tensor([0, dst_w * -0.5], dtype=torch.float32, device=dst_w.device)
+    dst_dir = torch.tensor([0, dst_w * -0.5], dtype=torch.float, device=dst_w.device)
 
-    src = torch.zeros((3, 2), dtype=torch.float32, device=center.device)
-    dst = torch.zeros((3, 2), dtype=torch.float32, device=center.device)
+    src = torch.zeros((3, 2), dtype=torch.float, device=center.device)
+    dst = torch.zeros((3, 2), dtype=torch.float, device=center.device)
     src[0, :] = center + scale_tmp * shift
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
     dst[1, :] = (
-        torch.tensor(
-            [dst_w * 0.5, dst_h * 0.5], dtype=torch.float32, device=dst_w.device
-        )
+        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device)
         + dst_dir
     )
 
@@ -142,13 +143,9 @@ def pt_get_affine_transform(
     dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
 
     if inv:
-        trans = pt_cv2_get_affine_transform(
-            dst.to(torch.float32), src.to(torch.float32)
-        )
+        trans = pt_cv2_get_affine_transform(dst.to(torch.float), src.to(torch.float))
     else:
-        trans = pt_cv2_get_affine_transform(
-            src.to(torch.float32), dst.to(torch.float32)
-        )
+        trans = pt_cv2_get_affine_transform(src.to(torch.float), dst.to(torch.float))
 
     return trans
 
@@ -160,8 +157,8 @@ def affine_transform(pt, t):
 
 
 def pt_affine_transform(pt, t):
-    one = torch.tensor(1, dtype=torch.float32, device=pt.device)
-    new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float32, device=pt.device).T
+    one = torch.tensor(1, dtype=torch.float, device=pt.device)
+    new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float, device=pt.device).T
     new_pt = torch.matmul(t, new_pt)
     return new_pt[:2]
 
@@ -183,7 +180,7 @@ def get_3rd_point(a, b):
 def pt_get_3rd_point(a, b):
     direct = a - b
     return b + torch.tensor(
-        [-direct[1], direct[0]], dtype=torch.float32, device=direct.device
+        [-direct[1], direct[0]], dtype=torch.float, device=direct.device
     )
 
 
@@ -445,7 +442,7 @@ class ImageColorScaler:
             if isinstance(image, torch.Tensor):
                 self._scale_color_tensor = torch.tensor(
                     self._image_channel_adjustment,
-                    dtype=torch.float32,
+                    dtype=torch.float,
                     device=image.device,
                 )
                 self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
@@ -458,7 +455,7 @@ class ImageColorScaler:
                 )
         if isinstance(image, torch.Tensor):
             image = torch.clamp(
-                image.to(torch.float32) * self._scale_color_tensor, min=0, max=255.0
+                image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0
             ).to(torch.uint8)
         else:
             image = np.clip(
@@ -470,28 +467,235 @@ class ImageColorScaler:
 
 
 def _permute(t, *args):
-    if isinstance(t, torch.Tensor):
-        return t.permute(*args)
-    return t.transpose(*args)
+    if isinstance(t, np.ndarray):
+        return t.transpose(*args)
+    return t.permute(*args)
+
+
+def is_channels_first(img: Union[torch.Tensor, np.ndarray]):
+    if img.ndim == 3:
+        return img.shape[0] in [3, 4] and img.shape[-1] not in [3, 4]
+    else:
+        assert img.ndim == 4
+        return img.shape[1] in [3, 4] and img.shape[-1] not in [3, 4]
+
+
+def is_channels_last(img: Union[torch.Tensor, np.ndarray]):
+    if img.ndim == 3:
+        return img.shape[-1] in [3, 4] and img.shape[0] not in [3, 4]
+    else:
+        assert img.ndim == 4
+        return img.shape[-1] in [3, 4] and img.shape[1] not in [3, 4]
 
 
 def make_channels_first(img: torch.Tensor):
     if len(img.shape) == 4:
-        if img.shape[-1] in [3, 4]:
+        if img.shape[-1] in [1, 3, 4]:
             return _permute(img, 0, 3, 1, 2)
     else:
         assert len(img.shape) == 3
-        if img.shape[-1] in [3, 4]:
-            return _permute(img, 0, 1, 2)
+        if img.shape[-1] in [1, 3, 4]:
+            return _permute(img, 2, 0, 1)
     return img
 
 
-def make_channels_last(img: torch.Tensor):
+def make_channels_last(img: torch.Tensor | StreamTensor) -> torch.Tensor | StreamTensor:
     if len(img.shape) == 4:
-        if img.shape[1] in [3, 4]:
+        if img.shape[1] in [1, 3, 4]:
             return _permute(img, 0, 2, 3, 1)
     else:
         assert len(img.shape) == 3
-        if img.shape[0] in [3, 4]:
+        if img.shape[0] in [1, 3, 4]:
             return _permute(img, 1, 2, 0)
     return img
+
+
+def is_channels_first(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
+    if len(img.shape) == 4:
+        return img.shape[1] in [1, 3, 4]
+    else:
+        assert len(img.shape) == 3
+        return img.shape[0] in [1, 3, 4]
+
+
+def is_channels_last(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
+    return img.shape[-1] in [1, 3, 4]
+
+
+def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if isinstance(img, (torch.Tensor, StreamTensor)):
+        if img.ndim == 4:
+            if img.shape[-1] in [1, 3, 4]:
+                return img.shape[-2]
+            else:
+                assert img.shape[1] in [1, 3, 4]
+                return img.shape[-1]
+        else:
+            assert img.ndim == 3
+            if img.shape[-1] in [1, 3, 4]:
+                return img.shape[-2]
+            else:
+                assert img.shape[0] in [1, 3, 4]
+                return img.shape[-1]
+    assert img.shape[-1] in [3, 4]
+    if len(img.shape) == 4:
+        return img.shape[2]
+    return img.shape[1]
+
+
+def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if isinstance(img, (torch.Tensor, StreamTensor)):
+        if img.ndim == 4:
+            if img.shape[-1] in [1, 3, 4]:
+                return img.shape[-3]
+            else:
+                assert img.shape[1] in [1, 3, 4]
+                return img.shape[-2]
+        else:
+            assert img.ndim == 3
+            if img.shape[-1] in [1, 3, 4]:
+                return img.shape[-3]
+            else:
+                assert img.shape[0] in [1, 3, 4]
+                return img.shape[-2]
+    assert img.shape[-1] in [3, 4]
+    if len(img.shape) == 4:
+        return img.shape[1]
+    return img.shape[0]
+
+
+def crop_image(img, left, top, right, bottom):
+    if isinstance(img, PIL.Image.Image):
+        return img.crop((left, top, right, bottom))
+    return img[top : bottom + 1, left : right + 1, 0:3]
+
+
+def resize_image(
+    img,
+    new_width: int,
+    new_height: int,
+    mode=PIL.Image.BILINEAR,
+):
+    w = int(new_width)
+    h = int(new_height)
+    if isinstance(img, torch.Tensor):
+        if img.dim() == 4:
+            # Probably doesn't work
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(0, 3, 2, 1)
+            assert img.shape[1] == 3 or img.shape[1] == 4
+            img = F.resize(
+                img=img,
+                size=(w, h) if permuted else (h, w),
+                interpolation=mode,
+                antialias=True,
+            )
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(0, 3, 2, 1)
+        else:
+            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
+            if permuted:
+                # H, W, C -> C, W, H
+                img = img.permute(2, 1, 0)
+            img = F.resize(
+                img=img,
+                size=(w, h) if permuted else (h, w),
+                interpolation=mode,
+                antialias=True,
+            )
+            if permuted:
+                # C, W, H -> H, W, C
+                img = img.permute(2, 1, 0)
+        return img
+    elif isinstance(img, PIL.Image.Image):
+        return img.resize((w, h))
+    return cv2.resize(img, dsize=(w, h), interpolation=cv2.INTER_CUBIC)
+
+
+# Function to pad tensor to the target size
+def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
+    if len(tensor.shape) == 2:
+        pad_height = target_height - tensor.size(0)
+        pad_width = target_width - tensor.size(1)
+    else:
+        assert len(tensor.shape) == 3
+        pad_height = target_height - tensor.size(1)
+        pad_width = target_width - tensor.size(2)
+    pad_height = max(0, pad_height)
+    pad_width = max(0, pad_width)
+    if pad_height == 0 and pad_height == 0:
+        return tensor
+    padding = [0, pad_width, 0, pad_height]
+    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
+    return padded_tensor
+
+
+def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
+    pad_height = target_height - image_height(tensor)
+    pad_width = target_width - image_width(tensor)
+    pad_height = max(0, pad_height)
+    pad_width = max(0, pad_width)
+    if pad_height == 0 and pad_height == 0:
+        return tensor
+    padding = [0, pad_width, 0, pad_height]
+    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
+    return padded_tensor
+
+
+def make_showable_type(
+    img: Union[torch.Tensor, np.ndarray],
+    scale_elements: Union[float, None] = None,
+):
+    if isinstance(img, torch.Tensor):
+        if img.ndim == 2:
+            # 2D grayscale
+            img = img.unsqueeze(0).repeat(3, 1, 1)
+        if len(img.shape) == 4 and img.shape[0] == 1:
+            img = img.squeeze(0)
+        assert len(img.shape) == 3
+        img = make_channels_last(img)
+        if img.dtype in [torch.float16, torch.float, torch.float64]:
+            if img.dtype == torch.float16:
+                img = img.to(torch.float32)
+            if scale_elements and scale_elements != 1:
+                img = img * scale_elements
+            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
+        img = np.ascontiguousarray(img.cpu().numpy())
+    return img
+
+
+def make_visible_image(
+    img,
+    enable_resizing: Union[bool, float] = None,
+    scale_elements: Union[float, None] = None,
+):
+    if enable_resizing is None:
+        if isinstance(img, torch.Tensor):
+            img = make_showable_type(img, scale_elements)
+        return img
+    width = image_width(img)
+    if enable_resizing != 0:
+        vis_w = width * enable_resizing
+        mult = 1.0
+    else:
+        vis_w = get_complete_monitor_width()
+        mult = 0.7
+    if vis_w and width and width > vis_w:
+        height = image_height(img)
+        ar = width / height
+        new_w = vis_w * mult
+        new_h = new_w / ar
+        img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
+    return make_showable_type(img)
+
+
+def get_complete_monitor_width():
+    width = 0
+    from screeninfo import get_monitors
+
+    for monitor in get_monitors():
+        width += monitor.width
+    return width

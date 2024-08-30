@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -135,8 +136,8 @@ class JobRunner {
     stop();
     threads_.reserve(thread_count);
     for (std::size_t i = 0; i < thread_count; ++i) {
-      threads_.emplace_back(
-          std::make_unique<std::thread>([this, worker_index=i] { this->run(worker_index); }));
+      threads_.emplace_back(std::make_unique<std::thread>(
+          [this, worker_index = i] { this->run(worker_index); }));
     }
   }
 

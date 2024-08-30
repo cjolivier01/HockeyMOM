@@ -9,8 +9,10 @@ namespace ops {
 
 namespace {
 
-constexpr std::int64_t kUnmappedPixelValue = 65535;
+// #define DO_EXTRA_PADDING
 
+constexpr std::int64_t kUnmappedPixelValue = 65535;
+#ifdef DO_EXTRA_PADDING
 template <typename VALUE_TYPE>
 at::Tensor pad_tensor_to_size(
     at::Tensor& tensor,
@@ -58,6 +60,7 @@ at::Tensor pad_tensor_to_size_batched(
   }
   return tensor;
 }
+#endif
 } // namespace
 
 ImageRemapper::ImageRemapper(
@@ -65,6 +68,7 @@ ImageRemapper::ImageRemapper(
     std::size_t src_height,
     at::Tensor col_map,
     at::Tensor row_map,
+    at::ScalarType dtype,
     bool add_alpha_channel,
     std::optional<std::string> interpolation)
     : src_width_(src_width),
@@ -73,20 +77,30 @@ ImageRemapper::ImageRemapper(
       dest_height_(col_map.size(0)),
       col_map_(col_map),
       row_map_(row_map),
+      dtype_(dtype),
       add_alpha_channel_(add_alpha_channel),
       interpolation_(interpolation ? *interpolation : "") {
-  working_width_ = std::max(src_width_, dest_width_);
-  working_height_ = std::max(src_height_, dest_height_);
+  working_width_ = src_width_;
+  working_height_ = src_height_;
 }
 
 void ImageRemapper::init(std::size_t batch_size) {
+  if (initialized_) {
+    return;
+  }
+  assert(!initialized_);
   initialized_ = false;
-  std::cout << "Padding tensors to size: " << working_width_ << " x "
-            << working_height_ << std::endl;
+#ifdef DO_EXTRA_PADDING
+  // std::cout << "Padding tensors to size: " << working_width_ << " x "
+  //           << working_height_ << std::endl;
   auto col_map = pad_tensor_to_size(
       col_map_, working_width_, working_height_, kUnmappedPixelValue);
   auto row_map = pad_tensor_to_size(
       row_map_, working_width_, working_height_, kUnmappedPixelValue);
+#else
+  auto col_map = col_map_;
+  auto row_map = row_map_;
+#endif
   at::Tensor mask = at::logical_or(
       col_map == kUnmappedPixelValue, row_map == kUnmappedPixelValue);
   col_map.index_put_({mask}, 0);
@@ -102,43 +116,58 @@ void ImageRemapper::init(std::size_t batch_size) {
     assert(grid.sizes().size() == 3);
     grid = grid.expand(
         {(int)batch_size, grid.size(0), grid.size(1), grid.size(2)});
-    grid_ = grid.contiguous();
+    grid_ = grid.to(at::TensorOptions(dtype_)).contiguous();
   }
   col_map_ = col_map.contiguous();
   row_map_ = row_map.contiguous();
   mask_ = mask.contiguous();
   if (add_alpha_channel_) {
     at::TensorOptions options;
-    options = options.dtype(at::ScalarType::Byte);
+    options = options.dtype(dtype_);
     alpha_channel_ = at::empty(
         {(int)batch_size, 1, (int)working_height_, (int)working_width_},
         options);
-    alpha_channel_.fill_(255);
+    if (torch::is_floating_point(alpha_channel_)) {
+      alpha_channel_.fill_(1.0);
+    } else {
+      alpha_channel_.fill_(255);
+    }
     alpha_channel_.index_put_(
         {at::indexing::Slice(), at::indexing::Slice(), mask_}, (uint8_t)0);
   }
   initialized_ = true;
 }
 
-void ImageRemapper::to(std::string device) {
+void ImageRemapper::to(at::Device device) {
   assert(initialized_);
   col_map_ = col_map_.to(device);
   row_map_ = row_map_.to(device);
   mask_ = mask_.to(device);
-  if (grid_.numel()) {
+  if (grid_.defined()) {
     grid_ = grid_.to(device);
   }
-  if (alpha_channel_.numel()) {
+  if (alpha_channel_.defined()) {
     alpha_channel_ = alpha_channel_.to(device);
   }
 }
 
-at::Tensor ImageRemapper::remap(at::Tensor source_tensor) const {
+at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
   assert(initialized_);
+  TORCH_CHECK(
+      source_tensor.dtype() == dtype_,
+      "Current remapper dtype is ",
+      dtype_,
+      " but the source tensor dtype is ",
+      source_tensor.dtype());
+  TORCH_CHECK(
+      source_tensor.size(1) == 3 || source_tensor.size(2) == 4,
+      "Tensor format should be [batch, channels, height, width");
+#ifdef DO_EXTRA_PADDING
   source_tensor = pad_tensor_to_size_batched(
-      source_tensor, working_width_, working_height_, (uint8_t)0);
+      source_tensor, working_width_, working_height_, 0);
+#endif
   // batch + 3 channels
-  assert(source_tensor.sizes().size() == 4);
+  TORCH_CHECK(source_tensor.sizes().size() == 4, "Expected a 4D tensor");
   at::Tensor destination_tensor;
   if (interpolation_.empty()) {
     destination_tensor = at::empty_like(source_tensor);
@@ -153,13 +182,23 @@ at::Tensor ImageRemapper::remap(at::Tensor source_tensor) const {
     torch::nn::functional::GridSampleFuncOptions options;
     assert(interpolation_ == "bilinear"); // TODO: implement enum switch
     auto mode = torch::kBilinear;
-    options = options.padding_mode(torch::kZeros).align_corners(false);
-    options.mode(mode);
-    destination_tensor = torch::nn::functional::grid_sample(
-        source_tensor.to(at::TensorOptions().dtype(torch::kF32)),
-        grid_,
-        options);
-    destination_tensor = destination_tensor.clamp(0, 255.0).to(torch::kByte);
+    options =
+        options.padding_mode(torch::kZeros).align_corners(false).mode(mode);
+    if (!torch::is_floating_point(source_tensor)) {
+      source_tensor = source_tensor.to(
+          at::TensorOptions().dtype(dtype_), /*non_blocking=*/true);
+    }
+    destination_tensor =
+        torch::nn::functional::grid_sample(source_tensor, grid_, options);
+    if (destination_tensor.dtype() != dtype_) {
+      if (dtype_ == at::ScalarType::Byte) {
+        destination_tensor = destination_tensor.clamp(0, 255.0).to(
+            torch::kByte, /*non_blocking=*/true);
+      } else {
+        destination_tensor = destination_tensor.to(
+            at::TensorOptions().dtype(dtype_), /*non_blocking=*/true);
+      }
+    }
   }
   destination_tensor.index_put_(
       {torch::indexing::Slice(), torch::indexing::Slice(), mask_}, (uint8_t)0);
@@ -168,12 +207,14 @@ at::Tensor ImageRemapper::remap(at::Tensor source_tensor) const {
     destination_tensor =
         at::cat({destination_tensor, alpha_channel_}, /*dim=*/1);
   }
+#ifdef DO_EXTRA_PADDING
   // Clip to the original size that was specified
   destination_tensor = destination_tensor.index(
       {torch::indexing::Slice(),
        torch::indexing::Slice(),
        torch::indexing::Slice(0, dest_height_),
        torch::indexing::Slice(0, dest_width_)});
+#endif
   return destination_tensor;
 }
 

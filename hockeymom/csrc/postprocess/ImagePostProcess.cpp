@@ -92,29 +92,31 @@ std::string get_python_string(PyObject* obj) {
 }
 
 extern "C" __attribute__((visibility("default"))) int __py_bt() {
-  int count = 0;
-  PyThreadState* tstate = PyThreadState_GET();
-  if (NULL != tstate && NULL != tstate->frame) {
-    PyFrameObject* frame = tstate->frame;
 
-    printf("Python stack trace:\n");
-    while (NULL != frame) {
-      /*
-       frame->f_lineno will not always return the correct line number
-       you need to call PyCode_Addr2Line().
-      */
-      int line = PyCode_Addr2Line(frame->f_code, frame->f_lasti);
-      PyObject* temp_bytes = PyUnicode_AsEncodedString(
-          frame->f_code->co_filename, "UTF-8", "strict");
-      if (temp_bytes != NULL) {
-        auto filename = get_python_string(frame->f_code->co_filename);
-        auto funcname = get_python_string(frame->f_code->co_name);
-        printf("    %s(%d): %s\n", filename.c_str(), line, funcname.c_str());
-        Py_DECREF(temp_bytes);
-      }
-      frame = frame->f_back;
-      ++count;
-    }
-  }
-  return count;
+  // int count = 0;
+  // PyThreadState* tstate = PyThreadState_GET();
+  // if (NULL != tstate && NULL != tstate->frame) {
+  //   PyFrameObject* frame = tstate->frame;
+
+  //   printf("Python stack trace:\n");
+  //   while (NULL != frame) {
+  //     /*
+  //      frame->f_lineno will not always return the correct line number
+  //      you need to call PyCode_Addr2Line().
+  //     */
+  //     int line = PyCode_Addr2Line(frame->f_code, frame->f_lasti);
+  //     PyObject* temp_bytes = PyUnicode_AsEncodedString(
+  //         frame->f_code->co_filename, "UTF-8", "strict");
+  //     if (temp_bytes != NULL) {
+  //       auto filename = get_python_string(frame->f_code->co_filename);
+  //       auto funcname = get_python_string(frame->f_code->co_name);
+  //       printf("    %s(%d): %s\n", filename.c_str(), line, funcname.c_str());
+  //       Py_DECREF(temp_bytes);
+  //     }
+  //     frame = frame->f_back;
+  //     ++count;
+  //   }
+  // }
+  // return count;
+  return 0;
 }

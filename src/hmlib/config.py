@@ -1,7 +1,7 @@
 import os
 import yaml
-from typing import List, Dict
-
+from typing import List, Dict, Optional
+from functools import lru_cache
 
 def load_config_file(
     root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
@@ -21,6 +21,14 @@ def load_config_file(
     return {} if not merge_into_config else merge_into_config
 
 
+def save_config_file(root_dir: str, config_type: str, config_name: str, data: dict):
+    yaml_file_path = os.path.join(
+        root_dir, "config", config_type, config_name + ".yaml"
+    )
+    with open(yaml_file_path, "w") as file:
+        yaml.dump(data, file, sort_keys=False)
+
+
 def baseline_config(root_dir: str):
     return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
@@ -29,12 +37,18 @@ def get_game_config(game_id: str, root_dir: str):
     return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
 
 
+def save_game_config(game_id: str, root_dir: str, data: dict):
+    return save_config_file(
+        root_dir=root_dir, config_type="games", config_name=game_id, data=data
+    )
+
+
 def get_rink_config(rink: str, root_dir: str):
     return load_config_file(root_dir=root_dir, config_type="rinks", config_name=rink)
 
 
 def get_camera_config(camera: str, root_dir: str):
-    return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera)
+    return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera.lower())
 
 
 def get_item(key: str, maps: List[Dict]):
@@ -44,7 +58,7 @@ def get_item(key: str, maps: List[Dict]):
     return None
 
 
-def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None):
+def get_config(root_dir: str, game_id: str, rink: Optional[str] = None, camera: Optional[str] = None):
     """
     Get a consolidated configuration.
     Direct parameters override parameters whihc are in the higher-level yaml
@@ -73,12 +87,22 @@ def get_config(root_dir: str, game_id: str, rink: str = None, camera: str = None
     consolidated_config = recursive_update(consolidated_config, game_config)
     return consolidated_config
 
+def update_config(root_dir: str, baseline_config: dict, config_type: str, config_name: str):
+    yaml_file_path = os.path.join(
+        root_dir, "config", config_type, config_name + ".yaml"
+    )
+    if not os.path.exists(yaml_file_path):
+        return baseline_config
+    config = load_config_file(root_dir=root_dir, config_type=config_type, config_name=config_name)
+    return recursive_update(baseline_config, config)
 
+
+@lru_cache
 def get_clip_box(game_id: str, root_dir: str):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:
-        game = game_config["game"]
-        if "clip_box" in game:
+        game = game_config.get("game", None)
+        if game and "clip_box" in game:
             return game["clip_box"]
     return None
 
@@ -143,4 +167,5 @@ def set_nested_value(dct, key_str, set_to, noset_value=None):
                 current[key] = set_to
             else:
                 current[key] = dict()
+                current = current[key]
     return get_nested_value(dct, key_str)

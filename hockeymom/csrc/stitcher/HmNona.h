@@ -1,6 +1,5 @@
 #pragma once
 
-#include "hockeymom/csrc/common/Gpu.h"
 #include "hockeymom/csrc/common/MatrixRGB.h"
 #include "hockeymom/csrc/stitcher/FileRemapper.h"
 #include "hockeymom/csrc/stitcher/HmStitcher.h"
@@ -8,11 +7,8 @@
 #include "nona/StitcherOptions.h"
 #include "panodata/Panorama.h"
 
-#include <cstdint>
 #include <mutex>
 #include <string>
-#include <thread>
-#include <unordered_map>
 #include <vector>
 
 namespace hm {
@@ -42,10 +38,7 @@ class HmNona {
   std::vector<std::tuple<std::tuple<float, float>, std::tuple<float, float>>>
   get_control_points() const;
 
-  //std::vector<std::tuple<long, long>> get_image_positions() const;
-
  private:
-
   void set_ideal_output_size();
 
   std::string project_file_;

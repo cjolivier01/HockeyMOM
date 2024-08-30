@@ -1,20 +1,13 @@
 import copy
-import numpy as np
 import math
-import cv2
-from typing import List, Tuple
-import torch
+from typing import List, Tuple, Union
 
+import cv2
+import numpy as np
+import torch
 from sklearn.cluster import KMeans
 
-from screeninfo import get_monitors
-
-
-def get_complete_monitor_width():
-    width = 0
-    for monitor in get_monitors():
-        width += monitor.width
-    return width
+from hmlib.utils.image import get_complete_monitor_width, image_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -33,21 +26,15 @@ def get_color(idx):
     return color
 
 
-def to_cv2(image):
+def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
     if isinstance(image, torch.Tensor):
+        if image.dtype == torch.float16:
+            image = image.to(torch.float32)
         image = image.cpu().numpy()
     if image.shape[0] in [3, 4]:
         image = image.transpose(1, 2, 0)
     return np.ascontiguousarray(image)
-
-
-def resize_image(image, max_size=800):
-    assert False # wth
-    if max(image.shape[:2]) > max_size:
-        scale = float(max_size) / max(image.shape[:2])
-        image = cv2.resize(image, None, fx=scale, fy=scale)
-    return image
 
 
 def plot_rectangle(
@@ -55,27 +42,25 @@ def plot_rectangle(
     box: List[int],
     color: Tuple[int, int, int],
     thickness: int,
-    label: str = None,
+    label: Union[str, None] = None,
     text_scale: int = 1,
 ):
     if False and isinstance(img, torch.Tensor):
         return plot_torch_rectangle(
             image_tensor=img,
             tlbr=box,
-            color=color,
+            color=normalize_color(img, color),
             thickness=thickness,
             label=label,
             text_scale=text_scale,
         )
-    # if isinstance(img, torch.Tensor):
-    #     img = img.permute(2, 0, 1).contiguous().cpu().numpy()
     img = to_cv2(img)
     intbox = [int(i) for i in box]
     cv2.rectangle(
         img,
         intbox[0:2],
         intbox[2:4],
-        color=color,
+        color=normalize_color(img, color),
         thickness=thickness,
     )
 
@@ -93,6 +78,16 @@ def plot_rectangle(
     return img
 
 
+def normalize_color(img, color):
+    if isinstance(img, np.ndarray):
+        if img.dtype != np.uint8:
+            color = [float(i) for i in color]
+    elif isinstance(img, torch.Tensor):
+        if torch.is_floating_point(img):
+            color = [float(i) for i in color]
+    return color
+
+
 def plot_alpha_rectangle(
     img,
     box: List[int],
@@ -106,12 +101,22 @@ def plot_alpha_rectangle(
         return plot_rectangle(img, box, color, thickness, label, text_scale)
     intbox = [int(i) for i in box]
 
-    # Create a mask and draw the rectangle
-
     # TODO: Do just a small portion, like how the watermark is done
 
+    img = to_cv2(img)
+
+    if img.dtype == np.float:
+        color = [float(i) for i in color]
+
     mask = np.copy(img)
-    cv2.rectangle(mask, intbox[0:2], intbox[2:4], color=color, thickness=cv2.FILLED)
+
+    cv2.rectangle(
+        mask,
+        intbox[0:2],
+        intbox[2:4],
+        color=normalize_color(img, color),
+        thickness=cv2.FILLED,
+    )
 
     alpha = float(opacity_percent) / 100
     # Blend the mask with the original imagealpha =
@@ -164,9 +169,9 @@ def plot_torch_rectangle(
     image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
         1
     )
-    image_tensor[
-        :, bottom_y : bottom_y + thickness, top_x:bottom_x
-    ] = color_value.unsqueeze(1)
+    image_tensor[:, bottom_y : bottom_y + thickness, top_x:bottom_x] = (
+        color_value.unsqueeze(1)
+    )
 
     # Draw left and right lines of the box
     image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
@@ -208,20 +213,57 @@ def _to_int(vals):
     return [int(i) for i in vals]
 
 
-def plot_line(img, src_point, dest_point, color: Tuple[int, int, int], thickness: int):
+def plot_line(
+    img: torch.Tensor | np.ndarray,
+    src_point,
+    dest_point,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
     img = to_cv2(img)
     cv2.line(
-        img, _to_int(src_point), _to_int(dest_point), color=color, thickness=thickness
+        img,
+        _to_int(src_point),
+        _to_int(dest_point),
+        color=normalize_color(img, color),
+        thickness=thickness,
     )
     return img
 
 
-def plot_point(img, point, color: Tuple[int, int, int], thickness: int):
+def plot_point(
+    img: torch.Tensor | np.ndarray,
+    point,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
     img = to_cv2(img)
     x = int(point[0] + 0.5 * thickness)
     y = int(point[1] + 0.5 * thickness)
     cv2.circle(
-        img, [x, y], radius=int((thickness + 1) // 2), color=color, thickness=thickness
+        img,
+        [x, y],
+        radius=int((thickness + 1) // 2),
+        color=normalize_color(img, color),
+        thickness=thickness,
+    )
+    return img
+
+
+def plot_circle(
+    img: torch.Tensor | np.ndarray,
+    center: torch.Tensor,
+    radius: int,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> np.ndarray:
+    img = to_cv2(img)
+    cv2.circle(
+        img,
+        [int(i) for i in center],
+        radius=radius,
+        color=color,
+        thickness=thickness,
     )
     return img
 
@@ -296,19 +338,29 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
 
 def plot_frame_number(image, frame_id):
-    text_scale = max(4, image.shape[1] / 800.0)
+    was_torch = isinstance(image, torch.Tensor)
+    text_scale = max(2, image_width(image) / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
-    image = to_cv2(image)
-    cv2.putText(
-        image,
-        f"F: {frame_id}",
-        (0, int(15 * text_scale)),
-        cv2.FONT_HERSHEY_PLAIN,
-        text_scale,
-        (0, 0, 255),
-        thickness=2,
-    )
+    assert image.ndim == 4
+    result_images = []
+    frame_id = int(frame_id)
+    for i in range(image.shape[0]):
+        img = to_cv2(image[i])
+        cv2.putText(
+            img,
+            f"F: {frame_id + i}",
+            (text_offset, int(30 * text_scale)),
+            cv2.FONT_HERSHEY_PLAIN,
+            text_scale,
+            (0, 0, 255),
+            thickness=text_thickness,
+        )
+        result_images.append(torch.from_numpy(img) if was_torch else img)
+    if was_torch:
+        image = torch.stack(result_images)
+    else:
+        image = np.stack(result_images)
     return image
 
 
@@ -365,7 +417,11 @@ def plot_tracking(
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
         cv2.rectangle(
-            im, intbox[0:2], intbox[2:4], color=color, thickness=line_thickness
+            im,
+            intbox[0:2],
+            intbox[2:4],
+            color=normalize_color(im, color),
+            thickness=line_thickness,
         )
         if print_track_id:
             id_text = "{}".format(int(obj_id))
@@ -474,6 +530,182 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
         cv2.rectangle(im, (x1, y1), (x2, y2), color, 2)
 
     return im
+
+
+def draw_arrows(img, bbox, horizontal=True, vertical=True):
+    """
+    Draw arrows on the bounding box edges.
+
+    Parameters:
+    - img: The image on which to draw.
+    - bbox: The bounding box specified as (x1, y1, x2, y2).
+    - horizontal: Boolean indicating direction of arrows on left/right edges.
+                  True for outward, False for inward.
+    - vertical: Boolean indicating direction of arrows on top/bottom edges.
+                True for outward, False for inward.
+    """
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    arrow_length = max(w // 20, 20)  # Length of the arrow
+    # tip_length = arrow_length // 20
+    tip_length = 0.1
+    arrow_thickness = 2  # Thickness of the arrow
+    color = (0, 255, 0)  # Arrow color (Green)
+
+    # Calculate midpoints
+    left_mid = (x, y + h // 2)
+    right_mid = (x + w, y + h // 2)
+    top_mid = (x + w // 2, y)
+    bottom_mid = (x + w // 2, y + h)
+
+    # Horizontal arrows
+    if horizontal:
+        # Left arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (left_mid[0] + arrow_length, left_mid[1]),
+            left_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Right arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (right_mid[0] - arrow_length, right_mid[1]),
+            right_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    else:
+        # Left arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            left_mid,
+            (left_mid[0] + arrow_length, left_mid[1]),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Right arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            right_mid,
+            (right_mid[0] - arrow_length, right_mid[1]),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+
+    # Vertical arrows
+    if vertical:
+        # Top arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (top_mid[0], top_mid[1] + arrow_length),
+            top_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Bottom arrow pointing outwards
+        cv2.arrowedLine(
+            img,
+            (bottom_mid[0], bottom_mid[1] - arrow_length),
+            bottom_mid,
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    else:
+        # Top arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            top_mid,
+            (top_mid[0], top_mid[1] + arrow_length),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+        # Bottom arrow pointing inwards
+        cv2.arrowedLine(
+            img,
+            bottom_mid,
+            (bottom_mid[0], bottom_mid[1] - arrow_length),
+            color,
+            arrow_thickness,
+            tipLength=tip_length,
+        )
+    return img
+
+
+def draw_centered_lines(image, bbox, thickness=2, color=(0, 255, 0)):
+    image = to_cv2(image)
+
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    # Calculate 26% of the box's width and height for the line lengths
+    line_length_w = int(0.26 * w)
+    line_length_h = int(0.26 * h)
+
+    # Calculate the start and end points for lines parallel to width
+    start_x_w = x + (w - line_length_w) // 2
+    end_x_w = start_x_w + line_length_w
+    # And for lines parallel to height
+    start_y_h = y + (h - line_length_h) // 2
+    end_y_h = start_y_h + line_length_h
+
+    # Draw lines centered on each side
+    # Line on top side
+    cv2.line(image, (start_x_w, y), (end_x_w, y), color, thickness)
+    # Line on bottom side
+    cv2.line(image, (start_x_w, y + h), (end_x_w, y + h), color, thickness)
+
+    # Line on left side
+    cv2.line(image, (x, start_y_h), (x, end_y_h), color, thickness)
+    # Line on right side
+    cv2.line(image, (x + w, start_y_h), (x + w, end_y_h), color, thickness)
+
+    return image
+
+
+def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):
+    image = to_cv2(image)
+
+    intbox = [int(i) for i in bbox]
+    x, y = intbox[:2]
+    w = intbox[2] - intbox[0]
+    h = intbox[3] - intbox[1]
+
+    # Calculate 10% of the box's width and height
+    corner_length_w = int(0.1 * w)
+    corner_length_h = int(0.1 * h)
+
+    # Define points for the corners - each corner will be represented as two lines
+    # Top-left corner
+    cv2.line(image, (x, y), (x + corner_length_w, y), color, thickness)
+    cv2.line(image, (x, y), (x, y + corner_length_h), color, thickness)
+
+    # Top-right corner
+    cv2.line(image, (x + w, y), (x + w - corner_length_w, y), color, thickness)
+    cv2.line(image, (x + w, y), (x + w, y + corner_length_h), color, thickness)
+
+    # Bottom-left corner
+    cv2.line(image, (x, y + h), (x + corner_length_w, y + h), color, thickness)
+    cv2.line(image, (x, y + h), (x, y + h - corner_length_h), color, thickness)
+
+    # Bottom-right corner
+    cv2.line(image, (x + w, y + h), (x + w - corner_length_w, y + h), color, thickness)
+    cv2.line(image, (x + w, y + h), (x + w, y + h - corner_length_h), color, thickness)
+
+    return image
 
 
 # def plot_kmeans_intertias(hockey_mom: HockeyMOM):

@@ -1,33 +1,13 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
-import numpy as np
-import torch
-import cv2
-
-# from PIL import Image
-
 from typing import Dict, List
 
-from yolox.evaluators.mot_evaluator import write_results_no_score, TrackingHead
+import torch
 
-from hmlib.tracker.multitracker import JDETracker, torch_device
-from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
-from hmlib.tracking_utils.evaluation import Evaluator
-from hmlib.tracking_utils.io import write_results, read_results, append_results
-import hmlib.datasets.dataset.jde as datasets
-
-from hmlib.tracking_utils.utils import mkdir_if_missing
-from hmlib.opts import opts
-
+from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.cam_post_process import (
-    CamTrackPostProcessor,
-)
+from hmlib.tracking_utils.log import logger
 
 
 def to_rgb_non_planar(image):
@@ -48,7 +28,7 @@ def to_rgb_non_planar(image):
 
 def _pt_tensor(t, device):
     if not isinstance(t, torch.Tensor):
-        return torch.from_numpy(t).to(device)
+        return torch.from_numpy(t).to(device, non_blocking=True)
     return t
 
 
@@ -61,7 +41,7 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
-class CamTrackHead(TrackingHead):
+class CamTrackHead:
     def __init__(
         self,
         opt,
@@ -100,8 +80,6 @@ class CamTrackHead(TrackingHead):
         return self._data_type
 
     def filter_outputs(self, outputs: torch.Tensor, output_results):
-        # TODO: for batches, will be total length of N batches combined
-        # assert len(outputs) == len(output_results)
         return outputs, output_results
 
     def _maybe_init(
@@ -120,6 +98,7 @@ class CamTrackHead(TrackingHead):
 
     def process_tracking(
         self,
+        tracking_results,
         frame_id,
         online_tlwhs,
         online_ids,
@@ -129,14 +108,9 @@ class CamTrackHead(TrackingHead):
         original_img,
         online_scores,
     ):
-        def get_image_device(i1, i2):
-            if i1 is None:
-                return i2.device
-            return i1.device
-
         self._counter += 1
         if self._counter % 100 == 0:
-            print(f"open file count: {get_open_files_count()}")
+            logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return detections, online_tlwhs
         if letterbox_img is not None:
@@ -151,19 +125,20 @@ class CamTrackHead(TrackingHead):
             letterbox_img,
             original_img,
         )
+        assert isinstance(online_ids, torch.Tensor) or (
+            isinstance(online_ids, list) and len(online_ids) == 0
+        )
         self._postprocessor.send(
             online_tlwhs,
-            torch.tensor(online_ids, dtype=torch.int64),
+            online_ids,
             detections,
             info_imgs,
             None,
             original_img,
         )
-        return detections, online_tlwhs
+        return tracking_results, detections, online_tlwhs
 
-    def on_first_image(
-        self, frame_id, letterbox_img, original_img, device
-    ):
+    def on_first_image(self, frame_id, letterbox_img, original_img, device):
         if self._hockey_mom is None:
             if len(original_img.shape) == 4:
                 original_img = original_img[0]
@@ -182,8 +157,7 @@ class CamTrackHead(TrackingHead):
                 save_dir=self._save_dir,
                 save_frame_dir=self._save_frame_dir,
                 device=device,
-                opt=self._opt,
-                original_clip_box=self._original_clip_box, # TODO: Put in args
+                original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
                 use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,

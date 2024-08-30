@@ -20,8 +20,13 @@ rink:
     restrooms: 3
   parking:
     capacity: 100
-    price: 0 dollars  
+    price: 0 dollars
   tracking:
     cam_ignore_largest: true
+  scoreboard:
+    projected_width: 700
+    projected_height: 200
   camera:
     fixed_edge_scaling_factor: 0.8
+    follower_box_scale_width: 1.4
+    follower_box_scale_height: 1.4

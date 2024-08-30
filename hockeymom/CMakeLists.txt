@@ -22,6 +22,8 @@ set(
   csrc/dataloader/StitchingDataLoader.cpp
   csrc/postprocess/ImagePostProcess.cpp
   csrc/pytorch/image_remap.cpp
+  csrc/pytorch/image_blend.cpp
+  csrc/pytorch/image_stitch.cpp
   csrc/video/video_writer.cpp
 )
 
@@ -92,21 +94,22 @@ target_link_libraries(hm PRIVATE yaml-cpp)
 # set(OPENCV_MODULES videoio opencv_imgproc opencv_imgcodecs)
 # target_link_libraries(hm PRIVATE ${OPENCV_MODULES})
 
-set(CMAKE_INSTALL_RPATH "$ORIGIN")
+#set(CMAKE_INSTALL_RPATH "$ORIGIN:/usr/local/lib")
 
 set(TORCH_PYTHON_LIBS torch_python)
 
 target_include_directories(hm PUBLIC ./include)
-set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN")
+#set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
 target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
 target_link_libraries(hm PRIVATE glfw)
 target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
 target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
+#target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs)
 
 set_target_properties(
   hm PROPERTIES 
-  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}:/usr/local/lib"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 
@@ -117,6 +120,7 @@ file(GLOB_RECURSE PYXMOLPP_SOURCES
         src/**.cpp
         src/**.h
 )
+
 pybind11_add_module(_hockeymom ${PYXMOLPP_SOURCES})
 target_include_directories(_hockeymom PRIVATE ${CMAKE_CURRENT_LIST_DIR}/_hockeymom)
 target_link_libraries(_hockeymom PUBLIC hm)
@@ -126,13 +130,8 @@ target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
 #message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
 set_target_properties(
   _hockeymom PROPERTIES 
-  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}"
+  INSTALL_RPATH "$ORIGIN:${TORCH_LIBRARY_PATH}:/usr/local/lib"
   BUILD_WITH_INSTALL_RPATH TRUE
 )
-
-# Set the RPATH
-# set_target_properties(_hockeymom PROPERTIES
-#     INSTALL_RPATH "/path/to/pytorch/lib"
-#     BUILD_WITH_INSTALL_RPATH TRUE
-# )
 add_subdirectory(csrc)
+

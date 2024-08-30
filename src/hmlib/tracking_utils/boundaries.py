@@ -1,33 +1,76 @@
+import time
+from typing import List, Optional, Union
+
+import numpy as np
 import torch
+
+from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 
 
+def adjust_tlbr_for_clip_box(
+    tlbr_points: torch.Tensor, clip_box: torch.Tensor
+) -> torch.Tensor:
+    clip_upper_left = clip_box[0:2]
+    if tlbr_points is not None:
+        tlbr_points = tlbr_points.clone()
+        tlbr_points[:, 0:2] -= clip_upper_left
+        tlbr_points[:, 2:4] -= clip_upper_left
+    return tlbr_points
+
+
+@PIPELINES.register_module()
 class BoundaryLines:
-    def __init__(self, upper_border_lines, lower_border_lines, original_clip_box=None):
+
+    def __init__(
+        self,
+        upper_border_lines: Optional[torch.Tensor] = None,
+        lower_border_lines: Optional[torch.Tensor] = None,
+        original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
+        det_thresh: float = 0.05,
+    ):
+        if isinstance(original_clip_box, list) and len(original_clip_box):
+            assert len(original_clip_box) == 4
+            assert original_clip_box[2] > original_clip_box[0]
+            assert original_clip_box[3] > original_clip_box[1]
+            original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
-        if self._original_clip_box is None:
-            self._original_clip_box = torch.tensor([0, 0, 0, 0], dtype=torch.float32)
-        elif not isinstance(self._original_clip_box, torch.Tensor):
-            self._original_clip_box = torch.tensor(
-                self._original_clip_box, dtype=torch.float32
-            )
-        clip_upper_left = self._original_clip_box[0:2]
-        if upper_border_lines:
-            self._upper_borders = torch.tensor(upper_border_lines, dtype=torch.float32)
-            self._upper_borders[:, 0:2] -= clip_upper_left
-            self._upper_borders[:, 2:4] -= clip_upper_left
-            self._upper_line_vectors = self.tlbr_to_line_vectors(self._upper_borders)
+        self.det_thresh = det_thresh
+        self.set_boundaries(
+            upper=upper_border_lines,
+            lower=lower_border_lines,
+            source_clip_box=original_clip_box,
+        )
+        self._passes = 0
+        self._duration = 0
+
+    def set_boundaries(
+        self,
+        upper: Optional[torch.Tensor] = None,
+        lower: Optional[torch.Tensor] = None,
+        source_clip_box: Optional[torch.Tensor] = None,
+    ):
+        if upper is not None:
+            self._upper_borders = torch.tensor(upper, dtype=torch.float)
         else:
             self._upper_borders = None
-            self._upper_line_vectors = None
-        if lower_border_lines:
-            self._lower_borders = torch.tensor(lower_border_lines, dtype=torch.float32)
-            self._lower_borders[:, 0:2] -= clip_upper_left
-            self._lower_borders[:, 2:4] -= clip_upper_left
-            self._lower_line_vectors = self.tlbr_to_line_vectors(self._lower_borders)
+        if lower is not None:
+            self._lower_borders = torch.tensor(lower, dtype=torch.float)
         else:
             self._lower_borders = None
-            self._lower_line_vectors = None
+        if source_clip_box is not None:
+            self.adjust_for_source_clip_box(source_clip_box)
+
+    def adjust_for_source_clip_box(self, source_clip_box: torch.Tensor):
+        # clip_upper_left = source_clip_box[0:2]
+        if self._upper_borders is not None:
+            self._upper_borders = adjust_tlbr_for_clip_box(self._upper_borders, source_clip_box)
+            # self._upper_borders[:, 0:2] -= clip_upper_left
+            # self._upper_borders[:, 2:4] -= clip_upper_left
+        if self._lower_borders is not None:
+            self._lower_borders = adjust_tlbr_for_clip_box(self._lower_borders, source_clip_box)
+            # self._lower_borders[:, 0:2] -= clip_upper_left
+            # self._lower_borders[:, 2:4] -= clip_upper_left
 
     def draw(self, img):
         if self._upper_borders is not None:
@@ -50,90 +93,158 @@ class BoundaryLines:
                 )
         return img
 
-    def tlbr_to_line_vectors(self, tlbr_batch):
-        # Assuming tlbr_batch shape is (N, 4) with each box as [top, left, bottom, right]
-
-        top_vectors = torch.stack(
-            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
-        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
-        left_vectors = torch.stack(
-            (tlbr_batch[:, 1], tlbr_batch[:, 0]), dim=1
-        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
-        bottom_vectors = torch.stack(
-            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
-        ) - torch.stack((tlbr_batch[:, 1], tlbr_batch[:, 2]), dim=1)
-        right_vectors = torch.stack(
-            (tlbr_batch[:, 3], tlbr_batch[:, 2]), dim=1
-        ) - torch.stack((tlbr_batch[:, 3], tlbr_batch[:, 0]), dim=1)
-
-        # Concatenating vectors for all sides
-        line_vectors = torch.stack(
-            (top_vectors, left_vectors, bottom_vectors, right_vectors), dim=1
+    def point_batch_check_point_above_segments(self, points, line_segments):
+        # Step 1: Expand the arrays
+        # Create indices to represent each combination
+        point_indices, segment_indices = np.meshgrid(
+            np.arange(points.shape[0]), np.arange(line_segments.shape[0]), indexing="ij"
         )
 
-        return line_vectors
+        point_indices = torch.from_numpy(point_indices).to(points.device)
+        segment_indices = torch.from_numpy(segment_indices).to(points.device)
+        if isinstance(line_segments, np.ndarray):
+            line_segments = torch.from_numpy(line_segments)
+        line_segments = line_segments.to(points.device)
 
-    def is_point_too_high(self, point):
-        return False
+        # Expand points and segments to match each combination
+        expanded_points = points[point_indices.ravel()]
+        expanded_segments = line_segments[segment_indices.ravel()]
 
-    def is_point_too_low(self, point):
-        too_low = self.is_point_below_line(point)
-        return False
-
-    def is_point_outside(self, point):
-        return self.is_point_above_line(point) or self.is_point_below_line(point)
-
-    def _is_point_above_line(self, point, line_start, line_end):
-        # Create vectors
-        line_vec = line_end - line_start
-        point_vec = point - line_start
-
-        # Compute the cross product
-        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
-
-        # Check if the point is above the line
-        return cross_product_z < 0
-
-    def is_point_above_line(self, point):
-        if self._upper_borders is None:
-            return False
-        point = point.cpu()
-        x = point[0]
-        # y = point[1]
-        for i, high_border in enumerate(self._upper_borders):
-            if x >= high_border[0] and x <= high_border[2]:
-                if self._is_point_above_line(point, high_border[0:2], high_border[2:4]):
-                    return True
-        return False
-
-    def point_batch_check_point_above_segents(self, points):
-        lines_start = self._upper_borders[:, 0:2]
-        point_vecs = points[0] - lines_start
-        cross_z = (
-            self._upper_line_vectors[:, 0] * point_vecs[:, 1]
-            - self._upper_line_vectors[:, 1] * point_vecs[:, 0]
+        # Step 2: Calculate slope and intercept for each expanded line segment
+        slopes = (expanded_segments[:, 3] - expanded_segments[:, 1]) / (
+            expanded_segments[:, 2] - expanded_segments[:, 0]
         )
-        return cross_z < 0
+        intercepts = expanded_segments[:, 1] - slopes * expanded_segments[:, 0]
 
-    def is_point_below_line(self, point):
-        if self._lower_borders is None:
-            return False
-        point = point.cpu()
-        x = point[0]
-        # y = point[1]
-        for i, low_border in enumerate(self._lower_borders):
-            if x >= low_border[0] and x <= low_border[2]:
-                if self._is_point_below_line(point, low_border[0:2], low_border[2:4]):
-                    return True
-        return False
+        # Step 3: Calculate y value of the line at each point's x
+        y_values_at_points_x = slopes * expanded_points[:, 0] + intercepts
 
-    def _is_point_below_line(self, point, line_start, line_end):
-        # Create vectors
-        line_vec = line_end - line_start
-        point_vec = point - line_start
+        # Step 4: Filter for points where x is within the line segment's x range
+        within_x_range = (
+            expanded_points[:, 0]
+            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
+        ) & (
+            expanded_points[:, 0]
+            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
+        )
 
-        # Compute the cross product
-        cross_product_z = line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0]
+        # Step 5: Determine if the point's y is above the line's y at that x
+        points_above_line = (
+            expanded_points[:, 1] > y_values_at_points_x
+        ) & within_x_range
 
-        # Check if the point is below the line
-        return cross_product_z > 0
+        # Reshape to original shape for clarity
+        comparison_matrix = points_above_line.reshape(
+            points.shape[0], line_segments.shape[0]
+        )
+        comparison = torch.any(comparison_matrix, axis=1)
+        return comparison
+
+    def point_batch_check_point_below_segments(self, points, line_segments):
+        # Step 1: Expand the arrays
+        # Create indices to represent each combination
+        point_indices, segment_indices = np.meshgrid(
+            np.arange(points.shape[0]), np.arange(line_segments.shape[0]), indexing="ij"
+        )
+
+        point_indices = torch.from_numpy(point_indices).to(points.device)
+        segment_indices = torch.from_numpy(segment_indices).to(points.device)
+        if isinstance(line_segments, np.ndarray):
+            line_segments = torch.from_numpy(line_segments)
+        line_segments = line_segments.to(points.device)
+
+        # Expand points and segments to match each combination
+        expanded_points = points[point_indices.ravel()]
+        expanded_segments = line_segments[segment_indices.ravel()]
+
+        # Step 2: Calculate slope and intercept for each expanded line segment
+        slopes = (expanded_segments[:, 3] - expanded_segments[:, 1]) / (
+            expanded_segments[:, 2] - expanded_segments[:, 0]
+        )
+        intercepts = expanded_segments[:, 1] - slopes * expanded_segments[:, 0]
+
+        # Step 3: Calculate y value of the line at each point's x
+        y_values_at_points_x = slopes * expanded_points[:, 0] + intercepts
+
+        # Step 4: Filter for points where x is within the line segment's x range
+        within_x_range = (
+            expanded_points[:, 0]
+            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
+        ) & (
+            expanded_points[:, 0]
+            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
+        )
+
+        # Step 5: Determine if the point's y is below the line's y at that x
+        points_above_line = (
+            expanded_points[:, 1] < y_values_at_points_x
+        ) & within_x_range
+
+        # Reshape to original shape for clarity
+        comparison_matrix = points_above_line.reshape(
+            points.shape[0], line_segments.shape[0]
+        )
+        comparison = torch.any(comparison_matrix, axis=1)
+        return comparison
+
+    def get_centers(self, bbox_tlbr: Union[torch.Tensor, np.ndarray]):
+        # Calculate the centers
+        # The center x coordinates are calculated by averaging the left and right coordinates
+        centers_x = (bbox_tlbr[:, 1] + bbox_tlbr[:, 3]) / 2
+
+        # The center y coordinates are calculated by averaging the top and bottom coordinates
+        centers_y = (bbox_tlbr[:, 0] + bbox_tlbr[:, 2]) / 2
+
+        if isinstance(bbox_tlbr, np.ndarray):
+            # Combine the x and y center coordinates
+            centers = np.vstack((centers_y, centers_x)).T
+        else:
+            # Combine the x and y center coordinates into a single tensor
+            centers = torch.stack((centers_y, centers_x), dim=1)
+        return centers
+
+    def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
+        centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+
+        above_line = self.point_batch_check_point_above_segments(
+            centers,
+            self._lower_borders,
+        )
+        below_line = self.point_batch_check_point_below_segments(
+            centers,
+            self._upper_borders,
+        )
+        above_or_below = torch.logical_or(above_line, below_line)
+        return torch.logical_not(above_or_below)
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, data, **kwargs):
+        start = time.time()
+        if "prune_list" not in data:
+            return data
+        prune_list = data["prune_list"]
+        bbox_tensors = data[prune_list[0]]
+
+        if bbox_tensors.shape[1] == 6:
+            # Tracking box (index + tlbr + score)
+            bboxes = bbox_tensors[:, 1:5]
+        elif bbox_tensors.shape[1] == 5:
+            # Detection tlbr + score
+            bboxes = bbox_tensors[:, :4]
+        else:
+            assert False
+        keep_indexes = self.prune_items_index(batch_item_bboxes=bboxes)
+        for name in prune_list:
+            data[name] = data[name][keep_indexes]
+
+        self._duration += time.time() - start
+        self._passes += 1
+        if self._passes % 50 == 0:
+            fps = self._passes / self._duration
+            if fps < 50:
+                print(f"Boundary pruning speed: {self._passes/self._duration} fps")
+            self._passes = 0
+            self._duration = 0
+        return data

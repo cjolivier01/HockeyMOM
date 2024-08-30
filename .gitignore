@@ -23,3 +23,5 @@ stitched_output.avi
 YOLOX_outputs
 debug_tensorboard
 /*.pth.tar
+/s.png
+output_workdirs

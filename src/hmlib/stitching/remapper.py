@@ -1,89 +1,60 @@
 """
-Experiments in stitching
+Remap an image given mapping png files (usually produced by hugin's nona,
+which is usual;;ly base dupon some homography matrix)
 """
+
+import argparse
 import os
 import time
-import argparse
-import numpy as np
 from typing import Tuple
-import cv2
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hmlib.stitch_synchronize import get_image_geo_position
+import hockeymom.core as core
+from hmlib.hm_opts import hm_opts
+from hmlib.stitching.synchronize import get_image_geo_position
+from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.image import (
+    make_channels_first,
+    make_visible_image,
+    pad_tensor_to_size_batched,
+)
+from hmlib.video_stream import VideoStreamReader
 
 # from hmlib.async_worker import AsyncWorker
 
-import hockeymom.core as core
-from hmlib.tracking_utils.timer import Timer
 
 ROOT_DIR = os.getcwd()
 
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
-    parser.add_argument(
-        "--project-file",
-        "--project_file",
-        default="autooptimiser_out.pto",
-        type=str,
-        help="Use project file as input to stitcher",
-    )
-    parser.add_argument(
-        "--video_dir",
-        default=None,
-        type=str,
-        help="Video directory to find 'left.mp4' and 'right.mp4'",
-    )
     return parser
 
 
-# Function to pad tensor to the target size
-def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
-    if len(tensor.shape) == 2:
-        pad_height = target_height - tensor.size(0)
-        pad_width = target_width - tensor.size(1)
-    else:
-        assert len(tensor.shape) == 3
-        pad_height = target_height - tensor.size(1)
-        pad_width = target_width - tensor.size(2)
-    pad_height = max(0, pad_height)
-    pad_width = max(0, pad_width)
-    padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
-    return padded_tensor
-
-
-def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
-    if len(tensor.shape) == 3:
-        pad_height = target_height - tensor.size(1)
-        pad_width = target_width - tensor.size(2)
-    else:
-        assert len(tensor.shape) == 4
-        pad_height = target_height - tensor.size(2)
-        pad_width = target_width - tensor.size(3)
-    pad_height = max(0, pad_height)
-    pad_width = max(0, pad_width)
-    padding = [0, pad_width, 0, pad_height]
-    padded_tensor = F.pad(tensor, padding, "constant", pad_value)
-    return padded_tensor
-
-
 def read_frame_batch(
-    cap: cv2.VideoCapture, batch_size: int, device: torch.device = torch.device("cpu")
+    video_iter,
+    batch_size: int,
 ):
     frame_list = []
-    res, frame = cap.read()
-    if not res or frame is None:
-        raise StopIteration()
-    frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
+    frame = next(video_iter)
+    assert frame.ndim == 4  # Must have batch dimension
+    if isinstance(frame, np.ndarray):
+        frame = torch.from_numpy(frame)
+        frame = make_channels_first(frame)
+    if batch_size == 1:
+        return frame
+    frame_list.append(frame)
     for i in range(batch_size - 1):
-        res, frame = cap.read()
-        if not res or frame is None:
-            raise StopIteration()
-        frame_list.append(torch.from_numpy(frame.transpose(2, 0, 1)).to(device))
-    tensor = torch.stack(frame_list)
+        frame = next(video_iter)
+        if isinstance(frame, np.ndarray):
+            frame = torch.from_numpy(frame)
+            frame = make_channels_first(frame)
+        frame_list.append(frame)
+    tensor = torch.cat(frame_list, dim=0)
     return tensor
 
 
@@ -189,18 +160,29 @@ class ImageRemapper:
             )
             self._remap_op.init(batch_size=batch_size)
         else:
+            assert col_map.shape == row_map.shape
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
+
+            # self._working_w = self._dest_w
+            # self._working_h = self._dest_h
+
             self._working_w = max(src_w, self._dest_w)
             self._working_h = max(src_h, self._dest_h)
             print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
-            col_map = pad_tensor_to_size(
-                col_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
-            row_map = pad_tensor_to_size(
-                row_map, self._working_w, self._working_h, self.UNMAPPED_PIXEL_VALUE
-            )
+            col_map = pad_tensor_to_size_batched(
+                col_map.unsqueeze(0),
+                self._working_w,
+                self._working_h,
+                self.UNMAPPED_PIXEL_VALUE,
+            ).squeeze(0)
+            row_map = pad_tensor_to_size_batched(
+                row_map.unsqueeze(0),
+                self._working_w,
+                self._working_h,
+                self.UNMAPPED_PIXEL_VALUE,
+            ).squeeze(0)
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,
@@ -245,7 +227,8 @@ class ImageRemapper:
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
-        dev = str(device)
+        # dev = str(device)
+        dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
             self._remap_op.to(dev)
@@ -290,7 +273,7 @@ class ImageRemapper:
             else:
                 # Perform the grid sampling with bicubic interpolation
                 destination_tensor = F.grid_sample(
-                    source_tensor.to(torch.float32),
+                    source_tensor.to(torch.float),
                     self._grid,
                     mode=self._interpolation,
                     padding_mode="zeros",
@@ -313,6 +296,7 @@ class ImageRemapper:
 
 
 def remap_video(
+    opts: argparse.Namespace,
     video_file: str,
     dir_name: str,
     basename: str,
@@ -321,13 +305,13 @@ def remap_video(
     batch_size: int = 1,
     device: torch.device = torch.device("cuda"),
 ):
-    cap = cv2.VideoCapture(os.path.join(dir_name, video_file))
+    cap = VideoStreamReader(os.path.join(dir_name, video_file), type="cv2")
     if not cap or not cap.isOpened():
         raise AssertionError(
             f"Could not open video file: {os.path.join(dir_name, video_file)}"
         )
-
-    source_tensor = read_frame_batch(cap, batch_size=batch_size)
+    video_iter = iter(cap)
+    source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
 
     remapper = ImageRemapper(
         dir_name=dir_name,
@@ -362,27 +346,32 @@ def remap_video(
             for i in range(len(destination_tensor)):
                 cv2.imshow(
                     "mapped image",
-                    destination_tensor[i].permute(1, 2, 0).numpy(),
+                    # destination_tensor[i].permute(1, 2, 0).numpy(),
+                    make_visible_image(
+                        destination_tensor[i], enable_resizing=opts.show_scaled
+                    ),
                 )
                 cv2.waitKey(1)
 
-        source_tensor = read_frame_batch(cap, batch_size=batch_size)
+        source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
         timer.tic()
 
 
 def main(args):
     remap_video(
+        args,
         "left.mp4",
         args.video_dir,
         "mapping_0000",
         # interpolation="bilinear",
-        interpolation="",
+        interpolation=None,
         show=True,
+        device=torch.device("cpu"),
     )
 
 
 if __name__ == "__main__":
-    args = make_parser().parse_args()
+    args = hm_opts.parser(make_parser()).parse_args()
 
     main(args)
     print("Done.")

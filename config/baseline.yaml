@@ -5,11 +5,13 @@ camera:
   name: null
   make: null
   model: null
+  output-fps: null
   mount:
     - offset_80:
       resolution: null
     - offset_90:
       resolution: null
+
 #
 # Rink config
 #
@@ -36,11 +38,17 @@ rink:
   parking:
     capacity: null
     price: null
+  scoreboard:
+    # 4-sided polygon that maps out the scoreboard in the perspective view
+    # Should be tlbr form, with values: [x, y]
+    perspective_polygon: null
+    projected_height: 300
+    projected_width: 100
   tracking:
     #
     # Some tracking config
     #
-    cam_ignore_largest: false
+    cam_ignore_largest: true
   camera:
     #
     # Rink-related tracking config
@@ -50,6 +58,31 @@ rink:
     image_channel_adjustment: null
     follower_box_scale_width: 1.25
     follower_box_scale_height: 1.25
+
+    #
+    # Configuration for breakaways
+    #
+    breakaway_detection:
+      # Group velocities less than this are ignored
+      min_considered_group_velocity: 3.0
+      # What ratio of tracked players must be all reacting
+      # to a breakaway?
+      group_ratio_threshold: 0.5
+      # What ratio of the group speed should we try to
+      # apply within a single frame's speed adjustment?
+      group_velocity_speed_ratio: 0.3
+      # During a breakaway, what scale do we adjust the
+      # maximum camera speed to allow for faster-than-normal tracking?
+      scale_speed_constraints: 2.0
+      # The number of frame steps to not allow any camera-stop conditions to
+      # trigger such as cluster(s) direction change or "sticky translation" rules.
+      # This is because the clusters may not have changed enough at the
+      # beginning of a breakaway and may simply stop the camera movement
+      # due to the cluster tracking rules.
+      nonstop_delay_count: 2
+      # When over-shooting the breakaway players, what scale do we apply
+      # to the current speed each frame in order to slow it down?
+      overshoot_scale_speed_ratio: 0.7
 
 #
 # Game config
@@ -66,7 +99,12 @@ game:
   clip_box: null
   boundaries:
     upper:
+    upper_tune_position: null
     lower:
+    lower_tune_position: null
+    # For scaling to a new stitched size
+    scale_width: null
+    scale_height: null
 
 #
 # Model config
@@ -75,8 +113,8 @@ model:
   backbone:
     type: dla34
     pretrained: True
-    pretrained_path: 'pretrained/dla34/crowdhuman_dla34.pth'
-    # pretrained_path: 'pretrained/dla34/my_coco_ch_e60.pth'
+    # pretrained_path: 'pretrained/dla34/crowdhuman_dla34.pth'
+    pretrained_path: "pretrained/dla34/my_coco_ch_e60.pth"
     det_thres: 0.3
 
     train:
@@ -87,4 +125,3 @@ model:
     type: fair
     # type: centertrack
     conf_thres: 0.4
-

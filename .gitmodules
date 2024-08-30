@@ -1,7 +1,4 @@
 
-[submodule "DCNv2"]
-	path = DCNv2
-	url = ssh://git@github.com/cjolivier01/DCNv2
 [submodule "external/pybind11"]
 	path = external/pybind11
 	url = ssh://git@github.com/pybind/pybind11
@@ -10,13 +7,10 @@
 	url = https://gitlab.com/libeigen/eigen.git
 [submodule "mmcv"]
 	path = mmcv
-	url = ssh://git@github.com/open-mmlab/mmcv
+	url = ssh://git@github.com/cjolivier01/mmcv
 [submodule "external/opencv-python"]
 	path = external/opencv-python
 	url = ssh://git@github.com/cjolivier01/opencv-python
-[submodule "models/deft"]
-	path = models/deft
-	url = ssh://git@github.com/cjolivier01/DEFT
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
@@ -33,26 +27,17 @@
 	path = external/abseil-cpp
 	url = https://github.com/abseil/abseil-cpp
 [submodule "models/SVHNClassifier"]
-	path = models/SVHNClassifier
+	path = xmodels/SVHNClassifier
 	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
-[submodule "models/layers/CvT"]
-	path = models/layers/CvT
-	url = ssh://git@github.com/cjolivier01/CvT
 [submodule "external/MOTChallengeEvalKit"]
 	path = external/MOTChallengeEvalKit
 	url = ssh://git@github.com/cjolivier01/MOTChallengeEvalKit
 [submodule "external/pt_autograph"]
 	path = external/pt_autograph
 	url = ssh://git@github.com/cjolivier01/pt_autograph
-[submodule "models/MixFormer"]
-	path = models/MixFormer
-	url = ssh://git@github.com/cjolivier01/MixFormer
-[submodule "models/mixsort"]
-	path = models/mixsort
-	url = ssh://git@github.com/cjolivier01/HmMixSort
 [submodule "models/centerpoint"]
 	path = models/centerpoint
 	url = ssh://git@github.com/cjolivier01/CenterPoint
-[submodule "models/centertrack"]
-	path = models/centertrack
-	url = ssh://git@github.com/cjolivier01/centertrack
+[submodule "openmm"]
+	path = openmm
+	url = ssh://git@github.com/cjolivier01/openmm

@@ -7,7 +7,8 @@ import argparse
 
 import torch
 from setuptools import setup, Extension, find_packages
-#from setuptools.command.build_ext import build_ext
+
+# from setuptools.command.build_ext import build_ext
 
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 
@@ -59,15 +60,15 @@ class CMakeBuild(BuildExtension):
             "-DPYTHON_EXECUTABLE=" + sys.executable,
         ]
 
-        #Torch_DIR = "/home/colivier/src/pytorch/torch/share/cmake/Torch/"
+        # Torch_DIR = "/home/colivier/src/pytorch/torch/share/cmake/Torch/"
         Torch_DIR = os.path.dirname(torch.__file__)
         os.environ["Torch_DIR"] = Torch_DIR
-        #os.environ["CUDNN_LIBRARY_PATH"] = "/usr/local/cudnn/lib"
-        #os.environ["CUDNN_LIB_DIR"] = "/usr/local/cudnn/lib"
-        #os.environ["CUDNN_INCLUDE_PATH"] = "/usr/local/cudnn/include"
+        # os.environ["CUDNN_LIBRARY_PATH"] = "/usr/local/cudnn/lib"
+        # os.environ["CUDNN_LIB_DIR"] = "/usr/local/cudnn/lib"
+        # os.environ["CUDNN_INCLUDE_PATH"] = "/usr/local/cudnn/include"
 
         default_build_type = "Release"
-        #default_build_type = "ReleaseWithDebugInfo"
+        # default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
             default_build_type = "Debug"
         elif int(os.environ.get("PROFILE", "0")) > 0:
@@ -83,28 +84,28 @@ class CMakeBuild(BuildExtension):
         # Pile all .so in one place and use $ORIGIN as RPATH
         cmake_args += ["-DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE"]
         cmake_args += ["-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
-        
+
         cudnn_base_path = os.path.join(os.environ["HOME"], "cudnn")
         if not os.path.exists(cudnn_base_path):
             cudnn_base_path = "/usr/local/cudnn"
             if not os.path.exists(cudnn_base_path):
-            	cudnn_base_path = "/usr/local/cuda"
+                cudnn_base_path = "/usr/local/cuda"
         if os.path.exists(cudnn_base_path):
             cmake_args += [f"-DCUDNN_INCLUDE_DIR={cudnn_base_path}/include"]
             cmake_args += [f"-DCUDNN_INCLUDE_PATH={cudnn_base_path}/include"]
             cmake_args += [f"-DCUDNN_LIBRARY={cudnn_base_path}/lib/libcudnn.so"]
             cmake_args += [f"-DCUDNN_LIBRARY_PATH={cudnn_base_path}/lib/libcudnn.so"]
 
-#        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
-#        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
+        #        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
+        #        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
 
-        #cmake_args += ["-DHM_BUILD_ASAN=1"]
-        
-        #cmake_args += ["-DCMAKE_PREFIX_PATH="]
-        #cmake_args += ["-DCMAKE_FIND_DEBUG_MODE=ON"]
-        #cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
-        
-        #if ARGS.conda:
+        # cmake_args += ["-DHM_BUILD_ASAN=1"]
+
+        # cmake_args += ["-DCMAKE_PREFIX_PATH="]
+        # cmake_args += ["-DCMAKE_FIND_DEBUG_MODE=ON"]
+        # cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
+
+        # if ARGS.conda:
         cmake_args += [f"-DCMAKE_PREFIX_PATH={os.path.join(os.getcwd(), 'cmake')}"]
 
         if platform.system() == "Windows":
@@ -126,6 +127,8 @@ class CMakeBuild(BuildExtension):
         )
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
+        print(" ".join(["cmake", ext.sourcedir] + cmake_args))
+        print(env)
         subprocess.check_call(
             ["cmake", ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env
         )
@@ -141,29 +144,31 @@ class CMakeBuild(BuildExtension):
             # "--target",
             # "autooptimiser",
         ]
+        print(" ".join(["cmake"] + ["--build", "."] + cmake_targets + build_args))
         subprocess.check_call(
             ["cmake"] + ["--build", "."] + cmake_targets + build_args,
             cwd=self.build_temp,
         )
 
-if __name__ == '__main__':
-    #_ = _ARGS
-    #parser = argparse.ArgumentParser(description='HockeyMOM Setup Script.')
-    #parser.add_argument('--conda', action="store_true", help='Build using a conda environment')
-    #_ARGS = parser.parse_args()
-    
+
+if __name__ == "__main__":
+    # _ = _ARGS
+    # parser = argparse.ArgumentParser(description='HockeyMOM Setup Script.')
+    # parser.add_argument('--conda', action="store_true", help='Build using a conda environment')
+    # _ARGS = parser.parse_args()
+
     # run_submodule_setup('DCNv2')
     # run_submodule_setup('external/fast_pytorch_kmeans')
 
     setup(
         name="hockeymom",
-        version="0.1.0",
+        # version="0.1.0",
         author="Christopher Olivier",
         author_email="cjolivier01@gmail.com",
         description="HockeyMOM project",
         long_description=open("README.rst").read(),
         ext_modules=[
-#            CppExtension("hockeymom/_hockeymom")
+            # CppExtension("hockeymom/_hockeymom")
             CMakeExtension("hockeymom/_hockeymom")
         ],
         packages=find_packages(),

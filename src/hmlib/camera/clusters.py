@@ -70,12 +70,16 @@ class ClusterSnapshot:
 
 
 class ClusterMan:
-    def __init__(self, sizes: List[int] = [3, 2], device="cpu"):
+    def __init__(self, sizes: List[int], device="cpu"):
         self._sizes = sizes
         self._device = device
         self.cluster_snapshots = dict()
         for i in sizes:
             self.cluster_snapshots[i] = ClusterSnapshot(num_clusters=i, device=device)
+
+    @property
+    def cluster_counts(self):
+        return self._sizes
 
     def reset_clusters(self):
         for cs in self.cluster_snapshots.values():

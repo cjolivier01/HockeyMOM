@@ -23,17 +23,14 @@ libboost-all-dev
 libbz2-dev
 libcanberra-gtk-module
 libchromaprint-dev
-libclang-common-11-dev
-libegl1-mesa
 libexiv2-dev
 libfdk-aac-dev
 libffmpeg-nvenc-dev
 libfftw3-dev
-libfreetype6-dev
+libfreetype-dev
 libgemmlowp-dev
 libgflags-dev
 libgl1-mesa-dev
-libgl1-mesa-glx
 libglew-dev
 libglfw3-dev
 libglu1-mesa-dev
@@ -56,6 +53,7 @@ libomp-dev
 libopenblas-dev
 libopenexr-dev
 libopus-dev
+libpano13-dev
 libpng-dev
 libprotobuf-dev
 libprotoc-dev
@@ -73,8 +71,6 @@ libva-dev
 libvdpau-dev
 libvorbis-dev
 libvpx-dev
-libwxbase3.0-dev
-libwxgtk3.0-gtk3-dev
 libx264-dev
 libx265-dev
 libxcb1-dev
@@ -105,4 +101,3 @@ vim
 xfce4-goodies
 yasm
 zlib1g-dev
-libpano13-dev
