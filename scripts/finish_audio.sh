@@ -56,7 +56,7 @@ if [ ! -z "${AUDIO_FILE}" ]; then
 fi
 
 if [ -z "${INPUT_VIDEO_WITH_AUDIO}" ]; then
-  # mkv screws upt he fps
+  # mkv screws up the fps
   # INPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/stitched_output-with-audio.mkv"
   if [ ! -f "${INPUT_VIDEO_WITH_AUDIO}" ]; then
     INPUT_VIDEO_WITH_AUDIO="${HOME}/Videos/${GAME_ID}/stitched_output-with-audio.mp4"
