@@ -59,9 +59,7 @@ def select_clip_box(game_id: str, rect_coords: List[int] = [], final_ar: float =
 
     # Resize image
     height, width = img.shape[:2]
-    resized_img = cv2.resize(
-        img, (int(width * scale_width), int(height * scale_height))
-    )
+    resized_img = cv2.resize(img, (int(width * scale_width), int(height * scale_height)))
 
     cv2.namedWindow("image")
     cv2.setMouseCallback("image", draw_rectangle)
@@ -101,8 +99,6 @@ def select_clip_box(game_id: str, rect_coords: List[int] = [], final_ar: float =
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
-
-    args.game_id = "sharks-bb1-2"
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")

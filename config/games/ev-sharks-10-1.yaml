@@ -142,6 +142,11 @@ game:
       - 664
       - 6202
       - 661
+  clip_box:
+  - 106
+  - 278
+  - 5864
+  - 2034
 rink:
   scoreboard:
     projected_height: 150
