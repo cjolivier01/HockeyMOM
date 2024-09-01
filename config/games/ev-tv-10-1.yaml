@@ -1,0 +1,11 @@
+rink:
+  scoreboard:
+    perspective_polygon:
+    - - 862
+      - 520
+    - - 1106
+      - 460
+    - - 1118
+      - 522
+    - - 878
+      - 586
