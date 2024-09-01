@@ -19,7 +19,7 @@ def select_clip_box(game_id: str, rect_coords: List[int] = [], final_ar: float =
     # Load an image
     img = cv2.imread(f'{os.environ["HOME"]}/Videos/{game_id}/s.png')
 
-    if img is None:``
+    if img is None:
         print("Error: Image could not be read.")
         return None
 
