@@ -180,8 +180,6 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    args.game_id = "ev-sharks-10-1"
-
     assert args.game_id
 
     this_path = Path(os.path.dirname(__file__))
