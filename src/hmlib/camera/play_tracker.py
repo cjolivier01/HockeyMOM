@@ -68,21 +68,13 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
 
 class BreakawayDetection:
     def __init__(self, config: dict):
-        breakaway_detection = get_nested_value(
-            config, "rink.camera.breakaway_detection", None
-        )
-        self.min_considered_group_velocity = breakaway_detection[
-            "min_considered_group_velocity"
-        ]
+        breakaway_detection = get_nested_value(config, "rink.camera.breakaway_detection", None)
+        self.min_considered_group_velocity = breakaway_detection["min_considered_group_velocity"]
         self.group_ratio_threshold = breakaway_detection["group_ratio_threshold"]
-        self.group_velocity_speed_ratio = breakaway_detection[
-            "group_velocity_speed_ratio"
-        ]
+        self.group_velocity_speed_ratio = breakaway_detection["group_velocity_speed_ratio"]
         self.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
         self.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
-        self.overshoot_scale_speed_ratio = breakaway_detection[
-            "overshoot_scale_speed_ratio"
-        ]
+        self.overshoot_scale_speed_ratio = breakaway_detection["overshoot_scale_speed_ratio"]
 
 
 @HM.register_module()
@@ -151,9 +143,6 @@ class PlayTracker(torch.nn.Module):
             device=self._device,
         )
 
-        size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-        size_stick_size = size_unstick_size / 3
-
         self._current_roi_aspect = MovingBox(
             label="AspectRatio",
             bbox=start_box.clone(),
@@ -166,6 +155,15 @@ class PlayTracker(torch.nn.Module):
             max_height=self._hockey_mom._video_frame.height,
             stop_on_dir_change=True,
             sticky_translation=True,
+            sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
+                "sticky_size_ratio_to_frame_width"
+            ],
+            sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
+                "sticky_translation_gaussian_mult"
+            ],
+            unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
+                "unsticky_translation_size_ratio"
+            ],
             sticky_sizing=True,
             scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
             scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
@@ -221,9 +219,7 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
     ):
         if self._cluster_man is None:
-            self._cluster_man = ClusterMan(
-                sizes=cluster_counts, device=self._kmeans_cuda_device()
-            )
+            self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
 
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
@@ -262,9 +258,7 @@ class PlayTracker(torch.nn.Module):
 
         if self._args.cam_ignore_largest and len(online_tlwhs):
             # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
-                online_tlwhs, min_boxes=4
-            )
+            online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
             online_ids = online_ids[mask]
 
         original_img = online_targets_and_img[5]
@@ -464,9 +458,7 @@ class PlayTracker(torch.nn.Module):
                     color=(255, 0, 255),
                     thickness=20,
                 )
-            edge_center = torch.tensor(
-                edge_center, dtype=torch.float, device=current_box.device
-            )
+            edge_center = torch.tensor(edge_center, dtype=torch.float, device=current_box.device)
 
             if average_current_box:
                 average_center = (edge_center + center(current_box)) / 2.0
@@ -491,12 +483,8 @@ class PlayTracker(torch.nn.Module):
                     )
                 # Previous way
                 should_adjust_speed = torch.logical_or(
-                    torch.logical_and(
-                        group_x_velocity > 0, roi_center[0] < edge_center[0]
-                    ),
-                    torch.logical_and(
-                        group_x_velocity < 0, roi_center[0] > edge_center[0]
-                    ),
+                    torch.logical_and(group_x_velocity > 0, roi_center[0] < edge_center[0]),
+                    torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
                 )
                 if should_adjust_speed.item():
                     speed_adjust_box.adjust_speed(

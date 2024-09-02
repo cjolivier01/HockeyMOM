@@ -23,9 +23,8 @@ from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 
 class BasicBox(torch.nn.Module):
-    def __init__(
-        self, bbox: torch.Tensor, device: Union[torch.device, str, None] = None
-    ):
+
+    def __init__(self, bbox: torch.Tensor, device: Union[torch.device, str, None] = None):
         super(BasicBox, self).__init__()
         if device and isinstance(device, str):
             device = torch.device(device)
@@ -118,9 +117,7 @@ class ResizingBox(BasicBox):
             # dashed box representing the following box inscribed at our center
 
             if self._size_is_frozen:
-                corner_box = scale_box(
-                    box=my_bbox.clone(), scale_width=0.98, scale_height=0.98
-                )
+                corner_box = scale_box(box=my_bbox.clone(), scale_width=0.98, scale_height=0.98)
                 img = vis.draw_corner_boxes(
                     image=img, bbox=corner_box, color=(255, 255, 255), thickness=1
                 )
@@ -132,9 +129,7 @@ class ResizingBox(BasicBox):
                     scale_height=self._scale_height,
                 )
 
-            inscribed = move_box_to_center(
-                scaled_following_box.clone(), center(my_bbox)
-            )
+            inscribed = move_box_to_center(scaled_following_box.clone(), center(my_bbox))
             # logger.info(
             #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
             # )
@@ -161,12 +156,8 @@ class ResizingBox(BasicBox):
                     h=my_height - shrink_height,
                 )
 
-                img = vis.draw_centered_lines(
-                    img, bbox=grow_box, thickness=4, color=(0, 255, 0)
-                )
-                img = vis.draw_centered_lines(
-                    img, bbox=shrink_box, thickness=4, color=(0, 0, 255)
-                )
+                img = vis.draw_centered_lines(img, bbox=grow_box, thickness=4, color=(0, 255, 0))
+                img = vis.draw_centered_lines(img, bbox=shrink_box, thickness=4, color=(0, 0, 255))
         return img
 
     def _get_grow_wh_and_shrink_wh(self, bbox: torch.Tensor):
@@ -206,13 +197,9 @@ class ResizingBox(BasicBox):
             )
 
             if accel_w is not None:
-                accel_w = torch.clamp(
-                    accel_w, min=-max_accel_wh[0], max=max_accel_wh[0]
-                )
+                accel_w = torch.clamp(accel_w, min=-max_accel_wh[0], max=max_accel_wh[0])
             if accel_h is not None:
-                accel_h = torch.clamp(
-                    accel_h, min=-max_accel_wh[1], max=max_accel_wh[1]
-                )
+                accel_h = torch.clamp(accel_h, min=-max_accel_wh[1], max=max_accel_wh[1])
         if accel_w is not None:
             self._current_speed_w += accel_w
 
@@ -245,8 +232,8 @@ class ResizingBox(BasicBox):
         #
         if self._sticky_sizing:
 
-            grow_width, grow_height, shrink_width, shrink_height = (
-                self._get_grow_wh_and_shrink_wh(bbox=bbox)
+            grow_width, grow_height, shrink_width, shrink_height = self._get_grow_wh_and_shrink_wh(
+                bbox=bbox
             )
 
             dw_thresh = torch.logical_and(dw < 0, dw < -shrink_width)
@@ -335,7 +322,7 @@ class MovingBox(ResizingBox):
         sticky_translation: bool = False,
         sticky_size_ratio_to_frame_width: float = 10.0,
         sticky_translation_gaussian_mult: float = 5.0,
-        unsticky_ratio: float = 3 / 4,
+        unsticky_translation_size_ratio: float = 0.75,
         sticky_sizing: bool = False,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
@@ -363,7 +350,7 @@ class MovingBox(ResizingBox):
         self._sticky_translation = sticky_translation
         self._sticky_translation_gaussian_mult = sticky_translation_gaussian_mult
         self._sticky_size_ratio_to_frame_width = sticky_size_ratio_to_frame_width
-        self._unsticky_ratio = unsticky_ratio
+        self._unsticky_translation_size_ratio = unsticky_translation_size_ratio
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -382,12 +369,8 @@ class MovingBox(ResizingBox):
         # self._following_box = None
         self._size_is_frozen = False
 
-        self._scale_width = (
-            self._one_float_tensor if scale_width is None else scale_width
-        )
-        self._scale_height = (
-            self._one_float_tensor if scale_height is None else scale_height
-        )
+        self._scale_width = self._one_float_tensor if scale_width is None else scale_width
+        self._scale_height = self._one_float_tensor if scale_height is None else scale_height
         self.set_bbox(
             make_box_at_center(
                 center(bbox),
@@ -407,8 +390,8 @@ class MovingBox(ResizingBox):
         self._previous_area = width(bbox) * height(bbox)
 
         if self._arena_box is not None:
-            self._horizontal_image_gaussian_distribution = (
-                ImageHorizontalGaussianDistribution(width(self._arena_box))
+            self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
+                width(self._arena_box)
             )
         else:
             self._horizontal_image_gaussian_distribution = None
@@ -422,9 +405,7 @@ class MovingBox(ResizingBox):
         self._max_accel_y = max_accel_y
 
         if self._arena_box is not None:
-            self._gaussian_x_clamp = torch.tensor(
-                [self._arena_box[0], self._arena_box[2]]
-            )
+            self._gaussian_x_clamp = torch.tensor([self._arena_box[0], self._arena_box[2]])
         else:
             self._gaussian_x_clamp = None
 
@@ -444,9 +425,7 @@ class MovingBox(ResizingBox):
                 hh = aw / self._fixed_aspect_ratio
                 assert hh <= ah
             self._full_aspect_ratio_size = torch.tensor([ww, hh])
-            self._full_aspect_ratio_sqrt_area = torch.sqrt(
-                torch.square(ww) + torch.square(hh)
-            )
+            self._full_aspect_ratio_sqrt_area = torch.sqrt(torch.square(ww) + torch.square(hh))
             # Gaussian clamp to center x of max aspect ratio box
             self._gaussian_x_clamp[0] += ww / 2
             self._gaussian_x_clamp[1] -= ww / 2
@@ -468,9 +447,7 @@ class MovingBox(ResizingBox):
         draw_thresholds: bool = False,
         following_box: BasicBox = None,
     ):
-        super().draw(
-            img=img, draw_thresholds=draw_thresholds, following_box=following_box
-        )
+        super().draw(img=img, draw_thresholds=draw_thresholds, following_box=following_box)
         draw_box = self.bounding_box()
         img = vis.plot_rectangle(
             img,
@@ -522,9 +499,7 @@ class MovingBox(ResizingBox):
                     color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
-                img = vis.plot_line(
-                    img, my_center, co, color=(255, 255, 0), thickness=1
-                )
+                img = vis.plot_line(img, my_center, co, color=(255, 255, 0), thickness=1)
                 # X
                 img = vis.plot_line(
                     img,
@@ -549,17 +524,13 @@ class MovingBox(ResizingBox):
             return 1.0
         else:
             if self._gaussian_x_clamp is not None:
-                x = torch.clamp(
-                    x, min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1]
-                )
-            return self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(
-                x
+                x = torch.clamp(x, min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1])
+            return (
+                self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(x)
             )
 
     def _get_sticky_translation_sizes(self):
-        gaussian_factor = 1 - self.get_gaussian_y_about_width_center(
-            center(self.bounding_box())[0]
-        )
+        gaussian_factor = 1 - self.get_gaussian_y_about_width_center(center(self.bounding_box())[0])
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
 
@@ -567,7 +538,7 @@ class MovingBox(ResizingBox):
         sticky_size = width(self.bounding_box()) / self._sticky_size_ratio_to_frame_width
         sticky_size = min(sticky_size, max_sticky_size)
 
-        unsticky_size = sticky_size * self._unsticky_ratio
+        unsticky_size = sticky_size * self._unsticky_translation_size_ratio
 
         return sticky_size, unsticky_size
 
@@ -656,8 +627,7 @@ class MovingBox(ResizingBox):
             edge_ok = torch.logical_not(
                 check_for_box_overshoot(
                     box=bbox,
-                    bounding_box=self._arena_box
-                    + self._inflate_arena_for_unsticky_edges,
+                    bounding_box=self._arena_box + self._inflate_arena_for_unsticky_edges,
                     movement_directions=total_diff,
                     epsilon=0.1,
                 )
@@ -792,9 +762,7 @@ class MovingBox(ResizingBox):
             self._bbox = self.set_aspect_ratio(self._bbox, self._fixed_aspect_ratio)
         self.clamp_size_scaled()
         if arena_box is not None:
-            self._bbox, was_shifted_x, was_shifted_y = shift_box_to_edge(
-                self._bbox, arena_box
-            )
+            self._bbox, was_shifted_x, was_shifted_y = shift_box_to_edge(self._bbox, arena_box)
             if was_shifted_x:
                 # We show down X velocity if we went off the edge
                 self._current_speed_x /= 2
@@ -833,9 +801,7 @@ class MovingBox(ResizingBox):
             check_for_box_overshoot(
                 box=self._bbox,
                 bounding_box=self._arena_box + self._inflate_arena_for_unsticky_edges,
-                movement_directions=torch.tensor(
-                    [self._current_speed_x, self._current_speed_y]
-                ),
+                movement_directions=torch.tensor([self._current_speed_x, self._current_speed_y]),
                 epsilon=0.1,
             )
         )

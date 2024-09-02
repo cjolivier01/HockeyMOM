@@ -59,6 +59,11 @@ rink:
     follower_box_scale_width: 1.25
     follower_box_scale_height: 1.25
 
+    # Sticky translation
+    sticky_size_ratio_to_frame_width: 10.0
+    sticky_translation_gaussian_mult: 5.0
+    unsticky_translation_size_ratio: 0.75
+
     #
     # Configuration for breakaways
     #
