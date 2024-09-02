@@ -68,6 +68,7 @@ class ResizingBox(BasicBox):
         min_height: torch.Tensor,
         max_width: torch.Tensor,
         max_height: torch.Tensor,
+        stop_on_dir_change: bool,
         sticky_sizing: bool = False,
         width_change_threshold: Optional[torch.Tensor] = None,
         width_change_threshold_low: Optional[torch.Tensor] = None,
@@ -76,6 +77,8 @@ class ResizingBox(BasicBox):
         device: str = None,
     ):
         super(ResizingBox, self).__init__(bbox=bbox, device=device)
+        self._stop_on_dir_change = stop_on_dir_change
+
         self._sticky_sizing = sticky_sizing
 
         self._max_speed_w = max_speed_w
@@ -321,6 +324,7 @@ class ResizingBox(BasicBox):
 
 # @HM.register_module()
 class MovingBox(ResizingBox):
+
     def __init__(
         self,
         label: str,
@@ -331,6 +335,7 @@ class MovingBox(ResizingBox):
         max_accel_y: torch.Tensor,
         max_width: torch.Tensor,
         max_height: torch.Tensor,
+        stop_on_dir_change: bool,
         min_width: int = 10,
         min_height: int = 10,
         scale_width: Optional[torch.Tensor] = None,
@@ -346,7 +351,7 @@ class MovingBox(ResizingBox):
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
-        device: str = None,
+        device: Optional[str] = None,
     ):
         super().__init__(
             bbox=bbox,
@@ -355,6 +360,7 @@ class MovingBox(ResizingBox):
             max_speed_h=max_speed_y / 2,
             max_accel_w=max_accel_x,
             max_accel_h=max_accel_y,
+            stop_on_dir_change=stop_on_dir_change,
             sticky_sizing=sticky_sizing,
             width_change_threshold=width_change_threshold,
             width_change_threshold_low=width_change_threshold_low,
@@ -637,7 +643,7 @@ class MovingBox(ResizingBox):
         """
         return self._scale_width, self._scale_height
 
-    def set_destination(self, dest_box: torch.Tensor, stop_on_dir_change: bool = True):
+    def set_destination(self, dest_box: torch.Tensor):
         """
         We try to go to the given box's position, given
         our current velocity and constraints
@@ -714,7 +720,7 @@ class MovingBox(ResizingBox):
                     self._current_speed_x / 2,
                 )
 
-                if stop_on_dir_change:
+                if self._stop_on_dir_change:
                     total_diff[0] = self._zero.clone()
             if different_directions(total_diff[1], self._current_speed_y):
                 # self._current_speed_y = self._zero.clone()
@@ -726,7 +732,7 @@ class MovingBox(ResizingBox):
                     self._current_speed_y / 2,
                 )
 
-                if stop_on_dir_change:
+                if self._stop_on_dir_change:
                     total_diff[1] = self._zero.clone()
         self.adjust_speed(
             accel_x=total_diff[0],
@@ -736,12 +742,12 @@ class MovingBox(ResizingBox):
 
         super(MovingBox, self).set_destination(dest_box=dest_box)
 
-    def forward(self, dest_box: torch.Tensor, stop_on_dir_change: bool):
+    def forward(self, dest_box: torch.Tensor):
         if self._scale_width is not None or self._scale_height is not None:
             dest_box = scale_box(
                 dest_box, scale_width=self._scale_width, scale_height=self._scale_height
             )
-        self.set_destination(dest_box=dest_box, stop_on_dir_change=stop_on_dir_change)
+        self.set_destination(dest_box=dest_box)
         return self.next_position()
 
     def next_position(self):

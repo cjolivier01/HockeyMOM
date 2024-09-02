@@ -145,6 +145,7 @@ class PlayTracker(torch.nn.Module):
             max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
             max_width=self._hockey_mom._video_frame.width,
             max_height=self._hockey_mom._video_frame.height,
+            stop_on_dir_change=False,
             color=(255, 128, 64),
             thickness=5,
             device=self._device,
@@ -163,26 +164,15 @@ class PlayTracker(torch.nn.Module):
             max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
             max_width=self._hockey_mom._video_frame.width,
             max_height=self._hockey_mom._video_frame.height,
-            width_change_threshold=_scalar_like(
-                size_unstick_size * 2, device=self._device
-            ),
-            width_change_threshold_low=_scalar_like(
-                size_stick_size * 2, device=self._device
-            ),
-            height_change_threshold=_scalar_like(
-                size_unstick_size * 2, device=self._device
-            ),
-            height_change_threshold_low=_scalar_like(
-                size_stick_size * 2, device=self._device
-            ),
+            stop_on_dir_change=True,
+            width_change_threshold=_scalar_like(size_unstick_size * 2, device=self._device),
+            width_change_threshold_low=_scalar_like(size_stick_size * 2, device=self._device),
+            height_change_threshold=_scalar_like(size_unstick_size * 2, device=self._device),
+            height_change_threshold_low=_scalar_like(size_stick_size * 2, device=self._device),
             sticky_translation=True,
             sticky_sizing=True,
-            scale_width=self._args.game_config["rink"]["camera"][
-                "follower_box_scale_width"
-            ],
-            scale_height=self._args.game_config["rink"]["camera"][
-                "follower_box_scale_height"
-            ],
+            scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
+            scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
             fixed_aspect_ratio=self._final_aspect_ratio,
             color=(255, 0, 255),
             thickness=5,
@@ -412,10 +402,8 @@ class PlayTracker(torch.nn.Module):
         #
         # Apply the new calculated play
         #
-        fast_roi_bounding_box = self._current_roi(current_box, stop_on_dir_change=False)
-        current_box = self._current_roi_aspect(
-            fast_roi_bounding_box, stop_on_dir_change=True
-        )
+        fast_roi_bounding_box = self._current_roi(current_box)
+        current_box = self._current_roi_aspect(fast_roi_bounding_box)
 
         if self._args.plot_moving_boxes:
             online_im = self._current_roi_aspect.draw(
