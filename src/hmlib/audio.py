@@ -2,7 +2,7 @@ import argparse
 import subprocess
 from typing import List, Union
 
-from hmlib.stitching import synchronize_by_audio
+from hmlib.stitching.synchronize import synchronize_by_audio
 
 
 def make_parser():
