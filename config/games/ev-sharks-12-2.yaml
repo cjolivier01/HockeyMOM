@@ -1,5 +1,5 @@
 game:
-  rink: "sharks_black"
+  rink: sharks_black
   boundaries:
     upper:
     - - 6
@@ -115,6 +115,11 @@ game:
       - 761
       - 4073
       - 9
+  clip_box:
+  - 312
+  - 124
+  - 3718
+  - 1322
 rink:
   scoreboard:
     perspective_polygon:
