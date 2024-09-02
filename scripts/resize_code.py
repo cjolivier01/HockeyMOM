@@ -1,4 +1,3 @@
-#!python
 import subprocess
 
 from screeninfo import get_monitors
