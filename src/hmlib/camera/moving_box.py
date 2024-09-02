@@ -70,10 +70,6 @@ class ResizingBox(BasicBox):
         max_height: torch.Tensor,
         stop_on_dir_change: bool,
         sticky_sizing: bool = False,
-        width_change_threshold: Optional[torch.Tensor] = None,
-        width_change_threshold_low: Optional[torch.Tensor] = None,
-        height_change_threshold: Optional[torch.Tensor] = None,
-        height_change_threshold_low: Optional[torch.Tensor] = None,
         device: str = None,
     ):
         super(ResizingBox, self).__init__(bbox=bbox, device=device)
@@ -85,12 +81,6 @@ class ResizingBox(BasicBox):
         self._max_speed_h = max_speed_h
         self._max_accel_w = max_accel_w
         self._max_accel_h = max_accel_h
-
-        # Change threshholds
-        self._width_change_threshold = width_change_threshold
-        self._width_change_threshold_low = width_change_threshold_low
-        self._height_change_threshold = height_change_threshold
-        self._height_change_threshold_low = height_change_threshold_low
 
         self._min_width = min_width
         self._min_height = min_height
@@ -344,10 +334,6 @@ class MovingBox(ResizingBox):
         fixed_aspect_ratio: Optional[torch.Tensor] = None,
         sticky_translation: bool = False,
         sticky_sizing: bool = False,
-        width_change_threshold: Optional[torch.Tensor] = None,
-        width_change_threshold_low: Optional[torch.Tensor] = None,
-        height_change_threshold: Optional[torch.Tensor] = None,
-        height_change_threshold_low: Optional[torch.Tensor] = None,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
@@ -362,10 +348,6 @@ class MovingBox(ResizingBox):
             max_accel_h=max_accel_y,
             stop_on_dir_change=stop_on_dir_change,
             sticky_sizing=sticky_sizing,
-            width_change_threshold=width_change_threshold,
-            width_change_threshold_low=width_change_threshold_low,
-            height_change_threshold=height_change_threshold,
-            height_change_threshold_low=height_change_threshold_low,
             min_width=min_width,
             min_height=min_height,
             max_width=max_width,
