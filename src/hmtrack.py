@@ -493,11 +493,6 @@ def main(args, num_gpu):
             is_detecting=not using_precalculated_tracking,
         )
 
-        # Set the detection device as the default device
-        # if not using_precalculated_tracking:
-        #     if gpus["detection"].type != "cpu" and gpus["detection"].index is not None:
-        #         torch.cuda.set_device(gpus["detection"].index)
-
         main_device = torch.device("cuda")
         for name in ["detection", "stitching", "encoder"]:
             if name in gpus:
@@ -513,7 +508,6 @@ def main(args, num_gpu):
         data_pipeline = None
         if tracker == "mmtrack":
             args.config = args.exp_file
-            # args.checkpoint = None
             if not using_precalculated_tracking:
                 if args.tracking or args.multi_pose:
                     model = init_model(
@@ -528,7 +522,6 @@ def main(args, num_gpu):
                         hm_crop = get_pipeline_item(model.cfg.data.inference.pipeline, "HmCrop")
                         if hm_crop is not None:
                             hm_crop["rectangle"] = orig_clip_box
-
 
                     if args.checkpoint:
                         load_checkpoint_to_model(model, args.checkpoint)
@@ -652,15 +645,11 @@ def main(args, num_gpu):
                     remap_thread_count=1,
                     fork_workers=False,
                     image_roi=None,
-                    # batch_size=1,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
                     decoder_device=(
-                        torch.device(args.decoder_device)
-                        if args.decoder_device
-                        else None
+                        torch.device(args.decoder_device) if args.decoder_device else None
                     ),
-                    # batch_size=args.batch_size,
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
                 )
@@ -671,18 +660,13 @@ def main(args, num_gpu):
                     game_id=dir_name,
                     img_size=exp.test_size,
                     start_frame_number=args.start_frame,
-                    # batch_size=args.batch_size,
                     batch_size=1,
                     embedded_data_loader=stitched_dataset,
-                    # embedded_data_loader_cache_size=6,
                     embedded_data_loader_cache_size=(
                         args.cache_size
                         if args.stitch_cache_size is None
                         else args.stitch_cache_size
                     ),
-                    # clip_original=get_clip_box(
-                    #     game_id=args.game_id, root_dir=args.root_dir
-                    # ),
                     data_pipeline=data_pipeline,
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
@@ -710,14 +694,9 @@ def main(args, num_gpu):
                     start_frame_number=args.start_frame,
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
-                    # clip_original=get_clip_box(
-                    #     game_id=args.game_id, root_dir=args.root_dir
-                    # ),
                     device=main_device,
                     decoder_device=(
-                        torch.device(args.decoder_device)
-                        if args.decoder_device
-                        else None
+                        torch.device(args.decoder_device) if args.decoder_device else None
                     ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
@@ -730,9 +709,6 @@ def main(args, num_gpu):
             )
 
         if not args.no_progress_bar:
-            # total_frame_count = len(dataloader)
-            # scroll_output = ScrollOutput(lines=args.progress_bar_lines)
-            # scroll_output.register_logger(logger)
             table_map = OrderedDict()
             if is_stitching(args.input_video):
                 table_map["Stitching"] = "ENABLED"
@@ -755,13 +731,12 @@ def main(args, num_gpu):
             fps=dataloader.fps if args.output_fps is None else args.output_fps,
             save_dir=results_folder if not args.no_save_video else None,
             save_frame_dir=args.save_frame_dir,
-            original_clip_box=get_clip_box(
-                game_id=args.game_id, root_dir=args.root_dir
-            ),
+            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
             device=gpus["camera"],
             video_out_device=gpus["encoder"],
             data_type="mot",
             use_fork=False,
+            camera_name=get_nested_value(game_config, "camera.name"),
             async_post_processing=True,
         )
         postprocessor._args.skip_final_video_save = args.skip_final_video_save

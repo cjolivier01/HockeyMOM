@@ -2,7 +2,7 @@
 # Camera type
 #
 camera:
-  name: null
+  name: "GoPro"
   make: null
   model: null
   output-fps: null

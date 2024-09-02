@@ -42,6 +42,7 @@ def get_open_files_count():
 
 
 class CamTrackHead:
+
     def __init__(
         self,
         opt,
@@ -49,6 +50,7 @@ class CamTrackHead:
         device,
         fps: float,
         save_dir: str,
+        camera_name: str,
         original_clip_box: torch.Tensor,
         save_frame_dir: str = None,
         data_type: str = "mot",
@@ -59,6 +61,7 @@ class CamTrackHead:
     ):
         self._opt = opt
         self._args = args
+        self._camera_name = camera_name
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
@@ -146,6 +149,7 @@ class CamTrackHead:
                 image_width=original_img.shape[1],
                 image_height=original_img.shape[0],
                 device=device,
+                camera_name=self._camera_name,
             )
 
         if self._postprocessor is None:

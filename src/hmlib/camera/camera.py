@@ -1,21 +1,16 @@
-import math
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import cameratransform as ct
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from fast_pytorch_kmeans import KMeans
 
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import (
-    aspect_ratio,
     center,
     clamp_box,
-    clamp_value,
     height,
-    make_box_at_center,
     tlwh_to_tlbr_single,
     width,
 )
@@ -103,7 +98,7 @@ class TlwhHistory(object):
     def __init__(self, id: int, video_frame: VideoFrame, max_history_length: int = 25):
         self.id_ = id
         self._max_history_length = max_history_length
-        self._image_position_history = list()
+        self._image_position_history: List[torch.Tensor] = list()
         self._spatial_distance_sum = 0.0
         self._current_spatial_x_speed = 0.0
         self._image_distance_sum = 0.0
@@ -114,12 +109,9 @@ class TlwhHistory(object):
     def id(self):
         return self.id_
 
-    def append(
-        self, image_position: torch.Tensor, spatial_position: torch.Tensor = None
-    ):
+    def append(self, image_position: torch.Tensor, spatial_position: torch.Tensor = None):
         current_historty_length = len(self._image_position_history)
         if current_historty_length >= self._max_history_length - 1:
-            # trunk-ignore(bandit/B101)
             assert current_historty_length == self._max_history_length - 1
             removing_image_point = self._image_position_history[0]
             self._image_position_history = self._image_position_history[1:]
@@ -141,7 +133,9 @@ class TlwhHistory(object):
                 self._current_image_x_speed = (
                     self._image_position_history[-1][0]
                     - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
-                ) / float(X_SPEED_HISTORY_LENGTH)
+                ) / float(
+                    X_SPEED_HISTORY_LENGTH
+                )  # type: ignore
             else:
                 self._current_image_x_speed = 0.0
         else:
@@ -157,7 +151,8 @@ class TlwhHistory(object):
         return self._image_position_history
 
     @staticmethod
-    def center_point(tlwh):
+    def center_point(tlwh: torch.Tensor):
+        assert tlwh.ndim == 4  # Not a batch
         top = tlwh[0]
         left = tlwh[1]
         width = tlwh[2]
@@ -181,18 +176,21 @@ class Clustering:
 
 
 CAMERA_TYPE_MAX_SPEEDS = {
-    "gopro": 200.0,
-    "zhiwei": 200.0,
+    "GoPro": 200.0,
+    "Zhiwei": 200.0,
     "sharks_orange": 400.0,
+    "LiveBarn": 150.0,
 }
 
 
 class HockeyMOM:
+
     def __init__(
         self,
         image_width: int,
         image_height: int,
         device,
+        camera_name: str,
         max_history: int = 26,
         speed_history: int = 26,
     ):
@@ -202,9 +200,9 @@ class HockeyMOM:
             image_height=self._to_scalar_float(image_height),
         )
         self._clamp_box = self._video_frame.bounding_box()
-        self._online_tlwhs_history = list()
+        self._online_tlwhs_history: List[torch.Tensor] = list()
         self._max_history = max_history
-        self._online_ids = set()
+        self._online_ids: Set[int] = set()
         self._id_to_tlwhs_history_map = dict()
 
         self._kmeans_objects = dict()
@@ -224,13 +222,11 @@ class HockeyMOM:
         self._current_camera_box_speed_reversed_x = False
         self._current_camera_box_speed_reversed_y = False
 
-        self._camera_type = "gopro"
-
         self._camera_box_max_speed_x = self._to_scalar_float(
-            max(image_width / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
+            max(image_width / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
         )
         self._camera_box_max_speed_y = self._to_scalar_float(
-            max(image_height / CAMERA_TYPE_MAX_SPEEDS[self._camera_type], 12.0)
+            max(image_height / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
         )
         logger.info(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
@@ -301,9 +297,7 @@ class HockeyMOM:
     def get_image_tracking(self, online_ids):
         results = []
         for id in online_ids:
-            results.append(
-                self._id_to_tlwhs_history_map[id.item()].image_position_history
-            )
+            results.append(self._id_to_tlwhs_history_map[id.item()].image_position_history)
         return results
 
     def get_fast_ids(self, min_fast_items: int = 4, max_fast_items: int = 6):
