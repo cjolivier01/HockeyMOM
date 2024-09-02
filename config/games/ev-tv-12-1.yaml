@@ -130,3 +130,7 @@ rink:
       - 558
     - - 3555
       - 477
+  camera:
+    sticky_size_ratio_to_frame_width: 10.0
+    sticky_translation_gaussian_mult: 10.0
+    unsticky_translation_size_ratio: 0.75
