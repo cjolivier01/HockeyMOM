@@ -1,5 +1,8 @@
 import subprocess
 
+from screeninfo import get_monitors
+
+
 def get_window_ids_by_name(name):
     # Use xdotool to find all window IDs matching a specific name
     try:
@@ -17,13 +20,19 @@ def resize_and_move_windows(window_ids, x, y, width, height):
         print(f'Resized and moved window ID {window_id}')
 
 def main():
-    # Name of the application window (This might need adjustment for exact match)
+    # Name of the application window
     app_name = 'Visual Studio Code'
-    
-    # Assuming two monitors each with 1920x1080 resolution side by side
-    total_width = 1920 * 2
-    total_height = 1080  # Adjust if your monitor heights are different
-    
+
+    # Get monitor information
+    monitors = get_monitors()
+    if len(monitors) < 2:
+        print("Less than two monitors detected.")
+        return
+
+    # Calculate the total width and the maximum height of the left two monitors
+    total_width = sum(monitor.width for monitor in monitors[:2])
+    total_height = max(monitor.height for monitor in monitors[:2])
+
     window_ids = get_window_ids_by_name(app_name)
     if window_ids:
         resize_and_move_windows(window_ids, 0, 0, total_width, total_height)
@@ -32,4 +41,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
