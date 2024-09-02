@@ -333,6 +333,9 @@ class MovingBox(ResizingBox):
         arena_box: Optional[torch.Tensor] = None,
         fixed_aspect_ratio: Optional[torch.Tensor] = None,
         sticky_translation: bool = False,
+        sticky_size_ratio_to_frame_width: float = 10.0,
+        sticky_translation_gaussian_mult: float = 5.0,
+        unsticky_ratio: float = 3 / 4,
         sticky_sizing: bool = False,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
@@ -358,6 +361,9 @@ class MovingBox(ResizingBox):
         self._frozen_color = frozen_color
         self._thickness = thickness
         self._sticky_translation = sticky_translation
+        self._sticky_translation_gaussian_mult = sticky_translation_gaussian_mult
+        self._sticky_size_ratio_to_frame_width = sticky_size_ratio_to_frame_width
+        self._unsticky_ratio = unsticky_ratio
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -556,13 +562,12 @@ class MovingBox(ResizingBox):
         )
         gaussian_mult = 6
         gaussian_add = gaussian_factor * gaussian_mult
-        # logger.info(f"gaussian_factor={gaussian_factor}, gaussian_add={gaussian_add}")
 
-        max_sticky_size = self._max_speed_x * 5 + gaussian_add
-        sticky_size = width(self.bounding_box()) / 10
+        max_sticky_size = self._max_speed_x * self._sticky_translation_gaussian_mult + gaussian_add
+        sticky_size = width(self.bounding_box()) / self._sticky_size_ratio_to_frame_width
         sticky_size = min(sticky_size, max_sticky_size)
 
-        unsticky_size = sticky_size * 3 / 4
+        unsticky_size = sticky_size * self._unsticky_ratio
 
         return sticky_size, unsticky_size
 
