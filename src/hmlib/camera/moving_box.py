@@ -23,7 +23,6 @@ from hmlib.utils.image import ImageHorizontalGaussianDistribution
 
 
 class BasicBox(torch.nn.Module):
-
     def __init__(self, bbox: torch.Tensor, device: Union[torch.device, str, None] = None):
         super(BasicBox, self).__init__()
         if device and isinstance(device, str):
