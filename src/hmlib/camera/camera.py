@@ -152,7 +152,7 @@ class TlwhHistory(object):
 
     @staticmethod
     def center_point(tlwh: torch.Tensor):
-        assert tlwh.ndim == 4  # Not a batch
+        assert tlwh.ndim == 1  # Not a batch
         top = tlwh[0]
         left = tlwh[1]
         width = tlwh[2]
