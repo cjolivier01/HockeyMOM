@@ -1,4 +1,5 @@
 game:
+  rink: "sharks_black"
   boundaries:
     upper:
     - - 6

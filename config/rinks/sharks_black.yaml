@@ -21,6 +21,9 @@ rink:
   parking:
     capacity: 1000
     price: 0 dollars  
+  scoreboard:
+    projected_height: 150
+    projected_width: 400
   tracking:
     cam_ignore_largest: false
   camera:
