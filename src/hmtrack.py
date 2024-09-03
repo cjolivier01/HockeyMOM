@@ -26,6 +26,7 @@ import hmlib.models.end_to_end  # Registers the model
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
+    GAME_DIR_BASE,
     adjusted_config_path,
     get_clip_box,
     get_config,
@@ -348,7 +349,7 @@ def is_stitching(input_video: str) -> bool:
 
 
 def get_game_dir(game_id: str) -> Optional[str]:
-    game_video_dir = os.path.join(os.environ["HOME"], "Videos", game_id)
+    game_video_dir = os.path.join(GAME_DIR_BASE, game_id)
     if os.path.isdir(game_video_dir):
         return game_video_dir
     return None

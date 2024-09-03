@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 import yaml
 
+GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
 
 @dataclass
 class Game:
