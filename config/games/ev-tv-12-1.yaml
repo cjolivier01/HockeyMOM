@@ -1,5 +1,5 @@
 game:
-  rink: sharks_black
+  rink: sharks_gray
   boundaries:
     upper:
     - - 6
@@ -131,6 +131,7 @@ rink:
     - - 3555
       - 477
   camera:
-    sticky_size_ratio_to_frame_width: 10.0
-    sticky_translation_gaussian_mult: 10.0
-    unsticky_translation_size_ratio: 0.75
+    fixed_edge_rotation_angle: 55
+    # sticky_size_ratio_to_frame_width: 10.0
+    # sticky_translation_gaussian_mult: 10.0
+    # unsticky_translation_size_ratio: 0.75
