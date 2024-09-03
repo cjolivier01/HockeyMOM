@@ -60,9 +60,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
     # distributed
-    parser.add_argument(
-        "--dist-backend", default="nccl", type=str, help="distributed backend"
-    )
+    parser.add_argument("--dist-backend", default="nccl", type=str, help="distributed backend")
     parser.add_argument(
         "--dist-url",
         default=None,
@@ -71,12 +69,8 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument("-b", "--batch-size", type=int, default=1, help="batch size")
     parser.add_argument("--root-dir", type=str, default=ROOT_DIR, help="Root directory")
-    parser.add_argument(
-        "--local_rank", default=0, type=int, help="local rank for dist training"
-    )
-    parser.add_argument(
-        "--num_machines", default=1, type=int, help="num of node for training"
-    )
+    parser.add_argument("--local_rank", default=0, type=int, help="local rank for dist training")
+    parser.add_argument("--num_machines", default=1, type=int, help="num of node for training")
     parser.add_argument(
         "--machine_rank", default=0, type=int, help="node rank for multi-node training"
     )
@@ -213,9 +207,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
-    parser.add_argument(
-        "--plot-pose", action="store_true", help="plot individual pose skeletons"
-    )
+    parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
     parser.add_argument(
         "--plot-all-detections",
         type=float,
@@ -230,9 +222,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
-    parser.add_argument(
-        "--no-crop", action="store_true", help="Don't crop output image"
-    )
+    parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     parser.add_argument(
         "--save-frame-dir",
         type=str,
@@ -248,9 +238,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Comma-separated task list (tracking, multi_pose)",
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
-    parser.add_argument(
-        "--min-box-area", type=float, default=100, help="filter out tiny boxes"
-    )
+    parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
     parser.add_argument(
         "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
     )
@@ -275,24 +263,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
 
     # Pose args
-    parser.add_argument(
-        "--pose-config", type=str, default=None, help="Pose config file"
-    )
-    parser.add_argument(
-        "--pose-checkpoint", type=str, default=None, help="Pose checkpoint file"
-    )
-    parser.add_argument(
-        "--kpt-thr", type=float, default=0.3, help="Keypoint score threshold"
-    )
-    parser.add_argument(
-        "--bbox-thr", type=float, default=0.3, help="Bounding box score threshold"
-    )
-    parser.add_argument(
-        "--radius", type=int, default=4, help="Keypoint radius for visualization"
-    )
-    parser.add_argument(
-        "--thickness", type=int, default=1, help="Link thickness for visualization"
-    )
+    parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
+    parser.add_argument("--pose-checkpoint", type=str, default=None, help="Pose checkpoint file")
+    parser.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold")
+    parser.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold")
+    parser.add_argument("--radius", type=int, default=4, help="Keypoint radius for visualization")
+    parser.add_argument("--thickness", type=int, default=1, help="Link thickness for visualization")
     parser.add_argument(
         "--smooth",
         action="store_true",
@@ -389,10 +365,7 @@ def main(args, num_gpu):
             args.output_fps = get_nested_value(game_config, "camera.output-fps")
 
         if args.lfo is None and args.rfo is None:
-            if (
-                "stitching" in game_config["game"]
-                and "offsets" in game_config["game"]["stitching"]
-            ):
+            if "stitching" in game_config["game"] and "offsets" in game_config["game"]["stitching"]:
                 offsets = game_config["game"]["stitching"]["offsets"]
                 if offsets:
                     args.lfo = offsets[0]
@@ -439,9 +412,7 @@ def main(args, num_gpu):
                     pre_stitched_file_name = find_stitched_file(
                         dir_name=game_video_dir, game_id=args.game_id
                     )
-                    if pre_stitched_file_name and os.path.exists(
-                        pre_stitched_file_name
-                    ):
+                    if pre_stitched_file_name and os.path.exists(pre_stitched_file_name):
                         args.input_video = pre_stitched_file_name
                     else:
                         args.input_video = game_video_dir
@@ -478,9 +449,7 @@ def main(args, num_gpu):
                 write_interval=100,
             )
 
-        using_precalculated_tracking = (
-            tracking_data is not None and tracking_data.has_input_data()
-        )
+        using_precalculated_tracking = tracking_data is not None and tracking_data.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -558,13 +527,9 @@ def main(args, num_gpu):
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
                 )
-                pose_model.cfg.test_pipeline = update_data_pipeline(
-                    pose_model.cfg.test_pipeline
-                )
+                pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
                 pose_dataset = pose_model.cfg.data["test"]["type"]
-                pose_dataset_info = pose_model.cfg.data["test"].get(
-                    "dataset_info", None
-                )
+                pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
                 if pose_dataset_info is None:
                     warnings.warn(
                         "Please set `dataset_info` in the config."
@@ -612,9 +577,7 @@ def main(args, num_gpu):
 
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
-                    args.max_frames = time_to_frame(
-                        time_str=args.max_time, fps=left_vid.fps
-                    )
+                    args.max_frames = time_to_frame(time_str=args.max_time, fps=left_vid.fps)
 
                 pto_project_file, lfo, rfo = configure_video_stitching(
                     dir_name,
@@ -687,9 +650,7 @@ def main(args, num_gpu):
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
                     vid_info = BasicVideoInfo(input_video_files[0])
-                    args.max_frames = time_to_frame(
-                        time_str=args.max_time, fps=vid_info.fps
-                    )
+                    args.max_frames = time_to_frame(time_str=args.max_time, fps=vid_info.fps)
                 dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
@@ -717,9 +678,7 @@ def main(args, num_gpu):
 
             progress_bar = ProgressBar(
                 total=len(dataloader),
-                scroll_output=ScrollOutput(
-                    lines=args.progress_bar_lines
-                ).register_logger(logger),
+                scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
             )
@@ -836,9 +795,7 @@ def main(args, num_gpu):
 
 def tensor_to_image(tensor: torch.Tensor):
     if torch.is_floating_point(tensor):
-        tensor = torch.clamp(tensor * 255, min=0, max=255).to(
-            torch.uint8, non_blocking=True
-        )
+        tensor = torch.clamp(tensor * 255, min=0, max=255).to(torch.uint8, non_blocking=True)
     return tensor
 
 
@@ -871,9 +828,7 @@ def run_mmtrack(
             total_batches_in_video = len(dataloader)
             total_frames_in_video = batch_size * total_batches_in_video
             number_of_batches_processed = 0
-            total_duration_str = convert_seconds_to_hms(
-                len(dataloader) / dataloader.fps
-            )
+            total_duration_str = convert_seconds_to_hms(len(dataloader) / dataloader.fps)
 
             if model is not None:
                 model.eval()
@@ -906,14 +861,10 @@ def run_mmtrack(
                     remaining_frames_to_process = total_frames_in_video - (
                         number_of_batches_processed * batch_size
                     )
-                    remaining_seconds_to_process = (
-                        remaining_frames_to_process / dataloader.fps
-                    )
+                    remaining_seconds_to_process = remaining_frames_to_process / dataloader.fps
 
                     if wraparound_timer is not None:
-                        processing_fps = batch_size / max(
-                            1e-5, wraparound_timer.average_time
-                        )
+                        processing_fps = batch_size / max(1e-5, wraparound_timer.average_time)
 
                         table_map["HMTrack FPS"] = "{:.2f}".format(processing_fps)
                         table_map["Dataset length"] = total_duration_str
@@ -984,9 +935,7 @@ def run_mmtrack(
                             data["img_metas"] = data["img_metas"][0].data
 
                         for i, img in enumerate(data["img"]):
-                            data["img"][i] = make_channels_first(
-                                data["img"][i].squeeze(0)
-                            ).to(
+                            data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
                                 torch.float16 if fp16 else torch.float,
                                 non_blocking=True,
                             )
@@ -1016,9 +965,7 @@ def run_mmtrack(
                                     vis_frame,
                                 ) = multi_pose_task(
                                     pose_model=pose_model,
-                                    cur_frame=make_channels_last(origin_imgs)
-                                    .wait()
-                                    .squeeze(0),
+                                    cur_frame=make_channels_last(origin_imgs).wait().squeeze(0),
                                     # cur_frame=make_channels_last(data["img"][frame_index]),
                                     dataset=pose_dataset_type,
                                     dataset_info=pose_dataset_info,
@@ -1062,8 +1009,8 @@ def run_mmtrack(
                                 online_tlwhs[:, 3] - online_tlwhs[:, 1]
                             )  # height = y2 - y1
                         else:
-                            track_ids, scores, bboxes = (
-                                tracking_data.get_tracking_info_by_frame(frame_id)
+                            track_ids, scores, bboxes = tracking_data.get_tracking_info_by_frame(
+                                frame_id
                             )
                             detections = bboxes
                             online_tlwhs = torch.from_numpy(bboxes)
@@ -1099,9 +1046,7 @@ def run_mmtrack(
                                     [
                                         tracking_items,
                                         torch.from_numpy(bboxes),
-                                        torch.from_numpy(scores).reshape(
-                                            scores.shape[0], 1
-                                        ),
+                                        torch.from_numpy(scores).reshape(scores.shape[0], 1),
                                     ],
                                     dim=1,
                                 )
