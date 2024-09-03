@@ -79,17 +79,30 @@ class BreakawayDetection:
 
 @HM.register_module()
 class PlayTracker(torch.nn.Module):
+
     def __init__(
         self,
         hockey_mom,
-        device,
-        original_clip_box,
-        progress_bar: ProgressBar | None,
+        play_box: torch.Tensor,
+        device: torch.device,
+        original_clip_box: Optional[torch.Tensor],
+        progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
     ):
+        """
+        Track the play
+
+        :param hockey_mom: The old HockeyMom object
+        :param play_box: The box allowed for play (assumed the visual play does not exist outside of this box)
+        :param device: Device to use for computations
+        :param original_clip_box: Clip box that has been applied to the original image (if any)
+        :param progress_bar: Progress bar
+        :param args: _description_
+        """
         super(PlayTracker, self).__init__()
         self._args = args
         self._hockey_mom = hockey_mom
+        self._play_box = play_box
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
@@ -126,7 +139,13 @@ class PlayTracker(torch.nn.Module):
         self._last_sticky_temporal_box = None
         self._frame_counter: int = 0
 
-        start_box = self._hockey_mom._video_frame.bounding_box()
+        play_width = width(self._play_box)
+        play_height = height(self._play_box)
+
+        assert width(self._play_box) == self._hockey_mom._video_frame.width
+        assert height(self._play_box) == self._hockey_mom._video_frame.height
+
+        start_box = self._play_box.clone()
         self._current_roi = MovingBox(
             label="Current ROI",
             bbox=start_box.clone(),
@@ -135,8 +154,8 @@ class PlayTracker(torch.nn.Module):
             max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
             max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
             max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
-            max_width=self._hockey_mom._video_frame.width,
-            max_height=self._hockey_mom._video_frame.height,
+            max_width=play_width,
+            max_height=play_height,
             stop_on_dir_change=False,
             color=(255, 128, 64),
             thickness=5,
@@ -151,8 +170,8 @@ class PlayTracker(torch.nn.Module):
             max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
             max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
             max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
-            max_width=self._hockey_mom._video_frame.width,
-            max_height=self._hockey_mom._video_frame.height,
+            max_width=play_width,
+            max_height=play_height,
             stop_on_dir_change=True,
             sticky_translation=True,
             sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
@@ -171,7 +190,7 @@ class PlayTracker(torch.nn.Module):
             color=(255, 0, 255),
             thickness=5,
             device=self._device,
-            min_height=self._hockey_mom._video_frame.height / 5,
+            min_height=play_height / 5,
         )
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
@@ -182,7 +201,7 @@ class PlayTracker(torch.nn.Module):
         return super().train(mode)
 
     def get_arena_box(self):
-        return self._hockey_mom._video_frame.bounding_box()
+        return self._play_box.clone()
 
     def _kmeans_cuda_device(self):
         return "cpu"
@@ -192,7 +211,7 @@ class PlayTracker(torch.nn.Module):
         Set the initial tracking boxes
         """
         assert self._frame_counter <= 1, "Not currently meant for setting at runtime"
-        frame_box = start_box = self._hockey_mom._video_frame.bounding_box()
+        frame_box = self.get_arena_box()
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
         assert width(box) <= fw and height(box) <= fh
@@ -211,6 +230,14 @@ class PlayTracker(torch.nn.Module):
             clamp_box=frame_box,
         )
         self._current_roi_aspect.set_bbox(box_roi)
+
+    def remove_ridiculous_cluster_boxes(self):
+        """
+        In case for some reason, probably due to a bad anchor point choice, a
+        cluster box is half or more of the width of the field/rink, bound it at half
+        """
+
+        pass
 
     def get_cluster_boxes(
         self,
@@ -283,7 +310,7 @@ class PlayTracker(torch.nn.Module):
         elif self._previous_cluster_union_box is not None:
             cluster_enclosing_box = self._previous_cluster_union_box.clone()
         else:
-            cluster_enclosing_box = self._hockey_mom._video_frame.bounding_box()
+            cluster_enclosing_box = self.get_arena_box()
 
         current_box = cluster_enclosing_box
 
@@ -368,7 +395,7 @@ class PlayTracker(torch.nn.Module):
 
         if current_box is None:
             assert False  # how does this happen?
-            current_box = self._hockey_mom._video_frame.bounding_box()
+            current_box = self.get_arena_box()
 
         current_box, online_im = self.calculate_breakaway(
             current_box=current_box,
@@ -383,7 +410,8 @@ class PlayTracker(torch.nn.Module):
         self._previous_cluster_union_box = current_box.clone()
 
         # Some players may be off-screen, so their box may go over an edge
-        current_box = self._hockey_mom.clamp(current_box)
+        # current_box = self._hockey_mom.clamp(current_box)
+        current_box = clamp_box(current_box, self._play_box)
 
         # Maybe set initial box sizes if we aren't starting with a wide frame
         if self._frame_counter == 1 and self._args.no_wide_start:

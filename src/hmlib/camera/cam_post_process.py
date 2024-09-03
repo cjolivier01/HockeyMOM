@@ -243,6 +243,7 @@ class CamTrackPostProcessor:
         self._exception = None
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
+            play_box=hockey_mom._video_frame.bounding_box(),
             device=device,
             original_clip_box=original_clip_box,
             progress_bar=progress_bar,
