@@ -5,7 +5,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 
@@ -197,6 +197,7 @@ class DefaultArguments(core.HMPostprocessConfig):
 
 
 class CamTrackPostProcessor:
+
     def __init__(
         self,
         hockey_mom,
@@ -204,6 +205,7 @@ class CamTrackPostProcessor:
         data_type,
         fps: float,
         save_dir,
+        output_video_path: Optional[str],
         device,
         original_clip_box,
         args: argparse.Namespace,
@@ -236,6 +238,7 @@ class CamTrackPostProcessor:
 
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
+        self._output_video_path = output_video_path
 
         self._video_output_campp = None
         self._queue_timer = Timer()
@@ -249,6 +252,17 @@ class CamTrackPostProcessor:
             progress_bar=progress_bar,
             args=args,
         )
+
+    @property
+    def output_video_path(self):
+        return self._output_video_path
+        # if self._args._output_video_path is not None:
+        #     return self._args._output_video_pat
+        # return (
+        #     os.path.join(self._save_dir, "tracking_output.mkv")
+        #     if self._save_dir is not None
+        #     else None
+        # )
 
     def start(self):
         if self._use_fork:
@@ -348,17 +362,10 @@ class CamTrackPostProcessor:
 
         if not self._no_frame_postprocessing:
             assert self._video_output_campp is None
-            output_video_path = self._args._output_video_path
-            if output_video_path is None:
-                output_video_path = (
-                    os.path.join(self._save_dir, "tracking_output.mkv")
-                    if self._save_dir is not None
-                    else None
-                )
             self._video_output_campp = VideoOutput(
                 name="TRACKING",
                 args=self._args,
-                output_video_path=output_video_path,
+                output_video_path=self.output_video_path,
                 fps=self._fps,
                 use_fork=False,
                 start=False,

@@ -563,6 +563,7 @@ def main(args, num_gpu):
                     video_right = "right.mp4"
                     vl = os.path.join(dir_name, video_left)
                     vr = os.path.join(dir_name, video_right)
+                    input_video_files = [vl, vr]
 
                 left_vid = BasicVideoInfo(vl)
                 right_vid = BasicVideoInfo(vr)
@@ -685,12 +686,19 @@ def main(args, num_gpu):
         else:
             progress_bar = None
 
+        save_dir = None
+        output_video_path = None
+        if not args.no_save_video:
+            save_dir = results_folder
+            output_video_path = os.path.join(results_folder, "tracking_output.mkv")
+
         # TODO: can this be part of the openmm pipeline?
         postprocessor = CamTrackHead(
             opt=args,
             args=cam_args,
             fps=dataloader.fps if args.output_fps is None else args.output_fps,
-            save_dir=results_folder if not args.no_save_video else None,
+            save_dir=save_dir,
+            output_video_path=output_video_path,
             save_frame_dir=args.save_frame_dir,
             original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
             device=gpus["camera"],
@@ -776,6 +784,27 @@ def main(args, num_gpu):
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
                 **other_kwargs,
+            )
+
+        #
+        # Now add the audio
+        #
+        from hmlib.audio import copy_audio
+
+        if output_video_path and os.path.exists(output_video_path):
+            dir_tokens = output_video_path.split("/")
+            file_name = dir_tokens[-1]
+            fn_tokens = file_name.split(".")
+            if len(fn_tokens) > 1:
+                fn_tokens[-2] += "-with-audio"
+            else:
+                fn_tokens[0] += "-with-audio"
+            dir_tokens[-1] = ".".join(fn_tokens)
+            video_with_audio = os.path.join(*dir_tokens)
+            copy_audio(
+                input_audio=input_video_files,
+                input_video=output_video_path,
+                output_video=video_with_audio,
             )
         logger.info("Completed")
     except Exception as ex:

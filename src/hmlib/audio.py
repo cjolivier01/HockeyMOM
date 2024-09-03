@@ -1,4 +1,5 @@
 import argparse
+import json
 import subprocess
 from typing import List, Union
 
@@ -35,7 +36,7 @@ def make_parser():
 
 def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_video: str):
     audio_source = None
-    if isinstance(input_audio, list):
+    if isinstance(input_audio, list) and len(input_audio) == 2:
         assert len(input_audio) == 2
         lfo, rfo = synchronize_by_audio(input_audio[0], input_audio[1])
         if lfo == 0:
@@ -45,6 +46,9 @@ def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_vide
         else:
             raise AssertionError(f"Either lfo or rfo should be zero, but were {lfo=} and {rfo=}")
     else:
+        if isinstance(input_audio, list):
+            assert len(input_audio) == 1
+            input_audio = input_audio[0]
         audio_source = input_audio
     command = [
         "ffmpeg",

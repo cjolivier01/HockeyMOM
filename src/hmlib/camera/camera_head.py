@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 
@@ -50,6 +50,7 @@ class CamTrackHead:
         device,
         fps: float,
         save_dir: str,
+        output_video_path: Optional[str],
         camera_name: str,
         original_clip_box: torch.Tensor,
         save_frame_dir: str = None,
@@ -70,6 +71,7 @@ class CamTrackHead:
         self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
+        self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._hockey_mom = None
         self._device = device
@@ -159,6 +161,7 @@ class CamTrackHead:
                 data_type=self._data_type,
                 fps=self._fps,
                 save_dir=self._save_dir,
+                output_video_path=self._output_video_path,
                 save_frame_dir=self._save_frame_dir,
                 device=device,
                 original_clip_box=self._original_clip_box,  # TODO: Put in args
