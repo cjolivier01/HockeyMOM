@@ -905,16 +905,6 @@ def run_mmtrack(
             if model is not None:
                 model.eval()
 
-            # if pose_model is not None:
-            #     if number_of_batches_processed == 0:
-            #         for i, item in enumerate(pose_model.cfg.test_pipeline):
-            #             # TODO: make a simple translatiuon function and array argument
-            #             if item["type"] == "TopDownAffine":
-            #                 pose_model.cfg.test_pipeline[i]["type"] = "HmTopDownAffine"
-            #             elif item["type"] == "ToTensor":
-            #                 pose_model.cfg.test_pipeline[i]["type"] = "HmToTensor"
-            #         pose_model.eval()
-
             wraparound_timer = None
             get_timer = Timer()
             detect_timer = None
@@ -1038,7 +1028,6 @@ def run_mmtrack(
                                 ) = multi_pose_task(
                                     pose_model=pose_model,
                                     cur_frame=make_channels_last(origin_imgs).wait().squeeze(0),
-                                    # cur_frame=make_channels_last(data["img"][frame_index]),
                                     dataset=pose_dataset_type,
                                     dataset_info=pose_dataset_info,
                                     tracking_results=tracking_results,
