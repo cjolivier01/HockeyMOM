@@ -116,10 +116,10 @@ game:
       - 4073
       - 9
   clip_box:
-  - 312
-  - 124
-  - 3718
-  - 1322
+  - 272
+  - 334
+  - 3764
+  - 1296
 rink:
   scoreboard:
     perspective_polygon:
