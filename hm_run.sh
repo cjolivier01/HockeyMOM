@@ -24,6 +24,7 @@ OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
+  --save-tracking-data \
   -expn="hm_run" \
   -f="${EXPERIMENT_FILE}" \
   -b=${BATCH_SIZE} ${POSE_MODELS} \

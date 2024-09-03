@@ -268,8 +268,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Input tracking data file and use instead of AI calling tracker",
     )
     parser.add_argument(
-        "--checkpoint", type=str, default=None, help="Tracking checkpoint file"
+        "--save-tracking-data",
+        action="store_true",
+        help="Save tracking data to results.csv",
     )
+    parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
 
     # Pose args
     parser.add_argument(
@@ -296,7 +299,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Apply a temporal filter to smooth the pose estimation results. "
         "See also --smooth-filter-cfg.",
     )
-
     return parser
 
 
@@ -465,7 +467,7 @@ def main(args, num_gpu):
             results_folder = os.path.join(".", "output_workdirs", args.game_id)
             os.makedirs(results_folder, exist_ok=True)
 
-        if args.input_tracking_data:
+        if args.save_tracking_data or args.input_tracking_data:
             tracking_data = MOTTrackingData(
                 input_file=args.input_tracking_data,
                 output_file=(
