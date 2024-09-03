@@ -52,6 +52,7 @@ def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_vide
         audio_source = input_audio
     command = [
         "ffmpeg",
+        "-y",
         "-i",
         audio_source,
         "-i",

@@ -796,6 +796,11 @@ def main(args, num_gpu):
             file_name = dir_tokens[-1]
             fn_tokens = file_name.split(".")
             if len(fn_tokens) > 1:
+                if fn_tokens[-1] == "mkv":
+                    # There will be audio drift when adding audio
+                    # from mkv to mkv due to strange frame rate items
+                    # in the mkv that differ from the original
+                    fn_tokens[-1] = "mp4"
                 fn_tokens[-2] += "-with-audio"
             else:
                 fn_tokens[0] += "-with-audio"
