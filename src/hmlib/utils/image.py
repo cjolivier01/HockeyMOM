@@ -699,3 +699,4 @@ def get_complete_monitor_width():
     for monitor in get_monitors():
         width += monitor.width
     return width
+

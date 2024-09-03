@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.datasets.dataset.jde import py_letterbox
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
@@ -25,6 +24,7 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
+from hmlib.utils.letterbox import py_letterbox
 from hmlib.video_stream import VideoStreamReader
 
 
