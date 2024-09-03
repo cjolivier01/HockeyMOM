@@ -243,7 +243,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
     )
     parser.add_argument(
-        "--input_video",
         "--input-video",
         type=str,
         default=None,
@@ -259,6 +258,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--save-tracking-data",
         action="store_true",
         help="Save tracking data to results.csv",
+    )
+    parser.add_argument(
+        "--output-video",
+        type=str,
+        default=None,
+        help="The output video file name",
     )
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
 
@@ -342,6 +347,13 @@ def is_stitching(input_video: str) -> bool:
     return len(input_video_files) == 2 or os.path.isdir(args.input_video)
 
 
+def get_game_dir(game_id: str) -> Optional[str]:
+    game_video_dir = os.path.join(os.environ["HOME"], "Videos", game_id)
+    if os.path.isdir(game_video_dir):
+        return game_video_dir
+    return None
+
+
 def main(args, num_gpu):
     dataloader = None
     tracking_data = None
@@ -403,8 +415,8 @@ def main(args, num_gpu):
 
         # See if gameid is in videos
         if not args.input_video and args.game_id:
-            game_video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
-            if os.path.isdir(game_video_dir):
+            game_video_dir = get_game_dir(args.game_id)
+            if game_video_dir:
                 # TODO: also look for avi and mp4 files
                 if args.force_stitching:
                     args.input_video = game_video_dir
@@ -792,20 +804,45 @@ def main(args, num_gpu):
         from hmlib.audio import copy_audio
 
         if output_video_path and os.path.exists(output_video_path):
-            dir_tokens = output_video_path.split("/")
-            file_name = dir_tokens[-1]
-            fn_tokens = file_name.split(".")
-            if len(fn_tokens) > 1:
-                if fn_tokens[-1] == "mkv":
-                    # There will be audio drift when adding audio
-                    # from mkv to mkv due to strange frame rate items
-                    # in the mkv that differ from the original
-                    fn_tokens[-1] = "mp4"
-                fn_tokens[-2] += "-with-audio"
-            else:
-                fn_tokens[0] += "-with-audio"
-            dir_tokens[-1] = ".".join(fn_tokens)
-            video_with_audio = os.path.join(*dir_tokens)
+            video_with_audio = args.output_video
+            if not video_with_audio:
+                game_video_dir = get_game_dir(args.game_id)
+                if not game_video_dir:
+                    # Going into results dir
+                    dir_tokens = output_video_path.split("/")
+                    file_name = dir_tokens[-1]
+                    fn_tokens = file_name.split(".")
+                    if len(fn_tokens) > 1:
+                        if fn_tokens[-1] == "mkv":
+                            # There will be audio drift when adding audio
+                            # from mkv to mkv due to strange frame rate items
+                            # in the mkv that differ from the original
+                            fn_tokens[-1] = "mp4"
+                        fn_tokens[-2] += "-with-audio"
+                    else:
+                        fn_tokens[0] += "-with-audio"
+                    dir_tokens[-1] = ".".join(fn_tokens)
+                    video_with_audio = os.path.join(*dir_tokens)
+                else:
+                    # Going into game-dir (numbered if pre-existing)
+                    file_name = output_video_path.split("/")[-1]
+                    base_name, extension = os.path.splitext(file_name)
+                    if extension == ".mkv":
+                        # There will be audio drift when adding audio
+                        # from mkv to mkv due to strange frame rate items
+                        # in the mkv that differ from the original
+                        extension = ".mp4"
+                    video_with_audio = None
+                    for i in range(1000):
+                        if i:
+                            fname = base_name + "-" + str(i) + extension
+                        else:
+                            fname = base_name + extension
+                        fname = os.path.join(game_video_dir, fname)
+                        if not os.path.exists(fname):
+                            video_with_audio = fname
+                            break
+            print(f"Saving video with audio to file: {video_with_audio}")
             copy_audio(
                 input_audio=input_video_files,
                 input_video=output_video_path,

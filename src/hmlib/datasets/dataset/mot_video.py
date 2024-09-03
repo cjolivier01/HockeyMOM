@@ -145,7 +145,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 raise RuntimeError(
                     f"Video {self._path} either does not exist or has no usable video content"
                 )
-            assert self._start_frame_number >= 0 and self._start_frame_number < self.vn
+            if self._start_frame_number < 0:
+                raise ValueError("Start frame number cannot be negative")
+            elif self._start_frame_number >= self.vn:
+                raise ValueError(
+                    f"Start frame {int(self._start_frame_number)} is byond the end of the video, which has only {self.vn} frames"
+                )
             if self._start_frame_number:
                 self.cap.seek(frame_number=self._start_frame_number * self._frame_step)
             self._vid_iter = iter(self.cap)

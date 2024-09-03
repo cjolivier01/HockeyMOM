@@ -95,15 +95,6 @@ rink:
   scoreboard:
     projected_width: 500
     projected_height: 200
-    perspective_polygon:
-    - - 5117
-      - 894
-    - - 5254
-      - 965
-    - - 5209
-      - 1053
-    - - 5076
-      - 982
   camera:
     fixed_edge_scaling_factor: 0.8
     # fixed_edge_rotation_angle: 40
