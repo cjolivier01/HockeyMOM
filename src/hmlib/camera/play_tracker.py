@@ -236,7 +236,6 @@ class PlayTracker(torch.nn.Module):
         online_tlwhs: torch.Tensor,
         online_ids: torch.Tensor,
         cluster_counts: List[int],
-        max_width: Union[torch.tensor, float, None],
     ):
         if self._cluster_man is None:
             self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
@@ -254,20 +253,13 @@ class PlayTracker(torch.nn.Module):
                 largest_cluster_ids_box = self._hockey_mom.get_current_bounding_box(
                     largest_cluster_ids
                 )
-                # boxes_map[cluster_count] = largest_cluster_ids_box
+                boxes_map[cluster_count] = largest_cluster_ids_box
                 boxes_list.append(largest_cluster_ids_box)
             else:
                 largest_cluster_ids_box = None
-        if boxes_list:
-            boxes_list = torch.stack(boxes_list)
-            for i, cluster_count in enumerate(cluster_counts):
-                boxes_map[cluster_count] = boxes_list[i]
-            if max_width is not None:
-                # Largest cluster box can get is half the arena width
-                boxes_list = set_max_bounding_box_width(boxes_list, max_width)
         if not boxes_map:
             return {}, None
-        return boxes_map, boxes_list
+        return boxes_map, torch.stack(boxes_list)
 
     def forward(self, online_targets_and_img):
         self._timer.tic()
@@ -301,13 +293,8 @@ class PlayTracker(torch.nn.Module):
         # BEGIN Clusters
         #
         cluster_counts = [3, 2]
-        # cluster_counts = [4, 3]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
-            online_tlwhs,
-            online_ids,
-            cluster_counts=cluster_counts,
-            # max_width=width(self._play_box) / 2,
-            max_width=None,
+            online_tlwhs, online_ids, cluster_counts=cluster_counts
         )
 
         if cluster_boxes_map:
@@ -547,25 +534,3 @@ def _scalar_like(v, device):
     if isinstance(v, torch.Tensor):
         return v.clone()
     return torch.tensor(v, dtype=torch.float, device=device)
-
-
-def set_max_bounding_box_width(
-    bounding_boxes: torch.Tensor, max_width: torch.Tensor
-) -> torch.Tensor:
-    # Calculate widths of each bounding box
-    widths = bounding_boxes[:, 2] - bounding_boxes[:, 0]
-
-    # Calculate centers of each bounding box
-    centers_x = (bounding_boxes[:, 0] + bounding_boxes[:, 2]) / 2
-
-    # Find boxes where the width is greater than the allowed maximum
-    wider_than_max = widths > max_width
-
-    # Adjust x1 and x2 for these boxes
-    # New x1 is the center minus half the max width
-    bounding_boxes[wider_than_max, 0] = centers_x[wider_than_max] - max_width / 2
-
-    # New x2 is the center plus half the max width
-    bounding_boxes[wider_than_max, 2] = centers_x[wider_than_max] + max_width / 2
-
-    return bounding_boxes
