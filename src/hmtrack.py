@@ -35,6 +35,7 @@ from hmlib.config import (
     update_config,
 )
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
@@ -554,7 +555,8 @@ def main(args, num_gpu):
         else:
             assert False and "No longer supported"
 
-        dataloader = None
+        dataloader = MultiDatasetWrapper()
+        # dataloader = None
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -634,7 +636,7 @@ def main(args, num_gpu):
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
-                dataloader = MOTLoadVideoWithOrig(
+                mot_dataloader = MOTLoadVideoWithOrig(
                     path=None,
                     game_id=dir_name,
                     img_size=exp.test_size,
@@ -652,6 +654,7 @@ def main(args, num_gpu):
                     device=gpus["stitching"],
                     original_image_only=tracking_data is not None,
                 )
+                dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
                 assert not args.start_frame or not args.start_frame_time
@@ -665,7 +668,7 @@ def main(args, num_gpu):
                 if not args.max_frames and args.max_time:
                     vid_info = BasicVideoInfo(input_video_files[0])
                     args.max_frames = time_to_frame(time_str=args.max_time, fps=vid_info.fps)
-                dataloader = MOTLoadVideoWithOrig(
+                pano_dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
                     img_size=exp.test_size,
                     start_frame_number=args.start_frame,
@@ -679,6 +682,7 @@ def main(args, num_gpu):
                     dtype=torch.float if not args.fp16 else torch.half,
                     original_image_only=tracking_data is not None,
                 )
+                dataloader.append_dataset("pano", pano_dataloader)
 
         if dataloader is None:
             dataloader = exp.get_eval_loader(
@@ -946,15 +950,8 @@ def run_mmtrack(
             using_precalculated_tracking = (
                 tracking_data is not None and tracking_data.has_input_data()
             )
-
-            for cur_iter, (
-                origin_imgs,
-                data,
-                _,
-                info_imgs,
-                ids,
-            ) in enumerate(dataloader_iterator):
-                # info_imgs is 4 scalar tensors: height, width, frame_id, video_id
+            for cur_iter, dataset_results in enumerate(dataloader_iterator):
+                origin_imgs, data, _, info_imgs, ids = dataset_results["pano"]
                 with torch.no_grad():
                     # init tracker
                     frame_id = info_imgs[2][0]
