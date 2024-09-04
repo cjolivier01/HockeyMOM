@@ -52,9 +52,22 @@ class MultiDatasetWrapper(Dataset):
     def __getattr__(self, name):
         """Delegate attribute access to the wrapped object if it's not found in Wrapper."""
         try:
-            assert len(self._datasets) == 1
+            if not len(self._datasets):
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+            checked_count: int = 0
+            last_attr_value = None
             for obj in self._datasets.values():
-                return getattr(obj, name)
+                attr_value = getattr(obj, name)
+                if not checked_count:
+                    last_attr_value = attr_value
+                else:
+                    if attr_value != last_attr_value:
+                        raise AssertionError(
+                            f"For getattr across multipel datasets, all getattr values must be the same ({attr_value} vs {last_attr_value})"
+                        )
+                checked_count += 1
+            return last_attr_value
+
         except AttributeError as e:
             # Optionally, you can handle the case where the
             # attribute doesn't exist in __wrapped_class either
