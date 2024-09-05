@@ -5,7 +5,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -289,7 +289,14 @@ class CamTrackPostProcessor:
         self._video_output_campp.stop()
 
     def send(
-        self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
+        self,
+        online_tlwhs,
+        online_ids,
+        detections,
+        info_imgs,
+        image,
+        original_img,
+        data: Dict[str, Any],
     ):
         if self._exception is not None:
             raise self._exception
@@ -315,6 +322,7 @@ class CamTrackPostProcessor:
                             info_imgs,
                             image,
                             original_img,
+                            data,
                         )
                     )
                 else:
@@ -325,6 +333,7 @@ class CamTrackPostProcessor:
                         info_imgs,
                         image,
                         original_img,
+                        data,
                     )
                     self.cam_postprocess(online_targets_and_img=online_targets_and_img)
         except Exception as ex:

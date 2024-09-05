@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -112,6 +112,7 @@ class CamTrackHead:
         letterbox_img,
         original_img,
         online_scores,
+        data: Dict[str, Any],
     ):
         self._counter += 1
         if self._counter % 100 == 0:
@@ -140,6 +141,7 @@ class CamTrackHead:
             info_imgs,
             None,
             original_img,
+            data,
         )
         return tracking_results, detections, online_tlwhs
 

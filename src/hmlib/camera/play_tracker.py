@@ -269,6 +269,9 @@ class PlayTracker(torch.nn.Module):
         detections = online_targets_and_img[2]
         info_imgs = online_targets_and_img[3]
 
+        # Other data/dataset output
+        other_data = online_targets_and_img[-1]
+
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
         frame_id = frame_ids[self._frame_counter % len(frame_ids)]
         self._frame_counter += 1

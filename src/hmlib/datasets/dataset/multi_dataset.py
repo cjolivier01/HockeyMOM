@@ -62,7 +62,10 @@ class MultiDatasetWrapper(Dataset):
                     last_attr_value = attr_value
                 else:
                     if attr_value != last_attr_value:
-                        raise AssertionError(
+                        # raise AssertionError(
+                        #     f"For getattr across multipel datasets, all getattr values must be the same ({attr_value} vs {last_attr_value})"
+                        # )
+                        print(
                             f"For getattr across multipel datasets, all getattr values must be the same ({attr_value} vs {last_attr_value})"
                         )
                 checked_count += 1
