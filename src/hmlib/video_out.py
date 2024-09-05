@@ -39,6 +39,7 @@ from hmlib.utils.image import (
     make_visible_image,
     resize_image,
 )
+from hmlib.utils.letterbox import py_letterbox
 from hmlib.utils.progress_bar import ProgressBar
 
 from .video_stream import VideoStreamWriter
@@ -79,9 +80,7 @@ def quick_show(img: torch.Tensor, wait: bool = False):
 def get_best_codec(gpu_number: int, width: int, height: int):
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
-    if (
-        compute >= 7 and width <= 9900
-    ):  # FIXME: I forget what the max is? 99-thousand-something
+    if compute >= 7 and width <= 9900:  # FIXME: I forget what the max is? 99-thousand-something
         return "hevc_nvenc", True
     elif compute >= 6 and width <= 4096:
         return "hevc_nvenc", True
@@ -132,23 +131,18 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
         )
     else:
         rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
-        img = cv2.warpAffine(
-            img, rotation_matrix, (image_width(img), image_height(img))
-        )
+        img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))
     return img
 
 
-def paste_watermark_at_position(
-    dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int
-):
+def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int):
     assert dest_image.ndim == 4
     assert dest_image.device == watermark_rgb_channels.device
     assert dest_image.device == watermark_mask.device
     watermark_height = image_height(watermark_rgb_channels)
     watermark_width = image_width(watermark_rgb_channels)
     dest_image[:, y : y + watermark_height, x : x + watermark_width] = (
-        dest_image[:, y : y + watermark_height, x : x + watermark_width]
-        * (1 - watermark_mask)
+        dest_image[:, y : y + watermark_height, x : x + watermark_width] * (1 - watermark_mask)
         + watermark_rgb_channels * watermark_mask
     )
     return dest_image
@@ -204,9 +198,7 @@ def _to_float(
     return tensor
 
 
-def _to_uint8(
-    tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False
-):
+def _to_uint8(tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False):
     assert not apply_scale
     if isinstance(tensor, np.ndarray):
         assert tensor.dtype == np.uint8
@@ -217,16 +209,12 @@ def _to_uint8(
             assert torch.is_floating_point(tensor)
             return (
                 # note, no scale applied here (I removed before adding assert)
-                tensor.clamp(min=0, max=255.0).to(
-                    torch.uint8, non_blocking=non_blocking
-                )
+                tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=non_blocking)
             )
         else:
             # There has got to be a more elegant way to do this with reflection
             def _clamp(t, *args, **kwargs):
-                return t.clamp(*args, **kwargs).to(
-                    torch.uint8, non_blocking=non_blocking
-                )
+                return t.clamp(*args, **kwargs).to(torch.uint8, non_blocking=non_blocking)
 
             if isinstance(tensor, StreamTensor):
                 assert False
@@ -242,9 +230,7 @@ def image_wh(image: torch.Tensor):
             [image.shape[-2], image.shape[-3]], dtype=torch.float, device=image.device
         )
     assert image.shape[1] in [3, 4]
-    return torch.tensor(
-        [image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device
-    )
+    return torch.tensor([image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device)
 
 
 def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -293,9 +279,7 @@ class VideoOutput:
             )
         self._args = args
 
-        self._device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
+        self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
@@ -375,18 +359,14 @@ class VideoOutput:
             )
 
             if self._device is not None:
-                self.watermark_rgb_channels = torch.from_numpy(
-                    self.watermark_rgb_channels
-                ).to(self._device)
+                self.watermark_rgb_channels = torch.from_numpy(self.watermark_rgb_channels).to(
+                    self._device
+                )
                 self.watermark_mask = (
-                    torch.from_numpy(self.watermark_mask)
-                    .to(self._device)
-                    .to(torch.half)
+                    torch.from_numpy(self.watermark_mask).to(self._device).to(torch.half)
                 )
                 # Scale mask to [0, 1]
-                self.watermark_mask = self.watermark_mask / torch.max(
-                    self.watermark_mask
-                )
+                self.watermark_mask = self.watermark_mask / torch.max(self.watermark_mask)
         else:
             self.watermark = None
 
@@ -411,10 +391,7 @@ class VideoOutput:
             if not self._child_pid:
                 self.final_image_processing()
         else:
-            assert (
-                self._imgproc_thread is None
-                and "Video output thread was already started"
-            )
+            assert self._imgproc_thread is None and "Video output thread was already started"
             self._imgproc_thread = Thread(
                 target=self._final_image_processing_wrapper,
                 name="VideoOutput",
@@ -444,9 +421,7 @@ class VideoOutput:
                         and (not hasattr(self._args, "debug") or not self._args.debug)
                     )
                 ) and counter % 10 == 0:
-                    logger.info(
-                        f"Video out queue too large: {self._imgproc_queue.qsize()}"
-                    )
+                    logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.001)
 
             # Maybe move devices on a different stream
@@ -469,7 +444,7 @@ class VideoOutput:
 
     def _final_image_processing_wrapper(self):
         try:
-            self._final_image_processing()
+            self._final_image_processing_worker()
         except Exception as ex:
             print(ex)
             traceback.print_exc()
@@ -485,8 +460,8 @@ class VideoOutput:
 
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
-            self._horizontal_image_gaussian_distribution = (
-                ImageHorizontalGaussianDistribution(image_width)
+            self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
+                image_width
             )
         return self._horizontal_image_gaussian_distribution
 
@@ -531,19 +506,14 @@ class VideoOutput:
         current_box[2] -= clip_left.to(current_box.device)
 
         # Adjust our output frame size if necessary
-        if (
-            not self._args.crop_output_image
-            and image.shape[1] != self._output_frame_width_int
-        ):
+        if not self._args.crop_output_image and image.shape[1] != self._output_frame_width_int:
             self._output_frame_width = torch.tensor(
                 image.shape[1], dtype=img_wh.dtype, device=img_wh.device
             )
             self._output_frame_height = torch.tensor(
                 image.shape[0], dtype=img_wh.dtype, device=img_wh.device
             )
-            self._output_aspect_ratio = (
-                self._output_frame_width / self._output_frame_height
-            )
+            self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
             self._output_frame_width_int = int(self._output_frame_width)
             self._output_frame_height_int = int(self._output_frame_height)
 
@@ -552,7 +522,7 @@ class VideoOutput:
     def _float_type(self):
         return torch.float16 if self._args.fp16 else torch.float
 
-    def _final_image_processing(self):
+    def _final_image_processing_worker(self):
         logger.info("VideoOutput thread started.")
         plot_interias = False
         show_image_interval = 1
@@ -560,14 +530,8 @@ class VideoOutput:
         timer = Timer()
         # The timer that reocrds the overall throughput
         final_all_timer = None
-        if (
-            self._output_video_path
-            and self._output_video is None
-            and not self._skip_final_save
-        ):
-            if "_nvenc" in self._fourcc or self._output_video_path.startswith(
-                "rtmp://"
-            ):
+        if self._output_video_path and self._output_video is None and not self._skip_final_save:
+            if "_nvenc" in self._fourcc or self._output_video_path.startswith("rtmp://"):
                 self._output_video = VideoStreamWriter(
                     filename=self._output_video_path,
                     fps=self._fps,
@@ -628,9 +592,7 @@ class VideoOutput:
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
 
-            imgproc_iter = CachedIterator(
-                iterator=imgproc_iter, cache_size=self._cache_size
-            )
+            imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=self._cache_size)
 
             while True:
                 batch_count += 1
@@ -643,6 +605,37 @@ class VideoOutput:
 
                 current_box = imgproc_data["current_box"]
                 online_im = imgproc_data["img"]
+
+                #
+                # BEGIN END-ZONE
+                #
+                replacement_image = None
+                pano_width = image_width(online_im)
+                current_box_x = center(current_box)[0]
+                current_box_left = current_box[0]
+                current_box_right = current_box[2]
+                if current_box_right - current_box_left < pano_width / 1.5:
+                    other_data = imgproc_data["data"]
+                    # print(int(current_box_x))
+                    width_ratio = 4
+                    if current_box_x <= pano_width / width_ratio and "far_left" in other_data:
+                        print("LEFT")
+                        replacement_image = other_data["far_left"]
+                        if replacement_image is not None:
+                            replacement_image = replacement_image[0]
+                    elif (
+                        pano_width - current_box_x <= pano_width / width_ratio
+                        and "far_right" in other_data
+                    ):
+                        print("RIGHT")
+                        replacement_image = other_data["far_right"]
+                        if replacement_image is not None:
+                            replacement_image = replacement_image[0]
+                else:
+                    print("too large")
+                #
+                # END END-ZONE
+                #
 
                 if isinstance(online_im, StreamTensor):
                     # assert not online_im.owns_stream
@@ -676,9 +669,7 @@ class VideoOutput:
 
                 # torch.cuda.synchronize()
 
-                if self._device is not None and (
-                    not self._simple_save or "nvenc" in self._fourcc
-                ):
+                if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
                     if isinstance(online_im, np.ndarray):
                         online_im = torch.from_numpy(online_im)
                     online_im = make_channels_last(online_im)
@@ -723,9 +714,7 @@ class VideoOutput:
 
                         gaussian = 1 - self._get_gaussian(
                             src_image_width
-                        ).get_gaussian_y_from_image_x_position(
-                            rotation_point[0], wide=True
-                        )
+                        ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
 
                         fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
                         if isinstance(fixed_edge_rotation_angle, (list, tuple)):
@@ -740,10 +729,7 @@ class VideoOutput:
                                 )
 
                         # logger.info(f"gaussian={gaussian}")
-                        angle = (
-                            fixed_edge_rotation_angle
-                            - fixed_edge_rotation_angle * gaussian
-                        )
+                        angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
                         angle *= mult
 
                         # BEGIN PERFORMANCE HACK
@@ -753,9 +739,7 @@ class VideoOutput:
                         # for the rotation (as well as other subsequent operations)
                         #
                         if True and self._args.crop_output_image:
-                            img, bbox = self.crop_working_image_width(
-                                image=img, current_box=bbox
-                            )
+                            img, bbox = self.crop_working_image_width(image=img, current_box=bbox)
                             src_image_width = image_width(img)
                             src_image_height = image_height(img)
                             rotation_point = center(bbox)
@@ -814,9 +798,9 @@ class VideoOutput:
                             x2 = min(x2, src_image_width)
 
                         img = crop_image(img, x1, y1, x2, y2)
-                        if image_height(img) != int(
-                            self._output_frame_height
-                        ) or image_width(img) != int(self._output_frame_width):
+                        if image_height(img) != int(self._output_frame_height) or image_width(
+                            img
+                        ) != int(self._output_frame_width):
                             img = resize_image(
                                 img=img,
                                 new_width=self._output_frame_width,
@@ -835,15 +819,11 @@ class VideoOutput:
                 # Scoreboard
                 #
                 if scoreboard_img is not None:
-                    if torch.is_floating_point(
-                        online_im
-                    ) and not torch.is_floating_point(scoreboard_img):
-                        scoreboard_img = scoreboard_img.to(
-                            torch.float, non_blocking=True
-                        )
-                    online_im[:, : scoreboard.height, : scoreboard.width, :] = (
+                    if torch.is_floating_point(online_im) and not torch.is_floating_point(
                         scoreboard_img
-                    )
+                    ):
+                        scoreboard_img = scoreboard_img.to(torch.float, non_blocking=True)
+                    online_im[:, : scoreboard.height, : scoreboard.width, :] = scoreboard_img
 
                 #
                 # Watermark
@@ -851,9 +831,7 @@ class VideoOutput:
                 if self.has_args() and self._args.use_watermark:
                     y = int(image_height(online_im) - self.watermark_height)
                     x = int(
-                        image_width(online_im)
-                        - self.watermark_width
-                        - self.watermark_width / 10
+                        image_width(online_im) - self.watermark_width - self.watermark_width / 10
                     )
                     online_im = paste_watermark_at_position(
                         online_im,
@@ -866,9 +844,7 @@ class VideoOutput:
                 online_im = _to_uint8(online_im, non_blocking=True)
 
                 if self._image_color_scaler is not None:
-                    online_im = self._image_color_scaler.maybe_scale_image_colors(
-                        image=online_im
-                    )
+                    online_im = self._image_color_scaler.maybe_scale_image_colors(image=online_im)
 
                 if not isinstance(self._output_video, VideoStreamWriter):
                     if isinstance(online_im, torch.Tensor) and (
@@ -880,9 +856,7 @@ class VideoOutput:
                             or self._save_frame_dir
                         )
                     ):
-                        online_im = np.ascontiguousarray(
-                            online_im.detach().cpu().numpy()
-                        )
+                        online_im = np.ascontiguousarray(online_im.detach().cpu().numpy())
 
                 #
                 # Frame Number
@@ -972,16 +946,11 @@ class VideoOutput:
                     else:
                         final_all_timer.toc()
 
-                    if (
-                        self._print_interval
-                        and batch_count % (self._print_interval * 4) == 0
-                    ):
+                    if self._print_interval and batch_count % (self._print_interval * 4) == 0:
                         logger.info(
                             "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
                                 frame_id[0],
-                                batch_size
-                                * 1.0
-                                / max(1e-5, final_all_timer.average_time),
+                                batch_size * 1.0 / max(1e-5, final_all_timer.average_time),
                                 get_open_files_count(),
                             )
                         )
