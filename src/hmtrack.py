@@ -165,6 +165,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "visible to note it as a ref)",
     )
     parser.add_argument(
+        "--end-zones",
+        action="store_true",
+        help="Enable end-zone camera usage when available",
+    )
+    parser.add_argument(
         "--rink",
         default=None,
         type=str,
@@ -656,25 +661,26 @@ def main(args, num_gpu):
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
 
-                # Try far_left and far_right videos if they exist
-                other_videos: List[Tuple[str, str]] = [
-                    ("far_left", os.path.join(dir_name, "far_left.mp4")),
-                    ("far_right", os.path.join(dir_name, "far_right.mp4")),
-                ]
-                for vid_name, vid_path in other_videos:
-                    if os.path.exists(vid_path):
-                        extra_dataloader = MOTLoadVideoWithOrig(
-                            path=vid_path,
-                            # game_id=dir_name,
-                            img_size=None,
-                            start_frame_number=args.start_frame,
-                            batch_size=1,
-                            stream_tensors=tracker == "mmtrack",
-                            dtype=torch.float if not args.fp16 else torch.half,
-                            device=gpus["encoder"],
-                            original_image_only=True,
-                        )
-                        dataloader.append_dataset(vid_name, extra_dataloader)
+                if args.end_zones:
+                    # Try far_left and far_right videos if they exist
+                    other_videos: List[Tuple[str, str]] = [
+                        ("far_left", os.path.join(dir_name, "far_left.mp4")),
+                        ("far_right", os.path.join(dir_name, "far_right.mp4")),
+                    ]
+                    for vid_name, vid_path in other_videos:
+                        if os.path.exists(vid_path):
+                            extra_dataloader = MOTLoadVideoWithOrig(
+                                path=vid_path,
+                                # game_id=dir_name,
+                                img_size=None,
+                                start_frame_number=args.start_frame,
+                                batch_size=1,
+                                stream_tensors=tracker == "mmtrack",
+                                dtype=torch.float if not args.fp16 else torch.half,
+                                device=gpus["encoder"],
+                                original_image_only=True,
+                            )
+                            dataloader.append_dataset(vid_name, extra_dataloader)
             else:
                 assert len(input_video_files) == 1
                 assert not args.start_frame or not args.start_frame_time
