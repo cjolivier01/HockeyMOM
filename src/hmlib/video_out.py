@@ -633,6 +633,20 @@ class VideoOutput:
                             replacement_image = replacement_image[0]
                 else:
                     print("too large")
+
+                # REMOVEME
+                # if replacement_image is None:
+                #     replacement_image = imgproc_data["data"]["far_right"][0]
+
+                if replacement_image is not None:
+                    replacement_image, _, _, _, _ = py_letterbox(
+                        img=replacement_image.get(),
+                        height=self._output_frame_height,
+                        width=self._output_frame_width,
+                        color=0,
+                    )
+                    assert image_width(replacement_image) == self._output_frame_width
+                    assert image_height(replacement_image) == self._output_frame_height
                 #
                 # END END-ZONE
                 #
@@ -810,6 +824,10 @@ class VideoOutput:
                         assert image_width(img) == self._output_frame_width_int
                         cropped_images.append(img)
                     online_im = torch.stack(cropped_images)
+
+                if replacement_image is not None:
+                    # Replace the image that we worked so hard on with this other image
+                    online_im = make_channels_last(replacement_image)
 
                 # Numpy array after here
                 if isinstance(online_im, PIL.Image.Image):

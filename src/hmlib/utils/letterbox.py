@@ -70,8 +70,8 @@ def py_letterbox(img, height, width, color=0.5):
         shape=img.shape[2:], height=height, width=width
     )
 
-    top, bottom = round(dh - 0.1), round(dh + 0.1)
-    left, right = round(dw - 0.1), round(dw + 0.1)
+    top, bottom = round(float(dh) - 0.1), round(float(dh) + 0.1)
+    left, right = round(float(dw) - 0.1), round(float(dw) + 0.1)
     resized_image = F.interpolate(img, size=(new_shape[1], new_shape[0]), mode="area")
     letterbox_img = copy_make_border_pytorch_batch(
         resized_image, top, bottom, left, right, "constant", value=color
