@@ -594,6 +594,8 @@ class VideoOutput:
 
             imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=self._cache_size)
 
+            current_zone = "MIDDLE"
+
             while True:
                 batch_count += 1
                 try:
@@ -610,43 +612,51 @@ class VideoOutput:
                 # BEGIN END-ZONE
                 #
                 replacement_image = None
-                pano_width = image_width(online_im)
-                current_box_x = center(current_box)[0]
-                current_box_left = current_box[0]
-                current_box_right = current_box[2]
-                if current_box_right - current_box_left < pano_width / 1.5:
-                    other_data = imgproc_data["data"]
-                    # print(int(current_box_x))
-                    width_ratio = 4
-                    if current_box_x <= pano_width / width_ratio and "far_left" in other_data:
-                        print("LEFT")
-                        replacement_image = other_data["far_left"]
-                        if replacement_image is not None:
-                            replacement_image = replacement_image[0]
-                    elif (
-                        pano_width - current_box_x <= pano_width / width_ratio
-                        and "far_right" in other_data
-                    ):
-                        print("RIGHT")
-                        replacement_image = other_data["far_right"]
-                        if replacement_image is not None:
-                            replacement_image = replacement_image[0]
-                else:
-                    print("too large")
+                if self.has_args() and self._args.end_zones:
+                    pano_width = image_width(online_im)
+                    current_box_x = center(current_box)[0]
+                    current_box_left = current_box[0]
+                    current_box_right = current_box[2]
+                    if current_box_right - current_box_left < pano_width / 1.5:
+                        other_data = imgproc_data["data"]
+                        # print(int(current_box_x))
+                        width_ratio = 4
+                        if current_box_x <= pano_width / width_ratio and "far_left" in other_data:
+                            if current_zone != "LEFT":
+                                current_zone = "LEFT"
+                                print(f"{current_zone=}")
+                            replacement_image = other_data["far_left"]
+                            if replacement_image is not None:
+                                replacement_image = replacement_image[0]
+                        elif (
+                            pano_width - current_box_x <= pano_width / width_ratio
+                            and "far_right" in other_data
+                        ):
+                            if current_zone != "RIGHT":
+                                current_zone = "RIGHT"
+                                print(f"{current_zone=}")
+                            replacement_image = other_data["far_right"]
+                            if replacement_image is not None:
+                                replacement_image = replacement_image[0]
+                        else:
+                            if current_zone != "MIDDLE":
+                                current_zone = "MIDDLE"
+                                print(f"{current_zone=}")
 
-                # REMOVEME
-                # if replacement_image is None:
-                #     replacement_image = imgproc_data["data"]["far_right"][0]
+                    else:
+                        if current_zone != "MIDDLE":
+                            current_zone = "MIDDLE"
+                            print(f"{current_zone=}")
 
-                if replacement_image is not None:
-                    replacement_image, _, _, _, _ = py_letterbox(
-                        img=replacement_image.get(),
-                        height=self._output_frame_height,
-                        width=self._output_frame_width,
-                        color=0,
-                    )
-                    assert image_width(replacement_image) == self._output_frame_width
-                    assert image_height(replacement_image) == self._output_frame_height
+                    if replacement_image is not None:
+                        replacement_image, _, _, _, _ = py_letterbox(
+                            img=replacement_image.get(),
+                            height=self._output_frame_height,
+                            width=self._output_frame_width,
+                            color=0,
+                        )
+                        assert image_width(replacement_image) == self._output_frame_width
+                        assert image_height(replacement_image) == self._output_frame_height
                 #
                 # END END-ZONE
                 #
