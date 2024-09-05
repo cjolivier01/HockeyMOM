@@ -264,13 +264,14 @@ class PlayTracker(torch.nn.Module):
     def forward(self, online_targets_and_img):
         self._timer.tic()
 
-        online_tlwhs = online_targets_and_img[0]
-        online_ids = online_targets_and_img[1]
-        detections = online_targets_and_img[2]
-        info_imgs = online_targets_and_img[3]
+        online_tlwhs = online_targets_and_img["online_tlwhs"]
+        online_ids = online_targets_and_img["online_ids"]
+        detections = online_targets_and_img["detections"]
+        info_imgs = online_targets_and_img["info_imgs"]
+        original_img = online_targets_and_img.pop("original_img")
 
         # Other data/dataset output
-        other_data = online_targets_and_img[-1]
+        # other_data = online_targets_and_img["data"]
 
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
         frame_id = frame_ids[self._frame_counter % len(frame_ids)]
@@ -282,8 +283,6 @@ class PlayTracker(torch.nn.Module):
             # Don't remove unless we have at least 4 online items being tracked
             online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
             online_ids = online_ids[mask]
-
-        original_img = online_targets_and_img[5]
 
         online_im = original_img
         if online_im.ndim == 4:
@@ -448,8 +447,11 @@ class PlayTracker(torch.nn.Module):
                 frame_id,
                 *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
             )
-
-        return frame_id, online_im, self._current_roi_aspect.bounding_box()
+        online_targets_and_img["frame_id"] = frame_id
+        online_targets_and_img["img"] = online_im
+        online_targets_and_img["current_box"] = self._current_roi_aspect.bounding_box()
+        return online_targets_and_img
+        # return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
     def calculate_breakaway(
         self,

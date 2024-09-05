@@ -31,7 +31,7 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
-from hmlib.video_out import ImageProcData, VideoOutput, resize_image, rotate_image
+from hmlib.video_out import VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()

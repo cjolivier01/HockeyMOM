@@ -134,14 +134,22 @@ class CamTrackHead:
         assert isinstance(online_ids, torch.Tensor) or (
             isinstance(online_ids, list) and len(online_ids) == 0
         )
+        data: Dict[str, Any] = {
+            "online_tlwhs": online_tlwhs,
+            "online_ids": online_ids,
+            "detections": detections,
+            "info_imgs": info_imgs,
+            "original_img": original_img,
+            "data": data,
+        }
         self._postprocessor.send(
-            online_tlwhs,
-            online_ids,
-            detections,
-            info_imgs,
-            None,
-            original_img,
-            data,
+            # online_tlwhs,
+            # online_ids,
+            # detections,
+            # info_imgs,
+            # None,
+            # original_img,
+            data
         )
         return tracking_results, detections, online_tlwhs
 

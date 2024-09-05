@@ -19,16 +19,27 @@ from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.ui.shower import Shower
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
-from hmlib.utils.gpu import (CachedIterator, StreamCheckpoint, StreamTensor,
-                             cuda_stream_scope, get_gpu_capabilities)
-from hmlib.utils.image import (ImageColorScaler,
-                               ImageHorizontalGaussianDistribution, crop_image,
-                               image_height, image_width, make_channels_last,
-                               make_visible_image, resize_image)
+from hmlib.utils.gpu import (
+    CachedIterator,
+    StreamCheckpoint,
+    StreamTensor,
+    cuda_stream_scope,
+    get_gpu_capabilities,
+)
+from hmlib.utils.image import (
+    ImageColorScaler,
+    ImageHorizontalGaussianDistribution,
+    crop_image,
+    image_height,
+    image_width,
+    make_channels_last,
+    make_visible_image,
+    resize_image,
+)
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.ui.shower import Shower
 
 from .video_stream import VideoStreamWriter
 
@@ -143,36 +154,36 @@ def paste_watermark_at_position(
     return dest_image
 
 
-class ImageProcData:
-    def __init__(self, frame_id: int, img, current_box: torch.Tensor):
-        self.frame_id = frame_id
-        self.img = img
-        if current_box is None:
-            self.current_box = torch.tensor(
-                (0, 0, image_width(img), image_height(img)),
-                dtype=torch.int64,
-                device=img.device,
-            )
-            if img.ndim == 4:
-                # batched
-                assert self.current_box.ndim == 1
-                self.current_box = self.current_box.unsqueeze(0).repeat(img.size(0), 1)
-        else:
-            self.current_box = current_box.clone()
-        if not isinstance(self.frame_id, torch.Tensor):
-            frame_count = 1
-            if img.ndim == 4:
-                frame_count = img.shape[0]
-            # assert img.ndim == 3 or img.size(0) == 1  # single image only
-            self.frame_id = torch.tensor(
-                [self.frame_id + i for i in range(frame_count)], dtype=torch.int64
-            )
+# class ImageProcData:
+#     def __init__(self, frame_id: int, img, current_box: torch.Tensor):
+#         self.frame_id = frame_id
+#         self.img = img
+#         if current_box is None:
+#             self.current_box = torch.tensor(
+#                 (0, 0, image_width(img), image_height(img)),
+#                 dtype=torch.int64,
+#                 device=img.device,
+#             )
+#             if img.ndim == 4:
+#                 # batched
+#                 assert self.current_box.ndim == 1
+#                 self.current_box = self.current_box.unsqueeze(0).repeat(img.size(0), 1)
+#         else:
+#             self.current_box = current_box.clone()
+#         if not isinstance(self.frame_id, torch.Tensor):
+#             frame_count = 1
+#             if img.ndim == 4:
+#                 frame_count = img.shape[0]
+#             # assert img.ndim == 3 or img.size(0) == 1  # single image only
+#             self.frame_id = torch.tensor(
+#                 [self.frame_id + i for i in range(frame_count)], dtype=torch.int64
+#             )
 
-    def dump(self):
-        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
+#     def dump(self):
+#         logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
-    def dump(self):
-        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
+#     def dump(self):
+#         logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
 def _to_float(
@@ -419,7 +430,7 @@ class VideoOutput:
     def is_cuda_encoder(self):
         return "nvenc" in self._fourcc
 
-    def append(self, img_proc_data: ImageProcData):
+    def append(self, img_proc_data: Dict[str, Any]):
         with TimeTracker(
             "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
         ):
@@ -439,21 +450,21 @@ class VideoOutput:
                 time.sleep(0.001)
 
             # Maybe move devices on a different stream
-            if (
-                not isinstance(img_proc_data.img, np.ndarray)
-                and img_proc_data.img.device != self._device
-            ):
-                if isinstance(img_proc_data.img, torch.Tensor):
-                    # img_proc_data.img = img_proc_data.img.to(
-                    #     device=self._device, non_blocking=True
-                    # )
-                    # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
-                    # img_proc_data.img = StreamTensorToDevice(
-                    #     tensor=img_proc_data.img,
-                    #     device=self._device,
-                    #     verbose=False,
-                    # )
-                    pass
+            # if (
+            #     not isinstance(img_proc_data.img, np.ndarray)
+            #     and img_proc_data.img.device != self._device
+            # ):
+            #     if isinstance(img_proc_data.img, torch.Tensor):
+            #         # img_proc_data.img = img_proc_data.img.to(
+            #         #     device=self._device, non_blocking=True
+            #         # )
+            #         # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
+            #         # img_proc_data.img = StreamTensorToDevice(
+            #         #     tensor=img_proc_data.img,
+            #         #     device=self._device,
+            #         #     verbose=False,
+            #         # )
+            #         pass
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
@@ -630,8 +641,8 @@ class VideoOutput:
 
                 timer.tic()
 
-                current_box = imgproc_data.current_box
-                online_im = imgproc_data.img
+                current_box = imgproc_data["current_box"]
+                online_im = imgproc_data["img"]
 
                 if isinstance(online_im, StreamTensor):
                     # assert not online_im.owns_stream
@@ -639,7 +650,7 @@ class VideoOutput:
                     # online_im = online_im.get()
                     online_im = online_im.wait(cuda_stream)
 
-                frame_id = imgproc_data.frame_id
+                frame_id = imgproc_data["frame_id"]
                 if frame_id.ndim == 0:
                     frame_id = frame_id.unsqueeze(0)
 
@@ -893,9 +904,9 @@ class VideoOutput:
                 if (
                     self.has_args()
                     and self._args.show_image
-                    and imgproc_data.frame_id >= skip_frames_before_show
+                    and imgproc_data["frame_id"] >= skip_frames_before_show
                 ):
-                    if imgproc_data.frame_id % show_image_interval == 0:
+                    if imgproc_data["frame_id"] % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
                         show_img = online_im
@@ -934,11 +945,11 @@ class VideoOutput:
                             self._output_video.write(online_im)
                 if self._save_frame_dir:
                     # frame_id should start with 1
-                    assert imgproc_data.frame_id
+                    assert imgproc_data["frame_id"]
                     cv2.imwrite(
                         os.path.join(
                             self._save_frame_dir,
-                            "frame_{:06d}.png".format(int(imgproc_data.frame_id) - 1),
+                            "frame_{:06d}.png".format(int(imgproc_data["frame_id"]) - 1),
                         ),
                         online_im,
                     )

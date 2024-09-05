@@ -36,7 +36,7 @@ from hmlib.utils.image import (
     make_channels_last,
     make_visible_image,
 )
-from hmlib.video_out import ImageProcData, VideoOutput  # optional_with,
+from hmlib.video_out import VideoOutput  # optional_with,
 from hockeymom import core
 
 

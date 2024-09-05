@@ -16,7 +16,7 @@ from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.box_functions import aspect_ratio
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import VideoOutput
 from hockeymom import core
 
 MAX_CROPPED_WIDTH = 4096
@@ -290,12 +290,12 @@ class CamTrackPostProcessor:
 
     def send(
         self,
-        online_tlwhs,
-        online_ids,
-        detections,
-        info_imgs,
-        image,
-        original_img,
+        # online_tlwhs,
+        # online_ids,
+        # detections,
+        # info_imgs,
+        # image,
+        # original_img,
         data: Dict[str, Any],
     ):
         if self._exception is not None:
@@ -315,27 +315,28 @@ class CamTrackPostProcessor:
                     time.sleep(0.001)
                 if self._async_post_processing:
                     self._queue.put(
-                        (
-                            online_tlwhs,
-                            online_ids,
-                            detections,
-                            info_imgs,
-                            image,
-                            original_img,
-                            data,
-                        )
+                        data
+                        # (
+                        #     online_tlwhs,
+                        #     online_ids,
+                        #     detections,
+                        #     info_imgs,
+                        #     image,
+                        #     original_img,
+                        #     data,
+                        # )
                     )
                 else:
-                    online_targets_and_img = (
-                        online_tlwhs,
-                        online_ids,
-                        detections,
-                        info_imgs,
-                        image,
-                        original_img,
-                        data,
-                    )
-                    self.cam_postprocess(online_targets_and_img=online_targets_and_img)
+                    # online_targets_and_img = (
+                    #     online_tlwhs,
+                    #     online_ids,
+                    #     detections,
+                    #     info_imgs,
+                    #     image,
+                    #     original_img,
+                    #     data,
+                    # )
+                    self.cam_postprocess(online_targets_and_img=data)
         except Exception as ex:
             print(ex)
             traceback.print_exc()
@@ -412,18 +413,20 @@ class CamTrackPostProcessor:
                 break
 
             with torch.no_grad():
-                frame_id, online_im, current_box = self._play_tracker.forward(
-                    online_targets_and_img=online_targets_and_img
-                )
-
+                data = self._play_tracker.forward(online_targets_and_img=online_targets_and_img)
+                # frame_id, online_im, current_box = self._play_tracker.forward(
+                #     online_targets_and_img=online_targets_and_img
+                # )
+            current_box = data["current_box"]
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id,
-                    img=online_im,
-                    current_box=current_box,
-                )
-                self._video_output_campp.append(imgproc_data)
+                # imgproc_data = ImageProcData(
+                #     frame_id=frame_id,
+                #     img=online_im,
+                #     current_box=current_box,
+                # )
+                # self._video_output_campp.append(imgproc_data)
+                self._video_output_campp.append(data)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
