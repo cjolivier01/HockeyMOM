@@ -373,7 +373,7 @@ class VideoOutput:
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
 
-        if self._args.show_image:
+        if self.has_args() and self._args.show_image:
             self._shower = Shower(show_scaled=self._args.show_scaled)
         else:
             self._shower = None
