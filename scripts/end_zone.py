@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 import matplotlib.pyplot as plt
 from PIL import Image, ImageTk
 
+from hmlib.camera.end_zones import load_lines_from_config
 from hmlib.config import (
     get_game_config,
     get_nested_value,
@@ -61,7 +62,7 @@ class ImageEditor:
         self.done_button.pack(side=tk.LEFT)
 
         # Line data
-        self.lines: Dict[str, List[Tuple[int, int]]] = {}
+        self.lines: Dict[str, List[Tuple[int, int]]] = lines.copy()
         self.current_color: str = None
         self.current_label: str = None
 
@@ -75,6 +76,7 @@ class ImageEditor:
         # Start with left_start
         self.set_draw_mode(label="left_start", color="green")
         self.set_current_title()
+        self.redraw_lines()
 
     def set_current_title(self):
         self.root.title(f"End-Zone Threashold Drawer: Now selecting {self.current_label}...")
@@ -155,12 +157,7 @@ if __name__ == "__main__":
 
     game_config = get_game_config(game_id=args.game_id)
 
-    lines: Dict[str, List[Tuple[int, int]]] = {}
-    labels = ["left_start", "left_stop", "right_start", "right_stop"]
-    for label in labels:
-        line = get_line(game_config, f"rink.end_zones.{label}")
-        if line:
-            lines[label] = line
+    lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(config=game_config)
 
     image_path = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
 

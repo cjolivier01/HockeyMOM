@@ -117,10 +117,10 @@ rink:
       scale_speed_constraints: 1.0
   end_zones:
     left_start:
-    - - 1445
-      - 1768
+    - - 1441
+      - 1751
     - - 3083
-      - 1071
+      - 1028
     left_stop:
     - - 1739
       - 1904

@@ -14,7 +14,7 @@ import torchvision as tv
 from PIL import Image
 from torchvision.transforms import functional as F
 
-from hmlib.camera.end_zones import EndZones
+from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.tracking_utils import visualization as vis
@@ -306,6 +306,16 @@ class VideoOutput:
         self._print_interval = print_interval
         self._output_video = None
 
+        self._end_zones = None
+        if args is not None and args.end_zones:
+            lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
+            if lines:
+                self._end_zones = EndZones(
+                    lines=lines,
+                    output_width=self._output_frame_width_int,
+                    output_height=self._output_frame_height_int,
+                )
+
         self._scoreboard = None
         self._scoreboard_points = None
         if hasattr(args, "game_config"):
@@ -596,8 +606,6 @@ class VideoOutput:
 
             imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=self._cache_size)
 
-            current_zone = "MIDDLE"
-
             while True:
                 batch_count += 1
                 try:
@@ -607,20 +615,10 @@ class VideoOutput:
 
                 timer.tic()
 
-                online_im = imgproc_data["img"]
+                online_im = imgproc_data.pop("img")
+
                 # We clone, since it gets modified sometimes wrt rotation optimizations
                 current_box = imgproc_data["current_box"].clone()
-
-                #
-                # BEGIN END-ZONE
-                #
-                if self._end_zones is not None:
-                    data = self._end_zones(imgproc_data["data"])
-                    if "img" in data:
-                        online_im = data["img"]
-                #
-                # END END-ZONE
-                #
 
                 if isinstance(online_im, StreamTensor):
                     # assert not online_im.owns_stream
@@ -796,13 +794,19 @@ class VideoOutput:
                         cropped_images.append(img)
                     online_im = torch.stack(cropped_images)
 
-                if replacement_image is not None:
-                    # Replace the image that we worked so hard on with this other image
-                    online_im = make_channels_last(replacement_image)
+                #
+                # BEGIN END-ZONE
+                #
+                if self._end_zones is not None:
+                    data = self._end_zones(imgproc_data)
+                    if "img" in data:
+                        online_im = data.pop("img")
+                #
+                # END END-ZONE
+                #
 
-                # Numpy array after here
-                if isinstance(online_im, PIL.Image.Image):
-                    online_im = np.array(online_im)
+                # Just make sure we're channels-last
+                online_im = make_channels_last(online_im)
 
                 #
                 # Scoreboard
