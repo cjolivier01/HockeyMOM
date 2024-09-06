@@ -97,7 +97,6 @@ class ImageEditor:
         self.current_color = color
         self.current_label = label
         self.start_point = None
-        # self.label.config(text=f"Now selecting {label}...")
         self.set_current_title()
 
     def on_canvas_click(self, event):
@@ -125,7 +124,9 @@ class ImageEditor:
             for label, line in self.lines.items():
                 if not line:
                     line = None
-                set_nested_value(game_config, f"rink.end_zones.{label}", line)
+                set_nested_value(
+                    game_config, f"rink.end_zones.{label}", [list(line[0]), list(line[1])]
+                )
             save_game_config(game_id=self._game_id, data=game_config)
 
         self.quit()
