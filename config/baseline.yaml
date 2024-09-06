@@ -44,6 +44,20 @@ rink:
     perspective_polygon: null
     projected_height: 300
     projected_width: 100
+  end_zones:
+    #
+    # End zone start/stop thresholds (lines of the form (x1, y1), (x2, y2))
+    #
+    # Where we switch to end-zone view on the ldft
+    left_start: null
+    # Were we switch back to pan view on the lft
+    left_stop: null
+    # Where we switch to end-zone view on the ldft
+    right_start: null
+    # Were we switch back to pan view on the lft
+    right_stop: null
+
+
   tracking:
     #
     # Some tracking config

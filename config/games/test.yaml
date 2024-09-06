@@ -115,3 +115,32 @@ rink:
     breakaway_detection:
       overshoot_scale_speed_ratio: 0.2
       scale_speed_constraints: 1.0
+  end_zones:
+    left_start:
+    - !!python/tuple
+      - 1487
+      - 1746
+    - !!python/tuple
+      - 3004
+      - 1060
+    left_stop:
+    - !!python/tuple
+      - 1778
+      - 1877
+    - !!python/tuple
+      - 3304
+      - 1088
+    right_start:
+    - !!python/tuple
+      - 4690
+      - 1051
+    - !!python/tuple
+      - 6121
+      - 2014
+    right_stop:
+    - !!python/tuple
+      - 4390
+      - 1044
+    - !!python/tuple
+      - 5650
+      - 2253

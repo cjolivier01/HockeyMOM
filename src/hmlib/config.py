@@ -2,11 +2,14 @@ import argparse
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import yaml
 
 GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
+ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
 
 @dataclass
 class Game:
@@ -24,10 +27,15 @@ def adjusted_config_path(path: str, team: str, season: str, args: argparse.Names
     return path
 
 
-def load_config_file(
-    root_dir: str, config_type: str, config_name: str, merge_into_config: dict = None
-):
-    yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
+def get_game_config_file_name(game: Game, root_dir: Optional[str] = None) -> Path:
+    # Our first try is in the game dir
+    game_dir = Path(GAME_DIR_BASE) / game.game_id / "config.yaml"
+    if os.path.exists(game_dir) and not os.path.isdir(game_dir):
+        return game_dir
+    return Path(root_dir) / "config" / "games" / game.game_id
+
+
+def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
     if os.path.exists(yaml_file_path):
         with open(yaml_file_path, "r") as file:
             try:
@@ -40,29 +48,45 @@ def load_config_file(
     return {} if not merge_into_config else merge_into_config
 
 
+def load_config_file(
+    config_type: str,
+    config_name: str,
+    merge_into_config: Optional[Dict[str, Any]] = None,
+    root_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    if root_dir is None:
+        root_dir = ROOT_DIR
+    return load_config_file_yaml(
+        os.path.join(root_dir, "config", config_type, config_name + ".yaml"),
+        merge_into_config=merge_into_config,
+    )
+
+
 def save_config_file(root_dir: str, config_type: str, config_name: str, data: dict):
+    if root_dir is None:
+        root_dir = ROOT_DIR
     yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     with open(yaml_file_path, "w") as file:
         yaml.dump(data, file, sort_keys=False)
 
 
-def baseline_config(root_dir: str):
+def baseline_config(root_dir: str) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
 
-def get_game_config(game_id: str, root_dir: str):
+def get_game_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
 
 
-def save_game_config(game_id: str, root_dir: str, data: dict):
+def save_game_config(game_id: str, data: dict, root_dir: Optional[str] = None):
     return save_config_file(root_dir=root_dir, config_type="games", config_name=game_id, data=data)
 
 
-def get_rink_config(rink: str, root_dir: str):
+def get_rink_config(rink: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type="rinks", config_name=rink)
 
 
-def get_camera_config(camera: str, root_dir: str):
+def get_camera_config(camera: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type="camera", config_name=camera.lower())
 
 
@@ -74,7 +98,7 @@ def get_item(key: str, maps: List[Dict]):
 
 
 def get_config(
-    root_dir: str,
+    root_dir: Optional[str] = None,
     game: Optional[Game] = None,
     game_id: Optional[str] = None,
     rink: Optional[str] = None,
@@ -109,7 +133,9 @@ def get_config(
     return consolidated_config
 
 
-def update_config(root_dir: str, baseline_config: dict, config_type: str, config_name: str):
+def update_config(
+    baseline_config: dict, config_type: str, config_name: str, root_dir: Optional[str] = None
+):
     yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     if not os.path.exists(yaml_file_path):
         return baseline_config
@@ -118,7 +144,7 @@ def update_config(root_dir: str, baseline_config: dict, config_type: str, config
 
 
 @lru_cache
-def get_clip_box(game_id: str, root_dir: str):
+def get_clip_box(game_id: str, root_dir: Optional[str] = None):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:
         game = game_config.get("game", None)
