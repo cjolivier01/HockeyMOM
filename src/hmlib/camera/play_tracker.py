@@ -449,9 +449,10 @@ class PlayTracker(torch.nn.Module):
             )
         online_targets_and_img["frame_id"] = frame_id
         online_targets_and_img["img"] = online_im
-        online_targets_and_img["current_box"] = self._current_roi_aspect.bounding_box()
+        online_targets_and_img["current_fast_box"] = self._current_roi.bounding_box().clone()
+        online_targets_and_img["current_box"] = self._current_roi_aspect.bounding_box().clone()
+
         return online_targets_and_img
-        # return frame_id, online_im, self._current_roi_aspect.bounding_box()
 
     def calculate_breakaway(
         self,
