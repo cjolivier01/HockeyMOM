@@ -79,7 +79,7 @@ class BoundaryLines:
                     img,
                     self._upper_borders[i][0:2],
                     self._upper_borders[i][2:4],
-                    color=(255, 0, 0),
+                    color=(0, 0, 255),
                     thickness=1,
                 )
         if self._lower_borders is not None:
@@ -88,7 +88,7 @@ class BoundaryLines:
                     img,
                     self._lower_borders[i][0:2],
                     self._lower_borders[i][2:4],
-                    color=(0, 0, 255),
+                    color=(255, 0, 0),
                     thickness=1,
                 )
         return img

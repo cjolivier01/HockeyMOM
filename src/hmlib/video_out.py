@@ -670,6 +670,9 @@ class VideoOutput:
                     online_im = slow_to_tensor(online_im)
                     scoreboard_img = make_channels_last(scoreboard.forward(online_im))
 
+                # if self._end_zones is not None:
+                #     online_im = self._end_zones.draw(online_im)
+
                 #
                 # Perspective rotation
                 #
