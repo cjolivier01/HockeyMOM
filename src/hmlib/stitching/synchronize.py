@@ -11,8 +11,7 @@ import torch.nn.functional as F
 
 from hmlib.ffmpeg import extract_frame_image
 from hmlib.hm_opts import hm_opts
-from hmlib.tracking_utils import visualization as vis
-from hockeymom import core
+from hmlib.utils.path import add_suffix_to_filename
 
 MULTIBLEND_BIN = os.path.join(
     os.environ["HOME"], "src", "multiblend", "src", "multiblend"
@@ -124,12 +123,6 @@ def synchronize_by_audio(
     right_frame_offset = -frame_offset if frame_offset < 0 else 0
 
     return left_frame_offset, right_frame_offset
-
-
-def add_suffix_to_filename(filename, suffix):
-    base_name, extension = os.path.splitext(filename)
-    new_filename = f"{base_name}_{suffix}{extension}"
-    return new_filename
 
 
 def get_tiff_tag_value(tiff_tag):
@@ -318,32 +311,32 @@ def configure_video_stitching(
     return pto_project_file, left_frame_offset, right_frame_offset
 
 
-def create_stitched_image(
-    left_image: np.array,
-    right_image: np.array,
-    project_file_path: str,
-    save_seams: bool = True,
-) -> np.array:
-    """
-    Stitch a single image using a Hugin project file
-    """
-    stitcher = core.StitchingDataLoader(
-        0,
-        self._pto_project_file,
-        os.path.splitext(self._pto_project_file)[0] + ".seam.png" if save_seams else "",
-        (
-            os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
-            if save_seams
-            else ""
-        ),
-        save_seams,
-        1,
-        1,
-        1,
-    )
-    core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
-    stitched_frame = stitcher.get_stitched_frame(0)
-    return stitched_frame
+# def create_stitched_image(
+#     left_image: np.array,
+#     right_image: np.array,
+#     project_file_path: str,
+#     save_seams: bool = True,
+# ) -> np.array:
+#     """
+#     Stitch a single image using a Hugin project file
+#     """
+#     stitcher = core.StitchingDataLoader(
+#         0,
+#         self._pto_project_file,
+#         os.path.splitext(self._pto_project_file)[0] + ".seam.png" if save_seams else "",
+#         (
+#             os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
+#             if save_seams
+#             else ""
+#         ),
+#         save_seams,
+#         1,
+#         1,
+#         1,
+#     )
+#     core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
+#     stitched_frame = stitcher.get_stitched_frame(0)
+#     return stitched_frame
 
 
 def find_sitched_roi(image):
