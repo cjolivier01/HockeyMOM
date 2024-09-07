@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torchaudio
 import torchvision
+from typeguard import typechecked
 
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
@@ -108,6 +109,8 @@ def time_to_frame(time_str: str, fps: float):
 
 
 class VideoStreamWriter(VideoStreamWriterInterface):
+
+    @typechecked
     def __init__(
         self,
         filename: str,
@@ -726,6 +729,7 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         self._output_video.write(img)
 
 
+@typechecked
 def create_output_video_stream(
     filename: str,
     fps: float,

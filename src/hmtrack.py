@@ -667,6 +667,7 @@ def main(args, num_gpu):
                         ("far_left", os.path.join(dir_name, "far_left.mp4")),
                         ("far_right", os.path.join(dir_name, "far_right.mp4")),
                     ]
+                    ez_count = 0
                     for vid_name, vid_path in other_videos:
                         if os.path.exists(vid_path):
                             extra_dataloader = MOTLoadVideoWithOrig(
@@ -681,6 +682,9 @@ def main(args, num_gpu):
                                 original_image_only=True,
                             )
                             dataloader.append_dataset(vid_name, extra_dataloader)
+                            ez_count += 1
+                    if not ez_count:
+                        raise ValueError("--end-zones specified, but no end-zone videos found")
             else:
                 assert len(input_video_files) == 1
                 assert not args.start_frame or not args.start_frame_time

@@ -100,7 +100,7 @@ class EndZones(torch.nn.Module):
                 width=self._output_width,
                 color=0,
             )
-            data["img"] = replacement_image
+            data["end_zone_img"] = replacement_image
 
         return data
 
