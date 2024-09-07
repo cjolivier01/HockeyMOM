@@ -43,7 +43,7 @@ from hmlib.utils.image import (
 from hmlib.utils.letterbox import py_letterbox
 from hmlib.utils.progress_bar import ProgressBar
 
-from .video_stream import VideoStreamWriter
+from .video_stream import create_output_video_stream
 
 
 def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -463,11 +463,12 @@ class VideoOutput:
             raise
         finally:
             if self._output_video is not None:
-                if isinstance(self._output_video, VideoStreamWriter):
-                    self._output_video.flush()
-                    self._output_video.close()
-                else:
-                    self._output_video.release()
+                self._output_video.close()
+                # if isinstance(self._output_video, VideoStreamWriter):
+                #     self._output_video.flush()
+                #     self._output_video.close()
+                # else:
+                #     self._output_video.release()
                 self._output_video = None
 
     def _get_gaussian(self, image_width: int):
@@ -480,14 +481,14 @@ class VideoOutput:
     def has_args(self):
         return self._args is not None
 
-    def calculate_desired_bitrate(self, width: int, height: int):
-        # 4K @ 55M
-        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
-        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
-        logger.info(
-            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
-        )
-        return desired_bit_rate
+    # def calculate_desired_bitrate(self, width: int, height: int):
+    #     # 4K @ 55M
+    #     desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
+    #     desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
+    #     logger.info(
+    #         f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
+    #     )
+    #     return desired_bit_rate
 
     def crop_working_image_width(self, image: torch.Tensor, current_box: torch.Tensor):
         """
@@ -536,41 +537,22 @@ class VideoOutput:
 
     def _final_image_processing_worker(self):
         logger.info("VideoOutput thread started.")
-        plot_interias = False
+        # plot_interias = False
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
         # The timer that reocrds the overall throughput
         final_all_timer = None
         if self._output_video_path and self._output_video is None and not self._skip_final_save:
-            if "_nvenc" in self._fourcc or self._output_video_path.startswith("rtmp://"):
-                self._output_video = VideoStreamWriter(
-                    filename=self._output_video_path,
-                    fps=self._fps,
-                    height=int(self._output_frame_height),
-                    width=int(self._output_frame_width),
-                    codec="hevc_nvenc",
-                    device=self._device,
-                    batch_size=1,
-                )
-                self._output_video.open()
-            else:
-                fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-                self._output_video = cv2.VideoWriter(
-                    filename=self._output_video_path,
-                    fourcc=fourcc,
-                    fps=self._fps,
-                    frameSize=(
-                        int(self._output_frame_width),
-                        int(self._output_frame_height),
-                    ),
-                )
-                self._output_video.set(
-                    cv2.CAP_PROP_BITRATE,
-                    self.calculate_desired_bitrate(
-                        width=self._output_frame_width, height=self._output_frame_height
-                    ),
-                )
+            self._output_video = create_output_video_stream(
+                filename=self._output_video_path,
+                fps=self._fps,
+                height=int(self._output_frame_height),
+                width=int(self._output_frame_width),
+                codec=self._fourcc,
+                device=self._device,
+                batch_size=1,
+            )
             assert self._output_video.isOpened()
 
         scoreboard = None
@@ -841,18 +823,6 @@ class VideoOutput:
 
                 if self._image_color_scaler is not None:
                     online_im = self._image_color_scaler.maybe_scale_image_colors(image=online_im)
-
-                if not isinstance(self._output_video, VideoStreamWriter):
-                    if isinstance(online_im, torch.Tensor) and (
-                        # If we're actually going to do something with it
-                        not self._skip_final_save
-                        and (
-                            (self.has_args() and self._args.plot_frame_number)
-                            or self._output_video is not None
-                            or self._save_frame_dir
-                        )
-                    ):
-                        online_im = np.ascontiguousarray(online_im.detach().cpu().numpy())
 
                 #
                 # Frame Number

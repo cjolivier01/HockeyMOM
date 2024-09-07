@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional, Union
 
 import cv2
 import numpy as np
@@ -33,6 +33,11 @@ _FOURCC_TO_CODEC = {
 }
 
 MAX_VIDEO_WIDTH = 1280
+
+
+class VideoStreamWriterInterface:
+    # TODO: Add the interface stubs
+    pass
 
 
 def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
@@ -102,7 +107,7 @@ def time_to_frame(time_str: str, fps: float):
     return frame_number
 
 
-class VideoStreamWriter:
+class VideoStreamWriter(VideoStreamWriterInterface):
     def __init__(
         self,
         filename: str,
@@ -129,9 +134,7 @@ class VideoStreamWriter:
         self._stream_frame_indexes = set(
             [
                 int(i)
-                for i in np.linspace(
-                    0, np.round(self._fps) - 1, self._stream_fps, endpoint=False
-                )
+                for i in np.linspace(0, np.round(self._fps) - 1, self._stream_fps, endpoint=False)
             ]
         )
         self._width = width
@@ -155,9 +158,7 @@ class VideoStreamWriter:
             self._format = format
 
         if self._streaming and self._local_resize:
-            self._width, self._height, _ = video_size(
-                width=self._width, height=self._height
-            )
+            self._width, self._height, _ = video_size(width=self._width, height=self._height)
 
         self._video_out = None
         self._video_f = None
@@ -217,9 +218,7 @@ class VideoStreamWriter:
             options["qp"] = "0"
 
         if self._filename.startswith("rtmp://"):
-            new_w, new_h, needs_resize = video_size(
-                width=self._width, height=self._height
-            )
+            new_w, new_h, needs_resize = video_size(width=self._width, height=self._height)
             assert not self._local_resize or not needs_resize
             hw_accel = None
             if self._codec.endswith("_nvenc"):
@@ -390,9 +389,7 @@ class CVVideoCaptureIterator:
 
     def __del__(self):
         if hasattr(self, "frames_delivered_count") and self.frames_delivered_count:
-            logger.info(
-                f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames"
-            )
+            logger.info(f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames")
 
 
 class VideoReaderIterator:
@@ -456,10 +453,7 @@ class FFmpegVideoReaderIterator:
             # Skip to the next frame in the buffer
             self._process.stdout.flush()
         raw_image = self._process.stdout.read(
-            self._batch_size
-            * self._vid_info.width
-            * self._vid_info.height
-            * self._channels
+            self._batch_size * self._vid_info.width * self._vid_info.height * self._channels
         )
 
         if not raw_image:
@@ -505,9 +499,7 @@ class VideoStreamReader:
         self._batch_size = batch_size
         if device is None:
             device = torch.device("cpu")
-        self._device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
+        self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._video_in = None
         self._video_info = None
         self._iter = None
@@ -657,12 +649,8 @@ class VideoStreamReader:
                 pass
             else:
                 assert False
-            if self._video_in is not None and hasattr(
-                self._video_in, "frames_delivered_count"
-            ):
-                print(
-                    f"VideoStreamReader delivered {self._video_in.frames_delivered_count} frames"
-                )
+            if self._video_in is not None and hasattr(self._video_in, "frames_delivered_count"):
+                print(f"VideoStreamReader delivered {self._video_in.frames_delivered_count} frames")
             self._video_in = None
             self._iter = None
         return
@@ -672,3 +660,101 @@ class VideoStreamReader:
         if next_data is None:
             return False, None
         return True, next_data
+
+
+class VideoStreamWriterCV2(VideoStreamWriterInterface):
+    def __init__(
+        self,
+        filename: str,
+        fps: float,
+        width: int,
+        height: int,
+        device: torch.device,
+        codec: Optional[str],
+        batch_size: Optional[int] = 1,
+    ):
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        self._output_video = cv2.VideoWriter(
+            filename=filename,
+            fourcc=fourcc,
+            fps=fps,
+            frameSize=(
+                int(width),
+                int(height),
+            ),
+        )
+        self._output_video.set(
+            cv2.CAP_PROP_BITRATE,
+            self.calculate_desired_bitrate(width=width, height=height),
+        )
+        assert self._output_video.isOpened()
+        self._device = torch.device("cpu")
+
+    def isOpened(self) -> bool:
+        return self._output_video is not None and self._output_video.isOpened()
+
+    @classmethod
+    def calculate_desired_bitrate(self, width: int, height: int):
+        # 4K @ 55M
+        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
+        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
+        logger.info(
+            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
+        )
+        return desired_bit_rate
+
+    def open(self):
+        pass
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self._output_video.release()
+        self._output_video = None
+
+    def write(self, img: Union[torch.Tensor, np.ndarray]):
+        if isinstance(img, StreamTensor):
+            img = img.get()
+        if isinstance(img, torch.Tensor):
+            img = img.detach().cpu().numpy()
+            img = np.ascontiguousarray(img)
+        self._output_video.write(img)
+
+
+def create_output_video_stream(
+    filename: str,
+    fps: float,
+    width: int,
+    height: int,
+    codec: Optional[str],
+    device: torch.device,
+    batch_size: Optional[int] = 1,
+) -> VideoStreamWriterInterface:
+    if "_nvenc" in codec or filename.startswith("rtmp://"):
+        output_video = VideoStreamWriter(
+            filename=filename,
+            fps=fps,
+            height=int(height),
+            width=int(width),
+            codec="hevc_nvenc",
+            device=device,
+            batch_size=batch_size,
+        )
+        output_video.open()
+    else:
+        output_video = VideoStreamWriterCV2(
+            filename=filename,
+            fps=fps,
+            height=int(height),
+            width=int(width),
+            codec=codec,
+            device=device,
+            batch_size=batch_size,
+        )
+        output_video.open()
+    return output_video
