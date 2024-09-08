@@ -31,6 +31,12 @@ class hm_opts(object):
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
 
+        parser.add_argument(
+            "--end-zones",
+            action="store_true",
+            help="Enable end-zone camera usage when available",
+        )
+
         # Identity
         parser.add_argument(
             "--team",

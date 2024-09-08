@@ -468,6 +468,7 @@ class StitchDataset:
             args.use_watermark = False
             args.show_image = False
             args.plot_frame_number = False
+            args.end_zones = False
             self._video_output_size = torch.tensor(
                 [image_width(stitched_frame), image_height(stitched_frame)],
                 dtype=torch.int32,

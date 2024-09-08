@@ -176,7 +176,7 @@ def point_line_position(
     cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
     # Determine the position of the point relative to the line
-``    return torch.sign(cross_product)
+    return torch.sign(cross_product)
 
     # diff_x = x - (x1 + x2) / 2
 

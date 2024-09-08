@@ -165,11 +165,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "visible to note it as a ref)",
     )
     parser.add_argument(
-        "--end-zones",
-        action="store_true",
-        help="Enable end-zone camera usage when available",
-    )
-    parser.add_argument(
         "--rink",
         default=None,
         type=str,
