@@ -125,6 +125,8 @@ game:
   - 2112
 rink:
   scoreboard:
+    projected_height: 75
+    projected_width: 200
     perspective_polygon:
     - - 5751
       - 810
