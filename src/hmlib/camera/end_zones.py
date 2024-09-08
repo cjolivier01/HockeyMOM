@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -38,6 +38,13 @@ class EndZones(torch.nn.Module):
         self._args = args
         self._current_zone = ZONE_MIDDLE
 
+        self.line_equations: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
+        for name, l in self._lines.items():
+            # l = make_y_up(l)
+            self.line_equations[name] = find_line_equation(
+                x1=l[0][0], y1=l[0][1], x2=l[1][0], y2=l[1][1]
+            )
+
     def draw(self, img: Union[torch.Tensor, np.ndarray]) -> np.ndarray:
         was_torch = isinstance(img, torch.Tensor)
         if was_torch:
@@ -60,26 +67,33 @@ class EndZones(torch.nn.Module):
         if bbox is None:
             return data
         cc = center(bbox)
-
+        pano_size_height = data["pano_size_wh"][1]
+        # image_height =
         # See if we're out of the current left or right zone
         if self._current_zone == ZONE_LEFT:
             # Make sure we aren't to the right of the stop line
-            pos = point_line_position(self._lines["left_stop"], cc)
+            pos = point_line_position(self._lines["left_stop"], cc, image_height=pano_size_height)
             if pos > 0:
                 self._current_zone = ZONE_MIDDLE
                 logger.info("EZ: MIDDLE")
         elif self._current_zone == ZONE_RIGHT:
             # Make sure we aren't to the right of the stop line
-            pos = point_line_position(self._lines["right_stop"], cc)
+            pos = point_line_position(self._lines["right_stop"], cc, image_height=pano_size_height)
             if pos < 0:
                 self._current_zone = ZONE_MIDDLE
                 logger.info("EZ: MIDDLE")
         # See if we're in the left or right zone
         if self._current_zone == ZONE_MIDDLE:
-            if point_line_position(self._lines["left_start"], cc) < 0:
+            if (
+                point_line_position(self._lines["left_start"], cc, image_height=pano_size_height)
+                < 0
+            ):
                 self._current_zone = ZONE_LEFT
                 logger.info("EZ: LEFT")
-            elif point_line_position(self._lines["right_start"], cc) > 0:
+            elif (
+                point_line_position(self._lines["right_start"], cc, image_height=pano_size_height)
+                > 0
+            ):
                 self._current_zone = ZONE_RIGHT
                 logger.info("EZ: RIGHT")
 
@@ -106,8 +120,35 @@ class EndZones(torch.nn.Module):
         return data
 
 
+def make_y_up(point: List[Tuple[float, float]], image_height: float) -> List[Tuple[float, float]]:
+    return [point[0][0], image_height - point[0][1], point[1][0], image_height - point[1][1]]
+
+
+def find_line_equation(x1, y1, x2, y2) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Calculate the slope and y-intercept of the line given two points.
+
+    Args:
+    x1 (float): x-coordinate of the first point.
+    y1 (float): y-coordinate of the first point.
+    x2 (float): x-coordinate of the second point.
+    y2 (float): y-coordinate of the second point.
+
+    Returns:
+    tuple: (slope, y_intercept) if the line is not vertical, otherwise (None, None)
+    """
+    if x2 != x1:  # Check to prevent division by zero in case of vertical line
+        slope = (y2 - y1) / (x2 - x1)
+        y_intercept = y1 - slope * x1
+        return (slope, y_intercept)
+    else:
+        return (None, None)  # This is the case for a vertical line which has no defined slope
+
+
 def point_line_position(
-    line_segment: Union[torch.Tensor, List[List[int]]], point: Union[torch.Tensor, List[int]]
+    line_segment: Union[torch.Tensor, List[List[int]]],
+    point: Union[torch.Tensor, List[int]],
+    image_height: int,
 ) -> int:
     """
     Determines the position of a point relative to a line segment.
@@ -124,16 +165,22 @@ def point_line_position(
     x1, y1 = line_segment[0]
     x2, y2 = line_segment[1]
 
+    y1 = image_height - y1
+    y2 = image_height - y2
+
     # # Unpack the point
     x, y = point
 
-    # cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+    y = image_height - y
+
+    cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
     # Determine the position of the point relative to the line
-    # return torch.sign(cross_product)
+``    return torch.sign(cross_product)
 
-    diff_x = x - (x1 + x2) / 2
-    return torch.sign(diff_x)
+    # diff_x = x - (x1 + x2) / 2
+
+    # return torch.sign(diff_x)
 
 
 def get_line(

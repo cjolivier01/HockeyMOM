@@ -663,6 +663,8 @@ class VideoOutput:
     def forward(self, imgproc_data) -> Dict[str, Any]:
         online_im = imgproc_data.pop("img")
 
+        imgproc_data["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
+
         # We clone, since it gets modified sometimes wrt rotation optimizations
         current_box = imgproc_data["current_box"].clone()
 
