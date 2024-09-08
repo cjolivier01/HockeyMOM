@@ -168,12 +168,25 @@ def point_line_position(
     y1 = image_height - y1
     y2 = image_height - y2
 
+    leq = find_line_equation(x1, y1, x2, y2)
+
     # # Unpack the point
     x, y = point
 
     y = image_height - y
 
-    cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+    # y = mx + b
+    # mx = y - b
+    # x = (y - b) / m
+    xx = (y - leq[1]) / leq[0]
+
+    # cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+
+    if x < xx:
+        return 1
+    elif x > xx:
+        return 1
+    return 0
 
     # Determine the position of the point relative to the line
     return torch.sign(cross_product)
