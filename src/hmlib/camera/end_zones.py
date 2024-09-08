@@ -6,6 +6,7 @@ import torch
 
 from hmlib.config import get_nested_value
 from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.image import (
     ImageColorScaler,
@@ -31,6 +32,7 @@ class EndZones(torch.nn.Module):
         lines: Dict[str, List[Tuple[int, int]]],
         output_width: int,
         output_height: int,
+        output_dtype: torch.dtype = torch.uint8,
         box_key: str = "current_fast_box",
         *args,
         **kwargs,
@@ -40,6 +42,7 @@ class EndZones(torch.nn.Module):
         self._box_key = box_key
         self._output_width: int = output_width
         self._output_height: int = output_height
+        self._output_dtype = output_dtype
         self._args = args
         self._current_zone = ZONE_MIDDLE
 
@@ -72,21 +75,21 @@ class EndZones(torch.nn.Module):
             pos = point_line_position(self._lines["left_stop"], cc)
             if pos > 0:
                 self._current_zone = ZONE_MIDDLE
-                print("MIDDLE")
+                logger.info("MIDDLE")
         elif self._current_zone == ZONE_RIGHT:
             # Make sure we aren't to the right of the stop line
             pos = point_line_position(self._lines["right_stop"], cc)
             if pos < 0:
                 self._current_zone = ZONE_MIDDLE
-                print("MIDDLE")
+                logger.info("MIDDLE")
         # See if we're in the left or right zone
         if self._current_zone == ZONE_MIDDLE:
             if point_line_position(self._lines["left_start"], cc) < 0:
                 self._current_zone = ZONE_LEFT
-                print("LEFT")
+                logger.info("LEFT")
             elif point_line_position(self._lines["right_start"], cc) > 0:
                 self._current_zone = ZONE_RIGHT
-                print("RIGHT")
+                logger.info("RIGHT")
 
         replacement_image = None
         if self._current_zone == ZONE_LEFT and "far_left" in data["data"]:
@@ -100,58 +103,15 @@ class EndZones(torch.nn.Module):
                 width=self._output_width,
                 color=0,
             )
+            if replacement_image.dtype != self._output_dtype:
+                if torch.is_floating_point(replacement_image) and self._output_dtype == torch.uint8:
+                    replacement_image = replacement_image.clamp(0, 255)
+                    replacement_image = replacement_image.to(
+                        dtype=self._output_dtype, non_blocking=True
+                    )
             data["end_zone_img"] = replacement_image
 
         return data
-
-    def check_for_replacement(self):
-        # replacement_image = None
-        # if self.has_args() and self._args.end_zones:
-        #     pano_width = image_width(online_im)
-        #     current_box_x = center(current_fast_box)[0]
-        #     current_box_left = current_fast_box[0]
-        #     current_box_right = current_fast_box[2]
-        #     if current_box_right - current_box_left < pano_width / 1.5:
-        #         other_data = imgproc_data["data"]
-        #         # print(int(current_box_x))
-        #         width_ratio = 4
-        #         if current_box_x <= pano_width / width_ratio and "far_left" in other_data:
-        #             if current_zone != "LEFT":
-        #                 current_zone = "LEFT"
-        #                 print(f"{current_zone=}")
-        #             replacement_image = other_data["far_left"]
-        #             if replacement_image is not None:
-        #                 replacement_image = replacement_image[0]
-        #         elif (
-        #             pano_width - current_box_x <= pano_width / width_ratio
-        #             and "far_right" in other_data
-        #         ):
-        #             if current_zone != "RIGHT":
-        #                 current_zone = "RIGHT"
-        #                 print(f"{current_zone=}")
-        #             replacement_image = other_data["far_right"]
-        #             if replacement_image is not None:
-        #                 replacement_image = replacement_image[0]
-        #         else:
-        #             if current_zone != "MIDDLE":
-        #                 current_zone = "MIDDLE"
-        #                 print(f"{current_zone=}")
-
-        #     else:
-        #         if current_zone != "MIDDLE":
-        #             current_zone = "MIDDLE"
-        #             print(f"{current_zone=}")
-
-        #     if replacement_image is not None:
-        #         replacement_image, _, _, _, _ = py_letterbox(
-        #             img=replacement_image.get(),
-        #             height=self._output_frame_height,
-        #             width=self._output_frame_width,
-        #             color=0,
-        #         )
-        #         assert image_width(replacement_image) == self._output_frame_width
-        #         assert image_height(replacement_image) == self._output_frame_height
-        pass
 
 
 def point_line_position(

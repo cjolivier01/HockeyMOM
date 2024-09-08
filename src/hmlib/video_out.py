@@ -818,9 +818,10 @@ class VideoOutput:
         # BEGIN END-ZONE
         #
         if self._end_zones is not None:
-            data = self._end_zones(imgproc_data)
-            if "img" in data:
-                online_im = data.pop("img")
+            imgproc_data = self._end_zones(imgproc_data)
+            # if "img" in data:
+            #     online_im = data.pop("img")
+
         #
         # END END-ZONE
         #
