@@ -85,6 +85,12 @@ class hm_opts(object):
             help="show as processing",
         )
         parser.add_argument(
+            "--show-image-name",
+            default="default",
+            type=str,
+            help="Name of the image to show, i.e. 'default', 'end_zones'",
+        )
+        parser.add_argument(
             "--show-scaled",
             type=float,
             default=None,

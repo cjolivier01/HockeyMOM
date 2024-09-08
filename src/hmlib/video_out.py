@@ -594,7 +594,8 @@ class VideoOutput:
                 assert int(self._output_frame_height) == online_im.shape[-3]
                 if not self._skip_final_save:
                     if self.VIDEO_DEFAULT in self._output_videos:
-                        online_im = StreamCheckpoint(tensor=online_im)
+                        if not isinstance(online_im, StreamTensor):
+                            online_im = StreamCheckpoint(tensor=online_im)
                         with cuda_stream_scope(default_cuda_stream):
                             # IMPORTANT:
                             # The encode is going to use the default stream,
@@ -605,16 +606,18 @@ class VideoOutput:
 
                     if self.VIDEO_END_ZONES in self._output_videos:
                         if "end_zone_img" in data:
-                            online_im = data["end_zone_img"]
-                        if not isinstance(online_im, StreamTensor):
-                            online_im = StreamCheckpoint(tensor=online_im)
+                            ez_img = data["end_zone_img"]
+                        else:
+                            ez_img = online_im
+                        if not isinstance(ez_img, StreamTensor):
+                            ez_img = StreamCheckpoint(tensor=ez_img)
                         with cuda_stream_scope(default_cuda_stream):
                             # IMPORTANT:
                             # The encode is going to use the default stream,
                             # so call write() under that stream so that any actions
                             # taken while pushing occur on the same stream as the
                             # ultimate encoding
-                            self._output_videos[self.VIDEO_END_ZONES].write(online_im)
+                            self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
 
                 # Save frames as individual frames
                 if self._save_frame_dir:

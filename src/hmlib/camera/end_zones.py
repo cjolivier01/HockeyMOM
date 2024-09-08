@@ -7,17 +7,7 @@ import torch
 from hmlib.config import get_nested_value
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
-from hmlib.utils.box_functions import center, height, width
-from hmlib.utils.image import (
-    ImageColorScaler,
-    ImageHorizontalGaussianDistribution,
-    crop_image,
-    image_height,
-    image_width,
-    make_channels_last,
-    make_visible_image,
-    resize_image,
-)
+from hmlib.utils.box_functions import center
 from hmlib.utils.letterbox import py_letterbox
 
 ZONE_LEFT: str = "LEFT"
@@ -34,12 +24,14 @@ class EndZones(torch.nn.Module):
         output_height: int,
         output_dtype: torch.dtype = torch.uint8,
         box_key: str = "current_fast_box",
+        image_key: str = "end_zone_img",
         *args,
         **kwargs,
     ):
         super(EndZones, self).__init__(*args, **kwargs)
         self._lines = lines
         self._box_key = box_key
+        self._image_key = image_key
         self._output_width: int = output_width
         self._output_height: int = output_height
         self._output_dtype = output_dtype
@@ -75,21 +67,21 @@ class EndZones(torch.nn.Module):
             pos = point_line_position(self._lines["left_stop"], cc)
             if pos > 0:
                 self._current_zone = ZONE_MIDDLE
-                logger.info("MIDDLE")
+                logger.info("EZ: MIDDLE")
         elif self._current_zone == ZONE_RIGHT:
             # Make sure we aren't to the right of the stop line
             pos = point_line_position(self._lines["right_stop"], cc)
             if pos < 0:
                 self._current_zone = ZONE_MIDDLE
-                logger.info("MIDDLE")
+                logger.info("EZ: MIDDLE")
         # See if we're in the left or right zone
         if self._current_zone == ZONE_MIDDLE:
             if point_line_position(self._lines["left_start"], cc) < 0:
                 self._current_zone = ZONE_LEFT
-                logger.info("LEFT")
+                logger.info("EZ: LEFT")
             elif point_line_position(self._lines["right_start"], cc) > 0:
                 self._current_zone = ZONE_RIGHT
-                logger.info("RIGHT")
+                logger.info("EZ: RIGHT")
 
         replacement_image = None
         if self._current_zone == ZONE_LEFT and "far_left" in data["data"]:
@@ -109,7 +101,7 @@ class EndZones(torch.nn.Module):
                     replacement_image = replacement_image.to(
                         dtype=self._output_dtype, non_blocking=True
                     )
-            data["end_zone_img"] = replacement_image
+            data[self._image_key] = replacement_image
 
         return data
 
