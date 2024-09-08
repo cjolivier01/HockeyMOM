@@ -151,8 +151,6 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    args.game_id = "test"
-
     assert args.game_id
 
     game_config = get_game_config(game_id=args.game_id)
