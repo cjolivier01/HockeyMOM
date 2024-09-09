@@ -55,16 +55,6 @@ class EndZones(torch.nn.Module):
             was_device = img.device
             img = img.cpu()
 
-        # img = vis.plot_line(
-        #     img,
-        #     [0, 0],
-        #     [image_width(img) - 10, image_height(img) - 10],
-        #     color=(255, 255, 0),
-        #     thickness=20,
-        # )
-
-        # img = vis.draw_corner_boxes(img, [0, 0, image_width(img) - 10, image_height(img) - 10])
-
         for label, line in self._lines.items():
             if "start" in label:
                 color = (0, 255, 0)  # green
@@ -72,7 +62,7 @@ class EndZones(torch.nn.Module):
                 color = (255, 255, 0)  # yellow
             pt1 = line[0]
             pt2 = line[1]
-            img = vis.plot_line(img, [pt1[0], pt1[1]], [pt2[0], pt2[1]], color=color, thickness=20)
+            img = vis.plot_line(img, [pt1[0], pt1[1]], [pt2[0], pt2[1]], color=color, thickness=2)
         if was_torch:
             img = torch.from_numpy(img).to(device=was_device).to(dtype=was_dtype)
         return img
@@ -206,27 +196,35 @@ def point_line_position(
     x1, y1 = line_segment[0]
     x2, y2 = line_segment[1]
 
-    y1 = image_height - y1
-    y2 = image_height - y2
+    # y1 = image_height - y1
+    # y2 = image_height - y2
 
+    assert x1 <= x2
+
+    # TODO: Precalculate as much as possible
     leq = find_line_equation(x1, y1, x2, y2)
 
     # # Unpack the point
     x, y = point
 
-    y = image_height - y
+    # y = image_height - y
 
     # y = mx + b
     # mx = y - b
     # x = (y - b) / m
-    xx = (y - leq[1]) / leq[0]
+    b = leq[1]
+    m = leq[0]
+    xx = (y - b) / m
 
     # # cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
     if x < xx:
-        return 1
+        # Is to the left of the line @ y
+        return -1
     elif x > xx:
+        # Is to the right of the line @ y
         return 1
+    # Is on the line
     return 0
 
     # # Determine the position of the point relative to the line
