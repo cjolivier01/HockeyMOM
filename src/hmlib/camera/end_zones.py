@@ -8,6 +8,7 @@ from hmlib.config import get_nested_value
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import center
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.letterbox import py_letterbox
 
 ZONE_LEFT: str = "LEFT"
@@ -52,6 +53,18 @@ class EndZones(torch.nn.Module):
         if was_torch:
             was_dtype = img.dtype
             was_device = img.device
+            img = img.cpu()
+
+        # img = vis.plot_line(
+        #     img,
+        #     [0, 0],
+        #     [image_width(img) - 10, image_height(img) - 10],
+        #     color=(255, 255, 0),
+        #     thickness=20,
+        # )
+
+        # img = vis.draw_corner_boxes(img, [0, 0, image_width(img) - 10, image_height(img) - 10])
+
         for label, line in self._lines.items():
             if "start" in label:
                 color = (0, 255, 0)  # green
@@ -59,7 +72,7 @@ class EndZones(torch.nn.Module):
                 color = (255, 255, 0)  # yellow
             pt1 = line[0]
             pt2 = line[1]
-            img = vis.plot_line(img, [pt1[0], pt1[1]], [pt2[0], pt2[1]], color=color, thickness=8)
+            img = vis.plot_line(img, [pt1[0], pt1[1]], [pt2[0], pt2[1]], color=color, thickness=20)
         if was_torch:
             img = torch.from_numpy(img).to(device=was_device).to(dtype=was_dtype)
         return img
@@ -134,8 +147,11 @@ class EndZones(torch.nn.Module):
             )
             if side_name not in self._exposure_ratio:
                 # We calc for the exact corresponding frame on the first frame
-                img_mean = torch.mean(data["img"].to(torch.float))
-                repl_mean = torch.mean(replacement_image)
+                img = data["img"]
+                if isinstance(img, np.ndarray):
+                    img = torch.from_numpy(img)
+                img_mean = torch.mean(img.to(torch.float).clamp(0, 255))
+                repl_mean = torch.mean(replacement_image.clamp(0, 255))
                 if img_mean > 0 and repl_mean > 0:
                     self._exposure_ratio[side_name] = img_mean / repl_mean
             if side_name in self._exposure_ratio and self._exposure_ratio[side_name] != 1:
@@ -190,28 +206,28 @@ def point_line_position(
     x1, y1 = line_segment[0]
     x2, y2 = line_segment[1]
 
-    # y1 = image_height - y1
-    # y2 = image_height - y2
+    y1 = image_height - y1
+    y2 = image_height - y2
 
-    # leq = find_line_equation(x1, y1, x2, y2)
+    leq = find_line_equation(x1, y1, x2, y2)
 
     # # Unpack the point
     x, y = point
 
-    # y = image_height - y
+    y = image_height - y
 
-    # # y = mx + b
-    # # mx = y - b
-    # # x = (y - b) / m
-    # xx = (y - leq[1]) / leq[0]
+    # y = mx + b
+    # mx = y - b
+    # x = (y - b) / m
+    xx = (y - leq[1]) / leq[0]
 
     # # cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
-    # if x < xx:
-    #     return 1
-    # elif x > xx:
-    #     return 1
-    # return 0
+    if x < xx:
+        return 1
+    elif x > xx:
+        return 1
+    return 0
 
     # # Determine the position of the point relative to the line
     # return torch.sign(cross_product)

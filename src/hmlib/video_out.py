@@ -17,7 +17,9 @@ from torchvision.transforms import functional as F
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.ui.shower import Shower
@@ -282,6 +284,15 @@ class VideoOutput:
         if args is not None and args.end_zones:
             lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
             if lines:
+                # Adjust for clipb ox, if any
+                if original_clip_box is not None:
+                    orig_lines = lines
+                    lines: Dict[str, List[Tuple[int, int]]] = {}
+                    for key, line in orig_lines.items():
+                        line[0] = adjust_point_for_clip_box(line[0], original_clip_box)
+                        line[1] = adjust_point_for_clip_box(line[1], original_clip_box)
+                        lines[key] = line
+
                 self._end_zones = EndZones(
                     lines=lines,
                     output_width=self._output_frame_width_int,
@@ -614,8 +625,8 @@ class VideoOutput:
                     if imgproc_data["frame_id"] % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
-                        # show_img = online_im
-                        show_img = ez_img
+                        show_img = online_im
+                        # show_img = ez_img
                         self._shower.show(show_img)
 
                 # Save frames as individual frames
@@ -673,6 +684,9 @@ class VideoOutput:
             # online_im = online_im.get()
             online_im = online_im.wait(torch.cuda.current_stream())
 
+        if self._end_zones is not None:
+            online_im = self._end_zones.draw(online_im)
+
         frame_id = imgproc_data["frame_id"]
         if frame_id.ndim == 0:
             frame_id = frame_id.unsqueeze(0)
@@ -704,9 +718,6 @@ class VideoOutput:
         if self._scoreboard is not None:
             online_im = slow_to_tensor(online_im)
             scoreboard_img = make_channels_last(self._scoreboard.forward(online_im))
-
-        # if self._end_zones is not None:
-        #     online_im = self._end_zones.draw(online_im)
 
         #
         # Perspective rotation
