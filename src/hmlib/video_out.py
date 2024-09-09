@@ -625,8 +625,8 @@ class VideoOutput:
                     if imgproc_data["frame_id"] % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
-                        show_img = online_im
-                        # show_img = ez_img
+                        # show_img = online_im
+                        show_img = ez_img
                         self._shower.show(show_img)
 
                 # Save frames as individual frames
@@ -684,8 +684,8 @@ class VideoOutput:
             # online_im = online_im.get()
             online_im = online_im.wait(torch.cuda.current_stream())
 
-        if self._end_zones is not None:
-            online_im = self._end_zones.draw(online_im)
+        # if self._end_zones is not None:
+        #     online_im = self._end_zones.draw(online_im)
 
         frame_id = imgproc_data["frame_id"]
         if frame_id.ndim == 0:
