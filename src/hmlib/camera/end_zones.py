@@ -68,20 +68,19 @@ class EndZones(torch.nn.Module):
             return data
         cc = center(bbox)
         pano_size_height = data["pano_size_wh"][1]
-        # image_height =
         # See if we're out of the current left or right zone
         if self._current_zone == ZONE_LEFT:
             # Make sure we aren't to the right of the stop line
             pos = point_line_position(self._lines["left_stop"], cc, image_height=pano_size_height)
             if pos > 0:
                 self._current_zone = ZONE_MIDDLE
-                logger.info("EZ: MIDDLE")
+                logger.info("END-ZONE: MIDDLE")
         elif self._current_zone == ZONE_RIGHT:
             # Make sure we aren't to the right of the stop line
             pos = point_line_position(self._lines["right_stop"], cc, image_height=pano_size_height)
             if pos < 0:
                 self._current_zone = ZONE_MIDDLE
-                logger.info("EZ: MIDDLE")
+                logger.info("END-ZONE: MIDDLE")
         # See if we're in the left or right zone
         if self._current_zone == ZONE_MIDDLE:
             if (
@@ -89,13 +88,13 @@ class EndZones(torch.nn.Module):
                 < 0
             ):
                 self._current_zone = ZONE_LEFT
-                logger.info("EZ: LEFT")
+                logger.info("END-ZONE: LEFT")
             elif (
                 point_line_position(self._lines["right_start"], cc, image_height=pano_size_height)
                 > 0
             ):
                 self._current_zone = ZONE_RIGHT
-                logger.info("EZ: RIGHT")
+                logger.info("END-ZONE: RIGHT")
 
         replacement_image = None
         if self._current_zone == ZONE_LEFT and "far_left" in data["data"]:
