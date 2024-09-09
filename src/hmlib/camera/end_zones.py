@@ -62,6 +62,22 @@ class EndZones(torch.nn.Module):
             img = torch.from_numpy(img).to(device=was_device).to(dtype=was_dtype)
         return img
 
+    def get_ez_image(self, data: Dict[str, Any], dtype: torch.dtype) -> Optional[torch.Tensor]:
+        ez_image = data.get(self._image_key)
+        if ez_image is not None and ez_image.dtype != self._output_dtype:
+            if torch.is_floating_point(ez_image) and self._output_dtype == torch.uint8:
+                ez_image = ez_image.clamp(0, 255)
+            ez_image = ez_image.to(dtype=self._output_dtype, non_blocking=True)
+        return ez_image
+
+    def put_ez_image(self, data: Dict[str, Any], img: torch.Tensor) -> Dict[str, Any]:
+        if img is None:
+            if self._image_key in data:
+                del data[self._image_key]
+        else:
+            data[self._image_key] = img
+        return data
+
     def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
         bbox = data.get(self._box_key)
         if bbox is None:
@@ -108,13 +124,7 @@ class EndZones(torch.nn.Module):
                 width=self._output_width,
                 color=0,
             )
-            if replacement_image.dtype != self._output_dtype:
-                if torch.is_floating_point(replacement_image) and self._output_dtype == torch.uint8:
-                    replacement_image = replacement_image.clamp(0, 255)
-                    replacement_image = replacement_image.to(
-                        dtype=self._output_dtype, non_blocking=True
-                    )
-            data[self._image_key] = replacement_image
+            self.put_ez_image(data, replacement_image)
 
         return data
 

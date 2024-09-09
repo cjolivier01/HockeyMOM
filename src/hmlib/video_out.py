@@ -578,17 +578,6 @@ class VideoOutput:
                 batch_size = online_im.size(0)
 
                 # Output (and maybe show) the final image
-                if (
-                    self.has_args()
-                    and self._args.show_image
-                    and imgproc_data["frame_id"] >= skip_frames_before_show
-                ):
-                    if imgproc_data["frame_id"] % show_image_interval == 0:
-                        if cuda_stream is not None:
-                            cuda_stream.synchronize()
-                        show_img = online_im
-                        self._shower.show(show_img)
-
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
@@ -605,9 +594,8 @@ class VideoOutput:
                             self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
                     if self.VIDEO_END_ZONES in self._output_videos:
-                        if "end_zone_img" in data:
-                            ez_img = data["end_zone_img"]
-                        else:
+                        ez_img = self._end_zones.get_ez_image(data, dtype=online_im.dtype)
+                        if ez_img is None:
                             ez_img = online_im
                         if not isinstance(ez_img, StreamTensor):
                             ez_img = StreamCheckpoint(tensor=ez_img)
@@ -618,6 +606,17 @@ class VideoOutput:
                             # taken while pushing occur on the same stream as the
                             # ultimate encoding
                             self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+                if (
+                    self.has_args()
+                    and self._args.show_image
+                    and imgproc_data["frame_id"] >= skip_frames_before_show
+                ):
+                    if imgproc_data["frame_id"] % show_image_interval == 0:
+                        if cuda_stream is not None:
+                            cuda_stream.synchronize()
+                        # show_img = online_im
+                        show_img = ez_img
+                        self._shower.show(show_img)
 
                 # Save frames as individual frames
                 if self._save_frame_dir:
@@ -824,12 +823,19 @@ class VideoOutput:
         #
         if self._end_zones is not None:
             imgproc_data = self._end_zones(imgproc_data)
-            # if "img" in data:
-            #     online_im = data.pop("img")
-
+            ez_image = self._end_zones.get_ez_image(imgproc_data, dtype=online_im.dtype)
+            if ez_image is not None:
+                # Apply the final overlays to the end-zone image
+                imgproc_data = self._end_zones.put_ez_image(
+                    data=imgproc_data,
+                    img=self.draw_final_overlays(
+                        img=ez_image, frame_id=frame_id, scoreboard_img=scoreboard_img
+                    ),
+                )
         #
         # END END-ZONE
         #
+
         online_im = self.draw_final_overlays(
             img=online_im, frame_id=frame_id, scoreboard_img=scoreboard_img
         )
