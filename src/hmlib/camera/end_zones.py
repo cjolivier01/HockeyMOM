@@ -143,7 +143,7 @@ class EndZones(torch.nn.Module):
                 img_mean = torch.mean(img.to(torch.float).clamp(0, 255))
                 repl_mean = torch.mean(replacement_image.clamp(0, 255))
                 if img_mean > 0 and repl_mean > 0:
-                    self._exposure_ratio[side_name] = img_mean / repl_mean
+                    self._exposure_ratio[side_name] = float(img_mean) / float(repl_mean)
             if side_name in self._exposure_ratio and self._exposure_ratio[side_name] != 1:
                 replacement_image = replacement_image * self._exposure_ratio[side_name]
             self.put_ez_image(data, replacement_image)
