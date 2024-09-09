@@ -38,6 +38,8 @@ class EndZones(torch.nn.Module):
         self._args = args
         self._current_zone = ZONE_MIDDLE
 
+        self._exposure_ratio: Dict[str, torch.Tensor] = {}
+
         self.line_equations: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
         for name, l in self._lines.items():
             # l = make_y_up(l)
@@ -116,10 +118,13 @@ class EndZones(torch.nn.Module):
                 logger.info("END-ZONE: RIGHT")
 
         replacement_image = None
+        side_name = None
         if self._current_zone == ZONE_LEFT and "far_left" in dataset_data:
             replacement_image = dataset_data["far_left"][0]
+            side_name = "far_left"
         elif self._current_zone == ZONE_RIGHT and "far_right" in dataset_data:
             replacement_image = dataset_data["far_right"][0]
+            side_name = "far_right"
         if replacement_image is not None:
             replacement_image, _, _, _, _ = py_letterbox(
                 img=replacement_image.get(),
@@ -127,6 +132,14 @@ class EndZones(torch.nn.Module):
                 width=self._output_width,
                 color=0,
             )
+            if side_name not in self._exposure_ratio:
+                # We calc for the exact corresponding frame on the first frame
+                img_mean = torch.mean(data["img"].to(torch.float))
+                repl_mean = torch.mean(replacement_image)
+                if img_mean > 0 and repl_mean > 0:
+                    self._exposure_ratio[side_name] = img_mean / repl_mean
+            if side_name in self._exposure_ratio and self._exposure_ratio[side_name] != 1:
+                replacement_image = replacement_image * self._exposure_ratio[side_name]
             self.put_ez_image(data, replacement_image)
 
         return data

@@ -660,7 +660,8 @@ class VideoOutput:
                     final_all_timer.tic()
 
     def forward(self, imgproc_data) -> Dict[str, Any]:
-        online_im = imgproc_data.pop("img")
+        # online_im = imgproc_data.pop("img")
+        online_im = imgproc_data["img"]
 
         imgproc_data["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
 
