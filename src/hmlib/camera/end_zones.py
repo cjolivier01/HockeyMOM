@@ -79,6 +79,9 @@ class EndZones(torch.nn.Module):
         return data
 
     def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        dataset_data = data["data"]
+        if "far_left" not in dataset_data and "far_right" not in dataset_data:
+            return data
         bbox = data.get(self._box_key)
         if bbox is None:
             return data
@@ -113,10 +116,10 @@ class EndZones(torch.nn.Module):
                 logger.info("END-ZONE: RIGHT")
 
         replacement_image = None
-        if self._current_zone == ZONE_LEFT and "far_left" in data["data"]:
-            replacement_image = data["data"]["far_left"][0]
-        elif self._current_zone == ZONE_RIGHT and "far_right" in data["data"]:
-            replacement_image = data["data"]["far_right"][0]
+        if self._current_zone == ZONE_LEFT and "far_left" in dataset_data:
+            replacement_image = dataset_data["far_left"][0]
+        elif self._current_zone == ZONE_RIGHT and "far_right" in dataset_data:
+            replacement_image = dataset_data["far_right"][0]
         if replacement_image is not None:
             replacement_image, _, _, _, _ = py_letterbox(
                 img=replacement_image.get(),

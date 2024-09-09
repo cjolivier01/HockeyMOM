@@ -26,3 +26,6 @@ rink:
   camera:
     fixed_edge_scaling_factor: 1.25
     fixed_edge_rotation_angle: 25.0
+  scoreboard:
+    projected_height: 110
+    projected_width: 240

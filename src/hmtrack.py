@@ -6,6 +6,7 @@ import traceback
 import warnings
 from collections import OrderedDict
 from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # For TopDownGetBboxCenterScale
@@ -655,33 +656,12 @@ def main(args, num_gpu):
                     original_image_only=tracking_data is not None,
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
-
-                if args.end_zones:
-                    # Try far_left and far_right videos if they exist
-                    other_videos: List[Tuple[str, str]] = [
-                        ("far_left", os.path.join(dir_name, "far_left.mp4")),
-                        ("far_right", os.path.join(dir_name, "far_right.mp4")),
-                    ]
-                    ez_count = 0
-                    for vid_name, vid_path in other_videos:
-                        if os.path.exists(vid_path):
-                            extra_dataloader = MOTLoadVideoWithOrig(
-                                path=vid_path,
-                                # game_id=dir_name,
-                                img_size=None,
-                                start_frame_number=args.start_frame,
-                                batch_size=1,
-                                stream_tensors=tracker == "mmtrack",
-                                dtype=torch.float if not args.fp16 else torch.half,
-                                device=gpus["encoder"],
-                                original_image_only=True,
-                            )
-                            dataloader.append_dataset(vid_name, extra_dataloader)
-                            ez_count += 1
-                    if not ez_count:
-                        raise ValueError("--end-zones specified, but no end-zone videos found")
             else:
                 assert len(input_video_files) == 1
+                if os.path.isdir(input_video_files[0]):
+                    dir_name = input_video_files[0]
+                else:
+                    dir_name = Path(input_video_files[0]).parent
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
                     vid_info = BasicVideoInfo(input_video_files[0])
@@ -708,6 +688,31 @@ def main(args, num_gpu):
                     original_image_only=tracking_data is not None,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
+
+            if args.end_zones:
+                # Try far_left and far_right videos if they exist
+                other_videos: List[Tuple[str, str]] = [
+                    ("far_left", os.path.join(dir_name, "far_left.mp4")),
+                    ("far_right", os.path.join(dir_name, "far_right.mp4")),
+                ]
+                ez_count = 0
+                for vid_name, vid_path in other_videos:
+                    if os.path.exists(vid_path):
+                        extra_dataloader = MOTLoadVideoWithOrig(
+                            path=vid_path,
+                            # game_id=dir_name,
+                            img_size=None,
+                            start_frame_number=args.start_frame,
+                            batch_size=1,
+                            stream_tensors=tracker == "mmtrack",
+                            dtype=torch.float if not args.fp16 else torch.half,
+                            device=gpus["encoder"],
+                            original_image_only=True,
+                        )
+                        dataloader.append_dataset(vid_name, extra_dataloader)
+                        ez_count += 1
+                if not ez_count:
+                    raise ValueError("--end-zones specified, but no end-zone videos found")
 
         if dataloader is None:
             dataloader = exp.get_eval_loader(
