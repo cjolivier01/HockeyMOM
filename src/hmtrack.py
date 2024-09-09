@@ -837,6 +837,7 @@ def main(args, num_gpu):
             video_with_audio = args.output_video
             if not video_with_audio:
                 game_video_dir = get_game_dir(args.game_id)
+                # TODO: Use hmlib.utils.path functions for this (or create as needed)
                 if not game_video_dir:
                     # Going into results dir
                     dir_tokens = output_video_path.split("/")
@@ -894,7 +895,7 @@ def main(args, num_gpu):
             print(f"Exception while shutting down: {ex}")
 
 
-def tensor_to_image(tensor: torch.Tensor):
+def tensor_to_image(tensor: torch.Tensor):  ##
     if torch.is_floating_point(tensor):
         tensor = torch.clamp(tensor * 255, min=0, max=255).to(torch.uint8, non_blocking=True)
     return tensor
