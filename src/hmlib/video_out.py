@@ -517,7 +517,7 @@ class VideoOutput:
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 
-            if self.VIDEO_END_ZONES not in self._output_videos:
+            if self._end_zones is not None and self.VIDEO_END_ZONES not in self._output_videos:
                 self._output_videos[self.VIDEO_END_ZONES] = create_output_video_stream(
                     filename=str(add_suffix_to_filename(self._output_video_path, "-end-zones")),
                     fps=self._fps,
