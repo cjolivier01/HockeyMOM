@@ -625,8 +625,8 @@ class VideoOutput:
                     if imgproc_data["frame_id"] % show_image_interval == 0:
                         if cuda_stream is not None:
                             cuda_stream.synchronize()
-                        # show_img = online_im
-                        show_img = ez_img
+                        show_img = online_im
+                        # show_img = ez_img
                         self._shower.show(show_img)
 
                 # Save frames as individual frames
