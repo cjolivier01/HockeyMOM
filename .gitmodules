@@ -8,9 +8,6 @@
 [submodule "mmcv"]
 	path = mmcv
 	url = ssh://git@github.com/cjolivier01/mmcv
-[submodule "external/opencv-python"]
-	path = external/opencv-python
-	url = ssh://git@github.com/cjolivier01/opencv-python
 [submodule "external/fast_pytorch_kmeans"]
 	path = external/fast_pytorch_kmeans
 	url = ssh://git@github.com/cjolivier01/fast_pytorch_kmeans
