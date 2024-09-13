@@ -1,11 +1,14 @@
 import argparse
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import mmcv
+import numpy as np
 import torch
+from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
+from mmdet.core.mask.structures import bitmap_to_polygon
 
 from hmlib.segm.utils import polygon_to_mask
 
@@ -14,9 +17,9 @@ DEFAULT_SCORE_THRESH = 0.3
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MMDetection video demo")
-    parser.add_argument("video", help="Video file")
-    parser.add_argument("config", help="Config file")
-    parser.add_argument("checkpoint", help="Checkpoint file")
+    # parser.add_argument("video", help="Video file")
+    # parser.add_argument("config", help="Config file")
+    # parser.add_argument("checkpoint", help="Checkpoint file")
     parser.add_argument("--device", default="cuda:0", help="Device used for inference")
     parser.add_argument(
         "--score-thr", type=float, default=DEFAULT_SCORE_THRESH, help="Bbox score threshold"
@@ -34,7 +37,7 @@ def parse_args():
     return args
 
 
-def main():
+def video_demo_main():
     args = parse_args()
     assert args.out or args.show or args.perf, (
         "Please specify at least one operation (save/show the "
@@ -103,24 +106,94 @@ def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     return torch.from_numpy(frame).unsqueeze(0)
 
 
+def result_to_polygons(
+    inference_result: np.ndarray,
+    category_id: int = 1,
+    score_thr: float = 0,
+    show: bool = False,
+) -> List[List[Tuple[float, float]]]:
+    """
+    Theoretically, could return more than one polygon, especially if there's an obstruction
+    """
+    polygons: List[List[Tuple[float, float]]] = []
+
+    if isinstance(inference_result, tuple):
+        bbox_result, segm_result = inference_result
+        if isinstance(segm_result, tuple):
+            segm_result = segm_result[0]  # ms rcnn
+    else:
+        bbox_result, segm_result = inference_result, None
+    bboxes = np.vstack(bbox_result)
+    labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
+    labels = np.concatenate(labels)
+
+    # num_bboxes = bboxes.shape[0]
+
+    segms = None
+    if segm_result is not None and len(labels) > 0:  # non empty
+        segms = mmcv.concat_list(segm_result)
+        if isinstance(segms[0], torch.Tensor):
+            segms = torch.stack(segms, dim=0).detach().cpu().numpy()
+        else:
+            segms = np.stack(segms, axis=0)
+
+    if score_thr > 0:
+        assert bboxes is not None and bboxes.shape[1] == 5
+        scores = bboxes[:, -1]
+        inds = scores > score_thr
+        bboxes = bboxes[inds, :]
+        labels = labels[inds]
+        if segms is not None:
+            segms = segms[inds, ...]
+
+    # draw_masks(ax, img, segms, colors, with_edge=True)
+    masks = segms
+
+    results: List[Dict[str, Any]] = {}
+
+    contours_list: List[List[Tuple[int, int]]] = []
+    polygons: List[Polygon] = []
+    mask_list: List[np.ndarray] = []
+
+    for _, mask in enumerate(masks):
+        contours, _ = bitmap_to_polygon(mask)
+        contours_list += contours
+        polygons += [Polygon(c) for c in contours]
+        mask = mask.astype(bool)
+        mask_list.append(mask)
+
+        if show:
+            mask_image = mask.astype(np.uint8) * 255
+            cv2.namedWindow("Ice-rink", 0)
+            mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
+
+    return results
+
+
 def find_ice_rink_mask(
     image: torch.Tensor,
     config_file: str,
     checkpoint: str,
     device: torch.device = torch.device("cuda:0"),
+    show: bool = False,
 ) -> torch.Tensor:
     model = init_detector(config_file, checkpoint, device=device)
+    if isinstance(image, torch.Tensor):
+        image = image.numpy().squeeze(0)
     result = inference_detector(model, image)
 
-    image = image.cpu().numpy() if isinstance(image, torch.Tensor) else image
-    frame = model.show_result(
-        image.cpu().numpy() if isinstance(image, torch.Tensor) else image,
-        result,
-        score_thr=DEFAULT_SCORE_THRESH,
-    )
+    if show:
+        show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
+        show_image = model.show_result(
+            show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False
+        )
 
-    cv2.namedWindow("Ice-rink", 0)
-    mmcv.imshow(frame, "Ice-rink", wait_time=0)
+        # cv2.namedWindow("Ice-rink", 0)
+        # mmcv.imshow(show_image, "Ice-rink", wait_time=10)
+
+    polygons = result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH)
+
+    print("Done.")
 
 
 if __name__ == "__main__":
@@ -131,7 +204,10 @@ if __name__ == "__main__":
     )
 
     mask = find_ice_rink_mask(
-        image=_get_first_frame(video_file), config_file=config_file, checkpoint=checkpoint
+        image=_get_first_frame(video_file),
+        config_file=config_file,
+        checkpoint=checkpoint,
+        show=True,
     )
 
-    main()
+    # video_demo_main()
