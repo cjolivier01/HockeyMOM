@@ -362,6 +362,34 @@ def find_ice_rink_mask(
     return rink_results
 
 
+def load_png_as_boolean_tensor(filename: str) -> torch.Tensor:
+    """
+    Loads a PNG image and converts it to a 2D boolean tensor.
+
+    Args:
+        filename (str): The path to the PNG image file.
+
+    Returns:
+        torch.Tensor: A 2D boolean tensor where each value represents the pixel's thresholded result.
+    """
+    # Load the image
+    image = Image.open(filename).convert("L")  # Convert to grayscale
+
+    # Convert the image to a numpy array
+    image_array = np.array(image)
+
+    # Define a threshold (this example uses 128 as a threshold for mid-gray)
+    threshold = 128
+
+    # Apply threshold to create a boolean array
+    boolean_array = image_array > threshold
+
+    # Convert to a PyTorch boolean tensor
+    boolean_tensor = torch.from_numpy(boolean_array).to(torch.bool)
+
+    return boolean_tensor
+
+
 def save_boolean_tensor_as_png(tensor: Union[torch.Tensor, np.ndarray], filename: str):
     """
     Saves a PyTorch boolean tensor as a PNG image.
@@ -399,10 +427,24 @@ def save_rink_profile_config(
     save_game_config(game_id=game_id, data=game_config, root_dir=root_dir)
 
 
-def save_rink_mask(
-    rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
-):
-    image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask.png'
+def load_rink_combined_mask(
+    game_id: str,
+    root_dir: Optional[str] = None,
+) -> Optional[torch.Tensor]:
+    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    if not game_config:
+        return None
+    mask_count = get_nested_value(game_config, "rink.ice_contours_mask_count")
+    combined_mask = None
+    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
+    for i in range(mask_count):
+        image_file = mask_image_file_base + str(i) + ".png"
+        mask = load_png_as_boolean_tensor(image_file)
+        if combined_mask is None:
+            combined_mask = mask
+        else:
+            combined_mask = combined_mask | mask
+    return combined_mask
 
 
 if __name__ == "__main__":
@@ -422,8 +464,6 @@ if __name__ == "__main__":
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
     game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
-    if game_config:
-        rink_contours = get_nested_value(game_config, "game.rink_ice_contours")
 
     image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
 
