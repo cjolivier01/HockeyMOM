@@ -1,6 +1,6 @@
 import argparse
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import mmcv
@@ -111,7 +111,7 @@ def result_to_polygons(
     category_id: int = 1,
     score_thr: float = 0,
     show: bool = False,
-) -> List[List[Tuple[float, float]]]:
+) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
     """
     Theoretically, could return more than one polygon, especially if there's an obstruction
     """
@@ -137,6 +137,12 @@ def result_to_polygons(
         else:
             segms = np.stack(segms, axis=0)
 
+    category_mask = labels == category_id
+    bboxes = bboxes[category_mask, :]
+    labels = labels[category_mask]
+    if segms is not None:
+        segms = segms[category_mask, ...]
+
     if score_thr > 0:
         assert bboxes is not None and bboxes.shape[1] == 5
         scores = bboxes[:, -1]
@@ -149,16 +155,14 @@ def result_to_polygons(
     # draw_masks(ax, img, segms, colors, with_edge=True)
     masks = segms
 
-    results: List[Dict[str, Any]] = {}
-
     contours_list: List[List[Tuple[int, int]]] = []
-    polygons: List[Polygon] = []
+    polygons_list: List[Polygon] = []
     mask_list: List[np.ndarray] = []
 
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
         contours_list += contours
-        polygons += [Polygon(c) for c in contours]
+        polygons_list += [Polygon(c) for c in contours]
         mask = mask.astype(bool)
         mask_list.append(mask)
 
@@ -166,6 +170,11 @@ def result_to_polygons(
             mask_image = mask.astype(np.uint8) * 255
             cv2.namedWindow("Ice-rink", 0)
             mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
+
+    results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
+    results["contours"] = contours_list
+    results["polygons"] = polygons_list
+    results["masks"] = mask_list
 
     return results
 
@@ -191,7 +200,9 @@ def find_ice_rink_mask(
         # cv2.namedWindow("Ice-rink", 0)
         # mmcv.imshow(show_image, "Ice-rink", wait_time=10)
 
-    polygons = result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH)
+    polygons = result_to_polygons(
+        inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=True
+    )
 
     print("Done.")
 
