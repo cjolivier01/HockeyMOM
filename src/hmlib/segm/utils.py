@@ -77,3 +77,23 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
         scaled_polygon = scaled_polygon.numpy()
 
     return scaled_polygon
+
+
+def split_points_by_x_trend_efficient(points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Convert the flat list into a tensor and reshape it into (n, 2)
+    points_tensor = torch.tensor(points).reshape(-1, 2)
+
+    # Extract x-coordinates and compute the difference with a shifted version
+    x_coords = points_tensor[:, 0]
+    differences = x_coords[1:] - x_coords[:-1]
+
+    # Find indices where the difference is positive (increasing x) and negative (decreasing x)
+    increasing_indices = torch.where(differences > 0)[0]
+    decreasing_indices = torch.where(differences < 0)[0]
+
+    # Select points based on the found indices
+    # We add 1 to indices to correct for the shift
+    increasing_x = points_tensor[increasing_indices + 1].tolist()
+    decreasing_x = points_tensor[decreasing_indices + 1].tolist()
+
+    return increasing_x, decreasing_x
