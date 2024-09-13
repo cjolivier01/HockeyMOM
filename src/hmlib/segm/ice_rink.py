@@ -479,12 +479,12 @@ if __name__ == "__main__":
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
 
-    # args.game_id = "jrmocks"
+    args.game_id = "jrmocks"
 
     assert args.game_id
 
     confgure_ice_rink_mask(
         game_id=args.game_id,
         root_dir=root_dir,
-        # device="cpu",
+        device="cpu",
     )

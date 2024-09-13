@@ -43,4 +43,4 @@ game:
       - 1113
       - 2725
 rink:
-  ice_contours_mask_count: 0
+  ice_contours_mask_count: 1
