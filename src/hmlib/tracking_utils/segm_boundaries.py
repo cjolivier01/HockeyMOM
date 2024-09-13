@@ -111,6 +111,7 @@ class SegmBoundaries:
         return centers
 
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
+        # TODO: Not checking center point
         points = self.get_centers(bbox_tlbr=batch_item_bboxes)
 
         valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._rink_mask.shape[1])
@@ -125,26 +126,12 @@ class SegmBoundaries:
         mask_values = self._rink_mask[
             valid_points_filtered[:, 1].to(torch.long, non_blocking=True),
             valid_points_filtered[:, 0].to(torch.long, non_blocking=True),
-            # valid_points_filtered[:, 1].long(),
-            # valid_points_filtered[:, 0].long()
         ]
 
         # Get indices of valid points where the mask is also True
         final_indices = valid_points_indices[mask_values]
 
         return final_indices
-
-        # above_line = self.point_batch_check_point_above_segments(
-        #     centers,
-        #     self._lower_borders,
-        # )
-        # below_line = self.point_batch_check_point_below_segments(
-        #     centers,
-        #     self._upper_borders,
-        # )
-        # above_or_below = torch.logical_or(above_line, below_line)
-        # return torch.logical_not(above_or_below)
-        return in_segment
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
