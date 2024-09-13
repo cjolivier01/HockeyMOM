@@ -63,6 +63,8 @@ class SegmBoundaries:
             if self._color_mask.dtype != img.dtype:
                 self._color_mask = self._color_mask.to(img.dtype)
             img = make_channels_first(img)
+            if not torch.is_floating_point(img):
+                img = img.to(torch.float, non_blocking=True)
             img[:, :, self._rink_mask] = (
                 img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
             )

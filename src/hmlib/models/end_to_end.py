@@ -105,4 +105,5 @@ class HmEndToEnd(ByteTrack):
         return dict(
             det_bboxes=det_results["bbox_results"],
             track_bboxes=track_results["bbox_results"],
+            data=data,
         )

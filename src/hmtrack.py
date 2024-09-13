@@ -1067,7 +1067,7 @@ def run_mmtrack(
 
                         det_bboxes = tracking_results["det_bboxes"]
                         track_bboxes = tracking_results["track_bboxes"]
-                        origin_imgs = data["original_images"]
+                        origin_imgs = tracking_results["data"]["original_images"]
 
                     for frame_index in range(len(origin_imgs)):
                         frame_id = info_imgs[2][frame_index]
