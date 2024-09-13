@@ -24,6 +24,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from typeguard import typechecked
 
 import hmlib.models.end_to_end  # Registers the model
+import hmlib.tracking_utils.segm_boundaries
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
