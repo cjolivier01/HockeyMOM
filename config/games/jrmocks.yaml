@@ -3,7 +3,7 @@ game:
   rink: kissimmee
   home: Jr Mocks
   away: Cougars
-  boundaries:
+  _boundaries:
     upper:
     - - 651
       - 1517
