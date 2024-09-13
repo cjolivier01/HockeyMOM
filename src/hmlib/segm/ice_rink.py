@@ -20,21 +20,124 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import hm_opts
 from hmlib.segm.utils import polygon_to_mask, scale_polygon
-from hmlib.utils.image import image_height, image_width
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 
 DEFAULT_SCORE_THRESH = 0.3
 
 
-def numpy_rle_encode(data):
-    n = len(data)
-    ends = np.where(data[1:] != data[:-1])[0] + 1
-    lengths = np.diff(np.append(-1, ends))
-    values = data[ends]
-    return list(zip(values, lengths))
+def rle_encode(tensor: Union[torch.Tensor, np.ndarray], validate: bool = True) -> torch.Tensor:
+    """
+    Encodes a 1D boolean tensor using run-length encoding (RLE).
+
+    Args:
+        tensor (torch.Tensor): A 1D boolean tensor.
+
+    Returns:
+        torch.Tensor: A 2xN tensor where the first row contains values and the second row contains lengths.
+    """
+    # Ensure tensor is flattened
+    if isinstance(tensor, np.ndarray):
+        tensor = torch.from_numpy(tensor)
+
+    tensor = tensor.flatten()
+    # Find boundaries (where changes occur)
+    diffs = torch.cat([torch.tensor([True]), tensor[1:] != tensor[:-1]])
+    # Get indices of changes
+    indices = torch.where(diffs)[0]
+    # Calculate run lengths
+    lengths = torch.diff(torch.cat([indices, torch.tensor([len(tensor)])]))
+    # Get values corresponding to the runs
+    values = tensor[indices]
+
+    # Return as 2xN tensor
+    rle_encoded = torch.stack((values.to(torch.int32), lengths))
+
+    if validate:
+        test_decode = rle_decode(rle_encoded)
+        assert torch.sum(test_decode) == torch.sum(tensor)
+        assert torch.sum(test_decode) == torch.sum(test_decode | tensor)
+        assert torch.sum(test_decode) == torch.sum(test_decode & tensor)
+
+    return rle_encoded
 
 
-def numpy_rle_decode(rle):
-    return np.repeat(*zip(*rle))
+def rle_decode(encoded_tensor):
+    """
+    Decodes a run-length encoded tensor back into the original tensor.
+
+    Args:
+        encoded_tensor (torch.Tensor): A 2xN tensor from rle_encode, where the first row contains values and the second row contains lengths.
+
+    Returns:
+        torch.Tensor: The decoded 1D boolean tensor.
+    """
+    # Extract values and lengths
+    values, lengths = encoded_tensor[0], encoded_tensor[1]
+    # Convert values back to boolean
+    bool_values = values.to(torch.bool)
+    # Repeat each value according to its run length
+    decoded = torch.repeat_interleave(bool_values, lengths)
+
+    return decoded
+
+
+# def rle_encode(data: np.ndarray, validate: bool = True) -> List[Tuple[bool, int]]:
+#     orig = make_channels_last(data[np.newaxis, :])
+#     assert data.dtype == np.bool
+#     data = data.flatten()
+#     ends = np.where(data[1:] != data[:-1])[0] + 1
+#     lengths = np.diff(np.append(-1, ends))
+#     encoded_pixel_count = np.sum(lengths)
+#     values = data[ends]
+#     encoded_vals_lengths = np.stack([values.astype(np.int32), lengths])
+#     # encoded_list = list(zip(values, lengths))
+#     # return encoded_list
+
+#     if validate:
+#         test_decode = rle_decode(
+#             encoded_vals_lengths, image_width=image_width(orig), image_height=image_height(orig)
+#         )
+#         assert make_channels_last(test_decode).numpy() == orig.squeeze(axis=0)
+
+#     return encoded_vals_lengths
+
+
+# def rle_decode(rle_tensor: np.ndarray, image_width: int, image_height: int) -> torch.Tensor:
+#     """
+#     Decodes an RLE-compressed boolean tensor.
+
+#     Args:
+#         rle_tensor (torch.Tensor): A 2xN tensor where the first row contains values (0 or 1),
+#                                    and the second row contains the corresponding lengths.
+
+#     Returns:
+#         torch.Tensor: A decompressed boolean tensor.
+#     """
+#     if isinstance(rle_tensor, np.ndarray):
+#         rle_tensor = torch.from_numpy(rle_tensor)
+
+#     values = rle_tensor[0, :]  # First row, values
+#     lengths = rle_tensor[1, :]  # Second row, run lengths
+
+#     # Convert values to boolean
+#     bool_values = values.to(torch.bool)
+
+#     # Repeat each boolean value according to the run length
+#     decompressed = torch.repeat_interleave(bool_values, lengths)
+
+#     expected_numel = image_width * image_height
+#     actual_numel = decompressed.numel()
+
+#     assert expected_numel == actual_numel
+
+#     decompressed = decompressed.reshape((image_height, image_width)).unsqueeze(0)
+
+#     return decompressed
 
 
 def parse_args():
@@ -230,9 +333,9 @@ def find_ice_rink_mask(
         show_image = model.show_result(
             show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False
         )
-        for _ in range(30):
+        for _ in range(10):
             cv2.namedWindow("Ice-rink", 0)
-            mmcv.imshow(show_image, "Ice-rink", wait_time=10)
+            mmcv.imshow(show_image, "Ice-rink", wait_time=1)
             time.sleep(1)
 
     rink_results = result_to_polygons(
@@ -258,8 +361,19 @@ def find_ice_rink_mask(
     return rink_results
 
 
-def save_rink_contour_to_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
+def save_rink_contour_to_config(
+    game_id: str,
+    rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
+    root_dir: Optional[str] = None,
+) -> Dict[str, Any]:
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    # clear out old values
+    # set_nested_value(game_config, "game.rink_ice_contours", None)
+    to_yaml = {
+        "contours": rink_profile["contours"],
+        "masks": [torch.from_numpy(rle_encode(mask)).tolist() for mask in rink_profile["masks"]],
+    }
+    set_nested_value(game_config, "game.rink_ice_contours", to_yaml)
 
 
 if __name__ == "__main__":
@@ -288,8 +402,12 @@ if __name__ == "__main__":
         image=_get_first_frame(image_file),
         config_file=config_file,
         checkpoint=checkpoint,
-        show=True,
+        show=False,
         scale=None,
     )
+    if rink_results:
+        save_rink_contour_to_config(
+            game_id=args.game_id, rink_profile=rink_results, root_dir=root_dir
+        )
 
     # video_demo_main()
