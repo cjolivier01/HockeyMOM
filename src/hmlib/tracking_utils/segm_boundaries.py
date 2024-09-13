@@ -47,34 +47,6 @@ class SegmBoundaries:
             self._rink_mask = self._rink_mask[y1:y2, x1:x2]
             pass
 
-    # def set_boundaries(
-    #     self,
-    #     upper: Optional[torch.Tensor] = None,
-    #     lower: Optional[torch.Tensor] = None,
-    #     source_clip_box: Optional[torch.Tensor] = None,
-    # ):
-    #     if upper is not None:
-    #         self._upper_borders = torch.tensor(upper, dtype=torch.float)
-    #     else:
-    #         self._upper_borders = None
-    #     if lower is not None:
-    #         self._lower_borders = torch.tensor(lower, dtype=torch.float)
-    #     else:
-    #         self._lower_borders = None
-    #     if source_clip_box is not None:
-    #         self.adjust_for_source_clip_box(source_clip_box)
-
-    # def adjust_for_source_clip_box(self, source_clip_box: torch.Tensor):
-    #     # clip_upper_left = source_clip_box[0:2]
-    #     if self._upper_borders is not None:
-    #         self._upper_borders = adjust_tlbr_for_clip_box(self._upper_borders, source_clip_box)
-    #         # self._upper_borders[:, 0:2] -= clip_upper_left
-    #         # self._upper_borders[:, 2:4] -= clip_upper_left
-    #     if self._lower_borders is not None:
-    #         self._lower_borders = adjust_tlbr_for_clip_box(self._lower_borders, source_clip_box)
-    #         # self._lower_borders[:, 0:2] -= clip_upper_left
-    #         # self._lower_borders[:, 2:4] -= clip_upper_left
-
     def draw(self, img):
         if self._rink_mask is not None:
             assert self._rink_mask.ndim == 2
