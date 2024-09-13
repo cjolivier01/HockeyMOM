@@ -416,6 +416,7 @@ def save_rink_profile_config(
     rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
     root_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
+    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     masks = rink_profile.get("masks")
     mask_count = len(masks) if masks is not None else 0
     set_nested_value(game_config, "rink.ice_contours_mask_count", mask_count)
@@ -434,7 +435,9 @@ def load_rink_combined_mask(
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if not game_config:
         return None
-    mask_count = get_nested_value(game_config, "rink.ice_contours_mask_count")
+    mask_count = get_nested_value(game_config, "rink.ice_contours_mask_count", None)
+    if mask_count is None:
+        return None
     combined_mask = None
     mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
     for i in range(mask_count):
@@ -447,23 +450,15 @@ def load_rink_combined_mask(
     return combined_mask
 
 
-if __name__ == "__main__":
-    # image_file = "/home/colivier/Videos/tvbb2/stitched-short.mkv"
-    config_file = "/home/colivier/src/hm/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
-    checkpoint = (
-        "/mnt/data/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
+def confgure_ice_rink_mask(game_id: str, root_dir: Optional[str] = None) -> Optional[torch.Tensor]:
+    combined_mask = load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
+    if combined_mask is not None:
+        return combined_mask
+
+    config_file = (
+        f"{root_dir}/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
     )
-
-    opts = hm_opts()
-    args = opts.parse()
-
-    # args.game_id = "sharks-bb1-2"
-
-    assert args.game_id
-
-    this_path = Path(os.path.dirname(__file__))
-    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-    game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
+    checkpoint = f"{root_dir}/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
 
     image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
 
@@ -475,6 +470,19 @@ if __name__ == "__main__":
         scale=None,
     )
     if rink_results:
-        save_rink_profile_config(game_id=args.game_id, rink_profile=rink_results, root_dir=root_dir)
+        save_rink_profile_config(game_id=game_id, rink_profile=rink_results, root_dir=root_dir)
+    return load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
 
-    # video_demo_main()
+
+if __name__ == "__main__":
+    opts = hm_opts()
+    args = opts.parse()
+
+    this_path = Path(os.path.dirname(__file__))
+    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
+
+    args.game_id = "sharks-bb1-2"
+
+    assert args.game_id
+
+    confgure_ice_rink_mask(game_id=args.game_id, root_dir=root_dir)
