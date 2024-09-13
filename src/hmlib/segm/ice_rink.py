@@ -481,7 +481,7 @@ if __name__ == "__main__":
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
 
-    args.game_id = "sharks-bb1-2"
+    args.game_id = "jrmocks"
 
     assert args.game_id
 

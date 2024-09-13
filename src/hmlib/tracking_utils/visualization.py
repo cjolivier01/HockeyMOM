@@ -1,13 +1,9 @@
-import copy
-import math
 from typing import List, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
-from sklearn.cluster import KMeans
-
-from hmlib.utils.image import get_complete_monitor_width, image_width
+from hmlib.utils.image import image_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
