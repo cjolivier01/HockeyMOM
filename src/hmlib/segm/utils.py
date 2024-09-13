@@ -31,3 +31,35 @@ def polygon_to_mask(poly: List[Tuple[float, float]], height: int, width: int) ->
     grid = path.contains_points(points)
     mask = grid.reshape((height, width))
     return torch.tensor(mask, dtype=torch.bool)
+
+
+def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tuple[float, float]]:
+    """
+    Scales a polygon by a given ratio around its centroid.
+
+    Args:
+    polygon (List[Tuple[float, float]]): List of (x, y) tuples representing the polygon vertices.
+    ratio (float): Scaling ratio.
+
+    Returns:
+    List[Tuple[float, float]]: List of scaled (x, y) tuples representing the new polygon vertices.
+    """
+    # Convert list of tuples to a PyTorch tensor
+    points = torch.tensor(polygon, dtype=torch.float32)
+
+    # Calculate the centroid of the polygon
+    centroid = torch.mean(points, dim=0)
+
+    # Move the points to the origin (centroid at origin)
+    points_centered = points - centroid
+
+    # Scale the points
+    scaled_points = points_centered * ratio
+
+    # Move the points back to their original position
+    scaled_points = scaled_points + centroid
+
+    # Convert tensor back to list of tuples
+    scaled_polygon = list(map(tuple, scaled_points.tolist()))
+
+    return scaled_polygon
