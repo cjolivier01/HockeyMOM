@@ -457,7 +457,7 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    args.game_id = "sharks-bb1-2"
+    # args.game_id = "sharks-bb1-2"
 
     assert args.game_id
 
