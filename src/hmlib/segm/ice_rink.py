@@ -10,9 +10,22 @@ from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
 
-from hmlib.segm.utils import polygon_to_mask
+from hmlib.segm.utils import polygon_to_mask, scale_polygon
+from hmlib.utils.image import image_height, image_width
 
 DEFAULT_SCORE_THRESH = 0.3
+
+
+def numpy_rle_encode(data):
+    n = len(data)
+    ends = np.where(data[1:] != data[:-1])[0] + 1
+    lengths = np.diff(np.append(-1, ends))
+    values = data[ends]
+    return list(zip(values, lengths))
+
+
+def numpy_rle_decode(rle):
+    return np.repeat(*zip(*rle))
 
 
 def parse_args():
@@ -155,15 +168,20 @@ def result_to_polygons(
     # draw_masks(ax, img, segms, colors, with_edge=True)
     masks = segms
 
-    contours_list: List[List[Tuple[int, int]]] = []
-    polygons_list: List[Polygon] = []
+    contours_list: List[np.ndarray] = []
+    # polygons_list: List[Polygon] = []
     mask_list: List[np.ndarray] = []
+    combined_mask = None
 
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
         contours_list += contours
-        polygons_list += [Polygon(c) for c in contours]
+        # polygons_list += [Polygon(c) for c in contours]
         mask = mask.astype(bool)
+        if combined_mask is None:
+            combined_mask = mask
+        else:
+            combined_mask = combined_mask | mask
         mask_list.append(mask)
 
         if show:
@@ -173,10 +191,15 @@ def result_to_polygons(
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
-    results["polygons"] = polygons_list
+    # results["polygons"] = polygons_list
     results["masks"] = mask_list
+    results["combined_mask"] = combined_mask
 
     return results
+
+
+def contours_to_polygons(contours: List[np.ndarray]) -> List[Polygon]:
+    return [Polygon(c) for c in contours]
 
 
 def find_ice_rink_mask(
@@ -185,6 +208,7 @@ def find_ice_rink_mask(
     checkpoint: str,
     device: torch.device = torch.device("cuda:0"),
     show: bool = False,
+    scale: float = None,
 ) -> torch.Tensor:
     model = init_detector(config_file, checkpoint, device=device)
     if isinstance(image, torch.Tensor):
@@ -200,9 +224,25 @@ def find_ice_rink_mask(
         # cv2.namedWindow("Ice-rink", 0)
         # mmcv.imshow(show_image, "Ice-rink", wait_time=10)
 
-    polygons = result_to_polygons(
-        inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=True
+    rink_results = result_to_polygons(
+        inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False
     )
+
+    if scale and scale != 1.0:
+        for contour, mask in zip(rink_results["contours"], rink_results["masks"]):
+            scaled_contour = scale_polygon(contour, scale)
+            generated_mask = polygon_to_mask(
+                scaled_contour, height=image_height(image), width=image_width(image)
+            )
+            cv2.namedWindow("Ice-rink", 0)
+            for _ in range(30):
+                mmcv.imshow(
+                    generated_mask.cpu().numpy().astype(np.uint8) * 255,
+                    # mask.astype(np.uint8) * 255,
+                    "Ice-rink",
+                    wait_time=10,
+                )
+                time.sleep(1)
 
     print("Done.")
 
@@ -219,6 +259,7 @@ if __name__ == "__main__":
         config_file=config_file,
         checkpoint=checkpoint,
         show=True,
+        scale=1.2,
     )
 
     # video_demo_main()

@@ -45,7 +45,16 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
     List[Tuple[float, float]]: List of scaled (x, y) tuples representing the new polygon vertices.
     """
     # Convert list of tuples to a PyTorch tensor
-    points = torch.tensor(polygon, dtype=torch.float32)
+    was_list: bool = False
+    was_numpy: bool = False
+    if isinstance(polygon, list):
+        points = torch.tensor(polygon, dtype=torch.float32)
+        was_list = True
+    elif isinstance(polygon, np.ndarray):
+        points = torch.from_numpy(polygon).to(torch.float)
+        was_numpy = True
+    else:
+        points = points
 
     # Calculate the centroid of the polygon
     centroid = torch.mean(points, dim=0)
@@ -59,7 +68,12 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
     # Move the points back to their original position
     scaled_points = scaled_points + centroid
 
-    # Convert tensor back to list of tuples
-    scaled_polygon = list(map(tuple, scaled_points.tolist()))
+    if was_list:
+        # Convert tensor back to list of tuples
+        scaled_polygon = list(map(tuple, scaled_points.tolist()))
+    else:
+        scaled_polygon = scaled_points
+    if was_numpy:
+        scaled_polygon = scaled_polygon.numpy()
 
     return scaled_polygon
