@@ -1,5 +1,7 @@
 import argparse
+import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
@@ -10,6 +12,13 @@ from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
 
+from hmlib.config import (
+    get_game_config,
+    get_nested_value,
+    save_game_config,
+    set_nested_value,
+)
+from hmlib.hm_opts import hm_opts
 from hmlib.segm.utils import polygon_to_mask, scale_polygon
 from hmlib.utils.image import image_height, image_width
 
@@ -209,10 +218,11 @@ def find_ice_rink_mask(
     device: torch.device = torch.device("cuda:0"),
     show: bool = False,
     scale: float = None,
-) -> torch.Tensor:
+) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
     model = init_detector(config_file, checkpoint, device=device)
     if isinstance(image, torch.Tensor):
         image = image.numpy().squeeze(0)
+    # image = make_channels_first(image)
     result = inference_detector(model, image)
 
     if show:
@@ -220,9 +230,10 @@ def find_ice_rink_mask(
         show_image = model.show_result(
             show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False
         )
-
-        # cv2.namedWindow("Ice-rink", 0)
-        # mmcv.imshow(show_image, "Ice-rink", wait_time=10)
+        for _ in range(30):
+            cv2.namedWindow("Ice-rink", 0)
+            mmcv.imshow(show_image, "Ice-rink", wait_time=10)
+            time.sleep(1)
 
     rink_results = result_to_polygons(
         inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False
@@ -244,18 +255,37 @@ def find_ice_rink_mask(
                 )
                 time.sleep(1)
 
-    print("Done.")
+    return rink_results
+
+
+def save_rink_contour_to_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
+    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
 
 
 if __name__ == "__main__":
-    video_file = "/home/colivier/Videos/tvbb2/stitched-short.mkv"
+    image_file = "/home/colivier/Videos/tvbb2/stitched-short.mkv"
     config_file = "/home/colivier/src/hm/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
     checkpoint = (
         "/mnt/data/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
     )
 
-    mask = find_ice_rink_mask(
-        image=_get_first_frame(video_file),
+    opts = hm_opts()
+    args = opts.parse()
+
+    args.game_id = "sharks-bb1-2"
+
+    assert args.game_id
+
+    this_path = Path(os.path.dirname(__file__))
+    root_dir = os.path.realpath(this_path / "..")
+    game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
+    if game_config:
+        rink_contours = get_nested_value(game_config, "game.rink_ice_contours")
+
+    # image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
+
+    rink_results = find_ice_rink_mask(
+        image=_get_first_frame(image_file),
         config_file=config_file,
         checkpoint=checkpoint,
         show=True,
