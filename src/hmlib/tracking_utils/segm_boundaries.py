@@ -79,7 +79,7 @@ class SegmBoundaries:
             assert self._rink_mask.shape[0] == image_height(img)
             assert self._rink_mask.shape[1] == image_width(img)
             color_mask = torch.tensor([0, 255, 0], dtype=img.dtype, device=img.device)
-            alpha = 0.5
+            alpha = 0.2
             if isinstance(img, StreamTensor):
                 img = img.wait()
             # Make sure we're all compatible tensors
