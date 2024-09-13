@@ -259,7 +259,7 @@ if __name__ == "__main__":
         config_file=config_file,
         checkpoint=checkpoint,
         show=True,
-        scale=1.2,
+        scale=None,
     )
 
     # video_demo_main()
