@@ -263,7 +263,7 @@ def save_rink_contour_to_config(game_id: str, root_dir: Optional[str] = None) ->
 
 
 if __name__ == "__main__":
-    image_file = "/home/colivier/Videos/tvbb2/stitched-short.mkv"
+    # image_file = "/home/colivier/Videos/tvbb2/stitched-short.mkv"
     config_file = "/home/colivier/src/hm/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
     checkpoint = (
         "/mnt/data/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
@@ -282,7 +282,7 @@ if __name__ == "__main__":
     if game_config:
         rink_contours = get_nested_value(game_config, "game.rink_ice_contours")
 
-    # image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
+    image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
 
     rink_results = find_ice_rink_mask(
         image=_get_first_frame(image_file),
