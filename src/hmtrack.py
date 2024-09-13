@@ -41,6 +41,7 @@ from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
+from hmlib.segm.ice_rink import confgure_ice_rink_mask
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
@@ -520,6 +521,7 @@ def main(args, num_gpu):
                 # post-detection pipeline updates
                 #
                 if hasattr(model, "post_detection_pipeline"):
+                    has_boundaries = False
                     if cam_args.top_border_lines or cam_args.bottom_border_lines:
                         boundaries = get_pipeline_item(
                             model.post_detection_pipeline, "BoundaryLines"
@@ -534,6 +536,25 @@ def main(args, num_gpu):
                                     ),
                                 }
                             )
+                            has_boundaries = True
+                    if not has_boundaries:
+                        segm_boundaries = get_pipeline_item(
+                            model.post_detection_pipeline, "SegmBoundaries"
+                        )
+                        if segm_boundaries is not None:
+                            rink_mask = confgure_ice_rink_mask(
+                                game_id=args.game_id, root_dir=ROOT_DIR
+                            )
+                            if rink_mask is not None:
+                                segm_boundaries.update(
+                                    {
+                                        "rink_mask": rink_mask,
+                                        "original_clip_box": get_clip_box(
+                                            game_id=args.game_id, root_dir=args.root_dir
+                                        ),
+                                        "draw": args.plot_tracking,
+                                    }
+                                )
 
             if args.multi_pose:
                 from mmpose.apis import init_pose_model
@@ -1030,6 +1051,9 @@ def run_mmtrack(
                                 non_blocking=True,
                             )
 
+                        if "original_images" not in data:
+                            data["original_images"] = origin_imgs
+
                         # forward the model
                         detect_timer.tic()
                         for i in range(1):
@@ -1042,6 +1066,7 @@ def run_mmtrack(
 
                         det_bboxes = tracking_results["det_bboxes"]
                         track_bboxes = tracking_results["track_bboxes"]
+                        origin_imgs = data["original_images"]
 
                     for frame_index in range(len(origin_imgs)):
                         frame_id = info_imgs[2][frame_index]

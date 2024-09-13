@@ -439,7 +439,7 @@ def load_rink_combined_mask(
     if mask_count is None:
         return None
     combined_mask = None
-    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
+    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
     for i in range(mask_count):
         image_file = mask_image_file_base + str(i) + ".png"
         mask = load_png_as_boolean_tensor(image_file)

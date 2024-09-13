@@ -1,10 +1,10 @@
 from typing import Any, List
-import torch
 
+import torch
 from mmcv.runner import auto_fp16
 from mmdet.datasets.pipelines import Compose
-from mmtrack.models.mot.byte_track import ByteTrack
 from mmtrack.core import outs2results, results2outs
+from mmtrack.models.mot.byte_track import ByteTrack
 
 from ..builder import MODELS
 
@@ -75,6 +75,7 @@ class HmEndToEnd(ByteTrack):
                 "labels": det_labels,
                 "prune_list": ["det_bboxes", "labels"],
             }
+            data.update(**kwargs)
             data = self.post_detection_composed_pipeline(data)
             det_bboxes = data["det_bboxes"]
             det_labels = data["labels"]

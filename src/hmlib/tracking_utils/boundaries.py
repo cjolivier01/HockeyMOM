@@ -37,7 +37,7 @@ class BoundaryLines:
         upper_border_lines: Optional[torch.Tensor] = None,
         lower_border_lines: Optional[torch.Tensor] = None,
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
-        det_thresh: float = 0.05,
+        # det_thresh: float = 0.05,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
             assert len(original_clip_box) == 4
@@ -45,7 +45,7 @@ class BoundaryLines:
             assert original_clip_box[3] > original_clip_box[1]
             original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
-        self.det_thresh = det_thresh
+        # self.det_thresh = det_thresh
         self.set_boundaries(
             upper=upper_border_lines,
             lower=lower_border_lines,
@@ -217,6 +217,8 @@ class BoundaryLines:
     def forward(self, data, **kwargs):
         start = time.time()
         if "prune_list" not in data:
+            return data
+        if self._lower_borders is None and self._upper_borders is None:
             return data
         prune_list = data["prune_list"]
         bbox_tensors = data[prune_list[0]]

@@ -4,7 +4,8 @@ _base_ = [
 
 post_detection_pipeline = [
     # Prune detections which are outside of boundaries (if any)
-    dict(type="BoundaryLines", det_thresh=0.05),
+    dict(type="BoundaryLines"),
+    dict(type="SegmBoundaries"),
     # dict(type="HmExtractBoundingBoxes"),
     # dict(type="HmTopDownGetBboxCenterScale", padding=1.25),
     # dict(type="HmTopDownAffine"),
