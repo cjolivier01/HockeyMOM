@@ -457,7 +457,7 @@ def confgure_ice_rink_mask(
     )
     checkpoint = f"{root_dir}/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
 
-    image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
+    image_file = f'{os.environ["HOME"]}/Videos/{game_id}/s.png'
 
     rink_results = find_ice_rink_mask(
         image=_get_first_frame(image_file),
