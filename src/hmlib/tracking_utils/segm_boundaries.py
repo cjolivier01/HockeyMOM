@@ -111,30 +111,58 @@ class SegmBoundaries:
         return centers
 
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
-        centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+        points = self.get_centers(bbox_tlbr=batch_item_bboxes)
 
-        above_line = self.point_batch_check_point_above_segments(
-            centers,
-            self._lower_borders,
-        )
-        below_line = self.point_batch_check_point_below_segments(
-            centers,
-            self._upper_borders,
-        )
-        above_or_below = torch.logical_or(above_line, below_line)
-        return torch.logical_not(above_or_below)
+        valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._rink_mask.shape[1])
+        valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._rink_mask.shape[0])
+        valid_points = valid_x & valid_y
+
+        # Filter points to keep only valid ones
+        valid_points_indices = torch.where(valid_points)[0]
+        valid_points_filtered = points[valid_points_indices]
+
+        # Check mask values at these points
+        mask_values = self._rink_mask[
+            valid_points_filtered[:, 1].to(torch.long, non_blocking=True),
+            valid_points_filtered[:, 0].to(torch.long, non_blocking=True),
+            # valid_points_filtered[:, 1].long(),
+            # valid_points_filtered[:, 0].long()
+        ]
+
+        # Get indices of valid points where the mask is also True
+        final_indices = valid_points_indices[mask_values]
+
+        return final_indices
+
+        # above_line = self.point_batch_check_point_above_segments(
+        #     centers,
+        #     self._lower_borders,
+        # )
+        # below_line = self.point_batch_check_point_below_segments(
+        #     centers,
+        #     self._upper_borders,
+        # )
+        # above_or_below = torch.logical_or(above_line, below_line)
+        # return torch.logical_not(above_or_below)
+        return in_segment
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
     def forward(self, data, **kwargs):
-        # data[""]
+        if self._rink_mask is None:
+            # We don't have any information to go on
+            return data
+
+        # Maybe we render on the original image
         if self._draw and "original_images" in data:
             data["original_images"] = self.draw(img=data["original_images"])
-        return data
-        start = time.time()
+
         if "prune_list" not in data:
+            # We don't have any data to prune
             return data
+
+        start = time.time()
         prune_list = data["prune_list"]
         bbox_tensors = data[prune_list[0]]
 
@@ -155,7 +183,7 @@ class SegmBoundaries:
         if self._passes % 50 == 0:
             fps = self._passes / self._duration
             if fps < 50:
-                print(f"Boundary pruning speed: {self._passes/self._duration} fps")
+                print(f"Segment Boundary pruning speed: {self._passes/self._duration} fps")
             self._passes = 0
             self._duration = 0
         return data
