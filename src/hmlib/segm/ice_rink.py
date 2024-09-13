@@ -253,8 +253,6 @@ def result_to_polygons(
     labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
     labels = np.concatenate(labels)
 
-    # num_bboxes = bboxes.shape[0]
-
     segms = None
     if segm_result is not None and len(labels) > 0:  # non empty
         segms = mmcv.concat_list(segm_result)
@@ -282,14 +280,12 @@ def result_to_polygons(
     masks = segms
 
     contours_list: List[np.ndarray] = []
-    # polygons_list: List[Polygon] = []
     mask_list: List[np.ndarray] = []
     combined_mask = None
 
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
         contours_list += contours
-        # polygons_list += [Polygon(c) for c in contours]
         mask = mask.astype(bool)
         if combined_mask is None:
             combined_mask = mask
@@ -304,7 +300,6 @@ def result_to_polygons(
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
-    # results["polygons"] = polygons_list
     results["masks"] = mask_list
     results["combined_mask"] = combined_mask
 
@@ -319,14 +314,15 @@ def find_ice_rink_mask(
     image: torch.Tensor,
     config_file: str,
     checkpoint: str,
-    device: torch.device = torch.device("cuda:0"),
+    device: Optional[torch.device] = None,
     show: bool = False,
     scale: float = None,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
+    if device is None:
+        device = torch.device("cuda:0")
     model = init_detector(config_file, checkpoint, device=device)
     if isinstance(image, torch.Tensor):
         image = image.numpy().squeeze(0)
-    # image = make_channels_first(image)
     result = inference_detector(model, image)
 
     if show:
@@ -353,7 +349,6 @@ def find_ice_rink_mask(
             for _ in range(30):
                 mmcv.imshow(
                     generated_mask.cpu().numpy().astype(np.uint8) * 255,
-                    # mask.astype(np.uint8) * 255,
                     "Ice-rink",
                     wait_time=10,
                 )
@@ -450,7 +445,9 @@ def load_rink_combined_mask(
     return combined_mask
 
 
-def confgure_ice_rink_mask(game_id: str, root_dir: Optional[str] = None) -> Optional[torch.Tensor]:
+def confgure_ice_rink_mask(
+    game_id: str, root_dir: Optional[str] = None, device: Optional[torch.device] = None
+) -> Optional[torch.Tensor]:
     combined_mask = load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
     if combined_mask is not None:
         return combined_mask
@@ -466,8 +463,9 @@ def confgure_ice_rink_mask(game_id: str, root_dir: Optional[str] = None) -> Opti
         image=_get_first_frame(image_file),
         config_file=config_file,
         checkpoint=checkpoint,
-        show=False,
+        show=True,
         scale=None,
+        device=device,
     )
     if rink_results:
         save_rink_profile_config(game_id=game_id, rink_profile=rink_results, root_dir=root_dir)
@@ -485,4 +483,4 @@ if __name__ == "__main__":
 
     assert args.game_id
 
-    confgure_ice_rink_mask(game_id=args.game_id, root_dir=root_dir)
+    confgure_ice_rink_mask(game_id=args.game_id, root_dir=root_dir, device="cpu")
