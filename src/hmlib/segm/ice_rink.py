@@ -11,6 +11,7 @@ import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
+from PIL import Image
 
 from hmlib.config import (
     get_game_config,
@@ -361,19 +362,47 @@ def find_ice_rink_mask(
     return rink_results
 
 
-def save_rink_contour_to_config(
+def save_boolean_tensor_as_png(tensor: Union[torch.Tensor, np.ndarray], filename: str):
+    """
+    Saves a PyTorch boolean tensor as a PNG image.
+
+    Args:
+        tensor (torch.Tensor): A 2D boolean tensor.
+        filename (str): The filename where the image will be saved.
+    """
+    # Ensure the tensor is on CPU and convert to uint8
+    if isinstance(tensor, np.ndarray):
+        tensor = torch.from_numpy(tensor)
+
+    tensor = tensor.cpu().to(torch.uint8) * 255  # Convert boolean to 0 and 255
+
+    # Convert to a PIL image
+    image = Image.fromarray(tensor.numpy())
+
+    # Save the image
+    image.save(filename)
+
+
+def save_rink_profile_config(
     game_id: str,
     rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
     root_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
-    # clear out old values
-    # set_nested_value(game_config, "game.rink_ice_contours", None)
-    to_yaml = {
-        "contours": rink_profile["contours"],
-        "masks": [torch.from_numpy(rle_encode(mask)).tolist() for mask in rink_profile["masks"]],
-    }
-    set_nested_value(game_config, "game.rink_ice_contours", to_yaml)
+    masks = rink_profile.get("masks")
+    mask_count = len(masks) if masks is not None else 0
+    set_nested_value(game_config, "rink.ice_contours_mask_count", mask_count)
+    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
+    for i in range(mask_count):
+        mask = masks[i]
+        image_file = mask_image_file_base + str(i) + ".png"
+        save_boolean_tensor_as_png(mask, image_file)
+    save_game_config(game_id=game_id, data=game_config, root_dir=root_dir)
+
+
+def save_rink_mask(
+    rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
+):
+    image_file = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask.png'
 
 
 if __name__ == "__main__":
@@ -391,7 +420,7 @@ if __name__ == "__main__":
     assert args.game_id
 
     this_path = Path(os.path.dirname(__file__))
-    root_dir = os.path.realpath(this_path / "..")
+    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
     game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
     if game_config:
         rink_contours = get_nested_value(game_config, "game.rink_ice_contours")
@@ -406,8 +435,6 @@ if __name__ == "__main__":
         scale=None,
     )
     if rink_results:
-        save_rink_contour_to_config(
-            game_id=args.game_id, rink_profile=rink_results, root_dir=root_dir
-        )
+        save_rink_profile_config(game_id=args.game_id, rink_profile=rink_results, root_dir=root_dir)
 
     # video_demo_main()

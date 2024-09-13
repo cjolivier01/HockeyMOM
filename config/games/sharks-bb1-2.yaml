@@ -130,3 +130,4 @@ rink:
       - 1027
     - - 1157
       - 1092
+  ice_contours_mask_count: 1
