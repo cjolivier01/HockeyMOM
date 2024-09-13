@@ -21,6 +21,7 @@ class SegmBoundaries:
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
         draw: bool = False,
+        raise_bbox_by_height_ratio: float = 0.25,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
             assert len(original_clip_box) == 4
@@ -32,6 +33,7 @@ class SegmBoundaries:
         self.det_thresh = det_thresh
         self._passes = 0
         self._duration = 0
+        self._raise_bbox_by_height_ratio = raise_bbox_by_height_ratio
         self._draw = draw
         self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
         if (
@@ -95,6 +97,7 @@ class SegmBoundaries:
         return img
 
     def get_centers(self, bbox_tlbr: Union[torch.Tensor, np.ndarray]):
+        # FIXME: THIS HAS X AND Y VAR NAMES BACKWARDS, BUT RETURNS (X, Y) CORRECTLY
         # Calculate the centers
         # The center x coordinates are calculated by averaging the left and right coordinates
         centers_x = (bbox_tlbr[:, 1] + bbox_tlbr[:, 3]) / 2
@@ -110,9 +113,30 @@ class SegmBoundaries:
             centers = torch.stack((centers_y, centers_x), dim=1)
         return centers
 
+    def get_bottoms(self, bbox_tlbr: Union[torch.Tensor, np.ndarray]):
+        # Calculate the centers
+        # The center x coordinates are calculated by averaging the left and right coordinates
+        centers_x = (bbox_tlbr[:, 0] + bbox_tlbr[:, 2]) / 2
+
+        # The center y coordinates are calculated by averaging the top and bottom coordinates
+        bottoms_y = bbox_tlbr[:, 3]
+
+        if isinstance(bbox_tlbr, np.ndarray):
+            # Combine the x and y center coordinates
+            bottoms = np.vstack((centers_x, bottoms_y)).T
+        else:
+            # Combine the x and y center coordinates into a single tensor
+            bottoms = torch.stack((centers_x, bottoms_y), dim=1)
+        return bottoms
+
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
         # TODO: Not checking center point
-        points = self.get_centers(bbox_tlbr=batch_item_bboxes)
+        # points = self.get_centers(bbox_tlbr=batch_item_bboxes)
+        points = self.get_bottoms(bbox_tlbr=batch_item_bboxes)
+
+        if self._raise_bbox_by_height_ratio is not None and self._raise_bbox_by_height_ratio != 1:
+            heights = calculate_box_heights(batch_item_bboxes)
+            points[:, 1] += heights * self._raise_bbox_by_height_ratio
 
         valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._rink_mask.shape[1])
         valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._rink_mask.shape[0])
@@ -174,3 +198,18 @@ class SegmBoundaries:
             self._passes = 0
             self._duration = 0
         return data
+
+
+def calculate_box_heights(bboxes: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the heights of bounding boxes.
+
+    Args:
+        bboxes (torch.Tensor): Tensor of shape (N, 4) where each row contains [x1, y1, x2, y2].
+
+    Returns:
+        torch.Tensor: Tensor of heights for each bounding box.
+    """
+    # The height of each bounding box is y2 - y1
+    heights = bboxes[:, 3] - bboxes[:, 1]
+    return heights
