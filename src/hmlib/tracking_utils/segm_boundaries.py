@@ -223,7 +223,8 @@ def select_points(
         torch.Tensor: A tensor of selected points based on the condition.
     """
     # Check if the y-values of the center_points are above the threshold
-    mask = points_when_below[:, 1] < y_threshold  # Assumes y-coordinate is at index 1
+    # Note that increasing y is down, so the comparison is reversed
+    mask = points_when_below[:, 1] > y_threshold  # Assumes y-coordinate is at index 1
 
     # Use the mask to select between center_points and bottom_points
     selected_points = torch.where(mask.unsqueeze(1), points_when_below, points_when_above)
