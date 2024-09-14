@@ -76,8 +76,8 @@ class SegmBoundaries:
                 img,
                 center_x=int(self._centroid[0]),
                 center_y=int(self._centroid[1]),
-                color=(0, 100, 0),
-                size=50,
+                color=(255, 0, 0),
+                size=25,
             )
         return img
 
