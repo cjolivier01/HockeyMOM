@@ -504,4 +504,4 @@ if __name__ == "__main__":
         show=False,
         force=True,
     )
-    print(results)
+    print(f"centroid={results['centroid']}")
