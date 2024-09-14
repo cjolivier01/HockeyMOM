@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
-from mmdet.core.mask.structures import bitmap_to_polygon
+from mmdet.core.mask.structures import bitmap_to_polygon, polygon_to_bitmap
 from PIL import Image
 
 from hmlib.config import (
@@ -20,7 +20,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.segm.utils import polygon_to_mask, scale_polygon
+from hmlib.segm.utils import polygon_to_mask, scale_polygon, split_points_by_x_trend_efficient
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -276,7 +276,6 @@ def result_to_polygons(
         if segms is not None:
             segms = segms[inds, ...]
 
-    # draw_masks(ax, img, segms, colors, with_edge=True)
     masks = segms
 
     contours_list: List[np.ndarray] = []
@@ -285,6 +284,7 @@ def result_to_polygons(
 
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
+        split_points_by_x_trend_efficient(contours)
         contours_list += contours
         mask = mask.astype(bool)
         if combined_mask is None:
@@ -446,11 +446,16 @@ def load_rink_combined_mask(
 
 
 def confgure_ice_rink_mask(
-    game_id: str, root_dir: Optional[str] = None, device: Optional[torch.device] = None
+    game_id: str,
+    root_dir: Optional[str] = None,
+    device: Optional[torch.device] = None,
+    force: bool = False,
+    show: bool = False,
 ) -> Optional[torch.Tensor]:
-    combined_mask = load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
-    if combined_mask is not None:
-        return combined_mask
+    if not force:
+        combined_mask = load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
+        if combined_mask is not None:
+            return combined_mask
 
     config_file = (
         f"{root_dir}/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
@@ -463,7 +468,7 @@ def confgure_ice_rink_mask(
         image=_get_first_frame(image_file),
         config_file=config_file,
         checkpoint=checkpoint,
-        show=True,
+        show=show,
         scale=None,
         device=device,
     )
@@ -487,4 +492,6 @@ if __name__ == "__main__":
         game_id=args.game_id,
         root_dir=root_dir,
         device="cpu",
+        show=False,
+        force=True,
     )
