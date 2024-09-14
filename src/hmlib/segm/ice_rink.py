@@ -496,7 +496,7 @@ if __name__ == "__main__":
 
     assert args.game_id
 
-    confgure_ice_rink_mask(
+    results = confgure_ice_rink_mask(
         game_id=args.game_id,
         root_dir=root_dir,
         # device="cpu",
@@ -504,3 +504,4 @@ if __name__ == "__main__":
         show=False,
         force=True,
     )
+    print(results)
