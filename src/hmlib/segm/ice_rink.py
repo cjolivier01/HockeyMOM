@@ -20,11 +20,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.segm.utils import (
-    polygon_to_mask,
-    scale_polygon,
-    scale_polygon_y,
-)
+from hmlib.segm.utils import polygon_to_mask, scale_polygon, scale_polygon_y
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -289,7 +285,6 @@ def result_to_polygons(
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
         # split_points_by_x_trend_efficient(contours)
-        contours = scale_polygon_y(contours, 0.8, 1.2)
         contours_list += contours
         mask = mask.astype(bool)
         if combined_mask is None:
@@ -489,14 +484,16 @@ if __name__ == "__main__":
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
 
-    args.game_id = "jrmocks"
+    # args.game_id = "jrmocks"
+    args.game_id = "sharks-bb1-2"
 
     assert args.game_id
 
     confgure_ice_rink_mask(
         game_id=args.game_id,
         root_dir=root_dir,
-        device="cpu",
+        # device="cpu",
+        device="cuda:0",
         show=False,
         force=True,
     )
