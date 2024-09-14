@@ -494,6 +494,6 @@ if __name__ == "__main__":
         root_dir=root_dir,
         # device="cpu",
         device="cuda:0",
-        show=False,
+        show=True,
         force=True,
     )
