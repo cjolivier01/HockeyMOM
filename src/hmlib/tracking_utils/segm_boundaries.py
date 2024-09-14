@@ -23,7 +23,8 @@ class SegmBoundaries:
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
         draw: bool = False,
-        raise_bbox_by_height_ratio: float = 0.25,
+        raise_bbox_center_by_height_ratio: float = 0.1,
+        lower_bbox_bottom_by_height_ratio: float = 0.1,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
             assert len(original_clip_box) == 4
@@ -36,7 +37,8 @@ class SegmBoundaries:
         self.det_thresh = det_thresh
         self._passes = 0
         self._duration = 0
-        self._raise_bbox_by_height_ratio = raise_bbox_by_height_ratio
+        self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
+        self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
         self._draw = draw
         self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
         if (
@@ -115,9 +117,28 @@ class SegmBoundaries:
         return bottoms
 
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
-        # TODO: Not checking center point
+        if (
+            self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1
+        ) or (
+            self._lower_bbox_bottom_by_height_ratio or self._lower_bbox_bottom_by_height_ratio != 1
+        ):
+            bbox_heights = calculate_box_heights(batch_item_bboxes)
+        else:
+            bbox_heights = None
+
         all_centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+
+        # Center points are for the bottom of the rink (usually top of the wall),
+        # so we may want to move it up a bit (reduce Y, since Y is up)
+        if self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1:
+            all_centers[:, 1] -= bbox_heights * self._raise_bbox_center_by_height_ratio
+
         all_bottoms = self.get_bottoms(bbox_tlbr=batch_item_bboxes)
+
+        # Bottom points are for the top of the rink, since we can see the ice on the far
+        # side at the bottom of the wall, so we may want to move that down a little (larger Y)
+        if self._lower_bbox_bottom_by_height_ratio or self._lower_bbox_bottom_by_height_ratio != 1:
+            all_bottoms[:, 1] -= bbox_heights * self._lower_bbox_bottom_by_height_ratio
 
         points = select_points(
             y_threshold=self._centroid[1],
