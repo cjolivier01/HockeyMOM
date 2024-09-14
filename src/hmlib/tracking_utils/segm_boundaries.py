@@ -116,12 +116,18 @@ class SegmBoundaries:
 
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
         # TODO: Not checking center point
-        # points = self.get_centers(bbox_tlbr=batch_item_bboxes)
-        points = self.get_bottoms(bbox_tlbr=batch_item_bboxes)
+        all_centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+        all_bottoms = self.get_bottoms(bbox_tlbr=batch_item_bboxes)
 
-        if self._raise_bbox_by_height_ratio is not None and self._raise_bbox_by_height_ratio != 1:
-            heights = calculate_box_heights(batch_item_bboxes)
-            points[:, 1] += heights * self._raise_bbox_by_height_ratio
+        points = select_points(
+            y_threshold=self._centroid[1],
+            points_when_above=all_bottoms,
+            points_when_below=all_centers,
+        )
+
+        # if self._raise_bbox_by_height_ratio is not None and self._raise_bbox_by_height_ratio != 1:
+        #     heights = calculate_box_heights(batch_item_bboxes)
+        #     points[:, 1] += heights * self._raise_bbox_by_height_ratio
 
         valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._rink_mask.shape[1])
         valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._rink_mask.shape[0])
@@ -198,3 +204,28 @@ def calculate_box_heights(bboxes: torch.Tensor) -> torch.Tensor:
     # The height of each bounding box is y2 - y1
     heights = bboxes[:, 3] - bboxes[:, 1]
     return heights
+
+
+def select_points(
+    y_threshold: Union[float, torch.Tensor],
+    points_when_below: torch.Tensor,
+    points_when_above: torch.Tensor,
+):
+    """
+    Select points from two batches based on a y-value condition.
+
+    Parameters:
+        y_threshold (float): The threshold value for the y-coordinate.
+        center_points (torch.Tensor): Tensor of shape [B, 2] with center points.
+        bottom_points (torch.Tensor): Tensor of shape [B, 2] with bottom points.
+
+    Returns:
+        torch.Tensor: A tensor of selected points based on the condition.
+    """
+    # Check if the y-values of the center_points are above the threshold
+    mask = points_when_below[:, 1] < y_threshold  # Assumes y-coordinate is at index 1
+
+    # Use the mask to select between center_points and bottom_points
+    selected_points = torch.where(mask.unsqueeze(1), points_when_below, points_when_above)
+
+    return selected_points
