@@ -170,6 +170,11 @@ class SegmBoundaries:
         valid_points_indices = torch.where(valid_points)[0]
         valid_points_filtered = points[valid_points_indices]
 
+        if self._rink_mask.device != valid_points_filtered.device:
+            self._rink_mask = self._rink_mask.to(
+                device=valid_points_filtered.device, non_blocking=True
+            )
+
         # Check mask values at these points
         mask_values = self._rink_mask[
             valid_points_filtered[:, 1].to(torch.long, non_blocking=True),
