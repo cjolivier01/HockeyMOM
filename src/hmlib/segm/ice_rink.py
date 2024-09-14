@@ -414,7 +414,7 @@ def save_rink_profile_config(
     centroid = rink_profile["centroid"]
     centroid = [float(centroid[0]), float(centroid[1])]
     set_nested_value(game_config, "rink.ice_contours_mask_centroid", centroid)
-    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
+    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
     for i in range(mask_count):
         mask = masks[i]
         image_file = mask_image_file_base + str(i) + ".png"
