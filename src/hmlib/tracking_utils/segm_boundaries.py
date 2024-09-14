@@ -4,6 +4,7 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 
+import hmlib.utils.pt_visualization as ptv
 from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensor
@@ -71,8 +72,12 @@ class SegmBoundaries:
                 img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
             )
         if self._centroid is not None:
-            img = pt_draw_square(
-                img, center_x=int(self._centroid[0]), center_y=int(self._centroid[1])
+            img = ptv.draw_filled_square(
+                img,
+                center_x=int(self._centroid[0]),
+                center_y=int(self._centroid[1]),
+                color=(0, 100, 0),
+                size=50,
             )
         return img
 
@@ -193,29 +198,3 @@ def calculate_box_heights(bboxes: torch.Tensor) -> torch.Tensor:
     # The height of each bounding box is y2 - y1
     heights = bboxes[:, 3] - bboxes[:, 1]
     return heights
-
-
-def pt_draw_square(image, center_x: int, center_y: int, size=20, color=(0, 100, 0)):
-    """
-    Draw a square on the image at specified location using PyTorch.
-
-    Parameters:
-        image (torch.Tensor): The image tensor of shape [3, H, W]
-        top_left_x (int): The x coordinate of the top left corner of the square
-        top_left_y (int): The y coordinate of the top left corner of the square
-        size (int): The size of the side of the square
-        color (tuple): The RGB color of the square
-    """
-    # Ensure the square doesn't go out of the image boundaries
-    top_left_x = int(center_x - size // 2)
-    top_left_y = int(center_y - size // 2)
-    H, W = image_height(image), image_width(image)
-    if top_left_x + size > W or top_left_y + size > H:
-        raise ValueError("Square goes out of image boundaries.")
-
-    # Set the pixel values to the specified color
-    for c in range(3):  # Loop over color channels
-        image[c, top_left_y : top_left_y + size, top_left_x : top_left_x + size] = (
-            color[c] / 255.0
-        )  # Normalize if your image is in [0,1]
-    return image

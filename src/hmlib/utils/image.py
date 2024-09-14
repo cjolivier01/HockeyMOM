@@ -699,3 +699,24 @@ def get_complete_monitor_width():
     for monitor in get_monitors():
         width += monitor.width
     return width
+
+
+# class ChannelsFirst:
+#     def __init__(self, img: Union[torch.Tensor, np.ndarray]):
+#         self._img = img
+
+#     def __enter__(self) -> Union[torch.Tensor, np.ndarray]:
+#         img = self._img
+#         self._img = None
+#         self._was_channels_first = is_channels_first(img)
+#         if not self._was_channels_first:
+#             img = make_channels_first(img)
+#         return img, self
+
+#     def restore(self, img: Union[torch.Tensor, np.ndarray]):
+#         if not self._was_channels_first:
+#             img = make_channels_last(img)
+#         return img
+
+#     def __exit__(self, *args, **kwargs):
+#         return None
