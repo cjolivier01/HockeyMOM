@@ -74,7 +74,7 @@ class SegmBoundaries:
                 img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
             )
         if self._centroid is not None:
-            box_side_size = 50 // 2
+            # box_side_size = 50 // 2
             # ptv.draw_box(
             #     image=img,
             #     tlbr=(
