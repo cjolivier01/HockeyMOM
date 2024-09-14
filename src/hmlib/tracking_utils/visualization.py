@@ -3,6 +3,8 @@ from typing import List, Tuple, Union
 import cv2
 import numpy as np
 import torch
+
+import hmlib.utils.pt_visualization as ptv
 from hmlib.utils.image import image_width
 
 
@@ -41,14 +43,13 @@ def plot_rectangle(
     label: Union[str, None] = None,
     text_scale: int = 1,
 ):
-    if False and isinstance(img, torch.Tensor):
+    if isinstance(img, torch.Tensor):
+        assert not label
         return plot_torch_rectangle(
-            image_tensor=img,
+            image=img,
             tlbr=box,
             color=normalize_color(img, color),
             thickness=thickness,
-            label=label,
-            text_scale=text_scale,
         )
     img = to_cv2(img)
     intbox = [int(i) for i in box]
@@ -133,47 +134,16 @@ def plot_alpha_rectangle(
 
 
 def plot_torch_rectangle(
-    image_tensor: torch.Tensor,
+    image: torch.Tensor,
     tlbr: torch.Tensor,
     color: Tuple[int, int, int],
     thickness: int = 1,
-    label: str = None,
-    text_scale: float = 1,
+    alpha: int = 255,
 ):
-    """
-    Draw a light purple box with a touch of green on the image tensor.
-
-    :param image_tensor: A PyTorch tensor of shape (3, H, W) representing an RGB image.
-    :param top_left: A tuple (x, y) representing the top left coordinate of the box.
-    :param bottom_right: A tuple (x, y) representing the bottom right coordinate of the box.
-    :return: Modified image tensor with the light purple-green box.
-    """
-    # Light purple with a touch of green color in RGB
-    color_value = torch.tensor(
-        color, dtype=image_tensor.dtype, device=image_tensor.device
-    )
-    # Unpack coordinates
-    top_x, top_y = tlbr[:2].to(torch.int64)
-    # top_x -= (thickness + 1) // 2
-    # top_y -= (thickness + 1) // 2
-
-    bottom_x, bottom_y = tlbr[2:].to(torch.int64)
-    # bottom_x += thickness // 2
-    # bottom_y += thickness // 2
-
-    # Draw top and bottom lines of the box
-    image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
-        1
-    )
-    image_tensor[:, bottom_y : bottom_y + thickness, top_x:bottom_x] = (
-        color_value.unsqueeze(1)
-    )
-
-    # Draw left and right lines of the box
-    image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
-    image_tensor[top_y:bottom_y, bottom_x + thickness, :] = color_value.unsqueeze(1)
-
-    return image_tensor
+    assert isinstance(image, torch.Tensor)
+    return ptv.draw_box(
+        image=image.unsqueeze(0), tlbr=tlbr, color=color, thickness=thickness, alpha=alpha
+    ).squeeze(0)
 
 
 def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
@@ -375,7 +345,7 @@ def plot_tracking(
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
 ):
-    image = to_cv2(image)
+    # image = to_cv2(image)
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame
@@ -385,12 +355,8 @@ def plot_tracking(
     if speeds:
         assert len(speeds) == len(obj_ids)
     # TODO: is this an unnecessary copy?
-    im = np.ascontiguousarray(image)
-    # im = image
-    # im_h, im_w = im.shape[:2]
-    # im_h, im_w = im.shape[:2]
-
-    # top_view = np.zeros([im_w, im_w, 3], dtype=np.uint8) + 255
+    # im = np.ascontiguousarray(image)
+    im = image
 
     text_scale = max(2, image.shape[1] / 1600.0)
     text_thickness = 2
@@ -412,17 +378,26 @@ def plot_tracking(
         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
-        cv2.rectangle(
+
+        im = plot_rectangle(
             im,
-            intbox[0:2],
-            intbox[2:4],
+            box=intbox,
             color=normalize_color(im, color),
             thickness=line_thickness,
         )
+
+        # cv2.rectangle(
+        #     im,
+        #     intbox[0:2],
+        #     intbox[2:4],
+        #     color=normalize_color(im, color),
+        #     thickness=line_thickness,
+        # )
         if print_track_id:
             id_text = "{}".format(int(obj_id))
             if ids2 is not None:
                 id_text = id_text + ", {}".format(int(ids2[i]))
+            im = to_cv2(im)
             cv2.putText(
                 im,
                 id_text,
@@ -443,6 +418,7 @@ def plot_tracking(
                 speed_text = "NaN"
             pos_x = intbox[2] - text_offset
             pos_y = intbox[3]
+            im = to_cv2(im)
             cv2.putText(
                 im,
                 speed_text,
