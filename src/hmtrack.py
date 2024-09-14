@@ -543,13 +543,14 @@ def main(args, num_gpu):
                             model.post_detection_pipeline, "SegmBoundaries"
                         )
                         if segm_boundaries is not None:
-                            rink_mask = confgure_ice_rink_mask(
+                            rink_profile = confgure_ice_rink_mask(
                                 game_id=args.game_id, root_dir=ROOT_DIR
                             )
-                            if rink_mask is not None:
+                            if rink_profile:
                                 segm_boundaries.update(
                                     {
-                                        "rink_mask": rink_mask,
+                                        "rink_mask": rink_profile["combined_mask"],
+                                        "centroid": rink_profile["centroid"],
                                         "original_clip_box": get_clip_box(
                                             game_id=args.game_id, root_dir=args.root_dir
                                         ),
