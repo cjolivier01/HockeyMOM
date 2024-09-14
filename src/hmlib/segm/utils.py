@@ -79,24 +79,67 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
     return scaled_polygon
 
 
-def split_points_by_x_trend_efficient(points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    if isinstance(points, list):
-        assert len(points) == 1
-        points = points[0]
+def scale_polygon_y(points: torch.Tensor, top_ratio: float, bottom_ratio: float):
     # Convert the flat list into a tensor and reshape it into (n, 2)
-    points_tensor = torch.tensor(points).reshape(-1, 2)
 
-    # Extract x-coordinates and compute the difference with a shifted version
-    x_coords = points_tensor[:, 0]
-    differences = x_coords[1:] - x_coords[:-1]
+    if isinstance(points, list):
+        dtype = points[0].dtype
+        points_tensor = torch.tensor(points, dtype=torch.float32).reshape(-1, 2)
+    elif isinstance(points, np.ndarray):
+        points_tensor = torch.from_numpy(points)
+        dtype = points_tensor.dtype
+    else:
+        points_tensor = points
+        dtype = points_tensor.dtype
 
-    # Find indices where the difference is positive (increasing x) and negative (decreasing x)
-    increasing_indices = torch.where(differences > 0)[0]
-    decreasing_indices = torch.where(differences < 0)[0]
+    if not torch.is_floating_point(points_tensor):
+        points_tensor = points_tensor.to(dtype=torch.float, non_blocking=True)
 
-    # Select points based on the found indices
-    # We add 1 to indices to correct for the shift
-    increasing_x = points_tensor[increasing_indices + 1]
-    decreasing_x = points_tensor[decreasing_indices + 1]
+    # Calculate the centroid in the y-direction
+    centroid_y = points_tensor[:, 1].mean()
 
-    return increasing_x, decreasing_x
+    # Create a mask for points above and below the centroid
+    top_mask = points_tensor[:, 1] > centroid_y
+    bottom_mask = ~top_mask  # Everything not in the top_mask is in the bottom_mask
+
+    # Scale y-values according to their position relative to the centroid
+    points_tensor[top_mask, 1] = centroid_y + (points_tensor[top_mask, 1] - centroid_y) * top_ratio
+    points_tensor[bottom_mask, 1] = (
+        centroid_y + (points_tensor[bottom_mask, 1] - centroid_y) * bottom_ratio
+    )
+    if dtype != points_tensor.dtype:
+        points_tensor = points_tensor.to(dtype, non_blocking=True)
+
+    return points_tensor.reshape(-1)
+
+
+# def split_points_by_x_trend_efficient(points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+#     if isinstance(points, list):
+#         assert len(points) == 1
+#         points = points[0]
+#     # Convert the flat list into a tensor and reshape it into (n, 2)
+#     points_tensor = torch.tensor(points).reshape(-1, 2)
+
+#     # Extract x-coordinates and compute the difference with a shifted version
+#     x_coords = points_tensor[:, 0]
+#     differences = x_coords[1:] - x_coords[:-1]
+
+#     # Find indices where the difference is positive (increasing x) and negative (decreasing x)
+#     increasing_indices = torch.where(differences > 0)[0]
+#     decreasing_indices = torch.where(differences < 0)[0]
+
+#     # Select points based on the found indices
+#     # We add 1 to indices to correct for the shift
+#     increasing_x = points_tensor[increasing_indices + 1]
+#     decreasing_x = points_tensor[decreasing_indices + 1]
+
+#     mean_y_incr_x = torch.mean(increasing_x[:, 1].to(torch.float16))
+#     mean_y_decr_x = torch.mean(decreasing_x[:, 1].to(torch.float16))
+
+#     # upper_points = torch.where(mean_y_incr_x < mean_y_decr_x, increasing_x, decreasing_x)
+#     # lower_points = torch.where(mean_y_incr_x >= mean_y_decr_x, increasing_x, decreasing_x)
+
+#     upper_points = increasing_x if mean_y_incr_x < mean_y_decr_x else decreasing_x
+#     lower_points = decreasing_x if mean_y_incr_x < mean_y_decr_x else increasing_x
+
+#     return increasing_x, decreasing_x, upper_points, lower_points
