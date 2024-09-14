@@ -1,8 +1,47 @@
-from typing import List, Tuple
+from typing import List, Tuple, TypeAlias, Union
 
 import matplotlib.path as mplPath
 import numpy as np
 import torch
+
+ContourPoints: TypeAlias = Union[Tuple[int, int], torch.Tensor, np.ndarray, List[np.ndarray]]
+
+DTYPE_MAP = None
+
+
+# def to_torch_dtype(dtype: Union[torch.dtype, np.dtype]) -> torch.dtype:
+#     if isinstance(dtype, torch.dtype):
+#         return dtype
+#     global DTYPE_MAP
+#     if DTYPE_MAP is None:
+#         # Init first time in order to cut down on import-time compute
+#         DTYPE_MAP = {
+#             np.float32: torch.float32,
+#             np.float64: torch.float64,
+#             np.float16: torch.float16,
+#             np.int32: torch.int32,
+#             np.int64: torch.int64,
+#             np.int16: torch.int16,
+#             np.uint8: torch.uint8,
+#             np.bool_: torch.bool,
+#             # Add other dtype mappings as needed
+#         }
+#     return DTYPE_MAP[dtype, None]
+
+
+def to_points_tensor(points: ContourPoints, dtype=torch.float) -> Tuple[torch.Tensor, torch.dtype]:
+    if isinstance(points, list):
+        initial_dtype = points[0].dtype
+        points_tensor = torch.tensor(points, dtype=dtype).reshape(-1, 2)
+    elif isinstance(points, np.ndarray):
+        points_tensor = torch.from_numpy(points)
+        initial_dtype = points_tensor.dtype
+    else:
+        points_tensor = points
+        initial_dtype = points_tensor.dtype
+    if points_tensor.dtype != dtype:
+        points_tensor = points_tensor.to(dtype, non_blocking=True)
+    return points_tensor, initial_dtype
 
 
 def polygon_to_mask(poly: List[Tuple[float, float]], height: int, width: int) -> torch.Tensor:
@@ -77,6 +116,15 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
         scaled_polygon = scaled_polygon.numpy()
 
     return scaled_polygon
+
+
+def calculate_centroid(polygons: ContourPoints) -> torch.Tensor:
+    points, _ = to_points_tensor(polygons)
+    assert points.ndim == 2
+    assert points.shape[1] == 2
+    # Calculate the centroid of the polygon
+    centroid = torch.mean(points, dim=0)
+    return centroid
 
 
 def scale_polygon_y(points: torch.Tensor, top_ratio: float, bottom_ratio: float):

@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
-from mmdet.core.mask.structures import bitmap_to_polygon, polygon_to_bitmap
+from mmdet.core.mask.structures import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
@@ -20,13 +20,8 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.segm.utils import polygon_to_mask, scale_polygon, scale_polygon_y
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
+from hmlib.utils.image import image_height, image_width
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -302,6 +297,7 @@ def result_to_polygons(
     results["contours"] = contours_list
     results["masks"] = mask_list
     results["combined_mask"] = combined_mask
+    results["centroid"] = calculate_centroid(contours_list)
 
     return results
 
@@ -415,6 +411,9 @@ def save_rink_profile_config(
     masks = rink_profile.get("masks")
     mask_count = len(masks) if masks is not None else 0
     set_nested_value(game_config, "rink.ice_contours_mask_count", mask_count)
+    centroid = rink_profile["centroid"]
+    centroid = [float(centroid[0]), float(centroid[1])]
+    set_nested_value(game_config, "rink.ice_contours_mask_centroid", centroid)
     mask_image_file_base = f'{os.environ["HOME"]}/Videos/{args.game_id}/rink_mask_'
     for i in range(mask_count):
         mask = masks[i]
@@ -426,7 +425,7 @@ def save_rink_profile_config(
 def load_rink_combined_mask(
     game_id: str,
     root_dir: Optional[str] = None,
-) -> Optional[torch.Tensor]:
+) -> Optional[Dict[str, Optional[torch.Tensor]]]:
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if not game_config:
         return None
@@ -442,7 +441,15 @@ def load_rink_combined_mask(
             combined_mask = mask
         else:
             combined_mask = combined_mask | mask
-    return combined_mask
+    mask_count = get_nested_value(game_config, "rink.ice_contours_mask_count", None)
+    centroid = get_nested_value(game_config, "rink.ice_contours_mask_centroid", None)
+    if centroid is not None:
+        centroid = torch.tensor(centroid, dtype=torch.float)
+    results: Dict[str, Optional[torch.Tensor]] = {
+        "combined_mask": combined_mask,
+        "centroid": centroid,
+    }
+    return results
 
 
 def confgure_ice_rink_mask(
@@ -494,6 +501,6 @@ if __name__ == "__main__":
         root_dir=root_dir,
         # device="cpu",
         device="cuda:0",
-        show=True,
+        show=False,
         force=True,
     )
