@@ -209,7 +209,7 @@ def pt_draw_square(image, center_x: int, center_y: int, size=20, color=(0, 100, 
     # Ensure the square doesn't go out of the image boundaries
     top_left_x = int(center_x - size // 2)
     top_left_y = int(center_y - size // 2)
-    H, W = image.shape[1], image.shape[2]
+    H, W = image_height(image), image_width(image)
     if top_left_x + size > W or top_left_y + size > H:
         raise ValueError("Square goes out of image boundaries.")
 
