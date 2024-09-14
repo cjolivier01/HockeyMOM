@@ -74,6 +74,18 @@ class SegmBoundaries:
                 img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
             )
         if self._centroid is not None:
+            box_side_size = 50 // 2
+            # ptv.draw_box(
+            #     image=img,
+            #     tlbr=(
+            #         int(self._centroid[0] - box_side_size),
+            #         int(self._centroid[1] - box_side_size),
+            #         int(self._centroid[0] + box_side_size),
+            #         int(self._centroid[1] + box_side_size),
+            #     ),
+            #     color=(255, 0, 0),
+            #     thickness=5,
+            # )
             img = ptv.draw_filled_square(
                 img,
                 center_x=int(self._centroid[0]),

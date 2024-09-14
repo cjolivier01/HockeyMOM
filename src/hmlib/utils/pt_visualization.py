@@ -4,7 +4,10 @@ PyTorch drawing functions
 
 from typing import Optional, Tuple, Union
 
+import numpy as np
 import torch
+
+from hmlib.utils.box_functions import height, width
 
 from .image import (
     image_height,
@@ -69,4 +72,160 @@ def draw_filled_square(
 
     if was_channels_last:
         image = make_channels_last(image)
+    return image
+
+
+def draw_horizontal_line(
+    image: torch.Tensor,
+    start_x: int,
+    start_y: int,
+    length: int,
+    color: Union[Tuple[int, int, int], torch.Tensor],
+    thickness: int = 1,
+    alpha: int = 255,
+) -> torch.Tensor:
+    """
+    Draw a horizontal line on the image at specified location using PyTorch.
+    """
+    # Ensure the square doesn't go out of the image boundaries
+    assert image.ndim == 4
+    assert alpha >= 0 and alpha <= 255
+
+    if alpha == 0:
+        # Nothing to do
+        return image
+
+    falpha = float(alpha) / 255.0
+
+    was_channels_last = is_channels_last(image)
+    if was_channels_last:
+        image = make_channels_first(image)
+
+    if not isinstance(color, torch.Tensor):
+        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
+        color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+
+    H, W = image_height(image), image_width(image)
+    if start_x + length > W or start_y > H:
+        raise ValueError("Line goes out of image boundaries.")
+
+    if alpha == 255:
+        image[:, :, start_y : start_y + thickness, start_x : start_x + length] = color_tensor
+    else:
+        # Set the pixel values to the specified color  TODO: do all channels a once
+        image[:, :, start_y : start_y + thickness, start_x : start_x + length] = (
+            image[:, :, :, :, start_y : start_y + thickness, start_x : start_x + length]
+            * (1 - alpha)
+            + color_tensor * falpha
+        )
+
+    if was_channels_last:
+        image = make_channels_last(image)
+    return image
+
+
+def draw_vertical_line(
+    image: torch.Tensor,
+    start_x: int,
+    start_y: int,
+    length: int,
+    color: Union[Tuple[int, int, int], torch.Tensor],
+    thickness: int = 1,
+    alpha: int = 255,
+) -> torch.Tensor:
+    """
+    Draw a horizontal line on the image at specified location using PyTorch.
+    """
+    # Ensure the square doesn't go out of the image boundaries
+    assert image.ndim == 4
+    assert alpha >= 0 and alpha <= 255
+
+    if alpha == 0:
+        # Nothing to do
+        return image
+
+    falpha = float(alpha) / 255.0
+
+    was_channels_last = is_channels_last(image)
+    if was_channels_last:
+        image = make_channels_first(image)
+
+    if not isinstance(color, torch.Tensor):
+        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
+        color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+
+    H, W = image_height(image), image_width(image)
+    if start_x + length > W or start_y > H:
+        raise ValueError("Line goes out of image boundaries.")
+
+    if alpha == 255:
+        image[:, :, start_y : start_y + length, start_x : start_x + thickness] = color_tensor
+    else:
+        # Set the pixel values to the specified color  TODO: do all channels a once
+        image[:, :, start_y : start_y + length, start_x : start_x + thickness] = (
+            image[:, :, start_y : start_y + length, start_x : start_x + thickness] * (1 - alpha)
+            + color_tensor * falpha
+        )
+
+    if was_channels_last:
+        image = make_channels_last(image)
+    return image
+
+
+def draw_box(
+    image: torch.Tensor,
+    tlbr: Union[
+        torch.Tensor,
+        np.ndarray,
+        Tuple[Union[float, int], Union[float, int], Union[float, int], Union[float, int]],
+    ],
+    color: Union[Tuple[int, int, int], torch.Tensor],
+    thickness: int = 1,
+    alpha: int = 255,
+) -> torch.Tensor:
+    W = int(width(tlbr))
+    H = int(height(tlbr))
+    assert len(tlbr) == 4
+    int_box = [int(i) for i in tlbr]
+
+    # left side
+    image = draw_vertical_line(
+        image=image,
+        start_x=int_box[0],
+        start_y=int_box[1],
+        length=H,
+        color=color,
+        thickness=thickness,
+        alpha=alpha,
+    )
+    # right side
+    image = draw_vertical_line(
+        image=image,
+        start_x=int_box[2],
+        start_y=int_box[1],
+        length=H,
+        color=color,
+        thickness=thickness,
+        alpha=alpha,
+    )
+    # top
+    image = draw_horizontal_line(
+        image=image,
+        start_x=int_box[0],
+        start_y=int_box[1],
+        length=W,
+        color=color,
+        thickness=thickness,
+        alpha=alpha,
+    )
+    # bottom
+    image = draw_horizontal_line(
+        image=image,
+        start_x=int_box[0],
+        start_y=int_box[3],
+        length=W,
+        color=color,
+        thickness=thickness,
+        alpha=alpha,
+    )
     return image
