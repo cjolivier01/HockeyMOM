@@ -10,3 +10,7 @@ gettext
 libyaml-cpp-dev
 liblapack-dev
 libglfw3-dev
+libtiff-dev
+libpng-dev
+fftw-dev
+
