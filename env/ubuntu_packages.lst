@@ -6,7 +6,6 @@ libopenexr-dev
 libilmbase-dev
 liblcms2-dev
 libsqlite3-dev
-libavformat-dev
 gettext
 libyaml-cpp-dev
 liblapack-dev
