@@ -13,4 +13,6 @@ libglfw3-dev
 libtiff-dev
 libpng-dev
 fftw-dev
+libprotobuf-dev
+protobuf-compiler
 

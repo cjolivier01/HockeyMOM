@@ -1,0 +1,17 @@
+rink:
+  ice_contours_mask_count: 1
+  ice_contours_mask_centroid:
+  - 3090.452880859375
+  - 1612.940673828125
+  scoreboard:
+    projected_height: 150
+    projected_width: 400
+    perspective_polygon:
+    - - 875
+      - 1005
+    - - 1073
+      - 907
+    - - 1099
+      - 967
+    - - 910
+      - 1068
