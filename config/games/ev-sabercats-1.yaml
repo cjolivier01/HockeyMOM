@@ -1,9 +1,9 @@
 rink:
-  ice_contours_mask_count: 1
-  ice_contours_mask_centroid:
+  ice_contours_mask_count_first: 1
+  ice_contours_mask_centroid_first:
   - 3090.452880859375
   - 1612.940673828125
-  scoreboard:
+  scoreboard_first:
     projected_height: 150
     projected_width: 400
     perspective_polygon:
@@ -15,3 +15,23 @@ rink:
       - 967
     - - 910
       - 1068
+  scoreboard_second:
+    projected_height: 150
+    projected_width: 400
+    perspective_polygon:
+    - - 889
+      - 893
+    - - 1072
+      - 793
+    - - 1105
+      - 851
+    - - 925
+      - 952
+  ice_contours_mask_count_second: 1
+  ice_contours_mask_centroid_second:
+  - 3053.64794921875
+  - 1546.076904296875
+  ice_contours_mask_count: 1
+  ice_contours_mask_centroid:
+  - 2004.5753173828125
+  - 2009.555908203125
