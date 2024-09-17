@@ -1,11 +1,9 @@
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from hmlib.tracking_utils.log import logger
-
-from .mot_data import convert_tlbr_to_tlwh
+from .mot_data import TrackingDataBase
 
 
 class CameraTrackingData(TrackingDataBase):
