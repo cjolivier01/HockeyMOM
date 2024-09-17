@@ -5,10 +5,11 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
+from hmlib.builder import HM
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.tracking_utils.log import logger
@@ -196,6 +197,7 @@ class DefaultArguments(core.HMPostprocessConfig):
                     setattr(target, attribute, getattr(source, attribute))
 
 
+@HM.register_module()
 class CamTrackPostProcessor:
 
     def __init__(
@@ -211,7 +213,6 @@ class CamTrackPostProcessor:
         args: argparse.Namespace,
         save_frame_dir: str = None,
         async_post_processing: bool = False,
-        use_fork: bool = False,
         video_out_device: str = None,
         no_frame_postprocessing: bool = False,
         progress_bar: ProgressBar | None = None,
@@ -220,11 +221,10 @@ class CamTrackPostProcessor:
         self._no_frame_postprocessing = no_frame_postprocessing
         self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
-        self._queue = create_queue(mp=use_fork)
+        self._queue = create_queue(mp=False)
         self._data_type = data_type
         self._fps = fps
         self._thread = None
-        self._use_fork = use_fork
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
         self._final_image_processing_started = False
@@ -301,25 +301,16 @@ class CamTrackPostProcessor:
             )
             self._video_output_campp.start()
 
+    def eval(self):
+        self._play_tracker.eval()
+
     @property
     def output_video_path(self):
         return self._output_video_path
-        # if self._args._output_video_path is not None:
-        #     return self._args._output_video_pat
-        # return (
-        #     os.path.join(self._save_dir, "tracking_output.mkv")
-        #     if self._save_dir is not None
-        #     else None
-        # )
 
     def start(self):
-        if self._use_fork:
-            self._child_pid = os.fork()
-            if not self._child_pid:
-                self._start()
-        else:
-            self._thread = Thread(target=self._start, name="CamPostProc")
-            self._thread.start()
+        self._thread = Thread(target=self._start, name="CamPostProc")
+        self._thread.start()
 
     def _start(self):
         return self.postprocess_frame_worker()
@@ -343,22 +334,28 @@ class CamTrackPostProcessor:
         if self._exception is not None:
             raise self._exception
         try:
-            with TimeTracker(
-                "Send to cam post process queue",
-                self._send_to_timer_post_process,
-                print_interval=50,
-            ):
-                wait_count = 0
-                while self._queue.qsize() > 1:
-                    if not self._args.debug and not self._args.show_image:
-                        wait_count += 1
-                        if wait_count % 100 == 0:
-                            logger.info("Cam post-process queue too large")
-                    time.sleep(0.001)
-                if self._async_post_processing:
+            if self._async_post_processing:
+                with TimeTracker(
+                    "Send to cam post process queue",
+                    self._send_to_timer_post_process,
+                    print_interval=50,
+                ):
+                    wait_count = 0
+                    while self._queue.qsize() > 1:
+                        if not self._args.debug and not self._args.show_image:
+                            wait_count += 1
+                            if wait_count % 100 == 0:
+                                logger.info("Cam post-process queue too large")
+                        time.sleep(0.001)
                     self._queue.put(data)
-                else:
-                    return self.cam_postprocess(online_targets_and_img=data)
+            else:
+                with torch.no_grad():
+                    data = self._play_tracker.forward(online_targets_and_img=data)
+                current_box = data["current_box"]
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                if self._video_output_campp is not None:
+                    self._video_output_campp.append(data)
+                return data
         except Exception as ex:
             print(ex)
             traceback.print_exc()
@@ -377,9 +374,6 @@ class CamTrackPostProcessor:
                 self._video_output_campp.stop()
 
     def _postprocess_frame_worker(self):
-
-        self._play_tracker.eval()
-
         while True:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
@@ -387,18 +381,9 @@ class CamTrackPostProcessor:
 
             with torch.no_grad():
                 data = self._play_tracker.forward(online_targets_and_img=online_targets_and_img)
-                # frame_id, online_im, current_box = self._play_tracker.forward(
-                #     online_targets_and_img=online_targets_and_img
-                # )
             current_box = data["current_box"]
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
-                # imgproc_data = ImageProcData(
-                #     frame_id=frame_id,
-                #     img=online_im,
-                #     current_box=current_box,
-                # )
-                # self._video_output_campp.append(imgproc_data)
                 self._video_output_campp.append(data)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2

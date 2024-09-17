@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.tracking_utils.log import logger
@@ -41,6 +42,7 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
+@HM.register_module()
 class CamTrackHead:
 
     def __init__(
@@ -56,9 +58,9 @@ class CamTrackHead:
         save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
-        use_fork: bool = False,
         async_post_processing: bool = False,
         video_out_device: str = None,
+        asynchronous: bool = False,
     ):
         self._opt = opt
         self._args = args
@@ -66,7 +68,6 @@ class CamTrackHead:
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
-        self._use_fork = use_fork
         self._async_post_processing = async_post_processing
         self._original_clip_box = original_clip_box
         self._fps = fps
@@ -76,6 +77,7 @@ class CamTrackHead:
         self._hockey_mom = None
         self._device = device
         self._video_out_device = video_out_device
+        self._asynchronous = asynchronous
         if self._video_out_device is None:
             self._video_out_device = self._device
         self._counter = 0
@@ -142,7 +144,11 @@ class CamTrackHead:
             "original_img": original_img,
             "data": data,
         }
-        self._postprocessor.send(data)
+        if self._asynchronous:
+            self._postprocessor.send(data)
+        else:
+            data = self._postprocessor.send(data)
+            tracking_results.update(data)
         return tracking_results, detections, online_tlwhs
 
     def on_first_image(self, frame_id, letterbox_img, original_img, device):
@@ -168,11 +174,12 @@ class CamTrackHead:
                 device=device,
                 original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
-                use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,
                 video_out_device=self._video_out_device,
             )
-            self._postprocessor.start()
+            self._postprocessor.eval()
+            if self._asynchronous:
+                self._postprocessor.start()
 
     def stop(self):
         if self._postprocessor is not None:
