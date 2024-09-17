@@ -4,11 +4,19 @@ import warnings
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
+import mmcv
 import numpy as np
 import torch
+from mmpose.core.bbox import bbox_xywh2cs, bbox_xywh2xyxy, bbox_xyxy2xywh
+from mmpose.core.bbox.transforms import bbox_cs2xywh
+from mmpose.core.post_processing import (
+    affine_transform,
+    get_affine_transform,
+    get_warp_matrix,
+    warp_affine_joints,
+)
 from torchvision.transforms import functional as F
 
-import mmcv
 from hmlib.builder import PIPELINES, POSE_PIPELINES
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
@@ -20,15 +28,6 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
     resize_image,
-)
-from mmpose.core.bbox import bbox_xywh2cs, bbox_xywh2xyxy, bbox_xyxy2xywh
-from mmpose.core.bbox.transforms import bbox_cs2xywh
-from mmpose.core.post_processing import (
-    affine_transform,
-    fliplr_joints,
-    get_affine_transform,
-    get_warp_matrix,
-    warp_affine_joints,
 )
 
 from .cv2_to_torch import warp_affine_pytorch
