@@ -60,7 +60,6 @@ class CamTrackHead:
         postprocess: bool = True,
         async_post_processing: bool = False,
         video_out_device: str = None,
-        asynchronous: bool = False,
     ):
         self._opt = opt
         self._args = args
@@ -77,7 +76,6 @@ class CamTrackHead:
         self._hockey_mom = None
         self._device = device
         self._video_out_device = video_out_device
-        self._asynchronous = asynchronous
         if self._video_out_device is None:
             self._video_out_device = self._device
         self._counter = 0
@@ -144,10 +142,8 @@ class CamTrackHead:
             "original_img": original_img,
             "data": data,
         }
-        if self._asynchronous:
-            self._postprocessor.send(data)
-        else:
-            data = self._postprocessor.send(data)
+        data = self._postprocessor.send(data)
+        if not self._async_post_processing:
             tracking_results.update(data)
         return tracking_results, detections, online_tlwhs
 
@@ -178,7 +174,7 @@ class CamTrackHead:
                 video_out_device=self._video_out_device,
             )
             self._postprocessor.eval()
-            if self._asynchronous:
+            if self._async_post_processing:
                 self._postprocessor.start()
 
     def stop(self):

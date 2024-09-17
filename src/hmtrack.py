@@ -780,8 +780,8 @@ def main(args, num_gpu):
             video_out_device=gpus["encoder"],
             data_type="mot",
             camera_name=get_nested_value(game_config, "camera.name"),
-            # async_post_processing=True,
-            async_post_processing=False,
+            async_post_processing=True,
+            # async_post_processing=False,
         )
         postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
