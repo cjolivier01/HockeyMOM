@@ -252,119 +252,15 @@ class CamTrackPostProcessor:
             progress_bar=progress_bar,
             args=args,
         )
+        self.secondary_init()
 
-    @property
-    def output_video_path(self):
-        return self._output_video_path
-        # if self._args._output_video_path is not None:
-        #     return self._args._output_video_pat
-        # return (
-        #     os.path.join(self._save_dir, "tracking_output.mkv")
-        #     if self._save_dir is not None
-        #     else None
-        # )
-
-    def start(self):
-        if self._use_fork:
-            self._child_pid = os.fork()
-            if not self._child_pid:
-                self._start()
-        else:
-            self._thread = Thread(target=self._start, name="CamPostProc")
-            self._thread.start()
-
-    def _start(self):
-        return self.postprocess_frame_worker()
-
-    def stop(self):
-        if self._thread is not None:
-            self._queue.put(None)
-            self._thread.join()
-            self._thread = None
-
-        elif self.use_fork:
-            self._queue.put(None)
-            if self._child_pid:
-                os.waitpid(self._child_pid)
-        self._video_output_campp.stop()
-
-    def send(
-        self,
-        # online_tlwhs,
-        # online_ids,
-        # detections,
-        # info_imgs,
-        # image,
-        # original_img,
-        data: Dict[str, Any],
-    ):
-        if self._exception is not None:
-            raise self._exception
-        try:
-            with TimeTracker(
-                "Send to cam post process queue",
-                self._send_to_timer_post_process,
-                print_interval=50,
-            ):
-                wait_count = 0
-                while self._queue.qsize() > 1:
-                    if not self._args.debug and not self._args.show_image:
-                        wait_count += 1
-                        if wait_count % 100 == 0:
-                            logger.info("Cam post-process queue too large")
-                    time.sleep(0.001)
-                if self._async_post_processing:
-                    self._queue.put(
-                        data
-                        # (
-                        #     online_tlwhs,
-                        #     online_ids,
-                        #     detections,
-                        #     info_imgs,
-                        #     image,
-                        #     original_img,
-                        #     data,
-                        # )
-                    )
-                else:
-                    # online_targets_and_img = (
-                    #     online_tlwhs,
-                    #     online_ids,
-                    #     detections,
-                    #     info_imgs,
-                    #     image,
-                    #     original_img,
-                    #     data,
-                    # )
-                    self.cam_postprocess(online_targets_and_img=data)
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
-
-    def postprocess_frame_worker(self):
-        try:
-            self._postprocess_frame_worker()
-        except Exception as ex:
-            self._exception = ex
-            print(ex)
-            traceback.print_exc()
-            raise
-        finally:
-            if self._video_output_campp is not None:
-                self._video_output_campp.stop()
-
-    def _postprocess_frame_worker(self):
+    def secondary_init(self):
         if self._args.crop_output_image:
             self.final_frame_height = self._hockey_mom.video.height
-            self.final_frame_width = (
-                self._hockey_mom.video.height * self._final_aspect_ratio
-            )
+            self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
             if self.final_frame_width > MAX_CROPPED_WIDTH:
                 self.final_frame_width = MAX_CROPPED_WIDTH
-                self.final_frame_height = (
-                    self.final_frame_width / self._final_aspect_ratio
-                )
+                self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
 
         else:
             self.final_frame_height = self._hockey_mom.video.height
@@ -404,6 +300,83 @@ class CamTrackPostProcessor:
                 ],
             )
             self._video_output_campp.start()
+
+    @property
+    def output_video_path(self):
+        return self._output_video_path
+        # if self._args._output_video_path is not None:
+        #     return self._args._output_video_pat
+        # return (
+        #     os.path.join(self._save_dir, "tracking_output.mkv")
+        #     if self._save_dir is not None
+        #     else None
+        # )
+
+    def start(self):
+        if self._use_fork:
+            self._child_pid = os.fork()
+            if not self._child_pid:
+                self._start()
+        else:
+            self._thread = Thread(target=self._start, name="CamPostProc")
+            self._thread.start()
+
+    def _start(self):
+        return self.postprocess_frame_worker()
+
+    def stop(self):
+        if self._thread is not None:
+            self._queue.put(None)
+            self._thread.join()
+            self._thread = None
+
+        elif self.use_fork:
+            self._queue.put(None)
+            if self._child_pid:
+                os.waitpid(self._child_pid)
+        self._video_output_campp.stop()
+
+    def send(
+        self,
+        data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if self._exception is not None:
+            raise self._exception
+        try:
+            with TimeTracker(
+                "Send to cam post process queue",
+                self._send_to_timer_post_process,
+                print_interval=50,
+            ):
+                wait_count = 0
+                while self._queue.qsize() > 1:
+                    if not self._args.debug and not self._args.show_image:
+                        wait_count += 1
+                        if wait_count % 100 == 0:
+                            logger.info("Cam post-process queue too large")
+                    time.sleep(0.001)
+                if self._async_post_processing:
+                    self._queue.put(data)
+                else:
+                    return self.cam_postprocess(online_targets_and_img=data)
+        except Exception as ex:
+            print(ex)
+            traceback.print_exc()
+            raise
+
+    def postprocess_frame_worker(self):
+        try:
+            self._postprocess_frame_worker()
+        except Exception as ex:
+            self._exception = ex
+            print(ex)
+            traceback.print_exc()
+            raise
+        finally:
+            if self._video_output_campp is not None:
+                self._video_output_campp.stop()
+
+    def _postprocess_frame_worker(self):
 
         self._play_tracker.eval()
 

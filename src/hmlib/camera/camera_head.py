@@ -142,15 +142,7 @@ class CamTrackHead:
             "original_img": original_img,
             "data": data,
         }
-        self._postprocessor.send(
-            # online_tlwhs,
-            # online_ids,
-            # detections,
-            # info_imgs,
-            # None,
-            # original_img,
-            data
-        )
+        self._postprocessor.send(data)
         return tracking_results, detections, online_tlwhs
 
     def on_first_image(self, frame_id, letterbox_img, original_img, device):
