@@ -97,7 +97,8 @@ def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, 
     return base_img
 
 
-SIZE_TO_FONT_PATHS: Dict[int, str] = {}
+# We only support default font for draw_text right now in order to conserve resources
+draw_text_SIZE_TO_FONT_PATHS: Dict[int, str] = {}
 
 
 def draw_text(
@@ -108,11 +109,11 @@ def draw_text(
     font_size: int = 20,
     color: Tuple[int, int, int] = (255, 0, 0),
 ) -> torch.Tensor:
-    global SIZE_TO_FONT_PATHS
-    font_path = SIZE_TO_FONT_PATHS.get(font_size)
+    global draw_text_SIZE_TO_FONT_PATHS
+    font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
     if font_path is None:
         font_path = find_font_path()
-        SIZE_TO_FONT_PATHS[font_size] = font_path
+        draw_text_SIZE_TO_FONT_PATHS[font_size] = font_path
     char_images = create_text_images(font_path=font_path, font_size=font_size, font_color=color)
     for char in text:
         if char in char_images:
