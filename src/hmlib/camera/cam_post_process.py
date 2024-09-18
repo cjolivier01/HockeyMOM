@@ -15,6 +15,7 @@ from hmlib.config import get_nested_value
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.box_functions import aspect_ratio
+from hmlib.utils.camera_data import CameraTrackingData
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video_out import VideoOutput
@@ -90,9 +91,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_frame_number = False or basic_debugging
         # self.plot_frame_number = True
 
-        self.plot_boundaries = (
-            False or basic_debugging or self.plot_individual_player_tracking
-        )
+        self.plot_boundaries = False or basic_debugging or self.plot_individual_player_tracking
         # self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
@@ -135,12 +134,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # TODO: Somehow move into boundaries class like witht he clip stuff
         # TODO: Get rid of this, probably no longer needed
         #
-        self.top_border_lines = get_nested_value(
-            self.game_config, "game.boundaries.upper", []
-        )
-        self.bottom_border_lines = get_nested_value(
-            self.game_config, "game.boundaries.lower", []
-        )
+        self.top_border_lines = get_nested_value(self.game_config, "game.boundaries.upper", [])
+        self.bottom_border_lines = get_nested_value(self.game_config, "game.boundaries.lower", [])
         upper_tune_position = get_nested_value(
             self.game_config, "game.boundaries.upper_tune_position", []
         )
@@ -227,7 +222,6 @@ class CamTrackPostProcessor:
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
-        self._final_image_processing_started = False
         self._async_post_processing = async_post_processing
         self._timer = Timer()
         self._video_out_device = video_out_device
@@ -239,6 +233,8 @@ class CamTrackPostProcessor:
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
         self._output_video_path = output_video_path
+
+        self._camera_tracking_data = None
 
         self._video_output_campp = None
         self._queue_timer = Timer()
@@ -265,6 +261,11 @@ class CamTrackPostProcessor:
         else:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
+
+        if self._args.save_camera_data:
+            self._camera_tracking_data = CameraTrackingData(
+                output_file=os.path.join(self._save_dir, "camera.csv")
+            )
 
         if not self._no_frame_postprocessing:
             assert self._video_output_campp is None
@@ -355,6 +356,11 @@ class CamTrackPostProcessor:
                 assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 if self._video_output_campp is not None:
                     self._video_output_campp.append(data)
+                if self._args.save_camera_data is not None:
+                    self._args.save_camera_data.add_frame_records(
+                        frame_id=data["frame_id"],
+                        tlbr=current_box,
+                    )
                 return data
         except Exception as ex:
             print(ex)
@@ -385,6 +391,11 @@ class CamTrackPostProcessor:
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
                 self._video_output_campp.append(data)
+            if self._camera_tracking_data is not None:
+                self._camera_tracking_data.add_frame_records(
+                    frame_id=data["frame_id"],
+                    tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
+                )
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 

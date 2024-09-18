@@ -266,7 +266,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument(
         "--save-camera-data",
-        type=str,
+        action="store_true",
         help="Save tracking data to camera.csv",
     )
     parser.add_argument(

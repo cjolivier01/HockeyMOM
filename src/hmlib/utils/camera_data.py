@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .mot_data import TrackingDataBase
+from .mot_data import TrackingDataBase, convert_tlbr_to_tlwh
 
 
 class CameraTrackingData(TrackingDataBase):
@@ -29,8 +29,6 @@ class CameraTrackingData(TrackingDataBase):
     def add_frame_records(
         self,
         frame_id: int,
-        tracking_ids: np.ndarray,
-        scores: np.ndarray,
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
     ):
@@ -41,7 +39,7 @@ class CameraTrackingData(TrackingDataBase):
         frame_id = int(frame_id)
         new_record = pd.DataFrame(
             {
-                "Frame": [frame_id for _ in range(len(tracking_ids))],
+                "Frame": frame_id,
                 "BBox_X": tlwh[:, 0],
                 "BBox_Y": tlwh[:, 1],
                 "BBox_W": tlwh[:, 2],
