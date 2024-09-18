@@ -292,7 +292,7 @@ class PlayTracker(torch.nn.Module):
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
         #
-        # BEGIN Clusters
+        # BEGIN Clusters and Cluster Boxes
         #
         cluster_counts = [3, 2]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
@@ -384,12 +384,8 @@ class PlayTracker(torch.nn.Module):
                     opacity_percent=25,
                 )
         #
-        # END Clusters
+        # END Clusters and Cluster Boxes
         #
-
-        if current_box is None:
-            assert False  # how does this happen?
-            current_box = self.get_arena_box()
 
         current_box, online_im = self.calculate_breakaway(
             current_box=current_box,
