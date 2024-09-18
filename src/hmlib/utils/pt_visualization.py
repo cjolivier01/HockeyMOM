@@ -2,10 +2,13 @@
 PyTorch drawing functions
 """
 
-from typing import Optional, Tuple, Union
+import string
+import subprocess
+from typing import Dict, Tuple, Union
 
 import numpy as np
 import torch
+from PIL import Image, ImageDraw, ImageFont
 
 from hmlib.utils.box_functions import height, width
 
@@ -16,6 +19,107 @@ from .image import (
     make_channels_first,
     make_channels_last,
 )
+
+# Key: (point size, ttf file path) -> letter -> RGB tensor
+CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}
+
+
+def create_text_images(
+    font_path: str, font_size: int, font_color: Tuple[int, int, int]
+) -> Dict[str, torch.Tensor]:
+    global CHARACTERS
+
+    key = (font_path, font_size)
+    found = CHARACTERS.get(key)
+    if found is not None:
+        return found
+
+    # Define the set of characters we want to render
+    # characters = string.ascii_letters + string.digits  # All upper and lowercase letters and digits
+    characters = string.printable
+
+    # Load the font
+    font = ImageFont.truetype(font_path, font_size)
+
+    # Dictionary to hold the character images as tensors
+    char_tensors = {}
+
+    # Create an image for each character
+    for char in characters:
+        # Create an image with transparent background
+        image = Image.new("RGBA", (font.getsize(char)[0] + 10, font_size + 10), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(image)
+
+        # Draw the text
+        draw.text((5, 5), char, font=font, fill=font_color)
+
+        # Convert the PIL image to a PyTorch tensor
+        tensor = torch.from_numpy(np.array(image)).permute(2, 0, 1)  # Normalize the tensor
+        char_tensors[char] = tensor
+
+    CHARACTERS[key] = char_tensors
+
+    return char_tensors
+
+
+def find_font_path(font_name: str = "DejaVuSerif.ttf"):
+    # Command to find the font file
+    command = ["fc-list", ": family file", "|", "grep", "-i", font_name]
+    result = subprocess.run(command, stdout=subprocess.PIPE, text=True, shell=True)
+    lines = result.stdout.split("\n")
+    for line in lines:
+        if font_name in line:
+            font_path = line.split(":")[0]
+            return font_path
+    return lines
+
+
+def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, start_y: int):
+    # Calculate the region of interest in the base image
+    end_y = start_y + letter_img.shape[1]
+    end_x = start_x + letter_img.shape[2]
+
+    # Extract this region from the base image
+    region = base_img[:, start_y:end_y, start_x:end_x]
+
+    # Alpha blending
+    alpha = letter_img[3:4]  # Alpha channel of the letter image
+    inv_alpha = 1.0 - alpha
+
+    # Foreground and background blending
+    blended_region = letter_img[0:3] * alpha + region[0:3] * inv_alpha
+
+    # Update the base image region
+    base_img[:, start_y:end_y, start_x:end_x] = torch.cat(
+        (blended_region, region[3:4]), dim=0
+    )  # Maintain base image alpha
+
+    return base_img
+
+
+SIZE_TO_FONT_PATHS: Dict[int, str] = {}
+
+
+def draw_text(
+    image: torch.Tensor,
+    x: int,
+    y: int,
+    text: str,
+    font_size: int = 20,
+    color: Tuple[int, int, int] = (255, 0, 0),
+) -> torch.Tensor:
+    global SIZE_TO_FONT_PATHS
+    font_path = SIZE_TO_FONT_PATHS.get(font_size)
+    if font_path is None:
+        font_path = find_font_path()
+        SIZE_TO_FONT_PATHS[font_size] = font_path
+    char_images = create_text_images(font_path=font_path, font_size=font_size, font_color=color)
+    for char in text:
+        if char in char_images:
+            letter_img = char_images[char]
+            image = alpha_blend(image, letter_img, x, y)
+            x += letter_img.shape[2]  # Move x to the right for the next character
+    return image
 
 
 def draw_filled_square(
@@ -39,6 +143,8 @@ def draw_filled_square(
     # Ensure the square doesn't go out of the image boundaries
     assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
+
+    # image = draw_text(image=image, x=100, y=100, text="HELLO WORLD")
 
     if alpha == 0:
         # Nothing to do
