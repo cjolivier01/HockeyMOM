@@ -79,7 +79,7 @@ def get_game_config_private(
     merge_into_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return load_config_file_yaml(
-        yaml_file_path=os.path.joint(GAME_DIR_BASE, game_id, "config.yaml"),
+        yaml_file_path=os.path.join(GAME_DIR_BASE, game_id, "config.yaml"),
         merge_into_config=merge_into_config,
     )
 
