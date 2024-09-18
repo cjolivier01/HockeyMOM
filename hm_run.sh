@@ -25,6 +25,7 @@ OMP_NUM_THREADS=16 \
   PYTHONPATH="$(pwd)/build:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
   --save-tracking-data \
+  --save-camera-data \
   -expn="hm_run" \
   -f="${EXPERIMENT_FILE}" \
   -b=${BATCH_SIZE} ${POSE_MODELS} \
