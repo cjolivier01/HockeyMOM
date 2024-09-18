@@ -74,6 +74,16 @@ def baseline_config(root_dir: str) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
 
+def get_game_config_private(
+    game_id: str,
+    merge_into_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return load_config_file_yaml(
+        yaml_file_path=os.path.joint(GAME_DIR_BASE, game_id, "config.yaml"),
+        merge_into_config=merge_into_config,
+    )
+
+
 def get_game_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
     return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
 
@@ -109,16 +119,18 @@ def get_config(
     Direct parameters override parameters whihc are in the higher-level yaml
     (i.e. a specified 'rink' to this function overrides the 'rink' in the game config)
     """
-    consolidated_config = baseline_config(root_dir=root_dir)
-    game_config = dict()
-    rink_config = dict()
-    camera_config = dict()
+    consolidated_config: Dict[str, Any] = baseline_config(root_dir=root_dir)
+    game_config: Dict[str, Any] = dict()
+    rink_config: Dict[str, Any] = dict()
+    camera_config: Dict[str, Any] = dict()
+    private_config: Dict[str, Any] = dict()
     if camera is not None:
         camera_config = get_camera_config(camera=camera, root_dir=root_dir)
     if rink is not None:
         rink_config = get_rink_config(rink=rink, root_dir=root_dir)
     if game_id is not None:
         game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+        private_config = get_game_config_private(game_id=game_id)
     if camera is None:
         camera = get_item("camera", [game_config, rink_config])
         if camera:
@@ -130,6 +142,7 @@ def get_config(
     consolidated_config = recursive_update(consolidated_config, camera_config)
     consolidated_config = recursive_update(consolidated_config, rink_config)
     consolidated_config = recursive_update(consolidated_config, game_config)
+    consolidated_config = recursive_update(consolidated_config, private_config)
     return consolidated_config
 
 
