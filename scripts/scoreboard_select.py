@@ -1,8 +1,9 @@
 import os
-import cv2
 from pathlib import Path
 
-from hmlib.config import get_game_config, save_game_config, set_nested_value
+import cv2
+
+from hmlib.config import get_game_config, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 
 
@@ -58,4 +59,4 @@ if __name__ == "__main__":
 
     if points and len(points) == 4:
         set_nested_value(game_config, "rink.scoreboard.perspective_polygon", points)
-        save_game_config(game_id=args.game_id, root_dir=root_dir, data=game_config)
+        save_private_config(game_id=args.game_id, data=game_config, verbose=True)

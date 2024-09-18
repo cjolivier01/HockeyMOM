@@ -14,9 +14,9 @@ from mmdet.core.mask.structures import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
-    get_game_config,
+    get_game_config_private,
     get_nested_value,
-    save_game_config,
+    save_private_config,
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
@@ -407,7 +407,7 @@ def save_rink_profile_config(
     rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
     root_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    game_config = get_game_config_private(game_id=game_id)
     masks = rink_profile.get("masks")
     mask_count = len(masks) if masks is not None else 0
     set_nested_value(game_config, "rink.ice_contours_mask_count", mask_count)
@@ -419,14 +419,14 @@ def save_rink_profile_config(
         mask = masks[i]
         image_file = mask_image_file_base + str(i) + ".png"
         save_boolean_tensor_as_png(mask, image_file)
-    save_game_config(game_id=game_id, data=game_config, root_dir=root_dir)
+    save_private_config(game_id=game_id, data=game_config, verbose=True)
 
 
 def load_rink_combined_mask(
     game_id: str,
     root_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Optional[torch.Tensor]]]:
-    game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+    game_config = get_game_config_private(game_id=game_id)
     if not game_config:
         return None
     mask_count = get_nested_value(game_config, "rink.ice_contours_mask_count", None)
@@ -436,6 +436,9 @@ def load_rink_combined_mask(
     mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
     for i in range(mask_count):
         image_file = mask_image_file_base + str(i) + ".png"
+        if not os.path.exists(image_file):
+            # Missing the actual mask file, so return as if nothing was found
+            return None
         mask = load_png_as_boolean_tensor(image_file)
         if combined_mask is None:
             combined_mask = mask

@@ -85,7 +85,18 @@ def get_game_config_private(
 
 
 def get_game_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, Any]:
-    return load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
+    config_public = load_config_file(root_dir=root_dir, config_type="games", config_name=game_id)
+    config_private = get_game_config_private(game_id=game_id)
+    consolidated_config = recursive_update(config_public, config_private)
+    return consolidated_config
+
+
+def save_private_config(game_id: str, data: Dict[str, Any], verbose: bool = True):
+    yaml_file_path = os.path.join(GAME_DIR_BASE, game_id, "config.yaml")
+    with open(yaml_file_path, "w") as file:
+        yaml.dump(data, stream=file, sort_keys=False)
+    if verbose:
+        print(f"Saved private config to {yaml_file_path}")
 
 
 def save_game_config(game_id: str, data: dict, root_dir: Optional[str] = None):
@@ -109,7 +120,6 @@ def get_item(key: str, maps: List[Dict]):
 
 def get_config(
     root_dir: Optional[str] = None,
-    game: Optional[Game] = None,
     game_id: Optional[str] = None,
     rink: Optional[str] = None,
     camera: Optional[str] = None,
