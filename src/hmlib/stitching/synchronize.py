@@ -25,24 +25,6 @@ from hmlib.utils.path import add_suffix_to_filename
 MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
 
 
-#
-# import torch
-# import torch.nn.functional as F
-
-# Assuming audio1 and audio2 are your 1D audio tensors
-# Add batch and channel dimensions (shape: [1, 1, L])
-# audio1 = audio1.unsqueeze(0).unsqueeze(0)
-# audio2 = audio2.unsqueeze(0).unsqueeze(0)
-
-# Compute correlation using convolution
-# The 'groups' argument ensures a separate convolution for each batch
-# correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1)-1, groups=1)
-
-# Remove added dimensions to get the final 1D correlation tensor
-# correlation = correlation.squeeze()
-#
-
-
 def synchronize_by_audio(
     file0_path: str,
     file1_path: str,
@@ -220,6 +202,7 @@ def build_stitching_project(
 
         if True:
             configure_control_points(
+                output_directory=dir_name,
                 project_file_path=hm_project,
                 image0=left_image_file,
                 image1=right_image_file,
@@ -375,6 +358,8 @@ def configure_video_stitching(
 
     force = True
 
+    game_id = dir_name.split("/")[-1]
+
     pto_project_file = os.path.join(dir_name, project_file_name)
     if force or not os.path.exists(pto_project_file):
         left_image_file, right_image_file = extract_frames(
@@ -386,7 +371,7 @@ def configure_video_stitching(
         )
 
         build_stitching_project(
-            pto_project_file,
+            project_file_path=pto_project_file,
             image_files=[left_image_file, right_image_file],
             force=force,
             skip_if_exists=not force,

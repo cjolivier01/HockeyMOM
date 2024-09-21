@@ -1,5 +1,5 @@
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from hmlib.stitching.control_points import calculate_control_points
 
@@ -51,7 +51,11 @@ def remove_control_points(lines: List[str]) -> Tuple[List[str], int]:
 
 
 def configure_control_points(
-    project_file_path: str, image0: str, image1: str, force: bool = False
+    project_file_path: str,
+    image0: str,
+    image1: str,
+    force: bool = False,
+    output_directory: Optional[str] = None,
 ) -> None:
     #  c n0 N1 x5162 y1173 X1416.1875 Y1252.78125 t0
     pto_file = load_pto_file(project_file_path)
@@ -59,7 +63,9 @@ def configure_control_points(
     if prev_control_point_count and not force:
         return
     start = time.time()
-    control_points = calculate_control_points(image0=image0, image1=image1)
+    control_points = calculate_control_points(
+        output_directory=output_directory, image0=image0, image1=image1
+    )
     print(f"Calculated control points in {time.time() - start} seconds")
     pts0 = control_points["m_kpts0"]
     pts1 = control_points["m_kpts1"]

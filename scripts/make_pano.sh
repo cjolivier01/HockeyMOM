@@ -16,13 +16,16 @@ PROJECT_FILE="hm_project.pto"
 # Optimize the project
 
 # auto-level, auto-size
-autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+# autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+
+autooptimiser -s -m -n -o autooptimiser_out.pto "${PROJECT_FILE}"
+
 
 # no auto size
-#autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
+# autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
 
 # no optimize
-# cp my_project.pto autooptimiser_out.pto
+# cp "${PROJECT_FILE}" autooptimiser_out.pto
 
 #autooptimiser -a -m -o autooptimiser_out.pto "${PROJECT_FILE}"
 
