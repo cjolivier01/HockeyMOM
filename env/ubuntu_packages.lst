@@ -2,6 +2,7 @@ ccache
 libpano13-dev
 libglew-dev
 libexiv2-dev
+libfftw3-dev
 libopenexr-dev
 libilmbase-dev
 liblcms2-dev
