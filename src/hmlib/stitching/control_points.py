@@ -189,31 +189,32 @@ def calculate_control_points(
         }
         return results
 
-    # matcher = kornia.feature.LoFTR(None)
-    matcher = my_matcher
+    matcher = kornia.feature.LoFTR(None)
+    # matcher = my_matcher
     stitcher = kornia.contrib.ImageStitcher(matcher)
+    out = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
     # .to(device=device, dtype=image0.dtype)
     torch.manual_seed(1)  # issue kornia#2027
     # out, mask = stitcher.qstitch(
     #     image0.unsqueeze(0).to(torch.float),
     #     image1.unsqueeze(0).to(torch.float),
     # )
-    homo = stitcher.qstitch(
-        image0.unsqueeze(0).to(torch.float),
-        image1.unsqueeze(0).to(torch.float),
-    )
+    # homo = stitcher.qstitch(
+    #     image0.unsqueeze(0).to(torch.float),
+    #     image1.unsqueeze(0).to(torch.float),
+    # )
 
     # H = homo.numpy()
     # img = make_channels_last(image1).numpy()
     # warped_image = cv2.warpPerspective(img, H, (img.shape[1] * 2, img.shape[0] * 2))
 
-    stitched = opencv_stitch(
-        make_channels_last(image0 * 255).clamp(0, 255).to(torch.uint8).numpy(),
-        make_channels_last(image1 * 255).clamp(0, 255).to(torch.uint8).numpy(),
-        H=homo.numpy(),
-    )
+    # stitched = opencv_stitch(
+    #     make_channels_last(image0 * 255).clamp(0, 255).to(torch.uint8).numpy(),
+    #     make_channels_last(image1 * 255).clamp(0, 255).to(torch.uint8).numpy(),
+    #     H=homo.numpy(),
+    # )
 
-    show_image("stitched", stitched)
+    show_image("stitched", out)
     # show_image("warped_image", img)
     # show_image("out", mask * 255)
 
