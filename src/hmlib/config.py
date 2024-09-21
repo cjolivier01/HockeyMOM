@@ -18,6 +18,10 @@ class Game:
     team: Optional[str] = None
 
 
+def get_game_dir(game_id: str) -> str:
+    return os.path.join(GAME_DIR_BASE, game_id)
+
+
 # TODO: implement passing all of this in cleanly somehow
 def adjusted_config_path(path: str, team: str, season: str, args: argparse.Namespace):
     if team:

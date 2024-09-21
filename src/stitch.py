@@ -16,7 +16,6 @@ from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.remapper import ImageRemapper
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer

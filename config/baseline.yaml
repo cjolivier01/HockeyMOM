@@ -113,6 +113,13 @@ game:
   away: null
 
   stitching:
+    frame_offsets:
+      left: null
+      right: null
+    control_points:
+      m_kpts0: null
+      m_kpts1: null
+
     offsets: null
 
   clip_box: null
@@ -124,6 +131,7 @@ game:
     # For scaling to a new stitched size
     scale_width: null
     scale_height: null
+ 
 
 #
 # Model config

@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Union
 
 import torch
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import load_image, rbd
 
 
-def get_control_points(
+def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
@@ -45,7 +45,7 @@ def get_control_points(
 
 
 if __name__ == "__main__":
-    results = get_control_points(
+    results = calculate_control_points(
         image0=f"{os.environ['HOME']}/Videos/ev-sabercats-1/left.png",
         image1=f"{os.environ['HOME']}/Videos/ev-sabercats-1/right.png",
     )

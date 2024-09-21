@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional, Tuple, Union
 
 import moviepy.editor as mp
 import numpy as np
@@ -9,13 +9,20 @@ import tifffile
 import torch
 import torch.nn.functional as F
 
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.ffmpeg import extract_frame_image
 from hmlib.hm_opts import hm_opts
+from hmlib.stitching.control_points import calculate_control_points
+from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
 from hmlib.utils.path import add_suffix_to_filename
 
-MULTIBLEND_BIN = os.path.join(
-    os.environ["HOME"], "src", "multiblend", "src", "multiblend"
-)
+MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
 
 
 #
@@ -76,9 +83,7 @@ def synchronize_by_audio(
 
         # Compute correlation using convolution
         # The 'groups' argument ensures a separate convolution for each batch
-        correlation = F.conv1d(
-            audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1
-        )
+        correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1)
 
         # Remove added dimensions to get the final 1D correlation tensor
         correlation = correlation.squeeze()
@@ -97,14 +102,10 @@ def synchronize_by_audio(
         print("Creating new subclip...")
         if frame_offset:
             if frame_offset < 0:
-                synchronized_video = full_video1.subclip(
-                    max(0, -time_offset), full_video1.duration
-                )
+                synchronized_video = full_video1.subclip(max(0, -time_offset), full_video1.duration)
                 new_file_name = add_suffix_to_filename(file1_path, "sync")
             else:
-                synchronized_video = full_video0.subclip(
-                    max(0, -time_offset), full_video0.duration
-                )
+                synchronized_video = full_video0.subclip(max(0, -time_offset), full_video0.duration)
                 new_file_name = add_suffix_to_filename(file0_path, "sync")
 
             # Write the synchronized video to a file
@@ -155,14 +156,10 @@ def extract_frames(
     right_frame_number: int,
 ):
     file_name_without_extension, _ = os.path.splitext(video_left)
-    left_output_image_file = os.path.join(
-        dir_name, file_name_without_extension + ".png"
-    )
+    left_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
 
     file_name_without_extension, _ = os.path.splitext(video_right)
-    right_output_image_file = os.path.join(
-        dir_name, file_name_without_extension + ".png"
-    )
+    right_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
 
     if not os.path.exists(left_output_image_file):
         extract_frame_image(
@@ -191,15 +188,12 @@ def build_stitching_project(
     # assert project_file_path.endswith("my_project.pto")
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
+    hm_project = os.path.join(dir_name, "hm_project.pto")
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
     skip_if_exists = False
 
-    if skip_if_exists and (
-        os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)
-    ):
-        print(
-            f"Project file already exists (skipping project creation): {autooptimiser_out}"
-        )
+    if skip_if_exists and (os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)):
+        print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
         return True
 
     assert len(image_files) == 2
@@ -214,7 +208,7 @@ def build_stitching_project(
             "-p",
             "1",
             "-o",
-            project_file_path,
+            hm_project,
             "-f",
             str(fov),
             left_image_file,
@@ -222,19 +216,25 @@ def build_stitching_project(
         ]
         cmd_str = " ".join(cmd)
         os.system(cmd_str)
-        cmd = ["cpfind", "--linearmatch", project_file_path, "-o", project_file_path]
-        os.system(" ".join(cmd))
-        cmd = [
-            "autooptimiser",
-            "-a",
-            "-m",
-            "-l",
-            "-s",
-            "-o",
-            autooptimiser_out,
-            project_file_path,
-        ]
-        os.system(" ".join(cmd))
+
+        if True:
+            configure_control_points(
+                project_file_path=hm_project, image0=left_image_file, image1=right_image_file
+            )
+        else:
+            cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]
+            os.system(" ".join(cmd))
+            cmd = [
+                "autooptimiser",
+                "-a",
+                "-m",
+                "-l",
+                "-s",
+                "-o",
+                autooptimiser_out,
+                project_file_path,
+            ]
+            os.system(" ".join(cmd))
 
         # Output mapping files
         cmd = [
@@ -266,13 +266,74 @@ def build_stitching_project(
                     os.path.join(dir_name, autooptimiser_out + "*.tif"),
                 ]
             else:
-                print(
-                    f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}"
-                )
+                print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
             os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
+
+
+def load_or_calculate_control_points(
+    game_id: str,
+    image0: Union[str, Path, torch.Tensor],
+    image1: Union[str, Path, torch.Tensor],
+    force: bool = False,
+    device: Optional[torch.device] = None,
+    save: bool = True,
+) -> Dict[str, torch.Tensor]:
+    config = get_game_config_private(game_id=game_id)
+    control_points = get_nested_value(config, "game.stitching.control_points") if not force else {}
+    if force or not control_points:
+        # Calculate them...
+        control_points = calculate_control_points(image=image0, image1=image1, device=device)
+        assert "m_kpts0" in control_points and "m_kpts1" in control_points
+        # Remove stuff we don't want
+        control_points.pop("kpts0")
+        control_points.pop("kpts1")
+
+        if save:
+            config = set_nested_value(config, "game.stitching.control_points", control_points)
+            save_private_config(game_id=game_id, data=config)
+
+
+def configure_synchronization(
+    game_id: str,
+    video_left: str = "left.mp4",
+    video_right: str = "right.mp4",
+    audio_sync_seconds: float = 15.0,
+    force: bool = False,
+) -> Dict[str, float]:
+    config = get_game_config_private(game_id=game_id)
+    # set_nested_value(config, "game.stitching.frame_offsets", {"left": 1.0, "right": 0.0})
+    frame_offsets = (
+        get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()
+    )
+    if (
+        force
+        or not frame_offsets
+        or frame_offsets.get("left") is None
+        or frame_offsets.get("right") is None
+    ):
+        # Calculate by audio
+        game_dir = get_game_dir(game_id=game_id)
+        lfo, rfo = synchronize_by_audio(
+            file0_path=os.path.join(game_dir, video_left),
+            file1_path=os.path.join(game_dir, video_right),
+            seconds=audio_sync_seconds,
+        )
+        if frame_offsets is None:
+            frame_offsets = {}
+        frame_offsets["left"] = float(lfo)
+        frame_offsets["right"] = float(rfo)
+        set_nested_value(config, "game.stitching.frame_offsets", frame_offsets)
+        save_private_config(game_id=game_id, data=config)
+    else:
+        print(
+            f"Preconfigured: left frame offset: {frame_offsets['left']}, right frame offset: {frame_offsets['right']}"
+        )
+    # Not get form the config
+    frame_offsets = get_nested_value(config, "game.stitching.frame_offsets")
+    return frame_offsets
 
 
 def configure_video_stitching(
@@ -282,16 +343,27 @@ def configure_video_stitching(
     project_file_name: str = "my_project.pto",
     left_frame_offset: int = None,
     right_frame_offset: int = None,
-    base_frame_offset: int = 800,
-    # base_frame_offset: int = 5580,
+    base_frame_offset: int = 100,
     audio_sync_seconds: int = 15,
+    force: bool = False,
 ):
     if left_frame_offset is None or right_frame_offset is None:
-        left_frame_offset, right_frame_offset = synchronize_by_audio(
-            file0_path=os.path.join(dir_name, video_left),
-            file1_path=os.path.join(dir_name, video_right),
-            seconds=audio_sync_seconds,
-        )
+        if True:
+            frame_offsets = configure_synchronization(
+                game_id=dir_name.split("/")[-1],
+                video_left=video_left,
+                video_right=video_right,
+                audio_sync_seconds=audio_sync_seconds,
+                force=force,
+            )
+            left_frame_offset = float(frame_offsets["left"])
+            right_frame_offset = float(frame_offsets["right"])
+        else:
+            left_frame_offset, right_frame_offset = synchronize_by_audio(
+                file0_path=os.path.join(dir_name, video_left),
+                file1_path=os.path.join(dir_name, video_right),
+                seconds=audio_sync_seconds,
+            )
 
     # PTO Project File
     pto_project_file = os.path.join(dir_name, project_file_name)
@@ -304,39 +376,9 @@ def configure_video_stitching(
             base_frame_offset + right_frame_offset,
         )
 
-        build_stitching_project(
-            pto_project_file, image_files=[left_image_file, right_image_file]
-        )
+        build_stitching_project(pto_project_file, image_files=[left_image_file, right_image_file])
 
     return pto_project_file, left_frame_offset, right_frame_offset
-
-
-# def create_stitched_image(
-#     left_image: np.array,
-#     right_image: np.array,
-#     project_file_path: str,
-#     save_seams: bool = True,
-# ) -> np.array:
-#     """
-#     Stitch a single image using a Hugin project file
-#     """
-#     stitcher = core.StitchingDataLoader(
-#         0,
-#         self._pto_project_file,
-#         os.path.splitext(self._pto_project_file)[0] + ".seam.png" if save_seams else "",
-#         (
-#             os.path.splitext(self._pto_project_file)[0] + ".xor_mask.png"
-#             if save_seams
-#             else ""
-#         ),
-#         save_seams,
-#         1,
-#         1,
-#         1,
-#     )
-#     core.add_to_stitching_data_loader(stitcher, 0, left_image, right_image)
-#     stitched_frame = stitcher.get_stitched_frame(0)
-#     return stitched_frame
 
 
 def find_sitched_roi(image):
