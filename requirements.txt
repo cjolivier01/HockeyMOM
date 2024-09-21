@@ -31,6 +31,7 @@ cameratransform
 tifffile
 scikit-build
 scikit-learn
+kornia
 lmdb
 loguru
 thop
