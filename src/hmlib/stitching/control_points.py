@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 from lightglue import LightGlue, SuperPoint, viz2d
@@ -10,7 +11,7 @@ def get_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Dict[str, torch.Tensor]:
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor = SuperPoint(max_num_keypoints=2048).eval().to(device)  # load the extractor
@@ -40,11 +41,12 @@ def get_control_points(
     viz2d.plot_images([image0, image1])
     viz2d.plot_keypoints([kpts0, kpts1], colors=[kpc0, kpc1], ps=10)
     viz2d.save_plot("keypoints.png")
-    return kpts0, m_kpts0, kpts1, m_kpts1
+    return dict(kpts0=kpts0, m_kpts0=m_kpts0, kpts1=kpts1, m_kpts1=m_kpts1)
 
 
 if __name__ == "__main__":
     results = get_control_points(
-        image0="/mnt/home/colivier-local/Videos/pdp/left.png",
-        image1="/mnt/home/colivier-local/Videos/pdp/right.png",
+        image0=f"{os.environ['HOME']}/Videos/ev-sabercats-1/left.png",
+        image1=f"{os.environ['HOME']}/Videos/ev-sabercats-1/right.png",
     )
+    print("Done.")

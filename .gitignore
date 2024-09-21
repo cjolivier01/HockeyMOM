@@ -26,3 +26,5 @@ debug_tensorboard
 /*.pth.tar
 /s.png
 output_workdirs
+/keypoints.png
+/matches.png
