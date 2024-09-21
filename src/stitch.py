@@ -32,6 +32,7 @@ def make_parser():
         "--num-workers", default=1, type=int, help="Number of stitching workers"
     )
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
+    parser.add_argument("--force", action="store_true", help="Force all recalcs")
     return parser
 
 
@@ -65,6 +66,7 @@ def stitch_videos(
     ignore_clip_box: bool = True,
     cache_size: int = 4,
     dtype: torch.dtype = torch.float,
+    force: bool = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -80,6 +82,7 @@ def stitch_videos(
         project_file_name,
         left_frame_offset=lfo,
         right_frame_offset=rfo,
+        force=force,
     )
 
     data_loader = StitchDataset(
@@ -215,10 +218,9 @@ def main(args):
             cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
             remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
             encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
-            decoder_device=(
-                torch.device(args.decoder_device) if args.decoder_device else None
-            ),
+            decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
             dtype=torch.half if args.fp16 else torch.float,
+            force=args.force,
         )
 
 

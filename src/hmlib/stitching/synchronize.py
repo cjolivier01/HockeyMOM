@@ -183,6 +183,7 @@ def build_stitching_project(
     skip_if_exists: bool = True,
     test_blend: bool = True,
     fov: int = 108,
+    force: bool = False,
 ):
     # TODO: need to fix this function
     # assert project_file_path.endswith("my_project.pto")
@@ -219,22 +220,27 @@ def build_stitching_project(
 
         if True:
             configure_control_points(
-                project_file_path=hm_project, image0=left_image_file, image1=right_image_file
+                project_file_path=hm_project,
+                image0=left_image_file,
+                image1=right_image_file,
+                force=True,
             )
         else:
             cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]
             os.system(" ".join(cmd))
-            cmd = [
-                "autooptimiser",
-                "-a",
-                "-m",
-                "-l",
-                "-s",
-                "-o",
-                autooptimiser_out,
-                project_file_path,
-            ]
-            os.system(" ".join(cmd))
+
+        # autooptimiser (RANSAC?)
+        cmd = [
+            "autooptimiser",
+            "-a",
+            "-m",
+            "-l",
+            "-s",
+            "-o",
+            autooptimiser_out,
+            hm_project,
+        ]
+        os.system(" ".join(cmd))
 
         # Output mapping files
         cmd = [
@@ -366,8 +372,11 @@ def configure_video_stitching(
             )
 
     # PTO Project File
+
+    force = True
+
     pto_project_file = os.path.join(dir_name, project_file_name)
-    if not os.path.exists(pto_project_file):
+    if force or not os.path.exists(pto_project_file):
         left_image_file, right_image_file = extract_frames(
             dir_name,
             video_left,
@@ -376,7 +385,12 @@ def configure_video_stitching(
             base_frame_offset + right_frame_offset,
         )
 
-        build_stitching_project(pto_project_file, image_files=[left_image_file, right_image_file])
+        build_stitching_project(
+            pto_project_file,
+            image_files=[left_image_file, right_image_file],
+            force=force,
+            skip_if_exists=not force,
+        )
 
     return pto_project_file, left_frame_offset, right_frame_offset
 

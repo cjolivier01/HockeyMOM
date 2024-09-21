@@ -2,6 +2,9 @@
 
 rm -f panorama.tif nona*.tif
 
+PROJECT_FILE="hm_project.pto"
+#PROJECT_FILE="my_project.pto"
+
 # generate project file from images, FOV=108 degrees
 #pto_gen -p 0 -o my_project.pto -f 108 left.png right.png
 #pto_gen -p 1 -o my_project.pto -f 108 left.png right.png
@@ -11,8 +14,17 @@ rm -f panorama.tif nona*.tif
 #cpfind --linearmatch --celeste my_project.pto -o my_project.pto
 
 # Optimize the project
-autooptimiser -a -m -l -s -o autooptimiser_out.pto my_project.pto
-# autooptimiser -a -m -o autooptimiser_out.pto my_project.pto
+
+# auto-level, auto-size
+autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+
+# no auto size
+#autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
+
+# no optimize
+# cp my_project.pto autooptimiser_out.pto
+
+#autooptimiser -a -m -o autooptimiser_out.pto "${PROJECT_FILE}"
 
 # Remap the images
 #nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto

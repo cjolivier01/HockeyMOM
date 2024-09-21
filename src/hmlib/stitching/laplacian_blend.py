@@ -55,10 +55,12 @@ def upsample(image, size):
 
 def show_image(
     label: str,
-    img: torch.Tensor,
+    img: Union[str, torch.Tensor],
     wait: bool = True,
     enable_resizing: Union[bool, None] = None,
 ):
+    if isinstance(img, str):
+        img = cv2.imread(img)
     if img.ndim == 2:
         # grayscale
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
