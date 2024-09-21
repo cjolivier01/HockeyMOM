@@ -252,7 +252,19 @@ def opencv_stitch(image1, image2, H):
     #     H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
 
     height, width, channels = image1.shape
-    result = cv2.warpPerspective(image2, H, (width * 2, height))
+    output_shape = (width * 2, height)
+    result = cv2.warpPerspective(image2, H, output_shape)
+
+    mask_left = np.ones_like(image1)
+    mask_right = np.ones_like(image2)
+    # 'nearest' to ensure no floating points in the mask
+    src_mask = cv2.warpPerspective(mask_right, H, output_shape, flags=cv2.INTER_NEAREST)
+    # warp_perspective(mask_right, homo, out_shape, mode="nearest")
+    dst_mask = np.concatenate([mask_left, np.zeros_like(mask_right)], -1)
+    # return self.blend_image(src_img, dst_img, src_mask), (dst_mask + src_mask).bool().to(
+    #     src_mask.dtype
+    # )
+
     result[0:height, 0:width] = image1
 
     # cv2.imshow("Stitched Image", result)
