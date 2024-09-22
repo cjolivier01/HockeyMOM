@@ -186,19 +186,19 @@ def build_stitching_project(
     curr_dir = os.getcwd()
     try:
         os.chdir(dir_name)
-        cmd = [
-            "pto_gen",
-            "-p",
-            "1",
-            "-o",
-            hm_project,
-            "-f",
-            str(fov),
-            left_image_file,
-            right_image_file,
-        ]
-        cmd_str = " ".join(cmd)
-        os.system(cmd_str)
+        # cmd = [
+        #     "pto_gen",
+        #     "-p",
+        #     "1",
+        #     "-o",
+        #     hm_project,
+        #     "-f",
+        #     str(fov),
+        #     left_image_file,
+        #     right_image_file,
+        # ]
+        # cmd_str = " ".join(cmd)
+        # os.system(cmd_str)
 
         if True:
             configure_control_points(
