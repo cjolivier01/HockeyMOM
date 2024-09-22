@@ -50,6 +50,7 @@ from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import CachedIterator, StreamTensor, select_gpus
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.mot_data import MOTTrackingData
+from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.pipeline import get_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.video_stream import time_to_frame
@@ -890,6 +891,7 @@ def main(args, num_gpu):
                 else:
                     # Going into game-dir (numbered if pre-existing)
                     file_name = output_video_path.split("/")[-1]
+                    file_name = add_suffix_to_filename(file_name, "-with-audio")
                     base_name, extension = os.path.splitext(file_name)
                     if extension == ".mkv":
                         # There will be audio drift when adding audio
