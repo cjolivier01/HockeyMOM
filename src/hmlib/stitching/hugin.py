@@ -168,7 +168,8 @@ def configure_control_points(
         pto_file.append(line)
     save_pto_file(file_path=project_file_path, data=pto_file)
     configure_pano_size(
-        project_file_path=project_file_path, pano_width=int(image_width(cv2.imread(image0)) * 1.5)
+        project_file_path=project_file_path,
+        pano_width=int(min(8192, image_width(cv2.imread(image0)) * 1.5)),
     )
     print("Done with control points")
 
@@ -191,9 +192,9 @@ def configure_pano_size(project_file_path: str, pano_width: int):
     if int(params["w"]) == pano_width:
         return
     ar = float(params["w"]) / float(params["h"])
-    w = float(pano_width)
+    w = pano_width
     h = int(w / ar)
-    params["w"] = str(int(min(8192, w)))
+    params["w"] = str(int(w))
     params["h"] = str(h)
     params["v"] = "180"
     output_line = ""
