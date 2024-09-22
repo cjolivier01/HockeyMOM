@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import cv2
 import kornia
@@ -123,6 +123,50 @@ def indices_of_min_x(points: torch.Tensor, N: int):
     return indices[:N]
 
 
+def cvtcolor_bgr_to_rgb(image_bgr: torch.Tensor) -> torch.Tensor:
+    if image_bgr.ndim == 3:
+        return image_bgr[[2, 1, 0], :, :]
+    return image_bgr[:, [2, 1, 0], :, :]
+
+
+def compute_destination_size_wh(
+    img: torch.Tensor, homography_matrix: torch.Tensor
+) -> Tuple[int, int]:
+    width = image_width(img)
+    height = image_height(img)
+    corners = np.array(
+        [
+            [0, 0],  # Top-left corner
+            [width, 0],  # Top-right corner
+            [width, height],  # Bottom-right corner
+            [0, height],  # Bottom-left corner
+        ],
+        dtype="float32",
+    )
+
+    # Reshape for perspectiveTransform
+    corners = corners.reshape(-1, 1, 2)
+
+    # Apply homography
+    if isinstance(homography_matrix, torch.Tensor):
+        homography_matrix = homography_matrix.cpu().numpy()
+    transformed_corners = cv2.perspectiveTransform(corners, homography_matrix)
+
+    # Calculate the bounding box of the transformed corners
+    x_coords = transformed_corners[:, 0, 0]
+    y_coords = transformed_corners[:, 0, 1]
+
+    min_x = np.min(x_coords)
+    max_x = np.max(x_coords)
+    min_y = np.min(y_coords)
+    max_y = np.max(y_coords)
+
+    # Compute the dimensions of the bounding box
+    new_width = int(np.ceil(max_x - min_x))
+    new_height = int(np.ceil(max_y - min_y))
+    return new_width, new_height
+
+
 def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
@@ -203,6 +247,11 @@ def calculate_control_points(
     image1 = make_channels_first(image1)
     stitcher.to(image0.device)
     out, src_img, dest_img = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
+
+    out = cvtcolor_bgr_to_rgb(out)
+    src_img = cvtcolor_bgr_to_rgb(src_img)
+    dest_img = cvtcolor_bgr_to_rgb(dest_img)
+
     # out = out * 255
     # .to(device=device, dtype=image0.dtype)
     torch.manual_seed(1)  # issue kornia#2027
@@ -225,9 +274,10 @@ def calculate_control_points(
     #     H=homo.numpy(),
     # )
 
-    # show_image("stitched", dest_img * 255)
+    # show_image("dest_img", dest_img * 255)
+    show_image("src_img", src_img * 255)
     # show_image("warped_image", img)
-    # show_image("out", mask * 255)
+    # show_image("out", out * 255)
 
     if output_directory:
         axes = viz2d.plot_images([image0, image1])

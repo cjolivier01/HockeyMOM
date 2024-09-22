@@ -208,7 +208,7 @@ def build_stitching_project(
                 image0=left_image_file,
                 image1=right_image_file,
                 force=True,
-                use_hugin=True,
+                use_hugin=False,
             )
         else:
             cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]

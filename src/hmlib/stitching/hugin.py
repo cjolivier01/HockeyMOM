@@ -112,7 +112,7 @@ def configure_control_points(
     image1: str,
     force: bool = False,
     output_directory: Optional[str] = None,
-    use_hugin: bool = True,
+    use_hugin: bool = False,
 ) -> None:
     #  c n0 N1 x5162 y1173 X1416.1875 Y1252.78125 t0
     pto_file = load_pto_file(project_file_path)
