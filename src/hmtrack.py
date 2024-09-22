@@ -927,52 +927,6 @@ def main(args, num_gpu):
                 video_source_file=output_video_path,
                 output_av_path=args.output_video,
             )
-            # video_with_audio = args.output_video
-            # if not video_with_audio:
-            #     game_video_dir = get_game_dir(args.game_id)
-            #     # TODO: Use hmlib.utils.path functions for this (or create as needed)
-            #     if not game_video_dir:
-            #         # Going into results dir
-            #         dir_tokens = output_video_path.split("/")
-            #         file_name = dir_tokens[-1]
-            #         fn_tokens = file_name.split(".")
-            #         if len(fn_tokens) > 1:
-            #             if fn_tokens[-1] == "mkv":
-            #                 # There will be audio drift when adding audio
-            #                 # from mkv to mkv due to strange frame rate items
-            #                 # in the mkv that differ from the original
-            #                 fn_tokens[-1] = "mp4"
-            #             fn_tokens[-2] += "-with-audio"
-            #         else:
-            #             fn_tokens[0] += "-with-audio"
-            #         dir_tokens[-1] = ".".join(fn_tokens)
-            #         video_with_audio = os.path.join(*dir_tokens)
-            #     else:
-            #         # Going into game-dir (numbered if pre-existing)
-            #         file_name = output_video_path.split("/")[-1]
-            #         file_name = add_suffix_to_filename(file_name, "-with-audio")
-            #         base_name, extension = os.path.splitext(file_name)
-            #         if extension == ".mkv":
-            #             # There will be audio drift when adding audio
-            #             # from mkv to mkv due to strange frame rate items
-            #             # in the mkv that differ from the original
-            #             extension = ".mp4"
-            #         video_with_audio = None
-            #         for i in range(1000):
-            #             if i:
-            #                 fname = base_name + "-" + str(i) + extension
-            #             else:
-            #                 fname = base_name + extension
-            #             fname = os.path.join(game_video_dir, fname)
-            #             if not os.path.exists(fname):
-            #                 video_with_audio = fname
-            #                 break
-            # print(f"Saving video with audio to file: {video_with_audio}")
-            # copy_audio(
-            #     input_audio=input_video_files,
-            #     input_video=output_video_path,
-            #     output_video=video_with_audio,
-            # )
         logger.info("Completed")
     except Exception as ex:
         print(ex)

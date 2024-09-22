@@ -116,9 +116,14 @@ def copy_audio(original_video: str, soundless_video: str, final_audio_video: str
     os.system(cmd_str)
 
 
-def extract_frame_image(source_video: str, frame_number: int, dest_image: str):
+def extract_frame_image(source_video: str, frame_number: float, dest_image: str):
     print(f"Extracting frame {frame_number} from {source_video}...")
-    cmd_str = f'ffmpeg -y -i {source_video} -vf "select=eq(n\,{frame_number})" -vframes 1 {dest_image}'
+    if frame_number:
+        info = BasicVideoInfo(source_video)
+        ss = frame_number / info.fps
+        cmd_str = f"ffmpeg -y -ss {ss} -i {source_video} -vframes 1 {dest_image}"
+    else:
+        cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
     print(cmd_str)
     os.system(cmd_str)
 

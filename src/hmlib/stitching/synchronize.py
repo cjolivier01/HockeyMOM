@@ -337,7 +337,7 @@ def configure_video_stitching(
     project_file_name: str = "hm_project.pto",
     left_frame_offset: int = None,
     right_frame_offset: int = None,
-    base_frame_offset: int = 100,
+    base_frame_offset: int = 0,
     audio_sync_seconds: int = 15,
     force: bool = False,
 ):
