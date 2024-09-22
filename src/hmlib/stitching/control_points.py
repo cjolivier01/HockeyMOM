@@ -197,7 +197,8 @@ def calculate_control_points(
     image0 = make_channels_first(image0)
     image1 = make_channels_first(image1)
     stitcher.to(image0.device)
-    out = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
+    out, src_img, dest_img = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
+    # out = out * 255
     # .to(device=device, dtype=image0.dtype)
     torch.manual_seed(1)  # issue kornia#2027
     # out, mask = stitcher.qstitch(
@@ -219,7 +220,7 @@ def calculate_control_points(
     #     H=homo.numpy(),
     # )
 
-    show_image("stitched", out)
+    show_image("stitched", dest_img * 255)
     # show_image("warped_image", img)
     # show_image("out", mask * 255)
 
