@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_visible_image
 
 
@@ -61,6 +62,8 @@ def show_image(
 ):
     if isinstance(img, str):
         img = cv2.imread(img)
+    elif isinstance(img, StreamTensor):
+        img = img.get()
     if img.ndim == 2:
         # grayscale
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
