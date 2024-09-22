@@ -21,6 +21,7 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import hm_opts
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.utils.image import image_height, image_width
 
 DEFAULT_SCORE_THRESH = 0.3
@@ -290,8 +291,9 @@ def result_to_polygons(
 
         if show:
             mask_image = mask.astype(np.uint8) * 255
-            cv2.namedWindow("Ice-rink", 0)
-            mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
+            # cv2.namedWindow("Ice-rink", 0)
+            # mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
+            show_image("Ice-rink", mask_image)
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list

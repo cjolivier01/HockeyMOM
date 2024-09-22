@@ -66,6 +66,8 @@ def show_image(
         img = img.get()
     if img.ndim == 2:
         # grayscale
+        if isinstance(img, np.ndarray):
+            img = torch.from_numpy(img)
         img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
     if img.ndim == 4:
         for i in img:

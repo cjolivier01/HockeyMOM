@@ -119,6 +119,8 @@ def scale_polygon(polygon: List[Tuple[float, float]], ratio: float) -> List[Tupl
 
 
 def calculate_centroid(polygons: ContourPoints) -> torch.Tensor:
+    if isinstance(polygons, list) and isinstance(polygons[0], np.ndarray):
+        polygons = np.concatenate(polygons, axis=0)
     points, _ = to_points_tensor(polygons)
     assert points.ndim == 2
     assert points.shape[1] == 2
