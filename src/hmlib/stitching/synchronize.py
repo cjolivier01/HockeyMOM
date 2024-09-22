@@ -171,9 +171,9 @@ def build_stitching_project(
     # assert project_file_path.endswith("my_project.pto")
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
-    hm_project = os.path.join(dir_name, "hm_project.pto")
+    # hm_project = os.path.join(dir_name, "hm_project.pto")
+    hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
-    skip_if_exists = False
 
     if skip_if_exists and (os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)):
         print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
@@ -185,7 +185,7 @@ def build_stitching_project(
 
     curr_dir = os.getcwd()
     try:
-        if not os.path.exists(hm_project):
+        if not os.path.exists(hm_project) or force:
             os.chdir(dir_name)
             cmd = [
                 "pto_gen",
@@ -337,7 +337,7 @@ def configure_video_stitching(
     dir_name: str,
     video_left: str = "left.mp4",
     video_right: str = "right.mp4",
-    project_file_name: str = "my_project.pto",
+    project_file_name: str = "hm_project.pto",
     left_frame_offset: int = None,
     right_frame_offset: int = None,
     base_frame_offset: int = 100,
@@ -363,11 +363,6 @@ def configure_video_stitching(
             )
 
     # PTO Project File
-
-    force = True
-
-    game_id = dir_name.split("/")[-1]
-
     pto_project_file = os.path.join(dir_name, project_file_name)
     if force or not os.path.exists(pto_project_file):
         left_image_file, right_image_file = extract_frames(

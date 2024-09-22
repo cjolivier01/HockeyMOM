@@ -52,7 +52,7 @@ def stitch_videos(
     lfo: int = None,
     rfo: int = None,
     game_id: str = None,
-    project_file_name: str = "my_project.pto",
+    project_file_name: str = "hm_project.pto",
     blend_mode: str = "multiblend",
     start_frame_number: int = 0,
     max_frames: int = None,

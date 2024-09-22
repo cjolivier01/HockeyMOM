@@ -165,7 +165,7 @@ class hm_opts(object):
             "--project-file",
             "--project_file",
             dest="project_file",
-            default="autooptimiser_out.pto",
+            default="hm_project.pto",
             type=str,
             help="Use project file as input to stitcher",
         )
