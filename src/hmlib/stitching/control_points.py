@@ -6,6 +6,7 @@ import cv2
 import kornia
 import numpy as np
 import torch
+from kornia.geometry.transform import warp_perspective
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import load_image, rbd
 
@@ -172,7 +173,6 @@ def calculate_control_points(
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
     max_num_keypoints: int = 2048,
-    # max_num_keypoints: int = 50,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
     if device is None:
@@ -180,7 +180,6 @@ def calculate_control_points(
     extractor = (
         SuperPoint(
             max_num_keypoints=max_num_keypoints,
-            # detection_threshold=0.1,
         )
         .eval()
         .to(device)
@@ -202,38 +201,28 @@ def calculate_control_points(
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
-    y_threshold = image_height(image0) / 15
-    left_x_threshold = image_width(image0) - image_width(image0) / 25
-    right_x_threshold = image_width(image0) / 25
+    if output_directory:
+        axes = viz2d.plot_images([image0, image1])
+        viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
+        viz2d.add_text(0, f'Stop after {matches01["stop"]} layers', fs=20)
+        viz2d.save_plot(os.path.join(output_directory, "matches.png"))
 
-    # Very top will diverge, so don't trust these points
-    if False:
-        # indices = indices_below_y_threshold(m_kpts0, y_threshold)
-        # m_kpts0 = m_kpts0[indices]
-        # m_kpts1 = m_kpts1[indices]
+        kpc0, kpc1 = viz2d.cm_prune(matches01["prune0"]), viz2d.cm_prune(matches01["prune1"])
+        viz2d.plot_images([image0, image1])
+        viz2d.plot_keypoints([kpts0, kpts1], colors=[kpc0, kpc1], ps=10)
+        viz2d.save_plot(os.path.join(output_directory, "keypoints.png"))
+    return dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
 
-        # indices = indices_below_y_threshold(m_kpts1, y_threshold)
-        # m_kpts0 = m_kpts0[indices]
-        # m_kpts1 = m_kpts1[indices]
 
-        # indices = indices_below_x_threshold(m_kpts0, left_x_threshold)
-        # m_kpts0 = m_kpts0[indices]
-        # m_kpts1 = m_kpts1[indices]
-
-        # indices = indices_above_x_threshold(m_kpts1, right_x_threshold)
-        # m_kpts0 = m_kpts0[indices]
-        # m_kpts1 = m_kpts1[indices]
-
-        # indices = indices_of_min_x(m_kpts0, 20)
-
-        indices = select_evenly_spaced(m_kpts0, 50)
-        # m_kpts0 = m_kpts0[indices]
-        # m_kpts1 = m_kpts1[indices]
-
+def do_stitch(
+    image0: Union[str, Path, torch.Tensor],
+    image1: Union[str, Path, torch.Tensor],
+    control_points: Dict[str, torch.Tensor],
+) -> torch.Tensor:
     def my_matcher(data: Dict[str, torch.Tensor]):
         results = {
-            "keypoints1": m_kpts0,
-            "keypoints0": m_kpts1,
+            "keypoints1": control_points["m_kpts0"],
+            "keypoints0": control_points["m_kpts1"],
             "batch_indexes": [0],
         }
         return results
@@ -246,15 +235,21 @@ def calculate_control_points(
     image0 = make_channels_first(image0)
     image1 = make_channels_first(image1)
     stitcher.to(image0.device)
-    out, src_img, dest_img = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
 
+    out, src_img, dest_img = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
     out = cvtcolor_bgr_to_rgb(out)
     src_img = cvtcolor_bgr_to_rgb(src_img)
     dest_img = cvtcolor_bgr_to_rgb(dest_img)
 
+    H = stitcher.qstitch(image0.unsqueeze(0), image1.unsqueeze(0))
+    # warped_width_height = compute_destination_size_wh(image1, H)
+    # warped_width_height = image_width(image1), image_height(image1)
+    # warped_width_height = (warped_width_height[1], warped_width_height[0])
+    # warped_right = warp_perspective(image1.unsqueeze(0), H.unsqueeze(0), warped_width_height)
+
     # out = out * 255
     # .to(device=device, dtype=image0.dtype)
-    torch.manual_seed(1)  # issue kornia#2027
+    # torch.manual_seed(1)  # issue kornia#2027
     # out, mask = stitcher.qstitch(
     #     image0.unsqueeze(0).to(torch.float),
     #     image1.unsqueeze(0).to(torch.float),
@@ -275,22 +270,11 @@ def calculate_control_points(
     # )
 
     # show_image("dest_img", dest_img * 255)
-    show_image("src_img", src_img * 255)
+    # show_image("src_img", src_img * 255)
+    # show_image("warped_right", warped_right * 255)
     # show_image("warped_image", img)
     # show_image("out", out * 255)
-
-    if output_directory:
-        axes = viz2d.plot_images([image0, image1])
-        viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
-        viz2d.add_text(0, f'Stop after {matches01["stop"]} layers', fs=20)
-        viz2d.save_plot(os.path.join(output_directory, "matches.png"))
-        # show_image("matches", os.path.join(output_directory, "matches.png"))
-
-        kpc0, kpc1 = viz2d.cm_prune(matches01["prune0"]), viz2d.cm_prune(matches01["prune1"])
-        viz2d.plot_images([image0, image1])
-        viz2d.plot_keypoints([kpts0, kpts1], colors=[kpc0, kpc1], ps=10)
-        viz2d.save_plot(os.path.join(output_directory, "keypoints.png"))
-    return dict(kpts0=kpts0, m_kpts0=m_kpts0, kpts1=kpts1, m_kpts1=m_kpts1)
+    return None
 
 
 def opencv_stitch(image1, image2, H):
