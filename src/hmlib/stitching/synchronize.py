@@ -167,11 +167,8 @@ def build_stitching_project(
     fov: int = 108,
     force: bool = False,
 ):
-    # TODO: need to fix this function
-    # assert project_file_path.endswith("my_project.pto")
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
-    # hm_project = os.path.join(dir_name, "hm_project.pto")
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
 
