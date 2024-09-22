@@ -185,20 +185,21 @@ def build_stitching_project(
 
     curr_dir = os.getcwd()
     try:
-        os.chdir(dir_name)
-        cmd = [
-            "pto_gen",
-            "-p",
-            "0",
-            "-o",
-            hm_project,
-            "-f",
-            str(fov),
-            left_image_file,
-            right_image_file,
-        ]
-        cmd_str = " ".join(cmd)
-        os.system(cmd_str)
+        if not os.path.exists(hm_project):
+            os.chdir(dir_name)
+            cmd = [
+                "pto_gen",
+                "-p",
+                "0",
+                "-o",
+                hm_project,
+                "-f",
+                str(fov),
+                left_image_file,
+                right_image_file,
+            ]
+            cmd_str = " ".join(cmd)
+            os.system(cmd_str)
 
         if True:
             configure_control_points(
@@ -207,6 +208,7 @@ def build_stitching_project(
                 image0=left_image_file,
                 image1=right_image_file,
                 force=True,
+                use_hugin=True,
             )
         else:
             cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]

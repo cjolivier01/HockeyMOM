@@ -112,25 +112,34 @@ def configure_control_points(
     image1: str,
     force: bool = False,
     output_directory: Optional[str] = None,
-    use_hugin: bool = False,
+    use_hugin: bool = True,
 ) -> None:
     #  c n0 N1 x5162 y1173 X1416.1875 Y1252.78125 t0
-    control_points = None
     pto_file = load_pto_file(project_file_path)
-    if use_hugin:
-        hugin_ctrl_points = parse_hugin_control_points(pto_file)
-        if hugin_ctrl_points is not None:
-            m_kpts0 = hugin_ctrl_points[0]
-            m_kpts1 = hugin_ctrl_points[1]
-            control_points = dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
-        else:
-            use_hugin = False
+    hugin_ctrl_points = parse_hugin_control_points(pto_file)
+    if hugin_ctrl_points is None:
+        use_hugin = False
+    if hugin_ctrl_points is not None and not force:
+        return
+
+    control_points = None
+
+    if use_hugin and hugin_ctrl_points is not None:
+        m_kpts0 = hugin_ctrl_points[0]
+        m_kpts1 = hugin_ctrl_points[1]
+        control_points = dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
+
     if not control_points:
         start = time.time()
         control_points = calculate_control_points(
             output_directory=output_directory, image0=image0, image1=image1
         )
         print(f"Calculated control points in {time.time() - start} seconds")
+
+    if use_hugin and hugin_ctrl_points is not None:
+        # Don't rewrite if we got tyhem from the huugin project file
+        return
+
     pts0 = control_points["m_kpts0"]
     pts1 = control_points["m_kpts1"]
     assert len(pts0) == len(pts1)
