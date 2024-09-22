@@ -26,7 +26,12 @@ from hmlib.utils.image import (
 )
 
 
+def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
+    return torch.norm(pt0 - pt1)
+
+
 class Scoreboard(torch.nn.Module):
+
     def __init__(
         self,
         src_pts: torch.Tensor,
@@ -35,9 +40,8 @@ class Scoreboard(torch.nn.Module):
         dtype: torch.dtype,
         clip_box: Union[torch.Tensor, None] = None,
         device: Union[torch.device, None] = None,
+        auto_aspect: bool = True,
     ):
-        self._dest_width = dest_width
-        self._dest_height = dest_height
         if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
         assert len(src_pts) == 4
@@ -56,6 +60,28 @@ class Scoreboard(torch.nn.Module):
 
         src_width = self._bbox_src[2] - self._bbox_src[0]
         src_height = self._bbox_src[3] - self._bbox_src[1]
+
+        if auto_aspect:
+            w_across_top = point_distance(self._src_pts[0], self._src_pts[1])
+            w_across_bottom = point_distance(self._src_pts[2], self._src_pts[3])
+            h_left = point_distance(self._src_pts[3], self._src_pts[0])
+            h_right = point_distance(self._src_pts[2], self._src_pts[3])
+            w_avg = (w_across_top + w_across_bottom) / 2
+            h_avg = (h_left + h_right) / 2
+            aspect_ratio = w_avg / h_avg
+            dest_width_new = int(float(dest_height) * aspect_ratio)
+            dest_height_new = int(float(dest_width) / aspect_ratio)
+            # Try whichever one changes the least
+            if (
+                abs(dest_width - dest_width_new) / dest_width
+                < abs(dest_height - dest_height_new) / dest_height
+            ):
+                dest_width = dest_width_new
+            else:
+                dest_height = dest_height_new
+
+        self._dest_width = dest_width
+        self._dest_height = dest_height
 
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
