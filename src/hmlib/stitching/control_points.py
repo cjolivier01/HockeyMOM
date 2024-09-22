@@ -11,7 +11,12 @@ from lightglue.utils import load_image, rbd
 
 from hmlib.config import get_game_dir
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.utils.image import image_height, image_width, make_channels_last, make_channels_first
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 
 
 def evenly_spaced_indices(n_points, n_samples):
@@ -220,7 +225,7 @@ def calculate_control_points(
     #     H=homo.numpy(),
     # )
 
-    show_image("stitched", dest_img * 255)
+    # show_image("stitched", dest_img * 255)
     # show_image("warped_image", img)
     # show_image("out", mask * 255)
 
