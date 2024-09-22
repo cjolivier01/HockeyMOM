@@ -211,7 +211,9 @@ def calculate_control_points(
         viz2d.plot_images([image0, image1])
         viz2d.plot_keypoints([kpts0, kpts1], colors=[kpc0, kpc1], ps=10)
         viz2d.save_plot(os.path.join(output_directory, "keypoints.png"))
-    return dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
+    control_points = dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
+    # do_stitch(image0=image0, image1=image1, control_points=control_points)
+    return control_points
 
 
 def do_stitch(
@@ -221,15 +223,14 @@ def do_stitch(
 ) -> torch.Tensor:
     def my_matcher(data: Dict[str, torch.Tensor]):
         results = {
+            # Inverting keypoints since dest is image0 and src is image1
             "keypoints1": control_points["m_kpts0"],
             "keypoints0": control_points["m_kpts1"],
             "batch_indexes": [0],
         }
         return results
 
-    matcher = kornia.feature.LoFTR(None)
-    matcher = my_matcher
-    stitcher = kornia.contrib.ImageStitcher(matcher)
+    stitcher = kornia.contrib.ImageStitcher(matcher=my_matcher)
     image0 = image0.to("cuda:0")
     image1 = image1.to(image0.device)
     image0 = make_channels_first(image0)
@@ -242,6 +243,7 @@ def do_stitch(
     dest_img = cvtcolor_bgr_to_rgb(dest_img)
 
     H = stitcher.qstitch(image0.unsqueeze(0), image1.unsqueeze(0))
+    out = opencv_stitch(image0.cpu().numpy(), image1.cpu().numpy(), H.cpu().numpy())
     # warped_width_height = compute_destination_size_wh(image1, H)
     # warped_width_height = image_width(image1), image_height(image1)
     # warped_width_height = (warped_width_height[1], warped_width_height[0])
@@ -296,7 +298,8 @@ def opencv_stitch(image1, image2, H):
     #     src_pts = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     #     dst_pts = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     #     H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-
+    image1 = make_channels_last(image1)
+    image2 = make_channels_last(image2)
     height, width, channels = image1.shape
     output_shape = (width * 2, height)
     result = cv2.warpPerspective(image2, H, output_shape)
@@ -310,12 +313,13 @@ def opencv_stitch(image1, image2, H):
     # return self.blend_image(src_img, dst_img, src_mask), (dst_mask + src_mask).bool().to(
     #     src_mask.dtype
     # )
+    # result[0:height, 0:width] = image1
+    src_mask = src_mask[:, :, 0].astype("int32").astype("bool")
+    result[src_mask == True] = image2
 
-    result[0:height, 0:width] = image1
-
-    # cv2.imshow("Stitched Image", result)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    cv2.imshow("Stitched Image", result)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
     return result
 
 
