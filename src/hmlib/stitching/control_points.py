@@ -11,7 +11,7 @@ from lightglue.utils import load_image, rbd
 
 from hmlib.config import get_game_dir
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.utils.image import image_height, image_width, make_channels_last
+from hmlib.utils.image import image_height, image_width, make_channels_last, make_channels_first
 
 
 def evenly_spaced_indices(n_points, n_samples):
@@ -183,15 +183,20 @@ def calculate_control_points(
 
     def my_matcher(data: Dict[str, torch.Tensor]):
         results = {
-            "keypoints1": m_kpts0.cpu(),
-            "keypoints0": m_kpts1.cpu(),
+            "keypoints1": m_kpts0,
+            "keypoints0": m_kpts1,
             "batch_indexes": [0],
         }
         return results
 
     matcher = kornia.feature.LoFTR(None)
-    # matcher = my_matcher
+    matcher = my_matcher
     stitcher = kornia.contrib.ImageStitcher(matcher)
+    image0 = image0.to("cuda:0")
+    image1 = image1.to(image0.device)
+    image0 = make_channels_first(image0)
+    image1 = make_channels_first(image1)
+    stitcher.to(image0.device)
     out = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
     # .to(device=device, dtype=image0.dtype)
     torch.manual_seed(1)  # issue kornia#2027
