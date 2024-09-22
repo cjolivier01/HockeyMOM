@@ -8,7 +8,6 @@ import time
 from collections import OrderedDict
 from typing import Any, Optional
 
-import cv2
 import torch
 
 from hmlib.config import get_clip_box

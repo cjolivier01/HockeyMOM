@@ -191,8 +191,14 @@ def calculate_control_points(
     if not isinstance(image1, torch.Tensor):
         image1 = load_image(image1)
 
-    feats0 = extractor.extract(image0.to(device))
-    feats1 = extractor.extract(image1.to(device))
+    if device is not None:
+        if image0.device != device:
+            image0 = image0.to(device)
+        if image1.device != device:
+            image1 = image1.to(device)
+
+    feats0 = extractor.extract(image0)
+    feats1 = extractor.extract(image1)
     matches01 = matcher({"image0": feats0, "image1": feats1})
     feats0, feats1, matches01 = [
         rbd(x) for x in [feats0, feats1, matches01]
