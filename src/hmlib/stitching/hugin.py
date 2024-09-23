@@ -196,7 +196,8 @@ def configure_pano_size(project_file_path: str, pano_width: int):
     h = int(w / ar)
     params["w"] = str(int(w))
     params["h"] = str(h)
-    params["v"] = "180"
+    # params["v"] = "180"
+    params["v"] = "108"
     output_line = ""
     for k, v in params.items():
         if output_line:
