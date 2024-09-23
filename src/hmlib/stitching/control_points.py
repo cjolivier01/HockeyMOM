@@ -207,6 +207,10 @@ def calculate_control_points(
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
+    indices = select_evenly_spaced(m_kpts0, 100)
+    m_kpts0 = m_kpts0[indices]
+    m_kpts1 = m_kpts1[indices]
+
     if output_directory:
         axes = viz2d.plot_images([image0, image1])
         viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
