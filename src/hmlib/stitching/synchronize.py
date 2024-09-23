@@ -1,10 +1,7 @@
 import os
-import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-import ffmpeg
-import moviepy.editor as mp
 import numpy as np
 import scipy
 import tifffile
@@ -101,6 +98,8 @@ def synchronize_by_audio_old(
     create_new_clip: bool = False,
     device: torch.device = None,
 ):
+    import moviepy.editor as mp
+
     # Load the videos
     print("Openning videos...")
     full_video0 = mp.VideoFileClip(file0_path)
