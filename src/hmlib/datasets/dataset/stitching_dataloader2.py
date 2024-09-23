@@ -235,7 +235,7 @@ class StitchDataset:
         self._video_2_info = BasicVideoInfo(video_file_2)
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
-        assert self._video_1_info.fps == self._video_2_info.fps
+        assert np.isclose(self._video_1_info.fps, self._video_2_info.fps)
 
         v1o = 0 if self._video_1_offset_frame is None else self._video_1_offset_frame
         v2o = 0 if self._video_2_offset_frame is None else self._video_2_offset_frame
