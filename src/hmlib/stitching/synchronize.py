@@ -1,7 +1,9 @@
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+import ffmpeg
 import moviepy.editor as mp
 import numpy as np
 import scipy
@@ -16,16 +18,83 @@ from hmlib.config import (
     save_private_config,
     set_nested_value,
 )
-from hmlib.ffmpeg import extract_frame_image
+from hmlib.ffmpeg import BasicVideoInfo, extract_frame_image
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.control_points import calculate_control_points
 from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
+from hmlib.utils.audio import load_audio_as_tensor
 from hmlib.utils.path import add_suffix_to_filename
 
 MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
 
 
 def synchronize_by_audio(
+    file1_path: str,
+    file2_path: str,
+    seconds: int = 15,
+    device: torch.device = None,
+    verbose: bool = True,
+):
+    # Load the videos
+    if verbose:
+        print("Openning videos...")
+
+    video1_info = BasicVideoInfo(file1_path)
+    video2_info = BasicVideoInfo(file2_path)
+
+    seconds = min(seconds, min(video1_info.duration - 0.5, video1_info.duration - 0.5))
+
+    video_1_subclip_frame_count = video1_info.fps * seconds
+    video_2_subclip_frame_count = video2_info.fps * seconds
+
+    audio1, sample_rate1 = load_audio_as_tensor(file1_path, duration_seconds=seconds)
+    audio2, sample_rate2 = load_audio_as_tensor(file2_path, duration_seconds=seconds)
+
+    if verbose:
+        print("Loading audio...")
+
+    audio_items_per_frame_1 = audio1.shape[0] / video_1_subclip_frame_count
+    audio_items_per_frame_2 = audio2.shape[0] / video_2_subclip_frame_count
+
+    assert np.isclose(sample_rate1 / video1_info.fps, audio_items_per_frame_1)
+    assert np.isclose(sample_rate2 / video2_info.fps, audio_items_per_frame_2)
+
+    # Calculate the cross-correlation of audio1 and audio2
+    if verbose:
+        print("Calculating cross-correlation...")
+    if device is None:
+        # correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        correlation = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+        lag = np.argmax(correlation) - len(audio1) + 1
+    else:
+        audio1 = torch.from_numpy(audio1[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+        audio2 = torch.from_numpy(audio2[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+
+        # Compute correlation using convolution
+        # The 'groups' argument ensures a separate convolution for each batch
+        correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1)
+
+        # Remove added dimensions to get the final 1D correlation tensor
+        correlation = correlation.squeeze()
+        lag, idx = torch.argmax(correlation) - len(audio1) + 1
+
+    # Calculate the time offset in seconds
+    fps = video1_info.fps
+    frame_offset = lag / audio_items_per_frame_1
+    time_offset = frame_offset / fps
+
+    if verbose:
+        print(f"Left frame offset: {frame_offset}")
+        print(f"Time offset: {time_offset} seconds")
+
+    # Adjust to the starting frame number in each video (i.e. frame_offset might be a negative number)
+    left_frame_offset = frame_offset if frame_offset > 0 else 0
+    right_frame_offset = -frame_offset if frame_offset < 0 else 0
+
+    return left_frame_offset, right_frame_offset
+
+
+def synchronize_by_audio_old(
     file0_path: str,
     file1_path: str,
     seconds: int = 15,
@@ -311,8 +380,8 @@ def configure_synchronization(
         # Calculate by audio
         game_dir = get_game_dir(game_id=game_id)
         lfo, rfo = synchronize_by_audio(
-            file0_path=os.path.join(game_dir, video_left),
-            file1_path=os.path.join(game_dir, video_right),
+            file1_path=os.path.join(game_dir, video_left),
+            file2_path=os.path.join(game_dir, video_right),
             seconds=audio_sync_seconds,
         )
         if frame_offsets is None:
