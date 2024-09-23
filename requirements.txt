@@ -13,12 +13,11 @@ scipy
 progress
 motmetrics
 matplotlib
-#lap
 openpyxl
 Pillow-simd
 psutil
-#tensorboard
 filterpy
+ffmpegio
 screeninfo
 gast
 typeguard
