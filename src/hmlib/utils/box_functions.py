@@ -351,7 +351,7 @@ def scale_box_at_same_center(box: torch.Tensor, scale_factor):
 #     return box
 
 
-def expand_bbox_with_constraints(bbox, ratio_x, ratio_y, min_x, max_x, min_y, max_y):
+def scale_bbox_with_constraints(bbox, ratio_x, ratio_y, min_x, max_x, min_y, max_y):
     # Extract coordinates
     x1, y1, x2, y2 = bbox
 

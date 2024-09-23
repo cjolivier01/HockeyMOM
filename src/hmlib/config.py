@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from hmlib.utils.box_functions import scale_bbox_with_constraints
+
 GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -171,12 +173,27 @@ def update_config(
 
 
 @lru_cache
-def get_clip_box(game_id: str, root_dir: Optional[str] = None):
+def get_clip_box(game_id: str, root_dir: Optional[str] = None, use_rink_boundary: bool = False):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:
         game = game_config.get("game", None)
         if game and "clip_box" in game:
             return game["clip_box"]
+        if use_rink_boundary:
+            # Alternatively, use the rink boundary box
+            rink_combined_bbox = get_nested_value(game_config, "rink.ice_contours_combined_bbox")
+            if rink_combined_bbox:
+                rink_scaled_bbox = scale_bbox_with_constraints(
+                    bbox=rink_combined_bbox,
+                    ratio_x=1.1,
+                    ratio_y=1.1,
+                    min_x=0,
+                    min_y=0,
+                    max_x=float("inf"),
+                    max_y=float("inf"),
+                )
+                rink_scaled_bbox = [int(i) for i in rink_scaled_bbox]
+                return rink_scaled_bbox
     return None
 
 
