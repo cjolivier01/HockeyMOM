@@ -40,6 +40,7 @@ class BasicVideoInfo:
                 self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
             )
             self.fps = self._ffstream.realFrameRate()
+            self.duration = self._ffstream.durationSeconds()
             sz = self._ffstream.frameSize()
             self.width = sz[0]
             self.height = sz[1]
@@ -52,6 +53,7 @@ class BasicVideoInfo:
                 raise AssertionError(f"Unable to open video file {video_file}")
             self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             self.fps = cap.get(cv2.CAP_PROP_FPS)
+            self.duration = self.frame_count / self.fps
             self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
@@ -520,7 +522,7 @@ class FFStream:
                     return int(self.durationSeconds() * self.realFrameRate())
         return f
 
-    def durationSeconds(self):
+    def durationSeconds(self) -> float:
         """
         Returns the runtime duration of the video stream as a floating point number of seconds.
         Returns 0.0 if not a video stream.
