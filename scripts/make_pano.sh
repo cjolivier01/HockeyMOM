@@ -17,6 +17,7 @@ PROJECT_FILE="hm_project.pto"
 
 # auto-level, auto-size
 autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+#autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
 
 # autooptimiser -s -m -n -o autooptimiser_out.pto "${PROJECT_FILE}"
 

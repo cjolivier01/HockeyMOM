@@ -217,7 +217,7 @@ def build_stitching_project(
             "-a",
             "-m",
             "-l",
-            # "-s",
+            "-s",
             "-o",
             autooptimiser_out,
             hm_project,
