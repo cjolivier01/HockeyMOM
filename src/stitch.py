@@ -19,7 +19,7 @@ from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import CachedIterator, GpuAllocator, StreamTensor
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hockeymom import core
 
 ROOT_DIR = os.getcwd()
@@ -65,6 +65,7 @@ def stitch_videos(
     ignore_clip_box: bool = True,
     cache_size: int = 4,
     dtype: torch.dtype = torch.float,
+    start_frame_time: str = None,
     force: bool = False,
 ):
     if dir_name is None and game_id:
@@ -74,6 +75,12 @@ def stitch_videos(
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 
+    if start_frame_time:
+        seconds = convert_hms_to_seconds(start_frame_time)
+        if seconds > 0:
+            assert not start_frame_number
+            start_frame_number = seconds * left_vid.fps
+
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
         video_left,
@@ -81,6 +88,7 @@ def stitch_videos(
         project_file_name,
         left_frame_offset=lfo,
         right_frame_offset=rfo,
+        base_frame_offset=start_frame_number,
         force=force,
     )
 
@@ -198,6 +206,7 @@ def main(args):
     video_left = "left.mp4"
     video_right = "right.mp4"
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
+    assert not args.start_frame_offset
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
@@ -205,6 +214,7 @@ def main(args):
             video_right,
             lfo=args.lfo,
             rfo=args.rfo,
+            start_frame_time=args.start_frame_time,
             batch_size=args.batch_size,
             project_file_name=args.project_file,
             game_id=args.game_id,

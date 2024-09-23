@@ -257,6 +257,43 @@ def convert_seconds_to_hms(total_seconds: Any) -> str:
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
+def convert_hms_to_seconds(timestr: str) -> float:
+    """
+    Convert a time string in HH:MM:ss.ssss format to total seconds as a float.
+    'HH:' may be omitted and 'MM' can be more than 59, as can 'ss' be more than 59.
+
+    Parameters:
+    - timestr (str): Time string in "HH:MM:ss.ssss" or "MM:ss.ssss" format.
+
+    Returns:
+    - float: Total seconds represented by the input string.
+    """
+    # Split the time string by colon
+    parts = timestr.split(":")
+
+    # Initialize seconds, minutes, and hours
+    seconds = 0.0
+    minutes = 0
+    hours = 0
+
+    # Depending on the number of components, assign values
+    if len(parts) == 3:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+    elif len(parts) == 2:
+        minutes = int(parts[0])
+        seconds = float(parts[1])
+    elif len(parts) == 1:
+        seconds = float(parts[0])
+    else:
+        raise ValueError("Invalid time format")
+
+    # Calculate total seconds
+    total_seconds = hours * 3600 + minutes * 60 + seconds
+    return total_seconds
+
+
 # Example usage
 if __name__ == "__main__":
     table_map = OrderedDict({"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"})
