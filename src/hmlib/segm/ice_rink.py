@@ -228,6 +228,32 @@ def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     return torch.from_numpy(frame).unsqueeze(0)
 
 
+def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+    if isinstance(bboxes, np.ndarray):
+        bboxes = torch.from_numpy(bboxes)
+
+    bboxes = bboxes[:, :4]
+
+    # Calculate widths and heights
+    widths = bboxes[:, 2] - bboxes[:, 0]
+    heights = bboxes[:, 3] - bboxes[:, 1]
+
+    # Filter out bounding boxes where width or height is zero
+    valid_indices = (widths > 0) & (heights > 0)
+    valid_bboxes = bboxes[valid_indices]
+
+    # If no valid bboxes, return None or an indicative value
+    if valid_bboxes.shape[0] == 0:
+        return None
+
+    # Calculate min and max coordinates for the remaining valid bounding boxes
+    min_xy, _ = torch.min(valid_bboxes[:, :2], dim=0)
+    max_xy, _ = torch.max(valid_bboxes[:, 2:], dim=0)
+
+    # Concatenate min and max values to form the enclosing bounding box
+    return torch.cat([min_xy, max_xy])
+
+
 def result_to_polygons(
     inference_result: np.ndarray,
     category_id: int = 1,
@@ -278,6 +304,8 @@ def result_to_polygons(
     mask_list: List[np.ndarray] = []
     combined_mask = None
 
+    combined_bbox = enclosing_bbox(bboxes)
+
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask)
         # split_points_by_x_trend_efficient(contours)
@@ -300,6 +328,8 @@ def result_to_polygons(
     results["masks"] = mask_list
     results["combined_mask"] = combined_mask
     results["centroid"] = calculate_centroid(contours_list)
+    results["bboxes"] = bboxes
+    results["combined_bbox"] = combined_bbox
 
     return results
 
