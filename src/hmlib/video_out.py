@@ -26,7 +26,6 @@ from hmlib.ui.shower import Shower
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.gpu import (
-    CachedIterator,
     StreamCheckpoint,
     StreamTensor,
     cuda_stream_scope,
@@ -42,6 +41,7 @@ from hmlib.utils.image import (
     make_visible_image,
     resize_image,
 )
+from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 

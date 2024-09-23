@@ -22,13 +22,7 @@ from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    CachedIterator,
-    StreamCheckpoint,
-    StreamTensor,
-    async_to,
-    cuda_stream_scope,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, async_to, cuda_stream_scope
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -36,6 +30,7 @@ from hmlib.utils.image import (
     make_channels_last,
     make_visible_image,
 )
+from hmlib.utils.iterators import CachedIterator
 from hmlib.video_out import VideoOutput  # optional_with,
 from hockeymom import core
 

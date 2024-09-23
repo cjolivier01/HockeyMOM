@@ -343,11 +343,15 @@ class FakeExp:
 
 
 def is_stitching(input_video: str) -> bool:
+    if not input_video:
+        raise AttributeError("No valid input video specified")
     input_video_files = input_video.split(",")
     return len(input_video_files) == 2 or os.path.isdir(args.input_video)
 
 
 def get_game_dir(game_id: str) -> Optional[str]:
+    if not game_id:
+        raise AttributeError("No valid Game ID specified")
     game_video_dir = os.path.join(GAME_DIR_BASE, game_id)
     if os.path.isdir(game_video_dir):
         return game_video_dir
@@ -524,12 +528,17 @@ def main(args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
-        gpus = select_gpus(
+        gpus, is_single_lowmem_gpu = select_gpus(
             allowed_gpus=args.gpus,
             is_stitching=is_stitching(args.input_video),
             is_multipose=args.multi_pose,
             is_detecting=not using_precalculated_tracking,
         )
+        if is_single_lowmem_gpu:
+            print("Adjusting configuration for a single low-memory GPU environment...")
+            args.cache_size = 0
+            args.stitch_cache_size = 0
+            args.batch_size = 1
 
         main_device = torch.device("cuda")
         for name in ["detection", "stitching", "encoder"]:
@@ -594,7 +603,9 @@ def main(args, num_gpu):
                         )
                         if segm_boundaries is not None:
                             rink_profile = confgure_ice_rink_mask(
-                                game_id=args.game_id, root_dir=ROOT_DIR
+                                game_id=args.game_id,
+                                root_dir=ROOT_DIR,
+                                device=None if not is_single_lowmem_gpu else torch.device("cpu"),
                             )
                             if rink_profile:
                                 segm_boundaries.update(

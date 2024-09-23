@@ -6,7 +6,6 @@ xtcocotools
 rich
 screeninfo
 yacs
-moviepy
 opencv-python
 PyYAML
 cython-bbox

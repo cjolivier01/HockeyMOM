@@ -12,7 +12,6 @@ from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import (
-    CachedIterator,
     StreamCheckpoint,
     StreamTensor,
     allocate_stream,
@@ -24,6 +23,7 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
+from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.letterbox import py_letterbox
 from hmlib.video_stream import VideoStreamReader
 

@@ -18,7 +18,8 @@ from hmlib.stitching.laplacian_blend import show_image
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import CachedIterator, GpuAllocator, StreamTensor
+from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hockeymom import core
 

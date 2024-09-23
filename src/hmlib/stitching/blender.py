@@ -19,7 +19,6 @@ from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
 from hmlib.stitching.synchronize import get_image_geo_position, synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import (
-    CachedIterator,
     GpuAllocator,
     StreamCheckpoint,
     StreamTensor,
@@ -31,6 +30,7 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
+from hmlib.utils.iterators import CachedIterator
 from hmlib.video_out import VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 

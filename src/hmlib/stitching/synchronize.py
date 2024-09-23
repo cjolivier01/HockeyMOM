@@ -91,89 +91,89 @@ def synchronize_by_audio(
     return left_frame_offset, right_frame_offset
 
 
-def synchronize_by_audio_old(
-    file0_path: str,
-    file1_path: str,
-    seconds: int = 15,
-    create_new_clip: bool = False,
-    device: torch.device = None,
-):
-    import moviepy.editor as mp
+# def synchronize_by_audio_old(
+#     file0_path: str,
+#     file1_path: str,
+#     seconds: int = 15,
+#     create_new_clip: bool = False,
+#     device: torch.device = None,
+# ):
+#     import moviepy.editor as mp
 
-    # Load the videos
-    print("Openning videos...")
-    full_video0 = mp.VideoFileClip(file0_path)
-    full_video1 = mp.VideoFileClip(file1_path)
+#     # Load the videos
+#     print("Openning videos...")
+#     full_video0 = mp.VideoFileClip(file0_path)
+#     full_video1 = mp.VideoFileClip(file1_path)
 
-    seconds = min(seconds, min(full_video0.duration - 0.5, full_video1.duration - 0.5))
+#     seconds = min(seconds, min(full_video0.duration - 0.5, full_video1.duration - 0.5))
 
-    video0 = full_video0.subclip(0, seconds)
-    video1 = full_video1.subclip(0, seconds)
+#     video0 = full_video0.subclip(0, seconds)
+#     video1 = full_video1.subclip(0, seconds)
 
-    video_1_frame_count = video0.fps * video0.duration
-    # video_2_frame_count = video1.fps * video0.duration
+#     video_1_frame_count = video0.fps * video0.duration
+#     # video_2_frame_count = video1.fps * video0.duration
 
-    # Load audio from the videos
-    print("Loading audio...")
-    audio1 = video0.audio.to_soundarray()
-    audio2 = video1.audio.to_soundarray()
+#     # Load audio from the videos
+#     print("Loading audio...")
+#     audio1 = video0.audio.to_soundarray()
+#     audio2 = video1.audio.to_soundarray()
 
-    audio_items_per_frame_1 = audio1.shape[0] / video_1_frame_count
-    # audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
+#     audio_items_per_frame_1 = audio1.shape[0] / video_1_frame_count
+#     # audio_items_per_frame_2 = audio2.shape[0] / video_2_frame_count
 
-    # Calculate the cross-correlation of audio1 and audio2
-    print("Calculating cross-correlation...")
-    if device is None:
-        # correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
-        correlation = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
-        lag = np.argmax(correlation) - len(audio1) + 1
-    else:
-        audio1 = torch.from_numpy(audio1[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
-        audio2 = torch.from_numpy(audio2[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+#     # Calculate the cross-correlation of audio1 and audio2
+#     print("Calculating cross-correlation...")
+#     if device is None:
+#         # correlation = np.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+#         correlation = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
+#         lag = np.argmax(correlation) - len(audio1) + 1
+#     else:
+#         audio1 = torch.from_numpy(audio1[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
+#         audio2 = torch.from_numpy(audio2[:, 0]).unsqueeze(0).unsqueeze(0).to(device)
 
-        # Compute correlation using convolution
-        # The 'groups' argument ensures a separate convolution for each batch
-        correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1)
+#         # Compute correlation using convolution
+#         # The 'groups' argument ensures a separate convolution for each batch
+#         correlation = F.conv1d(audio1, audio2.flip(-1), padding=audio2.size(-1) - 1, groups=1)
 
-        # Remove added dimensions to get the final 1D correlation tensor
-        correlation = correlation.squeeze()
-        lag, idx = torch.argmax(correlation) - len(audio1) + 1
+#         # Remove added dimensions to get the final 1D correlation tensor
+#         correlation = correlation.squeeze()
+#         lag, idx = torch.argmax(correlation) - len(audio1) + 1
 
-    # Calculate the time offset in seconds
-    fps = video0.fps
-    frame_offset = lag / audio_items_per_frame_1
-    time_offset = frame_offset / fps
+#     # Calculate the time offset in seconds
+#     fps = video0.fps
+#     frame_offset = lag / audio_items_per_frame_1
+#     time_offset = frame_offset / fps
 
-    print(f"Left frame offset: {frame_offset}")
-    print(f"Time offset: {time_offset} seconds")
+#     print(f"Left frame offset: {frame_offset}")
+#     print(f"Time offset: {time_offset} seconds")
 
-    # Synchronize video1 with video0
-    if create_new_clip:
-        print("Creating new subclip...")
-        if frame_offset:
-            if frame_offset < 0:
-                synchronized_video = full_video1.subclip(max(0, -time_offset), full_video1.duration)
-                new_file_name = add_suffix_to_filename(file1_path, "sync")
-            else:
-                synchronized_video = full_video0.subclip(max(0, -time_offset), full_video0.duration)
-                new_file_name = add_suffix_to_filename(file0_path, "sync")
+#     # Synchronize video1 with video0
+#     if create_new_clip:
+#         print("Creating new subclip...")
+#         if frame_offset:
+#             if frame_offset < 0:
+#                 synchronized_video = full_video1.subclip(max(0, -time_offset), full_video1.duration)
+#                 new_file_name = add_suffix_to_filename(file1_path, "sync")
+#             else:
+#                 synchronized_video = full_video0.subclip(max(0, -time_offset), full_video0.duration)
+#                 new_file_name = add_suffix_to_filename(file0_path, "sync")
 
-            # Write the synchronized video to a file
-            print("Writing synchronized file...")
-            synchronized_video.write_videofile(new_file_name, codec="libx264")
-            synchronized_video.close()
+#             # Write the synchronized video to a file
+#             print("Writing synchronized file...")
+#             synchronized_video.write_videofile(new_file_name, codec="libx264")
+#             synchronized_video.close()
 
-    # Close the videos
-    video0.close()
-    video1.close()
-    full_video0.close()
-    full_video1.close()
+#     # Close the videos
+#     video0.close()
+#     video1.close()
+#     full_video0.close()
+#     full_video1.close()
 
-    # Adjust to the starting frame number in each video (i.e. frame_offset might be a negative number)
-    left_frame_offset = frame_offset if frame_offset > 0 else 0
-    right_frame_offset = -frame_offset if frame_offset < 0 else 0
+#     # Adjust to the starting frame number in each video (i.e. frame_offset might be a negative number)
+#     left_frame_offset = frame_offset if frame_offset > 0 else 0
+#     right_frame_offset = -frame_offset if frame_offset < 0 else 0
 
-    return left_frame_offset, right_frame_offset
+#     return left_frame_offset, right_frame_offset
 
 
 def get_tiff_tag_value(tiff_tag):

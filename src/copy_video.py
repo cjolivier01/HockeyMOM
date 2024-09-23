@@ -15,7 +15,8 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import CachedIterator, GpuAllocator
+from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video_out import ImageProcData, VideoOutput
 from hmlib.video_stream import VideoStreamWriter
