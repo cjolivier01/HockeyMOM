@@ -446,6 +446,11 @@ def save_rink_profile_config(
     centroid = rink_profile["centroid"]
     centroid = [float(centroid[0]), float(centroid[1])]
     set_nested_value(game_config, "rink.ice_contours_mask_centroid", centroid)
+
+    combined_bbox = None
+    if rink_profile["combined_bbox"] is not None:
+        combined_bbox = [float(i) for i in rink_profile["combined_bbox"]]
+    set_nested_value(game_config, "rink.ice_contours_combined_bbox", combined_bbox)
     mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
     for i in range(mask_count):
         mask = masks[i]
@@ -480,9 +485,11 @@ def load_rink_combined_mask(
     centroid = get_nested_value(game_config, "rink.ice_contours_mask_centroid", None)
     if centroid is not None:
         centroid = torch.tensor(centroid, dtype=torch.float)
+    combined_bbox = get_nested_value(game_config, "rink.ice_contours_combined_bbox", None)
     results: Dict[str, Optional[torch.Tensor]] = {
         "combined_mask": combined_mask,
         "centroid": centroid,
+        "combined_bbox": combined_bbox,
     }
     return results
 
