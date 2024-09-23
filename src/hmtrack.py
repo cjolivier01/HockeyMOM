@@ -553,6 +553,12 @@ def main(args, num_gpu):
         pose_dataset_info = None
 
         data_pipeline = None
+
+        if not args.exp_file:
+            args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
+        if not args.checkpoint:
+            args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
+
         if tracker == "mmtrack":
             args.config = args.exp_file
             if not using_precalculated_tracking:
@@ -622,6 +628,11 @@ def main(args, num_gpu):
             if args.multi_pose:
                 from mmpose.apis import init_pose_model
                 from mmpose.datasets import DatasetInfo
+
+                if not args.pose_config:
+                    args.pose_config = get_nested_value(game_config, "model.pose.config")
+                if not args.pose_checkpoint:
+                    args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
 
                 pose_model = init_pose_model(
                     args.pose_config, args.pose_checkpoint, device=gpus["multipose"]

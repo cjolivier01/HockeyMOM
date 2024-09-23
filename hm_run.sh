@@ -1,8 +1,7 @@
 #!/bin/bash
 
 #EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_bytetrack.py"
-EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_end_to_end.py"
-POSE_MODELS="--pose-config=./openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py --pose-checkpoint=https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth"
+# EXPERIMENT_FILE="$(pwd)/config/models/hm/hm_end_to_end.py"
 
 #START_FRAME=0
 
@@ -27,8 +26,7 @@ OMP_NUM_THREADS=16 \
   --save-tracking-data \
   --save-camera-data \
   -expn="hm_run" \
-  -f="${EXPERIMENT_FILE}" \
-  -b=${BATCH_SIZE} ${POSE_MODELS} \
+  -b=${BATCH_SIZE} \
   --gpus=0,1,2,3 \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@
