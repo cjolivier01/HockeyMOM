@@ -182,6 +182,12 @@ class hm_opts(object):
             help="Start at this time in video stream",
         )
         parser.add_argument(
+            "--stitch-frame-time",
+            type=str,
+            default=None,
+            help="Use frame at this timestamp for stitching (HH:MM:SS.ssss)",
+        )
+        parser.add_argument(
             "--max-frames",
             type=int,
             default=None,

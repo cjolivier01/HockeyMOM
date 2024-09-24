@@ -66,8 +66,9 @@ def stitch_videos(
     ignore_clip_box: bool = True,
     cache_size: int = 4,
     dtype: torch.dtype = torch.float,
-    start_frame_time: str = None,
-    force: bool = False,
+    start_frame_time: Optional[str] = None,
+    stitch_frame_time: Optional[str] = None,
+    force: Optional[bool] = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -76,11 +77,13 @@ def stitch_videos(
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 
-    if start_frame_time:
-        seconds = convert_hms_to_seconds(start_frame_time)
+    stitch_frame_number = 0
+    if start_frame_time and not stitch_frame_time:
+        stitch_frame_time = start_frame_time
+    if stitch_frame_time:
+        seconds = convert_hms_to_seconds(stitch_frame_time)
         if seconds > 0:
-            assert not start_frame_number
-            start_frame_number = seconds * left_vid.fps
+            stitch_frame_number = seconds * left_vid.fps
 
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
@@ -89,7 +92,7 @@ def stitch_videos(
         project_file_name,
         left_frame_offset=lfo,
         right_frame_offset=rfo,
-        base_frame_offset=start_frame_number,
+        base_frame_offset=stitch_frame_number,
         force=force,
     )
 
@@ -216,6 +219,7 @@ def main(args):
             lfo=args.lfo,
             rfo=args.rfo,
             start_frame_time=args.start_frame_time,
+            stitch_frame_time=args.stitch_frame_time,
             batch_size=args.batch_size,
             project_file_name=args.project_file,
             game_id=args.game_id,
