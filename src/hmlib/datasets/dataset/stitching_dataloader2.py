@@ -78,9 +78,7 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 
 class MultiDataLoaderWrapper:
-    def __init__(
-        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
-    ):
+    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0):
         self._dataloaders = dataloaders
         self._iters = []
         self._input_queueue_size = input_queueue_size
@@ -91,9 +89,7 @@ class MultiDataLoaderWrapper:
         for dl in self._dataloaders:
             if self._input_queueue_size:
                 self._iters.append(
-                    CachedIterator(
-                        iterator=iter(dl), cache_size=self._input_queueue_size
-                    )
+                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
                 )
             else:
                 self._iters.append(iter(dl))
@@ -190,9 +186,7 @@ class StitchDataset:
         self._blend_mode = blend_mode
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
-        self._max_frames = (
-            max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
-        )
+        self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._to_coordinator_queue = create_queue(mp=False)
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
@@ -458,18 +452,12 @@ class StitchDataset:
                             images=[sinfo_1.image, sinfo_2.image]
                         )
 
-                    blended_stream_tensor = self._stitcher.forward(
-                        inputs=[sinfo_1, sinfo_2]
-                    )
+                    blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
                     if stream is not None:
-                        blended_stream_tensor = StreamCheckpoint(
-                            tensor=blended_stream_tensor
-                        )
+                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
 
-            self._current_worker = (self._current_worker + 1) % len(
-                self._stitching_workers
-            )
+            self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
@@ -595,9 +583,7 @@ class StitchDataset:
                 else:
                     image = make_channels_last(image)[:, :, :3]
         else:
-            image_roi = fix_clip_box(
-                image_roi, [image_height(image), image_width(image)]
-            )
+            image_roi = fix_clip_box(image_roi, [image_height(image), image_width(image)])
             if len(image.shape) == 4:
                 image = make_channels_last(image)[
                     :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
@@ -616,9 +602,7 @@ class StitchDataset:
             for worker_number in range(self._num_workers):
                 max_for_worker = self._max_frames
                 if max_for_worker is not None:
-                    max_for_worker = distribute_items_detailed(
-                        self._max_frames, self._num_workers
-                    )[
+                    max_for_worker = distribute_items_detailed(self._max_frames, self._num_workers)[
                         worker_number
                     ]  # TODO: call just once
                 self._stitching_workers[worker_number] = iter(
@@ -646,8 +630,7 @@ class StitchDataset:
             # INFO(f"Locally dequeued frame id: {self._current_frame}")
             if (
                 not self._max_frames
-                or self._next_requested_frame
-                < self._start_frame_number + self._max_frames
+                or self._next_requested_frame < self._start_frame_number + self._max_frames
             ):
                 # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
                 self._to_coordinator_queue.put(self._next_requested_frame)
