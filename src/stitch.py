@@ -69,6 +69,7 @@ def stitch_videos(
     start_frame_time: Optional[str] = None,
     stitch_frame_time: Optional[str] = None,
     force: Optional[bool] = False,
+    auto_adjust_exposure: Optional[bool] = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -112,9 +113,7 @@ def stitch_videos(
         max_input_queue_size=cache_size,
         fork_workers=False,
         image_roi=(
-            get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
-            if not ignore_clip_box
-            else None
+            get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
         ),
         encoder_device=encoder_device,
         decoder_device=decoder_device,
@@ -122,6 +121,7 @@ def stitch_videos(
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
         dtype=dtype,
+        auto_adjust_exposure=auto_adjust_exposure,
     )
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -235,6 +235,7 @@ def main(args):
             decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
             dtype=torch.half if args.fp16 else torch.float,
             force=args.force,
+            auto_adjust_exposure=args.stitch_auto_adjust_exposure,
         )
 
 

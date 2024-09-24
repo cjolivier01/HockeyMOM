@@ -217,16 +217,19 @@ class hm_opts(object):
         parser.add_argument(
             "--skip_final_video_save",
             "--skip-final-video-save",
-            dest="skip_final_video_save",
             action="store_true",
             help="Don't save the output video frames",
         )
         parser.add_argument(
             "--save_stitched",
             "--save-stitched",
-            dest="save_stitched",
             action="store_true",
             help="Don't save the output video",
+        )
+        parser.add_argument(
+            "--stitch-auto-adjust-exposure",
+            action="store_true",
+            help="Auto-adjust exposure when stitching",
         )
         parser.add_argument(
             "--track-ids",

@@ -167,7 +167,7 @@ class StitchDataset:
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
-        auto_adjust_exposure: bool = True,
+        auto_adjust_exposure: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -374,6 +374,8 @@ class StitchDataset:
             self._video_output = None
 
     def _adjust_exposures(self, images: List[torch.Tensor]) -> List[torch.Tensor]:
+        # We assume 0 is left, 1 is right, so we chop right 1/4 of
+        # left image and left 1/4 of right image for the exposure comparison
         if self._exposure_adjustment is None:
             self._exposure_adjustment = []
             # self._exposure_adjustment: List[float] = None
@@ -382,8 +384,21 @@ class StitchDataset:
             max_mean = -1
             max_index = -1
             for i, img in enumerate(images):
+                img = make_channels_first(img)
+                w = int(image_width(img))
+                slice_w = int(w // 4)
+                if i == 0:
+                    # Left image
+                    img = img[:, :, :, w - slice_w :]
+                elif i == 1:
+                    # Right image
+                    img = img[:, :, :, :slice_w]
+                else:
+                    assert False  # oops
+
                 if not torch.is_floating_point(img):
                     img = img.to(torch.float)
+
                 this_mean = torch.mean(img)
                 means.append(this_mean)
                 if this_mean > max_mean:

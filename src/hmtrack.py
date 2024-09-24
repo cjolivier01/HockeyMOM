@@ -664,6 +664,7 @@ def main(args, num_gpu):
                     ),
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
+                    auto_adjust_exposure=args.stitch_auto_adjust_exposure,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
