@@ -34,7 +34,9 @@ def make_parser():
     return parser
 
 
-def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_video: str):
+def copy_audio(
+    input_audio: Union[str, List[str]], input_video: str, output_video: str, shortest: bool = True
+):
     audio_source = None
     if isinstance(input_audio, list) and len(input_audio) == 2:
         assert len(input_audio) == 2
@@ -65,9 +67,11 @@ def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_vide
         "1:v:0",
         "-map",
         "0:a:0",
-        "-shortest",
-        output_video,
     ]
+    if shortest:
+        command.append("-shortest")
+
+    command.append(output_video)
     process = subprocess.Popen(command)
     process.wait()
 

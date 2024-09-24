@@ -20,8 +20,13 @@ class Game:
     team: Optional[str] = None
 
 
-def get_game_dir(game_id: str) -> str:
-    return os.path.join(GAME_DIR_BASE, game_id)
+def get_game_dir(game_id: str) -> Optional[str]:
+    if not game_id:
+        raise AttributeError("No valid Game ID specified")
+    game_video_dir = os.path.join(GAME_DIR_BASE, game_id)
+    if os.path.isdir(game_video_dir):
+        return game_video_dir
+    return None
 
 
 # TODO: implement passing all of this in cleanly somehow
