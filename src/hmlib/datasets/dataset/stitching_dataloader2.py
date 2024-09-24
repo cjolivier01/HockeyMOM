@@ -6,7 +6,6 @@ import argparse
 import os
 import threading
 import traceback
-from contextlib import nullcontext
 from pathlib import Path
 from typing import List, Union
 
@@ -142,6 +141,7 @@ def as_torch_device(device):
 #
 #
 class StitchDataset:
+
     def __init__(
         self,
         video_file_1: str,
@@ -167,6 +167,7 @@ class StitchDataset:
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
+        auto_adjust_exposure: bool = True,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -187,6 +188,8 @@ class StitchDataset:
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._blend_mode = blend_mode
+        self._auto_adjust_exposure = auto_adjust_exposure
+        self._exposure_adjustment: List[float] = None
         self._max_frames = (
             max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         )
@@ -370,9 +373,38 @@ class StitchDataset:
             self._video_output.stop()
             self._video_output = None
 
+    def _adjust_exposures(self, images: List[torch.Tensor]) -> List[torch.Tensor]:
+        if self._exposure_adjustment is None:
+            self._exposure_adjustment = []
+            # self._exposure_adjustment: List[float] = None
+            # TODO: would be good to only check the rink segmentation area
+            means: List[torch.Tensor] = []
+            max_mean = -1
+            max_index = -1
+            for i, img in enumerate(images):
+                if not torch.is_floating_point(img):
+                    img = img.to(torch.float)
+                this_mean = torch.mean(img)
+                means.append(this_mean)
+                if this_mean > max_mean:
+                    max_mean = this_mean
+                    max_index = i
+            for i, m in enumerate(means):
+                if i == max_index:
+                    self._exposure_adjustment.append(None)
+                    continue
+                exposure_ratio = max_mean / m
+                self._exposure_adjustment.append(exposure_ratio)
+        if self._exposure_adjustment is not None and not self._exposure_adjustment:
+            # No exposure entries
+            return images
+        for i, exp in enumerate(self._exposure_adjustment):
+            if exp is not None:
+                images[i] = images[i] * exp
+        return images
+
     def _prepare_next_frame(self, frame_id: int):
         try:
-            # INFO(f"_prepare_next_frame( {frame_id} )")
             self._prepare_next_frame_timer.tic()
 
             stitching_worker = self._stitching_workers[self._current_worker]
@@ -382,9 +414,6 @@ class StitchDataset:
             ids_1 = images[0][-1]
 
             imgs_2 = images[1][0]
-            # ids_2 = images[1][-1]
-
-            # assert ids_1 == ids_2
 
             with torch.no_grad():
                 assert isinstance(images, list)
@@ -394,15 +423,11 @@ class StitchDataset:
                     img = make_channels_first(img)
                     if img.device != self._remapping_device:
                         img = async_to(img, device=self._remapping_device)
-                        # img = img.to(self._remapping_device, non_blocking=True)
                     if img.dtype != self._dtype:
-                        # img = async_to(img, dtype=self._dtype)
                         img = img.to(self._dtype, non_blocking=True)
                     return img
 
                 stream = None
-                # if imgs_1.device.type == "cpu":
-                #     stream = self._remapping_stream
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
                     sinfo_1 = core.StitchImageInfo()
@@ -413,6 +438,11 @@ class StitchDataset:
                     sinfo_2.image = _prepare_image(to_tensor(imgs_2))
                     sinfo_2.xy_pos = self._xy_pos_2
 
+                    if self._auto_adjust_exposure:
+                        sinfo_1.image, sinfo_2.image = self._adjust_exposures(
+                            images=[sinfo_1.image, sinfo_2.image]
+                        )
+
                     blended_stream_tensor = self._stitcher.forward(
                         inputs=[sinfo_1, sinfo_2]
                     )
@@ -422,7 +452,6 @@ class StitchDataset:
                         )
                         stream.synchronize()
 
-            # torch.cuda.synchronize()
             self._current_worker = (self._current_worker + 1) % len(
                 self._stitching_workers
             )
