@@ -3,3 +3,10 @@
 
 [tool.black]
 line-length=100
+
+
+[tool.pylint.messages_control]
+disable = [
+    "C0116",  # missing-function-docstring
+    "W0621",  # redefined-outer-name
+]
