@@ -28,6 +28,8 @@ from hmlib.stitching.laplacian_blend import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_last
 
+# from hmlib.models import 
+
 DEFAULT_SCORE_THRESH = 0.3
 
 
