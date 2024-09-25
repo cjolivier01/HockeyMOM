@@ -5,6 +5,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+from hmlib import load
 from hmlib.config import get_game_config_private, get_game_dir, save_private_config
 from hmlib.hm_opts import hm_opts
 

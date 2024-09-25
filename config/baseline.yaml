@@ -159,3 +159,8 @@ model:
   pose:
     config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py
     checkpoint: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
+
+  ice_rink_segm:
+    config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py
+    checkpoint: pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth
+

@@ -14,7 +14,9 @@ from mmdet.core.mask.structures import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
+    get_config,
     get_game_config_private,
+    get_game_dir,
     get_nested_value,
     save_private_config,
     set_nested_value,
@@ -210,7 +212,7 @@ def video_demo_main():
                 video_writer.write(frame)
         elif perf_counter == 20:
             stop_time = time.time()
-            fps = perf_counter / (stop_time - start_time)
+            # fps = perf_counter / (stop_time - start_time)
             # print(f"\nfps={fps}")
             perf_counter = 0
 
@@ -221,7 +223,7 @@ def video_demo_main():
 
 
 def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
-    video_reader = mmcv.VideoReader(video_path)
+    video_reader = mmcv.VideoReader(str(video_path))
     frame = video_reader.read()
     if frame is None:
         return None
@@ -461,7 +463,6 @@ def save_rink_profile_config(
 
 def load_rink_combined_mask(
     game_id: str,
-    root_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Optional[torch.Tensor]]]:
     game_config = get_game_config_private(game_id=game_id)
     if not game_config:
@@ -502,16 +503,19 @@ def confgure_ice_rink_mask(
     show: bool = False,
 ) -> Optional[torch.Tensor]:
     if not force:
-        combined_mask = load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
+        combined_mask = load_rink_combined_mask(game_id=game_id)
         if combined_mask is not None:
             return combined_mask
 
-    config_file = (
-        f"{root_dir}/config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
-    )
-    checkpoint = f"{root_dir}/pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth"
+    game_config = get_config(game_id=game_id)
+    config_file = get_nested_value(game_config, "model.ice_rink_segm.config")
+    assert config_file
+    checkpoint = get_nested_value(game_config, "model.ice_rink_segm.checkpoint")
+    assert checkpoint
 
-    image_file = f'{os.environ["HOME"]}/Videos/{game_id}/s.png'
+    image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
+    if not image_file.exists():
+        raise AttributeError(f"Could not find stitched frame image: {image_file}")
 
     rink_results = find_ice_rink_mask(
         image=_get_first_frame(image_file),
@@ -523,7 +527,7 @@ def confgure_ice_rink_mask(
     )
     if rink_results:
         save_rink_profile_config(game_id=game_id, rink_profile=rink_results, root_dir=root_dir)
-    return load_rink_combined_mask(game_id=game_id, root_dir=root_dir)
+    return load_rink_combined_mask(game_id=game_id)
 
 
 if __name__ == "__main__":
@@ -534,7 +538,7 @@ if __name__ == "__main__":
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
 
     # args.game_id = "jrmocks"
-    args.game_id = "sharks-bb1-2"
+    args.game_id = "pdp"
 
     assert args.game_id
 
