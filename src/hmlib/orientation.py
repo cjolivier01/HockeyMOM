@@ -206,22 +206,34 @@ def get_game_videos_analysis(game_id: str, videos_dict: Optional[VideosDict] = N
 
 
 def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[Path]]:
-    private_config = get_game_config_private(game_id=game_id)
-    if not force:
-        # See if we have it already
-        left_list = get_nested_value(private_config, "game.videos.left")
-        right_list = get_nested_value(private_config, "game.videos.right")
-        if left_list and right_list:
-            return {
-                "left": left_list,
-                "right": right_list,
-            }
     videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
     if not force and ("left" in videos_dict and "right" in videos_dict):
         return {
             "left": videos_dict["left"],
             "right": videos_dict["right"],
         }
+    private_config = get_game_config_private(game_id=game_id)
+    if not force:
+        # See if we have it already
+        left_list = get_nested_value(private_config, "game.videos.left")
+        right_list = get_nested_value(private_config, "game.videos.right")
+        if left_list and right_list:
+            left_list = [Path(p) for p in left_list]
+            right_list = [Path(p) for p in right_list]
+            return {
+                "left": left_list,
+                "right": right_list,
+            }
+    videos_dict = get_game_videos_analysis(game_id=game_id)
+    left_list = videos_dict["left"]
+    right_list = videos_dict["right"]
+    set_nested_value(private_config, "game.videos.left", [str(p) for p in left_list])
+    set_nested_value(private_config, "game.videos.right", [str(p) for p in right_list])
+    save_private_config(game_id=game_id, data=private_config)
+    return {
+        "left": left_list,
+        "right": right_list,
+    }
 
 
 def main(args: argparse.Namespace):
