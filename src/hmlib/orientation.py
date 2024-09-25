@@ -219,8 +219,8 @@ def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[P
     videos_dict = get_available_videos(dir_name=dir_name)
     if not force and ("left" in videos_dict and "right" in videos_dict):
         return {
-            "left": videos_dict["left"],
-            "right": videos_dict["right"],
+            "left": extract_chapters_file_list(videos_dict["left"]),
+            "right": extract_chapters_file_list(videos_dict["right"]),
         }
     private_config = get_game_config_private(game_id=game_id)
     if not force:
