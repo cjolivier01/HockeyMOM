@@ -12,6 +12,7 @@ from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
 from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.video import load_first_video_frame
 
 # GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
@@ -143,6 +144,14 @@ def detect_video_rink_masks(
     return videos_dict
 
 
+def get_orientation(rink_mask: torch.Tensor) -> str:
+    assert rink_mask.dtype == torch.bool
+    assert rink_mask.ndim == 2
+    width = image_width(rink_mask)
+    height = image_height(rink_mask)
+    return "UNKNOWN"
+
+
 def main(args: argparse.Namespace):
     game_id = args.game_id
     assert game_id
@@ -150,6 +159,10 @@ def main(args: argparse.Namespace):
     videos_dict = get_available_videos(dir_name=dir_name)
     videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
 
+    for key, value in videos_dict.items():
+        mask = value["rink_profile"]["combined_mask"]
+        orientation = get_orientation(torch.from_numpy(mask))
+        print(f"{key} orientation: {orientation}")
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("Video Orientation Analysis")

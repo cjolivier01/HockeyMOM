@@ -530,6 +530,8 @@ def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[1] in [1, 3, 4]
                 return img.shape[-1]
+        elif img.ndim == 2:
+            return img.shape[1]
         else:
             assert img.ndim == 3
             if img.shape[-1] in [1, 3, 4]:
@@ -551,6 +553,8 @@ def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[1] in [1, 3, 4]
                 return img.shape[-2]
+        elif img.ndim == 2:
+            return img.shape[0]
         else:
             assert img.ndim == 3
             if img.shape[-1] in [1, 3, 4]:
