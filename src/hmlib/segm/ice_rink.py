@@ -23,6 +23,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.models.loader import load_detector_model
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.stitching.laplacian_blend import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
