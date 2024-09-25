@@ -405,7 +405,6 @@ def load_rink_combined_mask(
 
 def confgure_ice_rink_mask(
     game_id: str,
-    root_dir: Optional[str] = None,
     device: Optional[torch.device] = None,
     force: bool = False,
     show: bool = False,
@@ -434,7 +433,7 @@ def confgure_ice_rink_mask(
         device=device,
     )
     if rink_results:
-        save_rink_profile_config(game_id=game_id, rink_profile=rink_results, root_dir=root_dir)
+        save_rink_profile_config(game_id=game_id, rink_profile=rink_results)
     return load_rink_combined_mask(game_id=game_id)
 
 
@@ -457,7 +456,6 @@ if __name__ == "__main__":
 
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
-        root_dir=root_dir,
         # device="cpu",
         device=device,
         show=False,

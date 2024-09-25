@@ -554,7 +554,6 @@ def main(args, num_gpu):
                             # image is created, along witht he obligatory s.png
                             rink_profile = confgure_ice_rink_mask(
                                 game_id=args.game_id,
-                                root_dir=ROOT_DIR,
                                 device=None if not is_single_lowmem_gpu else torch.device("cpu"),
                             )
                             if rink_profile:
