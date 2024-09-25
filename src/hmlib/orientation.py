@@ -11,6 +11,7 @@ from hmlib.config import get_game_config_private, get_game_dir, save_private_con
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.video import load_first_video_frame
@@ -152,9 +153,11 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
     width = image_width(rink_mask)
 
     float_mask = rink_mask.to(torch.float)
-    divisor = 4
+    divisor = 8
     left_sum = float_mask[:, : int(width // divisor)].sum().item()
-    right_sum = float_mask[:, int(width // divisor) :].sum().item()
+    right_sum = float_mask[:, int(width - width // divisor) :].sum().item()
+
+    # show_image("mask", float_mask * 255)
 
     if left_sum > right_sum:
         # Most ice on the left of image, so this is the right side
