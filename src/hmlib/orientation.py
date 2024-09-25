@@ -177,12 +177,14 @@ def get_game_videos_analysis(game_id: str) -> VideosDict:
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
         orientation = get_orientation(torch.from_numpy(mask))
-        if key.startswith("left"):
-            assert orientation == "left"
-        elif key.startswith("right"):
-            assert orientation == "right"
+        if isinstance(key, str):
+            if key.startswith("left"):
+                assert orientation == "left"
+            elif key.startswith("right"):
+                assert orientation == "right"
         if orientation in videos_dict:
-            assert orientation == key
+            if isinstance(key, str):
+                assert key.startswith(orientation)
         else:
             videos_dict[orientation] = value
         print(f"{key} orientation: {orientation}")
