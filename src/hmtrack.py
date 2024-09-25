@@ -549,6 +549,8 @@ def main(args, num_gpu):
                             model.post_detection_pipeline, "SegmBoundaries"
                         )
                         if segm_boundaries is not None:
+                            # FIXME: This can't be done until the first stitched
+                            # image is created, along witht he obligatory s.png
                             rink_profile = confgure_ice_rink_mask(
                                 game_id=args.game_id,
                                 root_dir=ROOT_DIR,
