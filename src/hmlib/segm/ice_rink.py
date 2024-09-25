@@ -406,8 +406,8 @@ def load_rink_combined_mask(
     return results
 
 
-def load_rink_detector(game_id: str, device: torch.device) -> BaseDetector:
-    pass
+# def load_rink_detector(game_id: str, device: torch.device) -> BaseDetector:
+#     pass
 
 
 def confgure_ice_rink_mask(

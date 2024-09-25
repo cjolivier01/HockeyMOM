@@ -5,11 +5,13 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
-import cv2
 import torch
 
 from hmlib.config import get_game_config_private, get_game_dir, save_private_config
 from hmlib.hm_opts import hm_opts
+from hmlib.models.loader import get_model_config
+from hmlib.segm.ice_rink import find_ice_rink_masks
+from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.video import load_first_video_frame
 
 # GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
@@ -22,6 +24,7 @@ RIGHT_FILE_PATTERN: str = r"right.mp4"
 
 
 VideosDict = Dict[Union[int, str], List[Dict[Union[int, str], Any]]]
+
 
 def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
     """
@@ -105,13 +108,38 @@ def get_available_videos(dir_name: str) -> VideosDict:
     return videos_dict
 
 
-def load_first_video_frames(videos_dict: VideosDict) -> VideosDict:
+def detect_video_rink_masks(
+    game_id: str, videos_dict: VideosDict, device: torch.device = None,
+) -> VideosDict:
+    if device is None:
+        gpu_allocator = GpuAllocator(gpus=args.gpus)
+        device: torch.device = (
+            torch.device("cuda", gpu_allocator.allocate_fast())
+            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
+            else torch.device("cpu")
+        )
+
     keys = []
-    # files = []
+    images: List[torch.Tensor] = []
     for key, value in videos_dict.items():
         keys.append(key)
         # files.append(load_first_frame(value[1]))
-        value["first_frame"] = load_first_video_frame(value[1])
+        frame = load_first_video_frame(value[1])
+        images.append(frame)
+        # value["first_frame"] = load_first_video_frame(value[1])
+
+    config_file, checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+
+    frame_ir_masks = find_ice_rink_masks(
+        image=images,
+        config_file=config_file,
+        checkpoint=checkpoint,
+        device=device,
+    )
+    assert len(frame_ir_masks) == len(keys)
+    for i, key in enumerate(keys):
+        videos_dict[key]["rink_profile"] = frame_ir_masks[i]
+
     return videos_dict
 
 
@@ -120,7 +148,7 @@ def main(args: argparse.Namespace):
     assert game_id
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
-    videos_dict = load_first_video_frames(videos_dict)
+    videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
 
 
 def make_parser() -> argparse.ArgumentParser:
