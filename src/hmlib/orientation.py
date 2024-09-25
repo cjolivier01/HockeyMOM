@@ -169,9 +169,7 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
     return "UNKNOWN"
 
 
-def main(args: argparse.Namespace):
-    game_id = args.game_id
-    assert game_id
+def get_game_videos_analysis(game_id: str) -> VideosDict:
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
     videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
@@ -188,6 +186,12 @@ def main(args: argparse.Namespace):
         else:
             videos_dict[orientation] = value
         print(f"{key} orientation: {orientation}")
+
+
+def main(args: argparse.Namespace):
+    game_id = args.game_id
+    assert game_id
+    get_game_videos_analysis(game_id=game_id)
 
 
 def make_parser() -> argparse.ArgumentParser:
