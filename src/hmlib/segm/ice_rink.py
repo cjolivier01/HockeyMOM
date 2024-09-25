@@ -24,6 +24,7 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.stitching.laplacian_blend import show_image
+from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width
 
 DEFAULT_SCORE_THRESH = 0.3
@@ -540,13 +541,18 @@ if __name__ == "__main__":
     # args.game_id = "jrmocks"
     args.game_id = "pdp"
 
+    gpu_allocator = GpuAllocator(gpus=args.gpus)
+    device = "cpu"
+    if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024*10):
+        device = torch.device("cuda", gpu_allocator.allocate_fast())
+
     assert args.game_id
 
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
         root_dir=root_dir,
         # device="cpu",
-        device="cuda:0",
+        device=device,
         show=False,
         force=True,
     )

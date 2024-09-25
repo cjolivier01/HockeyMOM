@@ -133,7 +133,7 @@ class GpuAllocator:
         """
         Return True if we are dealing with a single, low-memory GPU
         """
-        if len(self._gpus) != 1:
+        if torch.cuda.device_count() != 1:
             # Assume zero is not a relevant use-case
             return False
         if self._is_single_lowmem_gpu is None:
