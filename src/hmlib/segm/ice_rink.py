@@ -448,15 +448,16 @@ if __name__ == "__main__":
     args.game_id = "pdp"
 
     gpu_allocator = GpuAllocator(gpus=args.gpus)
-    device = "cpu"
-    if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10):
-        device = torch.device("cuda", gpu_allocator.allocate_fast())
+    device: torch.device = (
+        torch.device("cuda", gpu_allocator.allocate_fast())
+        if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
+        else torch.device("cpu")
+    )
 
     assert args.game_id
 
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
-        # device="cpu",
         device=device,
         show=False,
         force=True,
