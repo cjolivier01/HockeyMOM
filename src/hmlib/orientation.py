@@ -3,7 +3,7 @@ import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 from hmlib.config import get_game_config_private, get_game_dir, save_private_config
 from hmlib.hm_opts import hm_opts
@@ -54,8 +54,8 @@ def main(args: argparse.Namespace):
     assert game_id
     dir_name = get_game_dir(game_id=game_id)
     gopro_files: List[Path] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
-    # Video # -> Chapter # -> Path
-    video_dict: Dict[int, List[Dict[int, Path]]] = OrderedDict()
+    # Video # / left|right -> Chapter # -> Path
+    video_dict: Dict[Union[int, str], List[Dict[int, Path]]] = OrderedDict()
     for file in gopro_files:
         video, chapter = gopro_get_video_and_chapter(filename=file)
         if video not in video_dict:
