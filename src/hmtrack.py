@@ -149,6 +149,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     # cam args
     parser.add_argument(
+        "--adjust-exposure",
+        default=None,
+        type=float,
+        help="Adjust overall exposure of all input images",
+    )
+    parser.add_argument(
         "--cam-ignore-largest",
         default=False,
         action="store_true",
@@ -685,6 +691,7 @@ def main(args, num_gpu):
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
                     original_image_only=tracking_data is not None,
+                    adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
             else:
@@ -717,6 +724,7 @@ def main(args, num_gpu):
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     original_image_only=tracking_data is not None,
+                    adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
 

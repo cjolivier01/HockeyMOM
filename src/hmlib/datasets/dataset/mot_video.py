@@ -1,7 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
-from typing import Callable, List, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -65,6 +65,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         dtype: torch.dtype = None,
         data_pipeline: Callable = None,
         frame_step: int = 1,
+        adjust_exposure: Optional[float] = None,
     ):
         assert not isinstance(img_size, str)
         self._path = path
@@ -81,6 +82,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
         self.calculated_clip_box = None
+        self._adjust_exposure = adjust_exposure
         if img_size is None:
             self.process_height = None
             self.process_width = None
@@ -341,6 +343,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+
+            if (
+                self._adjust_exposure is not None
+                and self._adjust_exposure != 0
+                and self._adjust_exposure != 1
+            ):
+                if isinstance(img0, StreamTensor):
+                    img0 = img0.wait()
+                if not torch.is_floating_point(img0):
+                    img0 = img0.to(torch.float, non_blocking=True)
+                img0 = img0 * self._adjust_exposure
 
             # Does this need to be in imgs_info this way as an array?
             ids = torch.tensor(
