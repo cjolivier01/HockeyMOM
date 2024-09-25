@@ -153,12 +153,14 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
 
     float_mask = rink_mask.to(torch.float)
     divisor = 4
-    left_sum = float_mask[:, : int(width // divisor)].sum()
-    right_sum = float_mask[:, int(width // divisor) :].sum()
+    left_sum = float_mask[:, : int(width // divisor)].sum().item()
+    right_sum = float_mask[:, int(width // divisor) :].sum().item()
+
     if left_sum > right_sum:
         # Most ice on the left of image, so this is the right side
         return "right"
-    elif right_sum < left_sum:
+    if right_sum > left_sum:
+        # Most ice on the right of image, so this is the left side
         return "left"
 
     # For right end-zone, most ice will be at the bottom and left
