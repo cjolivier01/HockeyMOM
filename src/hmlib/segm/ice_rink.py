@@ -268,8 +268,8 @@ def detect_ice_rink_mask(
     return rink_results
 
 
-def find_ice_rink_mask(
-    image: torch.Tensor,
+def find_ice_rink_masks(
+    image: Union[torch.Tensor, List[torch.Tensor]],
     config_file: str,
     checkpoint: str,
     device: Optional[torch.device] = None,
@@ -278,9 +278,22 @@ def find_ice_rink_mask(
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
     if device is None:
         device = torch.device("cuda:0")
+
+    was_list = isinstance(image, list)
+    if not was_list:
+        image = [image]
+
     model = init_detector(config_file, checkpoint, device=device)
 
-    return detect_ice_rink_mask(image=image, model=model, show=show, scale=scale)
+    results: List[
+        Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
+    ] = []
+    for img in image:
+        results.append(detect_ice_rink_mask(image=img, model=model, show=show, scale=scale))
+    if not was_list:
+        assert len(results) == 1
+        return results[0]
+    return results
 
 
 def load_png_as_boolean_tensor(filename: str) -> torch.Tensor:
@@ -335,7 +348,6 @@ def save_boolean_tensor_as_png(tensor: Union[torch.Tensor, np.ndarray], filename
 def save_rink_profile_config(
     game_id: str,
     rink_profile: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
-    root_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     game_config = get_game_config_private(game_id=game_id)
     masks = rink_profile.get("masks")
@@ -413,7 +425,7 @@ def confgure_ice_rink_mask(
     if not image_file.exists():
         raise AttributeError(f"Could not find stitched frame image: {image_file}")
 
-    rink_results = find_ice_rink_mask(
+    rink_results = find_ice_rink_masks(
         image=_get_first_frame(image_file),
         config_file=config_file,
         checkpoint=checkpoint,
