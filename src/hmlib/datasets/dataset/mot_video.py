@@ -350,8 +350,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 and self._adjust_exposure != 1
             ):
                 if isinstance(img0, StreamTensor):
-                    img0 = img0.wait()
-                if not torch.is_floating_point(img0):
+                    img0 = img0.get()
+                if not torch.is_floating_point(img0.dtype):
                     img0 = img0.to(torch.float, non_blocking=True)
                 img0 = img0 * self._adjust_exposure
 
