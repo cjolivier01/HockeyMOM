@@ -23,10 +23,21 @@ def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
 
     Returns: (video number, chapter number)
     """
-    name = filename.name
-    assert name[0] == 'G'
-    assert name[1] in {'H', 'X'}
+    name = filename.stem
+    assert name[0] == "G"
+    assert name[1] in {"H", "X"}
     return int(name[4:8]), int(name[2:4])
+
+
+def get_lr_part_number(filename: Path) -> int:
+    """
+    Get video and chapter number
+
+    Returns: (video number, chapter number)
+    """
+    name = filename.stem
+    tokens = name.split("-")
+    return int(tokens[-1])
 
 
 def find_matching_files(pattern: str, directory: str) -> List[Path]:
@@ -45,22 +56,54 @@ def find_matching_files(pattern: str, directory: str) -> List[Path]:
     return sorted(matching_files)
 
 
-def get_gopro_videos(directory: str) -> List[str]:
-    pass
+def get_available_videos(dir_name: str) -> Dict[Union[int, str], List[Dict[int, Path]]]:
+    """
+    Get available videos in the given directory
 
-
-def main(args: argparse.Namespace):
-    game_id = args.game_id
-    assert game_id
-    dir_name = get_game_dir(game_id=game_id)
+    :return: # Video # / left|right -> Chapter # -> Path
+    """
     gopro_files: List[Path] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
     # Video # / left|right -> Chapter # -> Path
     video_dict: Dict[Union[int, str], List[Dict[int, Path]]] = OrderedDict()
     for file in gopro_files:
         video, chapter = gopro_get_video_and_chapter(filename=file)
         if video not in video_dict:
-            video_dict[video] = dict()
+            video_dict[video] = {}
         video_dict[video][chapter] = file
+
+    # Plain left file
+    files: List[Path] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    if files:
+        assert len(files) == 1
+        video_dict["left"] = {}
+        video_dict["left"][1] = files[0]
+    else:
+        files = find_matching_files(pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
+        if files:
+            video_dict["left"] = {}
+            for file in files:
+                video_dict["left"][get_lr_part_number(file)] = file
+
+    # Plain right file
+    files: List[Path] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    if files:
+        assert len(files) == 1
+        video_dict["right"] = {}
+        video_dict["right"][1] = files[0]
+    else:
+        files = find_matching_files(pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
+        if files:
+            video_dict["right"] = {}
+            for file in files:
+                video_dict["right"][get_lr_part_number(file)] = file
+    return video_dict
+
+
+def main(args: argparse.Namespace):
+    game_id = args.game_id
+    assert game_id
+    dir_name = get_game_dir(game_id=game_id)
+    video_dict = get_available_videos(dir_name=dir_name)
     print(video_dict)
 
 

@@ -10,3 +10,6 @@ disable = [
     "C0116",  # missing-function-docstring
     "W0621",  # redefined-outer-name
 ]
+
+[tool.flake8]
+max-line-length = 88
