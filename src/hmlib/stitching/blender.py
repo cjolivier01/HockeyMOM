@@ -777,7 +777,6 @@ def create_stitcher(
         seam=blender_config.seam,
         xor_map=blender_config.xor_map,
         lazy_init=False,
-        interpolation=interpolation,
     )
     return stitcher, [xpos_1, ypos_1], [xpos_2, ypos_2]
 

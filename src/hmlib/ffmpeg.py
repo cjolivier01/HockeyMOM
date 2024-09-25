@@ -4,7 +4,8 @@ import platform
 import re
 import signal
 import subprocess
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -20,48 +21,67 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
-@classinstancememoize
+# @classinstancememoize
 class BasicVideoInfo:
-    def __init__(self, video_file: str, use_ffprobe: bool = True):
-        if use_ffprobe:
-            probe = FFProbe(video_file)
-            self._ffstream: Optional[FFStream] = None
-            if not probe.video:
-                raise AssertionError(
-                    f"Unable to get video stream from file: {video_file}"
-                )
-            elif len(probe.video) > 1:
-                raise AssertionError(
-                    f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
-                )
-            self._ffstream = probe.video[0]
-            # self.frame_count = self._ffstream.frames()
-            self.frame_count = int(
-                self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
-            )
-            self.fps = self._ffstream.realFrameRate()
-            self.duration = self._ffstream.durationSeconds()
-            sz = self._ffstream.frameSize()
-            self.width = sz[0]
-            self.height = sz[1]
-            self.bitrate = self._ffstream.bitrate()
-            self.codec = self._ffstream.codecTag()
-            # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+
+    def __init__(self, video_file: Path | str | List[Path | str], use_ffprobe: bool = True):
+        self._multiple = None
+        if isinstance(video_file, list) and len(video_file) == 1:
+            video_file = video_file[0]
+        if isinstance(video_file, list):
+            self._multiple = []
+            for f in video_file:
+                self._multiple.append(BasicVideoInfo(f, use_ffprobe=use_ffprobe))
+            # Let's assume they're all the same
+            firstone = self._multiple[0]
+            self.fps = firstone.fps
+            self.width = firstone.width
+            self.height = firstone.height
+            self.bitrate = firstone.bitrate
+            self.codec = firstone.codec
+            # accumulate
+            self.duration = firstone.duration
+            self.frame_count = firstone.frame_count
+            for v in self._multiple[1:]:
+                self.duration += v.duration
+                self.frame_count += v.frame_count
         else:
-            cap = cv2.VideoCapture(video_file)
-            if not cap.isOpened():
-                raise AssertionError(f"Unable to open video file {video_file}")
-            self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.fps = cap.get(cv2.CAP_PROP_FPS)
-            self.duration = self.frame_count / self.fps
-            self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
-            self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-            self.codec = "".join(
-                [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
-            ).upper()
-            cap.release()
+            video_file = str(video_file)
+            if use_ffprobe:
+                probe = FFProbe(video_file)
+                self._ffstream: Optional[FFStream] = None
+                if not probe.video:
+                    raise AssertionError(f"Unable to get video stream from file: {video_file}")
+                elif len(probe.video) > 1:
+                    raise AssertionError(
+                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
+                    )
+                self._ffstream = probe.video[0]
+                # self.frame_count = self._ffstream.frames()
+                self.frame_count = int(
+                    self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
+                )
+                self.fps = self._ffstream.realFrameRate()
+                self.duration = self._ffstream.durationSeconds()
+                sz = self._ffstream.frameSize()
+                self.width = sz[0]
+                self.height = sz[1]
+                self.bitrate = self._ffstream.bitrate()
+                self.codec = self._ffstream.codecTag()
+                # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+            else:
+                cap = cv2.VideoCapture(video_file)
+                if not cap.isOpened():
+                    raise AssertionError(f"Unable to open video file {video_file}")
+                self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.fps = cap.get(cv2.CAP_PROP_FPS)
+                self.duration = self.frame_count / self.fps
+                self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
+                self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+                self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
+                cap.release()
 
 
 def fourcc_to_int(fourcc):

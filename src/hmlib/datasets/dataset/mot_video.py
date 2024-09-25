@@ -68,7 +68,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         adjust_exposure: Optional[float] = None,
     ):
         assert not isinstance(img_size, str)
-        self._path = path
+        if isinstance(path, list):
+            self._path_list = path
+        else:
+            self._path_list = [path]
+        self._current_path_index = 0
+        # self._path = path
         self._game_id = game_id
         self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
         # The delivery device of the letterbox image
@@ -133,7 +138,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._decoder_device is not None and self._decoder_device.type == "cuda":
                 type = "torchaudio"
             self.cap = VideoStreamReader(
-                filename=self._path,
+                filename=str(self._path_list[self._current_path_index]),
                 type=type,
                 batch_size=self._batch_size,
                 device=self._decoder_device,
@@ -145,7 +150,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if not self.vn:
                 raise RuntimeError(
-                    f"Video {self._path} either does not exist or has no usable video content"
+                    f"Video {str(self._path_list[self._current_path_index])} either does not exist or has no usable video content"
                 )
             if self._start_frame_number < 0:
                 raise ValueError("Start frame number cannot be negative")
@@ -221,7 +226,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._thread.join()
         self._thread = None
         print(
-            f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {self._path}"
+            f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {str(self._path_list[self._current_path_index])}"
         )
 
     def __iter__(self):
@@ -412,12 +417,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             original_img0 = make_channels_first(original_img0)
 
+            path = str(self._path_list[self._current_path_index]) if self._path_list else None
             imgs_info = [
                 (self.height_t.repeat(len(ids)) if self._multi_width_img_info else self.height_t),
                 (self.width_t.repeat(len(ids)) if self._multi_width_img_info else self.width_t),
                 ids,
                 self.video_id.repeat(len(ids)),
-                [self._path if self._path is not None else self._game_id],
+                [path if path is not None else self._game_id],
             ]
 
         self._count += self._batch_size

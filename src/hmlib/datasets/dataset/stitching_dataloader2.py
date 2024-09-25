@@ -7,7 +7,7 @@ import os
 import threading
 import traceback
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -35,7 +35,7 @@ from hockeymom import core
 
 
 def _get_dir_name(path):
-    if os.path.isdir(path):
+    if os.path.isdir(str(path)):
         return path
     return Path(path).parent
 
@@ -140,11 +140,10 @@ class StitchDataset:
 
     def __init__(
         self,
-        video_file_1: str,
-        video_file_2: str,
+        videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        video_1_offset_frame: int = None,
-        video_2_offset_frame: int = None,
+        # video_1_offset_frame: int = None,
+        # video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
@@ -176,10 +175,11 @@ class StitchDataset:
         self._remap_on_async_stream = remap_on_async_stream
         self._encoder_device = as_torch_device(encoder_device)
         self._output_stitched_video_file = output_stitched_video_file
-        self._video_1_offset_frame = video_1_offset_frame
-        self._video_2_offset_frame = video_2_offset_frame
-        self._video_file_1 = video_file_1
-        self._video_file_2 = video_file_2
+        self._video_left_offset_frame = videos["left"]["frame_offset"]
+        self._video_right_offset_frame = videos["right"]["frame_offset"]
+        self._videos = videos
+        # self._video_file_1 = video_file_1
+        # self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
@@ -225,18 +225,19 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
-        self._video_1_info = BasicVideoInfo(video_file_1)
-        self._video_2_info = BasicVideoInfo(video_file_2)
+        self._video_left_info = BasicVideoInfo(videos["left"]["files"])
+        self._video_right_info = BasicVideoInfo(videos["right"]["files"])
+        self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
-        assert np.isclose(self._video_1_info.fps, self._video_2_info.fps)
+        assert np.isclose(self._video_left_info.fps, self._video_right_info.fps)
 
-        v1o = 0 if self._video_1_offset_frame is None else self._video_1_offset_frame
-        v2o = 0 if self._video_2_offset_frame is None else self._video_2_offset_frame
+        v1o = 0 if self._video_left_offset_frame is None else self._video_left_offset_frame
+        v2o = 0 if self._video_right_offset_frame is None else self._video_right_offset_frame
         self._total_number_of_frames = int(
             min(
-                self._video_1_info.frame_count - v1o,
-                self._video_2_info.frame_count - v2o,
+                self._video_left_info.frame_count - v1o,
+                self._video_right_info.frame_count - v2o,
             )
         )
         self._stitcher = None
@@ -248,13 +249,13 @@ class StitchDataset:
 
     @property
     def lfo(self):
-        assert self._video_1_offset_frame is not None
-        return self._video_1_offset_frame
+        assert self._video_left_offset_frame is not None
+        return self._video_left_offset_frame
 
     @property
     def rfo(self):
-        assert self._video_2_offset_frame is not None
-        return self._video_2_offset_frame
+        assert self._video_right_offset_frame is not None
+        return self._video_right_offset_frame
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -273,14 +274,14 @@ class StitchDataset:
         frame_step_1 = 1
         frame_step_2 = 1
 
-        if self._video_1_info.fps > self._video_2_info.fps:
-            int_ratio = self._video_1_info.fps // self._video_2_info.fps
-            float_ratio = self._video_1_info.fps / self._video_2_info.fps
+        if self._video_left_info.fps > self._video_right_info.fps:
+            int_ratio = self._video_left_info.fps // self._video_right_info.fps
+            float_ratio = self._video_left_info.fps / self._video_right_info.fps
             if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
                 frame_step_1 = int(int_ratio)
-        elif self._video_2_info.fps > self._video_1_info.fps:
-            int_ratio = self._video_2_info.fps // self._video_1_info.fps
-            float_ratio = self._video_2_info.fps / self._video_1_info.fps
+        elif self._video_right_info.fps > self._video_left_info.fps:
+            int_ratio = self._video_right_info.fps // self._video_left_info.fps
+            float_ratio = self._video_right_info.fps / self._video_left_info.fps
             if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
                 frame_step_2 = int(int_ratio)
 
@@ -290,11 +291,11 @@ class StitchDataset:
         dataloaders = []
         dataloaders.append(
             MOTLoadVideoWithOrig(
-                path=self._video_file_1,
+                path=self._videos["left"]["files"],
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_1_offset_frame,
+                start_frame_number=start_frame_number + self._video_left_offset_frame,
                 original_image_only=True,
                 stream_tensors=True,
                 dtype=self._dtype,
@@ -305,11 +306,11 @@ class StitchDataset:
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
-                path=self._video_file_2,
+                path=self._videos["right"]["files"],
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_2_offset_frame,
+                start_frame_number=start_frame_number + self._video_right_offset_frame,
                 original_image_only=True,
                 stream_tensors=True,
                 dtype=self._dtype,
@@ -324,29 +325,31 @@ class StitchDataset:
         return stitching_worker
 
     def configure_stitching(self):
-        if self._video_1_offset_frame is None or self._video_2_offset_frame is None:
-            dir_name = _get_dir_name(self._video_file_1)
+        if self._video_left_offset_frame is None or self._video_right_offset_frame is None:
             self._pto_project_file, lfo, rfo = configure_video_stitching(
-                dir_name,
-                self._video_file_1,
-                self._video_file_2,
-                left_frame_offset=self._video_1_offset_frame,
-                right_frame_offset=self._video_2_offset_frame,
+                self._dir_name,
+                video_left=self._videos["left"]["files"][0],
+                video_right=self._videos["right"]["files"][0],
+                left_frame_offset=self._video_left_offset_frame,
+                right_frame_offset=self._video_right_offset_frame,
             )
-            self._video_1_offset_frame = lfo
-            self._video_2_offset_frame = rfo
+            self._video_left_offset_frame = lfo
+            self._video_right_offset_frame = rfo
 
     def initialize(self):
         if self._auto_configure:
             self.configure_stitching()
 
     def _load_video_props(self):
-        video1 = cv2.VideoCapture(self._video_file_1)
-        if not video1.isOpened():
-            raise AssertionError(f"Could not open video file: {self._video_file_1}")
-        self._fps = video1.get(cv2.CAP_PROP_FPS)
-        self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
-        video1.release()
+        info = BasicVideoInfo(self._videos["left"]["files"])
+        self._fps = info.fps
+        self._bitrate = info.bitrate
+        # video1 = cv2.VideoCapture(self._video_file_1)
+        # if not video1.isOpened():
+        #     raise AssertionError(f"Could not open video file: {self._video_file_1}")
+        # self._fps = video1.get(cv2.CAP_PROP_FPS)
+        # self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
+        # video1.release()
 
     @property
     def fps(self):
@@ -544,7 +547,7 @@ class StitchDataset:
             #
             assert self._stitcher is None
             self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
-                dir_name=os.path.dirname(self._video_file_1),
+                dir_name=self._dir_name,
                 batch_size=self._batch_size,
                 device=self._remapping_device,
                 dtype=self._dtype,
@@ -686,7 +689,7 @@ class StitchDataset:
         )
 
         if self._batch_count == 1:
-            frame_path = os.path.join(_get_dir_name(self._video_file_1), "s.png")
+            frame_path = os.path.join(self._dir_name, "s.png")
             print(
                 f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
             )

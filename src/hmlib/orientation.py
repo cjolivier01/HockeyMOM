@@ -102,7 +102,7 @@ def get_available_videos(dir_name: str) -> VideosDict:
                 videos_dict["left"][get_lr_part_number(file)] = file
 
     # Plain right file
-    files: List[Path] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    files: List[Path] = find_matching_files(pattern=RIGHT_FILE_PATTERN, directory=dir_name)
     if files:
         assert len(files) == 1
         videos_dict["right"] = {}
@@ -122,7 +122,7 @@ def detect_video_rink_masks(
     device: torch.device = None,
 ) -> VideosDict:
     if device is None:
-        gpu_allocator = GpuAllocator(gpus=args.gpus)
+        gpu_allocator = GpuAllocator(gpus=None)
         device: torch.device = (
             torch.device("cuda", gpu_allocator.allocate_fast())
             if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
@@ -214,7 +214,9 @@ def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
     return file_list
 
 
-def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[Path]]:
+def configure_game_videos(
+    game_id: str, force: bool = False, write_results: bool = True
+) -> Dict[str, List[Path]]:
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
     if not force and ("left" in videos_dict and "right" in videos_dict):
@@ -238,9 +240,10 @@ def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[P
     videos_dict = get_game_videos_analysis(game_id=game_id)
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
-    set_nested_value(private_config, "game.videos.left", [p.name for p in left_list])
-    set_nested_value(private_config, "game.videos.right", [p.name for p in right_list])
-    save_private_config(game_id=game_id, data=private_config)
+    if write_results:
+        set_nested_value(private_config, "game.videos.left", [p.name for p in left_list])
+        set_nested_value(private_config, "game.videos.right", [p.name for p in right_list])
+        save_private_config(game_id=game_id, data=private_config)
     return {
         "left": left_list,
         "right": right_list,

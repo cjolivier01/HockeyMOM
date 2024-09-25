@@ -6,7 +6,8 @@ import argparse
 import os
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import torch
 
@@ -14,6 +15,7 @@ from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
+from hmlib.orientation import configure_game_videos
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
@@ -21,7 +23,6 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
-from hockeymom import core
 
 ROOT_DIR = os.getcwd()
 
@@ -47,8 +48,9 @@ def convert_seconds_to_hms(total_seconds):
 
 def stitch_videos(
     dir_name: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
+    videos: Dict[str, List[Path]],
+    # video_left: str = "left.mp4",
+    # video_right: str = "right.mp4",
     lfo: int = None,
     rfo: int = None,
     game_id: str = None,
@@ -73,8 +75,8 @@ def stitch_videos(
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
-    left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
-    right_vid = BasicVideoInfo(os.path.join(dir_name, video_right))
+    left_vid = BasicVideoInfo(videos["left"])
+    right_vid = BasicVideoInfo(videos["right"])
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 
@@ -88,21 +90,33 @@ def stitch_videos(
 
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
-        video_left,
-        video_right,
-        project_file_name,
+        video_left=str(videos["left"][0]),
+        video_right=str(videos["right"][0]),
+        project_file_name=project_file_name,
         left_frame_offset=lfo,
         right_frame_offset=rfo,
         base_frame_offset=stitch_frame_number,
         force=force,
     )
 
+    stitch_videos = {
+        "left": {
+            "files": videos["left"],
+            "frame_offset": lfo,
+        },
+        "right": {
+            "files": videos["right"],
+            "frame_offset": rfo,
+        },
+    }
+
     data_loader = StitchDataset(
-        video_file_1=os.path.join(dir_name, video_left),
-        video_file_2=os.path.join(dir_name, video_right),
+        # video_file_1=videos["left"],
+        # video_file_2=videos["right"],
         pto_project_file=pto_project_file,
-        video_1_offset_frame=lfo,
-        video_2_offset_frame=rfo,
+        # video_1_offset_frame=lfo,
+        # video_2_offset_frame=rfo,
+        videos=stitch_videos,
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
@@ -207,15 +221,15 @@ def stitch_videos(
 
 
 def main(args):
-    video_left = "left.mp4"
-    video_right = "right.mp4"
+    game_videos = configure_game_videos(game_id=args.game_id, force=args.force)
+    # video_left = "left.mp4"
+    # video_right = "right.mp4"
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
-            video_left,
-            video_right,
+            videos=game_videos,
             lfo=args.lfo,
             rfo=args.rfo,
             start_frame_time=args.start_frame_time,

@@ -360,13 +360,12 @@ def load_or_calculate_control_points(
 
 def configure_synchronization(
     game_id: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
+    video_left: str,
+    video_right: str,
     audio_sync_seconds: float = 15.0,
     force: bool = False,
 ) -> Dict[str, float]:
     config = get_game_config_private(game_id=game_id)
-    # set_nested_value(config, "game.stitching.frame_offsets", {"left": 1.0, "right": 0.0})
     frame_offsets = (
         get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()
     )
@@ -377,10 +376,11 @@ def configure_synchronization(
         or frame_offsets.get("right") is None
     ):
         # Calculate by audio
-        game_dir = get_game_dir(game_id=game_id)
+        # game_dir = get_game_dir(game_id=game_id)
+        assert "/" in video_left  # should be full path
         lfo, rfo = synchronize_by_audio(
-            file1_path=os.path.join(game_dir, video_left),
-            file2_path=os.path.join(game_dir, video_right),
+            file1_path=video_left,
+            file2_path=video_right,
             seconds=audio_sync_seconds,
         )
         if frame_offsets is None:
@@ -400,8 +400,8 @@ def configure_synchronization(
 
 def configure_video_stitching(
     dir_name: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
+    video_left: str,
+    video_right: str,
     project_file_name: str = "hm_project.pto",
     left_frame_offset: int = None,
     right_frame_offset: int = None,
