@@ -7,7 +7,7 @@ import os
 import threading
 import traceback
 from pathlib import Path
-from typing import List, Union
+from typing import Callable, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -164,6 +164,7 @@ class StitchDataset:
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
         auto_adjust_exposure: bool = False,
+        on_first_stitched_image_callback: Optional[Callable] = None,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -191,6 +192,7 @@ class StitchDataset:
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
+        self._on_first_stitched_image_callback = on_first_stitched_image_callback
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -691,6 +693,8 @@ class StitchDataset:
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
+            if self._on_first_stitched_image_callback is not None:
+                self._on_first_stitched_image_callback(stitched_frame[0])
 
         assert stitched_frame.ndim == 4
         stitched_frame = self._send_frame_to_video_out(
