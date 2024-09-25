@@ -23,13 +23,12 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.models import get_model_config
 from hmlib.models.loader import load_detector_model
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.stitching.laplacian_blend import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_last
-
-# from hmlib.models import 
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -421,11 +420,13 @@ def confgure_ice_rink_mask(
         if combined_mask is not None:
             return combined_mask
 
-    game_config = get_config(game_id=game_id)
-    config_file = get_nested_value(game_config, "model.ice_rink_segm.config")
-    assert config_file
-    checkpoint = get_nested_value(game_config, "model.ice_rink_segm.checkpoint")
-    assert checkpoint
+    model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+
+    # game_config = get_config(game_id=game_id)
+    # config_file = get_nested_value(game_config, "model.ice_rink_segm.config")
+    assert model_config_file
+    # checkpoint = get_nested_value(game_config, "model.ice_rink_segm.checkpoint")
+    assert model_checkpoint
 
     image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
     if not image_file.exists():
@@ -433,8 +434,8 @@ def confgure_ice_rink_mask(
 
     rink_results = find_ice_rink_masks(
         image=_get_first_frame(image_file),
-        config_file=config_file,
-        checkpoint=checkpoint,
+        config_file=model_config_file,
+        checkpoint=model_checkpoint,
         show=show,
         scale=None,
         device=device,
