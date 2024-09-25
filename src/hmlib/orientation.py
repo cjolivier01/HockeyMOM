@@ -110,7 +110,9 @@ def get_available_videos(dir_name: str) -> VideosDict:
 
 
 def detect_video_rink_masks(
-    game_id: str, videos_dict: VideosDict, device: torch.device = None,
+    game_id: str,
+    videos_dict: VideosDict,
+    device: torch.device = None,
 ) -> VideosDict:
     if device is None:
         gpu_allocator = GpuAllocator(gpus=args.gpus)
@@ -148,7 +150,22 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
     assert rink_mask.dtype == torch.bool
     assert rink_mask.ndim == 2
     width = image_width(rink_mask)
-    height = image_height(rink_mask)
+
+    float_mask = rink_mask.to(torch.float)
+    divisor = 4
+    left_sum = float_mask[:, : int(width // divisor)].sum()
+    right_sum = float_mask[:, int(width // divisor) :].sum()
+    if left_sum > right_sum:
+        # Most ice on the left of image, so this is the right side
+        return "right"
+    elif right_sum < left_sum:
+        return "left"
+
+    # For right end-zone, most ice will be at the bottom and left
+    # height = image_height(rink_mask)
+    # top_sum = float_mask[: int(height // divisor), :].sum()
+    # bottom_sum = float_mask[int(height // divisor) :, :].sum()
+
     return "UNKNOWN"
 
 
@@ -162,7 +179,16 @@ def main(args: argparse.Namespace):
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
         orientation = get_orientation(torch.from_numpy(mask))
+        if key.startswith("left"):
+            assert orientation == "left"
+        elif key.startswith("right"):
+            assert orientation == "right"
+        if orientation in videos_dict:
+            assert orientation == key
+        else:
+            videos_dict[orientation] = value
         print(f"{key} orientation: {orientation}")
+
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("Video Orientation Analysis")
