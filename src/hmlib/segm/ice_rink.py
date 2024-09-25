@@ -15,7 +15,6 @@ from mmdet.models.detectors.base import BaseDetector
 from PIL import Image
 
 from hmlib.config import (
-    get_config,
     get_game_config_private,
     get_game_dir,
     get_nested_value,
@@ -23,8 +22,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.models import get_model_config
-from hmlib.models.loader import load_detector_model
+from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.stitching.laplacian_blend import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
