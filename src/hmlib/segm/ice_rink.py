@@ -11,7 +11,7 @@ import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
-from mmdet.models.detectors.single_stage import SingleStageDetector
+from mmdet.models.detectors.base import BaseDetector
 from PIL import Image
 
 from hmlib.config import (
@@ -232,7 +232,7 @@ def contours_to_polygons(contours: List[np.ndarray]) -> List[Polygon]:
 
 def detect_ice_rink_mask(
     image: Union[torch.Tensor, np.ndarray],
-    model: SingleStageDetector,
+    model: BaseDetector,
     show: bool = False,
     scale: float = None,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
@@ -401,6 +401,10 @@ def load_rink_combined_mask(
         "combined_bbox": combined_bbox,
     }
     return results
+
+
+def load_rink_detector(game_id: str, device: torch.device) -> BaseDetector:
+    pass
 
 
 def confgure_ice_rink_mask(
