@@ -186,12 +186,14 @@ def get_game_videos_analysis(game_id: str) -> VideosDict:
         else:
             videos_dict[orientation] = value
         print(f"{key} orientation: {orientation}")
+    return videos_dict
 
 
 def main(args: argparse.Namespace):
     game_id = args.game_id
     assert game_id
-    get_game_videos_analysis(game_id=game_id)
+    videos_dict = get_game_videos_analysis(game_id=game_id)
+    print(videos_dict.keys())
 
 
 def make_parser() -> argparse.ArgumentParser:
