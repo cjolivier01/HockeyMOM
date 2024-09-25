@@ -17,6 +17,7 @@ def split_video(input_file, split_count):
         cmd = [
             "ffprobe",
             "-v",
+            "-hide_banner",
             "error",
             "-select_streams",
             "v:0",
