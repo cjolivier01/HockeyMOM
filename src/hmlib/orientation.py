@@ -205,8 +205,18 @@ def get_game_videos_analysis(game_id: str, videos_dict: Optional[VideosDict] = N
     return videos_dict
 
 
+def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
+    file_list: List[str] = []
+    index = 1
+    while index in chapter_map:
+        file_list.append(chapter_map[index])
+        index += 1
+    return file_list
+
+
 def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[Path]]:
-    videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
+    dir_name = get_game_dir(game_id=game_id)
+    videos_dict = get_available_videos(dir_name=dir_name)
     if not force and ("left" in videos_dict and "right" in videos_dict):
         return {
             "left": videos_dict["left"],
@@ -218,17 +228,18 @@ def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[P
         left_list = get_nested_value(private_config, "game.videos.left")
         right_list = get_nested_value(private_config, "game.videos.right")
         if left_list and right_list:
-            left_list = [Path(p) for p in left_list]
-            right_list = [Path(p) for p in right_list]
+            dir_path = Path(dir_name)
+            left_list = [dir_path / Path(p) for p in left_list]
+            right_list = [dir_path / Path(p) for p in right_list]
             return {
                 "left": left_list,
                 "right": right_list,
             }
     videos_dict = get_game_videos_analysis(game_id=game_id)
-    left_list = videos_dict["left"]
-    right_list = videos_dict["right"]
-    set_nested_value(private_config, "game.videos.left", [str(p) for p in left_list])
-    set_nested_value(private_config, "game.videos.right", [str(p) for p in right_list])
+    left_list = extract_chapters_file_list(videos_dict["left"])
+    right_list = extract_chapters_file_list(videos_dict["right"])
+    set_nested_value(private_config, "game.videos.left", [p.name for p in left_list])
+    set_nested_value(private_config, "game.videos.right", [p.name for p in right_list])
     save_private_config(game_id=game_id, data=private_config)
     return {
         "left": left_list,
