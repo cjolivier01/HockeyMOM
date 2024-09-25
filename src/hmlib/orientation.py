@@ -3,11 +3,17 @@ import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from hmlib.config import get_game_config_private, get_game_dir, save_private_config
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
@@ -174,9 +180,9 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
     return "UNKNOWN"
 
 
-def get_game_videos_analysis(game_id: str) -> VideosDict:
-    dir_name = get_game_dir(game_id=game_id)
-    videos_dict = get_available_videos(dir_name=dir_name)
+def get_game_videos_analysis(game_id: str, videos_dict: Optional[VideosDict] = None) -> VideosDict:
+    if videos_dict is None:
+        videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
     videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
 
     new_dict: VideosDict = {}
@@ -199,11 +205,31 @@ def get_game_videos_analysis(game_id: str) -> VideosDict:
     return videos_dict
 
 
+def configure_game_videos(game_id: str, force: bool = False) -> Dict[str, List[Path]]:
+    private_config = get_game_config_private(game_id=game_id)
+    if not force:
+        # See if we have it already
+        left_list = get_nested_value(private_config, "game.videos.left")
+        right_list = get_nested_value(private_config, "game.videos.right")
+        if left_list and right_list:
+            return {
+                "left": left_list,
+                "right": right_list,
+            }
+    videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
+    if not force and ("left" in videos_dict and "right" in videos_dict):
+        return {
+            "left": videos_dict["left"],
+            "right": videos_dict["right"],
+        }
+
+
 def main(args: argparse.Namespace):
     game_id = args.game_id
     assert game_id
-    videos_dict = get_game_videos_analysis(game_id=game_id)
-    print(videos_dict.keys())
+    results = configure_game_videos(game_id=game_id)
+    # videos_dict = get_game_videos_analysis(game_id=game_id)
+    print(results)
 
 
 def make_parser() -> argparse.ArgumentParser:
