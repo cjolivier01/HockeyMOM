@@ -174,6 +174,8 @@ def get_game_videos_analysis(game_id: str) -> VideosDict:
     videos_dict = get_available_videos(dir_name=dir_name)
     videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
 
+    new_dict: VideosDict = {}
+
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
         orientation = get_orientation(torch.from_numpy(mask))
@@ -186,8 +188,9 @@ def get_game_videos_analysis(game_id: str) -> VideosDict:
             if isinstance(key, str):
                 assert key.startswith(orientation)
         else:
-            videos_dict[orientation] = value
+            new_dict[orientation] = value
         print(f"{key} orientation: {orientation}")
+    videos_dict.update(new_dict)
     return videos_dict
 
 
