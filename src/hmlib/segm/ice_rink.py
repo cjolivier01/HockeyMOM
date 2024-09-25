@@ -11,6 +11,7 @@ import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
+from mmdet.models.detectors.single_stage import SingleStageDetector
 from PIL import Image
 
 from hmlib.config import (
@@ -23,121 +24,11 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import hm_opts
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.stitching.laplacian_blend import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import image_height, image_width
+from hmlib.utils.image import image_height, image_width, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
-
-
-def rle_encode(tensor: Union[torch.Tensor, np.ndarray], validate: bool = True) -> torch.Tensor:
-    """
-    Encodes a 1D boolean tensor using run-length encoding (RLE).
-
-    Args:
-        tensor (torch.Tensor): A 1D boolean tensor.
-
-    Returns:
-        torch.Tensor: A 2xN tensor where the first row contains values and the second row contains lengths.
-    """
-    # Ensure tensor is flattened
-    if isinstance(tensor, np.ndarray):
-        tensor = torch.from_numpy(tensor)
-
-    tensor = tensor.flatten()
-    # Find boundaries (where changes occur)
-    diffs = torch.cat([torch.tensor([True]), tensor[1:] != tensor[:-1]])
-    # Get indices of changes
-    indices = torch.where(diffs)[0]
-    # Calculate run lengths
-    lengths = torch.diff(torch.cat([indices, torch.tensor([len(tensor)])]))
-    # Get values corresponding to the runs
-    values = tensor[indices]
-
-    # Return as 2xN tensor
-    rle_encoded = torch.stack((values.to(torch.int32), lengths))
-
-    if validate:
-        test_decode = rle_decode(rle_encoded)
-        assert torch.sum(test_decode) == torch.sum(tensor)
-        assert torch.sum(test_decode) == torch.sum(test_decode | tensor)
-        assert torch.sum(test_decode) == torch.sum(test_decode & tensor)
-
-    return rle_encoded
-
-
-def rle_decode(encoded_tensor):
-    """
-    Decodes a run-length encoded tensor back into the original tensor.
-
-    Args:
-        encoded_tensor (torch.Tensor): A 2xN tensor from rle_encode, where the first row contains values and the second row contains lengths.
-
-    Returns:
-        torch.Tensor: The decoded 1D boolean tensor.
-    """
-    # Extract values and lengths
-    values, lengths = encoded_tensor[0], encoded_tensor[1]
-    # Convert values back to boolean
-    bool_values = values.to(torch.bool)
-    # Repeat each value according to its run length
-    decoded = torch.repeat_interleave(bool_values, lengths)
-
-    return decoded
-
-
-# def rle_encode(data: np.ndarray, validate: bool = True) -> List[Tuple[bool, int]]:
-#     orig = make_channels_last(data[np.newaxis, :])
-#     assert data.dtype == np.bool
-#     data = data.flatten()
-#     ends = np.where(data[1:] != data[:-1])[0] + 1
-#     lengths = np.diff(np.append(-1, ends))
-#     encoded_pixel_count = np.sum(lengths)
-#     values = data[ends]
-#     encoded_vals_lengths = np.stack([values.astype(np.int32), lengths])
-#     # encoded_list = list(zip(values, lengths))
-#     # return encoded_list
-
-#     if validate:
-#         test_decode = rle_decode(
-#             encoded_vals_lengths, image_width=image_width(orig), image_height=image_height(orig)
-#         )
-#         assert make_channels_last(test_decode).numpy() == orig.squeeze(axis=0)
-
-#     return encoded_vals_lengths
-
-
-# def rle_decode(rle_tensor: np.ndarray, image_width: int, image_height: int) -> torch.Tensor:
-#     """
-#     Decodes an RLE-compressed boolean tensor.
-
-#     Args:
-#         rle_tensor (torch.Tensor): A 2xN tensor where the first row contains values (0 or 1),
-#                                    and the second row contains the corresponding lengths.
-
-#     Returns:
-#         torch.Tensor: A decompressed boolean tensor.
-#     """
-#     if isinstance(rle_tensor, np.ndarray):
-#         rle_tensor = torch.from_numpy(rle_tensor)
-
-#     values = rle_tensor[0, :]  # First row, values
-#     lengths = rle_tensor[1, :]  # Second row, run lengths
-
-#     # Convert values to boolean
-#     bool_values = values.to(torch.bool)
-
-#     # Repeat each boolean value according to the run length
-#     decompressed = torch.repeat_interleave(bool_values, lengths)
-
-#     expected_numel = image_width * image_height
-#     actual_numel = decompressed.numel()
-
-#     assert expected_numel == actual_numel
-
-#     decompressed = decompressed.reshape((image_height, image_width)).unsqueeze(0)
-
-#     return decompressed
 
 
 def parse_args():
@@ -266,8 +157,6 @@ def result_to_polygons(
     """
     Theoretically, could return more than one polygon, especially if there's an obstruction
     """
-    polygons: List[List[Tuple[float, float]]] = []
-
     if isinstance(inference_result, tuple):
         bbox_result, segm_result = inference_result
         if isinstance(segm_result, tuple):
@@ -324,7 +213,7 @@ def result_to_polygons(
             mask_image = mask.astype(np.uint8) * 255
             # cv2.namedWindow("Ice-rink", 0)
             # mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
-            show_image("Ice-rink", mask_image)
+            do_show_image("Ice-rink", mask_image)
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
@@ -341,19 +230,18 @@ def contours_to_polygons(contours: List[np.ndarray]) -> List[Polygon]:
     return [Polygon(c) for c in contours]
 
 
-def find_ice_rink_mask(
-    image: torch.Tensor,
-    config_file: str,
-    checkpoint: str,
-    device: Optional[torch.device] = None,
+def detect_ice_rink_mask(
+    image: Union[torch.Tensor, np.ndarray],
+    model: SingleStageDetector,
     show: bool = False,
     scale: float = None,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
-    if device is None:
-        device = torch.device("cuda:0")
-    model = init_detector(config_file, checkpoint, device=device)
     if isinstance(image, torch.Tensor):
-        image = image.numpy().squeeze(0)
+        if image.ndim == 4:
+            assert image.shape[0] == 1
+            image = image.squeeze(0)
+        image = image.cpu().numpy()
+    image = make_channels_last(image)
     result = inference_detector(model, image)
 
     if show:
@@ -361,10 +249,7 @@ def find_ice_rink_mask(
         show_image = model.show_result(
             show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False
         )
-        for _ in range(10):
-            cv2.namedWindow("Ice-rink", 0)
-            mmcv.imshow(show_image, "Ice-rink", wait_time=1)
-            time.sleep(1)
+        do_show_image("Ice-rink", show_image, wait=True)
 
     rink_results = result_to_polygons(
         inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False
@@ -376,16 +261,26 @@ def find_ice_rink_mask(
             generated_mask = polygon_to_mask(
                 scaled_contour, height=image_height(image), width=image_width(image)
             )
-            cv2.namedWindow("Ice-rink", 0)
-            for _ in range(30):
-                mmcv.imshow(
-                    generated_mask.cpu().numpy().astype(np.uint8) * 255,
-                    "Ice-rink",
-                    wait_time=10,
-                )
-                time.sleep(1)
+            do_show_image(
+                "Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True
+            )
 
     return rink_results
+
+
+def find_ice_rink_mask(
+    image: torch.Tensor,
+    config_file: str,
+    checkpoint: str,
+    device: Optional[torch.device] = None,
+    show: bool = False,
+    scale: float = None,
+) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
+    if device is None:
+        device = torch.device("cuda:0")
+    model = init_detector(config_file, checkpoint, device=device)
+
+    return detect_ice_rink_mask(image=image, model=model, show=show, scale=scale)
 
 
 def load_png_as_boolean_tensor(filename: str) -> torch.Tensor:
@@ -543,7 +438,7 @@ if __name__ == "__main__":
 
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     device = "cpu"
-    if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024*10):
+    if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10):
         device = torch.device("cuda", gpu_allocator.allocate_fast())
 
     assert args.game_id
