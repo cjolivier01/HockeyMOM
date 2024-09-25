@@ -55,6 +55,7 @@ def copy_audio(
     command = [
         "ffmpeg",
         "-y",
+        "-hide_banner",
         "-i",
         audio_source,
         "-i",

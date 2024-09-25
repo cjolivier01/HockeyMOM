@@ -161,6 +161,7 @@ def subprocess_encode_ffmpeg(
     command = [
         "ffmpeg",
         "-y",  # Overwrite output file if it exists
+        "-hide_banner",
         "-f",
         "rawvideo",  # Input format is raw video
         "-vcodec",
@@ -214,6 +215,7 @@ def get_ffmpeg_decoder_process(
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
         "ffmpeg",
+        "-hide_banner",
         "-loglevel",
         loglevel,
         "-hwaccel",
@@ -330,6 +332,7 @@ class VideoWriter:
         command = [
             "ffmpeg",
             "-y",  # Overwrite output file if it exists
+            "-hide_banner",
             "-f",
             "rawvideo",  # Input format is raw video
             "-vcodec",
