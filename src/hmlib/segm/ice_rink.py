@@ -1,3 +1,6 @@
+"""
+Ice Rink segmentation stuff
+"""
 import argparse
 import os
 import time
