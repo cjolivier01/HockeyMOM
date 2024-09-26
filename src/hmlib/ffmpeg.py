@@ -4,6 +4,7 @@ import platform
 import re
 import signal
 import subprocess
+import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -670,4 +671,5 @@ def concatenate_videos(video_list: List[str], destination_file: str, force: bool
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error during concatenation: {e}")
+        traceback.print_exc()
         return False

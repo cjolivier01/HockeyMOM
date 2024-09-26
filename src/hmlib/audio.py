@@ -185,8 +185,8 @@ if __name__ == "__main__":
             "/olivier-pool/Videos/test3/GX030004.MP4",
         ],
     }
-    concatenate_videos(file_list["left"], "/olivier-pool/Videos/test3/left.mp4")
-    args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
+    # concatenate_videos(file_list["right"], "/olivier-pool/Videos/test3/right.mp4")
+    args.input_video = "/olivier-pool/Videos/test3/test2.mp4"
     # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     args.output_video = "withsound.mp4"
     copy_audio(
