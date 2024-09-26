@@ -24,7 +24,7 @@ from hmlib.utils.video import load_first_video_frame
 
 # GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
 # number
-GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.mp4$"
+GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.MP4$"
 LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.mp4$"
 RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.mp4$"
 LEFT_FILE_PATTERN: str = r"left.mp4"
