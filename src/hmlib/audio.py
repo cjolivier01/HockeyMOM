@@ -124,7 +124,7 @@ def copy_audio(
         "-map",
         "0:a:0",
     ]
-    if shortest and not temp_audio_file:
+    if shortest:
         command.append("-shortest")
 
     command.append(output_video)
