@@ -111,11 +111,7 @@ def stitch_videos(
     }
 
     data_loader = StitchDataset(
-        # video_file_1=videos["left"],
-        # video_file_2=videos["right"],
         pto_project_file=pto_project_file,
-        # video_1_offset_frame=lfo,
-        # video_2_offset_frame=rfo,
         videos=stitch_videos,
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
@@ -222,8 +218,6 @@ def stitch_videos(
 
 def main(args):
     game_videos = configure_game_videos(game_id=args.game_id, force=args.force)
-    # video_left = "left.mp4"
-    # video_right = "right.mp4"
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
     with torch.no_grad():

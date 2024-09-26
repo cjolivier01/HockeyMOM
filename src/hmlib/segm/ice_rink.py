@@ -292,7 +292,9 @@ def find_ice_rink_masks(
         Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
     ] = []
     for img in image:
-        results.append(detect_ice_rink_mask(image=img, model=model, show=show, scale=scale))
+        results.append(
+            detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale)
+        )
     if not was_list:
         assert len(results) == 1
         return results[0]

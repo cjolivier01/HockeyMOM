@@ -549,6 +549,8 @@ class StitchDataset:
             self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
                 dir_name=self._dir_name,
                 batch_size=self._batch_size,
+                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                right_image_size_wh=(self._video_right_info.width, self._video_right_info.height),
                 device=self._remapping_device,
                 dtype=self._dtype,
                 remap_on_async_stream=self._remap_on_async_stream,

@@ -234,9 +234,8 @@ def configure_game_videos(
         left_list = get_nested_value(private_config, "game.videos.left")
         right_list = get_nested_value(private_config, "game.videos.right")
         if left_list and right_list:
-            dir_path = Path(dir_name)
-            left_list = [dir_path / Path(p) for p in left_list]
-            right_list = [dir_path / Path(p) for p in right_list]
+            left_list = [os.path.join(dir_name, p) for p in left_list]
+            right_list = [os.path.join(dir_name, p) for p in right_list]
             return {
                 "left": left_list,
                 "right": right_list,
@@ -245,8 +244,8 @@ def configure_game_videos(
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
     if write_results:
-        set_nested_value(private_config, "game.videos.left", [p.name for p in left_list])
-        set_nested_value(private_config, "game.videos.right", [p.name for p in right_list])
+        set_nested_value(private_config, "game.videos.left", [Path(p).name for p in left_list])
+        set_nested_value(private_config, "game.videos.right", [Path(p).name for p in right_list])
         save_private_config(game_id=game_id, data=private_config)
     return {
         "left": left_list,

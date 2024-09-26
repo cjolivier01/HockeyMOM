@@ -198,28 +198,39 @@ def get_image_geo_position(tiff_image_file: str):
     return xpos, ypos
 
 
+def get_extracted_frame_image_file(video_name: str, dir_name: Optional[str] = None):
+    if dir_name:
+        video_name = os.path.join(dir_name, video_name)
+    file_name_without_extension, _ = os.path.splitext(video_name)
+    return file_name_without_extension + ".png"
+
+
 def extract_frames(
-    dir_name: str,
     video_left: str,
     left_frame_number: int,
     video_right: str,
     right_frame_number: int,
 ):
-    file_name_without_extension, _ = os.path.splitext(video_left)
-    left_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
+    # Absolute paths
+    assert "/" in video_left
+    assert "/" in video_right
+    # file_name_without_extension, _ = os.path.splitext(video_left)
+    # left_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
+    left_output_image_file = get_extracted_frame_image_file(video_left)
 
-    file_name_without_extension, _ = os.path.splitext(video_right)
-    right_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
+    # file_name_without_extension, _ = os.path.splitext(video_right)
+    # right_output_image_file = os.path.join(dir_name, file_name_without_extension + ".png")
+    right_output_image_file = get_extracted_frame_image_file(video_right)
 
     if not os.path.exists(left_output_image_file):
         extract_frame_image(
-            os.path.join(dir_name, video_left),
+            video_left,
             frame_number=left_frame_number,
             dest_image=left_output_image_file,
         )
     if not os.path.exists(right_output_image_file):
         extract_frame_image(
-            os.path.join(dir_name, video_right),
+            video_right,
             frame_number=right_frame_number,
             dest_image=right_output_image_file,
         )
@@ -431,7 +442,6 @@ def configure_video_stitching(
     pto_project_file = os.path.join(dir_name, project_file_name)
     if force or not os.path.exists(pto_project_file):
         left_image_file, right_image_file = extract_frames(
-            dir_name,
             video_left,
             base_frame_offset + left_frame_offset,
             video_right,

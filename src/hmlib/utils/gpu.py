@@ -143,7 +143,7 @@ class GpuAllocator:
                 # GPU memory constraint
                 self._is_single_lowmem_gpu = False
             else:
-                self._is_single_lowmem_gpu = float(caps["total_memory"]) <= low_threshold_mb
+                self._is_single_lowmem_gpu = float(caps["total_memory"]) * 1024 <= low_threshold_mb
         return self._is_single_lowmem_gpu
 
 

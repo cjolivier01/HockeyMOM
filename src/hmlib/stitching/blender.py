@@ -729,6 +729,8 @@ def create_stitcher(
     batch_size: int,
     device: torch.device,
     dtype: torch.dtype,
+    left_image_size_wh: Tuple[int, int],
+    right_image_size_wh: Tuple[int, int],
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "nona",
@@ -750,20 +752,24 @@ def create_stitcher(
     xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
     xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
 
-    source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
-    assert source_tensor_1 is not None
-    source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
-    assert source_tensor_2 is not None
+    # source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
+    # assert source_tensor_1 is not None
+    # source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
+    # assert source_tensor_2 is not None
 
     remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = int(image_width(source_tensor_1))
-    remap_info_1.src_height = int(image_height(source_tensor_1))
+    remap_info_1.src_width = int(left_image_size_wh[0])
+    remap_info_1.src_height = int(left_image_size_wh[1])
+    # remap_info_1.src_width = int(image_width(source_tensor_1))
+    # remap_info_1.src_height = int(image_height(source_tensor_1))
     remap_info_1.col_map = col_map_1
     remap_info_1.row_map = row_map_1
 
     remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = int(image_width(source_tensor_2))
-    remap_info_2.src_height = int(image_height(source_tensor_2))
+    remap_info_2.src_width = int(right_image_size_wh[0])
+    remap_info_2.src_height = int(right_image_size_wh[1])
+    # remap_info_2.src_width = int(image_width(source_tensor_2))
+    # remap_info_2.src_height = int(image_height(source_tensor_2))
     remap_info_2.col_map = col_map_2
     remap_info_2.row_map = row_map_2
 
