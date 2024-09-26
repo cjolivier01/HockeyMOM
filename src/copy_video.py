@@ -146,11 +146,11 @@ def copy_video(
     split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
     next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
 
+    main_stream = None
     # main_stream = torch.cuda.Stream(device=device)
 
     def _open_output_video(path: str) -> Union[VideoStreamWriter, VideoOutput]:
-        # with stream_context(main_stream):
-        with nullcontext():
+        with stream_context(main_stream) if main_stream is not None else nullcontext():
             if not use_video_out:
                 video_out = VideoStreamWriter(
                     filename=path,
@@ -161,6 +161,7 @@ def copy_video(
                     fps=video_info.fps,
                     device=device,
                     cache_size=queue_size,
+                    container_type="matroska",
                 )
                 video_out.open()
             else:
@@ -191,8 +192,7 @@ def copy_video(
         cache_size=queue_size,
     )
 
-    # with stream_context(main_stream):
-    with nullcontext():
+    with stream_context(main_stream) if main_stream is not None else nullcontext():
         io_timer = Timer()
         get_timer = Timer()
         batch_count = 0

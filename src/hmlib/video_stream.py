@@ -21,6 +21,7 @@ from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
 _EXTENSION_MAPPING = {
     "matroska": "mkv",
+    "mp4": "mp4",
 }
 
 _FOURCC_TO_CODEC = {
