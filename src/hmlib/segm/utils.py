@@ -9,26 +9,6 @@ ContourPoints: TypeAlias = Union[Tuple[int, int], torch.Tensor, np.ndarray, List
 DTYPE_MAP = None
 
 
-# def to_torch_dtype(dtype: Union[torch.dtype, np.dtype]) -> torch.dtype:
-#     if isinstance(dtype, torch.dtype):
-#         return dtype
-#     global DTYPE_MAP
-#     if DTYPE_MAP is None:
-#         # Init first time in order to cut down on import-time compute
-#         DTYPE_MAP = {
-#             np.float32: torch.float32,
-#             np.float64: torch.float64,
-#             np.float16: torch.float16,
-#             np.int32: torch.int32,
-#             np.int64: torch.int64,
-#             np.int16: torch.int16,
-#             np.uint8: torch.uint8,
-#             np.bool_: torch.bool,
-#             # Add other dtype mappings as needed
-#         }
-#     return DTYPE_MAP[dtype, None]
-
-
 def to_points_tensor(points: ContourPoints, dtype=torch.float) -> Tuple[torch.Tensor, torch.dtype]:
     if isinstance(points, list):
         initial_dtype = points[0].dtype
@@ -161,35 +141,3 @@ def scale_polygon_y(points: torch.Tensor, top_ratio: float, bottom_ratio: float)
         points_tensor = points_tensor.to(dtype, non_blocking=True)
 
     return points_tensor.reshape(-1)
-
-
-# def split_points_by_x_trend_efficient(points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-#     if isinstance(points, list):
-#         assert len(points) == 1
-#         points = points[0]
-#     # Convert the flat list into a tensor and reshape it into (n, 2)
-#     points_tensor = torch.tensor(points).reshape(-1, 2)
-
-#     # Extract x-coordinates and compute the difference with a shifted version
-#     x_coords = points_tensor[:, 0]
-#     differences = x_coords[1:] - x_coords[:-1]
-
-#     # Find indices where the difference is positive (increasing x) and negative (decreasing x)
-#     increasing_indices = torch.where(differences > 0)[0]
-#     decreasing_indices = torch.where(differences < 0)[0]
-
-#     # Select points based on the found indices
-#     # We add 1 to indices to correct for the shift
-#     increasing_x = points_tensor[increasing_indices + 1]
-#     decreasing_x = points_tensor[decreasing_indices + 1]
-
-#     mean_y_incr_x = torch.mean(increasing_x[:, 1].to(torch.float16))
-#     mean_y_decr_x = torch.mean(decreasing_x[:, 1].to(torch.float16))
-
-#     # upper_points = torch.where(mean_y_incr_x < mean_y_decr_x, increasing_x, decreasing_x)
-#     # lower_points = torch.where(mean_y_incr_x >= mean_y_decr_x, increasing_x, decreasing_x)
-
-#     upper_points = increasing_x if mean_y_incr_x < mean_y_decr_x else decreasing_x
-#     lower_points = decreasing_x if mean_y_incr_x < mean_y_decr_x else increasing_x
-
-#     return increasing_x, decreasing_x, upper_points, lower_points
