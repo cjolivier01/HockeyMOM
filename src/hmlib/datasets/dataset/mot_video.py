@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
@@ -24,7 +25,6 @@ from hmlib.utils.image import (
     make_channels_last,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.utils.letterbox import py_letterbox
 from hmlib.video_stream import VideoStreamReader
 
 
@@ -144,8 +144,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             )
             self.vw = self.cap.width
             self.vh = self.cap.height
-            self.vn = len(self.cap)
-            self.fps = self.cap.fps
+
+            info = BasicVideoInfo(self._path_list)
+            self.vn = info.frame_count
+            self.fps = info.fps
 
             if not self.vn:
                 raise RuntimeError(
@@ -273,49 +275,49 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vh = image_height(img)
         return True, img
 
-    def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
-        assert False
-        # Offset the boxes
-        if self._mapping_offset is None:
-            device = yolox_detections[0].device
-            self._mapping_offset = torch.tensor(
-                [
-                    self.letterbox_dw,
-                    self.letterbox_dh,
-                    self.letterbox_dw,
-                    self.letterbox_dh,
-                ],
-                dtype=yolox_detections[0].dtype,
-                device=device,
-            )
-            if self._scale_inscribed_to_original.device != device:
-                self._scale_inscribed_to_original = self._scale_inscribed_to_original.to(device)
-        if len(yolox_detections):
-            # [0:4] detections are tlbr
-            for i in range(len(yolox_detections)):
-                dets = yolox_detections[i]
-                if dets is None:
-                    continue
-                yolox_detections[i][:, 0:4] -= self._mapping_offset
-                # Scale the width and height
-                yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
-        return yolox_detections
+    # def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
+    #     assert False
+    #     # Offset the boxes
+    #     if self._mapping_offset is None:
+    #         device = yolox_detections[0].device
+    #         self._mapping_offset = torch.tensor(
+    #             [
+    #                 self.letterbox_dw,
+    #                 self.letterbox_dh,
+    #                 self.letterbox_dw,
+    #                 self.letterbox_dh,
+    #             ],
+    #             dtype=yolox_detections[0].dtype,
+    #             device=device,
+    #         )
+    #         if self._scale_inscribed_to_original.device != device:
+    #             self._scale_inscribed_to_original = self._scale_inscribed_to_original.to(device)
+    #     if len(yolox_detections):
+    #         # [0:4] detections are tlbr
+    #         for i in range(len(yolox_detections)):
+    #             dets = yolox_detections[i]
+    #             if dets is None:
+    #                 continue
+    #             yolox_detections[i][:, 0:4] -= self._mapping_offset
+    #             # Scale the width and height
+    #             yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
+    #     return yolox_detections
 
-    def make_letterbox_images(self, img: torch.Tensor):
-        (
-            img,
-            _,
-            self.letterbox_ratio,
-            self.letterbox_dw,
-            self.letterbox_dh,
-        ) = py_letterbox(
-            img,
-            height=self.process_height,
-            width=self.process_width,
-        )
-        # cv2.imshow("online_im", make_visible_image(img[0]))
-        # cv2.waitKey(1)
-        return img
+    # def make_letterbox_images(self, img: torch.Tensor):
+    #     (
+    #         img,
+    #         _,
+    #         self.letterbox_ratio,
+    #         self.letterbox_dw,
+    #         self.letterbox_dh,
+    #     ) = py_letterbox(
+    #         img,
+    #         height=self.process_height,
+    #         width=self.process_width,
+    #     )
+    #     # cv2.imshow("online_im", make_visible_image(img[0]))
+    #     # cv2.waitKey(1)
+    #     return img
 
     def _is_cuda(self):
         return self._device.type == "cuda"
@@ -331,7 +333,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # cuda_stream = None
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
-            # BEGIN READ NEXT IMAFE
+            # BEGIN READ NEXT IMAGE
             while True:
                 try:
                     res, img0 = self._read_next_image()
@@ -344,12 +346,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if self.goto_next_video():
                         continue
                     raise
-            # END READ NEXT IMAFE
+            # END READ NEXT IMAGE
 
-            if isinstance(img0, StreamTensor):
-                # img0 = img0.get()
-                pass
-            elif isinstance(img0, np.ndarray):
+            if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
 
             if img0.ndim == 3:
@@ -522,7 +521,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def __len__(self):
         if self.vn is None:
-            cap = cv2.VideoCapture(self._path)
-            self.vn = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.release()
+            info = BasicVideoInfo(self._path_list)
+            self.vn = info.frame_count
+            self.fps = info.fps
         return self.vn  # number of frames
