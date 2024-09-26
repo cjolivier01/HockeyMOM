@@ -1,3 +1,4 @@
 external/fast_pytorch_kmeans  colivier/hockeymom
-xmodels/LightGlue colivier/hm
-
+external/hugin                colivier/hockeymom
+xmodels/LightGlue             colivier/hm
+openmm                        colivier/mmv1
