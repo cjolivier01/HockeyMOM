@@ -425,10 +425,7 @@ def confgure_ice_rink_mask(
 
     model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
 
-    # game_config = get_config(game_id=game_id)
-    # config_file = get_nested_value(game_config, "model.ice_rink_segm.config")
     assert model_config_file
-    # checkpoint = get_nested_value(game_config, "model.ice_rink_segm.checkpoint")
     assert model_checkpoint
 
     image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
@@ -454,9 +451,6 @@ if __name__ == "__main__":
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-
-    # args.game_id = "jrmocks"
-    args.game_id = "pdp"
 
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     device: torch.device = (
