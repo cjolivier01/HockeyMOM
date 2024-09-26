@@ -21,7 +21,8 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video_out import VideoOutput
 from hockeymom import core
 
-MAX_CROPPED_WIDTH = 4096
+# MAX_CROPPED_WIDTH = 4096
+MAX_CROPPED_WIDTH = 7680
 
 
 ##
