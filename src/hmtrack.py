@@ -14,6 +14,7 @@ from mmdet.datasets.pipelines import Compose
 from mmtrack.apis import init_model
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+import hmlib.tracking_utils.ice_rink_segm_boundaries
 import hmlib.tracking_utils.segm_boundaries
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
@@ -33,7 +34,8 @@ from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
 from hmlib.orientation import configure_game_videos
-from hmlib.segm.ice_rink import confgure_ice_rink_mask
+
+# from hmlib.segm.ice_rink import confgure_ice_rink_mask
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.log import logger
@@ -548,26 +550,48 @@ def main(args, num_gpu):
                             has_boundaries = True
                     if not has_boundaries:
                         segm_boundaries = get_pipeline_item(
-                            model.post_detection_pipeline, "SegmBoundaries"
+                            model.post_detection_pipeline, "IceRinkSegmBoundaries"
                         )
                         if segm_boundaries is not None:
                             # FIXME: This can't be done until the first stitched
                             # image is created, along witht he obligatory s.png
-                            rink_profile = confgure_ice_rink_mask(
-                                game_id=args.game_id,
-                                device=None if not is_single_lowmem_gpu else torch.device("cpu"),
+                            # rink_profile = confgure_ice_rink_mask(
+                            #     game_id=args.game_id,
+                            #     device=None if not is_single_lowmem_gpu else torch.device("cpu"),
+                            # )
+                            segm_boundaries.update(
+                                {
+                                    "game_id": args.game_id,
+                                    # "rink_mask": rink_profile["combined_mask"],
+                                    # "centroid": rink_profile["centroid"],
+                                    "original_clip_box": get_clip_box(
+                                        game_id=args.game_id, root_dir=args.root_dir
+                                    ),
+                                    "draw": args.plot_tracking,
+                                }
                             )
-                            if rink_profile:
-                                segm_boundaries.update(
-                                    {
-                                        "rink_mask": rink_profile["combined_mask"],
-                                        "centroid": rink_profile["centroid"],
-                                        "original_clip_box": get_clip_box(
-                                            game_id=args.game_id, root_dir=args.root_dir
-                                        ),
-                                        "draw": args.plot_tracking,
-                                    }
-                                )
+
+                        # segm_boundaries = get_pipeline_item(
+                        #     model.post_detection_pipeline, "SegmBoundaries"
+                        # )
+                        # if segm_boundaries is not None:
+                        #     # FIXME: This can't be done until the first stitched
+                        #     # image is created, along witht he obligatory s.png
+                        #     rink_profile = confgure_ice_rink_mask(
+                        #         game_id=args.game_id,
+                        #         device=None if not is_single_lowmem_gpu else torch.device("cpu"),
+                        #     )
+                        #     if rink_profile:
+                        #         segm_boundaries.update(
+                        #             {
+                        #                 "rink_mask": rink_profile["combined_mask"],
+                        #                 "centroid": rink_profile["centroid"],
+                        #                 "original_clip_box": get_clip_box(
+                        #                     game_id=args.game_id, root_dir=args.root_dir
+                        #                 ),
+                        #                 "draw": args.plot_tracking,
+                        #             }
+                        #         )
 
             if args.multi_pose:
                 from mmpose.apis import init_pose_model

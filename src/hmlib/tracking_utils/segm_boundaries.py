@@ -32,8 +32,6 @@ class SegmBoundaries:
             assert original_clip_box[3] > original_clip_box[1]
             original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
-        self._rink_mask = rink_mask
-        self._centroid = centroid
         self.det_thresh = det_thresh
         self._passes = 0
         self._duration = 0
@@ -41,6 +39,11 @@ class SegmBoundaries:
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
         self._draw = draw
         self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
+        self.set_rink_mask_and_centroid(rink_mask, centroid)
+
+    def set_rink_mask_and_centroid(self, rink_mask: torch.Tensor, centroid: torch.Tensor):
+        self._rink_mask = rink_mask
+        self._centroid = centroid
         if (
             self._original_clip_box is not None
             and len(self._original_clip_box)
@@ -50,7 +53,6 @@ class SegmBoundaries:
             x1, y1, x2, y2 = self._original_clip_box
             assert self._rink_mask.ndim == 2
             self._rink_mask = self._rink_mask[y1:y2, x1:x2]
-            pass
 
     def draw(self, img):
         if self._rink_mask is not None:
