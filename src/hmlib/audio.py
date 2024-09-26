@@ -1,6 +1,7 @@
 import argparse
 import os
 import subprocess
+import sys
 import tempfile
 from typing import List, Union
 
@@ -35,15 +36,40 @@ def make_parser():
     return parser
 
 
+def extract_audio(filename: str) -> tempfile.NamedTemporaryFile:
+    audio_file = tempfile.NamedTemporaryFile(delete=True, suffix=".aac")
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-y",  # Overwrite output files without asking
+        "-i",
+        filename,
+        "-vn",
+        "-acodec",
+        "copy",
+        audio_file.name,
+    ]
+    process = None
+    try:
+        process = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=sys.stdout)
+        return audio_file
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to concatenate audio: {e}\n{process.stdout}")
+        audio_file.close()
+        return None
+
+
 def concatenate_audio(files) -> tempfile.TemporaryFile:
+    audio_files = [extract_audio(f) for f in files]
+
     # Create a temporary file for the output audio
     temp_file = tempfile.NamedTemporaryFile(delete=True, suffix=".aac")
     concat_list_file = tempfile.NamedTemporaryFile(delete=True, suffix=".txt")
 
     with open(concat_list_file.name, "w") as f:
-        for output_file in files:
+        for audio_file in audio_files:
             # Write file paths, ensuring any special characters are escaped
-            f.write(f"file '{output_file}'\n")
+            f.write(f"file '{audio_file.name}'\n")
 
     # Prepare the FFmpeg command for concatenating audio streams
     command = [
@@ -56,13 +82,10 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
         "-y",  # Overwrite output files without asking
         "-i",
         concat_list_file.name,
+        "-c",
+        "copy",
+        temp_file.name,
     ]
-
-    # Adding input files to the command
-    for file in files:
-        command.extend(["-i", file])
-
-    command.extend(["-c", "copy", temp_file.name])
 
     # Execute the command
     try:
@@ -87,7 +110,8 @@ def copy_audio(
         else:
             input_sync_audio = input_audio
         assert len(input_audio) == 2
-        lfo, rfo = synchronize_by_audio(input_sync_audio[0], input_sync_audio[1])
+        # lfo, rfo = synchronize_by_audio(input_sync_audio[0], input_sync_audio[1])
+        lfo, rfo = 0, 1
         if lfo == 0:
             if isinstance(input_audio, dict) and len(input_audio["left"]) > 1:
                 temp_audio_file = concatenate_audio(input_audio["left"])
@@ -138,14 +162,14 @@ if __name__ == "__main__":
         args.input_audio = args.input_audio.split(",")
     file_list = {
         "left": [
-            "/olivier-pool/Videos/test/parts/left-1.mp4",
-            "/olivier-pool/Videos/test/parts/left-3.mp4",
-            "/olivier-pool/Videos/test/parts/left-2.mp4",
+            "/olivier-pool/Videos/test/left-1.mp4",
+            "/olivier-pool/Videos/test/left-3.mp4",
+            "/olivier-pool/Videos/test/left-2.mp4",
         ],
         "right": [
-            "/olivier-pool/Videos/test/parts/right-1.mp4",
-            "/olivier-pool/Videos/test/parts/right-3.mp4",
-            "/olivier-pool/Videos/test/parts/right-2.mp4",
+            "/olivier-pool/Videos/test/right-1.mp4",
+            "/olivier-pool/Videos/test/right-3.mp4",
+            "/olivier-pool/Videos/test/right-2.mp4",
         ],
     }
     args.input_video = "/home/colivier/src/hm/output_workdirs/test/tracking_output.mkv"
