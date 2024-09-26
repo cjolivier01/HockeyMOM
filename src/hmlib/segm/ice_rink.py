@@ -286,7 +286,7 @@ def find_ice_rink_masks(
     if not was_list:
         image = [image]
 
-    torch.manual_seed(1)  # issue kornia#2027
+    # torch.manual_seed(1)  # issue kornia#2027
     model = init_detector(config_file, checkpoint, device=device)
 
     results: List[
