@@ -133,10 +133,9 @@ def detect_video_rink_masks(
     images: List[torch.Tensor] = []
     for key, value in videos_dict.items():
         keys.append(key)
-        # files.append(load_first_frame(value[1]))
         frame = load_first_video_frame(value[1])
         images.append(frame)
-        # value["first_frame"] = load_first_video_frame(value[1])
+        value["first_frame"] = load_first_video_frame(value[1])
 
     config_file, checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
 
@@ -180,10 +179,12 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
     return "UNKNOWN"
 
 
-def get_game_videos_analysis(game_id: str, videos_dict: Optional[VideosDict] = None) -> VideosDict:
+def get_game_videos_analysis(
+    game_id: str, videos_dict: Optional[VideosDict] = None, device: torch.device = None
+) -> VideosDict:
     if videos_dict is None:
         videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
-    videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict)
+    videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict, device=device)
 
     new_dict: VideosDict = {}
 
@@ -215,7 +216,10 @@ def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
 
 
 def configure_game_videos(
-    game_id: str, force: bool = False, write_results: bool = True
+    game_id: str,
+    force: bool = False,
+    write_results: bool = True,
+    device: torch.device = None,
 ) -> Dict[str, List[str]]:
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
@@ -237,7 +241,7 @@ def configure_game_videos(
                 "left": left_list,
                 "right": right_list,
             }
-    videos_dict = get_game_videos_analysis(game_id=game_id)
+    videos_dict = get_game_videos_analysis(game_id=game_id, device=device)
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
     if write_results:

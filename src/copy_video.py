@@ -5,20 +5,22 @@ For performance reasons, experiments in streaming and pipelining a simple copy
 import argparse
 import os
 from contextlib import nullcontext
-from typing import Optional
+from typing import List, Optional, Union
 
 import numpy as np
 import torch
 
+from hmlib.config import get_game_dir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts
+from hmlib.orientation import configure_game_videos
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.utils import calc_combined_fps
-from hmlib.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import VideoOutput
 from hmlib.video_stream import VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
@@ -97,8 +99,7 @@ def stream_context(stream: Optional[torch.cuda.Stream]):
 
 
 def copy_video(
-    video_file: str,
-    dir_name: str,
+    video_file: Union[str, List[str]],
     device: torch.device,
     output_device: torch.device,
     show: bool = False,
@@ -110,8 +111,6 @@ def copy_video(
     dtype: torch.dtype = torch.float16,
     use_video_out: bool = False,
 ):
-    video_file = os.path.join(dir_name, video_file)
-
     video_info = BasicVideoInfo(video_file)
 
     dataloader = MOTLoadVideoWithOrig(
@@ -228,13 +227,26 @@ def main(args):
     # opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:
-        args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
+        args.video_dir = get_game_dir(args.game_id)
+    else:
+        args.video_dir = "."
     video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
+
+    args.game_id = "test"
+
+    # Default is left.mp4
+    video_files = os.path.join(args.video_dir, "left.mp4")
+    if args.game_id:
+        file_dict = configure_game_videos(game_id=args.game_id, force=False, write_results=False)
+        if "left" in file_dict:
+            video_files = file_dict["left"]
+        elif "right" in file_dict:
+            video_files = file_dict["right"]
+
     with torch.no_grad():
         copy_video(
-            video_file="left.mp4",
-            dir_name=args.video_dir,
+            video_file=video_files,
             start_frame_number=args.start_frame_number,
             show=args.show_image,
             output_video=args.output_file,
