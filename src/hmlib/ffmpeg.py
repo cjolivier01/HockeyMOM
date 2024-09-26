@@ -422,9 +422,7 @@ class FFProbe:
                 cmd = ["ffprobe", "-show_streams", self.video_file]
             else:
                 cmd = ["ffprobe -show_streams " + self.video_file]
-            p = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-            )
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             self.format = None
             self.created = None
             self.duration = None
@@ -632,3 +630,44 @@ class FFStream:
             except Exception as e:
                 print("None integer bitrate")
         return b
+
+
+def concatenate_videos(video_list: List[str], destination_file: str, force: bool = False) -> bool:
+    # Ensure video_list is not empty
+    if not video_list:
+        raise ValueError("The video list is empty.")
+
+    if not force and os.path.exists(destination_file):
+        return
+
+    concat_file, _ = os.path.splitext(destination_file)
+    concat_file += ".txt"
+
+    # Create a temporary text file to hold the list of video files
+    with open(concat_file, "w") as f:
+        for video in video_list:
+            # Each line must be in the format: file 'filename'
+            f.write(f"file '{os.path.abspath(video)}'\n")
+
+    # Build the ffmpeg command to concatenate the videos
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-f",
+        "concat",  # Tell ffmpeg that we are using a concatenation file
+        "-safe",
+        "0",  # Disable safety check to allow absolute paths
+        "-i",
+        concat_file,  # Input is the list of video files
+        "-c",
+        "copy",  # Copy both video and audio without re-encoding
+        destination_file,  # Output file
+    ]
+
+    # Run the command and wait for it to complete
+    try:
+        subprocess.run(command, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error during concatenation: {e}")
+        return False

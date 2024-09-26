@@ -9,6 +9,7 @@ import sys
 import tempfile
 from typing import List, Union
 
+from hmlib.ffmpeg import concatenate_videos
 from hmlib.stitching.synchronize import synchronize_by_audio
 
 
@@ -168,23 +169,24 @@ if __name__ == "__main__":
         args.input_audio = args.input_audio.split(",")
     file_list = {
         "left": [
-            "/olivier-pool/Videos/test/left-1.mp4",
-            "/olivier-pool/Videos/test/left-2.mp4",
-            "/olivier-pool/Videos/test/left-3.mp4",
-            # "/olivier-pool/Videos/test3/GX010084.MP4",
-            # "/olivier-pool/Videos/test3/GX020084.MP4",
-            # "/olivier-pool/Videos/test3/GX030084.MP4",
+            # "/olivier-pool/Videos/test/left-1.mp4",
+            # "/olivier-pool/Videos/test/left-2.mp4",
+            # "/olivier-pool/Videos/test/left-3.mp4",
+            "/olivier-pool/Videos/test3/GX010084.MP4",
+            "/olivier-pool/Videos/test3/GX020084.MP4",
+            "/olivier-pool/Videos/test3/GX030084.MP4",
         ],
         "right": [
-            "/olivier-pool/Videos/test/right-1.mp4",
-            "/olivier-pool/Videos/test/right-2.mp4",
-            "/olivier-pool/Videos/test/right-3.mp4",
-            # "/olivier-pool/Videos/test3/GX010004.MP4",
-            # "/olivier-pool/Videos/test3/GX020004.MP4",
-            # "/olivier-pool/Videos/test3/GX030004.MP4",
+            # "/olivier-pool/Videos/test/right-1.mp4",
+            # "/olivier-pool/Videos/test/right-2.mp4",
+            # "/olivier-pool/Videos/test/right-3.mp4",
+            "/olivier-pool/Videos/test3/GX010004.MP4",
+            "/olivier-pool/Videos/test3/GX020004.MP4",
+            "/olivier-pool/Videos/test3/GX030004.MP4",
         ],
     }
-    # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
+    concatenate_videos(file_list["left"], "/olivier-pool/Videos/test3/left.mp4")
+    args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     args.output_video = "withsound.mp4"
     copy_audio(
