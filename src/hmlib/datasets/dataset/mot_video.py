@@ -1,7 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -44,7 +44,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def __init__(
         self,
-        path,
+        path: Union[str, List[str]],
         img_size,
         game_id: str = None,
         video_id: int = 1,
@@ -73,7 +73,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         else:
             self._path_list = [path]
         self._current_path_index = 0
-        # self._path = path
         self._game_id = game_id
         self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
         # The delivery device of the letterbox image
@@ -156,9 +155,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 raise ValueError("Start frame number cannot be negative")
             elif self._start_frame_number >= self.vn:
                 raise ValueError(
-                    f"Start frame {int(self._start_frame_number)} is byond the end of the video, which has only {self.vn} frames"
+                    f"Start frame {int(self._start_frame_number)} is beyond the end of the video, which has only {self.vn} frames"
                 )
-            if self._start_frame_number:
+            if self._start_frame_number and self._current_path_index == 0:
                 self.cap.seek(frame_number=self._start_frame_number * self._frame_step)
             self._vid_iter = iter(self.cap)
         else:
@@ -173,6 +172,15 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.cap = None
         if self._embedded_data_loader is not None:
             self._embedded_data_loader.close()
+
+    def goto_next_video(self) -> bool:
+        if self._current_path_index + 1 >= len(self._path_list):
+            return False
+        assert self._embedded_data_loader is None
+        self._current_path_index += 1
+        self._close_video()
+        self._open_video()
+        return True
 
     @property
     def dataset(self):
@@ -323,14 +331,20 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # cuda_stream = None
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
-            # with optional_with(
-            #     torch.cuda.stream(cuda_stream) if cuda_stream is not None else None
-            # ), torch.no_grad():
-            # Read image
-            res, img0 = self._read_next_image()
-            if not res or img0 is None:
-                print(f"Error loading frame: {self._count + self._start_frame_number}")
-                raise StopIteration()
+            # BEGIN READ NEXT IMAFE
+            while True:
+                try:
+                    res, img0 = self._read_next_image()
+                    if not res or img0 is None:
+                        print(f"Error loading frame: {self._count + self._start_frame_number}")
+                        raise StopIteration()
+                    else:
+                        break
+                except StopIteration:
+                    if self.goto_next_video():
+                        continue
+                    raise
+            # END READ NEXT IMAFE
 
             if isinstance(img0, StreamTensor):
                 # img0 = img0.get()
