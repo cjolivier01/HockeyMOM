@@ -40,35 +40,35 @@ def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
 
     Returns: (video number, chapter number)
     """
-    name = filename.stem
+    name = Path(filename).stem
     assert name[0] == "G"
     assert name[1] in {"H", "X"}
     return int(name[4:8]), int(name[2:4])
 
 
-def get_lr_part_number(filename: Path) -> int:
+def get_lr_part_number(filename: str) -> int:
     """
     Get video and chapter number
 
     Returns: (video number, chapter number)
     """
-    name = filename.stem
+    name = Path(filename).stem
     tokens = name.split("-")
     return int(tokens[-1])
 
 
-def find_matching_files(pattern: str, directory: str) -> List[Path]:
+def find_matching_files(pattern: str, directory: str) -> List[str]:
     # Regex to match the file format 'GLXXXXXX.mp4'
     pattern = re.compile(pattern)
 
     # List to store the names of matching files
-    matching_files: List[Path] = []
+    matching_files: List[str] = []
 
     # Iterate over all the files in the directory
     for filename in os.listdir(directory):
         # Check if the filename matches the pattern
         if pattern.match(filename):
-            matching_files.append(directory / Path(filename))
+            matching_files.append(os.path.join(directory, filename))
 
     return sorted(matching_files)
 
@@ -77,11 +77,11 @@ def get_available_videos(dir_name: str) -> VideosDict:
     """
     Get available videos in the given directory
 
-    :return: # Video # / left|right -> Chapter # -> Path
+    :return: # Video # / left|right -> Chapter # -> filename
     """
-    gopro_files: List[Path] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
-    # Video # / left|right -> Chapter # -> Path
-    videos_dict: Dict[Union[int, str], List[Dict[int, Path]]] = OrderedDict()
+    gopro_files: List[str] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
+    # Video # / left|right -> Chapter # -> filename
+    videos_dict: Dict[Union[int, str], List[Dict[int, str]]] = OrderedDict()
     for file in gopro_files:
         video, chapter = gopro_get_video_and_chapter(filename=file)
         if video not in videos_dict:
@@ -89,7 +89,7 @@ def get_available_videos(dir_name: str) -> VideosDict:
         videos_dict[video][chapter] = file
 
     # Plain left file
-    files: List[Path] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    files: List[str] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
     if files:
         assert len(files) == 1
         videos_dict["left"] = {}
@@ -98,11 +98,11 @@ def get_available_videos(dir_name: str) -> VideosDict:
         files = find_matching_files(pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
         if files:
             videos_dict["left"] = {}
-            for file in files:
+            for file in sorted(files):
                 videos_dict["left"][get_lr_part_number(file)] = file
 
     # Plain right file
-    files: List[Path] = find_matching_files(pattern=RIGHT_FILE_PATTERN, directory=dir_name)
+    files: List[str] = find_matching_files(pattern=RIGHT_FILE_PATTERN, directory=dir_name)
     if files:
         assert len(files) == 1
         videos_dict["right"] = {}
@@ -111,7 +111,7 @@ def get_available_videos(dir_name: str) -> VideosDict:
         files = find_matching_files(pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
         if files:
             videos_dict["right"] = {}
-            for file in files:
+            for file in sorted(files):
                 videos_dict["right"][get_lr_part_number(file)] = file
     return videos_dict
 
@@ -216,7 +216,7 @@ def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
 
 def configure_game_videos(
     game_id: str, force: bool = False, write_results: bool = True
-) -> Dict[str, List[Path]]:
+) -> Dict[str, List[str]]:
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
     if not force and ("left" in videos_dict and "right" in videos_dict):
@@ -269,7 +269,7 @@ if __name__ == "__main__":
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
 
-    args.game_id = "pdp"
+    args.game_id = "test"
 
     main(args)
     print("Done.")
