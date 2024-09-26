@@ -27,7 +27,7 @@ _EXTENSION_MAPPING = {
 _FOURCC_TO_CODEC = {
     "HEVC": "hevc_cuvid",
     "HVC1": "hevc_cuvid",
-    # "HEV1": "hevc_cuvid",
+    "HEV1": "hevc_cuvid",
     "H264": "h264_cuvid",
     "MJPEG": "mjpeg_cuvid",
     "XVID": "mpeg4_cuvid",
@@ -218,6 +218,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             "minrate": "55M",
             "maxrate": "55M",
             "bufsize": "55M",
+            # "preset": preset,
         }
         if self._lossless:
             options["qp"] = "0"
