@@ -146,32 +146,36 @@ def copy_video(
     split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
     next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
 
+    # main_stream = torch.cuda.Stream(device=device)
+
     def _open_output_video(path: str) -> Union[VideoStreamWriter, VideoOutput]:
-        if not use_video_out:
-            video_out = VideoStreamWriter(
-                filename=path,
-                width=video_info.width,
-                height=video_info.height,
-                codec="hevc_nvenc",
-                batch_size=1,
-                fps=video_info.fps,
-                device=device,
-                cache_size=queue_size,
-            )
-            video_out.open()
-        else:
-            video_out = VideoOutput(
-                name="VideoOutput",
-                args=None,
-                output_video_path=path,
-                output_frame_width=video_info.width,
-                output_frame_height=video_info.height,
-                fps=video_info.fps,
-                device=output_device,
-                skip_final_save=skip_final_video_save,
-                fourcc="auto",
-            )
-        return video_out
+        # with stream_context(main_stream):
+        with nullcontext():
+            if not use_video_out:
+                video_out = VideoStreamWriter(
+                    filename=path,
+                    width=video_info.width,
+                    height=video_info.height,
+                    codec="hevc_nvenc",
+                    batch_size=1,
+                    fps=video_info.fps,
+                    device=device,
+                    cache_size=queue_size,
+                )
+                video_out.open()
+            else:
+                video_out = VideoOutput(
+                    name="VideoOutput",
+                    args=None,
+                    output_video_path=path,
+                    output_frame_width=video_info.width,
+                    output_frame_height=video_info.height,
+                    fps=video_info.fps,
+                    device=output_device,
+                    skip_final_save=skip_final_video_save,
+                    fourcc="auto",
+                )
+            return video_out
 
     def _output_file_name(split_number: int) -> str:
         return (
@@ -182,15 +186,13 @@ def copy_video(
 
     video_out = _open_output_video(_output_file_name(split_number))
 
-    main_stream = torch.cuda.Stream(device=device)
-
     v_iter = CachedIterator(
         iterator=iter(dataloader),
         cache_size=queue_size,
     )
 
-    with stream_context(main_stream):
-        # with nullcontext():
+    # with stream_context(main_stream):
+    with nullcontext():
         io_timer = Timer()
         get_timer = Timer()
         batch_count = 0
@@ -207,6 +209,8 @@ def copy_video(
                 io_timer.tic()
                 source_tensor, _, _, _, frame_ids = next(v_iter)
                 io_timer.toc()
+
+                torch.cuda.synchronize()
 
                 get_timer.tic()
                 source_tensor = source_tensor.get()
@@ -225,6 +229,7 @@ def copy_video(
                             next_split_frame = split_frames[split_number]
                         split_number += 1
                         torch.cuda.synchronize()
+                        time.sleep(2)
                         video_out.close()
                         video_out = _open_output_video(_output_file_name(split_number))
 
@@ -265,6 +270,7 @@ def copy_video(
         finally:
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriter):
+                    time.sleep(2)
                     video_out.close()
                 else:
                     video_out.stop()
