@@ -110,8 +110,7 @@ def copy_audio(
         else:
             input_sync_audio = input_audio
         assert len(input_audio) == 2
-        # lfo, rfo = synchronize_by_audio(input_sync_audio[0], input_sync_audio[1])
-        lfo, rfo = 0, 1
+        lfo, rfo = synchronize_by_audio(input_sync_audio[0], input_sync_audio[1])
         if lfo == 0:
             if isinstance(input_audio, dict) and len(input_audio["left"]) > 1:
                 temp_audio_file = concatenate_audio(input_audio["left"])
@@ -162,17 +161,17 @@ if __name__ == "__main__":
         args.input_audio = args.input_audio.split(",")
     file_list = {
         "left": [
-            "/olivier-pool/Videos/test/left-1.mp4",
-            "/olivier-pool/Videos/test/left-3.mp4",
-            "/olivier-pool/Videos/test/left-2.mp4",
+            "/olivier-pool/Videos/test3/GX010084.MP4",
+            "/olivier-pool/Videos/test3/GX020084.MP4",
+            "/olivier-pool/Videos/test3/GX030084.MP4",
         ],
         "right": [
-            "/olivier-pool/Videos/test/right-1.mp4",
-            "/olivier-pool/Videos/test/right-3.mp4",
-            "/olivier-pool/Videos/test/right-2.mp4",
+            "/olivier-pool/Videos/test3/GX010004.MP4",
+            "/olivier-pool/Videos/test3/GX020004.MP4",
+            "/olivier-pool/Videos/test3/GX030004.MP4",
         ],
     }
-    args.input_video = "/home/colivier/src/hm/output_workdirs/test/tracking_output.mkv"
+    args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     args.output_video = "withsound.mp4"
     copy_audio(
         # args.input_audio,
