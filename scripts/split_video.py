@@ -17,7 +17,6 @@ def split_video(input_file, split_count):
         cmd = [
             "ffprobe",
             "-v",
-            "-hide_banner",
             "error",
             "-select_streams",
             "v:0",
@@ -46,7 +45,7 @@ def split_video(input_file, split_count):
     extension = os.path.splitext(input_file)[1]
     output_files = []
     for i in range(split_count):
-        output_file = f"{base_name}_part{i+1}{extension}"
+        output_file = f"{base_name}-{i+1}{extension}"
         output_files.append(output_file)
 
     # Split the video
@@ -90,7 +89,7 @@ def split_video(input_file, split_count):
     print("\nVideo successfully split into segments.")
 
     # Provide instructions to concatenate the parts back
-    concat_list = "concat_list.txt"
+    concat_list = f"{base_name}_concat_list.txt"
     with open(concat_list, "w") as f:
         for output_file in output_files:
             # Write file paths, ensuring any special characters are escaped
