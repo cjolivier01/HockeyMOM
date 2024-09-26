@@ -40,8 +40,11 @@ def make_parser():
     return parser
 
 
-def extract_audio(filename: str) -> tempfile.NamedTemporaryFile:
-    audio_file = tempfile.NamedTemporaryFile(delete=True, suffix=".aac")
+def extract_audio(filename: str, force: bool = False) -> str:
+    audio_file, _ = os.path.splitext(filename)
+    audio_file += ".aac"
+    if not force and os.path.exists(audio_file):
+        return audio_file
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -51,7 +54,7 @@ def extract_audio(filename: str) -> tempfile.NamedTemporaryFile:
         "-vn",
         "-acodec",
         "copy",
-        audio_file.name,
+        audio_file,
     ]
     process = None
     try:
@@ -59,7 +62,6 @@ def extract_audio(filename: str) -> tempfile.NamedTemporaryFile:
         return audio_file
     except subprocess.CalledProcessError as e:
         print(f"Failed to concatenate audio: {e}\n{process.stdout}")
-        audio_file.close()
         return None
 
 
@@ -73,7 +75,7 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
     with open(concat_list_file.name, "w") as f:
         for audio_file in audio_files:
             # Write file paths, ensuring any special characters are escaped
-            f.write(f"file '{audio_file.name}'\n")
+            f.write(f"file '{audio_file}'\n")
 
     # Prepare the FFmpeg command for concatenating audio streams
     command = [
@@ -158,6 +160,7 @@ def copy_audio(
     process = subprocess.Popen(command)
     process.wait()
 
+
 if __name__ == "__main__":
     parser = make_parser()
     args = parser.parse_args()
@@ -165,17 +168,24 @@ if __name__ == "__main__":
         args.input_audio = args.input_audio.split(",")
     file_list = {
         "left": [
-            "/olivier-pool/Videos/test3/GX010084.MP4",
-            "/olivier-pool/Videos/test3/GX020084.MP4",
-            "/olivier-pool/Videos/test3/GX030084.MP4",
+            "/olivier-pool/Videos/test/left-1.mp4",
+            "/olivier-pool/Videos/test/left-2.mp4",
+            "/olivier-pool/Videos/test/left-3.mp4",
+            # "/olivier-pool/Videos/test3/GX010084.MP4",
+            # "/olivier-pool/Videos/test3/GX020084.MP4",
+            # "/olivier-pool/Videos/test3/GX030084.MP4",
         ],
         "right": [
-            "/olivier-pool/Videos/test3/GX010004.MP4",
-            "/olivier-pool/Videos/test3/GX020004.MP4",
-            "/olivier-pool/Videos/test3/GX030004.MP4",
+            "/olivier-pool/Videos/test/right-1.mp4",
+            "/olivier-pool/Videos/test/right-2.mp4",
+            "/olivier-pool/Videos/test/right-3.mp4",
+            # "/olivier-pool/Videos/test3/GX010004.MP4",
+            # "/olivier-pool/Videos/test3/GX020004.MP4",
+            # "/olivier-pool/Videos/test3/GX030004.MP4",
         ],
     }
-    args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
+    # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
+    # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     args.output_video = "withsound.mp4"
     copy_audio(
         # args.input_audio,
