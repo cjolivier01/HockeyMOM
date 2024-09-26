@@ -294,13 +294,14 @@ def main(args):
     args.game_id = "test"
 
     # Default is left.mp4
-    video_files = os.path.join(args.video_dir, "left.mp4")
-    # if args.game_id:
-    #     file_dict = configure_game_videos(game_id=args.game_id, force=False, write_results=False)
-    #     if "left" in file_dict:
-    #         video_files = file_dict["left"]
-    #     elif "right" in file_dict:
-    #         video_files = file_dict["right"]
+    # video_files = os.path.join(args.video_dir, "left.mp4")
+    # video_files = os.path.join(args.video_dir, "right.mp4")
+    if args.game_id:
+        file_dict = configure_game_videos(game_id=args.game_id, force=False, write_results=False)
+        if "left" in file_dict:
+            video_files = file_dict["left"]
+        elif "right" in file_dict:
+            video_files = file_dict["right"]
 
     with torch.no_grad():
         copy_video(
