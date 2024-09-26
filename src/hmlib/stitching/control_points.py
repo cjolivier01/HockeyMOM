@@ -222,7 +222,6 @@ def calculate_control_points(
         viz2d.plot_keypoints([kpts0, kpts1], colors=[kpc0, kpc1], ps=10)
         viz2d.save_plot(os.path.join(output_directory, "keypoints.png"))
     control_points = dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
-    # do_stitch(image0=image0, image1=image1, control_points=control_points)
     return control_points
 
 
