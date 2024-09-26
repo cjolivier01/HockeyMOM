@@ -5,7 +5,7 @@ import traceback
 import warnings
 from collections import OrderedDict
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Tuple
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -32,6 +32,7 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
+from hmlib.orientation import configure_game_videos
 from hmlib.segm.ice_rink import confgure_ice_rink_mask
 from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
@@ -595,12 +596,13 @@ def main(args, num_gpu):
             assert False and "No longer supported"
 
         dataloader = MultiDatasetWrapper()
-        # dataloader = None
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
             if is_stitching(args.input_video):
                 project_file_name = "autooptimiser_out.pto"
+
+                game_videos = {}
 
                 if len(input_video_files) == 2:
                     vl = input_video_files[0]
@@ -612,15 +614,23 @@ def main(args, num_gpu):
                     video_right = file_name + file_extension
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
+                    game_videos = configure_game_videos(game_id=args.game_id)
                     dir_name = args.input_video
-                    video_left = "left.mp4"
-                    video_right = "right.mp4"
-                    vl = os.path.join(dir_name, video_left)
-                    vr = os.path.join(dir_name, video_right)
-                    input_video_files = [vl, vr]
+                    assert dir_name
+                    # video_left = "left.mp4"
+                    # video_right = "right.mp4"
+                    # vl = os.path.join(dir_name, video_left)
+                    # vr = os.path.join(dir_name, video_right)
+                    # vl =
+                    # input_video_files = [vl, vr]
+                    input_video_files = game_videos
 
-                left_vid = BasicVideoInfo(vl)
-                right_vid = BasicVideoInfo(vr)
+                left_vid = BasicVideoInfo(game_videos["left"])
+                right_vid = BasicVideoInfo(game_videos["right"])
+
+                # left_vid = BasicVideoInfo(vl)
+                # right_vid = BasicVideoInfo(vr)
+
                 total_frames = min(left_vid.frame_count, right_vid.frame_count)
                 print(f"Total possible stitched video frames: {total_frames}")
 
@@ -636,8 +646,8 @@ def main(args, num_gpu):
 
                 pto_project_file, lfo, rfo = configure_video_stitching(
                     dir_name,
-                    video_left,
-                    video_right,
+                    str(game_videos["left"][0]),
+                    str(game_videos["right"][0]),
                     project_file_name,
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
@@ -648,12 +658,25 @@ def main(args, num_gpu):
                     if args.save_stitched
                     else None
                 )
+
+                stitch_videos = {
+                    "left": {
+                        "files": game_videos["left"],
+                        "frame_offset": lfo,
+                    },
+                    "right": {
+                        "files": game_videos["right"],
+                        "frame_offset": rfo,
+                    },
+                }
+
                 stitched_dataset = StitchDataset(
-                    video_file_1=os.path.join(dir_name, video_left),
-                    video_file_2=os.path.join(dir_name, video_right),
+                    # video_file_1=os.path.join(dir_name, video_left),
+                    # video_file_2=os.path.join(dir_name, video_right),
+                    videos=stitch_videos,
                     pto_project_file=pto_project_file,
-                    video_1_offset_frame=lfo,
-                    video_2_offset_frame=rfo,
+                    # video_1_offset_frame=lfo,
+                    # video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=(
                         output_stitched_video_file if args.save_stitched else None
