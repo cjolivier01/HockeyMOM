@@ -4,6 +4,7 @@ For performance reasons, experiments in streaming and pipelining a simple copy
 
 import argparse
 import os
+import time
 from contextlib import nullcontext
 from typing import List, Optional, Set, Union
 
@@ -18,6 +19,7 @@ from hmlib.orientation import configure_game_videos
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.utils import calc_combined_fps
@@ -188,6 +190,7 @@ def copy_video(
     )
 
     with stream_context(main_stream):
+        # with nullcontext():
         io_timer = Timer()
         get_timer = Timer()
         batch_count = 0
@@ -221,6 +224,7 @@ def copy_video(
                         else:
                             next_split_frame = split_frames[split_number]
                         split_number += 1
+                        torch.cuda.synchronize()
                         video_out.close()
                         video_out = _open_output_video(_output_file_name(split_number))
 
@@ -228,12 +232,19 @@ def copy_video(
                         source_tensor = source_tensor.clamp(0, 255).to(
                             torch.uint8, non_blocking=True
                         )
+                    torch.cuda.synchronize()
                     video_out.append(source_tensor)
                 else:
-                    imgproc_info = ImageProcData(
-                        frame_id=frame_ids, img=source_tensor, current_box=None
+                    video_out.append(
+                        {
+                            "frame_id": frame_ids,
+                            "img": source_tensor,
+                            "current_box": torch.tensor(
+                                [0, 0, image_width(source_tensor), image_height(source_tensor)],
+                                dtype=torch.float,
+                            ),
+                        }
                     )
-                    video_out.append(imgproc_info)
 
                 batch_count += 1
                 processed_frame_count += batch_size
@@ -254,7 +265,6 @@ def copy_video(
         finally:
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriter):
-                    video_out.flush()
                     video_out.close()
                 else:
                     video_out.stop()
