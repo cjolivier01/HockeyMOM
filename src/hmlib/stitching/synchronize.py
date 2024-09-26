@@ -254,7 +254,6 @@ def build_stitching_project(
     if skip_if_exists and (os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)):
         print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
         return True
-
     assert len(image_files) == 2
     left_image_file = image_files[0]
     right_image_file = image_files[1]
@@ -279,7 +278,7 @@ def build_stitching_project(
 
         if True:
             configure_control_points(
-                output_directory=dir_name,
+                output_directory=str(dir_name),
                 project_file_path=hm_project,
                 image0=left_image_file,
                 image1=right_image_file,

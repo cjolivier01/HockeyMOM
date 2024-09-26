@@ -121,6 +121,7 @@ def configure_control_points(
     use_hugin: bool = False,
 ) -> None:
     #  c n0 N1 x5162 y1173 X1416.1875 Y1252.78125 t0
+    torch.manual_seed(1)
     pto_file = load_pto_file(project_file_path)
     hugin_ctrl_points = parse_hugin_control_points(pto_file)
     if hugin_ctrl_points is None:
