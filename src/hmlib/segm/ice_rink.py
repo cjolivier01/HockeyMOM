@@ -62,7 +62,6 @@ def video_demo_main():
         "Please specify at least one operation (save/show the "
         'video) with the argument "--out" or "--show"'
     )
-    torch.manual_seed(1)  # issue kornia#2027
     model = init_detector(args.config, args.checkpoint, device=args.device)
 
     video_reader = mmcv.VideoReader(args.video)
@@ -286,7 +285,6 @@ def find_ice_rink_masks(
     if not was_list:
         image = [image]
 
-    # torch.manual_seed(1)  # issue kornia#2027
     model = init_detector(config_file, checkpoint, device=device)
 
     results: List[
