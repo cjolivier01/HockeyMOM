@@ -103,6 +103,19 @@ class GpuAllocator:
         else:
             return self._last_allocated
 
+    def get_modern(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_highest_compute_capability(allowed_gpus=self._gpus)
+        if index is not None:
+            return index
+        else:
+            return self._last_allocated
+
     def allocate_fast(self, name: Optional[Union[str, None]] = None):
         """
         Allocate GPU with the most multiprocessing cores
@@ -605,14 +618,16 @@ def select_gpus(
                         assert detection_device is not None
 
         if is_encoding:
-            if gpu_allocator.free_count():
-                video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
-            else:
-                video_encoding_device = (
-                    detection_device if not multipose_device else multipose_device
-                )
-            if video_encoding_device is None:
-                video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
+            # Always used most modern GPU for encoding
+            video_encoding_device = torch.device("cuda", gpu_allocator.get_modern())
+            # if gpu_allocator.free_count():
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
+            # else:
+            #     video_encoding_device = (
+            #         detection_device if not multipose_device else multipose_device
+            #     )
+            # if video_encoding_device is None:
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
 
         if is_stitching and stitching_device is None:
             if gpu_allocator.free_count():
