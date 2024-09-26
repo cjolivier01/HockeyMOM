@@ -1,3 +1,7 @@
+"""
+Horrible, error-prone audio copying and concatenation function(s)
+"""
+
 import argparse
 import os
 import subprocess
