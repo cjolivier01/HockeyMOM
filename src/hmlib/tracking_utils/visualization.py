@@ -6,6 +6,7 @@ import torch
 
 import hmlib.utils.pt_visualization as ptv
 from hmlib.utils.image import image_width
+from hmlib.utils.gpu import StreamTensor
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -26,6 +27,8 @@ def get_color(idx):
 
 def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
+    if isinstance(image, StreamTensor):
+        image = image.get()
     if isinstance(image, torch.Tensor):
         if image.dtype == torch.float16:
             image = image.to(torch.float32)
