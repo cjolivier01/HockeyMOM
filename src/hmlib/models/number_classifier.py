@@ -16,6 +16,14 @@ from xmodels.SVHNClassifier.model import Model as SVHNClassifier
 from ..builder import NECKS
 
 
+class MySVHNClassifier(SVHNClassifier):
+    pass
+
+
+#     def init_weights(self, *args, **kwargs):
+#         pass
+
+
 @NECKS.register_module()
 class HmNumberClassifier(BaseModule):
     def __init__(
@@ -24,11 +32,14 @@ class HmNumberClassifier(BaseModule):
         **kwargs,
     ):
         super(HmNumberClassifier, self).__init__(*args, **kwargs)
-        self._classifier = SVHNClassifier(*args, **kwargs)
-        self._classifier._params_init_info = []
+        # self._classifier = MySVHNClassifier(*args, **kwargs)
+        # self._classifier._params_init_info = []
 
     def __call__(self, *args, **kwargs):
         return super(HmNumberClassifier, self).__call__(*args, **kwargs)
+
+    def init_weights(self, *args, **kwargs):
+        pass
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, img, **kwargs):
