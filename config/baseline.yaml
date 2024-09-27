@@ -131,7 +131,7 @@ game:
     # For scaling to a new stitched size
     scale_width: null
     scale_height: null
- 
+
 
 #
 # Model config
@@ -139,22 +139,7 @@ game:
 model:
   end_to_end:
     config: config/models/hm/hm_end_to_end.py
-    checkpoiont: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
-  # backbone:
-  #   type: dla34
-  #   pretrained: True
-  #   # pretrained_path: 'pretrained/dla34/crowdhuman_dla34.pth'
-  #   pretrained_path: "pretrained/dla34/my_coco_ch_e60.pth"
-  #   det_thres: 0.3
-
-  #   train:
-
-  #   test:
-
-  # tracker:
-    # type: fair
-    # type: centertrack
-    # conf_thres: 0.4
+    checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
 
   pose:
     config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py
