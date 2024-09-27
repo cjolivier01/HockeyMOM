@@ -12,8 +12,16 @@ post_detection_pipeline = [
     # dict(type="HmTopDownAffine"),
 ]
 
+number_classifier = dict(
+    type="HmNumberClassifier",
+    init_cfg=dict(
+        type="Pretrained",
+        checkpoint="pretrained/svnhc/model-65000.pth",
+    ),
+)
+
 model = dict(
     type="HmEndToEnd",
     post_detection_pipeline=post_detection_pipeline,
-    neck=dict(type="HmNumberClassifier"),
+    neck=number_classifier,
 )

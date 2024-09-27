@@ -1,6 +1,6 @@
 import glob
 import os
-from typing import Any, List
+from typing import Any, List, Optional
 
 import torch
 import torch.jit
@@ -43,8 +43,8 @@ class SVHNClassifier(BaseModule):
         "_digit5",
     ]
 
-    def __init__(self):
-        super(SVHNClassifier, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(SVHNClassifier, self).__init__(*args, **kwargs)
 
         self._hidden1 = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=48, kernel_size=5, padding=2),
@@ -169,12 +169,14 @@ class SVHNClassifier(BaseModule):
 
 @NECKS.register_module()
 class HmNumberClassifier(SVHNClassifier):
+
     def __init__(
         self,
         *args,
+        init_cfg: Optional[dict] = None,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, init_cfg=init_cfg, **kwargs)
         # self._classifier = MySVHNClassifier(*args, **kwargs)
         # self._classifier._params_init_info = []
 
