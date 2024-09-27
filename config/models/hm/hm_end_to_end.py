@@ -14,6 +14,7 @@ post_detection_pipeline = [
 
 number_classifier = dict(
     type="HmNumberClassifier",
+    enabled=True,
     init_cfg=dict(
         type="Pretrained",
         checkpoint="pretrained/svnhc/model-65000.pth",

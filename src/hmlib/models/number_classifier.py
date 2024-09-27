@@ -175,6 +175,7 @@ class HmNumberClassifier(SVHNClassifier):
         *args,
         init_cfg: Optional[dict] = None,
         category: int = 0,
+        enabled: bool = True,
         **kwargs,
     ):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
