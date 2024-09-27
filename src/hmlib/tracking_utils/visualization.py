@@ -43,8 +43,7 @@ def plot_rectangle(
     label: Union[str, None] = None,
     text_scale: int = 1,
 ):
-    if isinstance(img, torch.Tensor):
-        assert not label
+    if isinstance(img, torch.Tensor) and not label:
         return plot_torch_rectangle(
             image=img,
             tlbr=box,
