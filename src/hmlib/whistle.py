@@ -8,7 +8,9 @@ import numpy as np
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Detect whistles in a hockey game audio file.")
-    parser.add_argument("input_file", type=str, help="Path to the input audio file.")
+    parser.add_argument(
+        "--input-file", type=str, default=None, help="Path to the input audio file."
+    )
     parser.add_argument(
         "--output_file", type=str, help="Path to the output file for results.", default=None
     )
@@ -22,7 +24,7 @@ def parse_arguments() -> argparse.Namespace:
         "--duration_threshold",
         type=float,
         help="Minimum duration of whistle (seconds).",
-        default=0.1,
+        default=0.05,
     )
     parser.add_argument(
         "--energy_threshold_percentile",
@@ -124,6 +126,7 @@ def main() -> None:
     args = parse_arguments()
 
     args.input_file = "/home/colivier/FastVideo/test3/GX010084.aac"
+    args.plot = True
 
     audio_data, sample_rate = load_audio(args.input_file)
 
@@ -142,7 +145,7 @@ def main() -> None:
             for start, end in whistle_intervals:
                 f.write(f"{start:.2f},{end:.2f}\n")
     else:
-        print("Detected Whistle Occurrences (start_time, end_time):")
+        print(f"Detected {len(whistle_intervals)} Whistle Occurrences (start_time, end_time):")
         for start, end in whistle_intervals:
             print(f"({start:.2f}, {end:.2f})")
 
