@@ -180,16 +180,22 @@ class HmNumberClassifier(SVHNClassifier):
     ):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
         self._category = category
+        self._enabled = enabled
 
     # def __call__(self, *args, **kwargs):
     #     return super().__call__(*args, **kwargs)
 
     # @auto_fp16(apply_to=("img",))
-    def forward(self, img, **kwargs):
+    def forward(self, data, **kwargs):
+        if not self._enabled:
+            return None
+        img = data["img"]
+
         results = super().forward(img)
         return results
 
     def simple_test(self, data, **kwargs):
+        assert False  # huh?
         return data
 
 
