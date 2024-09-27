@@ -3,6 +3,7 @@ from typing import Any, List
 import torch
 from mmcv.runner import auto_fp16
 from mmdet.datasets.pipelines import Compose
+from mmdet.models.builder import build_neck
 from mmtrack.core import outs2results, results2outs
 from mmtrack.models.mot.byte_track import ByteTrack
 
@@ -11,15 +12,23 @@ from ..builder import MODELS
 
 @MODELS.register_module()
 class HmEndToEnd(ByteTrack):
+
     def __init__(
         self,
         *args,
-        post_detection_pipeline: List[Any] = [],
+        neck=None,
+        post_detection_pipeline: List[Any] = None,
+        enabled: bool = True,
         **kwargs,
     ):
         super(HmEndToEnd, self).__init__(*args, **kwargs)
+        self._enabled = enabled
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
+        self.neck = None
+
+        if neck is not None:
+            self.neck = build_neck(neck)
 
     def __call__(self, *args, **kwargs):
         return super(HmEndToEnd, self).__call__(*args, **kwargs)

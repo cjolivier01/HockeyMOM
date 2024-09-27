@@ -15,5 +15,5 @@ post_detection_pipeline = [
 model = dict(
     type="HmEndToEnd",
     post_detection_pipeline=post_detection_pipeline,
-    # neck=dict(type="HmNumberClassifier"),
+    neck=dict(type="HmNumberClassifier"),
 )

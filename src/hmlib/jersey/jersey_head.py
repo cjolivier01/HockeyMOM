@@ -1,6 +1,3 @@
-from yolox.evaluators.mot_evaluator import TrackingHead
-
-
 class JerseyHead(TrackingHead):
     def __init__(self):
         pass
