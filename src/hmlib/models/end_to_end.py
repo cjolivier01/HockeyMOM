@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Callable
 
 import torch
 from mmcv.runner import auto_fp16
@@ -16,7 +16,7 @@ class HmEndToEnd(ByteTrack):
     def __init__(
         self,
         *args,
-        neck=None,
+        neck: Callable
         post_detection_pipeline: List[Any] = None,
         enabled: bool = True,
         **kwargs,
@@ -111,8 +111,17 @@ class HmEndToEnd(ByteTrack):
             bboxes=det_bboxes, labels=det_labels, num_classes=num_classes
         )
 
-        return dict(
+        results = dict(
             det_bboxes=det_results["bbox_results"],
             track_bboxes=track_results["bbox_results"],
             data=data,
         )
+
+        if self._neck is not None:
+            jersey_results = self._neck(dict(
+                img=img,
+                class_bboxes=track_results,
+            ))
+            results["jersey_results"] = jersey_results
+
+        return results

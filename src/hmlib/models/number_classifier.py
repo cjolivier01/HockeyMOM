@@ -174,11 +174,11 @@ class HmNumberClassifier(SVHNClassifier):
         self,
         *args,
         init_cfg: Optional[dict] = None,
+        category: int = 0,
         **kwargs,
     ):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
-        # self._classifier = MySVHNClassifier(*args, **kwargs)
-        # self._classifier._params_init_info = []
+        self._category = category
 
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
@@ -193,3 +193,53 @@ class HmNumberClassifier(SVHNClassifier):
 
     def simple_test(self, data, **kwargs):
         return data
+
+
+import torch
+import torch.nn.functional as F
+
+
+def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
+    """
+    Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
+
+    Args:
+    - image (torch.Tensor): The image tensor (C, H, W).
+    - bboxes (torch.Tensor): Tensor of bounding boxes (N, 4) where each box is (x, y, width, height).
+    - out_width (int): The desired output width of the cropped images.
+    - out_height (int): The desired output height of the cropped images.
+
+    Returns:
+    - torch.Tensor: A batch of cropped and resized images (N, C, out_height, out_width).
+    """
+    crops = []
+    for bbox in bboxes:
+        x, y, width, height = bbox
+
+        # Calculate new coordinates for the jersey number area
+        new_y = int(y + 0.35 * height)
+        new_height = int(0.55 * height)
+        new_width = width
+
+        # Ensure the new box does not exceed image dimensions
+        new_y = max(new_y, 0)
+        new_height = min(new_height, image.size(1) - new_y)
+
+        # Crop the image
+        cropped = image[:, new_y : new_y + new_height, x : x + new_width]
+
+        # Resize the cropped image
+        resized = F.interpolate(
+            cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
+        )
+        crops.append(resized)
+
+    # Concatenate all cropped images into a batch
+    batch_crops = torch.cat(crops, dim=0)
+
+    return batch_crops
+
+    # Example usage:
+    # Assuming 'image_tensor' is a CxHxW tensor and 'bounding_boxes' is a Nx4 tensor
+    # 'desired_width' and 'desired_height' are the target dimensions for each crop
+    # cropped_images = extract_and_resize_jerseys(image_tensor, bounding_boxes, desired_width, desired_height)
