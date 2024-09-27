@@ -175,6 +175,10 @@ def calculate_control_points(
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
+    # if device is None:
+    #     # Deterministic on CPU?
+    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #     # torch.device("cpu")
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor = (
@@ -184,7 +188,15 @@ def calculate_control_points(
         .eval()
         .to(device)
     )  # load the extractor
-    matcher = LightGlue(features="superpoint", depth_confidence=0.95).eval().to(device)
+    matcher = (
+        LightGlue(
+            features="superpoint",
+            # depth_confidence=0.95,
+            depth_confidence=-1,
+        )
+        .eval()
+        .to(device)
+    )
 
     if not isinstance(image0, torch.Tensor):
         image0 = load_image(image0)
