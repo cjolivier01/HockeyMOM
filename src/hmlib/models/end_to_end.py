@@ -16,7 +16,7 @@ class HmEndToEnd(ByteTrack):
     def __init__(
         self,
         *args,
-        neck: Callable
+        neck: Callable,
         post_detection_pipeline: List[Any] = None,
         enabled: bool = True,
         **kwargs,
@@ -117,11 +117,13 @@ class HmEndToEnd(ByteTrack):
             data=data,
         )
 
-        if self._neck is not None:
-            jersey_results = self._neck(dict(
-                img=img,
-                class_bboxes=track_results,
-            ))
+        if self.neck is not None:
+            jersey_results = self.neck(
+                dict(
+                    img=img,
+                    class_bboxes=track_results,
+                )
+            )
         else:
             jersey_results = None
         results["jersey_results"] = jersey_results

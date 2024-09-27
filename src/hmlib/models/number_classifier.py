@@ -181,11 +181,8 @@ class HmNumberClassifier(SVHNClassifier):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
         self._category = category
 
-    def __call__(self, *args, **kwargs):
-        return super().__call__(*args, **kwargs)
-
-    def init_weights(self, *args, **kwargs):
-        pass
+    # def __call__(self, *args, **kwargs):
+    #     return super().__call__(*args, **kwargs)
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, img, **kwargs):
