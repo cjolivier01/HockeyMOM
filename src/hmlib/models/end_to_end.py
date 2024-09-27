@@ -122,6 +122,8 @@ class HmEndToEnd(ByteTrack):
                 img=img,
                 class_bboxes=track_results,
             ))
-            results["jersey_results"] = jersey_results
+        else:
+            jersey_results = None
+        results["jersey_results"] = jersey_results
 
         return results
