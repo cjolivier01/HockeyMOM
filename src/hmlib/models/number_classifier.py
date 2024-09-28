@@ -298,6 +298,7 @@ def process_results(
         )
         scores = scores[: int(length_prediction + 1)]
         this_min_score = torch.min(scores)
+
         # bad = False
         # for x in range(length_prediction + 1):
         #     if scores[x] < min_score:
@@ -306,6 +307,9 @@ def process_results(
         #     continue
         if this_min_score < min_score:
             continue
+
+        # this_score = this_min_score
+        this_score = torch.mean(scores[1:])
 
         # print("length:", length_prediction.item(), "value:", length_value.item())
         # print(
@@ -337,7 +341,7 @@ def process_results(
             running += all_digits[i]
         if running <= largest_number:
             # print(f"Final prediction: {running}")
-            jersey_results[batch_index] = (running, float(this_min_score))
+            jersey_results[batch_index] = (running, float(this_score))
         else:
             # print(f"Bad number: {running}")
             pass

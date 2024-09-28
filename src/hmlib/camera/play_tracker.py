@@ -274,10 +274,11 @@ class PlayTracker(torch.nn.Module):
             else:
                 prev_number, prev_score = jersey_info
                 if number != prev_number and score > prev_score:
-                    print(
-                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
-                    )
-                    self._tracking_id_jersey[tracking_id] = (number, score)
+                    if score - prev_score > 2:
+                        print(
+                            f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
+                        )
+                        self._tracking_id_jersey[tracking_id] = (number, score)
         if self._tracking_id_jersey:
             print(self._tracking_id_jersey)
 
