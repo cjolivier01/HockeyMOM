@@ -1,4 +1,4 @@
-from typing import Any, List, Callable
+from typing import Any, Callable, List, Optional
 
 import torch
 from mmcv.runner import auto_fp16
@@ -16,7 +16,7 @@ class HmEndToEnd(ByteTrack):
     def __init__(
         self,
         *args,
-        neck: Callable,
+        neck: Optional[Callable] = None,
         post_detection_pipeline: List[Any] = None,
         enabled: bool = True,
         **kwargs,
