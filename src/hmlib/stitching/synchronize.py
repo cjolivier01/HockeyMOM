@@ -250,7 +250,7 @@ def build_stitching_project(
     dir_name = pto_path.parent
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
-
+    assert autooptimiser_out != hm_project
     if skip_if_exists and (os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)):
         print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
         return True
