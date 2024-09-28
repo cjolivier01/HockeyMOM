@@ -291,8 +291,8 @@ def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, in
             running += all_digits[i]
         # print(f"Final prediction: {running}")
         jersey_results[ids[i]] = running
-    if jersey_results:
-        print(f"Found {len(number_results)} good numbers")
+    # if jersey_results:
+    #     print(f"Found {len(jersey_results)} good numbers")
     return jersey_results
 
 
