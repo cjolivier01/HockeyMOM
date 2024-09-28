@@ -175,10 +175,6 @@ def calculate_control_points(
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
-    # if device is None:
-    #     # Deterministic on CPU?
-    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #     # torch.device("cpu")
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor = (
@@ -265,60 +261,10 @@ def do_stitch(
 
     H = stitcher.qstitch(image0.unsqueeze(0), image1.unsqueeze(0))
     out = opencv_stitch(image0.cpu().numpy(), image1.cpu().numpy(), H.cpu().numpy())
-    # warped_width_height = compute_destination_size_wh(image1, H)
-    # warped_width_height = image_width(image1), image_height(image1)
-    # warped_width_height = (warped_width_height[1], warped_width_height[0])
-    # warped_right = warp_perspective(image1.unsqueeze(0), H.unsqueeze(0), warped_width_height)
-
-    # out = out * 255
-    # .to(device=device, dtype=image0.dtype)
-    # torch.manual_seed(1)  # issue kornia#2027
-    # out, mask = stitcher.qstitch(
-    #     image0.unsqueeze(0).to(torch.float),
-    #     image1.unsqueeze(0).to(torch.float),
-    # )
-    # homo = stitcher.qstitch(
-    #     image0.unsqueeze(0).to(torch.float),
-    #     image1.unsqueeze(0).to(torch.float),
-    # )
-
-    # H = homo.numpy()
-    # img = make_channels_last(image1).numpy()
-    # warped_image = cv2.warpPerspective(img, H, (img.shape[1] * 2, img.shape[0] * 2))
-
-    # stitched = opencv_stitch(
-    #     make_channels_last(image0 * 255).clamp(0, 255).to(torch.uint8).numpy(),
-    #     make_channels_last(image1 * 255).clamp(0, 255).to(torch.uint8).numpy(),
-    #     H=homo.numpy(),
-    # )
-
-    # show_image("dest_img", dest_img * 255)
-    # show_image("src_img", src_img * 255)
-    # show_image("warped_right", warped_right * 255)
-    # show_image("warped_image", img)
-    # show_image("out", out * 255)
     return None
 
 
 def opencv_stitch(image1, image2, H):
-    # sift = cv2.SIFT_create()
-    # keypoints1, descriptors1 = sift.detectAndCompute(image1, None)
-    # keypoints2, descriptors2 = sift.detectAndCompute(image2, None)
-
-    # matcher = cv2.BFMatcher()
-    # matches = matcher.knnMatch(descriptors1, descriptors2, k=2)
-
-    # good_matches = []
-    # for m, n in matches:
-    #     if m.distance < 0.75 * n.distance:
-    #         good_matches.append(m)
-    # if not good_matches:
-    #     good_matches = matches
-
-    # if len(good_matches) > 10:
-    #     src_pts = np.float32([keypoints2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-    #     dst_pts = np.float32([keypoints1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-    #     H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
     image1 = make_channels_last(image1)
     image2 = make_channels_last(image2)
     height, width, channels = image1.shape

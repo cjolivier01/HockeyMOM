@@ -168,10 +168,10 @@ def configure_control_points(
         line = f"c n0 N1 x{_to_hugin_decimal(point0[0])} y{_to_hugin_decimal(point0[1])} X{_to_hugin_decimal(point1[0])} Y{_to_hugin_decimal(point1[1])} t0"
         pto_file.append(line)
     save_pto_file(file_path=project_file_path, data=pto_file)
-    configure_pano_size(
-        project_file_path=project_file_path,
-        pano_width=int(min(8192, image_width(cv2.imread(image0)) * 1.5)),
-    )
+    # configure_pano_size(
+    #     project_file_path=project_file_path,
+    #     pano_width=int(min(8192, image_width(cv2.imread(image0)) * 1.5)),
+    # )
     print("Done with control points")
 
 
