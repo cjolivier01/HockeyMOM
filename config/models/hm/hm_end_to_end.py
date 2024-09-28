@@ -24,5 +24,5 @@ model = dict(
     type="HmEndToEnd",
     post_detection_pipeline=post_detection_pipeline,
     num_classes_override=1,
-    # neck=number_classifier,
+    neck=number_classifier,
 )
