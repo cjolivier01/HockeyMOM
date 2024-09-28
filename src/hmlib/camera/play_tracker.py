@@ -273,14 +273,14 @@ class PlayTracker(torch.nn.Module):
                 self._tracking_id_jersey[tracking_id] = (number, score)
             else:
                 prev_number, prev_score = jersey_info
+                # if number != prev_number:
                 if number != prev_number and score > prev_score:
-                    if score - prev_score > 2:
-                        print(
-                            f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
-                        )
-                        self._tracking_id_jersey[tracking_id] = (number, score)
-        if self._tracking_id_jersey:
-            print(self._tracking_id_jersey)
+                    print(
+                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
+                    )
+                    self._tracking_id_jersey[tracking_id] = (number, score)
+        # if self._tracking_id_jersey:
+        #     print(self._tracking_id_jersey)
 
     def forward(self, online_targets_and_img):
         self._timer.tic()

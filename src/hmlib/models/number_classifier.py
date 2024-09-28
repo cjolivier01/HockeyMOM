@@ -266,11 +266,6 @@ def process_results(
 
     jersey_results: Dict[int, int] = {}
     for batch_index in range(len(batch_length_logits)):
-        # tid = int(tracking_ids[batch_index])
-        # if tid == 1:
-        #     if subimages is not None:
-        #         show_image("img", subimages[batch_index], wait=True)
-
         length_logits = batch_length_logits[batch_index].unsqueeze(0)
         digit1_logits = batch_digit1_logits[batch_index].unsqueeze(0)
         digit2_logits = batch_digit2_logits[batch_index].unsqueeze(0)
@@ -339,6 +334,12 @@ def process_results(
         for i in range(length_prediction.item()):
             running *= 10
             running += all_digits[i]
+
+        # tid = int(tracking_ids[batch_index])
+        # if tid == 1 and running == 90:
+        #     if subimages is not None:
+        #         show_image("img", subimages[batch_index], wait=True)
+
         if running <= largest_number:
             # print(f"Final prediction: {running}")
             jersey_results[batch_index] = (running, float(this_score))
