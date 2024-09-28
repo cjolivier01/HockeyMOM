@@ -454,8 +454,8 @@ def confgure_ice_rink_mask(
     )
     if "combined_mask" in rink_results:
         rink_mask = rink_results["combined_mask"]
-        assert image_width(rink_mask) == image_width(image_file)
-        assert image_height(rink_mask) == image_height(image_file)
+        assert image_width(rink_mask) == image_width(image_frame)
+        assert image_height(rink_mask) == image_height(image_frame)
     if rink_results:
         save_rink_profile_config(game_id=game_id, rink_profile=rink_results)
     return load_rink_combined_mask(game_id=game_id)

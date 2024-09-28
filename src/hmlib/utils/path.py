@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Union
 
@@ -23,3 +24,15 @@ def add_suffix_to_filename(path: Union[Path, str], suffix: str) -> Union[Path, s
     # Return the new path
     new_path = path.with_name(new_filename)
     return new_path if not is_path else Path(new_path)
+
+
+def is_second_file_older(first: Union[str, Path], second: Union[str, Path]):
+    """
+    Takes two file names and returns True if the first file is older than the second file.
+    """
+    # Get the last modified time for both files
+    first_mtime = os.path.getmtime(file1)
+    second_mtime = os.path.getmtime(file2)
+
+    # Compare the modification times
+    return file1_mtime < file2_mtime

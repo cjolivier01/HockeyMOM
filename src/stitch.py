@@ -46,6 +46,16 @@ def convert_seconds_to_hms(total_seconds):
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
+def stitch_single_frame(
+    game_id: str,
+    device: torch.device,
+    start_frame_time: Optional[str] = None,
+    auto_adjust_exposure: Optional[bool] = True,
+):
+    pass
+    assert False  # implement me! dof ro rink config at startup
+
+
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
