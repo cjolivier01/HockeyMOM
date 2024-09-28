@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 def get_pipeline_list(
@@ -44,13 +44,10 @@ def update_pipeline_item(
 
 
 def get_model_item(
-    model: Union[List[Dict[str, Any]], Dict[str, Any]], class_name: str
+    model_config: Dict[str, Any], attribute: str, class_name: Optional[str] = None
 ) -> List[Tuple[int, Dict[str, Any]]]:
     # results = get_pipeline_items(data_pipeline=data_pipeline, class_name=class_name)
-    if not results:
-        return None
-    assert len(results) == 1
-    return results[0][1]
+    pass
 
 
 def set_pipeline_item_attribute(

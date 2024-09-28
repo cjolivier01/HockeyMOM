@@ -674,4 +674,4 @@ def select_gpus(
         gpus["camera"] = camera_device
     if video_encoding_device is not None:
         gpus["encoder"] = video_encoding_device
-    return gpus, gpu_allocator.is_single_lowmem_gpu()
+    return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator

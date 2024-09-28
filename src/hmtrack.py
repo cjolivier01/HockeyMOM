@@ -41,9 +41,9 @@ from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.checkpoint import load_checkpoint_to_model
-from hmlib.utils.gpu import select_gpus
+from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.mot_data import MOTTrackingData
-from hmlib.utils.pipeline import get_model_item, update_pipeline_item
+from hmlib.utils.pipeline import get_model_item, get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video_stream import time_to_frame
 
@@ -358,6 +358,42 @@ def is_stitching(input_video: str) -> bool:
     return len(input_video_files) == 2 or os.path.isdir(args.input_video)
 
 
+def configure_boundaries(
+    game_id: str,
+    model: torch.nn.Module,
+    top_border_lines,
+    bottom_border_lines,
+    original_clip_box,
+    gpu_allocator: GpuAllocator,
+    plot_tracking: bool,
+):
+    if hasattr(model, "post_detection_pipeline"):
+        has_boundaries = False
+        if top_border_lines or bottom_border_lines:
+            # Manual boundaries
+            has_boundaries = update_pipeline_item(
+                model.post_detection_pipeline,
+                "BoundaryLines",
+                dict(
+                    upper_border_lines=top_border_lines,
+                    lower_border_lines=bottom_border_lines,
+                    original_clip_box=original_clip_box,
+                ),
+            )
+        if not has_boundaries:
+            # Try auto-boundaries
+            has_boundaries = update_pipeline_item(
+                model.post_detection_pipeline,
+                "IceRinkSegmBoundaries",
+                dict(
+                    game_id=game_id,
+                    original_clip_box=original_clip_box,
+                    draw=plot_tracking,
+                    gpu_allocator=gpu_allocator,
+                ),
+            )
+
+
 def main(args, num_gpu):
     dataloader = None
     tracking_data = None
@@ -473,7 +509,7 @@ def main(args, num_gpu):
         while len(args.gpus) > actual_device_count:
             del args.gpus[-1]
 
-        gpus, is_single_lowmem_gpu = select_gpus(
+        gpus, is_single_lowmem_gpu, gpu_allocator = select_gpus(
             allowed_gpus=args.gpus,
             is_stitching=is_stitching(args.input_video),
             is_multipose=args.multi_pose,
@@ -531,36 +567,15 @@ def main(args, num_gpu):
                 #
                 # post-detection pipeline updates
                 #
-                if hasattr(model, "post_detection_pipeline"):
-                    has_boundaries = False
-                    if cam_args.top_border_lines or cam_args.bottom_border_lines:
-                        boundaries = get_pipeline_item(
-                            model.post_detection_pipeline, "BoundaryLines"
-                        )
-                        if boundaries is not None:
-                            has_boundaries = update_pipeline_item(
-                                model.post_detection_pipeline,
-                                "BoundaryLines",
-                                dict(
-                                    upper_border_lines=cam_args.top_border_lines,
-                                    lower_border_lines=cam_args.bottom_border_lines,
-                                    original_clip_box=get_clip_box(
-                                        game_id=args.game_id, root_dir=args.root_dir
-                                    ),
-                                ),
-                            )
-                    if not has_boundaries:
-                        has_boundaries = update_pipeline_item(
-                            model.post_detection_pipeline,
-                            "IceRinkSegmBoundaries",
-                            dict(
-                                game_id=args.game_id,
-                                original_clip_box=get_clip_box(
-                                    game_id=args.game_id, root_dir=args.root_dir
-                                ),
-                                draw=args.plot_tracking,
-                            ),
-                        )
+                configure_boundaries(
+                    game_id=args.game_id,
+                    model=model,
+                    top_border_lines=cam_args.top_border_lines,
+                    bottom_border_lines=cam_args.bottom_border_lines,
+                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+                    gpu_allocator=gpu_allocator,
+                    plot_tracking=args.plot_tracking,
+                )
             if args.multi_pose:
                 from mmpose.apis import init_pose_model
                 from mmpose.datasets import DatasetInfo
