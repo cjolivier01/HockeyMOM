@@ -65,7 +65,8 @@ def plot_rectangle(
 
     if label:
         text_thickness = 2
-        cv2.putText(
+        img = my_put_text(
+            # cv2.putText(
             img,
             label,
             (intbox[0], intbox[1] + 30),
@@ -123,7 +124,8 @@ def plot_alpha_rectangle(
 
     if label:
         text_thickness = 2
-        cv2.putText(
+        rectangled_image = my_put_text(
+            # cv2.putText(
             rectangled_image,
             label,
             (intbox[0], intbox[1] + 30),
@@ -304,18 +306,16 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     )
     return im
 
-    # image: torch.Tensor,
-    # x: int,
-    # y: int,
-    # text: str,
-    # font_size: int = 20,
-    # color: Tuple[int, int, int] = (255, 0, 0),
 
-
-def my_put_text(img, text, pos, font, scale, color, thickness):
+def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
     if isinstance(img, torch.Tensor):
         img = ptv.draw_text(
-            image=img, x=int(pos[0]), y=int(pos[1]), text=text, font_size=scale, color=color
+            image=img,
+            x=int(org[0]),
+            y=int(org[1]),
+            text=text,
+            font_size=fontScale,
+            color=color,
         )
         return img
     img = to_cv2(img)
@@ -342,9 +342,9 @@ def plot_frame_number(image, frame_id):
         img = my_put_text(
             img=image[i],
             text=f"F: {frame_id + i}",
-            pos=(text_offset, int(15 * text_scale)),
-            font=cv2.FONT_HERSHEY_PLAIN,
-            scale=text_scale,
+            org=(text_offset, int(15 * text_scale)),
+            fontFace=cv2.FONT_HERSHEY_PLAIN,
+            fontScale=text_scale,
             color=(0, 0, 255),
             thickness=text_thickness,
         )
@@ -390,7 +390,8 @@ def plot_tracking(
     text_offset = int(8 * text_scale)
 
     if show_frame_heading:
-        cv2.putText(
+        im = my_put_text(
+            # cv2.putText(
             im,
             "frame: %d fps: %.2f num: %d" % (frame_id, fps, len(tlwhs)),
             (0, int(15 * text_scale)),
@@ -429,8 +430,9 @@ def plot_tracking(
                 id_text = "{}".format(int(obj_id))
                 if ids2 is not None:
                     id_text = id_text + ", {}".format(int(ids2[i]))
-                im = to_cv2(im)
-                cv2.putText(
+                # im = to_cv2(im)
+                # cv2.putText(
+                im = my_put_text(
                     im,
                     id_text,
                     (intbox[0], intbox[1] + text_offset),
@@ -442,8 +444,9 @@ def plot_tracking(
             if player_number is not None:
                 xc = int(x1 + w // 5)
                 yc = int(y1 + h // 3)
-                im = to_cv2(im)
-                cv2.putText(
+                im = my_put_text(
+                    # im = to_cv2(im)
+                    # cv2.putText(
                     im,
                     str(player_number),
                     (xc, yc),
@@ -463,8 +466,9 @@ def plot_tracking(
                 speed_text = "NaN"
             pos_x = intbox[2] - text_offset
             pos_y = intbox[3]
-            im = to_cv2(im)
-            cv2.putText(
+            # im = to_cv2(im)
+            # cv2.putText(
+            im = my_put_text(
                 im,
                 speed_text,
                 (pos_x, pos_y),
@@ -520,7 +524,8 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
             label = "det" if det[5] > 0 else "trk"
             if ids is not None:
                 text = "{}# {:.2f}: {:d}".format(label, det[6], ids[i])
-                cv2.putText(
+                im = my_put_text(
+                    # cv2.putText(
                     im,
                     text,
                     (x1, y1 + 30),
@@ -534,7 +539,8 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
 
         if scores is not None:
             text = "{:.2f}".format(scores[i])
-            cv2.putText(
+            im = my_put_text(
+                # cv2.putText(
                 im,
                 text,
                 (x1, y1 + 30),
