@@ -103,7 +103,8 @@ def create_text_images(
     return char_tensors
 
 
-def find_font_path(font_name: str = "DejaVuSerif.ttf"):
+# "DejaVuSerif.ttf"
+def find_font_path(font_name: str = "FreeSerif.ttf"):
     # Command to find the font file
     command = ["fc-list", ": family file", "|", "grep", "-i", font_name]
     result = subprocess.run(command, stdout=subprocess.PIPE, text=True, shell=True)
