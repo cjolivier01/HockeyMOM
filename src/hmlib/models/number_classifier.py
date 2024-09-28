@@ -252,7 +252,10 @@ def process_results(
     number_results: np.ndarray,
     tracking_ids: np.ndarray,
     # min_score=15,
-    min_score=25,
+    # min_score=25,
+    # min_score=20,
+    # min_score=10,
+    min_score=50,  # always riught but few matches
     largest_number=99,
     subimages: Optional[torch.Tensor] = None,
 ) -> Dict[int, int]:
@@ -344,6 +347,11 @@ def process_results(
         if running <= largest_number:
             # print(f"Final prediction: {running}")
             jersey_results[batch_index] = (running, float(this_score))
+            # show_image(
+            #     str(int(tracking_ids[batch_index])) + ": " + str(running),
+            #     subimages[batch_index],
+            #     wait=False,
+            # )
         else:
             # print(f"Bad number: {running}")
             pass
