@@ -181,12 +181,14 @@ class HmNumberClassifier(SVHNClassifier):
     def __init__(
         self,
         *args,
+        roster: Dict[int, str] = None,
         init_cfg: Optional[dict] = None,
         category: int = 0,
         enabled: bool = True,
         **kwargs,
     ):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
+        self._roster = roster
         self._category = category
         self._enabled = enabled
         self._mean = [0.5, 0.5, 0.5]
@@ -222,10 +224,14 @@ class HmNumberClassifier(SVHNClassifier):
                 indexed_jersey_results = process_results(results)
                 if indexed_jersey_results:
                     for index, num_and_score in indexed_jersey_results.items():
+                        num = num_and_score[0]
+                        if self._roster and num not in self._roster:
+                            continue
+                        score = num_and_score[1]
                         tid = int(tracking_ids[index])
                         jersey_results[tid] = num_and_score
                         print(
-                            f"READ NUMBER: {num_and_score[0]}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {num_and_score[1]}"
+                            f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
                         )
                         # show_image("SUBIMAGE", subimages[index], wait=True)
                     pass
