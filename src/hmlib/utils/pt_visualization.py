@@ -25,38 +25,6 @@ from .image import (
 CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}
 
 
-def rgb_to_rgba(image_tensor):
-    """
-    Converts an RGB image tensor to RGBA where the alpha channel is 0 if the pixel is white (255, 255, 255)
-    and 255 for all other pixels.
-
-    Args:
-        image_tensor (np.ndarray): A NumPy array of shape (height, width, 3) representing an RGB image.
-
-    Returns:
-        np.ndarray: A NumPy array of shape (height, width, 4) representing an RGBA image.
-    """
-    if len(image_tensor.shape) != 3 or image_tensor.shape[2] != 3:
-        raise ValueError(
-            "Input image tensor must have shape (height, width, 3) representing an RGB image."
-        )
-
-    # Get the image dimensions
-    height, width, _ = image_tensor.shape
-
-    # Create an RGBA image (initialize the alpha channel to 255)
-    rgba_image = np.zeros((height, width, 4), dtype=np.uint8)
-
-    # Copy the RGB values into the RGBA image
-    rgba_image[:, :, :3] = image_tensor
-
-    # Set the alpha channel: 0 for white (255, 255, 255), 255 otherwise
-    is_white = np.all(image_tensor == [255, 255, 255], axis=-1)
-    rgba_image[:, :, 3] = np.where(is_white, 0, 255)
-
-    return rgba_image
-
-
 def print_rgba_planes(image_tensor):
     """
     Prints the values of each plane (R, G, B, A) of an RGBA image tensor, pixel by pixel.
@@ -101,6 +69,8 @@ def create_text_images(
     # Dictionary to hold the character images as tensors
     char_tensors = {}
 
+    max_height = 0
+
     # Create an image for each character
     for char in characters:
         # Create an image with transparent background
@@ -112,11 +82,12 @@ def create_text_images(
         draw.text((5, 5), char, font=font, fill=font_color)
 
         numpy_image = np.array(image)
-        # numpy_image = rgb_to_rgba(numpy_image)
 
         # get rid of aliasing and make a solid color
         alpha_channel = numpy_image[:, :, 3]
         numpy_image[alpha_channel != 0] = [font_color[0], font_color[1], font_color[2], 255]
+
+        max_height = max(max_height, numpy_image.shape[0])
 
         # print_rgba_planes(numpy_image)
 
@@ -126,6 +97,7 @@ def create_text_images(
         )  # Normalize the tensor
         char_tensors[char] = tensor
 
+    char_tensors["max_height"] = max_height
     CHARACTERS[key] = char_tensors
 
     return char_tensors
@@ -174,8 +146,10 @@ def draw_text(
     text: str,
     font_size: int = 20,
     color: Tuple[int, int, int] = (255, 0, 0),
+    position_is_text_bottom: bool = False,
 ) -> torch.Tensor:
-    font_size = int(font_size * 25)
+    # font_size = int(font_size * 25)
+    font_size = int(font_size * 10)
     global draw_text_SIZE_TO_FONT_PATHS
     font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
     if font_path is None:
@@ -184,6 +158,9 @@ def draw_text(
     char_images = create_text_images(
         font_path=font_path, font_size=font_size, font_color=color, device=image.device
     )
+    if position_is_text_bottom:
+        y = int(y - char_images["max_height"])
+        y = max(0, y)
     ndims = image.ndim
     if ndims == 4:
         assert image.shape[0] == 1

@@ -887,7 +887,7 @@ class VideoOutput:
         #
         # Frame Number
         #
-        if True or (self.has_args() and self._args.plot_frame_number):
+        if self.has_args() and self._args.plot_frame_number:
             online_im = vis.plot_frame_number(
                 online_im,
                 frame_id=frame_id,

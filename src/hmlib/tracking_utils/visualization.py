@@ -46,27 +46,27 @@ def plot_rectangle(
     label: Union[str, None] = None,
     text_scale: int = 1,
 ):
-    if isinstance(img, torch.Tensor) and not label:
-        return plot_torch_rectangle(
+    intbox = [int(i) for i in box]
+    if isinstance(img, torch.Tensor):
+        img = plot_torch_rectangle(
             image=img,
             tlbr=box,
             color=normalize_color(img, color),
             thickness=thickness,
         )
-    img = to_cv2(img)
-    intbox = [int(i) for i in box]
-    cv2.rectangle(
-        img,
-        intbox[0:2],
-        intbox[2:4],
-        color=normalize_color(img, color),
-        thickness=thickness,
-    )
+    else:
+        img = to_cv2(img)
+        cv2.rectangle(
+            img,
+            intbox[0:2],
+            intbox[2:4],
+            color=normalize_color(img, color),
+            thickness=thickness,
+        )
 
     if label:
         text_thickness = 2
         img = my_put_text(
-            # cv2.putText(
             img,
             label,
             (intbox[0], intbox[1] + 30),
@@ -316,17 +316,18 @@ def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
             text=text,
             font_size=fontScale,
             color=color,
+            position_is_text_bottom=True,
         )
         return img
     img = to_cv2(img)
     cv2.putText(
         img,
-        f"F: {frame_id + i}",
-        (text_offset, int(30 * text_scale)),
-        cv2.FONT_HERSHEY_PLAIN,
-        text_scale,
-        (0, 0, 255),
-        thickness=text_thickness,
+        text,
+        org,
+        fontFace,
+        fontScale,
+        color,
+        thickness=thickness,
     )
     return img
 
@@ -385,13 +386,14 @@ def plot_tracking(
     # im = np.ascontiguousarray(image)
     im = image
 
+    # im = to_cv2(im)
+
     text_scale = max(2, image.shape[1] / 1600.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
 
     if show_frame_heading:
         im = my_put_text(
-            # cv2.putText(
             im,
             "frame: %d fps: %.2f num: %d" % (frame_id, fps, len(tlwhs)),
             (0, int(15 * text_scale)),
@@ -430,8 +432,6 @@ def plot_tracking(
                 id_text = "{}".format(int(obj_id))
                 if ids2 is not None:
                     id_text = id_text + ", {}".format(int(ids2[i]))
-                # im = to_cv2(im)
-                # cv2.putText(
                 im = my_put_text(
                     im,
                     id_text,
@@ -445,8 +445,6 @@ def plot_tracking(
                 xc = int(x1 + w // 5)
                 yc = int(y1 + h // 3)
                 im = my_put_text(
-                    # im = to_cv2(im)
-                    # cv2.putText(
                     im,
                     str(player_number),
                     (xc, yc),
@@ -466,8 +464,6 @@ def plot_tracking(
                 speed_text = "NaN"
             pos_x = intbox[2] - text_offset
             pos_y = intbox[3]
-            # im = to_cv2(im)
-            # cv2.putText(
             im = my_put_text(
                 im,
                 speed_text,
@@ -525,7 +521,6 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
             if ids is not None:
                 text = "{}# {:.2f}: {:d}".format(label, det[6], ids[i])
                 im = my_put_text(
-                    # cv2.putText(
                     im,
                     text,
                     (x1, y1 + 30),
@@ -540,7 +535,6 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
         if scores is not None:
             text = "{:.2f}".format(scores[i])
             im = my_put_text(
-                # cv2.putText(
                 im,
                 text,
                 (x1, y1 + 30),
