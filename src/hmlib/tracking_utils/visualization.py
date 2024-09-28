@@ -342,7 +342,7 @@ def plot_frame_number(image, frame_id):
         img = my_put_text(
             img=image[i],
             text=f"F: {frame_id + i}",
-            pos=(text_offset, int(30 * text_scale)),
+            pos=(text_offset, int(15 * text_scale)),
             font=cv2.FONT_HERSHEY_PLAIN,
             scale=text_scale,
             color=(0, 0, 255),
