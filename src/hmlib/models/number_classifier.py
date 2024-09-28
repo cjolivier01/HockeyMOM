@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 
 import torch
 import torch.jit
+import numpy as np
 import torch.nn as nn
 from mmcv.runner import BaseModule, auto_fp16
 
@@ -12,7 +13,8 @@ from mmdet.datasets.pipelines import Compose
 from mmtrack.core import outs2results, results2outs
 
 # from mmcv.utils import TORCH_VERSION, Registry, build_from_cfg, digit_version
-from mmtrack.models.mot.byte_track import ByteTrack
+from hmlib.tracking_utils.utils import xyxy2xywh
+from hmlib.utils.image import make_channels_first, make_channels_last
 
 # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
@@ -191,7 +193,14 @@ class HmNumberClassifier(SVHNClassifier):
             return None
         img = data["img"]
         tracking_data = data["category_bboxes"][self._category]
-        results = super().forward(img)
+        if not tracking_data.shape[0]:
+            return None
+        bboxes = tracking_data[:, 1:5].astype(np.int)
+        tlwhs = xyxy2xywh(bboxes)
+        assert img.size(0) == 1
+        img = make_channels_first(img.squeeze(0))
+        subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
+        results = super().forward(subimages)
         return results
 
     def simple_test(self, data, **kwargs):
