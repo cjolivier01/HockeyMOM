@@ -14,9 +14,10 @@ import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
-from hmlib.stitching.synchronize import get_image_geo_position, synchronize_by_audio
+from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import (
     GpuAllocator,

@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.hm_opts import hm_opts
-from hmlib.stitching.synchronize import get_image_geo_position
+from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.image import (
     make_channels_first,

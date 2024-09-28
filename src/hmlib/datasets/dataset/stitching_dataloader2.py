@@ -16,8 +16,8 @@ import torch
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.stitching.blender import create_stitcher
+from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue

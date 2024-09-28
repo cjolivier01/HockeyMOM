@@ -36,7 +36,7 @@ from hmlib.hm_transforms import update_data_pipeline
 from hmlib.orientation import configure_game_videos
 
 # from hmlib.segm.ice_rink import confgure_ice_rink_mask
-from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
@@ -681,12 +681,8 @@ def main(args, num_gpu):
                 }
 
                 stitched_dataset = StitchDataset(
-                    # video_file_1=os.path.join(dir_name, video_left),
-                    # video_file_2=os.path.join(dir_name, video_right),
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
-                    # video_1_offset_frame=lfo,
-                    # video_2_offset_frame=rfo,
                     start_frame_number=args.start_frame,
                     output_stitched_video_file=(
                         output_stitched_video_file if args.save_stitched else None
