@@ -13,6 +13,7 @@ from mmcv.runner import BaseModule, auto_fp16
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.utils.image import make_channels_first
 from hmlib.utils.gpu import StreamTensor
+from hmlib.stitching.laplacian_blend import show_image
 
 # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
@@ -221,12 +222,12 @@ def process_results(number_results):
     ) = number_results
 
     for i in range(len(batch_length_logits)):
-        length_logits = batch_length_logits[i]
-        digit1_logits = batch_digit1_logits[i]
-        digit2_logits = batch_digit2_logits[i]
-        digit3_logits = batch_digit3_logits[i]
-        digit4_logits = batch_digit4_logits[i]
-        digit5_logits = batch_digit5_logits[i]
+        length_logits = batch_length_logits[i].unsqueeze(0)
+        digit1_logits = batch_digit1_logits[i].unsqueeze(0)
+        digit2_logits = batch_digit2_logits[i].unsqueeze(0)
+        digit3_logits = batch_digit3_logits[i].unsqueeze(0)
+        digit4_logits = batch_digit4_logits[i].unsqueeze(0)
+        digit5_logits = batch_digit5_logits[i].unsqueeze(0)
 
         length_value, length_prediction = length_logits.max(1)
         digit1_value, digit1_prediction = digit1_logits.max(1)
@@ -234,6 +235,21 @@ def process_results(number_results):
         digit3_value, digit3_prediction = digit3_logits.max(1)
         digit4_value, digit4_prediction = digit4_logits.max(1)
         digit5_value, digit5_prediction = digit5_logits.max(1)
+
+        scores = [
+            length_value,
+            digit1_value,
+            digit2_value,
+            digit3_value,
+            digit4_value,
+            digit5_value,
+        ]
+        bad = False
+        for i in range(length_prediction + 1):
+            if scores[i] < 10:
+                bad = True
+        if bad:
+            continue
 
         print("length:", length_prediction.item(), "value:", length_value.item())
         print(
