@@ -228,6 +228,17 @@ def run_mmtrack(
                         online_ids = torch.from_numpy(track_ids)
                         online_scores = torch.from_numpy(scores)
 
+                        # Clean data to send of the batched images
+                        data_to_send = data.copy()
+                        del data_to_send["original_images"]
+                        del data_to_send["img"]
+
+                        # sanity check that no batched tensors left
+                        for _, val in data_to_send.items():
+                            if isinstance(val, torch.Tensor):
+                                # make sure no batched tensors left
+                                assert val.ndim <= 3
+
                         if postprocessor is not None:
                             if isinstance(origin_imgs, StreamTensor):
                                 origin_imgs = origin_imgs.get()
@@ -242,7 +253,7 @@ def run_mmtrack(
                                     info_imgs=info_imgs,
                                     letterbox_img=None,
                                     original_img=origin_imgs[frame_index].unsqueeze(0),
-                                    data=dataset_results,
+                                    data=data_to_send,
                                 )
                             )
 

@@ -12,7 +12,7 @@ from mmcv.runner import BaseModule, auto_fp16
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import make_channels_first
+from hmlib.utils.image import image_height, image_width, make_channels_first
 
 from ..builder import NECKS
 
@@ -186,22 +186,22 @@ class HmNumberClassifier(SVHNClassifier):
     #     return super().__call__(*args, **kwargs)
 
     # @auto_fp16(apply_to=("img",))
-    def forward(self, data, **kwargs):
+    def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
         if not self._enabled:
             return None
-        img = data["img"]
         tracking_data = data["category_bboxes"][self._category]
         if not tracking_data.shape[0]:
             return None
         bboxes = tracking_data[:, 1:5].astype(np.int)
         tlwhs = xyxy2xywh(bboxes)
-        assert img.size(0) == 1
-        img = make_channels_first(img.squeeze(0))
-        if isinstance(img, StreamTensor):
-            img = img.get()
-        subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
-        results = super().forward(subimages)
-        process_results(results)
+        # assert img.size(0) == 1
+        # img = make_channels_first(img).squeeze(0)
+        # if isinstance(img, StreamTensor):
+        #     img = img.get()
+        # subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
+        results = {}
+        # results = super().forward(subimages)
+        # process_results(results)
         return results
 
     def simple_test(self, data, **kwargs):
@@ -209,8 +209,7 @@ class HmNumberClassifier(SVHNClassifier):
         return data
 
 
-def process_results(number_results):
-
+def process_results(number_results: np.ndarray) -> Dict[int, int]:
     (
         batch_length_logits,
         batch_digit1_logits,
@@ -220,7 +219,7 @@ def process_results(number_results):
         batch_digit5_logits,
     ) = number_results
 
-    number_results: Dict[int, int] = {}
+    jersey_results: Dict[int, int] = {}
     for i in range(len(batch_length_logits)):
         length_logits = batch_length_logits[i].unsqueeze(0)
         digit1_logits = batch_digit1_logits[i].unsqueeze(0)
@@ -280,12 +279,20 @@ def process_results(number_results):
             running *= 10
             running += all_digits[i]
         print(f"Final prediction: {running}")
-        number_results[i] = running
-    if number_results:
+        jersey_results[i] = running
+    if jersey_results:
         print(f"Found {len(number_results)} good numbers")
+    return jersey_results
 
 
-def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
+def extract_and_resize_jerseys(
+    image,
+    bboxes,
+    out_width,
+    out_height,
+    down_from_box_top_ratio: float = 0.35,
+    number_height_from_box_size_ratio: float = 0.55,
+):
     """
     Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
 
@@ -299,30 +306,37 @@ def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
     - torch.Tensor: A batch of cropped and resized images (N, C, out_height, out_width).
     """
     crops = []
+    image = make_channels_first(image)
+    iw, ih = image_width(image), image_height(image)
     for bbox in bboxes:
         x, y, width, height = bbox
 
         # Calculate new coordinates for the jersey number area
-        # new_y = int(y + 0.35 * height)
-        # new_height = int(0.55 * height)
-        new_y = int(y + height)
+        # new_y = int(y + down_from_box_top_ratio * height)
+        # new_height = int(number_height_from_box_size_ratio * height)
+        new_y = y
         new_height = int(height)
 
         new_width = width
 
         # Ensure the new box does not exceed image dimensions
         new_y = max(new_y, 0)
-        new_height = min(new_height, image.size(1) - new_y)
+        new_height = min(new_height, ih - new_y)
 
         # Crop the image
-        cropped = image[:, new_y : new_y + new_height, x : x + new_width]
+        # cropped = image[:, new_y : new_y + new_height, x : x + new_width]
+        cropped = image[:, y : y + height, x : x + width]
+
+        show_image("crop", cropped, wait=False)
 
         # Resize the cropped image
-        resized = F.interpolate(
-            cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
-        )
-        # show_image("number?", resized, wait=False)
-        crops.append(resized)
+        # resized = F.interpolate(
+        #     cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
+        # )
+        # # show_image("number?", resized, wait=False)
+        # crops.append(resized)
+    if not crops:
+        return None
 
     # Concatenate all cropped images into a batch
     batch_crops = torch.cat(crops, dim=0)

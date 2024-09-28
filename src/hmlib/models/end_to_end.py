@@ -115,16 +115,17 @@ class HmEndToEnd(ByteTrack):
             track_bboxes=track_results["bbox_results"],
             data=data,
         )
-
+        assert results["data"]["original_images"].ndim == 4
         if self.neck is not None:
             jersey_results = self.neck(
-                dict(
+                data=dict(
                     img=data["original_images"],
                     category_bboxes=track_results["bbox_results"],
-                )
+                ),
             )
         else:
             jersey_results = None
+        assert results["data"]["original_images"].ndim == 4
         results["jersey_results"] = jersey_results
 
         return results
