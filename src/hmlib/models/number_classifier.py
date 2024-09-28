@@ -201,6 +201,7 @@ class HmNumberClassifier(SVHNClassifier):
         img = make_channels_first(img.squeeze(0))
         subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
         results = super().forward(subimages)
+        process_results(results)
         return results
 
     def simple_test(self, data, **kwargs):
@@ -210,6 +211,54 @@ class HmNumberClassifier(SVHNClassifier):
 
 import torch
 import torch.nn.functional as F
+
+
+def process_results(number_results):
+    (
+        length_logits,
+        digit1_logits,
+        digit2_logits,
+        digit3_logits,
+        digit4_logits,
+        digit5_logits,
+    ) = number_results
+
+    length_value, length_prediction = length_logits.max(1)
+    digit1_value, digit1_prediction = digit1_logits.max(1)
+    digit2_value, digit2_prediction = digit2_logits.max(1)
+    digit3_value, digit3_prediction = digit3_logits.max(1)
+    digit4_value, digit4_prediction = digit4_logits.max(1)
+    digit5_value, digit5_prediction = digit5_logits.max(1)
+
+    print("length:", length_prediction.item(), "value:", length_value.item())
+    print(
+        "digits:",
+        digit1_prediction.item(),
+        digit2_prediction.item(),
+        digit3_prediction.item(),
+        digit4_prediction.item(),
+        digit5_prediction.item(),
+    )
+    print(
+        "values:",
+        digit1_value.item(),
+        digit2_value.item(),
+        digit3_value.item(),
+        digit4_value.item(),
+        digit5_value.item(),
+    )
+    all_digits = [
+        digit1_prediction.item(),
+        digit2_prediction.item(),
+        digit3_prediction.item(),
+        digit4_prediction.item(),
+        digit5_prediction.item(),
+    ]
+    running = 0
+    for i in range(length_prediction.item()):
+        running *= 10
+        running += all_digits[i]
+    print(f"Final prediction: {running}")
 
 
 def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
