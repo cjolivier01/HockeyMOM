@@ -182,9 +182,6 @@ class HmNumberClassifier(SVHNClassifier):
         self._category = category
         self._enabled = enabled
 
-    # def __call__(self, *args, **kwargs):
-    #     return super().__call__(*args, **kwargs)
-
     # @auto_fp16(apply_to=("img",))
     def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
         if not self._enabled:
@@ -193,28 +190,37 @@ class HmNumberClassifier(SVHNClassifier):
         if not tracking_data.shape[0]:
             return None
         bboxes = tracking_data[:, 1:5].astype(np.int)
+        tracking_ids = tracking_data[:, 0].astype(np.int64)
         tlwhs = xyxy2xywh(bboxes)
         img = data["img"]
         if isinstance(img, StreamTensor):
             # img = img.get()
             img = img.wait()
             data["img"] = img
+        assert len(img) == 1
+        batch_numbers: List[torch.Tensor] = []
+        jersey_results: Dict[int, int] = {}
         for image_item in make_channels_first(img):
             assert image_item.ndim == 3
             subimages = extract_and_resize_jerseys(
                 image=image_item, bboxes=tlwhs, out_width=64, out_height=64
             )
-        results = {}
-        # results = super().forward(subimages)
-        # process_results(results)
-        return results
+            if subimages is not None:
+                results = super().forward(subimages)
+                jersey_results = process_results(results, ids=tracking_ids)
+                if jersey_results:
+                    pass
+        batch_numbers.append(jersey_results)
+        data["batch_numbers"] = batch_numbers
+        # results["batch_numbers"] = batch_numbers
+        return data
 
     def simple_test(self, data, **kwargs):
         assert False  # huh?
         return data
 
 
-def process_results(number_results: np.ndarray) -> Dict[int, int]:
+def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, int]:
     (
         batch_length_logits,
         batch_digit1_logits,
@@ -255,23 +261,23 @@ def process_results(number_results: np.ndarray) -> Dict[int, int]:
         if bad:
             continue
 
-        print("length:", length_prediction.item(), "value:", length_value.item())
-        print(
-            "digits:",
-            digit1_prediction.item(),
-            digit2_prediction.item(),
-            digit3_prediction.item(),
-            digit4_prediction.item(),
-            digit5_prediction.item(),
-        )
-        print(
-            "values:",
-            digit1_value.item(),
-            digit2_value.item(),
-            digit3_value.item(),
-            digit4_value.item(),
-            digit5_value.item(),
-        )
+        # print("length:", length_prediction.item(), "value:", length_value.item())
+        # print(
+        #     "digits:",
+        #     digit1_prediction.item(),
+        #     digit2_prediction.item(),
+        #     digit3_prediction.item(),
+        #     digit4_prediction.item(),
+        #     digit5_prediction.item(),
+        # )
+        # print(
+        #     "values:",
+        #     digit1_value.item(),
+        #     digit2_value.item(),
+        #     digit3_value.item(),
+        #     digit4_value.item(),
+        #     digit5_value.item(),
+        # )
         all_digits = [
             digit1_prediction.item(),
             digit2_prediction.item(),
@@ -283,8 +289,8 @@ def process_results(number_results: np.ndarray) -> Dict[int, int]:
         for i in range(length_prediction.item()):
             running *= 10
             running += all_digits[i]
-        print(f"Final prediction: {running}")
-        jersey_results[i] = running
+        # print(f"Final prediction: {running}")
+        jersey_results[ids[i]] = running
     if jersey_results:
         print(f"Found {len(number_results)} good numbers")
     return jersey_results
@@ -295,8 +301,8 @@ def extract_and_resize_jerseys(
     bboxes,
     out_width,
     out_height,
-    down_from_box_top_ratio: float = 0.35,
-    number_height_from_box_size_ratio: float = 0.55,
+    down_from_box_top_ratio: float = 0.2,
+    number_height_from_box_size_ratio: float = 0.25,
 ):
     """
     Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
@@ -317,30 +323,32 @@ def extract_and_resize_jerseys(
         x, y, width, height = bbox
 
         # Calculate new coordinates for the jersey number area
-        # new_y = int(y + down_from_box_top_ratio * height)
-        # new_height = int(number_height_from_box_size_ratio * height)
-        new_y = y
-        new_height = int(height)
+        new_y = int(y + down_from_box_top_ratio * height)
+        new_height = int(number_height_from_box_size_ratio * height)
+        # new_y = y
+        # new_height = int(height)
 
-        new_width = width
+        # new_width = width * 0.5
+        new_width = min(width, new_height)
+        new_x = int(x + new_width / 2)
 
         # Ensure the new box does not exceed image dimensions
         new_y = max(new_y, 0)
         new_height = min(new_height, ih - new_y)
 
         # Crop the image
-        # cropped = image[:, new_y : new_y + new_height, x : x + new_width]
-        cropped = image[:, y : y + height, x : x + width]
+        cropped = image[:, new_y : new_y + new_height, new_x : new_x + int(new_width)]
+        # cropped = image[:, y : y + height, x : x + width]
 
         # show_image("crop", cropped, wait=False)
-        show_image("crop", cropped, wait=True)
+        # show_image("crop", cropped, wait=True)
 
         # Resize the cropped image
-        # resized = F.interpolate(
-        #     cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
-        # )
-        # # show_image("number?", resized, wait=False)
-        # crops.append(resized)
+        resized = F.interpolate(
+            cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
+        )
+        # show_image("number?", resized, wait=True)
+        crops.append(resized)
     if not crops:
         return None
 
