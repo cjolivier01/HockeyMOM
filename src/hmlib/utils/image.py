@@ -523,6 +523,8 @@ def is_channels_last(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
 
 
 def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if img.ndim == 2:
+        return img.shape[1]
     if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
@@ -546,6 +548,8 @@ def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
 
 
 def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if img.ndim == 2:
+        return img.shape[0]
     if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:

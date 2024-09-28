@@ -142,6 +142,19 @@ class GpuAllocator:
         """
         return len(self._gpus) - len(self._used_gpus)
 
+    def get_largest_mem_gpu(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_largest_mem(allowed_gpus=self._gpus)
+        if index is not None:
+            return index
+        else:
+            return self._last_allocated
+
     def is_single_lowmem_gpu(self, low_threshold_mb: int = 8192) -> bool:
         """
         Return True if we are dealing with a single, low-memory GPU

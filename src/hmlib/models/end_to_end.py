@@ -19,6 +19,7 @@ class HmEndToEnd(ByteTrack):
         neck: Optional[Callable] = None,
         post_detection_pipeline: List[Any] = None,
         enabled: bool = True,
+        num_classes_override: Optional[int] = None,
         **kwargs,
     ):
         super(HmEndToEnd, self).__init__(*args, **kwargs)
@@ -26,6 +27,7 @@ class HmEndToEnd(ByteTrack):
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
         self.neck = None
+        self._num_classes_override = num_classes_override
 
         if neck is not None:
             self.neck = build_neck(neck)
@@ -100,7 +102,13 @@ class HmEndToEnd(ByteTrack):
             ids=track_ids,
             num_classes=num_classes,
         )
-        det_results = outs2results(bboxes=det_bboxes, labels=det_labels, num_classes=num_classes)
+        det_results = outs2results(
+            bboxes=det_bboxes,
+            labels=det_labels,
+            num_classes=(
+                num_classes if self._num_classes_override is None else self._num_classes_override
+            ),
+        )
 
         results = dict(
             det_bboxes=det_results["bbox_results"],

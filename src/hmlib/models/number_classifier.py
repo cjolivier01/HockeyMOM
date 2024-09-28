@@ -1,23 +1,22 @@
 import glob
 import os
-from typing import Any, List, Optional
-
-import torch
-import torch.nn.functional as F
+from typing import Any, Dict, List, Optional
 
 # import torch.jit
 import numpy as np
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmcv.runner import BaseModule, auto_fp16
 
-from hmlib.tracking_utils.utils import xyxy2xywh
-from hmlib.utils.image import make_channels_first
-from hmlib.utils.gpu import StreamTensor
 from hmlib.stitching.laplacian_blend import show_image
-
-# from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
+from hmlib.tracking_utils.utils import xyxy2xywh
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import make_channels_first
 
 from ..builder import NECKS
+
+# from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
 
 class SVHNClassifier(BaseModule):
@@ -221,6 +220,7 @@ def process_results(number_results):
         batch_digit5_logits,
     ) = number_results
 
+    number_results: Dict[int, int] = {}
     for i in range(len(batch_length_logits)):
         length_logits = batch_length_logits[i].unsqueeze(0)
         digit1_logits = batch_digit1_logits[i].unsqueeze(0)
@@ -280,8 +280,9 @@ def process_results(number_results):
             running *= 10
             running += all_digits[i]
         print(f"Final prediction: {running}")
-
-    print("End frame")
+        number_results[i] = running
+    if number_results:
+        print(f"Found {len(number_results)} good numbers")
 
 
 def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
@@ -302,8 +303,11 @@ def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
         x, y, width, height = bbox
 
         # Calculate new coordinates for the jersey number area
-        new_y = int(y + 0.35 * height)
-        new_height = int(0.55 * height)
+        # new_y = int(y + 0.35 * height)
+        # new_height = int(0.55 * height)
+        new_y = int(y + height)
+        new_height = int(height)
+
         new_width = width
 
         # Ensure the new box does not exceed image dimensions
@@ -317,6 +321,7 @@ def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
         resized = F.interpolate(
             cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
         )
+        # show_image("number?", resized, wait=False)
         crops.append(resized)
 
     # Concatenate all cropped images into a batch

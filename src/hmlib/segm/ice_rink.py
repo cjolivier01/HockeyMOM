@@ -285,8 +285,9 @@ def find_ice_rink_masks(
     if not was_list:
         image = [image]
 
+    if device.type == "cpu":
+        print("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
-
     results: List[
         Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
     ] = []
@@ -294,6 +295,10 @@ def find_ice_rink_masks(
         results.append(
             detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale)
         )
+
+    if device.type == "cpu":
+        print("Found the ice at the rink, continuing...")
+
     if not was_list:
         assert len(results) == 1
         return results[0]
@@ -407,6 +412,16 @@ def load_rink_combined_mask(
     return results
 
 
+def get_device_to_use_for_rink(
+    gpu_allocator: GpuAllocator, default_device: torch.device = torch.device("cpu")
+) -> torch.device:
+    if gpu_allocator is not None and not gpu_allocator.is_single_lowmem_gpu():
+        device_index = gpu_allocator.get_largest_mem_gpu()
+        if device_index >= 0:
+            return torch.device("cuda", device_index)
+    return default_device
+
+
 def confgure_ice_rink_mask(
     game_id: str,
     device: Optional[torch.device] = None,
@@ -427,14 +442,20 @@ def confgure_ice_rink_mask(
     if not image_file.exists():
         raise AttributeError(f"Could not find stitched frame image: {image_file}")
 
+    image_frame = _get_first_frame(image_file)
+
     rink_results = find_ice_rink_masks(
-        image=_get_first_frame(image_file),
+        image=image_frame,
         config_file=model_config_file,
         checkpoint=model_checkpoint,
         show=show,
         scale=None,
         device=device,
     )
+    if "combined_mask" in rink_results:
+        rink_mask = rink_results["combined_mask"]
+        assert image_width(rink_mask) == image_width(image_file)
+        assert image_height(rink_mask) == image_height(image_file)
     if rink_results:
         save_rink_profile_config(game_id=game_id, rink_profile=rink_results)
     return load_rink_combined_mask(game_id=game_id)

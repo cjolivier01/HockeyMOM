@@ -30,6 +30,7 @@ from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
+from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
 from hmlib.orientation import configure_game_videos
@@ -42,7 +43,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
 from hmlib.utils.mot_data import MOTTrackingData
-from hmlib.utils.pipeline import get_pipeline_item
+from hmlib.utils.pipeline import get_model_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video_stream import time_to_frame
 
@@ -537,61 +538,29 @@ def main(args, num_gpu):
                             model.post_detection_pipeline, "BoundaryLines"
                         )
                         if boundaries is not None:
-                            boundaries.update(
-                                {
-                                    "upper_border_lines": cam_args.top_border_lines,
-                                    "lower_border_lines": cam_args.bottom_border_lines,
-                                    "original_clip_box": get_clip_box(
+                            has_boundaries = update_pipeline_item(
+                                model.post_detection_pipeline,
+                                "BoundaryLines",
+                                dict(
+                                    upper_border_lines=cam_args.top_border_lines,
+                                    lower_border_lines=cam_args.bottom_border_lines,
+                                    original_clip_box=get_clip_box(
                                         game_id=args.game_id, root_dir=args.root_dir
                                     ),
-                                }
+                                ),
                             )
-                            has_boundaries = True
                     if not has_boundaries:
-                        segm_boundaries = get_pipeline_item(
-                            model.post_detection_pipeline, "IceRinkSegmBoundaries"
+                        has_boundaries = update_pipeline_item(
+                            model.post_detection_pipeline,
+                            "IceRinkSegmBoundaries",
+                            dict(
+                                game_id=args.game_id,
+                                original_clip_box=get_clip_box(
+                                    game_id=args.game_id, root_dir=args.root_dir
+                                ),
+                                draw=args.plot_tracking,
+                            ),
                         )
-                        if segm_boundaries is not None:
-                            # FIXME: This can't be done until the first stitched
-                            # image is created, along witht he obligatory s.png
-                            # rink_profile = confgure_ice_rink_mask(
-                            #     game_id=args.game_id,
-                            #     device=None if not is_single_lowmem_gpu else torch.device("cpu"),
-                            # )
-                            segm_boundaries.update(
-                                {
-                                    "game_id": args.game_id,
-                                    # "rink_mask": rink_profile["combined_mask"],
-                                    # "centroid": rink_profile["centroid"],
-                                    "original_clip_box": get_clip_box(
-                                        game_id=args.game_id, root_dir=args.root_dir
-                                    ),
-                                    "draw": args.plot_tracking,
-                                }
-                            )
-
-                        # segm_boundaries = get_pipeline_item(
-                        #     model.post_detection_pipeline, "SegmBoundaries"
-                        # )
-                        # if segm_boundaries is not None:
-                        #     # FIXME: This can't be done until the first stitched
-                        #     # image is created, along witht he obligatory s.png
-                        #     rink_profile = confgure_ice_rink_mask(
-                        #         game_id=args.game_id,
-                        #         device=None if not is_single_lowmem_gpu else torch.device("cpu"),
-                        #     )
-                        #     if rink_profile:
-                        #         segm_boundaries.update(
-                        #             {
-                        #                 "rink_mask": rink_profile["combined_mask"],
-                        #                 "centroid": rink_profile["centroid"],
-                        #                 "original_clip_box": get_clip_box(
-                        #                     game_id=args.game_id, root_dir=args.root_dir
-                        #                 ),
-                        #                 "draw": args.plot_tracking,
-                        #             }
-                        #         )
-
             if args.multi_pose:
                 from mmpose.apis import init_pose_model
                 from mmpose.datasets import DatasetInfo

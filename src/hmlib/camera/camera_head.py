@@ -9,6 +9,7 @@ from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.tracking_utils.log import logger
+from hmlib.utils.image import image_height, image_width
 
 
 def to_rgb_non_planar(image):
@@ -149,11 +150,9 @@ class CamTrackHead:
 
     def on_first_image(self, frame_id, letterbox_img, original_img, device):
         if self._hockey_mom is None:
-            if len(original_img.shape) == 4:
-                original_img = original_img[0]
             self._hockey_mom = HockeyMOM(
-                image_width=original_img.shape[1],
-                image_height=original_img.shape[0],
+                image_width=image_width(original_img),
+                image_height=image_height(original_img),
                 device=device,
                 camera_name=self._camera_name,
             )
