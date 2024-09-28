@@ -17,7 +17,7 @@ number_classifier = dict(
     enabled=True,
     init_cfg=dict(
         type="Pretrained",
-        checkpoint="pretrained/svnhc/model-65000.pth",
+        checkpoint="pretrained/svhnc/model-65000.pth",
     ),
 )
 

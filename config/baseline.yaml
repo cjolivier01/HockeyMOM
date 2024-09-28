@@ -151,4 +151,4 @@ model:
 
   svnh_classifier:
     config: null
-    checkpoint: pretrained/svnhc/model-65000.pth
+    checkpoint: pretrained/svhnc/model-65000.pth
