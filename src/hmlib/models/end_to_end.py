@@ -95,7 +95,8 @@ class HmEndToEnd(ByteTrack):
             rescale=rescale,
             **kwargs,
         )
-
+        assert len(track_bboxes) == len(track_ids)
+        print(f"track id {int(track_ids[0])} -> bbox = {[int(i) for i in track_bboxes[0]]}")
         track_results = outs2results(
             bboxes=track_bboxes,
             labels=track_labels,

@@ -1,8 +1,8 @@
 import glob
-import random
-import time
 import os
 import os.path as osp
+import random
+import time
 
 import cv2
 import numpy as np
@@ -74,17 +74,33 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 
-def xyxy2xywh(x: torch.Tensor | np.ndarray) -> torch.Tensor:
-    # Convert bounding box format from [x1, y1, x2, y2] to [x, y, w, h]
-    if isinstance(x, torch.Tensor):
-        y = torch.zeros_like(x)
+def xyxy2xywh(bboxes: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
+    """
+    Converts bounding boxes from [x1, y1, x2, y2] to [x, y, w, h] format.
+
+    Args:
+    - bboxes (torch.Tensor): A tensor of shape (N, 4) where N is the number of bounding boxes,
+      and each bounding box is in [x1, y1, x2, y2] format.
+
+    Returns:
+    - torch.Tensor: A tensor of shape (N, 4) where each bounding box is in [x, y, w, h] format.
+    """
+    # Extract coordinates
+    assert bboxes.ndim == 2  # must be a batch
+    assert bboxes.shape[1] == 4
+    x1, y1, x2, y2 = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+
+    # Compute the new format
+    x = x1
+    y = y1
+    w = x2 - x1
+    h = y2 - y1
+
+    # Stack the results back into a tensor
+    if isinstance(bboxes, torch.Tensor):
+        return torch.stack((x, y, w, h), dim=1)
     else:
-        y = np.zeros_like(x)
-    y[:, 0] = (x[:, 0] + x[:, 2]) / 2
-    y[:, 1] = (x[:, 1] + x[:, 3]) / 2
-    y[:, 2] = x[:, 2] - x[:, 0]
-    y[:, 3] = x[:, 3] - x[:, 1]
-    return y
+        return np.stack((x, y, w, h), axis=1)
 
 
 def xywh2xyxy(x):
@@ -93,6 +109,7 @@ def xywh2xyxy(x):
         y = torch.zeros_like(x)
     else:
         y = np.zeros_like(x)
+    assert False  # probably wrong
     y[:, 0] = (x[:, 0] - x[:, 2] / 2)
     y[:, 1] = (x[:, 1] - x[:, 3] / 2)
     y[:, 2] = (x[:, 0] + x[:, 2] / 2)

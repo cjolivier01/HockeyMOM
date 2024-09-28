@@ -194,11 +194,16 @@ class HmNumberClassifier(SVHNClassifier):
             return None
         bboxes = tracking_data[:, 1:5].astype(np.int)
         tlwhs = xyxy2xywh(bboxes)
-        # assert img.size(0) == 1
-        # img = make_channels_first(img).squeeze(0)
-        # if isinstance(img, StreamTensor):
-        #     img = img.get()
-        # subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
+        img = data["img"]
+        if isinstance(img, StreamTensor):
+            # img = img.get()
+            img = img.wait()
+            data["img"] = img
+        for image_item in make_channels_first(img):
+            assert image_item.ndim == 3
+            subimages = extract_and_resize_jerseys(
+                image=image_item, bboxes=tlwhs, out_width=64, out_height=64
+            )
         results = {}
         # results = super().forward(subimages)
         # process_results(results)
@@ -327,7 +332,8 @@ def extract_and_resize_jerseys(
         # cropped = image[:, new_y : new_y + new_height, x : x + new_width]
         cropped = image[:, y : y + height, x : x + width]
 
-        show_image("crop", cropped, wait=False)
+        # show_image("crop", cropped, wait=False)
+        show_image("crop", cropped, wait=True)
 
         # Resize the cropped image
         # resized = F.interpolate(
