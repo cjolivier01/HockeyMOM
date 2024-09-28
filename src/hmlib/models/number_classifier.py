@@ -190,7 +190,7 @@ class HmNumberClassifier(SVHNClassifier):
         if not self._enabled:
             return None
         img = data["img"]
-
+        tracking_data = data["category_bboxes"][self._category]
         results = super().forward(img)
         return results
 

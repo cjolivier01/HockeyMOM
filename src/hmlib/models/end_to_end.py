@@ -121,7 +121,7 @@ class HmEndToEnd(ByteTrack):
             jersey_results = self.neck(
                 dict(
                     img=img,
-                    class_bboxes=track_results,
+                    category_bboxes=track_results,
                 )
             )
         else:
