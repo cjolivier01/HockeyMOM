@@ -586,7 +586,7 @@ class VideoOutput:
                 data = self.forward(imgproc_data)
 
                 online_im = data["img"]
-                assert online_im.ndim == 4  # Shoul dhave a batch dimension
+                assert online_im.ndim == 4  # Should have a batch dimension
                 batch_size = online_im.size(0)
 
                 # Output (and maybe show) the final image
@@ -888,13 +888,17 @@ class VideoOutput:
         # Frame Number
         #
         if True or (self.has_args() and self._args.plot_frame_number):
-            online_im = draw_text(
-                image=online_im,
-                x=10,
-                y=10,
-                text=str(int(frame_id)),
-                color=(0, 0, 255),
+            online_im = vis.plot_frame_number(
+                online_im,
+                frame_id=frame_id,
             )
+            # online_im = draw_text(
+            #     image=online_im,
+            #     x=10,
+            #     y=10,
+            #     text=str(int(frame_id)),
+            #     color=(0, 0, 255),
+            # )
 
         online_im = _to_uint8(online_im, non_blocking=True)
 

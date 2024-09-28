@@ -175,6 +175,7 @@ def draw_text(
     font_size: int = 20,
     color: Tuple[int, int, int] = (255, 0, 0),
 ) -> torch.Tensor:
+    font_size = int(font_size * 5)
     global draw_text_SIZE_TO_FONT_PATHS
     font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
     if font_path is None:
@@ -183,11 +184,17 @@ def draw_text(
     char_images = create_text_images(
         font_path=font_path, font_size=font_size, font_color=color, device=image.device
     )
+    ndims = image.ndim
+    if ndims == 4:
+        assert image.shape[0] == 1
+        image = image.squeeze(0)
     for char in text:
         if char in char_images:
             letter_img = char_images[char]
-            image = alpha_blend(image.squeeze(0), letter_img, x, y).unsqueeze(0)
+            image = alpha_blend(image, letter_img, x, y)
             x += letter_img.shape[2]  # Move x to the right for the next character
+    if ndims == 4:
+        image = image.unsqueeze(0)
     return image
 
 
