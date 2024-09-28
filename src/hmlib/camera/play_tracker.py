@@ -358,7 +358,6 @@ class PlayTracker(torch.nn.Module):
                 online_im,
                 online_tlwhs,
                 online_ids,
-                player_number_map=self._tracking_id_jersey,
                 frame_id=frame_id,
                 speeds=[],
                 line_thickness=2,
@@ -372,6 +371,15 @@ class PlayTracker(torch.nn.Module):
                     thickness=1,
                     label=f"IGNORED",
                 )
+            
+        if self._args.plot_jersey_numbers:
+            online_im = vis.plot_jersey_numbers(
+                online_im,
+                online_tlwhs,
+                online_ids,
+                player_number_map=self._tracking_id_jersey,
+            )
+
 
         if self._args.plot_cluster_tracking:
             cluster_box_colors = {

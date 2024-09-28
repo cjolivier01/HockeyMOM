@@ -357,11 +357,38 @@ def plot_frame_number(image, frame_id):
     return image
 
 
+def plot_jersey_numbers(
+    image,
+    tlwhs,
+    obj_ids,
+    player_number_map,
+):
+    if not player_number_map:
+        return image
+    text_scale = max(4, image.shape[1] / 1000.0)
+    for i, tlwh in enumerate(tlwhs):
+        x1, y1, w, h = tlwh
+        obj_id = int(obj_ids[i])
+        if obj_id in player_number_map:
+            player_number, _ = player_number_map[obj_id]
+            xc = int(x1 + w // 5)
+            yc = int(y1 + h // 3)
+            image = my_put_text(
+                image,
+                str(player_number),
+                (xc, yc),
+                cv2.FONT_HERSHEY_PLAIN,
+                text_scale,
+                (200, 0, 0),
+                thickness=3,
+            )
+    return image
+
+
 def plot_tracking(
     image,
     tlwhs,
     obj_ids,
-    player_number_map: Dict[int, int],
     frame_id,
     scores=None,
     fps=0.0,
@@ -407,52 +434,28 @@ def plot_tracking(
         x1, y1, w, h = tlwh
         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
         obj_id = int(obj_ids[i])
-        player_number = None
-        if player_number_map and obj_id in player_number_map:
-            player_number, _ = player_number_map[obj_id]
         color = box_color if box_color is not None else get_color(abs(obj_id))
 
-        if not player_number_map:
-            im = plot_rectangle(
-                im,
-                box=intbox,
-                color=normalize_color(im, color),
-                thickness=line_thickness,
-            )
+        im = plot_rectangle(
+            im,
+            box=intbox,
+            color=normalize_color(im, color),
+            thickness=line_thickness,
+        )
 
-        # cv2.rectangle(
-        #     im,
-        #     intbox[0:2],
-        #     intbox[2:4],
-        #     color=normalize_color(im, color),
-        #     thickness=line_thickness,
-        # )
         if print_track_id:
-            if not player_number_map:
-                id_text = "{}".format(int(obj_id))
-                if ids2 is not None:
-                    id_text = id_text + ", {}".format(int(ids2[i]))
-                im = my_put_text(
-                    im,
-                    id_text,
-                    (intbox[0], intbox[1] + text_offset),
-                    cv2.FONT_HERSHEY_PLAIN,
-                    text_scale,
-                    (0, 0, 255),
-                    thickness=text_thickness,
-                )
-            if player_number is not None:
-                xc = int(x1 + w // 5)
-                yc = int(y1 + h // 3)
-                im = my_put_text(
-                    im,
-                    str(player_number),
-                    (xc, yc),
-                    cv2.FONT_HERSHEY_PLAIN,
-                    text_scale,
-                    (200, 0, 0),
-                    thickness=text_thickness * 3,
-                )
+            id_text = "{}".format(int(obj_id))
+            if ids2 is not None:
+                id_text = id_text + ", {}".format(int(ids2[i]))
+            im = my_put_text(
+                im,
+                id_text,
+                (intbox[0], intbox[1] + text_offset),
+                cv2.FONT_HERSHEY_PLAIN,
+                text_scale,
+                (0, 0, 255),
+                thickness=text_thickness,
+            )
         if speeds:
             speed = speeds[i]
             if not np.isnan(speed):

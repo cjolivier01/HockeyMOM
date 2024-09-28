@@ -104,7 +104,8 @@ def create_text_images(
 
 
 # "DejaVuSerif.ttf"
-def find_font_path(font_name: str = "FreeSerif.ttf"):
+# "FreeSerif.ttf"
+def find_font_path(font_name: str = "Ubuntu Sans:style=Thin"):
     # Command to find the font file
     command = ["fc-list", ": family file", "|", "grep", "-i", font_name]
     result = subprocess.run(command, stdout=subprocess.PIPE, text=True, shell=True)

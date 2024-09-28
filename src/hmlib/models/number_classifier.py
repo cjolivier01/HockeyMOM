@@ -251,7 +251,8 @@ class HmNumberClassifier(SVHNClassifier):
 def process_results(
     number_results: np.ndarray,
     tracking_ids: np.ndarray,
-    min_score=15,
+    # min_score=15,
+    min_score=25,
     largest_number=99,
     subimages: Optional[torch.Tensor] = None,
 ) -> Dict[int, int]:
@@ -291,7 +292,7 @@ def process_results(
             ],
             dim=0,
         )
-        scores = scores[: int(length_prediction + 1)]
+        # scores = scores[: int(length_prediction + 1)]
         this_min_score = torch.min(scores)
 
         # bad = False
@@ -303,8 +304,8 @@ def process_results(
         if this_min_score < min_score:
             continue
 
-        # this_score = this_min_score
-        this_score = torch.mean(scores[1:])
+        this_score = this_min_score
+        # this_score = torch.mean(scores[1:])
 
         # print("length:", length_prediction.item(), "value:", length_value.item())
         # print(
