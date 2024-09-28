@@ -365,14 +365,14 @@ def plot_jersey_numbers(
 ):
     if not player_number_map:
         return image
-    text_scale = max(4, image.shape[1] / 1000.0)
+    text_scale = max(2, image.shape[1] / 2500.0)
     for i, tlwh in enumerate(tlwhs):
         x1, y1, w, h = tlwh
         obj_id = int(obj_ids[i])
         if obj_id in player_number_map:
             player_number, _ = player_number_map[obj_id]
-            xc = int(x1 + w // 5)
-            yc = int(y1 + h // 3)
+            xc = int(x1 + w // 2)
+            yc = y1
             image = my_put_text(
                 image,
                 str(player_number),
