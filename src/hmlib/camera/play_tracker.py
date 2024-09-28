@@ -277,6 +277,8 @@ class PlayTracker(torch.nn.Module):
                         f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
                     )
                     self._tracking_id_jersey[tracking_id] = number
+        if self._tracking_id_jersey:
+            print(self._tracking_id_jersey)
 
     def forward(self, online_targets_and_img):
         self._timer.tic()
