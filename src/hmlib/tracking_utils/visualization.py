@@ -382,15 +382,16 @@ def plot_tracking(
         obj_id = int(obj_ids[i])
         player_number = None
         if player_number_map and obj_id in player_number_map:
-            player_number = player_number_map[obj_id]
+            player_number, _ = player_number_map[obj_id]
         color = box_color if box_color is not None else get_color(abs(obj_id))
 
-        im = plot_rectangle(
-            im,
-            box=intbox,
-            color=normalize_color(im, color),
-            thickness=line_thickness,
-        )
+        if not player_number_map:
+            im = plot_rectangle(
+                im,
+                box=intbox,
+                color=normalize_color(im, color),
+                thickness=line_thickness,
+            )
 
         # cv2.rectangle(
         #     im,
@@ -400,22 +401,24 @@ def plot_tracking(
         #     thickness=line_thickness,
         # )
         if print_track_id:
-            id_text = "{}".format(int(obj_id))
-            if ids2 is not None:
-                id_text = id_text + ", {}".format(int(ids2[i]))
-            im = to_cv2(im)
-            cv2.putText(
-                im,
-                id_text,
-                (intbox[0], intbox[1] + text_offset),
-                cv2.FONT_HERSHEY_PLAIN,
-                text_scale,
-                (0, 0, 255),
-                thickness=text_thickness,
-            )
+            if not player_number_map:
+                id_text = "{}".format(int(obj_id))
+                if ids2 is not None:
+                    id_text = id_text + ", {}".format(int(ids2[i]))
+                im = to_cv2(im)
+                cv2.putText(
+                    im,
+                    id_text,
+                    (intbox[0], intbox[1] + text_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    text_scale,
+                    (0, 0, 255),
+                    thickness=text_thickness,
+                )
             if player_number is not None:
                 xc = int(x1 + w // 5)
                 yc = int(y1 + h // 3)
+                im = to_cv2(im)
                 cv2.putText(
                     im,
                     str(player_number),

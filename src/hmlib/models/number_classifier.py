@@ -224,7 +224,7 @@ class HmNumberClassifier(SVHNClassifier):
                 subimages = make_channels_first(subimages)
                 subimages = normalize(subimages, mean=self._mean, std=self._std)
                 results = super().forward(subimages)
-                indexed_jersey_results = process_results(results)
+                indexed_jersey_results = process_results(results, tracking_ids, subimages=subimages)
                 if indexed_jersey_results:
                     for index, num_and_score in indexed_jersey_results.items():
                         num = num_and_score[0]
@@ -233,9 +233,9 @@ class HmNumberClassifier(SVHNClassifier):
                         score = num_and_score[1]
                         tid = int(tracking_ids[index])
                         jersey_results[tid] = num_and_score
-                        print(
-                            f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
-                        )
+                        # print(
+                        #     f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
+                        # )
                         # show_image("SUBIMAGE", subimages[index], wait=True)
                     pass
         # batch_numbers.append(jersey_results)
@@ -248,7 +248,13 @@ class HmNumberClassifier(SVHNClassifier):
         return data
 
 
-def process_results(number_results: np.ndarray, min_score=15, largest_number=99) -> Dict[int, int]:
+def process_results(
+    number_results: np.ndarray,
+    tracking_ids: np.ndarray,
+    min_score=15,
+    largest_number=99,
+    subimages: Optional[torch.Tensor] = None,
+) -> Dict[int, int]:
     (
         batch_length_logits,
         batch_digit1_logits,
@@ -260,6 +266,11 @@ def process_results(number_results: np.ndarray, min_score=15, largest_number=99)
 
     jersey_results: Dict[int, int] = {}
     for batch_index in range(len(batch_length_logits)):
+        # tid = int(tracking_ids[batch_index])
+        # if tid == 1:
+        #     if subimages is not None:
+        #         show_image("img", subimages[batch_index], wait=True)
+
         length_logits = batch_length_logits[batch_index].unsqueeze(0)
         digit1_logits = batch_digit1_logits[batch_index].unsqueeze(0)
         digit2_logits = batch_digit2_logits[batch_index].unsqueeze(0)
@@ -325,10 +336,11 @@ def process_results(number_results: np.ndarray, min_score=15, largest_number=99)
             running *= 10
             running += all_digits[i]
         if running <= largest_number:
-            print(f"Final prediction: {running}")
+            # print(f"Final prediction: {running}")
             jersey_results[batch_index] = (running, float(this_min_score))
         else:
-            print(f"Bad number: {running}")
+            # print(f"Bad number: {running}")
+            pass
     # if jersey_results:
     #     print(f"Found {len(jersey_results)} good numbers")
     return jersey_results
@@ -341,6 +353,7 @@ def extract_and_resize_jerseys(
     out_height,
     down_from_box_top_ratio: float = 0.2,
     number_height_from_box_size_ratio: float = 0.25,
+    # number_height_from_box_size_ratio: float = 0.2,
 ):
     """
     Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
@@ -366,9 +379,11 @@ def extract_and_resize_jerseys(
         # new_y = y
         # new_height = int(height)
 
-        # new_width = width * 0.5
-        new_width = min(width, new_height)
-        new_x = int(x + new_width / 2)
+        new_width = width
+        # new_width = int(width * 0.5)
+        # new_width = min(width, new_height)
+        # new_x = int(x + new_width / 2)
+        new_x = int(x + (width - new_width) / 2)
 
         # Ensure the new box does not exceed image dimensions
         new_y = max(new_y, 0)
