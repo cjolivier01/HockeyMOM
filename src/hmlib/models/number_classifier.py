@@ -1,6 +1,6 @@
 import glob
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import cv2
 
@@ -26,6 +26,9 @@ from ..builder import NECKS
 
 # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
+
+TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
+SHARES_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
 
 class SVHNClassifier(BaseModule):
     CHECKPOINT_FILENAME_PATTERN = "model-{}.pth"
@@ -181,7 +184,7 @@ class HmNumberClassifier(SVHNClassifier):
     def __init__(
         self,
         *args,
-        roster: Dict[int, str] = None,
+        roster: Set[int] = set([*TV_10_1_ROSTER, *SHARES_12_1_ROSTER]),
         init_cfg: Optional[dict] = None,
         category: int = 0,
         enabled: bool = True,

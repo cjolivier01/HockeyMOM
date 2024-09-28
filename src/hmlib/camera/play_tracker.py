@@ -268,10 +268,11 @@ class PlayTracker(torch.nn.Module):
         if not jersey_results:
             return
         for tracking_id, (number, score) in jersey_results.items():
-            prev_number, prev_score = self._tracking_id_jersey.get(tracking_id)
-            if prev_number is None:
+            jersey_info = self._tracking_id_jersey.get(tracking_id)
+            if jersey_info is None:
                 self._tracking_id_jersey[tracking_id] = number
             else:
+                prev_number, prev_score = jersey_info
                 if number != prev_number and score > prev_score:
                     print(
                         f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
