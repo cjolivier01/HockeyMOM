@@ -175,7 +175,7 @@ def draw_text(
     font_size: int = 20,
     color: Tuple[int, int, int] = (255, 0, 0),
 ) -> torch.Tensor:
-    font_size = int(font_size * 5)
+    font_size = int(font_size * 25)
     global draw_text_SIZE_TO_FONT_PATHS
     font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
     if font_path is None:
