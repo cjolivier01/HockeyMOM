@@ -44,6 +44,7 @@ from hmlib.utils.image import (
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
+from hmlib.utils.pt_visualization import draw_text
 
 from .video_stream import VideoStreamWriterInterface, create_output_video_stream
 
@@ -883,24 +884,43 @@ class VideoOutput:
                 y=y,
             )
 
+        #
+        # Frame Number
+        #
+        if True or (self.has_args() and self._args.plot_frame_number):
+            online_im = draw_text(
+                image=online_im,
+                x=10,
+                y=10,
+                text=str(int(frame_id)),
+                color=(0, 0, 255),
+            )
+
         online_im = _to_uint8(online_im, non_blocking=True)
 
         if self._image_color_scaler is not None:
             online_im = self._image_color_scaler.maybe_scale_image_colors(image=online_im)
 
-        #
-        # Frame Number
-        #
-        if self.has_args() and self._args.plot_frame_number:
-            prev_device = None
-            if isinstance(online_im, torch.Tensor):
-                prev_device = online_im.device
-            online_im = vis.plot_frame_number(
-                online_im,
-                frame_id=frame_id,
-            )
-            if prev_device is not None and online_im.device != prev_device:
-                online_im = online_im.to(prev_device, non_blocking=True)
+        # #
+        # # Frame Number
+        # #
+        # if True or (self.has_args() and self._args.plot_frame_number):
+        #     prev_device = None
+        #     if isinstance(online_im, torch.Tensor):
+        #         prev_device = online_im.device
+        #     online_im = draw_text(
+        #         image=online_im,
+        #         x=10,
+        #         y=10,
+        #         text=str(int(frame_id)),
+        #         color=(0, 0, 255),
+        #     )
+        #     # online_im = vis.plot_frame_number(
+        #     #     online_im,
+        #     #     frame_id=frame_id,
+        #     # )
+        #     if prev_device is not None and online_im.device != prev_device:
+        #         online_im = online_im.to(prev_device, non_blocking=True)
         return online_im
 
 

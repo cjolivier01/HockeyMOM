@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
+from hmlib.stitching.laplacian_blend import show_image
 from hmlib.utils.box_functions import height, width
 
 from .image import (
@@ -24,8 +25,64 @@ from .image import (
 CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}
 
 
+def rgb_to_rgba(image_tensor):
+    """
+    Converts an RGB image tensor to RGBA where the alpha channel is 0 if the pixel is white (255, 255, 255)
+    and 255 for all other pixels.
+
+    Args:
+        image_tensor (np.ndarray): A NumPy array of shape (height, width, 3) representing an RGB image.
+
+    Returns:
+        np.ndarray: A NumPy array of shape (height, width, 4) representing an RGBA image.
+    """
+    if len(image_tensor.shape) != 3 or image_tensor.shape[2] != 3:
+        raise ValueError(
+            "Input image tensor must have shape (height, width, 3) representing an RGB image."
+        )
+
+    # Get the image dimensions
+    height, width, _ = image_tensor.shape
+
+    # Create an RGBA image (initialize the alpha channel to 255)
+    rgba_image = np.zeros((height, width, 4), dtype=np.uint8)
+
+    # Copy the RGB values into the RGBA image
+    rgba_image[:, :, :3] = image_tensor
+
+    # Set the alpha channel: 0 for white (255, 255, 255), 255 otherwise
+    is_white = np.all(image_tensor == [255, 255, 255], axis=-1)
+    rgba_image[:, :, 3] = np.where(is_white, 0, 255)
+
+    return rgba_image
+
+
+def print_rgba_planes(image_tensor):
+    """
+    Prints the values of each plane (R, G, B, A) of an RGBA image tensor, pixel by pixel.
+    The values will be printed in the shape of the image, lined up in columns and rows.
+
+    Args:
+        image_tensor (np.ndarray): A NumPy array of shape (height, width, 4) representing an RGBA image.
+    """
+    if len(image_tensor.shape) != 3 or image_tensor.shape[2] != 4:
+        raise ValueError(
+            "Input image tensor must have shape (height, width, 4) representing an RGBA image."
+        )
+
+    height, width, _ = image_tensor.shape
+
+    planes = ["R", "G", "B", "A"]
+
+    for plane_idx, plane_name in enumerate(planes):
+        print(f"\n{plane_name} Plane:")
+        for row in range(height):
+            row_values = [f"{int(image_tensor[row, col, plane_idx]):3}" for col in range(width)]
+            print(" ".join(row_values))
+
+
 def create_text_images(
-    font_path: str, font_size: int, font_color: Tuple[int, int, int]
+    font_path: str, font_size: int, font_color: Tuple[int, int, int], device=torch.device
 ) -> Dict[str, torch.Tensor]:
     global CHARACTERS
 
@@ -47,14 +104,26 @@ def create_text_images(
     # Create an image for each character
     for char in characters:
         # Create an image with transparent background
+        # image = Image.new("RGBA", (font.getsize(char)[0] + 10, font_size + 10), (255, 255, 255, 0))
         image = Image.new("RGBA", (font.getsize(char)[0] + 10, font_size + 10), (255, 255, 255, 0))
         draw = ImageDraw.Draw(image)
 
         # Draw the text
         draw.text((5, 5), char, font=font, fill=font_color)
 
+        numpy_image = np.array(image)
+        # numpy_image = rgb_to_rgba(numpy_image)
+
+        # get rid of aliasing and make a solid color
+        alpha_channel = numpy_image[:, :, 3]
+        numpy_image[alpha_channel != 0] = [font_color[0], font_color[1], font_color[2], 255]
+
+        # print_rgba_planes(numpy_image)
+
         # Convert the PIL image to a PyTorch tensor
-        tensor = torch.from_numpy(np.array(image)).permute(2, 0, 1)  # Normalize the tensor
+        tensor = (
+            torch.from_numpy(numpy_image).permute(2, 0, 1).to(device).to(torch.float)
+        )  # Normalize the tensor
         char_tensors[char] = tensor
 
     CHARACTERS[key] = char_tensors
@@ -79,6 +148,7 @@ def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, 
     end_y = start_y + letter_img.shape[1]
     end_x = start_x + letter_img.shape[2]
 
+    base_img = make_channels_first(base_img)
     # Extract this region from the base image
     region = base_img[:, start_y:end_y, start_x:end_x]
 
@@ -88,11 +158,7 @@ def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, 
 
     # Foreground and background blending
     blended_region = letter_img[0:3] * alpha + region[0:3] * inv_alpha
-
-    # Update the base image region
-    base_img[:, start_y:end_y, start_x:end_x] = torch.cat(
-        (blended_region, region[3:4]), dim=0
-    )  # Maintain base image alpha
+    base_img[:, start_y:end_y, start_x:end_x] = blended_region
 
     return base_img
 
@@ -114,11 +180,13 @@ def draw_text(
     if font_path is None:
         font_path = find_font_path()
         draw_text_SIZE_TO_FONT_PATHS[font_size] = font_path
-    char_images = create_text_images(font_path=font_path, font_size=font_size, font_color=color)
+    char_images = create_text_images(
+        font_path=font_path, font_size=font_size, font_color=color, device=image.device
+    )
     for char in text:
         if char in char_images:
             letter_img = char_images[char]
-            image = alpha_blend(image, letter_img, x, y)
+            image = alpha_blend(image.squeeze(0), letter_img, x, y).unsqueeze(0)
             x += letter_img.shape[2]  # Move x to the right for the next character
     return image
 
