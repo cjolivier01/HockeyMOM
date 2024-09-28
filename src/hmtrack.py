@@ -610,7 +610,7 @@ def main(args, num_gpu):
         if args.input_video:
             input_video_files = args.input_video.split(",")
             if is_stitching(args.input_video):
-                project_file_name = "autooptimiser_out.pto"
+                project_file_name = "hm_project.pto"
 
                 game_videos = {}
 
