@@ -149,6 +149,6 @@ model:
     config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py
     checkpoint: pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth
 
-  svhn_classifier:
+  svnh_classifier:
     config: null
-    checkpoint: pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth
+    checkpoint: pretrained/svnhc/model-65000.pth
