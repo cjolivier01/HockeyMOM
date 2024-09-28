@@ -414,16 +414,15 @@ def plot_tracking(
                 thickness=text_thickness,
             )
             if player_number is not None:
-                xc = int(x1 + w // 4)
-                yc = int(y1 + h // 5)
+                xc = int(x1 + w // 5)
+                yc = int(y1 + h // 3)
                 cv2.putText(
                     im,
                     str(player_number),
                     (xc, yc),
-                    # (intbox[0], intbox[1] + text_offset),
                     cv2.FONT_HERSHEY_PLAIN,
                     text_scale,
-                    (255, 0, 255),
+                    (200, 0, 0),
                     thickness=text_thickness * 3,
                 )
         if speeds:

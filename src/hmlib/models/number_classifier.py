@@ -2,17 +2,25 @@ import glob
 import os
 from typing import Any, Dict, List, Optional
 
+import cv2
+
 # import torch.jit
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.runner import BaseModule, auto_fp16
+from torchvision.transforms.functional import normalize
 
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import image_height, image_width, make_channels_first
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 
 from ..builder import NECKS
 
@@ -181,21 +189,23 @@ class HmNumberClassifier(SVHNClassifier):
         super().__init__(*args, init_cfg=init_cfg, **kwargs)
         self._category = category
         self._enabled = enabled
+        self._mean = [0.5, 0.5, 0.5]
+        self._std = [0.5, 0.5, 0.5]
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
         if not self._enabled:
-            return None
+            return data
         tracking_data = data["category_bboxes"][self._category]
         if not tracking_data.shape[0]:
-            return None
+            return data
         bboxes = tracking_data[:, 1:5].astype(np.int)
         tracking_ids = tracking_data[:, 0].astype(np.int64)
         tlwhs = xyxy2xywh(bboxes)
         img = data["img"]
         if isinstance(img, StreamTensor):
-            # img = img.get()
-            img = img.wait()
+            img = img.get()
+            # img = img.wait()
             data["img"] = img
         assert len(img) == 1
         batch_numbers: List[torch.Tensor] = []
@@ -203,12 +213,21 @@ class HmNumberClassifier(SVHNClassifier):
         for image_item in make_channels_first(img):
             assert image_item.ndim == 3
             subimages = extract_and_resize_jerseys(
-                image=image_item, bboxes=tlwhs, out_width=64, out_height=64
+                image=image_item, bboxes=tlwhs, out_width=54, out_height=54
             )
             if subimages is not None:
+                subimages = make_channels_first(subimages)
+                subimages = normalize(subimages, mean=self._mean, std=self._std)
                 results = super().forward(subimages)
-                jersey_results = process_results(results, ids=tracking_ids)
-                if jersey_results:
+                indexed_jersey_results = process_results(results)
+                if indexed_jersey_results:
+                    for index, num_and_score in indexed_jersey_results.items():
+                        tid = int(tracking_ids[index])
+                        jersey_results[tid] = num_and_score
+                        print(
+                            f"READ NUMBER: {num_and_score[0]}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {num_and_score[1]}"
+                        )
+                        # show_image("SUBIMAGE", subimages[index], wait=True)
                     pass
         # batch_numbers.append(jersey_results)
         data["jersey_results"] = jersey_results
@@ -220,7 +239,7 @@ class HmNumberClassifier(SVHNClassifier):
         return data
 
 
-def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, int]:
+def process_results(number_results: np.ndarray, min_score=15, largest_number=99) -> Dict[int, int]:
     (
         batch_length_logits,
         batch_digit1_logits,
@@ -231,13 +250,13 @@ def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, in
     ) = number_results
 
     jersey_results: Dict[int, int] = {}
-    for i in range(len(batch_length_logits)):
-        length_logits = batch_length_logits[i].unsqueeze(0)
-        digit1_logits = batch_digit1_logits[i].unsqueeze(0)
-        digit2_logits = batch_digit2_logits[i].unsqueeze(0)
-        digit3_logits = batch_digit3_logits[i].unsqueeze(0)
-        digit4_logits = batch_digit4_logits[i].unsqueeze(0)
-        digit5_logits = batch_digit5_logits[i].unsqueeze(0)
+    for batch_index in range(len(batch_length_logits)):
+        length_logits = batch_length_logits[batch_index].unsqueeze(0)
+        digit1_logits = batch_digit1_logits[batch_index].unsqueeze(0)
+        digit2_logits = batch_digit2_logits[batch_index].unsqueeze(0)
+        digit3_logits = batch_digit3_logits[batch_index].unsqueeze(0)
+        digit4_logits = batch_digit4_logits[batch_index].unsqueeze(0)
+        digit5_logits = batch_digit5_logits[batch_index].unsqueeze(0)
 
         length_value, length_prediction = length_logits.max(1)
         digit1_value, digit1_prediction = digit1_logits.max(1)
@@ -246,19 +265,26 @@ def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, in
         digit4_value, digit4_prediction = digit4_logits.max(1)
         digit5_value, digit5_prediction = digit5_logits.max(1)
 
-        scores = [
-            length_value,
-            digit1_value,
-            digit2_value,
-            digit3_value,
-            digit4_value,
-            digit5_value,
-        ]
-        bad = False
-        for i in range(length_prediction + 1):
-            if scores[i] < 10:
-                bad = True
-        if bad:
+        scores = torch.cat(
+            [
+                length_value,
+                digit1_value,
+                digit2_value,
+                digit3_value,
+                digit4_value,
+                digit5_value,
+            ],
+            dim=0,
+        )
+        scores = scores[: int(length_prediction + 1)]
+        this_min_score = torch.min(scores)
+        # bad = False
+        # for x in range(length_prediction + 1):
+        #     if scores[x] < min_score:
+        #         bad = True
+        # if bad:
+        #     continue
+        if this_min_score < min_score:
             continue
 
         # print("length:", length_prediction.item(), "value:", length_value.item())
@@ -289,8 +315,11 @@ def process_results(number_results: np.ndarray, ids: np.ndarray) -> Dict[int, in
         for i in range(length_prediction.item()):
             running *= 10
             running += all_digits[i]
-        # print(f"Final prediction: {running}")
-        jersey_results[ids[i]] = running
+        if running <= largest_number:
+            print(f"Final prediction: {running}")
+            jersey_results[batch_index] = (running, float(this_min_score))
+        else:
+            print(f"Bad number: {running}")
     # if jersey_results:
     #     print(f"Found {len(jersey_results)} good numbers")
     return jersey_results
@@ -346,14 +375,13 @@ def extract_and_resize_jerseys(
         # Resize the cropped image
         resized = F.interpolate(
             cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
-        )
+        ).squeeze(0)
         # show_image("number?", resized, wait=True)
+        # outimg = make_channels_last(resized).cpu().numpy()
+        # did = cv2.imwrite("test-19.png", outimg)
         crops.append(resized)
-    if not crops:
-        return None
 
-    # Concatenate all cropped images into a batch
-    batch_crops = torch.cat(crops, dim=0)
+    batch_crops = torch.stack(crops, dim=0)
 
     return batch_crops
 
