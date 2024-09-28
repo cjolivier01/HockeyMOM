@@ -35,16 +35,9 @@ class HmEndToEnd(ByteTrack):
 
     @auto_fp16(apply_to=("img",))
     def forward(self, img, return_loss=True, **kwargs):
-        if (
-            self.post_detection_pipeline
-            and self.post_detection_composed_pipeline is None
-        ):
-            self.post_detection_composed_pipeline = Compose(
-                self.post_detection_pipeline
-            )
-        results = super(HmEndToEnd, self).forward(
-            img, return_loss=return_loss, **kwargs
-        )
+        if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
+            self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
+        results = super(HmEndToEnd, self).forward(img, return_loss=return_loss, **kwargs)
         # if self.post_detection_composed_pipeline is not None:
         #     results = self.post_detection_composed_pipeline(results)
         return results
@@ -107,9 +100,7 @@ class HmEndToEnd(ByteTrack):
             ids=track_ids,
             num_classes=num_classes,
         )
-        det_results = outs2results(
-            bboxes=det_bboxes, labels=det_labels, num_classes=num_classes
-        )
+        det_results = outs2results(bboxes=det_bboxes, labels=det_labels, num_classes=num_classes)
 
         results = dict(
             det_bboxes=det_results["bbox_results"],
@@ -121,7 +112,7 @@ class HmEndToEnd(ByteTrack):
             jersey_results = self.neck(
                 dict(
                     img=img,
-                    category_bboxes=track_results,
+                    category_bboxes=track_results["bbox_results"],
                 )
             )
         else:
