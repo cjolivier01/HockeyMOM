@@ -175,34 +175,34 @@ def configure_control_points(
     print("Done with control points")
 
 
-def configure_pano_size(project_file_path: str, pano_width: int):
-    if not os.path.exists(project_file_path):
-        return
-    pto_file = load_pto_file(project_file_path)
-    # find line that starts with "p "
-    index = None
-    for i, line in enumerate(pto_file):
-        if line.startswith("p "):
-            index = i
-            break
-    if index is None:
-        print("Could not find output pano properties line in pto file")
-        return
-    params = extract_prefix_map(pto_file[index])
-    print(params)
-    if int(params["w"]) == pano_width:
-        return
-    ar = float(params["w"]) / float(params["h"])
-    w = pano_width
-    h = int(w / ar)
-    params["w"] = str(int(w))
-    params["h"] = str(h)
-    # params["v"] = "180"
-    params["v"] = "108"
-    output_line = ""
-    for k, v in params.items():
-        if output_line:
-            output_line += " "
-        output_line += k + v
-    pto_file[index] = output_line
-    save_pto_file(file_path=project_file_path, data=pto_file)
+# def configure_pano_size(project_file_path: str, pano_width: int):
+#     if not os.path.exists(project_file_path):
+#         return
+#     pto_file = load_pto_file(project_file_path)
+#     # find line that starts with "p "
+#     index = None
+#     for i, line in enumerate(pto_file):
+#         if line.startswith("p "):
+#             index = i
+#             break
+#     if index is None:
+#         print("Could not find output pano properties line in pto file")
+#         return
+#     params = extract_prefix_map(pto_file[index])
+#     print(params)
+#     if int(params["w"]) == pano_width:
+#         return
+#     ar = float(params["w"]) / float(params["h"])
+#     w = pano_width
+#     h = int(w / ar)
+#     params["w"] = str(int(w))
+#     params["h"] = str(h)
+#     # params["v"] = "180"
+#     params["v"] = "108"
+#     output_line = ""
+#     for k, v in params.items():
+#         if output_line:
+#             output_line += " "
+#         output_line += k + v
+#     pto_file[index] = output_line
+#     save_pto_file(file_path=project_file_path, data=pto_file)
