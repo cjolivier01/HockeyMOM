@@ -3,18 +3,16 @@ import os
 from typing import Any, List, Optional
 
 import torch
-import torch.jit
+import torch.nn.functional as F
+
+# import torch.jit
 import numpy as np
 import torch.nn as nn
 from mmcv.runner import BaseModule, auto_fp16
 
-# from mmdet.datasets import PIPELINES
-from mmdet.datasets.pipelines import Compose
-from mmtrack.core import outs2results, results2outs
-
-# from mmcv.utils import TORCH_VERSION, Registry, build_from_cfg, digit_version
 from hmlib.tracking_utils.utils import xyxy2xywh
-from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.utils.image import make_channels_first
+from hmlib.utils.gpu import StreamTensor
 
 # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
@@ -199,6 +197,8 @@ class HmNumberClassifier(SVHNClassifier):
         tlwhs = xyxy2xywh(bboxes)
         assert img.size(0) == 1
         img = make_channels_first(img.squeeze(0))
+        if isinstance(img, StreamTensor):
+            img = img.get()
         subimages = extract_and_resize_jerseys(image=img, bboxes=tlwhs, out_width=64, out_height=64)
         results = super().forward(subimages)
         process_results(results)
@@ -209,56 +209,63 @@ class HmNumberClassifier(SVHNClassifier):
         return data
 
 
-import torch
-import torch.nn.functional as F
-
-
 def process_results(number_results):
+
     (
-        length_logits,
-        digit1_logits,
-        digit2_logits,
-        digit3_logits,
-        digit4_logits,
-        digit5_logits,
+        batch_length_logits,
+        batch_digit1_logits,
+        batch_digit2_logits,
+        batch_digit3_logits,
+        batch_digit4_logits,
+        batch_digit5_logits,
     ) = number_results
 
-    length_value, length_prediction = length_logits.max(1)
-    digit1_value, digit1_prediction = digit1_logits.max(1)
-    digit2_value, digit2_prediction = digit2_logits.max(1)
-    digit3_value, digit3_prediction = digit3_logits.max(1)
-    digit4_value, digit4_prediction = digit4_logits.max(1)
-    digit5_value, digit5_prediction = digit5_logits.max(1)
+    for i in range(len(batch_length_logits)):
+        length_logits = batch_length_logits[i]
+        digit1_logits = batch_digit1_logits[i]
+        digit2_logits = batch_digit2_logits[i]
+        digit3_logits = batch_digit3_logits[i]
+        digit4_logits = batch_digit4_logits[i]
+        digit5_logits = batch_digit5_logits[i]
 
-    print("length:", length_prediction.item(), "value:", length_value.item())
-    print(
-        "digits:",
-        digit1_prediction.item(),
-        digit2_prediction.item(),
-        digit3_prediction.item(),
-        digit4_prediction.item(),
-        digit5_prediction.item(),
-    )
-    print(
-        "values:",
-        digit1_value.item(),
-        digit2_value.item(),
-        digit3_value.item(),
-        digit4_value.item(),
-        digit5_value.item(),
-    )
-    all_digits = [
-        digit1_prediction.item(),
-        digit2_prediction.item(),
-        digit3_prediction.item(),
-        digit4_prediction.item(),
-        digit5_prediction.item(),
-    ]
-    running = 0
-    for i in range(length_prediction.item()):
-        running *= 10
-        running += all_digits[i]
-    print(f"Final prediction: {running}")
+        length_value, length_prediction = length_logits.max(1)
+        digit1_value, digit1_prediction = digit1_logits.max(1)
+        digit2_value, digit2_prediction = digit2_logits.max(1)
+        digit3_value, digit3_prediction = digit3_logits.max(1)
+        digit4_value, digit4_prediction = digit4_logits.max(1)
+        digit5_value, digit5_prediction = digit5_logits.max(1)
+
+        print("length:", length_prediction.item(), "value:", length_value.item())
+        print(
+            "digits:",
+            digit1_prediction.item(),
+            digit2_prediction.item(),
+            digit3_prediction.item(),
+            digit4_prediction.item(),
+            digit5_prediction.item(),
+        )
+        print(
+            "values:",
+            digit1_value.item(),
+            digit2_value.item(),
+            digit3_value.item(),
+            digit4_value.item(),
+            digit5_value.item(),
+        )
+        all_digits = [
+            digit1_prediction.item(),
+            digit2_prediction.item(),
+            digit3_prediction.item(),
+            digit4_prediction.item(),
+            digit5_prediction.item(),
+        ]
+        running = 0
+        for i in range(length_prediction.item()):
+            running *= 10
+            running += all_digits[i]
+        print(f"Final prediction: {running}")
+
+    print("End frame")
 
 
 def extract_and_resize_jerseys(image, bboxes, out_width, out_height):
