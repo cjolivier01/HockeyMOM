@@ -210,8 +210,8 @@ class HmNumberClassifier(SVHNClassifier):
                 jersey_results = process_results(results, ids=tracking_ids)
                 if jersey_results:
                     pass
-        batch_numbers.append(jersey_results)
-        data["batch_numbers"] = batch_numbers
+        # batch_numbers.append(jersey_results)
+        data["jersey_results"] = jersey_results
         # results["batch_numbers"] = batch_numbers
         return data
 

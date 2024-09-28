@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -115,6 +115,8 @@ class PlayTracker(torch.nn.Module):
         self._original_clip_box = original_clip_box
         self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
+
+        self._tracking_id_jersey: Dict[int, int] = {}
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -261,6 +263,21 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         return boxes_map, torch.stack(boxes_list)
 
+    def process_jerseys_info(self, data: Dict[str, Any]) -> None:
+        jersey_results = data["tracking_results"].get("jersey_results")
+        if not jersey_results:
+            return
+        for tracking_id, number in jersey_results.items():
+            prev_number = self._tracking_id_jersey.get(tracking_id)
+            if prev_number is None:
+                self._tracking_id_jersey[tracking_id] = number
+            else:
+                if number != prev_number:
+                    print(
+                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
+                    )
+                    self._tracking_id_jersey[tracking_id] = number
+
     def forward(self, online_targets_and_img):
         self._timer.tic()
 
@@ -270,8 +287,7 @@ class PlayTracker(torch.nn.Module):
         info_imgs = online_targets_and_img["info_imgs"]
         original_img = online_targets_and_img.pop("original_img")
 
-        # Other data/dataset output
-        # other_data = online_targets_and_img["data"]
+        self.process_jerseys_info(data=online_targets_and_img)
 
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
         frame_id = frame_ids[self._frame_counter % len(frame_ids)]
@@ -340,6 +356,7 @@ class PlayTracker(torch.nn.Module):
                 online_im,
                 online_tlwhs,
                 online_ids,
+                player_number_map=self._tracking_id_jersey,
                 frame_id=frame_id,
                 speeds=[],
                 line_thickness=2,

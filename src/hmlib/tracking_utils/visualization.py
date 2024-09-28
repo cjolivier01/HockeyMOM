@@ -1,12 +1,12 @@
-from typing import List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
 
 import hmlib.utils.pt_visualization as ptv
-from hmlib.utils.image import image_width
 from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import image_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -336,6 +336,7 @@ def plot_tracking(
     image,
     tlwhs,
     obj_ids,
+    player_number_map: Dict[int, int],
     frame_id,
     scores=None,
     fps=0.0,
@@ -379,6 +380,9 @@ def plot_tracking(
         x1, y1, w, h = tlwh
         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
         obj_id = int(obj_ids[i])
+        player_number = None
+        if player_number_map and obj_id in player_number_map:
+            player_number = player_number_map[obj_id]
         color = box_color if box_color is not None else get_color(abs(obj_id))
 
         im = plot_rectangle(
@@ -409,6 +413,19 @@ def plot_tracking(
                 (0, 0, 255),
                 thickness=text_thickness,
             )
+            if player_number is not None:
+                xc = int(x1 + w // 2)
+                yc = int(y1 - h // 5)
+                cv2.putText(
+                    im,
+                    str(player_number),
+                    # (xc, yc),
+                    (intbox[0], intbox[1] + text_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    text_scale,
+                    (255, 0, 255),
+                    thickness=text_thickness * 3,
+                )
         if speeds:
             speed = speeds[i]
             if not np.isnan(speed):

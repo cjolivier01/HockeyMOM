@@ -141,6 +141,7 @@ class CamTrackHead:
             "detections": detections,
             "info_imgs": info_imgs,
             "original_img": original_img,
+            "tracking_results": tracking_results,
         }
         data.update(send_data)
         data = self._postprocessor.send(data)
