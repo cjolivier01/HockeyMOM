@@ -2,16 +2,16 @@ import glob
 import os
 from typing import Any, Dict, List, Optional, Set
 
-import cv2
-
 # import torch.jit
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcv.runner import BaseModule, auto_fp16
+from mmcv.runner import BaseModule
+from mmengine.infer.infer import BaseInferencer
 from torchvision.transforms.functional import normalize
 
+from hmlib.builder import NECKS
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.utils.gpu import StreamTensor
@@ -21,8 +21,6 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
-
-from ..builder import NECKS
 
 # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
 
@@ -427,3 +425,38 @@ def extract_and_resize_jerseys(
     # Assuming 'image_tensor' is a CxHxW tensor and 'bounding_boxes' is a Nx4 tensor
     # 'desired_width' and 'desired_height' are the target dimensions for each crop
     # cropped_images = extract_and_resize_jerseys(image_tensor, bounding_boxes, desired_width, desired_height)
+
+ARGS: List[str] = [
+    "/olivier-pool/Videos/ev-tv-10-1-2/test_numbers.png",
+    "--out-dir=/home/colivier/src/openmm/results",
+    "--rec=mmocr/configs/textrecog/abinet/abinet-vision_20e_st-an_mj.py",
+    "--rec-weights=https://download.openmmlab.com/mmocr/textrecog/abinet/abinet-vision_20e_st-an_mj/abinet-vision_20e_st-an_mj_20220915_152445-85cfb03d.pth",
+    "--det=mmocr/configs/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015.py",
+    "--det-weights=https://download.openmmlab.com/mmocr/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015_20220829_230108-f289bd20.pth",
+    "--kie=mmocr/configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py",
+    "--kie-weights=https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth",
+    "--show",
+]
+
+
+# def get_inferencer() -> BaseInferencer:
+#     from mmocr.apis.inferencers import MMOCRInferencer
+
+#     inferencer = MMOCRInferencer(
+#         det="openmm/mmocr/configs/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015.py",
+#         det_weights="https://download.openmmlab.com/mmocr/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015_20220829_230108-f289bd20.pth",
+#         rec="openmm/mmocr/configs/textrecog/abinet/abinet-vision_20e_st-an_mj.py",
+#         rec_weights="https://download.openmmlab.com/mmocr/textrecog/abinet/abinet-vision_20e_st-an_mj/abinet-vision_20e_st-an_mj_20220915_152445-85cfb03d.pth",
+#         kie="openmm/mmocr/configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py",
+#         kie_weights="https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth",
+#     )
+#     return inferencer
+
+
+# def main():
+#     inferencer = get_inferencer()
+
+
+if __name__ == "__main__":
+    # main()
+    print("Done.")

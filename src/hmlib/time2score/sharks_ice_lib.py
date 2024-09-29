@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import util
 
-
 TIMETOSCORE_URL = 'https://stats.sharksice.timetoscore.com/'
 TEAM_URL = TIMETOSCORE_URL + 'display-schedule'
 GAME_URL = TIMETOSCORE_URL + 'oss-scoresheet'
