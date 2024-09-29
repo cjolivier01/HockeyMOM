@@ -25,7 +25,6 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         super().__init__(
             *args, original_clip_box=original_clip_box, det_thresh=det_thresh, draw=draw, **kwargs
         )
-        assert game_id
         self._game_id = game_id
         self._rink_profile = None
         self._gpu_allocator = gpu_allocator
@@ -34,7 +33,6 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         if self._rink_profile is None:
             self._rink_profile = confgure_ice_rink_mask(
                 game_id=self._game_id,
-                # device=get_device_to_use_for_rink(self._gpu_allocator),
                 device=torch.device("cpu"),
             )
             self.set_rink_mask_and_centroid(
