@@ -22,7 +22,7 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
-@classinstancememoize
+# @classinstancememoize
 class BasicVideoInfo:
 
     def __init__(self, video_file: Path | str | List[Path | str], use_ffprobe: bool = True):
