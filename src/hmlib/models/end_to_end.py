@@ -118,12 +118,15 @@ class HmEndToEnd(ByteTrack):
         )
         assert results["data"]["original_images"].ndim == 4
         if self.neck is not None:
-            results["jersey_results"] = self.neck(
+            jersey_results = self.neck(
                 data=dict(
-                    img=data["original_images"],
+                    img=results["data"]["original_images"],
                     category_bboxes=track_results["bbox_results"],
                 ),
-            )["jersey_results"]
+            )
+            results["jersey_results"] = (
+                jersey_results["jersey_results"] if "jersey_results" in jersey_results else None
+            )
         assert results["data"]["original_images"].ndim == 4
 
         return results
