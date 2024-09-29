@@ -25,6 +25,7 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         super().__init__(
             *args, original_clip_box=original_clip_box, det_thresh=det_thresh, draw=draw, **kwargs
         )
+        assert game_id
         self._game_id = game_id
         self._rink_profile = None
         self._gpu_allocator = gpu_allocator
