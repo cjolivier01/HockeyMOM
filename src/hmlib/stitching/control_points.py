@@ -215,7 +215,8 @@ def calculate_control_points(
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
-    indices = select_evenly_spaced(m_kpts0, 100)
+    # indices = select_evenly_spaced(m_kpts0, 100)
+    indices = select_evenly_spaced(m_kpts0, 50)
     m_kpts0 = m_kpts0[indices]
     m_kpts1 = m_kpts1[indices]
 
