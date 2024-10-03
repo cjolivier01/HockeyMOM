@@ -28,6 +28,6 @@ OMP_NUM_THREADS=16 \
   --stitch-auto-adjust-exposure \
   -expn="hm_run" \
   -b=${BATCH_SIZE} \
-  --gpus=0,1,2,3 \
+  --gpus=0,1 \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@
