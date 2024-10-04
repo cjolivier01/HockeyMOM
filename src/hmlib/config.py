@@ -51,6 +51,9 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
         with open(yaml_file_path, "r") as file:
             try:
                 yaml_content = yaml.safe_load(file)
+                if yaml_content is None:
+                    # Empty file
+                    return {}
                 if merge_into_config:
                     yaml_content = recursive_update(merge_into_config, yaml_content)
                 return yaml_content
