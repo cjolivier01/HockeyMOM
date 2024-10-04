@@ -47,8 +47,7 @@ class Scoreboard(torch.nn.Module):
         assert len(src_pts) == 4
         # Check for all zeros
         if torch.sum(src_pts.to(torch.int64)) == 0:
-            self._src_pts = None
-            return
+            assert False
         self._src_pts = src_pts.clone()
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):

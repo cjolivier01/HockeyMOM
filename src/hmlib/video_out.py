@@ -531,18 +531,20 @@ class VideoOutput:
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
             if self._scoreboard_points:
-                self._scoreboard = Scoreboard(
-                    src_pts=self._scoreboard_points,
-                    dest_width=get_nested_value(
-                        self._args.game_config, "rink.scoreboard.projected_width"
-                    ),
-                    dest_height=get_nested_value(
-                        self._args.game_config, "rink.scoreboard.projected_height"
-                    ),
-                    clip_box=self._original_clip_box,
-                    dtype=torch.float,
-                    device=self._device,
-                )
+                # Check for valid scoreboard points
+                if torch.sum(torch.tensor(self._scoreboard_points, dtype=torch.int64)) != 0:
+                    self._scoreboard = Scoreboard(
+                        src_pts=self._scoreboard_points,
+                        dest_width=get_nested_value(
+                            self._args.game_config, "rink.scoreboard.projected_width"
+                        ),
+                        dest_height=get_nested_value(
+                            self._args.game_config, "rink.scoreboard.projected_height"
+                        ),
+                        clip_box=self._original_clip_box,
+                        dtype=torch.float,
+                        device=self._device,
+                    )
 
     def _final_image_processing_worker(self):
         logger.info("VideoOutput thread started.")
