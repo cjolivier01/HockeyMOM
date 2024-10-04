@@ -17,6 +17,7 @@ from torchvision.transforms import functional as F
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
+from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
@@ -302,10 +303,12 @@ class VideoOutput:
 
         self._scoreboard = None
         self._scoreboard_points = None
-        if hasattr(args, "game_config"):
-            self._scoreboard_points = get_nested_value(
-                args.game_config, "rink.scoreboard.perspective_polygon", None
-            )
+        if hasattr(args, "game_id"):
+            self._scoreboard_points = configure_scoreboard(game_id=args.game_id)
+        # if hasattr(args, "game_config"):
+        #     self._scoreboard_points = get_nested_value(
+        #         args.game_config, "rink.scoreboard.perspective_polygon", None
+        #     )
 
         if fourcc == "auto":
             if self._device.type == "cuda":
