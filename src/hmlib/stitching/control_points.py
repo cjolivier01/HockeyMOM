@@ -172,6 +172,7 @@ def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
+    max_control_points: int = 100,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
@@ -215,8 +216,7 @@ def calculate_control_points(
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]
 
-    # indices = select_evenly_spaced(m_kpts0, 100)
-    indices = select_evenly_spaced(m_kpts0, 50)
+    indices = select_evenly_spaced(m_kpts0, max_control_points)
     m_kpts0 = m_kpts0[indices]
     m_kpts1 = m_kpts1[indices]
 
