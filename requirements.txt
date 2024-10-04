@@ -37,6 +37,7 @@ pycocotools
 sympy
 python-ipmi
 numba
+kornia
 pyquaternion
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
