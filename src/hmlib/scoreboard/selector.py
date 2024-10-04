@@ -21,6 +21,8 @@ from hmlib.hm_opts import hm_opts
 
 class ScoreboardSelector:
 
+    NULL_POINTS = [(0, 0), (0, 0), (0, 0), (0, 0)]
+
     def __init__(
         self,
         image: Union[Image, np.ndarray],
@@ -62,11 +64,14 @@ class ScoreboardSelector:
         delete_button: tk.Button = tk.Button(
             button_frame, text="Delete", command=self.reset_selection
         )
-        none_button: tk.Button = tk.Button(button_frame, text="None", command=self.root.quit)
+        none_button: tk.Button = tk.Button(button_frame, text="None", command=self.process_none)
 
         ok_button.pack(side=tk.LEFT)
         delete_button.pack(side=tk.LEFT)
         none_button.pack(side=tk.LEFT)
+
+        if initial_points == ScoreboardSelector.NULL_POINTS:
+            initial_points = []
 
         if initial_points and len(initial_points) == 4:
             self.points = initial_points
@@ -159,6 +164,9 @@ class ScoreboardSelector:
         return [tl, tr, br, bl]
 
     def process_ok(self) -> None:
+        if not self.points:
+            # The non-selection set of points
+            self.points = ScoreboardSelector.NULL_POINTS.copy()
         if len(self.points) != 4:
             messagebox.showinfo("Info", "Please select exactly 4 points.")
             return
@@ -167,6 +175,11 @@ class ScoreboardSelector:
         print("Selected points in clockwise order starting from the upper-left point:")
         for p in ordered_points:
             print(f"({p[0]}, {p[1]})")
+        self.points = ordered_points
+        self.root.quit()
+
+    def process_none(self) -> None:
+        self.points = ScoreboardSelector.NULL_POINTS.copy()
         self.root.quit()
 
     def run(self) -> None:
@@ -190,7 +203,16 @@ def parse_points(points_str_list: List[str]) -> Optional[List[Tuple[int, int]]]:
     return points
 
 
+def _untuple_points(points: List[Tuple[int, int]]):
+    results: List[List[int, int]] = []
+    for pt in points:
+        assert len(pt) == 2
+        results.append([pt[0], pt[1]])
+    return results
+
+
 def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, force: bool = False):
+    assert game_id
     game_config = get_game_config(game_id=game_id)
     current_scoreboard = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
     if current_scoreboard and not force:
@@ -204,35 +226,15 @@ def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, for
         image = Image.open(image_file)
     selector = ScoreboardSelector(image=image, initial_points=current_scoreboard)
     selector.run()
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Select scoreboard corners on an image.")
-#     parser.add_argument("imagefile", type=str, help="Path to the image file")
-#     parser.add_argument(
-#         "--points", nargs=4, metavar="X,Y", help="Optional initial points in the format X,Y"
-#     )
-
-#     args = parser.parse_args()
-
-#     initial_points: Optional[List[Tuple[int, int]]] = None
-#     if args.points:
-#         initial_points = parse_points(args.points)
-#         if initial_points is None:
-#             sys.exit(1)
-
-#     image_file: str = args.imagefile
-#     selector: ScoreboardSelector = ScoreboardSelector(image_file, initial_points)
-#     selector.run()
+    current_scoreboard = selector.points
+    set_nested_value(
+        game_config, "rink.scoreboard.perspective_polygon", _untuple_points(current_scoreboard)
+    )
+    save_private_config(game_id=game_id, data=game_config, verbose=True)
 
 
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
-
-    # image_file = "/mnt/ripper-data/Videos/ev-blackstars-ps/s.png"
-
-    # selector = ScoreboardSelector(image_file)
-    # selector.run()
 
     configure_scoreboard(game_id="ev-blackstars-ps", force=True)
