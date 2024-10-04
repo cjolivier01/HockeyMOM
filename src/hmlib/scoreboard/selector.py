@@ -203,7 +203,7 @@ def parse_points(points_str_list: List[str]) -> Optional[List[Tuple[int, int]]]:
     return points
 
 
-def _untuple_points(points: List[Tuple[int, int]]):
+def _untuple_points(points: List[Tuple[int, int]]) -> List[List[int]]:
     results: List[List[int, int]] = []
     for pt in points:
         assert len(pt) == 2
@@ -211,12 +211,14 @@ def _untuple_points(points: List[Tuple[int, int]]):
     return results
 
 
-def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, force: bool = False):
+def configure_scoreboard(
+    game_id: str, image: Optional[torch.Tensor] = None, force: bool = False
+) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
     current_scoreboard = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
     if current_scoreboard and not force:
-        return
+        return current_scoreboard
 
     if image is None:
         game_dir = get_game_dir(game_id=game_id)
@@ -227,10 +229,10 @@ def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, for
     selector = ScoreboardSelector(image=image, initial_points=current_scoreboard)
     selector.run()
     current_scoreboard = selector.points
-    set_nested_value(
-        game_config, "rink.scoreboard.perspective_polygon", _untuple_points(current_scoreboard)
-    )
+    current_scoreboard = _untuple_points(current_scoreboard)
+    set_nested_value(game_config, "rink.scoreboard.perspective_polygon", current_scoreboard)
     save_private_config(game_id=game_id, data=game_config, verbose=True)
+    return current_scoreboard
 
 
 if __name__ == "__main__":
