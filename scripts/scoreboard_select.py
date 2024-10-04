@@ -5,6 +5,7 @@ import cv2
 
 from hmlib.config import get_game_config, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
+from hmlib.scoreboard.selector import configure_scoreboard
 
 
 def select_opencv(game_id: str):
