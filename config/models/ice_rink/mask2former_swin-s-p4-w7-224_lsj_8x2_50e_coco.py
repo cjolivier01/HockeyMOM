@@ -171,7 +171,7 @@ mp_start_method = 'fork'
 auto_scale_lr = dict(enable=False, base_batch_size=16)
 num_things_classes = 80
 # num_things_classes = 1
-num_stuff_classes = 80
+# num_stuff_classes = 80
 # num_stuff_classes = 0
 # num_classes = 80
 num_classes = 1
