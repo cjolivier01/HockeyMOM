@@ -42,21 +42,20 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     filtered_online_tlwh = []
     filtered_online_ids = []
     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-    for i in range(len(online_tlwhs_centers)):
-        center = online_tlwhs_centers[i]
+    for i, this_center in enumerate(online_tlwhs_centers):
         if inclusion_box is not None:
-            if inclusion_box[0] and center[0] < inclusion_box[0]:
+            if inclusion_box[0] and this_center[0] < inclusion_box[0]:
                 continue
-            elif inclusion_box[2] and center[0] > inclusion_box[2]:
+            elif inclusion_box[2] and this_center[0] > inclusion_box[2]:
                 continue
-            elif inclusion_box[1] and center[1] < inclusion_box[1]:
+            elif inclusion_box[1] and this_center[1] < inclusion_box[1]:
                 continue
-            elif inclusion_box[3] and center[1] > inclusion_box[3]:
+            elif inclusion_box[3] and this_center[1] > inclusion_box[3]:
                 continue
         if boundaries is not None:
             # TODO: boundaries could be done with the box edges
-            if boundaries.is_point_outside(center):
-                # logger.info(f"ignoring: {center}")
+            if boundaries.is_point_outside(this_center):
+                # logger.info(f"ignoring: {this_center}")
                 continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
@@ -371,7 +370,7 @@ class PlayTracker(torch.nn.Module):
                     thickness=1,
                     label=f"IGNORED",
                 )
-            
+
         if self._args.plot_jersey_numbers:
             online_im = vis.plot_jersey_numbers(
                 online_im,
@@ -379,7 +378,6 @@ class PlayTracker(torch.nn.Module):
                 online_ids,
                 player_number_map=self._tracking_id_jersey,
             )
-
 
         if self._args.plot_cluster_tracking:
             cluster_box_colors = {
