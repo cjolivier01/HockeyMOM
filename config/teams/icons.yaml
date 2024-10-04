@@ -1,0 +1,13 @@
+teams:
+  - name: Sharks
+    icon: sharks.png
+  - name: BlueDevils
+    icon: blue-devils.png
+  - name: BlackStars
+    icon: blackstars.png
+  - name: Stockton
+    icon: stockton.png
+  - name: Vendettas
+    icon: vendettas.png
+  - name: LadyBlueDevils
+    icon: lady-blue-devils.png
