@@ -1,6 +1,5 @@
 from typing import Dict, List, Set, Tuple
 
-import cameratransform as ct
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,33 +21,6 @@ X_SPEED_HISTORY_LENGTH = 5
 
 def _as_scalar(tensor):
     return tensor
-
-
-def create_camera(
-    elevation_m: float,
-    image_size_px=(3264, 2448),
-    tilt_degrees: float = 45.0,
-    roll_degrees: float = 0.0,
-    focal_length: float = 6.2,
-    sensor_size_mm: Tuple[float, float] = (6.17, 4.55),
-) -> ct.Camera:
-    """
-    Create a camera object with the given parameters/position.
-    """
-    # initialize the camera
-    cam = ct.Camera(
-        ct.RectilinearProjection(
-            focallength_mm=focal_length,
-            sensor=sensor_size_mm,
-            image=image_size_px,
-        ),
-        ct.SpatialOrientation(
-            elevation_m=elevation_m,
-            tilt_deg=tilt_degrees,
-            roll_deg=roll_degrees,
-        ),
-    )
-    return cam
 
 
 def get_image_top_view(
