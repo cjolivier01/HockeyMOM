@@ -172,7 +172,7 @@ def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
-    max_control_points: int = 100,
+    max_control_points: int = 250,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
