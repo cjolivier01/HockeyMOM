@@ -23,17 +23,6 @@ def _as_scalar(tensor):
     return tensor
 
 
-def get_image_top_view(
-    image_file: str,
-    camera: ct.Camera,
-    dimensions_2d_m: Tuple[float, float, float, float],
-):
-    im = plt.imread(image_file)
-    top_im = camera.getTopViewOfImage(image=im, extent=dimensions_2d_m, do_plot=False)
-    cv2.imshow("online_im", top_im)
-    cv2.waitKey(0)
-
-
 def is_equal(f1, f2):
     return torch.isclose(f1, f2, rtol=0.01, atol=0.01)
 
