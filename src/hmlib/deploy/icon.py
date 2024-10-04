@@ -2,8 +2,10 @@ import os
 from typing import Dict
 
 from PIL import Image, ImageDraw, ImageFont
-from config import load_config_file, ROOT_DIR
+
+from hmlib.config import ROOT_DIR, load_config_file_yaml
 from hmlib.ui.show import show_image
+from hmlib.utils.pt_visualization import find_font_path
 
 
 def create_matchup_image(
@@ -23,7 +25,12 @@ def create_matchup_image(
     - PIL.Image.Image: The generated image.
     """
     # Create a blank image
-    img = Image.new("RGB", (256, 256), color=bg_color)
+    icon_size = 256
+    team_icon_size = 100
+    pad_size = 10
+    text_size = 24
+
+    img = Image.new("RGBA", (icon_size, icon_size), color=bg_color)
     draw = ImageDraw.Draw(img)
 
     # Load logos
@@ -31,26 +38,47 @@ def create_matchup_image(
     logo2 = Image.open(teams_map[team2])
 
     # Resize logos to fit the image
-    logo1 = logo1.resize((64, 64))
-    logo2 = logo2.resize((64, 64))
+    logo1 = logo1.resize((team_icon_size, team_icon_size))
+    logo2 = logo2.resize((team_icon_size, team_icon_size))
 
     # Place the first logo and team name in the top left
-    img.paste(logo1, (10, 10))
-    draw.text((10, 80), team1, fill=text_color)
-
+    img.paste(logo1, (pad_size, pad_size))
+    draw.text((pad_size, int(team_icon_size + pad_size * 1.5)), team1, fill=text_color)
     # Place the second logo and team name in the bottom right
-    img.paste(logo2, (182, 182))
-    draw.text((182, 150), team2, fill=text_color)
+    img.paste(logo2, (icon_size - team_icon_size - pad_size, icon_size - team_icon_size - pad_size))
+    draw.text(
+        (
+            icon_size - team_icon_size - pad_size,
+            int(icon_size - team_icon_size - text_size),
+        ),
+        team2,
+        fill=text_color,
+    )
 
+    font_path = find_font_path("arial.ttf")
+    if not font_path:
+        font_path = find_font_path()
     # Add "VS" text in the middle
     try:
-        font = ImageFont.truetype("arial.ttf", size=24)  # Path to a ttf file might be needed
+        font = ImageFont.truetype(font_path, size=text_size)  # Path to a ttf file might be needed
     except IOError:
         font = ImageFont.load_default()
-    draw.text((128, 120), "VS", fill=text_color, font=font, anchor="mm")
+    draw.text(
+        (int(icon_size / 2), int(icon_size / 2)), "VS", fill=text_color, font=font, anchor="mm"
+    )
 
     return img
 
 
 if __name__ == "__main__":
-    pass
+    icon_image = create_matchup_image(
+        teams_map={
+            "Sharks": "/home/colivier/src/hm/resources/teams/sharks.png",
+            "BlackStars": "/home/colivier/src/hm/resources/teams/blackstars.png",
+        },
+        team1="Sharks",
+        team2="BlackStars",
+        text_color="BLUE",
+        bg_color="GRAY",
+    )
+    show_image("Icon", icon_image)

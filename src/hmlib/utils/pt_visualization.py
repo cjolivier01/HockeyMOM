@@ -114,7 +114,7 @@ def find_font_path(font_name: str = "Ubuntu Sans:style=Thin"):
         if font_name in line:
             font_path = line.split(":")[0]
             return font_path
-    return lines
+    return None
 
 
 def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, start_y: int):
