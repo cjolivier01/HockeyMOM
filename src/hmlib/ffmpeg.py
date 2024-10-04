@@ -4,7 +4,9 @@ import platform
 import re
 import signal
 import subprocess
-from typing import Optional, Tuple
+import traceback
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -20,46 +22,67 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
-@classinstancememoize
+# @classinstancememoize
 class BasicVideoInfo:
-    def __init__(self, video_file: str, use_ffprobe: bool = True):
-        if use_ffprobe:
-            probe = FFProbe(video_file)
-            self._ffstream: Optional[FFStream] = None
-            if not probe.video:
-                raise AssertionError(
-                    f"Unable to get video stream from file: {video_file}"
-                )
-            elif len(probe.video) > 1:
-                raise AssertionError(
-                    f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
-                )
-            self._ffstream = probe.video[0]
-            # self.frame_count = self._ffstream.frames()
-            self.frame_count = int(
-                self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
-            )
-            self.fps = self._ffstream.realFrameRate()
-            sz = self._ffstream.frameSize()
-            self.width = sz[0]
-            self.height = sz[1]
-            self.bitrate = self._ffstream.bitrate()
-            self.codec = self._ffstream.codecTag()
-            # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+
+    def __init__(self, video_file: Path | str | List[Path | str], use_ffprobe: bool = True):
+        self._multiple = None
+        if isinstance(video_file, list) and len(video_file) == 1:
+            video_file = video_file[0]
+        if isinstance(video_file, list):
+            self._multiple = []
+            for f in video_file:
+                self._multiple.append(BasicVideoInfo(f, use_ffprobe=use_ffprobe))
+            # Let's assume they're all the same
+            firstone = self._multiple[0]
+            self.fps = firstone.fps
+            self.width = firstone.width
+            self.height = firstone.height
+            self.bitrate = firstone.bitrate
+            self.codec = firstone.codec
+            # accumulate
+            self.duration = firstone.duration
+            self.frame_count = firstone.frame_count
+            for v in self._multiple[1:]:
+                self.duration += v.duration
+                self.frame_count += v.frame_count
         else:
-            cap = cv2.VideoCapture(video_file)
-            if not cap.isOpened():
-                raise AssertionError(f"Unable to open video file {video_file}")
-            self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.fps = cap.get(cv2.CAP_PROP_FPS)
-            self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
-            self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-            self.codec = "".join(
-                [chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]
-            ).upper()
-            cap.release()
+            video_file = str(video_file)
+            if use_ffprobe:
+                probe = FFProbe(video_file)
+                self._ffstream: Optional[FFStream] = None
+                if not probe.video:
+                    raise AssertionError(f"Unable to get video stream from file: {video_file}")
+                elif len(probe.video) > 1:
+                    raise AssertionError(
+                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
+                    )
+                self._ffstream = probe.video[0]
+                # self.frame_count = self._ffstream.frames()
+                self.frame_count = int(
+                    self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
+                )
+                self.fps = self._ffstream.realFrameRate()
+                self.duration = self._ffstream.durationSeconds()
+                sz = self._ffstream.frameSize()
+                self.width = sz[0]
+                self.height = sz[1]
+                self.bitrate = self._ffstream.bitrate()
+                self.codec = self._ffstream.codecTag()
+                # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
+            else:
+                cap = cv2.VideoCapture(video_file)
+                if not cap.isOpened():
+                    raise AssertionError(f"Unable to open video file {video_file}")
+                self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.fps = cap.get(cv2.CAP_PROP_FPS)
+                self.duration = self.frame_count / self.fps
+                self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
+                self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+                self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
+                cap.release()
 
 
 def fourcc_to_int(fourcc):
@@ -116,9 +139,24 @@ def copy_audio(original_video: str, soundless_video: str, final_audio_video: str
     os.system(cmd_str)
 
 
-def extract_frame_image(source_video: str, frame_number: int, dest_image: str):
+def extract_frame_image(source_video: str, frame_number: float, dest_image: str):
     print(f"Extracting frame {frame_number} from {source_video}...")
-    cmd_str = f'ffmpeg -y -i {source_video} -vf "select=eq(n\,{frame_number})" -vframes 1 {dest_image}'
+    if frame_number:
+        info = BasicVideoInfo(source_video)
+        ss = frame_number / info.fps
+        cmd_str = f"ffmpeg -y -ss {ss} -i {source_video} -vframes 1 {dest_image}"
+    else:
+        cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
+    print(cmd_str)
+    os.system(cmd_str)
+
+
+def extract_time_image(source_video: str, frame_time: str, dest_image: str):
+    print(f"Extracting frame at time: {frame_time} from {source_video}...")
+    if frame_time:
+        cmd_str = f"ffmpeg -y -ss {frame_time} -i {source_video} -vframes 1 {dest_image}"
+    else:
+        cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
     print(cmd_str)
     os.system(cmd_str)
 
@@ -144,6 +182,7 @@ def subprocess_encode_ffmpeg(
     command = [
         "ffmpeg",
         "-y",  # Overwrite output file if it exists
+        "-hide_banner",
         "-f",
         "rawvideo",  # Input format is raw video
         "-vcodec",
@@ -197,6 +236,7 @@ def get_ffmpeg_decoder_process(
     # FFmpeg command for using NVIDIA's hardware decoder
     command = [
         "ffmpeg",
+        "-hide_banner",
         "-loglevel",
         loglevel,
         "-hwaccel",
@@ -313,6 +353,7 @@ class VideoWriter:
         command = [
             "ffmpeg",
             "-y",  # Overwrite output file if it exists
+            "-hide_banner",
             "-f",
             "rawvideo",  # Input format is raw video
             "-vcodec",
@@ -382,9 +423,7 @@ class FFProbe:
                 cmd = ["ffprobe", "-show_streams", self.video_file]
             else:
                 cmd = ["ffprobe -show_streams " + self.video_file]
-            p = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-            )
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             self.format = None
             self.created = None
             self.duration = None
@@ -505,7 +544,7 @@ class FFStream:
                     return int(self.durationSeconds() * self.realFrameRate())
         return f
 
-    def durationSeconds(self):
+    def durationSeconds(self) -> float:
         """
         Returns the runtime duration of the video stream as a floating point number of seconds.
         Returns 0.0 if not a video stream.
@@ -592,3 +631,45 @@ class FFStream:
             except Exception as e:
                 print("None integer bitrate")
         return b
+
+
+def concatenate_videos(video_list: List[str], destination_file: str, force: bool = False) -> bool:
+    # Ensure video_list is not empty
+    if not video_list:
+        raise ValueError("The video list is empty.")
+
+    if not force and os.path.exists(destination_file):
+        return
+
+    concat_file, _ = os.path.splitext(destination_file)
+    concat_file += ".txt"
+
+    # Create a temporary text file to hold the list of video files
+    with open(concat_file, "w") as f:
+        for video in video_list:
+            # Each line must be in the format: file 'filename'
+            f.write(f"file '{os.path.abspath(video)}'\n")
+
+    # Build the ffmpeg command to concatenate the videos
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-f",
+        "concat",  # Tell ffmpeg that we are using a concatenation file
+        "-safe",
+        "0",  # Disable safety check to allow absolute paths
+        "-i",
+        concat_file,  # Input is the list of video files
+        "-c",
+        "copy",  # Copy both video and audio without re-encoding
+        destination_file,  # Output file
+    ]
+
+    # Run the command and wait for it to complete
+    try:
+        subprocess.run(command, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error during concatenation: {e}")
+        traceback.print_exc()
+        return False

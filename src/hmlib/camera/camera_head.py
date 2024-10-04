@@ -1,13 +1,15 @@
 from __future__ import absolute_import, division, print_function
 
 import os
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
+from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.tracking_utils.log import logger
+from hmlib.utils.image import image_height, image_width
 
 
 def to_rgb_non_planar(image):
@@ -41,7 +43,9 @@ def get_open_files_count():
     return len(os.listdir(f"/proc/{pid}/fd"))
 
 
+@HM.register_module()
 class CamTrackHead:
+
     def __init__(
         self,
         opt,
@@ -49,24 +53,26 @@ class CamTrackHead:
         device,
         fps: float,
         save_dir: str,
+        output_video_path: Optional[str],
+        camera_name: str,
         original_clip_box: torch.Tensor,
         save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
-        use_fork: bool = False,
         async_post_processing: bool = False,
         video_out_device: str = None,
     ):
         self._opt = opt
         self._args = args
+        self._camera_name = camera_name
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
-        self._use_fork = use_fork
         self._async_post_processing = async_post_processing
         self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
+        self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._hockey_mom = None
         self._device = device
@@ -107,6 +113,7 @@ class CamTrackHead:
         letterbox_img,
         original_img,
         online_scores,
+        data: Dict[str, Any],
     ):
         self._counter += 1
         if self._counter % 100 == 0:
@@ -128,24 +135,27 @@ class CamTrackHead:
         assert isinstance(online_ids, torch.Tensor) or (
             isinstance(online_ids, list) and len(online_ids) == 0
         )
-        self._postprocessor.send(
-            online_tlwhs,
-            online_ids,
-            detections,
-            info_imgs,
-            None,
-            original_img,
-        )
+        send_data: Dict[str, Any] = {
+            "online_tlwhs": online_tlwhs,
+            "online_ids": online_ids,
+            "detections": detections,
+            "info_imgs": info_imgs,
+            "original_img": original_img,
+            "tracking_results": tracking_results,
+        }
+        data.update(send_data)
+        data = self._postprocessor.send(data)
+        if not self._async_post_processing:
+            tracking_results.update(data)
         return tracking_results, detections, online_tlwhs
 
     def on_first_image(self, frame_id, letterbox_img, original_img, device):
         if self._hockey_mom is None:
-            if len(original_img.shape) == 4:
-                original_img = original_img[0]
             self._hockey_mom = HockeyMOM(
-                image_width=original_img.shape[1],
-                image_height=original_img.shape[0],
+                image_width=image_width(original_img),
+                image_height=image_height(original_img),
                 device=device,
+                camera_name=self._camera_name,
             )
 
         if self._postprocessor is None:
@@ -155,15 +165,17 @@ class CamTrackHead:
                 data_type=self._data_type,
                 fps=self._fps,
                 save_dir=self._save_dir,
+                output_video_path=self._output_video_path,
                 save_frame_dir=self._save_frame_dir,
                 device=device,
                 original_clip_box=self._original_clip_box,  # TODO: Put in args
                 args=self._args,
-                use_fork=self._use_fork,
                 async_post_processing=self._async_post_processing,
                 video_out_device=self._video_out_device,
             )
-            self._postprocessor.start()
+            self._postprocessor.eval()
+            if self._async_post_processing:
+                self._postprocessor.start()
 
     def stop(self):
         if self._postprocessor is not None:

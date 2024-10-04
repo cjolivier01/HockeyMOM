@@ -1,16 +1,17 @@
 import os
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.widgets import Button
-from PIL import Image
 from pathlib import Path
+from typing import List
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+
 from hmlib.config import (
-    save_game_config,
     get_game_config,
-    set_nested_value,
     get_nested_value,
+    save_game_config,
+    set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
 
@@ -54,13 +55,15 @@ def draw_line(image_path: str):
     plt.show()
 
 
-def other_impl(game_id: str, image_path: str):
+def other_impl(
+    game_id: str, image_path: str, upper_lines: List[int] = [], lower_lines: List[int] = []
+):
     img = cv2.imread(image_path)
 
     # Initialize global variables
     is_upper = True
-    upper_lines = []  # To store line endpoints
-    lower_lines = []
+    # upper_lines = []  # To store line endpoints
+    # lower_lines = []
     current_line = []  # To store the current line being drawn
     drawing = False  # True if mouse is pressed
     aborted = False
@@ -85,12 +88,25 @@ def other_impl(game_id: str, image_path: str):
                 lower_lines.append([start, end])
             cv2.line(img, start, end, (255, 0, 0) if not is_upper else (0, 0, 255), 2)
 
+    def preprocess_lines(lines: List[List[int]], is_upper: bool):
+        for l in lines:
+            x = l[0]
+            y = l[1]
+            w = l[2] - l[0]
+            h = l[3] - l[1]
+            current_line = [[x, y]]  # Start point of the line
+            # current_line.append([w, h])
+            current_line.append([l[2], l[3]])
+            # Ensure the line is always left to right
+            start, end = sorted(current_line)
+            cv2.line(img, start, end, (255, 0, 0) if not is_upper else (0, 0, 255), 2)
+
     def display_image_and_draw_lines(image_path):
-        nonlocal img, is_upper, aborted
-        cv2.namedWindow(
-            "Image", cv2.WINDOW_NORMAL
-        )  # Create a window that can be resized
+        nonlocal img, is_upper, aborted, upper_lines, lower_lines
+        cv2.namedWindow("Image", cv2.WINDOW_NORMAL)  # Create a window that can be resized
         cv2.setMouseCallback("Image", draw_line)
+        # draw_all_lines(upper_lines, is_upper=True)
+        # draw_all_lines(lower_lines, is_upper=False)
         while True:
             cv2.imshow("Image", img)
             key = cv2.waitKey(1) & 0xFF
@@ -115,7 +131,9 @@ def other_impl(game_id: str, image_path: str):
                 is_upper = False
             elif key == ord("a") or key == ord("A"):
                 aborted = True
-                break
+            elif key == ord("c") or key == ord("C"):
+                upper_lines = []
+                lower_lines = []
             elif key == ord("q"):  # Quit the program
                 break
 
@@ -128,7 +146,6 @@ def other_impl(game_id: str, image_path: str):
             new_lines.append(ll)
         return new_lines
 
-    # Example usage
     display_image_and_draw_lines(image_path)
     if not aborted:
         upper_lines = to_tlbr(upper_lines)
@@ -142,6 +159,7 @@ def other_impl(game_id: str, image_path: str):
         game_config = get_game_config(game_id=game_id, root_dir=root_dir)
         if game_config is None:
             game_config = dict()
+
         set_nested_value(game_config, "game.boundaries.upper", upper_lines)
         set_nested_value(game_config, "game.boundaries.lower", lower_lines)
         save_game_config(game_id=game_id, root_dir=root_dir, data=game_config)
@@ -151,9 +169,9 @@ def other_impl(game_id: str, image_path: str):
 
 def maybe_configure_borders(game_id: str, root_dir: str):
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
-    if get_nested_value(
-        game_config, "game.boundaries.upper", None
-    ) is None and get_nested_value(game_config, "game.boundaries.lower", None):
+    if get_nested_value(game_config, "game.boundaries.upper", None) is None and get_nested_value(
+        game_config, "game.boundaries.lower", None
+    ):
         # TODO: need to extract frame, why is panorama.tif not always correct?
         other_impl(game_id=game_id, image_path=image_path)
 
@@ -161,6 +179,27 @@ def maybe_configure_borders(game_id: str, root_dir: str):
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
+
     assert args.game_id
+
+    this_path = Path(os.path.dirname(__file__))
+    root_dir = os.path.realpath(this_path / "..")
+    game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
+    if game_config:
+        upper_lines = get_nested_value(game_config, "game.boundaries.upper")
+        if True or upper_lines is None:
+            upper_lines = []
+        lower_lines = get_nested_value(game_config, "game.boundaries.lower")
+        if True or lower_lines is None:
+            lower_lines = []
+    else:
+        upper_lines = []
+        lower_lines = []
+
     image_path = f'{os.environ["HOME"]}/Videos/{args.game_id}/s.png'
-    other_impl(game_id=args.game_id, image_path=image_path)
+    other_impl(
+        game_id=args.game_id,
+        image_path=image_path,
+        upper_lines=upper_lines,
+        lower_lines=lower_lines,
+    )

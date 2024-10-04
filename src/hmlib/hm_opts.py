@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import os
 from typing import Any, Optional
 
 from hmlib.config import get_nested_value
@@ -29,13 +30,34 @@ class hm_opts(object):
             "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
-        # stitching
+
+        parser.add_argument(
+            "--end-zones",
+            action="store_true",
+            help="Enable end-zone camera usage when available",
+        )
+
+        # Identity
+        parser.add_argument(
+            "--team",
+            default=None,
+            type=str,
+            help="The primary team that represents the configuration file",
+        )
+        parser.add_argument(
+            "--season",
+            default=None,
+            type=str,
+            help="Season (if not the current)",
+        )
         parser.add_argument(
             "--game-id",
             default=None,
             type=str,
             help="Game ID",
         )
+
+        # stitching
         parser.add_argument(
             "--cache-size",
             type=int,
@@ -67,6 +89,12 @@ class hm_opts(object):
             default=False,
             action="store_true",
             help="show as processing",
+        )
+        parser.add_argument(
+            "--show-image-name",
+            default="default",
+            type=str,
+            help="Name of the image to show, i.e. 'default', 'end_zones'",
         )
         parser.add_argument(
             "--show-scaled",
@@ -137,7 +165,7 @@ class hm_opts(object):
             "--project-file",
             "--project_file",
             dest="project_file",
-            default="autooptimiser_out.pto",
+            default="hm_project.pto",
             type=str,
             help="Use project file as input to stitcher",
         )
@@ -152,6 +180,12 @@ class hm_opts(object):
             type=str,
             default=None,
             help="Start at this time in video stream",
+        )
+        parser.add_argument(
+            "--stitch-frame-time",
+            type=str,
+            default=None,
+            help="Use frame at this timestamp for stitching (HH:MM:SS.ssss)",
         )
         parser.add_argument(
             "--max-frames",
@@ -183,16 +217,19 @@ class hm_opts(object):
         parser.add_argument(
             "--skip_final_video_save",
             "--skip-final-video-save",
-            dest="skip_final_video_save",
             action="store_true",
             help="Don't save the output video frames",
         )
         parser.add_argument(
             "--save_stitched",
             "--save-stitched",
-            dest="save_stitched",
             action="store_true",
             help="Don't save the output video",
+        )
+        parser.add_argument(
+            "--stitch-auto-adjust-exposure",
+            action="store_true",
+            help="Auto-adjust exposure when stitching",
         )
         parser.add_argument(
             "--track-ids",
@@ -240,9 +277,7 @@ class hm_opts(object):
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if getattr(opt, "tracker", "") == "centertrack":
-            if hasattr(opt, "test_size") and (
-                hasattr(opt, "input_w") and hasattr(opt, "input_h")
-            ):
+            if hasattr(opt, "test_size") and (hasattr(opt, "input_w") and hasattr(opt, "input_h")):
                 from lib.opts import opts
 
                 assert not opt.test_size or (

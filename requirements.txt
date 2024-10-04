@@ -6,7 +6,6 @@ xtcocotools
 rich
 screeninfo
 yacs
-moviepy
 opencv-python
 PyYAML
 cython-bbox
@@ -14,12 +13,11 @@ scipy
 progress
 motmetrics
 matplotlib
-#lap
 openpyxl
 Pillow-simd
 psutil
-#tensorboard
 filterpy
+ffmpegio
 screeninfo
 gast
 typeguard
@@ -31,6 +29,7 @@ cameratransform
 tifffile
 scikit-build
 scikit-learn
+kornia
 lmdb
 loguru
 thop
@@ -38,6 +37,9 @@ pycocotools
 sympy
 python-ipmi
 numba
+kornia
+ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
+

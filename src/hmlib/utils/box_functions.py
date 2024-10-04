@@ -349,3 +349,45 @@ def scale_box_at_same_center(box: torch.Tensor, scale_factor):
 #         else:
 #             return box / scale_h
 #     return box
+
+
+def scale_bbox_with_constraints(bbox, ratio_x, ratio_y, min_x, max_x, min_y, max_y):
+    # Extract coordinates
+    x1, y1, x2, y2 = bbox
+
+    # Calculate the center of the bbox
+    x_center = (x1 + x2) / 2
+    y_center = (y1 + y2) / 2
+
+    # Calculate new width and height
+    new_width = (x2 - x1) * ratio_x
+    new_height = (y2 - y1) * ratio_y
+
+    # Calculate new coordinates, initially without constraints
+    new_x1 = x_center - new_width / 2
+    new_y1 = y_center - new_height / 2
+    new_x2 = x_center + new_width / 2
+    new_y2 = y_center + new_height / 2
+
+    # Apply constraints
+    new_x1 = max(min_x, new_x1)
+    new_y1 = max(min_y, new_y1)
+    new_x2 = min(max_x, new_x2)
+    new_y2 = min(max_y, new_y2)
+
+    # Ensure new_x1 < new_x2 and new_y1 < new_y2
+    if new_x1 >= new_x2:
+        if new_x1 < max_x:
+            new_x2 = new_x1 + 1  # Ensuring minimal width
+        else:
+            new_x1 = max_x - 1  # Move new_x1 inside the boundary if new_x2 is at max_x
+            new_x2 = max_x
+
+    if new_y1 >= new_y2:
+        if new_y1 < max_y:
+            new_y2 = new_y1 + 1  # Ensuring minimal height
+        else:
+            new_y1 = max_y - 1  # Move new_y1 inside the boundary if new_y2 is at max_y
+            new_y2 = max_y
+
+    return (new_x1, new_y1, new_x2, new_y2)

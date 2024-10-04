@@ -1,8 +1,8 @@
 import glob
-import random
-import time
 import os
 import os.path as osp
+import random
+import time
 
 import cv2
 import numpy as np
@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from torchvision.ops import nms
 
-#import maskrcnn_benchmark.layers.nms as nms
+# import maskrcnn_benchmark.layers.nms as nms
 # Set printoptions
 torch.set_printoptions(linewidth=1320, precision=5, profile='long')
 np.set_printoptions(linewidth=320, formatter={'float_kind': '{:11.5g}'.format})  # format short g, %precision=5
@@ -52,7 +52,6 @@ def model_info(model):  # Plots a line-by-line description of a PyTorch model
     print('Model Summary: %g layers, %g parameters, %g gradients\n' % (i + 1, n_p, n_g))
 
 
-
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots one bounding box on image img
     tl = line_thickness or round(0.0004 * max(img.shape[0:2])) + 1  # line thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
@@ -75,19 +74,42 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 
-def xyxy2xywh(x):
-    # Convert bounding box format from [x1, y1, x2, y2] to [x, y, w, h]
-    y = torch.zeros(x.shape) if x.dtype is torch.float else np.zeros(x.shape)
-    y[:, 0] = (x[:, 0] + x[:, 2]) / 2
-    y[:, 1] = (x[:, 1] + x[:, 3]) / 2
-    y[:, 2] = x[:, 2] - x[:, 0]
-    y[:, 3] = x[:, 3] - x[:, 1]
-    return y
+def xyxy2xywh(bboxes: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
+    """
+    Converts bounding boxes from [x1, y1, x2, y2] to [x, y, w, h] format.
+
+    Args:
+    - bboxes (torch.Tensor): A tensor of shape (N, 4) where N is the number of bounding boxes,
+      and each bounding box is in [x1, y1, x2, y2] format.
+
+    Returns:
+    - torch.Tensor: A tensor of shape (N, 4) where each bounding box is in [x, y, w, h] format.
+    """
+    # Extract coordinates
+    assert bboxes.ndim == 2  # must be a batch
+    assert bboxes.shape[1] == 4
+    x1, y1, x2, y2 = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+
+    # Compute the new format
+    x = x1
+    y = y1
+    w = x2 - x1
+    h = y2 - y1
+
+    # Stack the results back into a tensor
+    if isinstance(bboxes, torch.Tensor):
+        return torch.stack((x, y, w, h), dim=1)
+    else:
+        return np.stack((x, y, w, h), axis=1)
 
 
 def xywh2xyxy(x):
     # Convert bounding box format from [x, y, w, h] to [x1, y1, x2, y2]
-    y = torch.zeros(x.shape) if x.dtype is torch.float else np.zeros(x.shape)
+    if isinstance(x, torch.Tensor):
+        y = torch.zeros_like(x)
+    else:
+        y = np.zeros_like(x)
+    assert False  # probably wrong
     y[:, 0] = (x[:, 0] - x[:, 2] / 2)
     y[:, 1] = (x[:, 1] - x[:, 3] / 2)
     y[:, 2] = (x[:, 0] + x[:, 2] / 2)
@@ -241,7 +263,7 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
         if nTb == 0:
             continue
 
-        #gxy, gwh = t[:, 1:3] * nG, t[:, 3:5] * nG
+        # gxy, gwh = t[:, 1:3] * nG, t[:, 3:5] * nG
         gxy, gwh = t[: , 1:3].clone() , t[:, 3:5].clone()
         gxy[:, 0] = gxy[:, 0] * nGw
         gxy[:, 1] = gxy[:, 1] * nGh
@@ -251,8 +273,8 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
         gj = torch.clamp(gxy[:, 1], min=0, max=nGh -1).long()
 
         # Get grid box indices and prevent overflows (i.e. 13.01 on 13 anchors)
-        #gi, gj = torch.clamp(gxy.long(), min=0, max=nG - 1).t()
-        #gi, gj = gxy.long().t()
+        # gi, gj = torch.clamp(gxy.long(), min=0, max=nG - 1).t()
+        # gi, gj = gxy.long().t()
 
         # iou of targets-anchors (using wh only)
         box1 = gwh
@@ -304,8 +326,6 @@ def build_targets_max(target, anchor_wh, nA, nC, nGh, nGw):
         tid[b, a, gj, gi] = t_id.unsqueeze(1)
     tbox = torch.cat([txy, twh], -1)
     return tconf, tbox, tid
-
-
 
 
 def generate_anchor(nGh, nGw, anchor_wh):

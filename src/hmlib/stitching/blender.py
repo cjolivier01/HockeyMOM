@@ -14,12 +14,12 @@ import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend, show_image
 from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
-from hmlib.stitching.synchronize import get_image_geo_position, synchronize_by_audio
+from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import (
-    CachedIterator,
     GpuAllocator,
     StreamCheckpoint,
     StreamTensor,
@@ -31,7 +31,8 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
-from hmlib.video_out import ImageProcData, VideoOutput, resize_image, rotate_image
+from hmlib.utils.iterators import CachedIterator
+from hmlib.video_out import VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
@@ -123,9 +124,7 @@ class PtImageBlender:
 
     def init(self):
         # Check some sanity
-        print(
-            f"Final stitched image size: {self._seam_mask.shape[1]} x {self._seam_mask.shape[0]}"
-        )
+        print(f"Final stitched image size: {self._seam_mask.shape[1]} x {self._seam_mask.shape[0]}")
         self._unique_values = torch.unique(self._seam_mask)
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
@@ -365,9 +364,7 @@ def make_seam_and_xor_masks(
             ).isoformat()
             force = mapping_file_mtime >= seam_file_mtime
             if force:
-                print(
-                    f"Recreating seam files because mapping file is newer ({mapping_file})"
-                )
+                print(f"Recreating seam files because mapping file is newer ({mapping_file})")
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
@@ -430,9 +427,7 @@ def create_blender_config(
     return config
 
 
-def get_dims_for_output_video(
-    height: int, width: int, max_width: int, allow_resize: bool = True
-):
+def get_dims_for_output_video(height: int, width: int, max_width: int, allow_resize: bool = True):
     if allow_resize and max_width and width > max_width:
         hh = float(height)
         ww = float(width)
@@ -537,12 +532,8 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
-                device
-            )
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
-                device
-            )
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
 
             if frame_count == 0:
                 seam_tensor, xor_tensor = make_seam_and_xor_masks(
@@ -630,10 +621,7 @@ def blend_video(
                         # batch_size=batch_size,
                         cache_size=queue_size,
                     )
-                if (
-                    video_dim_height != blended.shape[-2]
-                    or video_dim_width != blended.shape[-1]
-                ):
+                if video_dim_height != blended.shape[-2] or video_dim_width != blended.shape[-1]:
                     assert False  # why is this?
                     for i in range(len(blended)):
                         resized = resize_image(
@@ -669,11 +657,11 @@ def blend_video(
                             show_image("stitched", img, wait=False)
                     if True:
                         video_out.append(
-                            ImageProcData(
-                                frame_id=frame_id,
-                                img=my_blended,
-                                current_box=None,
-                            )
+                            {
+                                "frame_id": torch.tensor(frame_id, dtype=torch.int64),
+                                "img": my_blended,
+                                "current_box": None,
+                            }
                         )
                         frame_id += len(my_blended)
                     else:
@@ -697,9 +685,7 @@ def blend_video(
 
             if frame_count % 20 == 0:
                 print(
-                    "Stitching: {:.2f} fps".format(
-                        batch_size * 1.0 / max(1e-5, timer.average_time)
-                    )
+                    "Stitching: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
                 )
                 if frame_count % 50 == 0:
                     timer = Timer()
@@ -744,6 +730,8 @@ def create_stitcher(
     batch_size: int,
     device: torch.device,
     dtype: torch.dtype,
+    left_image_size_wh: Tuple[int, int],
+    right_image_size_wh: Tuple[int, int],
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "nona",
@@ -765,20 +753,24 @@ def create_stitcher(
     xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
     xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
 
-    source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
-    assert source_tensor_1 is not None
-    source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
-    assert source_tensor_2 is not None
+    # source_tensor_1 = cv2.imread(os.path.join(dir_name, f"left.png"))
+    # assert source_tensor_1 is not None
+    # source_tensor_2 = cv2.imread(os.path.join(dir_name, f"right.png"))
+    # assert source_tensor_2 is not None
 
     remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = int(image_width(source_tensor_1))
-    remap_info_1.src_height = int(image_height(source_tensor_1))
+    remap_info_1.src_width = int(left_image_size_wh[0])
+    remap_info_1.src_height = int(left_image_size_wh[1])
+    # remap_info_1.src_width = int(image_width(source_tensor_1))
+    # remap_info_1.src_height = int(image_height(source_tensor_1))
     remap_info_1.col_map = col_map_1
     remap_info_1.row_map = row_map_1
 
     remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = int(image_width(source_tensor_2))
-    remap_info_2.src_height = int(image_height(source_tensor_2))
+    remap_info_2.src_width = int(right_image_size_wh[0])
+    remap_info_2.src_height = int(right_image_size_wh[1])
+    # remap_info_2.src_width = int(image_width(source_tensor_2))
+    # remap_info_2.src_height = int(image_height(source_tensor_2))
     remap_info_2.col_map = col_map_2
     remap_info_2.row_map = row_map_2
 
@@ -792,7 +784,6 @@ def create_stitcher(
         seam=blender_config.seam,
         xor_map=blender_config.xor_map,
         lazy_init=False,
-        interpolation=interpolation,
     )
     return stitcher, [xpos_1, ypos_1], [xpos_2, ypos_2]
 

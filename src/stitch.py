@@ -6,23 +6,23 @@ import argparse
 import os
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
-import cv2
 import torch
 
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
-from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.remapper import ImageRemapper
-from hmlib.stitching.synchronize import configure_video_stitching
+from hmlib.orientation import configure_game_videos
+from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import CachedIterator, GpuAllocator, StreamTensor
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hockeymom import core
+from hmlib.ui.show import show_image
+from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 
 ROOT_DIR = os.getcwd()
 
@@ -33,6 +33,7 @@ def make_parser():
         "--num-workers", default=1, type=int, help="Number of stitching workers"
     )
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
+    parser.add_argument("--force", action="store_true", help="Force all recalcs")
     return parser
 
 
@@ -45,14 +46,23 @@ def convert_seconds_to_hms(total_seconds):
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
+def stitch_single_frame(
+    game_id: str,
+    device: torch.device,
+    start_frame_time: Optional[str] = None,
+    auto_adjust_exposure: Optional[bool] = True,
+):
+    pass
+    assert False  # implement me! dof ro rink config at startup
+
+
 def stitch_videos(
     dir_name: str,
-    video_left: str = "left.mp4",
-    video_right: str = "right.mp4",
+    videos: Dict[str, List[Path]],
     lfo: int = None,
     rfo: int = None,
     game_id: str = None,
-    project_file_name: str = "my_project.pto",
+    project_file_name: str = "hm_project.pto",
     blend_mode: str = "multiblend",
     start_frame_number: int = 0,
     max_frames: int = None,
@@ -66,29 +76,51 @@ def stitch_videos(
     ignore_clip_box: bool = True,
     cache_size: int = 4,
     dtype: torch.dtype = torch.float,
+    start_frame_time: Optional[str] = None,
+    stitch_frame_time: Optional[str] = None,
+    force: Optional[bool] = False,
+    auto_adjust_exposure: Optional[bool] = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
-    left_vid = BasicVideoInfo(os.path.join(dir_name, video_left))
-    right_vid = BasicVideoInfo(os.path.join(dir_name, video_right))
+    left_vid = BasicVideoInfo(videos["left"])
+    right_vid = BasicVideoInfo(videos["right"])
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 
+    stitch_frame_number = 0
+    if start_frame_time and not stitch_frame_time:
+        stitch_frame_time = start_frame_time
+    if stitch_frame_time:
+        seconds = convert_hms_to_seconds(stitch_frame_time)
+        if seconds > 0:
+            stitch_frame_number = seconds * left_vid.fps
+
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
-        video_left,
-        video_right,
-        project_file_name,
+        video_left=str(videos["left"][0]),
+        video_right=str(videos["right"][0]),
+        project_file_name=project_file_name,
         left_frame_offset=lfo,
         right_frame_offset=rfo,
+        base_frame_offset=stitch_frame_number,
+        force=force,
     )
 
+    stitch_videos = {
+        "left": {
+            "files": videos["left"],
+            "frame_offset": lfo,
+        },
+        "right": {
+            "files": videos["right"],
+            "frame_offset": rfo,
+        },
+    }
+
     data_loader = StitchDataset(
-        video_file_1=os.path.join(dir_name, video_left),
-        video_file_2=os.path.join(dir_name, video_right),
         pto_project_file=pto_project_file,
-        video_1_offset_frame=lfo,
-        video_2_offset_frame=rfo,
+        videos=stitch_videos,
         start_frame_number=start_frame_number,
         output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
@@ -99,9 +131,7 @@ def stitch_videos(
         max_input_queue_size=cache_size,
         fork_workers=False,
         image_roi=(
-            get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
-            if not ignore_clip_box
-            else None
+            get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
         ),
         encoder_device=encoder_device,
         decoder_device=decoder_device,
@@ -109,6 +139,7 @@ def stitch_videos(
         remapping_device=remapping_device,
         remap_on_async_stream=remap_on_async_stream,
         dtype=dtype,
+        auto_adjust_exposure=auto_adjust_exposure,
     )
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -194,16 +225,17 @@ def stitch_videos(
 
 
 def main(args):
-    video_left = "left.mp4"
-    video_right = "right.mp4"
+    game_videos = configure_game_videos(game_id=args.game_id, force=args.force)
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
+    assert not args.start_frame_offset
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
-            video_left,
-            video_right,
+            videos=game_videos,
             lfo=args.lfo,
             rfo=args.rfo,
+            start_frame_time=args.start_frame_time,
+            stitch_frame_time=args.stitch_frame_time,
             batch_size=args.batch_size,
             project_file_name=args.project_file,
             game_id=args.game_id,
@@ -216,10 +248,10 @@ def main(args):
             cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
             remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
             encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
-            decoder_device=(
-                torch.device(args.decoder_device) if args.decoder_device else None
-            ),
+            decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
             dtype=torch.half if args.fp16 else torch.float,
+            force=args.force,
+            auto_adjust_exposure=args.stitch_auto_adjust_exposure,
         )
 
 

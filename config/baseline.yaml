@@ -2,7 +2,7 @@
 # Camera type
 #
 camera:
-  name: null
+  name: "GoPro"
   make: null
   model: null
   output-fps: null
@@ -42,8 +42,22 @@ rink:
     # 4-sided polygon that maps out the scoreboard in the perspective view
     # Should be tlbr form, with values: [x, y]
     perspective_polygon: null
-    projected_height: 300
-    projected_width: 100
+    projected_height: 500
+    projected_width: 500
+  end_zones:
+    #
+    # End zone start/stop thresholds (lines of the form (x1, y1), (x2, y2))
+    #
+    # Where we switch to end-zone view on the ldft
+    left_start: null
+    # Were we switch back to pan view on the lft
+    left_stop: null
+    # Where we switch to end-zone view on the ldft
+    right_start: null
+    # Were we switch back to pan view on the lft
+    right_stop: null
+
+
   tracking:
     #
     # Some tracking config
@@ -58,6 +72,11 @@ rink:
     image_channel_adjustment: null
     follower_box_scale_width: 1.25
     follower_box_scale_height: 1.25
+
+    # Sticky translation
+    sticky_size_ratio_to_frame_width: 10.0
+    sticky_translation_gaussian_mult: 5.0
+    unsticky_translation_size_ratio: 0.75
 
     #
     # Configuration for breakaways
@@ -94,6 +113,13 @@ game:
   away: null
 
   stitching:
+    frame_offsets:
+      left: null
+      right: null
+    control_points:
+      m_kpts0: null
+      m_kpts1: null
+
     offsets: null
 
   clip_box: null
@@ -106,22 +132,23 @@ game:
     scale_width: null
     scale_height: null
 
+
 #
 # Model config
 #
 model:
-  backbone:
-    type: dla34
-    pretrained: True
-    # pretrained_path: 'pretrained/dla34/crowdhuman_dla34.pth'
-    pretrained_path: "pretrained/dla34/my_coco_ch_e60.pth"
-    det_thres: 0.3
+  end_to_end:
+    config: config/models/hm/hm_end_to_end.py
+    checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
 
-    train:
+  pose:
+    config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py
+    checkpoint: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
 
-    test:
+  ice_rink_segm:
+    config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py
+    checkpoint: pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth
 
-  tracker:
-    type: fair
-    # type: centertrack
-    conf_thres: 0.4
+  svnh_classifier:
+    config: null
+    checkpoint: pretrained/svhnc/model-65000.pth

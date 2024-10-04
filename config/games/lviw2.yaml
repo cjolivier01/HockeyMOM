@@ -11,8 +11,12 @@ rink:
       - 1119
     projected_height: 300
     projected_width: 400
+  ice_contours_mask_count: 1
+  ice_contours_mask_centroid:
+  - 2840.017822265625
+  - 1552.6082763671875
 game:
-  boundaries:
+  _boundaries:
     upper:
     - - 14
       - 1590

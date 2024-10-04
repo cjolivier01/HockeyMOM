@@ -1,14 +1,20 @@
 import argparse
 import os
 from pathlib import Path
+from typing import List
 
 import cv2
 
-from hmlib.config import get_game_config, save_game_config, set_nested_value
+from hmlib.config import (
+    get_game_config,
+    get_nested_value,
+    save_game_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 
 
-def select_clip_box(game_id: str):
+def select_clip_box(game_id: str, rect_coords: List[int] = [], final_ar: float = 16 / 9):
 
     # Load an image
     img = cv2.imread(f'{os.environ["HOME"]}/Videos/{game_id}/s.png')
@@ -20,7 +26,7 @@ def select_clip_box(game_id: str):
     # Initialize global variables
     drawing = False  # True if mouse is pressed
     ix, iy = -1, -1  # Initial x and y coordinates
-    rect_coords = []  # Stores the coordinates of the rectangle
+    # rect_coords = []  # Stores the coordinates of the rectangle
     scale_width = 0.5  # Scaling factor for the width
     scale_height = 0.5  # Scaling factor for the height
 
@@ -33,7 +39,6 @@ def select_clip_box(game_id: str):
         y_orig = int(y / scale_height)
 
         if event == cv2.EVENT_LBUTTONDOWN:
-            print("cv2.EVENT_LBUTTONDOWN")
             drawing = True
             ix, iy = x_orig, y_orig
             rect_coords = [ix, iy, ix, iy]  # Initialize rectangle coordinates
@@ -46,7 +51,6 @@ def select_clip_box(game_id: str):
                 )  # Update bottom right corner coords
 
         elif event == cv2.EVENT_LBUTTONUP:
-            print("cv2.EVENT_LBUTTONUP")
             drawing = False
             rect_coords[2], rect_coords[3] = (
                 x_orig,
@@ -55,9 +59,7 @@ def select_clip_box(game_id: str):
 
     # Resize image
     height, width = img.shape[:2]
-    resized_img = cv2.resize(
-        img, (int(width * scale_width), int(height * scale_height))
-    )
+    resized_img = cv2.resize(img, (int(width * scale_width), int(height * scale_height)))
 
     cv2.namedWindow("image")
     cv2.setMouseCallback("image", draw_rectangle)
@@ -79,7 +81,12 @@ def select_clip_box(game_id: str):
 
         k = cv2.waitKey(1) & 0xFF
         if k == ord("q"):
-            print(f"Rectangle coordinates on original image: {rect_coords}")
+            cropped_height = rect_coords[3] - rect_coords[1]
+            cropped_width = cropped_height * final_ar
+            print(
+                f"Rectangle coordinates on original image: {rect_coords}, AR{final_ar}, "
+                f"cropped size: {int(cropped_width)} x {int(cropped_height)}"
+            )
             break
         elif k == 27:  # Esc key
             rect_coords = None
@@ -93,13 +100,15 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    args.game_id = "sharks-bb1-2"
-
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / "..")
     game_config = get_game_config(game_id=args.game_id, root_dir=root_dir)
 
-    points = select_clip_box(args.game_id)
+    rect_coords = get_nested_value(game_config, "game.clip_box")
+    if rect_coords is None:
+        rect_coords = []
+
+    points = select_clip_box(args.game_id, rect_coords=rect_coords)
 
     if points and len(points) == 4:
         set_nested_value(game_config, "game.clip_box", points)

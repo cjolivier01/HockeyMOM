@@ -1,41 +1,45 @@
-from typing import Any, List
-import torch
+from typing import Any, Callable, List, Optional
 
+import torch
 from mmcv.runner import auto_fp16
 from mmdet.datasets.pipelines import Compose
-from mmtrack.models.mot.byte_track import ByteTrack
+from mmdet.models.builder import build_neck
 from mmtrack.core import outs2results, results2outs
+from mmtrack.models.mot.byte_track import ByteTrack
 
 from ..builder import MODELS
 
 
 @MODELS.register_module()
 class HmEndToEnd(ByteTrack):
+
     def __init__(
         self,
         *args,
-        post_detection_pipeline: List[Any] = [],
+        neck: Optional[Callable] = None,
+        post_detection_pipeline: List[Any] = None,
+        enabled: bool = True,
+        num_classes_override: Optional[int] = None,
         **kwargs,
     ):
         super(HmEndToEnd, self).__init__(*args, **kwargs)
+        self._enabled = enabled
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
+        self.neck = None
+        self._num_classes_override = num_classes_override
+
+        if neck is not None:
+            self.neck = build_neck(neck)
 
     def __call__(self, *args, **kwargs):
         return super(HmEndToEnd, self).__call__(*args, **kwargs)
 
     @auto_fp16(apply_to=("img",))
     def forward(self, img, return_loss=True, **kwargs):
-        if (
-            self.post_detection_pipeline
-            and self.post_detection_composed_pipeline is None
-        ):
-            self.post_detection_composed_pipeline = Compose(
-                self.post_detection_pipeline
-            )
-        results = super(HmEndToEnd, self).forward(
-            img, return_loss=return_loss, **kwargs
-        )
+        if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
+            self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
+        results = super(HmEndToEnd, self).forward(img, return_loss=return_loss, **kwargs)
         # if self.post_detection_composed_pipeline is not None:
         #     results = self.post_detection_composed_pipeline(results)
         return results
@@ -75,6 +79,7 @@ class HmEndToEnd(ByteTrack):
                 "labels": det_labels,
                 "prune_list": ["det_bboxes", "labels"],
             }
+            data.update(**kwargs)
             data = self.post_detection_composed_pipeline(data)
             det_bboxes = data["det_bboxes"]
             det_labels = data["labels"]
@@ -90,7 +95,8 @@ class HmEndToEnd(ByteTrack):
             rescale=rescale,
             **kwargs,
         )
-
+        assert len(track_bboxes) == len(track_ids)
+        # print(f"track id {int(track_ids[0])} -> bbox = {[int(i) for i in track_bboxes[0]]}")
         track_results = outs2results(
             bboxes=track_bboxes,
             labels=track_labels,
@@ -98,10 +104,29 @@ class HmEndToEnd(ByteTrack):
             num_classes=num_classes,
         )
         det_results = outs2results(
-            bboxes=det_bboxes, labels=det_labels, num_classes=num_classes
+            bboxes=det_bboxes,
+            labels=det_labels,
+            num_classes=(
+                num_classes if self._num_classes_override is None else self._num_classes_override
+            ),
         )
 
-        return dict(
+        results = dict(
             det_bboxes=det_results["bbox_results"],
             track_bboxes=track_results["bbox_results"],
+            data=data,
         )
+        assert results["data"]["original_images"].ndim == 4
+        if self.neck is not None:
+            jersey_results = self.neck(
+                data=dict(
+                    img=results["data"]["original_images"],
+                    category_bboxes=track_results["bbox_results"],
+                ),
+            )
+            results["jersey_results"] = (
+                jersey_results["jersey_results"] if "jersey_results" in jersey_results else None
+            )
+        assert results["data"]["original_images"].ndim == 4
+
+        return results

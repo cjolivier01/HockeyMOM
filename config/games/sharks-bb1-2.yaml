@@ -7,7 +7,7 @@ game:
     offsets:
     - 2.06935921221635
     - 0
-  boundaries:
+  _boundaries:
     upper:
     - - 937
       - 1333
@@ -106,11 +106,11 @@ game:
       - 1351
       - 7724
       - 1323
-  clip_box:
-  - 714
-  - 754
-  - 7274
-  - 2374
+  _clip_box:
+  - 576
+  - 822
+  - 7480
+  - 2526
 rink:
   tracking:
     cam_ignore_largest: true
@@ -130,3 +130,7 @@ rink:
       - 1027
     - - 1157
       - 1092
+  ice_contours_mask_count: 1
+  ice_contours_mask_centroid:
+  - 3988.456298828125
+  - 1613.1497802734375

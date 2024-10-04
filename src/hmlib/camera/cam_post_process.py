@@ -5,21 +5,24 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Dict, List
+from typing import Any, Dict, Optional
 
 import torch
 
+from hmlib.builder import HM
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.box_functions import aspect_ratio
+from hmlib.utils.camera_data import CameraTrackingData
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.video_out import ImageProcData, VideoOutput
+from hmlib.video_out import VideoOutput
 from hockeymom import core
 
-MAX_CROPPED_WIDTH = 4096
+# MAX_CROPPED_WIDTH = 4096
+MAX_CROPPED_WIDTH = 7680
 
 
 ##
@@ -89,9 +92,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self.plot_frame_number = False or basic_debugging
         # self.plot_frame_number = True
 
-        self.plot_boundaries = (
-            False or basic_debugging or self.plot_individual_player_tracking
-        )
+        self.plot_boundaries = False or basic_debugging or self.plot_individual_player_tracking
         # self.plot_boundaries = True
 
         # Plot frame ID and speed/velocity in upper-left corner
@@ -134,12 +135,8 @@ class DefaultArguments(core.HMPostprocessConfig):
         # TODO: Somehow move into boundaries class like witht he clip stuff
         # TODO: Get rid of this, probably no longer needed
         #
-        self.top_border_lines = get_nested_value(
-            self.game_config, "game.boundaries.upper", []
-        )
-        self.bottom_border_lines = get_nested_value(
-            self.game_config, "game.boundaries.lower", []
-        )
+        self.top_border_lines = get_nested_value(self.game_config, "game.boundaries.upper", [])
+        self.bottom_border_lines = get_nested_value(self.game_config, "game.boundaries.lower", [])
         upper_tune_position = get_nested_value(
             self.game_config, "game.boundaries.upper_tune_position", []
         )
@@ -196,7 +193,9 @@ class DefaultArguments(core.HMPostprocessConfig):
                     setattr(target, attribute, getattr(source, attribute))
 
 
+@HM.register_module()
 class CamTrackPostProcessor:
+
     def __init__(
         self,
         hockey_mom,
@@ -204,12 +203,12 @@ class CamTrackPostProcessor:
         data_type,
         fps: float,
         save_dir,
+        output_video_path: Optional[str],
         device,
         original_clip_box,
         args: argparse.Namespace,
         save_frame_dir: str = None,
         async_post_processing: bool = False,
-        use_fork: bool = False,
         video_out_device: str = None,
         no_frame_postprocessing: bool = False,
         progress_bar: ProgressBar | None = None,
@@ -218,14 +217,12 @@ class CamTrackPostProcessor:
         self._no_frame_postprocessing = no_frame_postprocessing
         self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
-        self._queue = create_queue(mp=use_fork)
+        self._queue = create_queue(mp=False)
         self._data_type = data_type
         self._fps = fps
         self._thread = None
-        self._use_fork = use_fork
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
-        self._final_image_processing_started = False
         self._async_post_processing = async_post_processing
         self._timer = Timer()
         self._video_out_device = video_out_device
@@ -236,6 +233,9 @@ class CamTrackPostProcessor:
 
         self._save_dir = save_dir
         self._save_frame_dir = save_frame_dir
+        self._output_video_path = output_video_path
+
+        self._camera_tracking_data = None
 
         self._video_output_campp = None
         self._queue_timer = Timer()
@@ -243,121 +243,37 @@ class CamTrackPostProcessor:
         self._exception = None
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
+            play_box=hockey_mom._video_frame.bounding_box(),
             device=device,
             original_clip_box=original_clip_box,
             progress_bar=progress_bar,
             args=args,
         )
+        self.secondary_init()
 
-    def start(self):
-        if self._use_fork:
-            self._child_pid = os.fork()
-            if not self._child_pid:
-                self._start()
-        else:
-            self._thread = Thread(target=self._start, name="CamPostProc")
-            self._thread.start()
-
-    def _start(self):
-        return self.postprocess_frame_worker()
-
-    def stop(self):
-        if self._thread is not None:
-            self._queue.put(None)
-            self._thread.join()
-            self._thread = None
-
-        elif self.use_fork:
-            self._queue.put(None)
-            if self._child_pid:
-                os.waitpid(self._child_pid)
-        self._video_output_campp.stop()
-
-    def send(
-        self, online_tlwhs, online_ids, detections, info_imgs, image, original_img
-    ):
-        if self._exception is not None:
-            raise self._exception
-        try:
-            with TimeTracker(
-                "Send to cam post process queue",
-                self._send_to_timer_post_process,
-                print_interval=50,
-            ):
-                wait_count = 0
-                while self._queue.qsize() > 1:
-                    if not self._args.debug and not self._args.show_image:
-                        wait_count += 1
-                        if wait_count % 100 == 0:
-                            logger.info("Cam post-process queue too large")
-                    time.sleep(0.001)
-                if self._async_post_processing:
-                    self._queue.put(
-                        (
-                            online_tlwhs,
-                            online_ids,
-                            detections,
-                            info_imgs,
-                            image,
-                            original_img,
-                        )
-                    )
-                else:
-                    online_targets_and_img = (
-                        online_tlwhs,
-                        online_ids,
-                        detections,
-                        info_imgs,
-                        image,
-                        original_img,
-                    )
-                    self.cam_postprocess(online_targets_and_img=online_targets_and_img)
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
-
-    def postprocess_frame_worker(self):
-        try:
-            self._postprocess_frame_worker()
-        except Exception as ex:
-            self._exception = ex
-            print(ex)
-            traceback.print_exc()
-            raise
-        finally:
-            if self._video_output_campp is not None:
-                self._video_output_campp.stop()
-
-    def _postprocess_frame_worker(self):
+    def secondary_init(self):
         if self._args.crop_output_image:
             self.final_frame_height = self._hockey_mom.video.height
-            self.final_frame_width = (
-                self._hockey_mom.video.height * self._final_aspect_ratio
-            )
+            self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
             if self.final_frame_width > MAX_CROPPED_WIDTH:
                 self.final_frame_width = MAX_CROPPED_WIDTH
-                self.final_frame_height = (
-                    self.final_frame_width / self._final_aspect_ratio
-                )
+                self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
 
         else:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
 
+        if self._args.save_camera_data:
+            self._camera_tracking_data = CameraTrackingData(
+                output_file=os.path.join(self._save_dir, "camera.csv")
+            )
+
         if not self._no_frame_postprocessing:
             assert self._video_output_campp is None
-            output_video_path = self._args._output_video_path
-            if output_video_path is None:
-                output_video_path = (
-                    os.path.join(self._save_dir, "tracking_output.mkv")
-                    if self._save_dir is not None
-                    else None
-                )
             self._video_output_campp = VideoOutput(
                 name="TRACKING",
                 args=self._args,
-                output_video_path=output_video_path,
+                output_video_path=self.output_video_path,
                 fps=self._fps,
                 use_fork=False,
                 start=False,
@@ -387,26 +303,100 @@ class CamTrackPostProcessor:
             )
             self._video_output_campp.start()
 
+    def eval(self):
         self._play_tracker.eval()
 
+    @property
+    def output_video_path(self):
+        return self._output_video_path
+
+    def start(self):
+        self._thread = Thread(target=self._start, name="CamPostProc")
+        self._thread.start()
+
+    def _start(self):
+        return self.postprocess_frame_worker()
+
+    def stop(self):
+        if self._thread is not None:
+            self._queue.put(None)
+            self._thread.join()
+            self._thread = None
+
+        elif self.use_fork:
+            self._queue.put(None)
+            if self._child_pid:
+                os.waitpid(self._child_pid)
+        self._video_output_campp.stop()
+
+    def send(
+        self,
+        data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if self._exception is not None:
+            raise self._exception
+        try:
+            if self._async_post_processing:
+                with TimeTracker(
+                    "Send to cam post process queue",
+                    self._send_to_timer_post_process,
+                    print_interval=50,
+                ):
+                    wait_count = 0
+                    while self._queue.qsize() > 1:
+                        if not self._args.debug and not self._args.show_image:
+                            wait_count += 1
+                            if wait_count % 100 == 0:
+                                logger.info("Cam post-process queue too large")
+                        time.sleep(0.001)
+                    self._queue.put(data)
+            else:
+                with torch.no_grad():
+                    data = self._play_tracker.forward(online_targets_and_img=data)
+                current_box = data["current_box"]
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                if self._video_output_campp is not None:
+                    self._video_output_campp.append(data)
+                if self._args.save_camera_data is not None:
+                    self._args.save_camera_data.add_frame_records(
+                        frame_id=data["frame_id"],
+                        tlbr=current_box,
+                    )
+                return data
+        except Exception as ex:
+            print(ex)
+            traceback.print_exc()
+            raise
+
+    def postprocess_frame_worker(self):
+        try:
+            self._postprocess_frame_worker()
+        except Exception as ex:
+            self._exception = ex
+            print(ex)
+            traceback.print_exc()
+            raise
+        finally:
+            if self._video_output_campp is not None:
+                self._video_output_campp.stop()
+
+    def _postprocess_frame_worker(self):
         while True:
             online_targets_and_img = self._queue.get()
             if online_targets_and_img is None:
                 break
 
             with torch.no_grad():
-                frame_id, online_im, current_box = self._play_tracker.forward(
-                    online_targets_and_img=online_targets_and_img
-                )
-
+                data = self._play_tracker.forward(online_targets_and_img=online_targets_and_img)
+            current_box = data["current_box"]
             assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
             if self._video_output_campp is not None:
-                imgproc_data = ImageProcData(
-                    frame_id=frame_id,
-                    img=online_im,
-                    current_box=current_box,
+                self._video_output_campp.append(data)
+            if self._camera_tracking_data is not None:
+                self._camera_tracking_data.add_frame_records(
+                    frame_id=data["frame_id"],
+                    tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
                 )
-                self._video_output_campp.append(imgproc_data)
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 

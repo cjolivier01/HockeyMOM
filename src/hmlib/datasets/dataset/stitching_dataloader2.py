@@ -6,9 +6,8 @@ import argparse
 import os
 import threading
 import traceback
-from contextlib import nullcontext
 from pathlib import Path
-from typing import List, Union
+from typing import Callable, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -17,18 +16,12 @@ import torch
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.stitching.blender import create_stitcher
+from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.stitching.laplacian_blend import show_image
-from hmlib.stitching.synchronize import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    CachedIterator,
-    StreamCheckpoint,
-    StreamTensor,
-    async_to,
-    cuda_stream_scope,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, async_to, cuda_stream_scope
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -36,12 +29,13 @@ from hmlib.utils.image import (
     make_channels_last,
     make_visible_image,
 )
-from hmlib.video_out import ImageProcData, VideoOutput  # optional_with,
+from hmlib.utils.iterators import CachedIterator
+from hmlib.video_out import VideoOutput  # optional_with,
 from hockeymom import core
 
 
 def _get_dir_name(path):
-    if os.path.isdir(path):
+    if os.path.isdir(str(path)):
         return path
     return Path(path).parent
 
@@ -84,9 +78,7 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 
 class MultiDataLoaderWrapper:
-    def __init__(
-        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
-    ):
+    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0):
         self._dataloaders = dataloaders
         self._iters = []
         self._input_queueue_size = input_queueue_size
@@ -97,9 +89,7 @@ class MultiDataLoaderWrapper:
         for dl in self._dataloaders:
             if self._input_queueue_size:
                 self._iters.append(
-                    CachedIterator(
-                        iterator=iter(dl), cache_size=self._input_queueue_size
-                    )
+                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
                 )
             else:
                 self._iters.append(iter(dl))
@@ -147,13 +137,13 @@ def as_torch_device(device):
 #
 #
 class StitchDataset:
+
     def __init__(
         self,
-        video_file_1: str,
-        video_file_2: str,
+        videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        video_1_offset_frame: int = None,
-        video_2_offset_frame: int = None,
+        # video_1_offset_frame: int = None,
+        # video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
@@ -172,6 +162,8 @@ class StitchDataset:
         remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
+        auto_adjust_exposure: bool = False,
+        on_first_stitched_image_callback: Optional[Callable] = None,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -183,22 +175,24 @@ class StitchDataset:
         self._remap_on_async_stream = remap_on_async_stream
         self._encoder_device = as_torch_device(encoder_device)
         self._output_stitched_video_file = output_stitched_video_file
-        self._video_1_offset_frame = video_1_offset_frame
-        self._video_2_offset_frame = video_2_offset_frame
-        self._video_file_1 = video_file_1
-        self._video_file_2 = video_file_2
+        self._video_left_offset_frame = videos["left"]["frame_offset"]
+        self._video_right_offset_frame = videos["right"]["frame_offset"]
+        self._videos = videos
+        # self._video_file_1 = video_file_1
+        # self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
         self._blend_thread_count = blend_thread_count
         self._blend_mode = blend_mode
-        self._max_frames = (
-            max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
-        )
+        self._auto_adjust_exposure = auto_adjust_exposure
+        self._exposure_adjustment: List[float] = None
+        self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._to_coordinator_queue = create_queue(mp=False)
         self._from_coordinator_queue = create_queue(mp=False)
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
+        self._on_first_stitched_image_callback = on_first_stitched_image_callback
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -231,18 +225,19 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
-        self._video_1_info = BasicVideoInfo(video_file_1)
-        self._video_2_info = BasicVideoInfo(video_file_2)
+        self._video_left_info = BasicVideoInfo(videos["left"]["files"])
+        self._video_right_info = BasicVideoInfo(videos["right"]["files"])
+        self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
-        assert self._video_1_info.fps == self._video_2_info.fps
+        assert np.isclose(self._video_left_info.fps, self._video_right_info.fps)
 
-        v1o = 0 if self._video_1_offset_frame is None else self._video_1_offset_frame
-        v2o = 0 if self._video_2_offset_frame is None else self._video_2_offset_frame
+        v1o = 0 if self._video_left_offset_frame is None else self._video_left_offset_frame
+        v2o = 0 if self._video_right_offset_frame is None else self._video_right_offset_frame
         self._total_number_of_frames = int(
             min(
-                self._video_1_info.frame_count - v1o,
-                self._video_2_info.frame_count - v2o,
+                self._video_left_info.frame_count - v1o,
+                self._video_right_info.frame_count - v2o,
             )
         )
         self._stitcher = None
@@ -254,13 +249,13 @@ class StitchDataset:
 
     @property
     def lfo(self):
-        assert self._video_1_offset_frame is not None
-        return self._video_1_offset_frame
+        assert self._video_left_offset_frame is not None
+        return self._video_left_offset_frame
 
     @property
     def rfo(self):
-        assert self._video_2_offset_frame is not None
-        return self._video_2_offset_frame
+        assert self._video_right_offset_frame is not None
+        return self._video_right_offset_frame
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -279,14 +274,14 @@ class StitchDataset:
         frame_step_1 = 1
         frame_step_2 = 1
 
-        if self._video_1_info.fps > self._video_2_info.fps:
-            int_ratio = self._video_1_info.fps // self._video_2_info.fps
-            float_ratio = self._video_1_info.fps / self._video_2_info.fps
+        if self._video_left_info.fps > self._video_right_info.fps:
+            int_ratio = self._video_left_info.fps // self._video_right_info.fps
+            float_ratio = self._video_left_info.fps / self._video_right_info.fps
             if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
                 frame_step_1 = int(int_ratio)
-        elif self._video_2_info.fps > self._video_1_info.fps:
-            int_ratio = self._video_2_info.fps // self._video_1_info.fps
-            float_ratio = self._video_2_info.fps / self._video_1_info.fps
+        elif self._video_right_info.fps > self._video_left_info.fps:
+            int_ratio = self._video_right_info.fps // self._video_left_info.fps
+            float_ratio = self._video_right_info.fps / self._video_left_info.fps
             if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
                 frame_step_2 = int(int_ratio)
 
@@ -296,11 +291,11 @@ class StitchDataset:
         dataloaders = []
         dataloaders.append(
             MOTLoadVideoWithOrig(
-                path=self._video_file_1,
+                path=self._videos["left"]["files"],
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_1_offset_frame,
+                start_frame_number=start_frame_number + self._video_left_offset_frame,
                 original_image_only=True,
                 stream_tensors=True,
                 dtype=self._dtype,
@@ -311,11 +306,11 @@ class StitchDataset:
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
-                path=self._video_file_2,
+                path=self._videos["right"]["files"],
                 img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_2_offset_frame,
+                start_frame_number=start_frame_number + self._video_right_offset_frame,
                 original_image_only=True,
                 stream_tensors=True,
                 dtype=self._dtype,
@@ -330,29 +325,31 @@ class StitchDataset:
         return stitching_worker
 
     def configure_stitching(self):
-        if self._video_1_offset_frame is None or self._video_2_offset_frame is None:
-            dir_name = _get_dir_name(self._video_file_1)
+        if self._video_left_offset_frame is None or self._video_right_offset_frame is None:
             self._pto_project_file, lfo, rfo = configure_video_stitching(
-                dir_name,
-                self._video_file_1,
-                self._video_file_2,
-                left_frame_offset=self._video_1_offset_frame,
-                right_frame_offset=self._video_2_offset_frame,
+                self._dir_name,
+                video_left=self._videos["left"]["files"][0],
+                video_right=self._videos["right"]["files"][0],
+                left_frame_offset=self._video_left_offset_frame,
+                right_frame_offset=self._video_right_offset_frame,
             )
-            self._video_1_offset_frame = lfo
-            self._video_2_offset_frame = rfo
+            self._video_left_offset_frame = lfo
+            self._video_right_offset_frame = rfo
 
     def initialize(self):
         if self._auto_configure:
             self.configure_stitching()
 
     def _load_video_props(self):
-        video1 = cv2.VideoCapture(self._video_file_1)
-        if not video1.isOpened():
-            raise AssertionError(f"Could not open video file: {self._video_file_1}")
-        self._fps = video1.get(cv2.CAP_PROP_FPS)
-        self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
-        video1.release()
+        info = BasicVideoInfo(self._videos["left"]["files"])
+        self._fps = info.fps
+        self._bitrate = info.bitrate
+        # video1 = cv2.VideoCapture(self._video_file_1)
+        # if not video1.isOpened():
+        #     raise AssertionError(f"Could not open video file: {self._video_file_1}")
+        # self._fps = video1.get(cv2.CAP_PROP_FPS)
+        # self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
+        # video1.release()
 
     @property
     def fps(self):
@@ -375,9 +372,53 @@ class StitchDataset:
             self._video_output.stop()
             self._video_output = None
 
+    def _adjust_exposures(self, images: List[torch.Tensor]) -> List[torch.Tensor]:
+        # We assume 0 is left, 1 is right, so we chop right 1/4 of
+        # left image and left 1/4 of right image for the exposure comparison
+        if self._exposure_adjustment is None:
+            self._exposure_adjustment = []
+            # self._exposure_adjustment: List[float] = None
+            # TODO: would be good to only check the rink segmentation area
+            means: List[torch.Tensor] = []
+            max_mean = -1
+            max_index = -1
+            for i, img in enumerate(images):
+                img = make_channels_first(img)
+                w = int(image_width(img))
+                slice_w = int(w // 4)
+                if i == 0:
+                    # Left image
+                    img = img[:, :, :, w - slice_w :]
+                elif i == 1:
+                    # Right image
+                    img = img[:, :, :, :slice_w]
+                else:
+                    assert False  # oops
+
+                if not torch.is_floating_point(img):
+                    img = img.to(torch.float)
+
+                this_mean = torch.mean(img)
+                means.append(this_mean)
+                if this_mean > max_mean:
+                    max_mean = this_mean
+                    max_index = i
+            for i, m in enumerate(means):
+                if i == max_index:
+                    self._exposure_adjustment.append(None)
+                    continue
+                exposure_ratio = max_mean / m
+                self._exposure_adjustment.append(exposure_ratio)
+        if self._exposure_adjustment is not None and not self._exposure_adjustment:
+            # No exposure entries
+            return images
+        for i, exp in enumerate(self._exposure_adjustment):
+            if exp is not None:
+                images[i] = images[i] * exp
+        return images
+
     def _prepare_next_frame(self, frame_id: int):
         try:
-            # INFO(f"_prepare_next_frame( {frame_id} )")
             self._prepare_next_frame_timer.tic()
 
             stitching_worker = self._stitching_workers[self._current_worker]
@@ -387,9 +428,6 @@ class StitchDataset:
             ids_1 = images[0][-1]
 
             imgs_2 = images[1][0]
-            # ids_2 = images[1][-1]
-
-            # assert ids_1 == ids_2
 
             with torch.no_grad():
                 assert isinstance(images, list)
@@ -399,15 +437,11 @@ class StitchDataset:
                     img = make_channels_first(img)
                     if img.device != self._remapping_device:
                         img = async_to(img, device=self._remapping_device)
-                        # img = img.to(self._remapping_device, non_blocking=True)
                     if img.dtype != self._dtype:
-                        # img = async_to(img, dtype=self._dtype)
                         img = img.to(self._dtype, non_blocking=True)
                     return img
 
                 stream = None
-                # if imgs_1.device.type == "cpu":
-                #     stream = self._remapping_stream
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
                     sinfo_1 = core.StitchImageInfo()
@@ -418,19 +452,17 @@ class StitchDataset:
                     sinfo_2.image = _prepare_image(to_tensor(imgs_2))
                     sinfo_2.xy_pos = self._xy_pos_2
 
-                    blended_stream_tensor = self._stitcher.forward(
-                        inputs=[sinfo_1, sinfo_2]
-                    )
-                    if stream is not None:
-                        blended_stream_tensor = StreamCheckpoint(
-                            tensor=blended_stream_tensor
+                    if self._auto_adjust_exposure:
+                        sinfo_1.image, sinfo_2.image = self._adjust_exposures(
+                            images=[sinfo_1.image, sinfo_2.image]
                         )
+
+                    blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                    if stream is not None:
+                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
 
-            # torch.cuda.synchronize()
-            self._current_worker = (self._current_worker + 1) % len(
-                self._stitching_workers
-            )
+            self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
@@ -468,6 +500,7 @@ class StitchDataset:
             args.use_watermark = False
             args.show_image = False
             args.plot_frame_number = False
+            args.end_zones = False
             self._video_output_size = torch.tensor(
                 [image_width(stitched_frame), image_height(stitched_frame)],
                 dtype=torch.int32,
@@ -495,14 +528,14 @@ class StitchDataset:
         # assert False and "What's up with the / 255.0 down there?"
         if not self._video_output.is_cuda_encoder():
             stitched_frame = to_tensor(stitched_frame)
-        image_proc_data = ImageProcData(
-            frame_id=frame_id,
+        image_proc_data = {
+            "frame_id": torch.tensor(frame_id, dtype=torch.int64),
             # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
             # img=to_tensor(stitched_frame),
-            img=stitched_frame,
+            "img": stitched_frame,
             # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            current_box=self._video_output_box.detach().clone(),
-        )
+            "current_box": self._video_output_box.detach().clone(),
+        }
         # torch.cuda.synchronize()
         self._video_output.append(image_proc_data)
         return stitched_frame
@@ -514,8 +547,10 @@ class StitchDataset:
             #
             assert self._stitcher is None
             self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
-                dir_name=os.path.dirname(self._video_file_1),
+                dir_name=self._dir_name,
                 batch_size=self._batch_size,
+                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                right_image_size_wh=(self._video_right_info.width, self._video_right_info.height),
                 device=self._remapping_device,
                 dtype=self._dtype,
                 remap_on_async_stream=self._remap_on_async_stream,
@@ -555,9 +590,7 @@ class StitchDataset:
                 else:
                     image = make_channels_last(image)[:, :, :3]
         else:
-            image_roi = fix_clip_box(
-                image_roi, [image_height(image), image_width(image)]
-            )
+            image_roi = fix_clip_box(image_roi, [image_height(image), image_width(image)])
             if len(image.shape) == 4:
                 image = make_channels_last(image)[
                     :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
@@ -576,9 +609,7 @@ class StitchDataset:
             for worker_number in range(self._num_workers):
                 max_for_worker = self._max_frames
                 if max_for_worker is not None:
-                    max_for_worker = distribute_items_detailed(
-                        self._max_frames, self._num_workers
-                    )[
+                    max_for_worker = distribute_items_detailed(self._max_frames, self._num_workers)[
                         worker_number
                     ]  # TODO: call just once
                 self._stitching_workers[worker_number] = iter(
@@ -606,8 +637,7 @@ class StitchDataset:
             # INFO(f"Locally dequeued frame id: {self._current_frame}")
             if (
                 not self._max_frames
-                or self._next_requested_frame
-                < self._start_frame_number + self._max_frames
+                or self._next_requested_frame < self._start_frame_number + self._max_frames
             ):
                 # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
                 self._to_coordinator_queue.put(self._next_requested_frame)
@@ -661,13 +691,15 @@ class StitchDataset:
         )
 
         if self._batch_count == 1:
-            frame_path = os.path.join(_get_dir_name(self._video_file_1), "s.png")
+            frame_path = os.path.join(self._dir_name, "s.png")
             print(
                 f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
             )
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
+            if self._on_first_stitched_image_callback is not None:
+                self._on_first_stitched_image_callback(stitched_frame[0])
 
         assert stitched_frame.ndim == 4
         stitched_frame = self._send_frame_to_video_out(

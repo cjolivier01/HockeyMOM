@@ -1,0 +1,278 @@
+import argparse
+import os
+import re
+from collections import OrderedDict
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import torch
+
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
+from hmlib.hm_opts import hm_opts
+from hmlib.models.loader import get_model_config
+from hmlib.segm.ice_rink import find_ice_rink_masks
+from hmlib.ui.show import show_image
+from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.image import image_height, image_width
+from hmlib.utils.video import load_first_video_frame
+
+# GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
+# number
+GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.MP4$"
+LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.mp4$"
+RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.mp4$"
+LEFT_FILE_PATTERN: str = r"left.mp4"
+RIGHT_FILE_PATTERN: str = r"right.mp4"
+
+
+VideosDict = Dict[Union[int, str], List[Dict[Union[int, str], Any]]]
+
+
+def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
+    """
+    Get video and chapter number
+
+    Returns: (video number, chapter number)
+    """
+    name = Path(filename).stem
+    assert name[0] == "G"
+    assert name[1] in {"H", "X"}
+    return int(name[4:8]), int(name[2:4])
+
+
+def get_lr_part_number(filename: str) -> int:
+    """
+    Get video and chapter number
+
+    Returns: (video number, chapter number)
+    """
+    name = Path(filename).stem
+    tokens = name.split("-")
+    return int(tokens[-1])
+
+
+def find_matching_files(pattern: str, directory: str) -> List[str]:
+    # Regex to match the file format 'GLXXXXXX.mp4'
+    pattern = re.compile(pattern)
+
+    # List to store the names of matching files
+    matching_files: List[str] = []
+
+    # Iterate over all the files in the directory
+    for filename in os.listdir(directory):
+        # Check if the filename matches the pattern
+        if pattern.match(filename):
+            matching_files.append(os.path.join(directory, filename))
+
+    return sorted(matching_files)
+
+
+def get_available_videos(dir_name: str) -> VideosDict:
+    """
+    Get available videos in the given directory
+
+    :return: # Video # / left|right -> Chapter # -> filename
+    """
+    gopro_files: List[str] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
+    # Video # / left|right -> Chapter # -> filename
+    videos_dict: Dict[Union[int, str], List[Dict[int, str]]] = OrderedDict()
+    for file in gopro_files:
+        video, chapter = gopro_get_video_and_chapter(filename=file)
+        if video not in videos_dict:
+            videos_dict[video] = {}
+        videos_dict[video][chapter] = file
+
+    # Plain left file
+    files: List[str] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    if files:
+        assert len(files) == 1
+        videos_dict["left"] = {}
+        videos_dict["left"][1] = files[0]
+    else:
+        files = find_matching_files(pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
+        if files:
+            videos_dict["left"] = {}
+            for file in sorted(files):
+                videos_dict["left"][get_lr_part_number(file)] = file
+
+    # Plain right file
+    files: List[str] = find_matching_files(pattern=RIGHT_FILE_PATTERN, directory=dir_name)
+    if files:
+        assert len(files) == 1
+        videos_dict["right"] = {}
+        videos_dict["right"][1] = files[0]
+    else:
+        files = find_matching_files(pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
+        if files:
+            videos_dict["right"] = {}
+            for file in sorted(files):
+                videos_dict["right"][get_lr_part_number(file)] = file
+    return videos_dict
+
+
+def detect_video_rink_masks(
+    game_id: str,
+    videos_dict: VideosDict,
+    device: torch.device = None,
+) -> VideosDict:
+    if device is None:
+        gpu_allocator = GpuAllocator(gpus=None)
+        device: torch.device = (
+            torch.device("cuda", gpu_allocator.allocate_fast())
+            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
+            else torch.device("cpu")
+        )
+
+    keys = []
+    images: List[torch.Tensor] = []
+    for key, value in videos_dict.items():
+        keys.append(key)
+        frame = load_first_video_frame(value[1])
+        images.append(frame)
+        value["first_frame"] = load_first_video_frame(value[1])
+
+    config_file, checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+
+    frame_ir_masks = find_ice_rink_masks(
+        image=images,
+        config_file=config_file,
+        checkpoint=checkpoint,
+        device=device,
+    )
+    assert len(frame_ir_masks) == len(keys)
+    for i, key in enumerate(keys):
+        videos_dict[key]["rink_profile"] = frame_ir_masks[i]
+
+    return videos_dict
+
+
+def get_orientation(rink_mask: torch.Tensor) -> str:
+    assert rink_mask.dtype == torch.bool
+    assert rink_mask.ndim == 2
+    width = image_width(rink_mask)
+
+    float_mask = rink_mask.to(torch.float)
+    divisor = 8
+    left_sum = float_mask[:, : int(width // divisor)].sum().item()
+    right_sum = float_mask[:, int(width - width // divisor) :].sum().item()
+
+    # show_image("mask", float_mask * 255)
+
+    if left_sum > right_sum:
+        # Most ice on the left of image, so this is the right side
+        return "right"
+    if right_sum > left_sum:
+        # Most ice on the right of image, so this is the left side
+        return "left"
+
+    # For right end-zone, most ice will be at the bottom and left
+    # height = image_height(rink_mask)
+    # top_sum = float_mask[: int(height // divisor), :].sum()
+    # bottom_sum = float_mask[int(height // divisor) :, :].sum()
+
+    return "UNKNOWN"
+
+
+def get_game_videos_analysis(
+    game_id: str, videos_dict: Optional[VideosDict] = None, device: torch.device = None
+) -> VideosDict:
+    if videos_dict is None:
+        videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
+    videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict, device=device)
+
+    new_dict: VideosDict = {}
+
+    for key, value in videos_dict.items():
+        mask = value["rink_profile"]["combined_mask"]
+        orientation = get_orientation(torch.from_numpy(mask))
+        if isinstance(key, str):
+            if key.startswith("left"):
+                assert orientation == "left"
+            elif key.startswith("right"):
+                assert orientation == "right"
+        if orientation in videos_dict:
+            if isinstance(key, str):
+                assert key.startswith(orientation)
+        else:
+            new_dict[orientation] = value
+        print(f"{key} orientation: {orientation}")
+    videos_dict.update(new_dict)
+    return videos_dict
+
+
+def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
+    file_list: List[str] = []
+    index = 1
+    while index in chapter_map:
+        file_list.append(chapter_map[index])
+        index += 1
+    return file_list
+
+
+def configure_game_videos(
+    game_id: str,
+    force: bool = False,
+    write_results: bool = True,
+    device: torch.device = None,
+) -> Dict[str, List[str]]:
+    dir_name = get_game_dir(game_id=game_id)
+    videos_dict = get_available_videos(dir_name=dir_name)
+    if not force and ("left" in videos_dict and "right" in videos_dict):
+        return {
+            "left": extract_chapters_file_list(videos_dict["left"]),
+            "right": extract_chapters_file_list(videos_dict["right"]),
+        }
+    private_config = get_game_config_private(game_id=game_id)
+    if not force:
+        # See if we have it already
+        left_list = get_nested_value(private_config, "game.videos.left")
+        right_list = get_nested_value(private_config, "game.videos.right")
+        if left_list and right_list:
+            left_list = [os.path.join(dir_name, p) for p in left_list]
+            right_list = [os.path.join(dir_name, p) for p in right_list]
+            return {
+                "left": left_list,
+                "right": right_list,
+            }
+    videos_dict = get_game_videos_analysis(game_id=game_id, device=device)
+    left_list = extract_chapters_file_list(videos_dict["left"])
+    right_list = extract_chapters_file_list(videos_dict["right"])
+    if write_results:
+        set_nested_value(private_config, "game.videos.left", [Path(p).name for p in left_list])
+        set_nested_value(private_config, "game.videos.right", [Path(p).name for p in right_list])
+        save_private_config(game_id=game_id, data=private_config)
+    return {
+        "left": left_list,
+        "right": right_list,
+    }
+
+
+def main(args: argparse.Namespace):
+    game_id = args.game_id
+    assert game_id
+    results = configure_game_videos(game_id=game_id)
+    # videos_dict = get_game_videos_analysis(game_id=game_id)
+    print(results)
+
+
+def make_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser("Video Orientation Analysis")
+    parser.add_argument("--force", action="store_true", help="Force all recalculations")
+    return parser
+
+
+if __name__ == "__main__":
+    parser = make_parser()
+    parser = hm_opts.parser(parser=parser)
+    args = parser.parse_args()
+
+    args.game_id = "test"
+
+    main(args)
+    print("Done.")

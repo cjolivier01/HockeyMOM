@@ -523,6 +523,8 @@ def is_channels_last(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
 
 
 def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if img.ndim == 2:
+        return img.shape[1]
     if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
@@ -530,6 +532,8 @@ def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[1] in [1, 3, 4]
                 return img.shape[-1]
+        elif img.ndim == 2:
+            return img.shape[1]
         else:
             assert img.ndim == 3
             if img.shape[-1] in [1, 3, 4]:
@@ -537,13 +541,15 @@ def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[0] in [1, 3, 4]
                 return img.shape[-1]
-    assert img.shape[-1] in [3, 4]
+    assert img.shape[-1] in [1, 3, 4]
     if len(img.shape) == 4:
         return img.shape[2]
     return img.shape[1]
 
 
 def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+    if img.ndim == 2:
+        return img.shape[0]
     if isinstance(img, (torch.Tensor, StreamTensor)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
@@ -551,6 +557,8 @@ def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[1] in [1, 3, 4]
                 return img.shape[-2]
+        elif img.ndim == 2:
+            return img.shape[0]
         else:
             assert img.ndim == 3
             if img.shape[-1] in [1, 3, 4]:
@@ -558,7 +566,7 @@ def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
             else:
                 assert img.shape[0] in [1, 3, 4]
                 return img.shape[-2]
-    assert img.shape[-1] in [3, 4]
+    assert img.shape[-1] in [1, 3, 4]
     if len(img.shape) == 4:
         return img.shape[1]
     return img.shape[0]
@@ -699,3 +707,24 @@ def get_complete_monitor_width():
     for monitor in get_monitors():
         width += monitor.width
     return width
+
+
+# class ChannelsFirst:
+#     def __init__(self, img: Union[torch.Tensor, np.ndarray]):
+#         self._img = img
+
+#     def __enter__(self) -> Union[torch.Tensor, np.ndarray]:
+#         img = self._img
+#         self._img = None
+#         self._was_channels_first = is_channels_first(img)
+#         if not self._was_channels_first:
+#             img = make_channels_first(img)
+#         return img, self
+
+#     def restore(self, img: Union[torch.Tensor, np.ndarray]):
+#         if not self._was_channels_first:
+#             img = make_channels_last(img)
+#         return img
+
+#     def __exit__(self, *args, **kwargs):
+#         return None

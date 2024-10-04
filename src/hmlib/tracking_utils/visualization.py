@@ -1,13 +1,12 @@
-import copy
-import math
-from typing import List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
-from sklearn.cluster import KMeans
 
-from hmlib.utils.image import get_complete_monitor_width, image_width
+import hmlib.utils.pt_visualization as ptv
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import image_width
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -28,6 +27,8 @@ def get_color(idx):
 
 def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
+    if isinstance(image, StreamTensor):
+        image = image.get()
     if isinstance(image, torch.Tensor):
         if image.dtype == torch.float16:
             image = image.to(torch.float32)
@@ -45,28 +46,27 @@ def plot_rectangle(
     label: Union[str, None] = None,
     text_scale: int = 1,
 ):
-    if False and isinstance(img, torch.Tensor):
-        return plot_torch_rectangle(
-            image_tensor=img,
+    intbox = [int(i) for i in box]
+    if isinstance(img, torch.Tensor):
+        img = plot_torch_rectangle(
+            image=img,
             tlbr=box,
             color=normalize_color(img, color),
             thickness=thickness,
-            label=label,
-            text_scale=text_scale,
         )
-    img = to_cv2(img)
-    intbox = [int(i) for i in box]
-    cv2.rectangle(
-        img,
-        intbox[0:2],
-        intbox[2:4],
-        color=normalize_color(img, color),
-        thickness=thickness,
-    )
+    else:
+        img = to_cv2(img)
+        cv2.rectangle(
+            img,
+            intbox[0:2],
+            intbox[2:4],
+            color=normalize_color(img, color),
+            thickness=thickness,
+        )
 
     if label:
         text_thickness = 2
-        cv2.putText(
+        img = my_put_text(
             img,
             label,
             (intbox[0], intbox[1] + 30),
@@ -124,7 +124,8 @@ def plot_alpha_rectangle(
 
     if label:
         text_thickness = 2
-        cv2.putText(
+        rectangled_image = my_put_text(
+            # cv2.putText(
             rectangled_image,
             label,
             (intbox[0], intbox[1] + 30),
@@ -137,47 +138,16 @@ def plot_alpha_rectangle(
 
 
 def plot_torch_rectangle(
-    image_tensor: torch.Tensor,
+    image: torch.Tensor,
     tlbr: torch.Tensor,
     color: Tuple[int, int, int],
     thickness: int = 1,
-    label: str = None,
-    text_scale: float = 1,
+    alpha: int = 255,
 ):
-    """
-    Draw a light purple box with a touch of green on the image tensor.
-
-    :param image_tensor: A PyTorch tensor of shape (3, H, W) representing an RGB image.
-    :param top_left: A tuple (x, y) representing the top left coordinate of the box.
-    :param bottom_right: A tuple (x, y) representing the bottom right coordinate of the box.
-    :return: Modified image tensor with the light purple-green box.
-    """
-    # Light purple with a touch of green color in RGB
-    color_value = torch.tensor(
-        color, dtype=image_tensor.dtype, device=image_tensor.device
-    )
-    # Unpack coordinates
-    top_x, top_y = tlbr[:2].to(torch.int64)
-    # top_x -= (thickness + 1) // 2
-    # top_y -= (thickness + 1) // 2
-
-    bottom_x, bottom_y = tlbr[2:].to(torch.int64)
-    # bottom_x += thickness // 2
-    # bottom_y += thickness // 2
-
-    # Draw top and bottom lines of the box
-    image_tensor[:, top_y : top_y - thickness, top_x:bottom_x] = color_value.unsqueeze(
-        1
-    )
-    image_tensor[:, bottom_y : bottom_y + thickness, top_x:bottom_x] = (
-        color_value.unsqueeze(1)
-    )
-
-    # Draw left and right lines of the box
-    image_tensor[top_y:bottom_y, top_x - thickness, :] = color_value.unsqueeze(1)
-    image_tensor[top_y:bottom_y, bottom_x + thickness, :] = color_value.unsqueeze(1)
-
-    return image_tensor
+    assert isinstance(image, torch.Tensor)
+    return ptv.draw_box(
+        image=image.unsqueeze(0), tlbr=tlbr, color=color, thickness=thickness, alpha=alpha
+    ).squeeze(0)
 
 
 def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
@@ -337,8 +307,32 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     return im
 
 
+def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
+    if isinstance(img, torch.Tensor):
+        img = ptv.draw_text(
+            image=img,
+            x=int(org[0]),
+            y=int(org[1]),
+            text=text,
+            font_size=fontScale,
+            color=color,
+            position_is_text_bottom=True,
+        )
+        return img
+    img = to_cv2(img)
+    cv2.putText(
+        img,
+        text,
+        org,
+        fontFace,
+        fontScale,
+        color,
+        thickness=thickness,
+    )
+    return img
+
+
 def plot_frame_number(image, frame_id):
-    was_torch = isinstance(image, torch.Tensor)
     text_scale = max(2, image_width(image) / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
@@ -346,21 +340,48 @@ def plot_frame_number(image, frame_id):
     result_images = []
     frame_id = int(frame_id)
     for i in range(image.shape[0]):
-        img = to_cv2(image[i])
-        cv2.putText(
-            img,
-            f"F: {frame_id + i}",
-            (text_offset, int(30 * text_scale)),
-            cv2.FONT_HERSHEY_PLAIN,
-            text_scale,
-            (0, 0, 255),
+        img = my_put_text(
+            img=image[i],
+            text=f"F: {frame_id + i}",
+            org=(text_offset, int(15 * text_scale)),
+            fontFace=cv2.FONT_HERSHEY_PLAIN,
+            fontScale=text_scale,
+            color=(0, 0, 255),
             thickness=text_thickness,
         )
-        result_images.append(torch.from_numpy(img) if was_torch else img)
-    if was_torch:
+        result_images.append(img)
+    if isinstance(image, torch.Tensor):
         image = torch.stack(result_images)
     else:
         image = np.stack(result_images)
+    return image
+
+
+def plot_jersey_numbers(
+    image,
+    tlwhs,
+    obj_ids,
+    player_number_map,
+):
+    if not player_number_map:
+        return image
+    text_scale = max(2, image.shape[1] / 2500.0)
+    for i, tlwh in enumerate(tlwhs):
+        x1, y1, w, h = tlwh
+        obj_id = int(obj_ids[i])
+        if obj_id in player_number_map:
+            player_number, _ = player_number_map[obj_id]
+            xc = int(x1 + w // 2)
+            yc = y1
+            image = my_put_text(
+                image,
+                str(player_number),
+                (xc, yc),
+                cv2.FONT_HERSHEY_PLAIN,
+                text_scale,
+                (200, 0, 0),
+                thickness=3,
+            )
     return image
 
 
@@ -379,7 +400,7 @@ def plot_tracking(
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
 ):
-    image = to_cv2(image)
+    # image = to_cv2(image)
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame
@@ -389,19 +410,17 @@ def plot_tracking(
     if speeds:
         assert len(speeds) == len(obj_ids)
     # TODO: is this an unnecessary copy?
-    im = np.ascontiguousarray(image)
-    # im = image
-    # im_h, im_w = im.shape[:2]
-    # im_h, im_w = im.shape[:2]
+    # im = np.ascontiguousarray(image)
+    im = image
 
-    # top_view = np.zeros([im_w, im_w, 3], dtype=np.uint8) + 255
+    # im = to_cv2(im)
 
     text_scale = max(2, image.shape[1] / 1600.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
 
     if show_frame_heading:
-        cv2.putText(
+        im = my_put_text(
             im,
             "frame: %d fps: %.2f num: %d" % (frame_id, fps, len(tlwhs)),
             (0, int(15 * text_scale)),
@@ -416,18 +435,19 @@ def plot_tracking(
         intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
-        cv2.rectangle(
+
+        im = plot_rectangle(
             im,
-            intbox[0:2],
-            intbox[2:4],
+            box=intbox,
             color=normalize_color(im, color),
             thickness=line_thickness,
         )
+
         if print_track_id:
             id_text = "{}".format(int(obj_id))
             if ids2 is not None:
                 id_text = id_text + ", {}".format(int(ids2[i]))
-            cv2.putText(
+            im = my_put_text(
                 im,
                 id_text,
                 (intbox[0], intbox[1] + text_offset),
@@ -447,7 +467,7 @@ def plot_tracking(
                 speed_text = "NaN"
             pos_x = intbox[2] - text_offset
             pos_y = intbox[3]
-            cv2.putText(
+            im = my_put_text(
                 im,
                 speed_text,
                 (pos_x, pos_y),
@@ -503,7 +523,7 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
             label = "det" if det[5] > 0 else "trk"
             if ids is not None:
                 text = "{}# {:.2f}: {:d}".format(label, det[6], ids[i])
-                cv2.putText(
+                im = my_put_text(
                     im,
                     text,
                     (x1, y1 + 30),
@@ -517,7 +537,7 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
 
         if scores is not None:
             text = "{:.2f}".format(scores[i])
-            cv2.putText(
+            im = my_put_text(
                 im,
                 text,
                 (x1, y1 + 30),

@@ -1,5 +1,6 @@
 .idea
 *.pyc
+/dist
 /*.log
 /my_env
 /*.tif
@@ -25,3 +26,6 @@ debug_tensorboard
 /*.pth.tar
 /s.png
 output_workdirs
+/keypoints.png
+/matches.png
+hockey_league.db

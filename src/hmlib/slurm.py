@@ -1,19 +1,5 @@
 import os
-
-# from loguru import logger
-
-# import time
 import socket
-# import torch
-# import re
-# import torch.backends.cudnn as cudnn
-
-# from yolox.core import Trainer, launch
-# from yolox.exp import get_exp
-
-# import argparse
-# import random
-# import warnings
 
 
 def _print_slurm_environment():

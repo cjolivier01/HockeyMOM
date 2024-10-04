@@ -1,13 +1,13 @@
 import time
 from contextlib import contextmanager, nullcontext
-from threading import Thread
-from hmlib.tracking_utils.log import logger
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 
-from .containers import LinkedList, create_queue
+from hmlib.tracking_utils.log import logger
+
+from .containers import LinkedList
 
 _CUDA_STREAMS: Dict[int, LinkedList] = {}
 _CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
@@ -77,6 +77,7 @@ class GpuAllocator:
         self._used_gpus: Dict = dict()
         self._named_allocations: Dict = dict()
         self._last_allocated: int = None
+        self._is_single_lowmem_gpu: Union[bool, None] = None
 
         gpu_info = get_gpu_capabilities()
         for i in range(len(gpu_info)):
@@ -98,6 +99,19 @@ class GpuAllocator:
             if name:
                 self._named_allocations[name] = index
             self._last_allocated = index
+            return index
+        else:
+            return self._last_allocated
+
+    def get_modern(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_highest_compute_capability(allowed_gpus=self._gpus)
+        if index is not None:
             return index
         else:
             return self._last_allocated
@@ -128,135 +142,35 @@ class GpuAllocator:
         """
         return len(self._gpus) - len(self._used_gpus)
 
-
-class SimpleCachedIterator:
-    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
-        self._iterator = iterator
-        self._q = create_queue(mp=False) if cache_size else None
-        self._pre_callback_fn = pre_callback_fn
-        self._eof_reached = False
-        self._stopped = False
-        for _ in range(cache_size):
-            try:
-                item = next(self._iterator)
-                if self._pre_callback_fn is not None:
-                    item = self._pre_callback_fn(item)
-                self._q.put(item)
-            except StopIteration:
-                self._eof_reached = True
-                self._q.put(None)
-                break
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self._q is None:
-            result_item = next(self._iterator)
-            assert result_item is not None
-            if self._pre_callback_fn is not None:
-                result_item = self._pre_callback_fn(result_item)
+    def get_largest_mem_gpu(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_largest_mem(allowed_gpus=self._gpus)
+        if index is not None:
+            return index
         else:
-            assert not self._stopped
-            result_item = self._q.get()
-            if result_item is None:
-                self._stopped = True
-                raise StopIteration
-            if isinstance(result_item, Exception):
-                self._stopped = True
-                raise result_item
-            try:
-                if not self._eof_reached:
-                    cached_item = next(self._iterator)
-                    assert cached_item is not None
-                    if self._pre_callback_fn is not None:
-                        cached_item = self._pre_callback_fn(cached_item)
-                    self._q.put(cached_item)
-            except StopIteration:
-                self._eof_reached = True
-                self._q.put(None)
-            except Exception as ex:
-                self._eof_reached = True
-                self._q.put(ex)
-                # should not be necessary
-                self._q.put(None)
-        return result_item
+            return self._last_allocated
 
-
-class ThreadedCachedIterator:
-    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
-        self._iterator = iterator
-        self._q = create_queue(mp=False) if cache_size else None
-        self._pre_callback_fn = pre_callback_fn
-        self._save_cache_size = cache_size
-        self._pull_queue_to_worker = create_queue(mp=False)
-        self._eof_reached = False
-        self._pull_thread = Thread(target=self._pull_worker)
-        for i in range(cache_size):
-            self._pull_queue_to_worker.put("ok")
-
-        # Finally, start the worker thread
-        self._pull_thread.start()
-
-    def _pull_worker(self):
-        try:
-            while True:
-                msg = self._pull_queue_to_worker.get()
-                if msg is None:
-                    self._q.put(StopIeration())
-                    break
-                item = next(self._iterator)
-                if self._pre_callback_fn is not None:
-                    item = self._pre_callback_fn(item)
-                self._q.put(item)
-        except StopIteration as ex:
-            self._q.put(ex)
-            return
-        except Exception as ex:
-            print(ex)
-            print(f"ThreadedCachedIterator exiting due to exception: {ex}")
-            self._q.put(ex)
-
-    def _stop(self):
-        if self._pull_thread is not None:
-            self._pull_queue_to_worker.put(None)
-            self._pull_thread.join()
-            self._pull_thread = None
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self._q is None:
-            result_item = next(self._iterator)
-            assert result_item is not None
-            if isinstane(result_item, Exception):
-                raise result_item
-            if self._pre_callback_fn is not None:
-                result_item = self._pre_callback_fn(result_item)
-        else:
-            get_next_cached_start = time.time()
-            t0 = time.time()
-            result_item = self._q.get()
-            assert result_item is not None
-            if isinstance(result_item, Exception):
-                raise result_item
-            get_next_cached_duration = time.time() - get_next_cached_start
-            if get_next_cached_duration > 10 / 1000:
-                # print(
-                #     f"Waited {get_next_cached_duration * 1000} ms "
-                #     f"for the next cached item for cache size of {self._save_cache_size}"
-                # )
-                pass
-            self._pull_queue_to_worker.put("ok")
-        return result_item
-
-    def __del__(self):
-        self._stop()
-
-
-# CachedIterator = ThreadedCachedIterator
-CachedIterator = SimpleCachedIterator
+    def is_single_lowmem_gpu(self, low_threshold_mb: int = 8192) -> bool:
+        """
+        Return True if we are dealing with a single, low-memory GPU
+        """
+        if torch.cuda.device_count() != 1:
+            # Assume zero is not a relevant use-case
+            return False
+        if self._is_single_lowmem_gpu is None:
+            index, caps = get_gpu_with_largest_mem(allowed_gpus=self._gpus)
+            if index is None:
+                # No allowed GPUs, so we aren't under any
+                # GPU memory constraint
+                self._is_single_lowmem_gpu = False
+            else:
+                self._is_single_lowmem_gpu = float(caps["total_memory"]) * 1024 <= low_threshold_mb
+        return self._is_single_lowmem_gpu
 
 
 class StreamTensorBase:
@@ -534,9 +448,7 @@ class StreamTensorToDtype(StreamTensor):
                 self._event = torch.cuda.Event()
                 self._event.record()
         else:
-            self._stream = (
-                allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
-            )
+            self._stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
             with torch.cuda.stream(stream=self._stream):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
                 if contiguous:
@@ -570,9 +482,7 @@ def async_to(
         return tensor
     else:
         # How do we do this across two devices?
-        stream = (
-            allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
-        )
+        stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
         with torch.cuda.stream(stream):
             if device is not None:
                 tensor = tensor.to(device=device, non_blocking=True)
@@ -580,9 +490,7 @@ def async_to(
                 tensor = tensor.to(dtype=dtype, non_blocking=True)
             event = torch.cuda.Event()
             event.record()
-            return StreamCheckpoint(
-                tensor=tensor, stream=stream, event=event, owns_stream=True
-            )
+            return StreamCheckpoint(tensor=tensor, stream=stream, event=event, owns_stream=True)
 
 
 def get_gpu_capabilities():
@@ -597,8 +505,7 @@ def get_gpu_capabilities():
                 "name": properties.name,
                 "index": i,
                 "compute_capability": f"{properties.major}.{properties.minor}",
-                "total_memory": properties.total_memory
-                / (1024**3),  # Convert bytes to GB
+                "total_memory": properties.total_memory / (1024**3),  # Convert bytes to GB
                 "properties": properties,
             }
         )
@@ -623,6 +530,24 @@ def get_gpu_with_highest_compute_capability(
     return None, None
 
 
+def get_gpu_with_largest_mem(
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], Dict[int, Any], None] = None,
+) -> Tuple[Union[int, None], Union[Dict, None]]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
+        return None, None
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["total_memory"]))
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
+            continue
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        return index, gpu
+    return None, None
+
+
 def get_gpu_with_most_multiprocessors(
     allowed_gpus: Union[List[int], None] = None,
     disallowed_gpus: Union[List[int], Set[int], None] = None,
@@ -630,9 +555,7 @@ def get_gpu_with_most_multiprocessors(
     gpus = get_gpu_capabilities()
     if gpus is None:
         return None, None
-    sorted_gpus = sorted(
-        gpus, key=lambda x: float(x["properties"].multi_processor_count)
-    )
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["properties"].multi_processor_count))
     candidates = []
     last_count = 0
     for _, gpu in enumerate(reversed(sorted_gpus)):
@@ -669,7 +592,7 @@ def select_gpus(
     is_multipose: bool = False,
     is_encoding: bool = True,
     is_camera: bool = True,
-):
+) -> Tuple[Dict[str, torch.device], bool]:
     #
     # BEGIN GPU SELECTION
     #
@@ -692,17 +615,13 @@ def select_gpus(
             if True:
                 if is_stitching:
                     if gpu_allocator.free_count() or not is_detecting:
-                        stitching_device = torch.device(
-                            "cuda", gpu_allocator.allocate_fast()
-                        )
+                        stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
                     else:
                         stitching_device = detection_device
 
             if is_detecting:
                 if gpu_allocator.free_count():
-                    detection_device = torch.device(
-                        "cuda", gpu_allocator.allocate_fast()
-                    )
+                    detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
                 else:
                     if is_multipose:
                         assert multipose_device is not None
@@ -712,18 +631,16 @@ def select_gpus(
                         assert detection_device is not None
 
         if is_encoding:
-            if gpu_allocator.free_count():
-                video_encoding_device = torch.device(
-                    "cuda", gpu_allocator.allocate_modern()
-                )
-            else:
-                video_encoding_device = (
-                    detection_device if not multipose_device else multipose_device
-                )
-            if video_encoding_device is None:
-                video_encoding_device = torch.device(
-                    "cuda", gpu_allocator.allocate_modern()
-                )
+            # Always used most modern GPU for encoding
+            video_encoding_device = torch.device("cuda", gpu_allocator.get_modern())
+            # if gpu_allocator.free_count():
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
+            # else:
+            #     video_encoding_device = (
+            #         detection_device if not multipose_device else multipose_device
+            #     )
+            # if video_encoding_device is None:
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
 
         if is_stitching and stitching_device is None:
             if gpu_allocator.free_count():
@@ -757,4 +674,4 @@ def select_gpus(
         gpus["camera"] = camera_device
     if video_encoding_device is not None:
         gpus["encoder"] = video_encoding_device
-    return gpus
+    return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator

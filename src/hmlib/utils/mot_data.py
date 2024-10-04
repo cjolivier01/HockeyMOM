@@ -6,7 +6,7 @@ import pandas as pd
 from hmlib.tracking_utils.log import logger
 
 
-class MOTTrackingData:
+class TrackingDataBase:
     def __init__(self, input_file=None, output_file=None, write_interval: int = 250):
         self.input_file = input_file
         self.output_file = output_file
@@ -21,24 +21,7 @@ class MOTTrackingData:
         return self.input_file is not None
 
     def read_data(self):
-        """Read MOT tracking data from a CSV file."""
-        if self.input_file:
-            self.data = pd.read_csv(
-                self.input_file,
-                header=None,
-                names=[
-                    "Frame",
-                    "ID",
-                    "BBox_X",
-                    "BBox_Y",
-                    "BBox_W",
-                    "BBox_H",
-                    "Confidence",
-                    "Class",
-                    "Visibility",
-                ],
-            )
-            print("Data loaded successfully.")
+        assert False and "Not implemented"
 
     def write_data(self, output_path=None, header=False):
         if not output_path:
@@ -60,6 +43,31 @@ class MOTTrackingData:
     def flush(self):
         self.write_data()
 
+
+class MOTTrackingData(TrackingDataBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def read_data(self):
+        """Read MOT tracking data from a CSV file."""
+        if self.input_file:
+            self.data = pd.read_csv(
+                self.input_file,
+                header=None,
+                names=[
+                    "Frame",
+                    "ID",
+                    "BBox_X",
+                    "BBox_Y",
+                    "BBox_W",
+                    "BBox_H",
+                    "Confidence",
+                    "Class",
+                    "Visibility",
+                ],
+            )
+            print("Data loaded successfully.")
+
     def add_frame_records(
         self,
         frame_id: int,
@@ -73,38 +81,26 @@ class MOTTrackingData:
             tlwh = convert_tlbr_to_tlwh(tlbr)
 
         frame_id = int(frame_id)
-        if False:
-            for tracking_id, tlwh, score in zip(tracking_ids, tlwhs, scores):
-                self.add_record(
-                    frame=frame_id,
-                    obj_id=tracking_id,
-                    bbox_x=tlwh[0],
-                    bbox_y=tlwh[1],
-                    bbox_w=tlwh[2],
-                    bbox_h=tlwh[3],
-                    confidence=score,
-                )
-        else:
-            new_record = pd.DataFrame(
-                {
-                    "Frame": [frame_id for _ in range(len(tracking_ids))],
-                    "ID": tracking_ids,
-                    "BBox_X": tlwh[:, 0],
-                    "BBox_Y": tlwh[:, 1],
-                    "BBox_W": tlwh[:, 2],
-                    "BBox_H": tlwh[:, 3],
-                    "Confidence": scores,
-                    "Class": [-1 for _ in range(len(tracking_ids))],
-                    "Visibility": [-1 for _ in range(len(tracking_ids))],
-                }
-            )
-            self._dataframe_list.append(new_record)
-            self.counter += 1
+        new_record = pd.DataFrame(
+            {
+                "Frame": [frame_id for _ in range(len(tracking_ids))],
+                "ID": tracking_ids,
+                "BBox_X": tlwh[:, 0],
+                "BBox_Y": tlwh[:, 1],
+                "BBox_W": tlwh[:, 2],
+                "BBox_H": tlwh[:, 3],
+                "Confidence": scores,
+                "Class": [-1 for _ in range(len(tracking_ids))],
+                "Visibility": [-1 for _ in range(len(tracking_ids))],
+            }
+        )
+        self._dataframe_list.append(new_record)
+        self.counter += 1
 
-            if self.counter >= self.write_interval:
-                self.write_data(self.output_file)
-                self.first_write = False
-                self.counter = 0  # Reset the counter after writing
+        if self.counter >= self.write_interval:
+            self.write_data(self.output_file)
+            self.first_write = False
+            self.counter = 0  # Reset the counter after writing
 
     def get_data_by_frame(self, frame_number):
         """Get all tracking data for a specific frame."""

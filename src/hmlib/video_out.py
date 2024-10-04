@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -14,23 +14,40 @@ import torchvision as tv
 from PIL import Image
 from torchvision.transforms import functional as F
 
+from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
+from hmlib.scoreboard.selector import configure_scoreboard
+from hmlib.ui.show import show_image
 from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.ui.shower import Shower
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
-from hmlib.utils.gpu import (CachedIterator, StreamCheckpoint, StreamTensor,
-                             cuda_stream_scope, get_gpu_capabilities)
-from hmlib.utils.image import (ImageColorScaler,
-                               ImageHorizontalGaussianDistribution, crop_image,
-                               image_height, image_width, make_channels_last,
-                               make_visible_image, resize_image)
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    cuda_stream_scope,
+    get_gpu_capabilities,
+)
+from hmlib.utils.image import (
+    ImageColorScaler,
+    ImageHorizontalGaussianDistribution,
+    crop_image,
+    image_height,
+    image_width,
+    make_channels_last,
+    make_visible_image,
+    resize_image,
+)
+from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.ui.shower import Shower
+from hmlib.utils.pt_visualization import draw_text
 
-from .video_stream import VideoStreamWriter
+from .video_stream import VideoStreamWriterInterface, create_output_video_stream
 
 
 def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -68,9 +85,7 @@ def quick_show(img: torch.Tensor, wait: bool = False):
 def get_best_codec(gpu_number: int, width: int, height: int):
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
-    if (
-        compute >= 7 and width <= 9900
-    ):  # FIXME: I forget what the max is? 99-thousand-something
+    if compute >= 7 and width <= 9900:  # FIXME: I forget what the max is? 99-thousand-something
         return "hevc_nvenc", True
     elif compute >= 6 and width <= 4096:
         return "hevc_nvenc", True
@@ -121,58 +136,21 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
         )
     else:
         rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
-        img = cv2.warpAffine(
-            img, rotation_matrix, (image_width(img), image_height(img))
-        )
+        img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))
     return img
 
 
-def paste_watermark_at_position(
-    dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int
-):
+def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int):
     assert dest_image.ndim == 4
     assert dest_image.device == watermark_rgb_channels.device
     assert dest_image.device == watermark_mask.device
     watermark_height = image_height(watermark_rgb_channels)
     watermark_width = image_width(watermark_rgb_channels)
     dest_image[:, y : y + watermark_height, x : x + watermark_width] = (
-        dest_image[:, y : y + watermark_height, x : x + watermark_width]
-        * (1 - watermark_mask)
+        dest_image[:, y : y + watermark_height, x : x + watermark_width] * (1 - watermark_mask)
         + watermark_rgb_channels * watermark_mask
     )
     return dest_image
-
-
-class ImageProcData:
-    def __init__(self, frame_id: int, img, current_box: torch.Tensor):
-        self.frame_id = frame_id
-        self.img = img
-        if current_box is None:
-            self.current_box = torch.tensor(
-                (0, 0, image_width(img), image_height(img)),
-                dtype=torch.int64,
-                device=img.device,
-            )
-            if img.ndim == 4:
-                # batched
-                assert self.current_box.ndim == 1
-                self.current_box = self.current_box.unsqueeze(0).repeat(img.size(0), 1)
-        else:
-            self.current_box = current_box.clone()
-        if not isinstance(self.frame_id, torch.Tensor):
-            frame_count = 1
-            if img.ndim == 4:
-                frame_count = img.shape[0]
-            # assert img.ndim == 3 or img.size(0) == 1  # single image only
-            self.frame_id = torch.tensor(
-                [self.frame_id + i for i in range(frame_count)], dtype=torch.int64
-            )
-
-    def dump(self):
-        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
-
-    def dump(self):
-        logger.info(f"frame_id={self.frame_id}, current_box={self.current_box}")
 
 
 def _to_float(
@@ -193,9 +171,7 @@ def _to_float(
     return tensor
 
 
-def _to_uint8(
-    tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False
-):
+def _to_uint8(tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False):
     assert not apply_scale
     if isinstance(tensor, np.ndarray):
         assert tensor.dtype == np.uint8
@@ -206,16 +182,12 @@ def _to_uint8(
             assert torch.is_floating_point(tensor)
             return (
                 # note, no scale applied here (I removed before adding assert)
-                tensor.clamp(min=0, max=255.0).to(
-                    torch.uint8, non_blocking=non_blocking
-                )
+                tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=non_blocking)
             )
         else:
             # There has got to be a more elegant way to do this with reflection
             def _clamp(t, *args, **kwargs):
-                return t.clamp(*args, **kwargs).to(
-                    torch.uint8, non_blocking=non_blocking
-                )
+                return t.clamp(*args, **kwargs).to(torch.uint8, non_blocking=non_blocking)
 
             if isinstance(tensor, StreamTensor):
                 assert False
@@ -231,9 +203,7 @@ def image_wh(image: torch.Tensor):
             [image.shape[-2], image.shape[-3]], dtype=torch.float, device=image.device
         )
     assert image.shape[1] in [3, 4]
-    return torch.tensor(
-        [image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device
-    )
+    return torch.tensor([image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device)
 
 
 def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -252,6 +222,10 @@ def tensor_checkpoint(
 
 
 class VideoOutput:
+
+    VIDEO_DEFAULT: str = "default"
+    VIDEO_END_ZONES: str = "end_zones"
+
     def __init__(
         self,
         args,
@@ -259,7 +233,7 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
-        fourcc="auto",
+        fourcc: str = "auto",
         save_frame_dir: str = None,
         use_fork: bool = False,
         start: bool = True,
@@ -282,9 +256,7 @@ class VideoOutput:
             )
         self._args = args
 
-        self._device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
+        self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
@@ -307,14 +279,36 @@ class VideoOutput:
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
-        self._output_video = None
+        self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
+        self._scoreboard = None
+
+        self._end_zones = None
+        if args is not None and args.end_zones:
+            lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
+            if lines:
+                # Adjust for clipb ox, if any
+                if original_clip_box is not None:
+                    orig_lines = lines
+                    lines: Dict[str, List[Tuple[int, int]]] = {}
+                    for key, line in orig_lines.items():
+                        line[0] = adjust_point_for_clip_box(line[0], original_clip_box)
+                        line[1] = adjust_point_for_clip_box(line[1], original_clip_box)
+                        lines[key] = line
+
+                self._end_zones = EndZones(
+                    lines=lines,
+                    output_width=self._output_frame_width_int,
+                    output_height=self._output_frame_height_int,
+                )
 
         self._scoreboard = None
         self._scoreboard_points = None
-        if hasattr(args, "game_config"):
-            self._scoreboard_points = get_nested_value(
-                args.game_config, "rink.scoreboard.perspective_polygon", None
-            )
+        if hasattr(args, "game_id"):
+            self._scoreboard_points = configure_scoreboard(game_id=args.game_id)
+        # if hasattr(args, "game_config"):
+        #     self._scoreboard_points = get_nested_value(
+        #         args.game_config, "rink.scoreboard.perspective_polygon", None
+        #     )
 
         if fourcc == "auto":
             if self._device.type == "cuda":
@@ -325,7 +319,7 @@ class VideoOutput:
                 )
                 if not is_gpu:
                     logger.info(f"Can't use GPU for output video {output_video_path}")
-                    # self._device = torch.device("cpu")
+                    self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"
             logger.info(
@@ -364,25 +358,21 @@ class VideoOutput:
             )
 
             if self._device is not None:
-                self.watermark_rgb_channels = torch.from_numpy(
-                    self.watermark_rgb_channels
-                ).to(self._device)
+                self.watermark_rgb_channels = torch.from_numpy(self.watermark_rgb_channels).to(
+                    self._device
+                )
                 self.watermark_mask = (
-                    torch.from_numpy(self.watermark_mask)
-                    .to(self._device)
-                    .to(torch.half)
+                    torch.from_numpy(self.watermark_mask).to(self._device).to(torch.half)
                 )
                 # Scale mask to [0, 1]
-                self.watermark_mask = self.watermark_mask / torch.max(
-                    self.watermark_mask
-                )
+                self.watermark_mask = self.watermark_mask / torch.max(self.watermark_mask)
         else:
             self.watermark = None
 
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
 
-        if self._args.show_image:
+        if self.has_args() and self._args.show_image:
             self._shower = Shower(show_scaled=self._args.show_scaled)
         else:
             self._shower = None
@@ -400,10 +390,7 @@ class VideoOutput:
             if not self._child_pid:
                 self.final_image_processing()
         else:
-            assert (
-                self._imgproc_thread is None
-                and "Video output thread was already started"
-            )
+            assert self._imgproc_thread is None and "Video output thread was already started"
             self._imgproc_thread = Thread(
                 target=self._final_image_processing_wrapper,
                 name="VideoOutput",
@@ -419,7 +406,7 @@ class VideoOutput:
     def is_cuda_encoder(self):
         return "nvenc" in self._fourcc
 
-    def append(self, img_proc_data: ImageProcData):
+    def append(self, img_proc_data: Dict[str, Any]):
         with TimeTracker(
             "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
         ):
@@ -433,63 +420,48 @@ class VideoOutput:
                         and (not hasattr(self._args, "debug") or not self._args.debug)
                     )
                 ) and counter % 10 == 0:
-                    logger.info(
-                        f"Video out queue too large: {self._imgproc_queue.qsize()}"
-                    )
+                    logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.001)
 
             # Maybe move devices on a different stream
-            if (
-                not isinstance(img_proc_data.img, np.ndarray)
-                and img_proc_data.img.device != self._device
-            ):
-                if isinstance(img_proc_data.img, torch.Tensor):
-                    # img_proc_data.img = img_proc_data.img.to(
-                    #     device=self._device, non_blocking=True
-                    # )
-                    # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
-                    # img_proc_data.img = StreamTensorToDevice(
-                    #     tensor=img_proc_data.img,
-                    #     device=self._device,
-                    #     verbose=False,
-                    # )
-                    pass
+            # if (
+            #     not isinstance(img_proc_data.img, np.ndarray)
+            #     and img_proc_data.img.device != self._device
+            # ):
+            #     if isinstance(img_proc_data.img, torch.Tensor):
+            #         # img_proc_data.img = img_proc_data.img.to(
+            #         #     device=self._device, non_blocking=True
+            #         # )
+            #         # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
+            #         # img_proc_data.img = StreamTensorToDevice(
+            #         #     tensor=img_proc_data.img,
+            #         #     device=self._device,
+            #         #     verbose=False,
+            #         # )
+            #         pass
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
         try:
-            self._final_image_processing()
+            self._final_image_processing_worker()
         except Exception as ex:
             print(ex)
             traceback.print_exc()
             raise
         finally:
-            if self._output_video is not None:
-                if isinstance(self._output_video, VideoStreamWriter):
-                    self._output_video.flush()
-                    self._output_video.close()
-                else:
-                    self._output_video.release()
-                self._output_video = None
+            for _, video_out in self._output_videos.items():
+                video_out.close()
+            self._output_videos.clear()
 
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
-            self._horizontal_image_gaussian_distribution = (
-                ImageHorizontalGaussianDistribution(image_width)
+            self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
+                image_width
             )
         return self._horizontal_image_gaussian_distribution
 
     def has_args(self):
         return self._args is not None
-
-    def calculate_desired_bitrate(self, width: int, height: int):
-        # 4K @ 55M
-        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
-        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
-        logger.info(
-            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
-        )
-        return desired_bit_rate
 
     def crop_working_image_width(self, image: torch.Tensor, current_box: torch.Tensor):
         """
@@ -503,7 +475,6 @@ class VideoOutput:
         bbox_c = center(current_box)
         assert bbox_w > 10  # Sanity
         assert bbox_h > 10  # Sanity
-        # assert image.ndim == 3  # No batch dimension
         # make sure we're the expected (albeit arbitrary) channels first
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
@@ -520,19 +491,14 @@ class VideoOutput:
         current_box[2] -= clip_left.to(current_box.device)
 
         # Adjust our output frame size if necessary
-        if (
-            not self._args.crop_output_image
-            and image.shape[1] != self._output_frame_width_int
-        ):
+        if not self._args.crop_output_image and image.shape[1] != self._output_frame_width_int:
             self._output_frame_width = torch.tensor(
                 image.shape[1], dtype=img_wh.dtype, device=img_wh.device
             )
             self._output_frame_height = torch.tensor(
                 image.shape[0], dtype=img_wh.dtype, device=img_wh.device
             )
-            self._output_aspect_ratio = (
-                self._output_frame_width / self._output_frame_height
-            )
+            self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
             self._output_frame_width_int = int(self._output_frame_width)
             self._output_frame_height_int = int(self._output_frame_height)
 
@@ -541,70 +507,64 @@ class VideoOutput:
     def _float_type(self):
         return torch.float16 if self._args.fp16 else torch.float
 
-    def _final_image_processing(self):
+    def create_output_videos(self):
+        if self._output_video_path and not self._skip_final_save:
+            if self.VIDEO_DEFAULT not in self._output_videos:
+                self._output_videos[self.VIDEO_DEFAULT] = create_output_video_stream(
+                    filename=self._output_video_path,
+                    fps=self._fps,
+                    height=int(self._output_frame_height),
+                    width=int(self._output_frame_width),
+                    codec=self._fourcc,
+                    device=self._device,
+                    batch_size=1,
+                )
+                assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
+
+            if self._end_zones is not None and self.VIDEO_END_ZONES not in self._output_videos:
+                self._output_videos[self.VIDEO_END_ZONES] = create_output_video_stream(
+                    filename=str(add_suffix_to_filename(self._output_video_path, "-end-zones")),
+                    fps=self._fps,
+                    height=int(self._output_frame_height),
+                    width=int(self._output_frame_width),
+                    codec=self._fourcc,
+                    device=self._device,
+                    batch_size=1,
+                )
+                assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
+
+            if self._scoreboard_points:
+                # Check for valid scoreboard points
+                if torch.sum(torch.tensor(self._scoreboard_points, dtype=torch.int64)) != 0:
+                    self._scoreboard = Scoreboard(
+                        src_pts=self._scoreboard_points,
+                        dest_width=get_nested_value(
+                            self._args.game_config, "rink.scoreboard.projected_width"
+                        ),
+                        dest_height=get_nested_value(
+                            self._args.game_config, "rink.scoreboard.projected_height"
+                        ),
+                        clip_box=self._original_clip_box,
+                        dtype=torch.float,
+                        device=self._device,
+                    )
+
+    def _final_image_processing_worker(self):
         logger.info("VideoOutput thread started.")
-        plot_interias = False
+
+        # For opencv, needs to be in the same thread as what writes to it
+        self.create_output_videos()
+
+        # plot_interias = False
         show_image_interval = 1
         skip_frames_before_show = 0
         timer = Timer()
         # The timer that reocrds the overall throughput
         final_all_timer = None
-        if (
-            self._output_video_path
-            and self._output_video is None
-            and not self._skip_final_save
-        ):
-            if "_nvenc" in self._fourcc or self._output_video_path.startswith(
-                "rtmp://"
-            ):
-                self._output_video = VideoStreamWriter(
-                    filename=self._output_video_path,
-                    fps=self._fps,
-                    height=int(self._output_frame_height),
-                    width=int(self._output_frame_width),
-                    codec="hevc_nvenc",
-                    device=self._device,
-                    batch_size=1,
-                )
-                self._output_video.open()
-            else:
-                fourcc = cv2.VideoWriter_fourcc(*self._fourcc)
-                self._output_video = cv2.VideoWriter(
-                    filename=self._output_video_path,
-                    fourcc=fourcc,
-                    fps=self._fps,
-                    frameSize=(
-                        int(self._output_frame_width),
-                        int(self._output_frame_height),
-                    ),
-                )
-                self._output_video.set(
-                    cv2.CAP_PROP_BITRATE,
-                    self.calculate_desired_bitrate(
-                        width=self._output_frame_width, height=self._output_frame_height
-                    ),
-                )
-            assert self._output_video.isOpened()
-
-        scoreboard = None
-
-        if self._scoreboard_points:
-            scoreboard = Scoreboard(
-                src_pts=self._scoreboard_points,
-                dest_width=get_nested_value(
-                    self._args.game_config, "rink.scoreboard.projected_width"
-                ),
-                dest_height=get_nested_value(
-                    self._args.game_config, "rink.scoreboard.projected_height"
-                ),
-                clip_box=self._original_clip_box,
-                dtype=torch.float,
-                device=self._device,
-            )
 
         batch_count = 0
 
-        last_frame_id = None
+        # last_frame_id = None
 
         default_cuda_stream = None
         cuda_stream = None
@@ -617,9 +577,7 @@ class VideoOutput:
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
 
-            imgproc_iter = CachedIterator(
-                iterator=imgproc_iter, cache_size=self._cache_size
-            )
+            imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=self._cache_size)
 
             while True:
                 batch_count += 1
@@ -630,315 +588,61 @@ class VideoOutput:
 
                 timer.tic()
 
-                current_box = imgproc_data.current_box
-                online_im = imgproc_data.img
+                data = self.forward(imgproc_data)
 
-                if isinstance(online_im, StreamTensor):
-                    # assert not online_im.owns_stream
-                    online_im._verbose = True
-                    # online_im = online_im.get()
-                    online_im = online_im.wait(cuda_stream)
-
-                frame_id = imgproc_data.frame_id
-                if frame_id.ndim == 0:
-                    frame_id = frame_id.unsqueeze(0)
-
-                if last_frame_id is None:
-                    last_frame_id = frame_id[-1]
-                else:
-                    assert frame_id[0] == last_frame_id + 1
-                    last_frame_id = frame_id[-1]
-
-                if isinstance(online_im, np.ndarray):
-                    online_im = torch.from_numpy(online_im)
-
-                # assert online_im.device.type == "cpu" or online_im.device == self._device
-                if online_im.device.type != "cpu" and self._device.type == "cpu":
-                    online_im = online_im.cpu()
-
-                if online_im.ndim == 3:
-                    online_im = online_im.unsqueeze(0)
-                    current_box = current_box.unsqueeze(0)
-
-                # batch_size = 1 if online_im.ndim != 4 else online_im.size(0)
-                batch_size = online_im.shape[0]
-
-                # torch.cuda.synchronize()
-
-                if self._device is not None and (
-                    not self._simple_save or "nvenc" in self._fourcc
-                ):
-                    if isinstance(online_im, np.ndarray):
-                        online_im = torch.from_numpy(online_im)
-                    online_im = make_channels_last(online_im)
-                    if str(online_im.device) != str(self._device):
-                        online_im = online_im.to(self._device, non_blocking=True)
-
-                src_image_width = image_width(online_im)
-                src_image_height = image_height(online_im)
-
-                #
-                # Extract the scoreboard before we do any cropping or rotation
-                #
-                scoreboard_img = None
-                if scoreboard is not None:
-                    online_im = slow_to_tensor(online_im)
-                    scoreboard_img = make_channels_last(scoreboard.forward(online_im))
-
-                #
-                # Perspective rotation
-                #
-                if (
-                    self.has_args()
-                    and self._args.fixed_edge_rotation
-                    and self._args.fixed_edge_rotation_angle
-                ):
-                    online_im = slow_to_tensor(online_im)
-                    online_im = _to_float(
-                        online_im,
-                        non_blocking=True,
-                        dtype=self._float_type(),
-                    )
-                    rotated_images = []
-                    current_boxes = []
-                    for img, bbox in zip(online_im, current_box):
-                        # start = time.time()
-                        rotation_point = [int(i) for i in center(bbox)]
-                        width_center = src_image_width / 2
-                        if rotation_point[0] < width_center:
-                            mult = -1
-                        else:
-                            mult = 1
-
-                        gaussian = 1 - self._get_gaussian(
-                            src_image_width
-                        ).get_gaussian_y_from_image_x_position(
-                            rotation_point[0], wide=True
-                        )
-
-                        fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
-                        if isinstance(fixed_edge_rotation_angle, (list, tuple)):
-                            assert len(fixed_edge_rotation_angle) == 2
-                            if rotation_point[0] < src_image_width // 2:
-                                fixed_edge_rotation_angle = int(
-                                    self._args.fixed_edge_rotation_angle[0]
-                                )
-                            else:
-                                fixed_edge_rotation_angle = int(
-                                    self._args.fixed_edge_rotation_angle[1]
-                                )
-
-                        # logger.info(f"gaussian={gaussian}")
-                        angle = (
-                            fixed_edge_rotation_angle
-                            - fixed_edge_rotation_angle * gaussian
-                        )
-                        angle *= mult
-
-                        # BEGIN PERFORMANCE HACK
-                        #
-                        # Chop off edges of image that won't be visible after a final crop
-                        # before we rotate in order to reduce the computation necessary
-                        # for the rotation (as well as other subsequent operations)
-                        #
-                        if True and self._args.crop_output_image:
-                            img, bbox = self.crop_working_image_width(
-                                image=img, current_box=bbox
-                            )
-                            src_image_width = image_width(img)
-                            src_image_height = image_height(img)
-                            rotation_point = center(bbox)
-                        #
-                        # END PERFORMANCE HACK
-                        #
-
-                        # logger.info(f"angle={angle}")
-                        img = rotate_image(
-                            img=img,
-                            angle=angle,
-                            rotation_point=rotation_point,
-                        )
-                        rotated_images.append(img)
-                        current_boxes.append(bbox)
-                    # duration = time.time() - start
-                    # logger.info(f"rotate image took {duration} seconds")
-                    online_im = torch.stack(rotated_images)
-                    current_box = torch.stack(current_boxes)
-
-                #
-                # Crop to output video frame image
-                #
-                if self.has_args() and self._args.crop_output_image:
-                    online_im = slow_to_tensor(online_im)
-                    online_im = _to_float(
-                        online_im,
-                        non_blocking=True,
-                        dtype=self._float_type(),
-                    )
-                    # assert torch.isclose(
-                    #     aspect_ratio(current_box), self._output_aspect_ratio,
-                    # )
-                    # logger.info(f"crop ar={aspect_ratio(current_box)}")
-                    cropped_images = []
-                    for img, bbox in zip(online_im, current_box):
-                        intbox = [int(i) for i in bbox]
-                        x1 = intbox[0]
-                        y1 = intbox[1]
-                        y2 = intbox[3]
-                        x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
-                        assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                        if y1 >= src_image_height or y2 >= src_image_height:
-                            logger.info(
-                                f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
-                            )
-                            # assert y1 < img.shape[0] and y2 < img.shape[0]
-                            y1 = min(y1, src_image_height)
-                            y2 = min(y2, src_image_height)
-                        if x1 >= src_image_width or x2 >= src_image_width:
-                            logger.info(
-                                f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
-                            )
-                            # assert x1 < img.shape[1] and x2 < img.shape[1]
-                            x1 = min(x1, src_image_width)
-                            x2 = min(x2, src_image_width)
-
-                        img = crop_image(img, x1, y1, x2, y2)
-                        if image_height(img) != int(
-                            self._output_frame_height
-                        ) or image_width(img) != int(self._output_frame_width):
-                            img = resize_image(
-                                img=img,
-                                new_width=self._output_frame_width,
-                                new_height=self._output_frame_height,
-                            )
-                        assert image_height(img) == self._output_frame_height_int
-                        assert image_width(img) == self._output_frame_width_int
-                        cropped_images.append(img)
-                    online_im = torch.stack(cropped_images)
-
-                # Numpy array after here
-                if isinstance(online_im, PIL.Image.Image):
-                    online_im = np.array(online_im)
-
-                #
-                # Scoreboard
-                #
-                if scoreboard_img is not None:
-                    if torch.is_floating_point(
-                        online_im
-                    ) and not torch.is_floating_point(scoreboard_img):
-                        scoreboard_img = scoreboard_img.to(
-                            torch.float, non_blocking=True
-                        )
-                    online_im[:, : scoreboard.height, : scoreboard.width, :] = (
-                        scoreboard_img
-                    )
-
-                #
-                # Watermark
-                #
-                if self.has_args() and self._args.use_watermark:
-                    y = int(image_height(online_im) - self.watermark_height)
-                    x = int(
-                        image_width(online_im)
-                        - self.watermark_width
-                        - self.watermark_width / 10
-                    )
-                    online_im = paste_watermark_at_position(
-                        online_im,
-                        watermark_rgb_channels=self.watermark_rgb_channels,
-                        watermark_mask=self.watermark_mask,
-                        x=x,
-                        y=y,
-                    )
-
-                online_im = _to_uint8(online_im, non_blocking=True)
-
-                if self._image_color_scaler is not None:
-                    online_im = self._image_color_scaler.maybe_scale_image_colors(
-                        image=online_im
-                    )
-
-                if not isinstance(self._output_video, VideoStreamWriter):
-                    if isinstance(online_im, torch.Tensor) and (
-                        # If we're actually going to do something with it
-                        not self._skip_final_save
-                        and (
-                            (self.has_args() and self._args.plot_frame_number)
-                            or self._output_video is not None
-                            or self._save_frame_dir
-                        )
-                    ):
-                        online_im = np.ascontiguousarray(
-                            online_im.detach().cpu().numpy()
-                        )
-
-                #
-                # Frame Number
-                #
-                if self.has_args() and self._args.plot_frame_number:
-                    prev_device = None
-                    if isinstance(online_im, torch.Tensor):
-                        prev_device = online_im.device
-                    if cuda_stream is not None:
-                        cuda_stream.synchronize()
-                    online_im = vis.plot_frame_number(
-                        online_im,
-                        frame_id=frame_id,
-                    )
-                    if prev_device is not None and online_im.device != prev_device:
-                        online_im = online_im.to(prev_device, non_blocking=True)
+                online_im = data["img"]
+                assert online_im.ndim == 4  # Should have a batch dimension
+                batch_size = online_im.size(0)
 
                 # Output (and maybe show) the final image
-                if (
-                    self.has_args()
-                    and self._args.show_image
-                    and imgproc_data.frame_id >= skip_frames_before_show
-                ):
-                    if imgproc_data.frame_id % show_image_interval == 0:
-                        if cuda_stream is not None:
-                            cuda_stream.synchronize()
-                        show_img = online_im
-                        if self._shower is not None:
-                            # Async
-                            self._shower.show(show_img)
-                        else:
-                            # Sync
-                            if show_img.ndim == 3:
-                                show_img = show_img.unsqueeze(0)
-                            for s_img in show_img:
-                                cv2.imshow(
-                                    "online_im",
-                                    make_visible_image(
-                                        s_img, enable_resizing=self._args.show_scaled
-                                    ),
-                                )
-                                cv2.waitKey(1)
-
                 online_im = make_channels_last(online_im)
                 assert int(self._output_frame_width) == online_im.shape[-2]
                 assert int(self._output_frame_height) == online_im.shape[-3]
-                if self._output_video is not None and not self._skip_final_save:
-                    if isinstance(self._output_video, cv2.VideoWriter):
-                        assert online_im.ndim == 4
-                        for img in online_im:
-                            self._output_video.write(img)
-                    else:
-                        online_im = StreamCheckpoint(tensor=online_im)
+                if not self._skip_final_save:
+                    if self.VIDEO_DEFAULT in self._output_videos:
+                        if not isinstance(online_im, StreamTensor):
+                            online_im = StreamCheckpoint(tensor=online_im)
                         with cuda_stream_scope(default_cuda_stream):
                             # IMPORTANT:
-                            # The encode is going to use thedefault stream,
+                            # The encode is going to use the default stream,
                             # so call write() under that stream so that any actions
                             # taken while pushing occur on the same stream as the
                             # ultimate encoding
-                            self._output_video.write(online_im)
+                            self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+
+                    if self.VIDEO_END_ZONES in self._output_videos:
+                        ez_img = self._end_zones.get_ez_image(data, dtype=online_im.dtype)
+                        if ez_img is None:
+                            ez_img = online_im
+                        if not isinstance(ez_img, StreamTensor):
+                            ez_img = StreamCheckpoint(tensor=ez_img)
+                        with cuda_stream_scope(default_cuda_stream):
+                            # IMPORTANT:
+                            # The encode is going to use the default stream,
+                            # so call write() under that stream so that any actions
+                            # taken while pushing occur on the same stream as the
+                            # ultimate encoding
+                            self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+                if (
+                    self.has_args()
+                    and self._args.show_image
+                    and imgproc_data["frame_id"] >= skip_frames_before_show
+                ):
+                    if imgproc_data["frame_id"] % show_image_interval == 0:
+                        if cuda_stream is not None:
+                            cuda_stream.synchronize()
+                        show_img = online_im
+                        # show_img = ez_img
+                        self._shower.show(show_img)
+
+                # Save frames as individual frames
                 if self._save_frame_dir:
                     # frame_id should start with 1
-                    assert imgproc_data.frame_id
+                    assert imgproc_data["frame_id"]
                     cv2.imwrite(
                         os.path.join(
                             self._save_frame_dir,
-                            "frame_{:06d}.png".format(int(imgproc_data.frame_id) - 1),
+                            "frame_{:06d}.png".format(int(imgproc_data["frame_id"]) - 1),
                         ),
                         online_im,
                     )
@@ -948,7 +652,7 @@ class VideoOutput:
                     logger.info(
                         "Image Post-Processing {} frame {} ({:.2f} fps)".format(
                             self._name,
-                            frame_id[0],
+                            data["frame_id"],
                             batch_size * 1.0 / max(1e-5, timer.average_time),
                         )
                     )
@@ -961,21 +665,245 @@ class VideoOutput:
                     else:
                         final_all_timer.toc()
 
-                    if (
-                        self._print_interval
-                        and batch_count % (self._print_interval * 4) == 0
-                    ):
+                    if self._print_interval and batch_count % (self._print_interval * 4) == 0:
                         logger.info(
                             "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
-                                frame_id[0],
-                                batch_size
-                                * 1.0
-                                / max(1e-5, final_all_timer.average_time),
+                                data["frame_id"],
+                                batch_size * 1.0 / max(1e-5, final_all_timer.average_time),
                                 get_open_files_count(),
                             )
                         )
                         final_all_timer = Timer()
                     final_all_timer.tic()
+
+    def forward(self, imgproc_data) -> Dict[str, Any]:
+        # online_im = imgproc_data.pop("img")
+        online_im = imgproc_data["img"]
+
+        imgproc_data["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
+
+        # We clone, since it gets modified sometimes wrt rotation optimizations
+        current_box = imgproc_data["current_box"].clone()
+
+        if isinstance(online_im, StreamTensor):
+            online_im._verbose = True
+            # online_im = online_im.get()
+            online_im = online_im.wait(torch.cuda.current_stream())
+
+        # if self._end_zones is not None:
+        #     online_im = self._end_zones.draw(online_im)
+
+        frame_id = imgproc_data["frame_id"]
+        if frame_id.ndim == 0:
+            frame_id = frame_id.unsqueeze(0)
+
+        if isinstance(online_im, np.ndarray):
+            online_im = torch.from_numpy(online_im)
+
+        if online_im.device.type != "cpu" and self._device.type == "cpu":
+            online_im = online_im.cpu()
+
+        if online_im.ndim == 3:
+            online_im = online_im.unsqueeze(0)
+            current_box = current_box.unsqueeze(0)
+
+        if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im)
+            online_im = make_channels_last(online_im)
+            if str(online_im.device) != str(self._device):
+                online_im = online_im.to(self._device, non_blocking=True)
+
+        src_image_width = image_width(online_im)
+        src_image_height = image_height(online_im)
+
+        #
+        # Extract the scoreboard before we do any cropping or rotation
+        #
+        scoreboard_img = None
+        if self._scoreboard is not None:
+            online_im = slow_to_tensor(online_im)
+            scoreboard_img = make_channels_last(self._scoreboard.forward(online_im))
+
+        #
+        # Perspective rotation
+        #
+        if (
+            self.has_args()
+            and self._args.fixed_edge_rotation
+            and self._args.fixed_edge_rotation_angle
+        ):
+            online_im = slow_to_tensor(online_im)
+            online_im = _to_float(
+                online_im,
+                non_blocking=True,
+                dtype=self._float_type(),
+            )
+            rotated_images = []
+            current_boxes = []
+            for img, bbox in zip(online_im, current_box):
+                rotation_point = [int(i) for i in center(bbox)]
+                width_center = src_image_width / 2
+                if rotation_point[0] < width_center:
+                    mult = -1
+                else:
+                    mult = 1
+
+                gaussian = 1 - self._get_gaussian(
+                    src_image_width
+                ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
+
+                fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
+                if isinstance(fixed_edge_rotation_angle, (list, tuple)):
+                    assert len(fixed_edge_rotation_angle) == 2
+                    if rotation_point[0] < src_image_width // 2:
+                        fixed_edge_rotation_angle = int(self._args.fixed_edge_rotation_angle[0])
+                    else:
+                        fixed_edge_rotation_angle = int(self._args.fixed_edge_rotation_angle[1])
+
+                angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
+                angle *= mult
+
+                # BEGIN PERFORMANCE HACK
+                #
+                # Chop off edges of image that won't be visible after a final crop
+                # before we rotate in order to reduce the computation necessary
+                # for the rotation (as well as other subsequent operations)
+                #
+                if self._args.crop_output_image:
+                    pre_size = image_width(img), image_height(img)
+                    img, bbox = self.crop_working_image_width(image=img, current_box=bbox)
+                    post_size = image_width(img), image_height(img)
+                    if pre_size != post_size:
+                        imgproc_data["rotatioon_crop"] = {"from": pre_size, "to": post_size}
+                    src_image_width = post_size[0]
+                    src_image_height = post_size[1]
+                    rotation_point = center(bbox)
+                #
+                # END PERFORMANCE HACK
+                #
+
+                img = rotate_image(
+                    img=img,
+                    angle=angle,
+                    rotation_point=rotation_point,
+                )
+                rotated_images.append(img)
+                current_boxes.append(bbox)
+            online_im = torch.stack(rotated_images)
+            current_box = torch.stack(current_boxes)
+
+        #
+        # Crop to output video frame image
+        #
+        if self.has_args() and self._args.crop_output_image:
+            online_im = slow_to_tensor(online_im)
+            online_im = _to_float(
+                online_im,
+                non_blocking=True,
+                dtype=self._float_type(),
+            )
+            cropped_images = []
+            for img, bbox in zip(online_im, current_box):
+                intbox = [int(i) for i in bbox]
+                x1 = intbox[0]
+                y1 = intbox[1]
+                y2 = intbox[3]
+                x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
+                assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+                if y1 >= src_image_height or y2 >= src_image_height:
+                    logger.info(
+                        f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
+                    )
+                    y1 = min(y1, src_image_height)
+                    y2 = min(y2, src_image_height)
+                if x1 >= src_image_width or x2 >= src_image_width:
+                    logger.info(f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}")
+                    x1 = min(x1, src_image_width)
+                    x2 = min(x2, src_image_width)
+
+                img = crop_image(img, x1, y1, x2, y2)
+                if image_height(img) != int(self._output_frame_height) or image_width(img) != int(
+                    self._output_frame_width
+                ):
+                    img = resize_image(
+                        img=img,
+                        new_width=self._output_frame_width,
+                        new_height=self._output_frame_height,
+                    )
+                assert image_height(img) == self._output_frame_height_int
+                assert image_width(img) == self._output_frame_width_int
+                cropped_images.append(img)
+            online_im = torch.stack(cropped_images)
+
+        #
+        # BEGIN END-ZONE
+        #
+        if self._end_zones is not None:
+            imgproc_data = self._end_zones(imgproc_data)
+            ez_image = self._end_zones.get_ez_image(imgproc_data, dtype=online_im.dtype)
+            if ez_image is not None:
+                # Apply the final overlays to the end-zone image
+                imgproc_data = self._end_zones.put_ez_image(
+                    data=imgproc_data,
+                    img=self.draw_final_overlays(
+                        img=ez_image, frame_id=frame_id, scoreboard_img=scoreboard_img
+                    ),
+                )
+        #
+        # END END-ZONE
+        #
+
+        online_im = self.draw_final_overlays(
+            img=online_im, frame_id=frame_id, scoreboard_img=scoreboard_img
+        )
+
+        imgproc_data["img"] = online_im
+        return imgproc_data
+
+    def draw_final_overlays(
+        self, img: torch.Tensor, frame_id: int, scoreboard_img: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        # Just make sure we're channels-last
+        online_im = make_channels_last(img)
+
+        #
+        # Scoreboard
+        #
+        if scoreboard_img is not None:
+            if torch.is_floating_point(online_im) and not torch.is_floating_point(scoreboard_img):
+                scoreboard_img = scoreboard_img.to(torch.float, non_blocking=True)
+            online_im[:, : self._scoreboard.height, : self._scoreboard.width, :] = scoreboard_img
+
+        #
+        # Watermark
+        #
+        if self.has_args() and self._args.use_watermark:
+            y = int(image_height(online_im) - self.watermark_height)
+            x = int(image_width(online_im) - self.watermark_width - self.watermark_width / 10)
+            online_im = paste_watermark_at_position(
+                online_im,
+                watermark_rgb_channels=self.watermark_rgb_channels,
+                watermark_mask=self.watermark_mask,
+                x=x,
+                y=y,
+            )
+
+        #
+        # Frame Number
+        #
+        if self.has_args() and self._args.plot_frame_number:
+            online_im = vis.plot_frame_number(
+                online_im,
+                frame_id=frame_id,
+            )
+
+        online_im = _to_uint8(online_im, non_blocking=True)
+
+        if self._image_color_scaler is not None:
+            online_im = self._image_color_scaler.maybe_scale_image_colors(image=online_im)
+
+        return online_im
 
 
 def get_open_files_count():

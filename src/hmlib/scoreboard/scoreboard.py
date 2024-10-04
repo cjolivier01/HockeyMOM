@@ -1,33 +1,37 @@
-import os
-import cv2
 import math
+import os
 from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
-from typing import List, Tuple, Optional, Union
+from typing import List, Optional, Tuple, Union
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from PIL import Image
 from torch import Tensor
 from torch.nn import functional as F
 from torchvision.transforms import functional as TF
 
-from hmlib.utils.image import (
-    image_width,
-    image_height,
-    make_channels_first,
-    make_channels_last,
-    pad_tensor_to_size_batched,
-    make_visible_image,
-)
-
+import hmlib.tracking_utils.visualization as vis
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import resize_image
-import hmlib.tracking_utils.visualization as vis
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+    pad_tensor_to_size_batched,
+    resize_image,
+)
+
+
+def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
+    return torch.norm(pt0 - pt1)
 
 
 class Scoreboard(torch.nn.Module):
+
     def __init__(
         self,
         src_pts: torch.Tensor,
@@ -36,12 +40,14 @@ class Scoreboard(torch.nn.Module):
         dtype: torch.dtype,
         clip_box: Union[torch.Tensor, None] = None,
         device: Union[torch.device, None] = None,
+        auto_aspect: bool = True,
     ):
-        self._dest_width = dest_width
-        self._dest_height = dest_height
         if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
         assert len(src_pts) == 4
+        # Check for all zeros
+        if torch.sum(src_pts.to(torch.int64)) == 0:
+            assert False
         self._src_pts = src_pts.clone()
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
@@ -57,6 +63,29 @@ class Scoreboard(torch.nn.Module):
 
         src_width = self._bbox_src[2] - self._bbox_src[0]
         src_height = self._bbox_src[3] - self._bbox_src[1]
+
+        if auto_aspect:
+            w_across_top = point_distance(self._src_pts[0], self._src_pts[1])
+            w_across_bottom = point_distance(self._src_pts[2], self._src_pts[3])
+            h_left = point_distance(self._src_pts[3], self._src_pts[0])
+            h_right = point_distance(self._src_pts[2], self._src_pts[3])
+            w_avg = (w_across_top + w_across_bottom) / 2
+            h_avg = (h_left + h_right) / 2
+            aspect_ratio = w_avg / h_avg
+            dest_width_new = int(float(dest_height) * aspect_ratio)
+            dest_height_new = int(float(dest_width) / aspect_ratio)
+            # Try whichever one changes the least
+            if (
+                abs(dest_width - dest_width_new) / dest_width
+                < abs(dest_height - dest_height_new) / dest_height
+            ):
+                # Always thisn one ATM
+                dest_width = dest_width_new
+            else:
+                dest_height = dest_height_new
+
+        self._dest_width = dest_width
+        self._dest_height = dest_height
 
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
@@ -102,6 +131,8 @@ class Scoreboard(torch.nn.Module):
         )
 
     def forward(self, input_image: torch.Tensor):
+        if self._src_pts is None:
+            return None
         original_image = make_channels_first(input_image)
         src_image = original_image[
             :,

@@ -8,9 +8,19 @@ from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 
 
-def adjust_tlbr_for_clip_box(
-    tlbr_points: torch.Tensor, clip_box: torch.Tensor
-) -> torch.Tensor:
+def adjust_point_for_clip_box(point: torch.Tensor, clip_box: torch.Tensor) -> torch.Tensor:
+    if point is not None:
+        clip_upper_left = clip_box[0:2]
+        if isinstance(point, list):
+            point = torch.tensor(
+                [point[0] - clip_upper_left[0], point[1] - clip_upper_left[1]], dtype=torch.int64
+            )
+        else:
+            point = point - clip_upper_left
+    return point
+
+
+def adjust_tlbr_for_clip_box(tlbr_points: torch.Tensor, clip_box: torch.Tensor) -> torch.Tensor:
     clip_upper_left = clip_box[0:2]
     if tlbr_points is not None:
         tlbr_points = tlbr_points.clone()
@@ -27,7 +37,7 @@ class BoundaryLines:
         upper_border_lines: Optional[torch.Tensor] = None,
         lower_border_lines: Optional[torch.Tensor] = None,
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
-        det_thresh: float = 0.05,
+        # det_thresh: float = 0.05,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
             assert len(original_clip_box) == 4
@@ -35,7 +45,7 @@ class BoundaryLines:
             assert original_clip_box[3] > original_clip_box[1]
             original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
-        self.det_thresh = det_thresh
+        # self.det_thresh = det_thresh
         self.set_boundaries(
             upper=upper_border_lines,
             lower=lower_border_lines,
@@ -79,7 +89,7 @@ class BoundaryLines:
                     img,
                     self._upper_borders[i][0:2],
                     self._upper_borders[i][2:4],
-                    color=(255, 0, 0),
+                    color=(0, 0, 255),
                     thickness=1,
                 )
         if self._lower_borders is not None:
@@ -88,7 +98,7 @@ class BoundaryLines:
                     img,
                     self._lower_borders[i][0:2],
                     self._lower_borders[i][2:4],
-                    color=(0, 0, 255),
+                    color=(255, 0, 0),
                     thickness=1,
                 )
         return img
@@ -121,22 +131,14 @@ class BoundaryLines:
 
         # Step 4: Filter for points where x is within the line segment's x range
         within_x_range = (
-            expanded_points[:, 0]
-            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
-        ) & (
-            expanded_points[:, 0]
-            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
-        )
+            expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
+        ) & (expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2]))
 
         # Step 5: Determine if the point's y is above the line's y at that x
-        points_above_line = (
-            expanded_points[:, 1] > y_values_at_points_x
-        ) & within_x_range
+        points_above_line = (expanded_points[:, 1] > y_values_at_points_x) & within_x_range
 
         # Reshape to original shape for clarity
-        comparison_matrix = points_above_line.reshape(
-            points.shape[0], line_segments.shape[0]
-        )
+        comparison_matrix = points_above_line.reshape(points.shape[0], line_segments.shape[0])
         comparison = torch.any(comparison_matrix, axis=1)
         return comparison
 
@@ -168,22 +170,14 @@ class BoundaryLines:
 
         # Step 4: Filter for points where x is within the line segment's x range
         within_x_range = (
-            expanded_points[:, 0]
-            >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
-        ) & (
-            expanded_points[:, 0]
-            <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
-        )
+            expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
+        ) & (expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2]))
 
         # Step 5: Determine if the point's y is below the line's y at that x
-        points_above_line = (
-            expanded_points[:, 1] < y_values_at_points_x
-        ) & within_x_range
+        points_above_line = (expanded_points[:, 1] < y_values_at_points_x) & within_x_range
 
         # Reshape to original shape for clarity
-        comparison_matrix = points_above_line.reshape(
-            points.shape[0], line_segments.shape[0]
-        )
+        comparison_matrix = points_above_line.reshape(points.shape[0], line_segments.shape[0])
         comparison = torch.any(comparison_matrix, axis=1)
         return comparison
 
@@ -223,6 +217,8 @@ class BoundaryLines:
     def forward(self, data, **kwargs):
         start = time.time()
         if "prune_list" not in data:
+            return data
+        if self._lower_borders is None and self._upper_borders is None:
             return data
         prune_list = data["prune_list"]
         bbox_tensors = data[prune_list[0]]

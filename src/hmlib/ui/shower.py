@@ -1,18 +1,14 @@
-import cv2
-import time
-import numpy as np
 import threading
+import time
 from typing import Optional, Union
+
+import cv2
+import numpy as np
 import torch
 
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamTensor,
-)
-
-from hmlib.utils.image import (
-    make_visible_image,
-)
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import make_visible_image
 
 
 class Shower:
@@ -55,6 +51,6 @@ class Shower:
     def show(self, img: Union[torch.Tensor, np.ndarray]):
         if self._thread is not None:
             while self._q.qsize() > self._max_size:
-                print("Too many items in Shower queue...")
+                # print("Too many items in Shower queue...")
                 time.sleep(0.01)
             self._q.put(img)

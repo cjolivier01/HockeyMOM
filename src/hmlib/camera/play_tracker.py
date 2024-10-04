@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -42,21 +42,20 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
     filtered_online_tlwh = []
     filtered_online_ids = []
     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-    for i in range(len(online_tlwhs_centers)):
-        center = online_tlwhs_centers[i]
+    for i, this_center in enumerate(online_tlwhs_centers):
         if inclusion_box is not None:
-            if inclusion_box[0] and center[0] < inclusion_box[0]:
+            if inclusion_box[0] and this_center[0] < inclusion_box[0]:
                 continue
-            elif inclusion_box[2] and center[0] > inclusion_box[2]:
+            elif inclusion_box[2] and this_center[0] > inclusion_box[2]:
                 continue
-            elif inclusion_box[1] and center[1] < inclusion_box[1]:
+            elif inclusion_box[1] and this_center[1] < inclusion_box[1]:
                 continue
-            elif inclusion_box[3] and center[1] > inclusion_box[3]:
+            elif inclusion_box[3] and this_center[1] > inclusion_box[3]:
                 continue
         if boundaries is not None:
             # TODO: boundaries could be done with the box edges
-            if boundaries.is_point_outside(center):
-                # logger.info(f"ignoring: {center}")
+            if boundaries.is_point_outside(this_center):
+                # logger.info(f"ignoring: {this_center}")
                 continue
         filtered_online_tlwh.append(online_tlwhs[i])
         filtered_online_ids.append(online_ids[i])
@@ -68,36 +67,41 @@ def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
 
 class BreakawayDetection:
     def __init__(self, config: dict):
-        breakaway_detection = get_nested_value(
-            config, "rink.camera.breakaway_detection", None
-        )
-        self.min_considered_group_velocity = breakaway_detection[
-            "min_considered_group_velocity"
-        ]
+        breakaway_detection = get_nested_value(config, "rink.camera.breakaway_detection", None)
+        self.min_considered_group_velocity = breakaway_detection["min_considered_group_velocity"]
         self.group_ratio_threshold = breakaway_detection["group_ratio_threshold"]
-        self.group_velocity_speed_ratio = breakaway_detection[
-            "group_velocity_speed_ratio"
-        ]
+        self.group_velocity_speed_ratio = breakaway_detection["group_velocity_speed_ratio"]
         self.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
         self.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
-        self.overshoot_scale_speed_ratio = breakaway_detection[
-            "overshoot_scale_speed_ratio"
-        ]
+        self.overshoot_scale_speed_ratio = breakaway_detection["overshoot_scale_speed_ratio"]
 
 
 @HM.register_module()
 class PlayTracker(torch.nn.Module):
+
     def __init__(
         self,
         hockey_mom,
-        device,
-        original_clip_box,
-        progress_bar: ProgressBar | None,
+        play_box: torch.Tensor,
+        device: torch.device,
+        original_clip_box: Optional[torch.Tensor],
+        progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
     ):
+        """
+        Track the play
+
+        :param hockey_mom: The old HockeyMom object
+        :param play_box: The box allowed for play (assumed the visual play does not exist outside of this box)
+        :param device: Device to use for computations
+        :param original_clip_box: Clip box that has been applied to the original image (if any)
+        :param progress_bar: Progress bar
+        :param args: _description_
+        """
         super(PlayTracker, self).__init__()
         self._args = args
         self._hockey_mom = hockey_mom
+        self._play_box = play_box
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
@@ -110,6 +114,8 @@ class PlayTracker(torch.nn.Module):
         self._original_clip_box = original_clip_box
         self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
+
+        self._tracking_id_jersey: Dict[int, Tuple[int, float]] = {}
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -134,7 +140,13 @@ class PlayTracker(torch.nn.Module):
         self._last_sticky_temporal_box = None
         self._frame_counter: int = 0
 
-        start_box = self._hockey_mom._video_frame.bounding_box()
+        play_width = width(self._play_box)
+        play_height = height(self._play_box)
+
+        assert width(self._play_box) == self._hockey_mom._video_frame.width
+        assert height(self._play_box) == self._hockey_mom._video_frame.height
+
+        start_box = self._play_box.clone()
         self._current_roi = MovingBox(
             label="Current ROI",
             bbox=start_box.clone(),
@@ -143,15 +155,13 @@ class PlayTracker(torch.nn.Module):
             max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
             max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
             max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
-            max_width=self._hockey_mom._video_frame.width,
-            max_height=self._hockey_mom._video_frame.height,
+            max_width=play_width,
+            max_height=play_height,
+            stop_on_dir_change=False,
             color=(255, 128, 64),
             thickness=5,
             device=self._device,
         )
-
-        size_unstick_size = self._hockey_mom._camera_box_max_speed_x * 5
-        size_stick_size = size_unstick_size / 3
 
         self._current_roi_aspect = MovingBox(
             label="AspectRatio",
@@ -161,33 +171,27 @@ class PlayTracker(torch.nn.Module):
             max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
             max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
             max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
-            max_width=self._hockey_mom._video_frame.width,
-            max_height=self._hockey_mom._video_frame.height,
-            width_change_threshold=_scalar_like(
-                size_unstick_size * 2, device=self._device
-            ),
-            width_change_threshold_low=_scalar_like(
-                size_stick_size * 2, device=self._device
-            ),
-            height_change_threshold=_scalar_like(
-                size_unstick_size * 2, device=self._device
-            ),
-            height_change_threshold_low=_scalar_like(
-                size_stick_size * 2, device=self._device
-            ),
+            max_width=play_width,
+            max_height=play_height,
+            stop_on_dir_change=True,
             sticky_translation=True,
+            sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
+                "sticky_size_ratio_to_frame_width"
+            ],
+            sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
+                "sticky_translation_gaussian_mult"
+            ],
+            unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
+                "unsticky_translation_size_ratio"
+            ],
             sticky_sizing=True,
-            scale_width=self._args.game_config["rink"]["camera"][
-                "follower_box_scale_width"
-            ],
-            scale_height=self._args.game_config["rink"]["camera"][
-                "follower_box_scale_height"
-            ],
+            scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
+            scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
             fixed_aspect_ratio=self._final_aspect_ratio,
             color=(255, 0, 255),
             thickness=5,
             device=self._device,
-            min_height=self._hockey_mom._video_frame.height / 5,
+            min_height=play_height / 5,
         )
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
@@ -198,7 +202,7 @@ class PlayTracker(torch.nn.Module):
         return super().train(mode)
 
     def get_arena_box(self):
-        return self._hockey_mom._video_frame.bounding_box()
+        return self._play_box.clone()
 
     def _kmeans_cuda_device(self):
         return "cpu"
@@ -208,7 +212,7 @@ class PlayTracker(torch.nn.Module):
         Set the initial tracking boxes
         """
         assert self._frame_counter <= 1, "Not currently meant for setting at runtime"
-        frame_box = start_box = self._hockey_mom._video_frame.bounding_box()
+        frame_box = self.get_arena_box()
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
         assert width(box) <= fw and height(box) <= fh
@@ -235,9 +239,7 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
     ):
         if self._cluster_man is None:
-            self._cluster_man = ClusterMan(
-                sizes=cluster_counts, device=self._kmeans_cuda_device()
-            )
+            self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
 
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
@@ -260,13 +262,33 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         return boxes_map, torch.stack(boxes_list)
 
+    def process_jerseys_info(self, data: Dict[str, Any]) -> None:
+        jersey_results = data["tracking_results"].get("jersey_results")
+        if not jersey_results:
+            return
+        for tracking_id, (number, score) in jersey_results.items():
+            jersey_info = self._tracking_id_jersey.get(tracking_id)
+            if jersey_info is None:
+                self._tracking_id_jersey[tracking_id] = (number, score)
+            else:
+                prev_number, prev_score = jersey_info
+                # if number != prev_number:
+                if number != prev_number and score > prev_score:
+                    print(
+                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
+                    )
+                    self._tracking_id_jersey[tracking_id] = (number, score)
+
     def forward(self, online_targets_and_img):
         self._timer.tic()
 
-        online_tlwhs = online_targets_and_img[0]
-        online_ids = online_targets_and_img[1]
-        detections = online_targets_and_img[2]
-        info_imgs = online_targets_and_img[3]
+        online_tlwhs = online_targets_and_img["online_tlwhs"]
+        online_ids = online_targets_and_img["online_ids"]
+        detections = online_targets_and_img["detections"]
+        info_imgs = online_targets_and_img["info_imgs"]
+        original_img = online_targets_and_img.pop("original_img")
+
+        self.process_jerseys_info(data=online_targets_and_img)
 
         frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
         frame_id = frame_ids[self._frame_counter % len(frame_ids)]
@@ -276,12 +298,8 @@ class PlayTracker(torch.nn.Module):
 
         if self._args.cam_ignore_largest and len(online_tlwhs):
             # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask, largest_bbox = remove_largest_bbox(
-                online_tlwhs, min_boxes=4
-            )
+            online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
             online_ids = online_ids[mask]
-
-        original_img = online_targets_and_img[5]
 
         online_im = original_img
         if online_im.ndim == 4:
@@ -291,7 +309,7 @@ class PlayTracker(torch.nn.Module):
         self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
         #
-        # BEGIN Clusters
+        # BEGIN Clusters and Cluster Boxes
         #
         cluster_counts = [3, 2]
         cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
@@ -303,7 +321,7 @@ class PlayTracker(torch.nn.Module):
         elif self._previous_cluster_union_box is not None:
             cluster_enclosing_box = self._previous_cluster_union_box.clone()
         else:
-            cluster_enclosing_box = self._hockey_mom._video_frame.bounding_box()
+            cluster_enclosing_box = self.get_arena_box()
 
         current_box = cluster_enclosing_box
 
@@ -353,6 +371,14 @@ class PlayTracker(torch.nn.Module):
                     label=f"IGNORED",
                 )
 
+        if self._args.plot_jersey_numbers:
+            online_im = vis.plot_jersey_numbers(
+                online_im,
+                online_tlwhs,
+                online_ids,
+                player_number_map=self._tracking_id_jersey,
+            )
+
         if self._args.plot_cluster_tracking:
             cluster_box_colors = {
                 cluster_counts[0]: (128, 0, 0),  # dark red
@@ -383,12 +409,8 @@ class PlayTracker(torch.nn.Module):
                     opacity_percent=25,
                 )
         #
-        # END Clusters
+        # END Clusters and Cluster Boxes
         #
-
-        if current_box is None:
-            assert False  # how does this happen?
-            current_box = self._hockey_mom._video_frame.bounding_box()
 
         current_box, online_im = self.calculate_breakaway(
             current_box=current_box,
@@ -403,7 +425,8 @@ class PlayTracker(torch.nn.Module):
         self._previous_cluster_union_box = current_box.clone()
 
         # Some players may be off-screen, so their box may go over an edge
-        current_box = self._hockey_mom.clamp(current_box)
+        # current_box = self._hockey_mom.clamp(current_box)
+        current_box = clamp_box(current_box, self._play_box)
 
         # Maybe set initial box sizes if we aren't starting with a wide frame
         if self._frame_counter == 1 and self._args.no_wide_start:
@@ -412,10 +435,8 @@ class PlayTracker(torch.nn.Module):
         #
         # Apply the new calculated play
         #
-        fast_roi_bounding_box = self._current_roi(current_box, stop_on_dir_change=False)
-        current_box = self._current_roi_aspect(
-            fast_roi_bounding_box, stop_on_dir_change=True
-        )
+        fast_roi_bounding_box = self._current_roi(current_box)
+        current_box = self._current_roi_aspect(fast_roi_bounding_box)
 
         if self._args.plot_moving_boxes:
             online_im = self._current_roi_aspect.draw(
@@ -447,8 +468,12 @@ class PlayTracker(torch.nn.Module):
                 frame_id,
                 *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
             )
+        online_targets_and_img["frame_id"] = frame_id
+        online_targets_and_img["img"] = online_im
+        online_targets_and_img["current_fast_box"] = self._current_roi.bounding_box().clone()
+        online_targets_and_img["current_box"] = self._current_roi_aspect.bounding_box().clone()
 
-        return frame_id, online_im, self._current_roi_aspect.bounding_box()
+        return online_targets_and_img
 
     def calculate_breakaway(
         self,
@@ -480,9 +505,7 @@ class PlayTracker(torch.nn.Module):
                     color=(255, 0, 255),
                     thickness=20,
                 )
-            edge_center = torch.tensor(
-                edge_center, dtype=torch.float, device=current_box.device
-            )
+            edge_center = torch.tensor(edge_center, dtype=torch.float, device=current_box.device)
 
             if average_current_box:
                 average_center = (edge_center + center(current_box)) / 2.0
@@ -507,12 +530,8 @@ class PlayTracker(torch.nn.Module):
                     )
                 # Previous way
                 should_adjust_speed = torch.logical_or(
-                    torch.logical_and(
-                        group_x_velocity > 0, roi_center[0] < edge_center[0]
-                    ),
-                    torch.logical_and(
-                        group_x_velocity < 0, roi_center[0] > edge_center[0]
-                    ),
+                    torch.logical_and(group_x_velocity > 0, roi_center[0] < edge_center[0]),
+                    torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
                 )
                 if should_adjust_speed.item():
                     speed_adjust_box.adjust_speed(
