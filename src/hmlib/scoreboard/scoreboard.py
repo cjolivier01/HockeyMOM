@@ -79,6 +79,7 @@ class Scoreboard(torch.nn.Module):
                 abs(dest_width - dest_width_new) / dest_width
                 < abs(dest_height - dest_height_new) / dest_height
             ):
+                # Always thisn one ATM
                 dest_width = dest_width_new
             else:
                 dest_height = dest_height_new
