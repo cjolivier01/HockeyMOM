@@ -60,15 +60,28 @@ class ScoreboardSelector:
         button_frame: tk.Frame = tk.Frame(self.root)
         button_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        ok_button: tk.Button = tk.Button(button_frame, text="OK", command=self.process_ok)
-        delete_button: tk.Button = tk.Button(
-            button_frame, text="Delete", command=self.reset_selection
-        )
-        none_button: tk.Button = tk.Button(button_frame, text="None", command=self.process_none)
+        # Define a larger font for the buttons
+        button_font = ("Helvetica", 16, "bold")
 
-        ok_button.pack(side=tk.LEFT)
-        delete_button.pack(side=tk.LEFT)
-        none_button.pack(side=tk.LEFT)
+        ok_button: tk.Button = tk.Button(
+            button_frame, text="OK", command=self.process_ok, font=button_font, width=10, height=2
+        )
+        delete_button: tk.Button = tk.Button(
+            button_frame,
+            text="Delete",
+            command=self.reset_selection,
+            font=button_font,
+            width=10,
+            height=2,
+        )
+        none_button: tk.Button = tk.Button(
+            button_frame, text="None", command=self.root.quit, font=button_font, width=10, height=2
+        )
+
+        # Add padding to make the buttons larger and spaced out
+        ok_button.pack(side=tk.LEFT, padx=10, pady=10)
+        delete_button.pack(side=tk.LEFT, padx=10, pady=10)
+        none_button.pack(side=tk.LEFT, padx=10, pady=10)
 
         if initial_points == ScoreboardSelector.NULL_POINTS:
             initial_points = []
@@ -158,9 +171,9 @@ class ScoreboardSelector:
         )
         # Now assign the points
         tl: Tuple[int, int] = top_two_sorted[0]
-        tr: Tuple[int, int] = top_two_sorted[1]
+        tr: Tuple[int, int] = bottom_two_sorted[1]
         br: Tuple[int, int] = bottom_two_sorted[0]
-        bl: Tuple[int, int] = bottom_two_sorted[1]
+        bl: Tuple[int, int] = top_two_sorted[1]
         return [tl, tr, br, bl]
 
     def process_ok(self) -> None:
@@ -170,7 +183,8 @@ class ScoreboardSelector:
         if len(self.points) != 4:
             messagebox.showinfo("Info", "Please select exactly 4 points.")
             return
-        ordered_points: List[Tuple[int, int]] = self.order_points(self.points)
+        # ordered_points: List[Tuple[int, int]] = self.order_points(self.points)
+        ordered_points: List[Tuple[int, int]] = self.points.copy()
         # Print the points
         print("Selected points in clockwise order starting from the upper-left point:")
         for p in ordered_points:
