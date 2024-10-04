@@ -190,11 +190,15 @@ class ScoreboardSelector:
         for p in ordered_points:
             print(f"({p[0]}, {p[1]})")
         self.points = ordered_points
-        self.root.quit()
+        self.close()
 
     def process_none(self) -> None:
         self.points = ScoreboardSelector.NULL_POINTS.copy()
+        self.close()
+
+    def close(self):
         self.root.quit()
+        self.root.destroy()  # Close the window completely
 
     def run(self) -> None:
         self.root.mainloop()
