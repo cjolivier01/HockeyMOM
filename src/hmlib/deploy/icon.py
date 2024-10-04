@@ -26,7 +26,7 @@ def create_matchup_image(
     """
     # Create a blank image
     icon_size = 256
-    team_icon_size = 100
+    team_icon_size = 120
     pad_size = 10
     text_size = 24
 
@@ -45,11 +45,13 @@ def create_matchup_image(
     img.paste(logo1, (pad_size, pad_size))
     draw.text((pad_size, int(team_icon_size + pad_size * 1.5)), team1, fill=text_color)
     # Place the second logo and team name in the bottom right
-    img.paste(logo2, (icon_size - team_icon_size - pad_size, icon_size - team_icon_size - pad_size))
+    team2_y = icon_size - team_icon_size - pad_size
+    img.paste(logo2, (icon_size - team_icon_size - pad_size, team2_y))
+    text_width, text_height = draw.textsize(team2)
     draw.text(
         (
-            icon_size - team_icon_size - pad_size,
-            int(icon_size - team_icon_size - text_size),
+            icon_size - text_width - text_size,
+            team2_y - text_height - pad_size,
         ),
         team2,
         fill=text_color,
