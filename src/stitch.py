@@ -17,9 +17,9 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.ui.show import show_image
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui.show import show_image
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -59,8 +59,6 @@ def stitch_single_frame(
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
-    # video_left: str = "left.mp4",
-    # video_right: str = "right.mp4",
     lfo: int = None,
     rfo: int = None,
     game_id: str = None,
