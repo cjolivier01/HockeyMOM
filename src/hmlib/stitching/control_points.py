@@ -11,7 +11,7 @@ from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import load_image, rbd
 
 from hmlib.config import get_game_dir
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -172,7 +172,7 @@ def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
-    max_control_points: int = 250,
+    max_control_points: int = 500,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:

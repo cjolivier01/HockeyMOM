@@ -21,7 +21,7 @@ from hmlib.tracking_utils.timer import Timer
 
 from hmlib.stitching.remapper import create_remapper_config
 from hmlib.stitching.blender import create_blender_config
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.video_stream import VideoStreamReader
 from hmlib.utils.gpu import StreamTensorToDevice, StreamTensorToDtype, CachedIterator
 from hmlib.utils.containers import create_queue

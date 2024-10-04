@@ -18,7 +18,7 @@ from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.log import logger

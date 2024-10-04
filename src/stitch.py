@@ -17,7 +17,7 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import GpuAllocator, StreamTensor

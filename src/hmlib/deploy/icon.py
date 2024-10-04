@@ -1,9 +1,14 @@
+import os
 from typing import Dict
 
 from PIL import Image, ImageDraw, ImageFont
+from config import load_config_file, ROOT_DIR
+from hmlib.ui.show import show_image
 
 
-def create_matchup_image(teams_map: Dict[str, str], team1: str, team2: str, text_color: str, bg_color: str) -> Image.Image:
+def create_matchup_image(
+    teams_map: Dict[str, str], team1: str, team2: str, text_color: str, bg_color: str
+) -> Image.Image:
     """
     Generate a 256x256 image showcasing a matchup between two teams.
 
@@ -18,7 +23,7 @@ def create_matchup_image(teams_map: Dict[str, str], team1: str, team2: str, text
     - PIL.Image.Image: The generated image.
     """
     # Create a blank image
-    img = Image.new('RGB', (256, 256), color=bg_color)
+    img = Image.new("RGB", (256, 256), color=bg_color)
     draw = ImageDraw.Draw(img)
 
     # Load logos
@@ -45,3 +50,7 @@ def create_matchup_image(teams_map: Dict[str, str], team1: str, team2: str, text
     draw.text((128, 120), "VS", fill=text_color, font=font, anchor="mm")
 
     return img
+
+
+if __name__ == "__main__":
+    pass

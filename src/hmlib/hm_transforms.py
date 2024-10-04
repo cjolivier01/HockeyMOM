@@ -18,7 +18,7 @@ from mmpose.core.post_processing import (
 from torchvision.transforms import functional as F
 
 from hmlib.builder import PIPELINES, POSE_PIPELINES
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.utils.image import (
     image_height,

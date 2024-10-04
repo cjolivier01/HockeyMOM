@@ -6,9 +6,16 @@ from googleapiclient.http import MediaFileUpload
 
 
 def upload_video_to_youtube(
-    video_file_path: str, thumbnail_path: str, title: str, description: str, 
-    category_id: int, keywords: List[str], privacy_status: str, playlist_id: str, 
-    credentials_file: str) -> str:
+    video_file_path: str,
+    thumbnail_path: str,
+    title: str,
+    description: str,
+    category_id: int,
+    keywords: List[str],
+    privacy_status: str,
+    playlist_id: str,
+    credentials_file: str,
+) -> str:
     """
     Upload a video to YouTube, set its thumbnail, and add it to a playlist.
 
@@ -26,47 +33,39 @@ def upload_video_to_youtube(
     Returns:
     - str: URL of the uploaded video.
     """
-    scopes = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
+    scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube",
+    ]
     flow = InstalledAppFlow.from_client_secrets_file(credentials_file, scopes)
     credentials = flow.run_console()
-    youtube = build('youtube', 'v3', credentials=credentials)
+    youtube = build("youtube", "v3", credentials=credentials)
 
     body = {
-        'snippet': {
-            'title': title,
-            'description': description,
-            'tags': keywords,
-            'categoryId': category_id
+        "snippet": {
+            "title": title,
+            "description": description,
+            "tags": keywords,
+            "categoryId": category_id,
         },
-        'status': {
-            'privacyStatus': privacy_status
-        }
+        "status": {"privacyStatus": privacy_status},
     }
 
     video = MediaFileUpload(video_file_path, chunksize=-1, resumable=True)
-    upload_response = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=video
-    ).execute()
+    upload_response = (
+        youtube.videos().insert(part="snippet,status", body=body, media_body=video).execute()
+    )
 
     youtube.thumbnails().set(
-        videoId=upload_response['id'],
-        media_body=MediaFileUpload(thumbnail_path)
+        videoId=upload_response["id"], media_body=MediaFileUpload(thumbnail_path)
     ).execute()
 
     playlist_item_body = {
-        'snippet': {
-            'playlistId': playlist_id,
-            'resourceId': {
-                'kind': 'youtube#video',
-                'videoId': upload_response['id']
-            }
+        "snippet": {
+            "playlistId": playlist_id,
+            "resourceId": {"kind": "youtube#video", "videoId": upload_response["id"]},
         }
     }
-    youtube.playlistItems().insert(
-        part="snippet",
-        body=playlist_item_body
-    ).execute()
+    youtube.playlistItems().insert(part="snippet", body=playlist_item_body).execute()
 
     return f"https://www.youtube.com/watch?v={upload_response['id']}"

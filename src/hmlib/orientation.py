@@ -17,7 +17,7 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui.show import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.video import load_first_video_frame
