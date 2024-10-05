@@ -5,7 +5,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 from mmcv.ops import RoIPool
-from mmcv.parallel import collate, scatter
+
+# from mmcv.parallel import collate, scatter
 from torch.cuda.amp import autocast
 
 import hmlib.models.end_to_end  # Registers the model

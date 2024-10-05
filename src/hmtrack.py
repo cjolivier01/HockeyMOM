@@ -9,9 +9,12 @@ from typing import List, Tuple
 
 import torch
 import torch.backends.cudnn as cudnn
-from mmcv.utils import get_logger as mmcv_get_logger
-from mmdet.datasets.pipelines import Compose
-from mmtrack.apis import init_model
+
+# from mmcv.utils import get_logger as mmcv_get_logger
+from mmcv.transforms import Compose
+
+# from mmtrack.apis import init_model
+from mmdet.apis import inference_mot, init_track_model
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import hmlib.tracking_utils.ice_rink_segm_boundaries
@@ -278,6 +281,8 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="The output video file name",
     )
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
+    parser.add_argument("--detector", help="det checkpoint file")
+    parser.add_argument("--reid", help="reid checkpoint file")
 
     # Pose args
     parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
@@ -547,11 +552,20 @@ def main(args, num_gpu):
             args.config = args.exp_file
             if not using_precalculated_tracking:
                 if args.tracking or args.multi_pose:
-                    model = init_model(
+
+                    # build the model from a config file and a checkpoint file
+                    model = init_track_model(
                         args.config,
                         args.checkpoint,
+                        args.detector,
+                        args.reid,
                         device=main_device,
                     )
+                    # model = init_model(
+                    #     args.config,
+                    #     args.checkpoint,
+                    #     device=main_device,
+                    # )
 
                     # Maybe apply a clip box in the data pipeline
                     orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
@@ -936,9 +950,12 @@ def tensor_to_image(tensor: torch.Tensor):  ##
 
 
 def setup_logging():
-    mmcv_logger = mmcv_get_logger("mmcv")
-    mmcv_logger.setLevel(logging.WARN)
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.WARN)
     logger.info("Logger initialized")
+    # mmcv_logger = mmcv_get_logger("mmcv")
+    # mmcv_logger.setLevel(logging.WARN)
+    # logger.info("Logger initialized")
 
 
 if __name__ == "__main__":

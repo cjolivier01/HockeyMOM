@@ -138,10 +138,11 @@ game:
 #
 model:
   end_to_end:
-    config: config/models/hm/hm_end_to_end.py
+    # config: config/models/hm/hm_end_to_end.py
     # checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
     
     # mmv2 checkpoitn with "detector." prefix
+    config: config/models/hm2/hm_end_to_end.py
     checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
 
   pose:
