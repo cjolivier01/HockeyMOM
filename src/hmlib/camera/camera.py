@@ -118,8 +118,8 @@ class TlwhHistory(object):
         left = tlwh[1]
         width = tlwh[2]
         height = tlwh[3]
-        x_center = left + width / 2
-        y_center = top + height / 2
+        x_center = left + (width / 2.0)
+        y_center = top + (height / 2.0)
         return torch.tensor((x_center, y_center), dtype=torch.float)
 
     def __len__(self):
