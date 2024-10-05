@@ -360,14 +360,6 @@ class MovingBox(ResizingBox):
             [1, 1, -1, -1], dtype=torch.float, device=self.device
         )
 
-        # if isinstance(bbox, BasicBox):
-        #     self._following_box = bbox
-        #     bbox = self._following_box.bounding_box()
-        # else:
-        #     self._following_box = None
-        #     self._size_is_frozen = False
-
-        # self._following_box = None
         self._size_is_frozen = False
 
         self._scale_width = self._one_float_tensor if scale_width is None else scale_width
