@@ -133,9 +133,10 @@ def detect_video_rink_masks(
     images: List[torch.Tensor] = []
     for key, value in videos_dict.items():
         keys.append(key)
-        frame = load_first_video_frame(value[1])
+        min_chapter_key = min(value, key=value.get)
+        frame = load_first_video_frame(value[min_chapter_key])
         images.append(frame)
-        value["first_frame"] = load_first_video_frame(value[1])
+        value["first_frame"] = load_first_video_frame(value[min_chapter_key])
 
     config_file, checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
 
