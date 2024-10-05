@@ -333,8 +333,8 @@ class MovingBox(ResizingBox):
         super().__init__(
             bbox=bbox,
             device=device,
-            max_speed_w=max_speed_w if max_speed_w is not None else max_speed_x / 2,
-            max_speed_h=max_speed_h if max_speed_h is not None else max_speed_y / 2,
+            max_speed_w=max_speed_w if max_speed_w is not None else max_speed_x / 1.8,
+            max_speed_h=max_speed_h if max_speed_h is not None else max_speed_y / 1.8,
             max_accel_w=max_accel_x,
             max_accel_h=max_accel_y,
             stop_on_dir_change=stop_on_dir_change,
