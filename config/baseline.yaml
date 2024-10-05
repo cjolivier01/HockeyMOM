@@ -139,7 +139,10 @@ game:
 model:
   end_to_end:
     config: config/models/hm/hm_end_to_end.py
-    checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
+    # checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
+    
+    # mmv2 checkpoitn with "detector." prefix
+    checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
 
   pose:
     config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py

@@ -1,7 +1,8 @@
 import logging
-import sys
 
-from mmtrack.utils import get_root_logger
+# import sys
+
+# from mmtracking.utils import get_root_logger
 
 # def get_logger(name='root'):
 #     formatter = logging.Formatter(
@@ -21,5 +22,5 @@ from mmtrack.utils import get_root_logger
 #     return logger
 
 
-# logger = get_logger('root')
-logger = get_root_logger(log_level=logging.INFO)
+logger = logging.getLogger(__name__)
+# logger = get_root_logger(log_level=logging.INFO)

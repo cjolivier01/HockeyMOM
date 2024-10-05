@@ -4,8 +4,11 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 
-from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
+
+# from hmlib.builder import PIPELINES
+# from mmdet.datasets.builder import PIPELINES
+from ..builder import PIPELINES
 
 
 def adjust_point_for_clip_box(point: torch.Tensor, clip_box: torch.Tensor) -> torch.Tensor:
