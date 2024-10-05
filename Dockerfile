@@ -46,8 +46,8 @@ RUN apt-get install -y \
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 RUN apt-get install -y \
-  nvidia-driver-535 \
-  nvidia-utils-535 \
+  nvidia-driver-550 \
+  nvidia-utils-550 \
   nvidia-cuda-dev \
   nvidia-cuda-toolkit \
   libffmpeg-nvenc-dev \
