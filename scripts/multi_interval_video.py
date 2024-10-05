@@ -17,8 +17,10 @@ from typing import List, Tuple
 
 import yaml
 
+from hmlib.ffmpeg import BasicVideoInfo
 
-def create_intermission(image_file: str, duration: int = 5) -> str:
+
+def create_intermission(image_file: str, duration: int = 5, fps: float = 29.97) -> str:
     """
     Creates a video of a static image that loops for a specified duration.
 
@@ -31,7 +33,7 @@ def create_intermission(image_file: str, duration: int = 5) -> str:
     """
     intermission_file = "intermission.mp4"
     os.system(
-        f"ffmpeg -loop 1 -i {image_file} -c:v libx264 -t {duration} -pix_fmt yuv420p {intermission_file}"
+        f"ffmpeg -loop 1 -i {image_file} -c:v libx264 -t {duration} -f {fps} {intermission_file}"
     )
     return intermission_file
 
@@ -115,11 +117,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    video_info = BasicVideoInfo(args.input_file)
+
     # Read intervals from the YAML file
     intervals: List[Tuple[str, str]] = read_yaml_intervals(args.yaml_file)
 
     # Create the intermission video
-    intermission_file: str = create_intermission(args.intermission_image)
+    intermission_file: str = create_intermission(args.intermission_image, fps=video_info.fps)
 
     # Extract video segments based on the intervals
     segment_files: List[str] = extract_video_segments(args.input_video, intervals)
