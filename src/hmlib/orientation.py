@@ -209,7 +209,8 @@ def get_game_videos_analysis(
 
 def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
     file_list: List[str] = []
-    index = 1
+    numeric_keys = [key for key in chapter_map.keys() if isinstance(key, (int, float))]
+    index = min(numeric_keys)
     while index in chapter_map:
         file_list.append(chapter_map[index])
         index += 1
@@ -244,6 +245,8 @@ def configure_game_videos(
     videos_dict = get_game_videos_analysis(game_id=game_id, device=device)
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
+    # Make sure they both have the same chapters
+    assert videos_dict["left"].keys() == videos_dict["right"].keys()
     if write_results:
         set_nested_value(private_config, "game.videos.left", [Path(p).name for p in left_list])
         set_nested_value(private_config, "game.videos.right", [Path(p).name for p in right_list])
