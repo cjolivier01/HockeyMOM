@@ -35,8 +35,6 @@ class VideoFrame(object):
         assert bool(image_height < image_width)  # Usually the case, but not required
         self._image_width = _as_scalar(image_width)
         self._image_height = _as_scalar(image_height)
-        self._vertical_center = self._image_height / 2
-        self._horizontal_center = self._image_width / 2
         self._bbox = torch.tensor(
             (0, 0, self._image_width - 1, self._image_height - 1),
             dtype=torch.float,
@@ -56,7 +54,8 @@ class VideoFrame(object):
 
 
 class TlwhHistory(object):
-    def __init__(self, id: int, video_frame: VideoFrame, max_history_length: int = 25):
+
+    def __init__(self, id: int, max_history_length: int = 25):
         self.id_ = id
         self._max_history_length = max_history_length
         self._image_position_history: List[torch.Tensor] = list()
@@ -70,7 +69,7 @@ class TlwhHistory(object):
     def id(self):
         return self.id_
 
-    def append(self, image_position: torch.Tensor, spatial_position: torch.Tensor = None):
+    def append(self, image_position: torch.Tensor):
         current_historty_length = len(self._image_position_history)
         if current_historty_length >= self._max_history_length - 1:
             assert current_historty_length == self._max_history_length - 1
@@ -129,11 +128,6 @@ class TlwhHistory(object):
     @property
     def image_speed(self):
         return self._current_image_speed
-
-
-# class Clustering:
-#     def __init__(self):
-#         pass
 
 
 CAMERA_TYPE_MAX_SPEEDS = {
@@ -215,9 +209,7 @@ class HockeyMOM:
         prev_dict = self._id_to_tlwhs_history_map
         self._id_to_tlwhs_history_map = dict()
         for id, image_pos in zip(self._online_ids, self._online_tlws):
-            hist = prev_dict.get(
-                id.item(), TlwhHistory(id=id.item(), video_frame=self._video_frame)
-            )
+            hist = prev_dict.get(id.item(), TlwhHistory(id=id.item()))
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id.item()] = hist
 
