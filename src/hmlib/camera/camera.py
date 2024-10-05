@@ -145,10 +145,14 @@ CAMERA_TYPE_MAX_SPEEDS = {
 
 class HockeyMOM:
 
+    # Frames per second that normal speeds are calculated for
+    BASE_FPS: float = 29.97
+
     def __init__(
         self,
         image_width: int,
         image_height: int,
+        fps: float,
         device,
         camera_name: str,
         max_history: int = 26,
@@ -164,6 +168,7 @@ class HockeyMOM:
         self._max_history = max_history
         self._online_ids: Set[int] = set()
         self._id_to_tlwhs_history_map = dict()
+        self._fps_speed_scale: float = fps / HockeyMOM.BASE_FPS
 
         self._kmeans_objects = dict()
         self._cluster_counts = dict()
@@ -176,46 +181,48 @@ class HockeyMOM:
         #
         # The camera's box speed itself
         #
-        self._current_camera_box_speed_x = self._to_scalar_float(0)
-        self._current_camera_box_speed_y = self._to_scalar_float(0)
+        # self._current_camera_box_speed_x = self._to_scalar_float(0)
+        # self._current_camera_box_speed_y = self._to_scalar_float(0)
 
-        self._current_camera_box_speed_reversed_x = False
-        self._current_camera_box_speed_reversed_y = False
+        # self._current_camera_box_speed_reversed_x = False
+        # self._current_camera_box_speed_reversed_y = False
 
-        self._camera_box_max_speed_x = self._to_scalar_float(
-            max(image_width / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
+        self._camera_box_max_speed_x = (
+            self._to_scalar_float(max(image_width / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0))
+            / self._fps_speed_scale
         )
-        self._camera_box_max_speed_y = self._to_scalar_float(
-            max(image_height / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
+        self._camera_box_max_speed_y = (
+            self._to_scalar_float(max(image_height / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0))
+            / self._fps_speed_scale
         )
         logger.info(
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
 
-        self._camera_box_max_accel_x = self._to_scalar_float(1)
-        self._camera_box_max_accel_y = self._to_scalar_float(1)
+        self._camera_box_max_accel_x = self._to_scalar_float(1) / self._fps_speed_scale
+        self._camera_box_max_accel_y = self._to_scalar_float(1) / self._fps_speed_scale
         logger.info(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
 
-        self._last_acceleration_dx = self._to_scalar_float(0)
-        self._last_acceleration_dy = self._to_scalar_float(0)
+        # self._last_acceleration_dx = self._to_scalar_float(0)
+        # self._last_acceleration_dy = self._to_scalar_float(0)
 
         #
         # Zoom velocity
         #
-        self._camera_box_size_change_velocity_x = self._to_scalar_float(0)
-        self._camera_box_size_change_velocity_y = self._to_scalar_float(0)
+        # self._camera_box_size_change_velocity_x = self._to_scalar_float(0)
+        # self._camera_box_size_change_velocity_y = self._to_scalar_float(0)
 
-        self._camera_box_max_size_change_velocity_x = self._to_scalar_float(2)
-        self._camera_box_max_size_change_velocity_y = self._to_scalar_float(2)
+        # self._camera_box_max_size_change_velocity_x = self._to_scalar_float(2)
+        # self._camera_box_max_size_change_velocity_y = self._to_scalar_float(2)
 
     def _to_scalar_float(self, scalar_float):
         return torch.tensor(scalar_float, dtype=torch.float, device=self._device)
 
-    def is_fast(self, speed: float = 7):
-        # return abs(self._current_camera_box_speed_x) > speed or abs(self._current_camera_box_speed_y) > speed
-        return self.get_speed() >= speed
+    # def is_fast(self, speed: float = 7):
+    #     # return abs(self._current_camera_box_speed_x) > speed or abs(self._current_camera_box_speed_y) > speed
+    #     return self.get_speed() >= speed
 
     def append_online_objects(self, online_ids, online_tlws):
         # assert isinstance(online_tlwh_map, dict)
@@ -348,8 +355,8 @@ class HockeyMOM:
                 return avg_x_speed, leftmost_center
         return 0, None
 
-    def add_x_velocity(self, x_velocity_to_add):
-        self._current_camera_box_speed_x += x_velocity_to_add
+    # def add_x_velocity(self, x_velocity_to_add):
+    #     self._current_camera_box_speed_x += x_velocity_to_add
 
     def clamp(self, box: torch.Tensor):
         return clamp_box(box, self._video_frame.bounding_box())

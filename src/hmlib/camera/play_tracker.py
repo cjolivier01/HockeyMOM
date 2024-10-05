@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from hmlib.builder import HM, PIPELINES
+from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
@@ -81,7 +82,7 @@ class PlayTracker(torch.nn.Module):
 
     def __init__(
         self,
-        hockey_mom,
+        hockey_mom: HockeyMOM,
         play_box: torch.Tensor,
         device: torch.device,
         original_clip_box: Optional[torch.Tensor],
@@ -100,7 +101,8 @@ class PlayTracker(torch.nn.Module):
         """
         super(PlayTracker, self).__init__()
         self._args = args
-        self._hockey_mom = hockey_mom
+        self._hockey_mom: HockeyMOM = hockey_mom
+        # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = play_box
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
@@ -490,7 +492,6 @@ class PlayTracker(torch.nn.Module):
             group_threshhold=self._breakaway_detection.group_ratio_threshold,
         )
         if group_x_velocity:
-            # logger.info(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 """
                 When detecting a breakaway, draw a circle on the player
