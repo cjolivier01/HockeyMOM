@@ -148,15 +148,18 @@ class PlayTracker(torch.nn.Module):
         assert width(self._play_box) == self._hockey_mom._video_frame.width
         assert height(self._play_box) == self._hockey_mom._video_frame.height
 
+        # speed_scale = 1.0
+        speed_scale = self._hockey_mom.fps_speed_scale
+
         start_box = self._play_box.clone()
         self._current_roi = MovingBox(
             label="Current ROI",
             bbox=start_box.clone(),
             arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
+            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
+            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
+            max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
+            max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
             max_width=play_width,
             max_height=play_height,
             stop_on_dir_change=False,
@@ -169,10 +172,10 @@ class PlayTracker(torch.nn.Module):
             label="AspectRatio",
             bbox=start_box.clone(),
             arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
+            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
+            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
+            max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
+            max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
             max_width=play_width,
             max_height=play_height,
             stop_on_dir_change=True,

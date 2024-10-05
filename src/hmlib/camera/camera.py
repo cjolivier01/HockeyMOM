@@ -214,6 +214,10 @@ class HockeyMOM:
             self._id_to_tlwhs_history_map[id.item()] = hist
 
     @property
+    def fps_speed_scale(self) -> float:
+        return self._fps_speed_scale
+
+    @property
     def video(self):
         return self._video_frame
 
