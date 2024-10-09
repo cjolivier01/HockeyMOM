@@ -467,7 +467,7 @@ def blend_video(
 
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
-    torch.float32
+
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
 
@@ -479,9 +479,8 @@ def blend_video(
     )
     if not cap_1 or not cap_1.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_1}")
-    else:
-        if lfo or start_frame_number:
-            cap_1.seek(frame_number=lfo + start_frame_number)
+    if lfo or start_frame_number:
+        cap_1.seek(frame_number=lfo + start_frame_number)
 
     cap_2 = VideoStreamReader(
         os.path.join(dir_name, video_file_2),
@@ -492,9 +491,8 @@ def blend_video(
 
     if not cap_2 or not cap_2.isOpened():
         raise AssertionError(f"Could not open video file: {video_file_2}")
-    else:
-        if rfo or start_frame_number:
-            cap_2.seek(frame_number=rfo + start_frame_number)
+    if rfo or start_frame_number:
+        cap_2.seek(frame_number=rfo + start_frame_number)
 
     v1_iter = iter(cap_1)
     v2_iter = iter(cap_2)
@@ -555,6 +553,7 @@ def blend_video(
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
                 if not python_blend:
+                    assert False  # Not interested in this path atm
                     blender = core.ImageBlender(
                         mode=(
                             core.ImageBlenderMode.Laplacian
