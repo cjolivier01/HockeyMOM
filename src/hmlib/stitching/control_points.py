@@ -293,7 +293,9 @@ def opencv_stitch(image1, image2, H):
 
 if __name__ == "__main__":
     results = calculate_control_points(
-        image0=f"{os.environ['HOME']}/Videos/ev-sabercats-1/left.png",
-        image1=f"{os.environ['HOME']}/Videos/ev-sabercats-1/right.png",
+        image0=f"{os.environ['HOME']}/Videos/ev-sabercats-2/left.png",
+        image1=f"{os.environ['HOME']}/Videos/ev-sabercats-2/right.png",
+        device=torch.device("cuda", 0),
+        output_directory=".",
     )
     print("Done.")
