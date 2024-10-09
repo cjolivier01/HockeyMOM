@@ -31,7 +31,9 @@ LEFT_FILE_PATTERN: str = r"left.mp4"
 RIGHT_FILE_PATTERN: str = r"right.mp4"
 
 
-VideosDict = Dict[Union[int, str], List[Dict[Union[int, str], Any]]]
+VideoChapter = Dict[int, Any]
+VideosDictKey = Union[int, str]
+VideosDict = Dict[VideosDictKey, List[Dict[Union[int, str], Any]]]
 
 
 def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
@@ -57,9 +59,9 @@ def get_lr_part_number(filename: str) -> int:
     return int(tokens[-1])
 
 
-def find_matching_files(pattern: str, directory: str) -> List[str]:
+def find_matching_files(re_pattern: str, directory: str) -> List[str]:
     # Regex to match the file format 'GLXXXXXX.mp4'
-    pattern = re.compile(pattern)
+    pattern = re.compile(re_pattern)
 
     # List to store the names of matching files
     matching_files: List[str] = []
@@ -73,13 +75,29 @@ def find_matching_files(pattern: str, directory: str) -> List[str]:
     return sorted(matching_files)
 
 
-def get_available_videos(dir_name: str) -> VideosDict:
+def prune_chapters(videos: VideosDict) -> Tuple[VideosDict, VideosDict]:
+    """
+    Prune out videos that don't have matching chapters.
+    Returns Tuple:
+        0: Videos/chapters with all matching chapters
+        1: Videos/chapters that were extracted
+    """
+    matching: VideosDict = {}
+    unmatching: VideosDict = {}
+    all_chapters: Set[int] = set()
+    for video, chapters in videos.items():
+        # Not pruning anything yet
+        pass
+    return videos, {}
+
+
+def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
     """
     Get available videos in the given directory
 
     :return: # Video # / left|right -> Chapter # -> filename
     """
-    gopro_files: List[str] = find_matching_files(pattern=GOPRO_FILE_PATTERN, directory=dir_name)
+    gopro_files: List[str] = find_matching_files(re_pattern=GOPRO_FILE_PATTERN, directory=dir_name)
     # Video # / left|right -> Chapter # -> filename
     videos_dict: Dict[Union[int, str], List[Dict[int, str]]] = OrderedDict()
     for file in gopro_files:
@@ -89,30 +107,34 @@ def get_available_videos(dir_name: str) -> VideosDict:
         videos_dict[video][chapter] = file
 
     # Plain left file
-    files: List[str] = find_matching_files(pattern=LEFT_FILE_PATTERN, directory=dir_name)
+    files: List[str] = find_matching_files(re_pattern=LEFT_FILE_PATTERN, directory=dir_name)
     if files:
         assert len(files) == 1
         videos_dict["left"] = {}
         videos_dict["left"][1] = files[0]
     else:
-        files = find_matching_files(pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
+        files = find_matching_files(re_pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
         if files:
             videos_dict["left"] = {}
             for file in sorted(files):
                 videos_dict["left"][get_lr_part_number(file)] = file
 
     # Plain right file
-    files: List[str] = find_matching_files(pattern=RIGHT_FILE_PATTERN, directory=dir_name)
+    files: List[str] = find_matching_files(re_pattern=RIGHT_FILE_PATTERN, directory=dir_name)
     if files:
         assert len(files) == 1
         videos_dict["right"] = {}
         videos_dict["right"][1] = files[0]
     else:
-        files = find_matching_files(pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
+        files = find_matching_files(re_pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
         if files:
             videos_dict["right"] = {}
             for file in sorted(files):
                 videos_dict["right"][get_lr_part_number(file)] = file
+    if prune:
+        videos_dict, discarded_videos = prune_chapters(videos=videos_dict)
+        if discarded_videos:
+            print(f"Discarding videos: {discarded_videos}")
     return videos_dict
 
 
@@ -153,6 +175,26 @@ def detect_video_rink_masks(
     return videos_dict
 
 
+def get_orientation_dict(rink_mask: torch.Tensor) -> Dict[str, float]:
+    assert rink_mask.dtype == torch.bool
+    assert rink_mask.ndim == 2
+    width = image_width(rink_mask)
+    height = image_height(rink_mask)
+
+    float_mask = rink_mask.to(torch.float)
+    divisor = 8
+    left_sum = float_mask[:, : int(width // divisor)].sum().item()
+    right_sum = float_mask[:, int(width - width // divisor) :].sum().item()
+    top_sum = float_mask[: int(height // divisor), :].sum().item()
+    bottom_sum = float_mask[int(height // divisor) :, :].sum().item()
+    return {
+        "left": left_sum,
+        "right": right_sum,
+        "top": top_sum,
+        "bottom": bottom_sum,
+    }
+
+
 def get_orientation(rink_mask: torch.Tensor) -> str:
     assert rink_mask.dtype == torch.bool
     assert rink_mask.ndim == 2
@@ -189,8 +231,14 @@ def get_game_videos_analysis(
 
     new_dict: VideosDict = {}
 
+    video_ssm: Dict[VideosDictKey, Dict[str, float]] = {}
+
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
+
+        sum_map: Dict[str, float] = get_orientation_dict(torch.from_numpy(mask))
+        video_ssm[key] = sum_map
+
         orientation = get_orientation(torch.from_numpy(mask))
         if isinstance(key, str):
             if key.startswith("left"):
