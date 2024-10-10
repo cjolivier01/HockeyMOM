@@ -117,7 +117,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    video_info = BasicVideoInfo(args.input_file)
+    video_info = BasicVideoInfo(args.input_video)
 
     # Read intervals from the YAML file
     intervals: List[Tuple[str, str]] = read_yaml_intervals(args.yaml_file)
@@ -136,6 +136,6 @@ def main() -> None:
 
     print(f"Video created successfully: {args.output_video}")
 
-
+# ./p scripts/multi_interval_video.py ~/Videos/ev-blackstars-ps/tracking_output-with-audio.mp4 ~/Videos/ev-blackstars-ps/ethan_dom.yaml ~/Videos/ev-blackstars-ps/xor_file.png output.mp4
 if __name__ == "__main__":
     main()
