@@ -634,6 +634,25 @@ def blend_video(
 
             if overlapping_width:
                 assert image_width(destination_tensor_1) == width_1  # sanity
+                canvas = (
+                    torch.ones(
+                        size=(
+                            destination_tensor_1.shape[0],
+                            destination_tensor_1.shape[1],
+                            canvas_height,
+                            canvas_width,
+                        ),
+                        dtype=destination_tensor_1.dtype,
+                        device=destination_tensor_1.device,
+                    )
+                    + 128
+                )
+                dh1 = image_height(destination_tensor_1)
+                dh2 = image_height(destination_tensor_2)
+                canvas[:, :, y1 : dh1 + y1, :x2] = destination_tensor_1[:, :, :, :x2]
+                canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width :] = destination_tensor_2[
+                    :, :, :, overlapping_width:
+                ]
                 destination_tensor_1 = destination_tensor_1[:, :, :, x2:width_1]
                 destination_tensor_2 = destination_tensor_2[:, :, :, :overlapping_width]
 
@@ -643,12 +662,7 @@ def blend_video(
             )
 
             if overlapping_width:
-                canvas = torch.empty(
-                    size=(blended.shape[0], blended.shape[1], canvas_height, canvas_width),
-                    dtype=blended.dtype,
-                    device=blended.device,
-                )
-                canvas[:, :, :, x2 : x2 + overlapping_width] = blended
+                # canvas[:, :, :, x2 : x2 + overlapping_width] = blended
                 blended = canvas
 
             # show_image("blended", blended, wait=False)
