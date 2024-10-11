@@ -683,7 +683,13 @@ class VideoOutput:
         imgproc_data["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
 
         # We clone, since it gets modified sometimes wrt rotation optimizations
-        current_box = imgproc_data["current_box"].clone()
+        current_box = imgproc_data["current_box"]
+        if current_box is None:
+            current_box = torch.tensor(
+                [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
+            )
+        else:
+            current_box = current_box.clone()
 
         if isinstance(online_im, StreamTensor):
             online_im._verbose = True
