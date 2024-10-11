@@ -6,6 +6,7 @@ import argparse
 import datetime
 import logging
 import os
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import cv2
@@ -39,6 +40,7 @@ from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 ROOT_DIR = os.getcwd()
 
 logger = logging.getLogger(__name__)
+
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
@@ -80,6 +82,7 @@ def make_parser():
     return parser
 
 
+@dataclass
 class BlendImageInfo:
     def __init__(self, width: int, height: int, xpos: int, ypos: int):
         self.width = width
@@ -88,6 +91,7 @@ class BlendImageInfo:
         self.ypos = ypos
 
 
+@dataclass
 class ImageAndPos:
     def __init__(self, image: torch.Tensor, xpos: int, ypos: int):
         self.image = image
@@ -124,6 +128,11 @@ class PtImageBlender:
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
         assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
 
+        # Final misc init
+        self._unique_values = None
+        self._left_value = None
+        self._right_value = None
+
     def init(self):
         # Check some sanity
         print(f"Final stitched image size: {self._seam_mask.shape[1]} x {self._seam_mask.shape[0]}")
@@ -140,9 +149,7 @@ class PtImageBlender:
     def forward(
         self,
         image_1: torch.Tensor,
-        xy_pos_1: List[int],
         image_2: torch.Tensor,
-        xy_pos_2: List[int],
         synchronize: bool = False,
     ):
         if self._cuda_stream is not None:
@@ -463,6 +470,7 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     remap_on_async_stream: bool = False,
+    minimize_blend: bool = True,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -531,6 +539,10 @@ def blend_video(
     blender = None
     frame_id = start_frame_number
     try:
+        width_1, width_2 = remapper_1.width, remapper_2.width
+        overlapping_width, x1 = None, None
+        cap_1_width = cap_1.width
+        cap_2_width = cap_2.width
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -551,6 +563,31 @@ def blend_video(
                         ),
                     ],
                 )
+                if minimize_blend:
+                    x1, y1, x2, y2 = (
+                        remapper_1.xpos,
+                        remapper_1.ypos,
+                        remapper_2.xpos,
+                        remapper_2.ypos,
+                    )
+                    width_1 = image_width(destination_tensor_1)
+                    width_2 = image_width(destination_tensor_2)
+                    assert x1 != x2  # they shouldn;t be starting in the same place
+                    if x1 <= x2:
+                        x2 -= x1
+                        x1 = 0
+                        remapper_1.xpos = x1
+                        # remapper_2.xpos = x2
+                        remapper_2.xpos = x1  # start overlapping right away
+                        overlapping_width = int(width_1 - x2)
+                        assert width_1 > x2
+                        seam_tensor = seam_tensor[:, int(x2) : int(width_1)]
+                        xor_tensor = xor_tensor[:, int(x2) : int(width_1)]
+                        cap_1_width = overlapping_width
+                        cap_2_width = overlapping_width
+                    else:
+                        # implement this? or just switch?
+                        assert False
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
@@ -574,13 +611,13 @@ def blend_video(
                     blender = PtImageBlender(
                         images_info=[
                             BlendImageInfo(
-                                width=cap_1.width,
+                                width=cap_1_width,
                                 height=cap_1.height,
                                 xpos=remapper_1.xpos,
                                 ypos=remapper_1.ypos,
                             ),
                             BlendImageInfo(
-                                width=cap_2.width,
+                                width=cap_2_width,
                                 height=cap_2.height,
                                 xpos=remapper_2.xpos,
                                 ypos=remapper_2.ypos,
@@ -592,11 +629,14 @@ def blend_video(
                     )
                 # blender.init()
 
+            if overlapping_width:
+                assert image_width(destination_tensor_1) == width_1  # sanity
+                destination_tensor_1 = destination_tensor_1[:, :, :, x2:width_1]
+                destination_tensor_2 = destination_tensor_2[:, :, :, :overlapping_width]
+
             blended = blender.forward(
                 image_1=destination_tensor_1,
-                xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
                 image_2=destination_tensor_2,
-                xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
             )
 
             # show_image("blended", blended, wait=False)

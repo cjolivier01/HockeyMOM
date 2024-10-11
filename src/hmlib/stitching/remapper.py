@@ -224,6 +224,18 @@ class ImageRemapper:
         # Done.
         self._initialized = True
 
+    @property
+    def width(self):
+        assert self._initialized
+        return self._dest_w
+        # return self._mask.shape[1]
+
+    @property
+    def height(self):
+        assert self._initialized
+        # return self._mask.shape[0]
+        return self._dest_h
+
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
@@ -334,22 +346,17 @@ def remap_video(
             timer.toc()
 
         if frame_count % 20 == 0:
-            print(
-                "Remapping: {:.2f} fps".format(
-                    batch_size * 1.0 / max(1e-5, timer.average_time)
-                )
+            logger.info(
+                "Remapping: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
             )
             if frame_count % 50 == 0:
                 timer = Timer()
 
         if show:
-            for i in range(len(destination_tensor)):
+            for this_image in destination_tensor:
                 cv2.imshow(
                     "mapped image",
-                    # destination_tensor[i].permute(1, 2, 0).numpy(),
-                    make_visible_image(
-                        destination_tensor[i], enable_resizing=opts.show_scaled
-                    ),
+                    make_visible_image(this_image, enable_resizing=opts.show_scaled),
                 )
                 cv2.waitKey(1)
 
@@ -363,8 +370,8 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        # interpolation="bilinear",
-        interpolation=None,
+        interpolation="bilinear",
+        # interpolation=None,
         show=True,
         device=torch.device("cpu"),
     )
