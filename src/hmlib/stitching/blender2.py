@@ -683,6 +683,12 @@ def blend_video(
                         frame_id += 1
                 else:
                     my_blended = make_channels_last(blended)
+
+                    if overlapping_width:
+                        # Build the destination canvas and insert the unblended, remapped
+                        # portions and then the blended portion
+                        pass
+
                     if rotation_angle:
                         my_blended = rotate_image(
                             img=my_blended,
