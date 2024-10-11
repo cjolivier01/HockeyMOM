@@ -461,6 +461,7 @@ def blend_video(
     rfo: float = None,
     python_blend: bool = False,
     show: bool = False,
+    show_scaled: float | None = None,
     start_frame_number: int = 0,
     output_video: str = None,
     max_width: int = 9999,
@@ -738,7 +739,12 @@ def blend_video(
 
             if show:
                 for this_blended in blended:
-                    show_image("this_blended", this_blended, wait=False)
+                    show_image(
+                        "this_blended",
+                        this_blended,
+                        wait=False,
+                        enable_resizing=show_scaled,
+                    )
 
             source_tensor_1 = make_channels_first(next(v1_iter))
             source_tensor_2 = make_channels_first(next(v2_iter))
@@ -855,6 +861,7 @@ def main(args):
             start_frame_number=args.start_frame_number,
             interpolation="bilinear",
             show=args.show_image,
+            show_scaled=args.show_scaled,
             output_video=args.output_file,
             output_device=video_gpu,
             rotation_angle=args.rotation_angle,
