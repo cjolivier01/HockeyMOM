@@ -4,13 +4,13 @@ Experiments in stitching
 
 import argparse
 import datetime
+import logging
 import os
 from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
@@ -38,6 +38,7 @@ from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 
+logger = logging.getLogger(__name__)
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
@@ -623,18 +624,18 @@ def blend_video(
                     )
                 if video_dim_height != blended.shape[-2] or video_dim_width != blended.shape[-1]:
                     assert False  # why is this?
-                    for i in range(len(blended)):
+                    for this_blended in blended:
                         resized = resize_image(
-                            img=blended[i].permute(1, 2, 0),
+                            img=this_blended.permute(1, 2, 0),
                             new_width=video_dim_width,
                             new_height=video_dim_height,
                         )
                         if isinstance(video_out, VideoStreamWriter):
-                            video_out.append(my_blended)
+                            video_out.append(resized)
                             frame_id += batch_size
                         else:
                             video_out.append(
-                                ImageProcData(
+                                dict(
                                     frame_id=frame_id,
                                     img=resized.contiguous().cpu(),
                                     current_box=None,
@@ -665,11 +666,11 @@ def blend_video(
                         )
                         frame_id += len(my_blended)
                     else:
-                        for i in range(len(my_blended)):
+                        for this_blended in my_blended:
                             video_out.append(
-                                ImageProcData(
+                                dict(
                                     frame_id=frame_id,
-                                    img=my_blended[i],
+                                    img=this_blended,
                                     current_box=None,
                                 )
                             )
@@ -684,15 +685,15 @@ def blend_video(
                 timer.toc()
 
             if frame_count % 20 == 0:
-                print(
+                logger.info(
                     "Stitching: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
                 )
                 if frame_count % 50 == 0:
                     timer = Timer()
 
             if show:
-                for i in range(len(blended)):
-                    show_image("stitched", blended[i], wait=False)
+                for this_blended in blended:
+                    show_image("this_blended", this_blended, wait=False)
 
             source_tensor_1 = make_channels_first(next(v1_iter))
             source_tensor_2 = make_channels_first(next(v2_iter))
