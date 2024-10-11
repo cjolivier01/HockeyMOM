@@ -646,7 +646,7 @@ def blend_video(
                         dtype=destination_tensor_1.dtype,
                         device=destination_tensor_1.device,
                     )
-                    + 255
+                    + 0
                 )
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
