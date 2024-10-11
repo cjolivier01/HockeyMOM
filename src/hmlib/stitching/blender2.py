@@ -544,6 +544,7 @@ def blend_video(
         overlapping_width, x1 = None, None
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
+        canvas_width, canvas_height = None, None
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -565,6 +566,8 @@ def blend_video(
                     ],
                 )
                 if minimize_blend:
+                    canvas_width = image_width(seam_tensor)
+                    canvas_height = image_height(seam_tensor)
                     x1, y1, x2, y2 = (
                         remapper_1.xpos,
                         remapper_1.ypos,
@@ -638,6 +641,15 @@ def blend_video(
                 image_1=destination_tensor_1,
                 image_2=destination_tensor_2,
             )
+
+            if overlapping_width:
+                canvas = torch.empty(
+                    size=(blended.shape[0], blended.shape[1], canvas_height, canvas_width),
+                    dtype=blended.dtype,
+                    device=blended.device,
+                )
+                canvas[:, :, :, x2 : x2 + overlapping_width] = blended
+                blended = canvas
 
             # show_image("blended", blended, wait=False)
 
