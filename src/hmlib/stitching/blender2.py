@@ -545,6 +545,7 @@ def blend_video(
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
+        overlap_pad = 100
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -581,13 +582,13 @@ def blend_video(
                         x2 -= x1
                         x1 = 0
                         remapper_1.xpos = x1
-                        remapper_2.xpos = x1  # start overlapping right away
+                        remapper_2.xpos = x1 + overlap_pad  # start overlapping right away
                         overlapping_width = int(width_1 - x2)
                         assert width_1 > x2
-                        seam_tensor = seam_tensor[:, int(x2) : int(width_1)]
-                        xor_tensor = xor_tensor[:, int(x2) : int(width_1)]
-                        cap_1_width = overlapping_width
-                        cap_2_width = overlapping_width
+                        seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+                        xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+                        cap_1_width = overlapping_width + overlap_pad + overlap_pad
+                        cap_2_width = overlapping_width + overlap_pad + overlap_pad
                     else:
                         # implement this? or just switch?
                         assert False
@@ -645,14 +646,16 @@ def blend_video(
                         dtype=destination_tensor_1.dtype,
                         device=destination_tensor_1.device,
                     )
-                    + 128
+                    + 255
                 )
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
-                partial_1 = destination_tensor_1[:, :, :, :x2]
-                partial_2 = destination_tensor_2[:, :, :, overlapping_width:]
-                destination_tensor_1 = destination_tensor_1[:, :, :, x2:width_1]
-                destination_tensor_2 = destination_tensor_2[:, :, :, :overlapping_width]
+                partial_1 = destination_tensor_1[:, :, :, : x2 + overlap_pad]
+                partial_2 = destination_tensor_2[:, :, :, overlapping_width - overlap_pad :]
+                destination_tensor_1 = destination_tensor_1[:, :, :, x2 - overlap_pad : width_1]
+                destination_tensor_2 = destination_tensor_2[
+                    :, :, :, : overlapping_width + overlap_pad
+                ]
 
             blended = blender.forward(
                 image_1=destination_tensor_1,
@@ -660,9 +663,10 @@ def blend_video(
             )
 
             if overlapping_width:
-                # canvas[:, :, :, x2 : x2 + overlapping_width] = blended
-                canvas[:, :, y1 : dh1 + y1, :x2] = partial_1
-                canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width :] = partial_2
+                canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = blended
+                if True or frame_id % 2 == 0:
+                    canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
+                    canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
                 blended = canvas
 
             # show_image("blended", blended, wait=False)
@@ -707,7 +711,6 @@ def blend_video(
                                     current_box=None,
                                 )
                             )
-                        frame_id += 1
                 else:
                     my_blended = make_channels_last(blended)
 
@@ -746,11 +749,11 @@ def blend_video(
                                     current_box=None,
                                 )
                             )
-                            frame_id += 1
                 del my_blended
             else:
                 pass
 
+            frame_id += 1
             frame_count += 1
 
             if frame_count != 1:
