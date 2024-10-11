@@ -577,7 +577,6 @@ def blend_video(
                         x2 -= x1
                         x1 = 0
                         remapper_1.xpos = x1
-                        # remapper_2.xpos = x2
                         remapper_2.xpos = x1  # start overlapping right away
                         overlapping_width = int(width_1 - x2)
                         assert width_1 > x2
