@@ -649,10 +649,8 @@ def blend_video(
                 )
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
-                canvas[:, :, y1 : dh1 + y1, :x2] = destination_tensor_1[:, :, :, :x2]
-                canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width :] = destination_tensor_2[
-                    :, :, :, overlapping_width:
-                ]
+                partial_1 = destination_tensor_1[:, :, :, :x2]
+                partial_2 = destination_tensor_2[:, :, :, overlapping_width:]
                 destination_tensor_1 = destination_tensor_1[:, :, :, x2:width_1]
                 destination_tensor_2 = destination_tensor_2[:, :, :, :overlapping_width]
 
@@ -663,6 +661,8 @@ def blend_video(
 
             if overlapping_width:
                 # canvas[:, :, :, x2 : x2 + overlapping_width] = blended
+                canvas[:, :, y1 : dh1 + y1, :x2] = partial_1
+                canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width :] = partial_2
                 blended = canvas
 
             # show_image("blended", blended, wait=False)
