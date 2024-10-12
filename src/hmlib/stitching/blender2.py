@@ -544,7 +544,7 @@ def blend_video(
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
-        overlap_pad = 100
+        overlap_pad = 25
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -758,7 +758,7 @@ def blend_video(
                 timer.toc()
 
             if frame_count % 20 == 0:
-                logger.info(
+                print(
                     "Stitching: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
                 )
                 if frame_count % 50 == 0:
