@@ -477,7 +477,7 @@ class SmartBlender:
         self._blend_mode = blend_mode
         self._device = device
         self._overlapping_width = None
-        self._empty_image_pixel_value: int = 128
+        self._empty_image_pixel_value: int = 0
         self._seam_tensor = self.convert_mask_tensor(seam_tensor)
         self._xor_mask_tensor = self.convert_mask_tensor(
             xor_mask_tensor if xor_mask_tensor is not None else None
@@ -668,7 +668,6 @@ def blend_video(
     basename_1: str,
     basename_2: str,
     device: torch.device,
-    output_device: torch.device,
     dtype: torch.dtype,
     interpolation: str = None,
     lfo: float = None,
@@ -685,7 +684,6 @@ def blend_video(
     queue_size: int = 1,
     minimize_blend: bool = True,
     overlap_pad: int = 100,
-    canvas_fill_pixel_value: int = 0,
     draw: bool = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
