@@ -500,6 +500,8 @@ class SmartBlender:
         self._padded_blended_tlbr = None
         self._blend_mode = blend_mode
         self._device = device
+        self._overlapping_width = None
+        self._empty_image_pixel_value: int = 128
         self._seam_tensor = self.convert_mask_tensor(seam_tensor)
         self._xor_mask_tensor = self.convert_mask_tensor(
             xor_mask_tensor if xor_mask_tensor is not None else None
@@ -509,29 +511,30 @@ class SmartBlender:
     def _init(self) -> None:
         if not self._minimize_blend:
             return
-        x1, y1, x2, y2 = (
+        self._x1, self._y1, self._x2, self._y2 = (
             self._canvas_info.positions[0].x,
             self._canvas_info.positions[0].y,
             self._canvas_info.positions[1].x,
             self._canvas_info.positions[1].y,
         )
 
-        self._remapper_1.xpos = x1
-        self._remapper_2.xpos = x1 + self._overlap_pad  # start overlapping right away
+        self._remapper_1.xpos = self._x1
+        self._remapper_2.xpos = self._x1 + self._overlap_pad  # start overlapping right away
         width_1 = self._remapper_1.width
-        overlapping_width = int(width_1 - x2)
-        assert width_1 > x2
+        self._overlapping_width = width_1 - self._x2
+        assert width_1 > self._x2
         # seam tensor box (box we'll be blending)
         self._padded_blended_tlbr = [
-            x2 - self._overlap_pad,  # x1
-            max(0, min(y1, y2) - self._overlap_pad),  # y1
+            self._x2 - self._overlap_pad,  # x1
+            max(0, min(self._y1, self._y2) - self._overlap_pad),  # y1
             width_1 + self._overlap_pad,  # x2
             min(
                 self._canvas_info.height,
-                max(y1 + self._remapper_1.height, y2 + self._remapper_2.height) + self._overlap_pad,
+                max(self._y1 + self._remapper_1.height, self._y2 + self._remapper_2.height)
+                + self._overlap_pad,
             ),  # y2
         ]
-        assert x2 - self._overlap_pad >= 0
+        assert self._x2 - self._overlap_pad >= 0
         assert width_1 + self._overlap_pad <= self._canvas_info.width
 
         if not self._use_python_blender:
@@ -583,16 +586,98 @@ class SmartBlender:
     # @property
     # def blending_width(self, image: int) -> int:
 
-    def draw(self):
-        pass
+    def draw(self, image: torch.Tensor) -> torch.Tensor:
+        # left box
+        image = my_draw_box(
+            image,
+            x1=None,
+            y1=self._y1,
+            x2=self._x2 + self._overlap_pad - 1,
+            y2=self._remapper_1.height + self._y1 - 1,
+            color=(255, 255, 0),
+        )
+        # right box
+        image = my_draw_box(
+            image,
+            x1=self._x2 + self._overlapping_width - self._overlap_pad,
+            y1=self._y2,
+            x2=None,
+            y2=self._remapper_2.height + self._y2 - 1,
+            color=(0, 255, 255),
+        )
+        # Blended box
+        image = my_draw_box(
+            image,
+            *self._padded_blended_tlbr,
+            color=(255, 0, 0),
+        )
+        return image
 
     def forward(
         self, remapped_image_1: torch.Tensor, remapped_image_2: torch.Tensor
     ) -> torch.Tensor:
-        pass
+        if self._minimize_blend:
+            assert image_width(remapped_image_1) == self._remapper_1.width  # sanity
+            canvas = (
+                torch.zeros(
+                    size=(
+                        remapped_image_1.shape[0],
+                        remapped_image_1.shape[1],
+                        self._canvas_info.height,
+                        self._canvas_info.width,
+                    ),
+                    dtype=remapped_image_1.dtype,
+                    device=remapped_image_1.device,
+                )
+                + self._empty_image_pixel_value
+            )
+            partial_1 = remapped_image_1[:, :, :, : self._x2 + self._overlap_pad]
+            partial_2 = remapped_image_2[:, :, :, self._overlapping_width - self._overlap_pad :]
+            remapped_image_1 = remapped_image_1[
+                :, :, :, self._x2 - self._overlap_pad : self._remapper_1.width
+            ]
+            remapped_image_2 = remapped_image_2[
+                :, :, :, : self._overlapping_width + self._overlap_pad
+            ]
 
-    # if self._draw:
-    #     self.draw(image)
+        fwd_args = dict(
+            image_1=remapped_image_1.to(self._dtype, non_blocking=True),
+            image_2=remapped_image_2.to(self._dtype, non_blocking=True),
+        )
+        if not self._use_python_blender:
+            fwd_args.update(
+                dict(
+                    xy_pos_1=[self._remapper_1.xpos, self._remapper_1.ypos],
+                    xy_pos_2=[self._remapper_2.xpos, self._remapper_2.ypos],
+                )
+            )
+        blended_img = self._blender.forward(**fwd_args)
+
+        if self._minimize_blend:
+            canvas[
+                :,
+                :,
+                :,
+                self._x2
+                - self._overlap_pad : self._x2
+                + self._overlapping_width
+                + self._overlap_pad,
+            ] = blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
+            canvas[
+                :, :, self._y1 : self._remapper_1.height + self._y1, : self._x2 + self._overlap_pad
+            ] = partial_1
+            canvas[
+                :,
+                :,
+                self._y2 : self._remapper_2.height + self._y2,
+                self._x2 + self._overlapping_width - self._overlap_pad :,
+            ] = partial_2
+            blended = canvas
+            if self._draw:
+                blended = self.draw(blended)
+        else:
+            blended = blended_img
+        return blended
 
 
 def blend_video(
