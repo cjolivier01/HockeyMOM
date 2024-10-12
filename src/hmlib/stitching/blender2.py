@@ -668,6 +668,7 @@ class ImageStitcher(torch.nn.Module):
         self._remap_image_info = remap_image_info
         self._blender_config = blender_config
         self._dtype = dtype
+        self._device = device
 
         self._remapper_1 = ImageRemapper(
             remap_info=remap_image_info[0],
@@ -699,19 +700,26 @@ class ImageStitcher(torch.nn.Module):
             blend_mode=blender_config.mode,
             seam_tensor=self._blender_config.seam,
             xor_mask_tensor=self._blender_config.xor_map,
-            device=device,
+            device=self._device,
         )
-        self.to(device=device)
+        self.to(device=self._device)
 
     def to(self, *args, device: torch.device, non_blocking: bool = False):
         assert isinstance(device, (torch.device, str))
-        result = super().to(device=device, non_blocking=non_blocking)
-        result._remapper_1.to(device=device)
-        result._remapper_2.to(device=device)
-        return result
+        super().to(device=device, non_blocking=non_blocking)
+        self._remapper_1.to(device=device)
+        self._remapper_2.to(device=device)
+        return self
 
-    def forward(self, inputs: List[StitchImageInfo]) -> torch.Tensor:
-        pass
+    def forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
+        remapped_tensor_1 = self._remapper_1.forward(source_image=image_1).to(
+            device=self._device, non_blocking=True
+        )
+        remapped_tensor_2 = self._remapper_2.forward(source_image=image_2).to(
+            device=self._device, non_blocking=True
+        )
+
+        return self._smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
 
 
 def get_mapping(dir_name: str, basename: str):
@@ -858,46 +866,46 @@ def blend_video(
     source_tensor_1 = make_channels_first(next(v1_iter))
     source_tensor_2 = make_channels_first(next(v2_iter))
 
-    remapper_1 = ImageRemapper(
-        dir_name=dir_name,
-        basename=basename_1,
-        source_hw=source_tensor_1.shape[-2:],
-        channels=source_tensor_1.shape[1],
-        interpolation=interpolation,
-        add_alpha_channel=False,
-        use_cpp_remap_op=False,
-    )
-    remapper_1.init(batch_size=batch_size)
-    remapper_1.to(device=device)
+    # remapper_1 = ImageRemapper(
+    #     dir_name=dir_name,
+    #     basename=basename_1,
+    #     source_hw=source_tensor_1.shape[-2:],
+    #     channels=source_tensor_1.shape[1],
+    #     interpolation=interpolation,
+    #     add_alpha_channel=False,
+    #     use_cpp_remap_op=False,
+    # )
+    # remapper_1.init(batch_size=batch_size)
+    # remapper_1.to(device=device)
 
-    remapper_2 = ImageRemapper(
-        dir_name=dir_name,
-        basename=basename_2,
-        source_hw=source_tensor_2.shape[-2:],
-        channels=source_tensor_2.shape[1],
-        interpolation=interpolation,
-        add_alpha_channel=False,
-        use_cpp_remap_op=False,
-    )
-    remapper_2.init(batch_size=batch_size)
-    remapper_2.to(device=device)
+    # remapper_2 = ImageRemapper(
+    #     dir_name=dir_name,
+    #     basename=basename_2,
+    #     source_hw=source_tensor_2.shape[-2:],
+    #     channels=source_tensor_2.shape[1],
+    #     interpolation=interpolation,
+    #     add_alpha_channel=False,
+    #     use_cpp_remap_op=False,
+    # )
+    # remapper_2.init(batch_size=batch_size)
+    # remapper_2.to(device=device)
 
-    seam_tensor, xor_mask_tensor = make_seam_and_xor_masks(dir_name=dir_name)
+    # seam_tensor, xor_mask_tensor = make_seam_and_xor_masks(dir_name=dir_name)
 
-    smart_blender = SmartBlender(
-        remapper_1=remapper_1,
-        remapper_2=remapper_2,
-        minimize_blend=minimize_blend,
-        blend_levels=6,
-        overlap_pad=overlap_pad,
-        draw=draw,
-        use_python_blender=python_blend,
-        dtype=dtype,
-        blend_mode=blend_mode,
-        seam_tensor=seam_tensor,
-        xor_mask_tensor=xor_mask_tensor,
-        device=device,
-    )
+    # smart_blender = SmartBlender(
+    #     remapper_1=remapper_1,
+    #     remapper_2=remapper_2,
+    #     minimize_blend=minimize_blend,
+    #     blend_levels=6,
+    #     overlap_pad=overlap_pad,
+    #     draw=draw,
+    #     use_python_blender=python_blend,
+    #     dtype=dtype,
+    #     blend_mode=blend_mode,
+    #     seam_tensor=seam_tensor,
+    #     xor_mask_tensor=xor_mask_tensor,
+    #     device=device,
+    # )
 
     video_out = None
 
@@ -906,15 +914,17 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
-                device=device, non_blocking=True
-            )
-            remapped_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
-                device=device, non_blocking=True
-            )
+            # remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+            #     device=device, non_blocking=True
+            # )
+            # remapped_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+            #     device=device, non_blocking=True
+            # )
 
-            blended = smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
+            # blended = smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
             # show_image("blended", blended, wait=False)
+
+            blended = stitcher.forward(source_tensor_1, source_tensor_2)
 
             if output_video:
                 if video_out is None:
