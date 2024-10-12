@@ -13,7 +13,6 @@ import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
-from hmlib.hm_opts import hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.image import (
@@ -152,6 +151,7 @@ class ImageRemapper:
                 src_h,
                 col_map,
                 row_map,
+                dtype=
                 self._add_alpha_channel,
                 self._interpolation,
             )
@@ -370,6 +370,8 @@ def main(args):
 
 
 if __name__ == "__main__":
+    from hmlib.hm_opts import hm_opts
+
     args = hm_opts.parser(make_parser()).parse_args()
 
     main(args)
