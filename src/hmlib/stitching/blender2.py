@@ -544,7 +544,7 @@ def blend_video(
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
-        overlap_pad = 10
+        overlap_pad = 100
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -630,7 +630,6 @@ def blend_video(
                         xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
                         laplacian_blend=blend_mode == "laplacian",
                     )
-                # blender.init()
 
             if overlapping_width:
                 assert image_width(destination_tensor_1) == width_1  # sanity
@@ -645,7 +644,7 @@ def blend_video(
                         dtype=destination_tensor_1.dtype,
                         device=destination_tensor_1.device,
                     )
-                    + 128  # Somewhere in the middle
+                    + 255  # Somewhere in the middle
                 )
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
