@@ -470,7 +470,6 @@ def blend_video(
     skip_final_video_save: bool = False,
     blend_mode: str = "laplacian",
     queue_size: int = 1,
-    remap_on_async_stream: bool = False,
     minimize_blend: bool = True,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
@@ -545,7 +544,7 @@ def blend_video(
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
-        overlap_pad = 100
+        overlap_pad = 10
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -897,7 +896,6 @@ def main(args):
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
-            remap_on_async_stream=False,
             device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
         )
