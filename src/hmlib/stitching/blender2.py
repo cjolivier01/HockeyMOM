@@ -70,6 +70,11 @@ def make_parser():
         help="Python blending path",
     )
     parser.add_argument(
+        "--draw",
+        action="store_true",
+        help="Draw boxes",
+    )
+    parser.add_argument(
         "--rotation_angle",
         default=0,
         type=int,
@@ -491,6 +496,7 @@ def blend_video(
     minimize_blend: bool = True,
     overlap_pad: int = 25,
     overlap_pad_value: int = 128,
+    draw: bool = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -709,33 +715,37 @@ def blend_video(
             blended_img = blender.forward(**fwd_args)
 
             if overlapping_width:
-                # torch.cuda.synchronize()
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
                     blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
                 )
-
-                # torch.cuda.synchronize()
-                # if False and frame_id % 2 == 0:
-                if True:
-                    canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
-                    # canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
-                # torch.cuda.synchronize()
+                canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
+                canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
                 blended = canvas
-                # left box
-                blended = my_draw_box(
-                    blended,
-                    x1=None,
-                    y1=y1,
-                    x2=x2 + overlap_pad - 1,
-                    y2=dh1 + y1 - 1,
-                    color=(255, 255, 0),
-                )
-                # Blended box
-                blended = my_draw_box(
-                    blended,
-                    *padded_blended_tlbr,
-                    color=(255, 0, 0),
-                )
+                if draw:
+                    # left box
+                    blended = my_draw_box(
+                        blended,
+                        x1=None,
+                        y1=y1,
+                        x2=x2 + overlap_pad - 1,
+                        y2=dh1 + y1 - 1,
+                        color=(255, 255, 0),
+                    )
+                    # right box
+                    blended = my_draw_box(
+                        blended,
+                        x1=x2 + overlapping_width - overlap_pad,
+                        y1=y2,
+                        x2=None,
+                        y2=dh2 + y2 - 1,
+                        color=(0, 255, 255),
+                    )
+                    # Blended box
+                    blended = my_draw_box(
+                        blended,
+                        *padded_blended_tlbr,
+                        color=(255, 0, 0),
+                    )
             else:
                 blended = blended_img
 
@@ -966,6 +976,7 @@ def main(args):
             device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
             minimize_blend=True,
+            draw=args.draw,
         )
 
 
