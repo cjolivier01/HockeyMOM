@@ -727,7 +727,7 @@ def blend_video(
         channels=source_tensor_1.shape[1],
         interpolation=interpolation,
         add_alpha_channel=False,
-        use_cpp_remap_op=not python_blend,
+        use_cpp_remap_op=False,
     )
     remapper_1.init(batch_size=batch_size)
     remapper_1.to(device=device)
@@ -739,7 +739,7 @@ def blend_video(
         channels=source_tensor_2.shape[1],
         interpolation=interpolation,
         add_alpha_channel=False,
-        use_cpp_remap_op=not python_blend,
+        use_cpp_remap_op=False,
     )
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)

@@ -146,13 +146,13 @@ class ImageRemapper:
 
         if self._use_cpp_remap_op:
             self._remap_op = core.ImageRemapper(
-                src_w,
-                src_h,
-                col_map,
-                row_map,
-                torch.float,
-                self._add_alpha_channel,
-                self._interpolation,
+                src_width=src_w,
+                src_height=src_h,
+                col_map=col_map,
+                row_map=row_map,
+                dtype=torch.float32,
+                add_alpha_channel=self._add_alpha_channel,
+                interpolation=self._interpolation,
             )
             self._remap_op.init(batch_size=batch_size)
         else:
