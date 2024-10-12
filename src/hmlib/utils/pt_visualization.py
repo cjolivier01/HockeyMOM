@@ -258,6 +258,9 @@ def draw_horizontal_line(
 
     falpha = float(alpha) / 255.0
 
+    if start_y >= thickness // 2:
+        start_y -= thickness // 2
+
     was_channels_last = is_channels_last(image)
     if was_channels_last:
         image = make_channels_first(image)
@@ -309,6 +312,9 @@ def draw_vertical_line(
         return image
 
     falpha = float(alpha) / 255.0
+
+    if start_x >= thickness // 2:
+        start_x -= thickness // 2
 
     was_channels_last = is_channels_last(image)
     if was_channels_last:
