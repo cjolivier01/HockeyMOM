@@ -471,6 +471,8 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
+    overlap_pad: int = 25,
+    overlap_pad_value: int = 255,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -544,7 +546,6 @@ def blend_video(
         cap_1_width = cap_1.width
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
-        overlap_pad = 25
         while True:
             destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
             destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
@@ -595,18 +596,18 @@ def blend_video(
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
                 if not python_blend:
-                    assert False  # Not interested in this path atm
+                    # assert False  # Not interested in this path atm
                     blender = core.ImageBlender(
                         mode=(
                             core.ImageBlenderMode.Laplacian
                             if blend_mode == "laplacian"
                             else core.ImageBlenderMode.HardSeam
                         ),
+                        half=False,
                         levels=10,
                         seam=torch.from_numpy(seam_tensor),
                         xor_map=torch.from_numpy(xor_tensor),
                         lazy_init=True,
-                        # lazy_init=False,
                         interpolation="bilinear",
                     )
                     blender.to(device)
@@ -644,7 +645,7 @@ def blend_video(
                         dtype=destination_tensor_1.dtype,
                         device=destination_tensor_1.device,
                     )
-                    + 255  # Somewhere in the middle
+                    + overlap_pad_value
                 )
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
@@ -655,10 +656,18 @@ def blend_video(
                     :, :, :, : overlapping_width + overlap_pad
                 ]
 
-            blended = blender.forward(
+            fwd_args = dict(
                 image_1=destination_tensor_1,
                 image_2=destination_tensor_2,
             )
+            if not python_blend:
+                fwd_args.update(
+                    dict(
+                        xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
+                        xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
+                    )
+                )
+            blended = blender.forward(**fwd_args)
 
             if overlapping_width:
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = blended
