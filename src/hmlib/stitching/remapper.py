@@ -228,18 +228,14 @@ class ImageRemapper:
     def width(self):
         assert self._initialized
         return self._dest_w
-        # return self._mask.shape[1]
 
     @property
     def height(self):
-        assert self._initialized
-        # return self._mask.shape[0]
         return self._dest_h
 
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
-        # dev = str(device)
         dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev

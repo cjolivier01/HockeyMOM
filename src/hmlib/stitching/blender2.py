@@ -23,9 +23,6 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import (
     GpuAllocator,
-    StreamCheckpoint,
-    StreamTensor,
-    cuda_stream_scope,
 )
 from hmlib.utils.image import (
     image_height,
@@ -471,8 +468,8 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
-    overlap_pad: int = 25,
-    overlap_pad_value: int = 255,
+    overlap_pad: int = 0,
+    overlap_pad_value: int = 128,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
@@ -635,7 +632,7 @@ def blend_video(
             if overlapping_width:
                 assert image_width(destination_tensor_1) == width_1  # sanity
                 canvas = (
-                    torch.ones(
+                    torch.zeros(
                         size=(
                             destination_tensor_1.shape[0],
                             destination_tensor_1.shape[1],
@@ -667,14 +664,19 @@ def blend_video(
                         xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
                     )
                 )
-            blended = blender.forward(**fwd_args)
+            blended_img = blender.forward(**fwd_args)
 
             if overlapping_width:
-                canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = blended
-                if True or frame_id % 2 == 0:
-                    canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
-                    canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
+                # torch.cuda.synchronize()
+                canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
+                    blended_img
+                )
+                # if True or frame_id % 2 == 0:
+                #     canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
+                #     canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
                 blended = canvas
+            else:
+                blended = blended_img
 
             # show_image("blended", blended, wait=False)
 
@@ -721,11 +723,6 @@ def blend_video(
                 else:
                     my_blended = make_channels_last(blended)
 
-                    if overlapping_width:
-                        # Build the destination canvas and insert the unblended, remapped
-                        # portions and then the blended portion
-                        pass
-
                     if rotation_angle:
                         my_blended = rotate_image(
                             img=my_blended,
@@ -736,6 +733,7 @@ def blend_video(
                             ),
                         )
                     if show:
+                        # torch.cuda.synchronize()
                         for img in my_blended:
                             show_image("stitched", img, wait=False)
                     if True:
