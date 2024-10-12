@@ -5,7 +5,6 @@ which is usual;;ly base dupon some homography matrix)
 
 import argparse
 import os
-import time
 from typing import Tuple
 
 import cv2
@@ -23,8 +22,6 @@ from hmlib.utils.image import (
     pad_tensor_to_size_batched,
 )
 from hmlib.video_stream import VideoStreamReader
-
-# from hmlib.async_worker import AsyncWorker
 
 
 ROOT_DIR = os.getcwd()
@@ -367,7 +364,6 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",
-        # interpolation=None,
         show=True,
         device=torch.device("cpu"),
     )

@@ -8,7 +8,7 @@ import datetime
 import logging
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Tuple, Union
 
 import cv2
 import numpy as np
@@ -18,7 +18,7 @@ import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend
-from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
+from hmlib.stitching.remapper import ImageRemapper
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
@@ -29,7 +29,6 @@ from hmlib.utils.image import (
     make_channels_first,
     make_channels_last,
 )
-from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.pt_visualization import draw_box
 from hmlib.video_out import VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
@@ -713,7 +712,7 @@ def blend_video(
     queue_size: int = 1,
     minimize_blend: bool = True,
     overlap_pad: int = 100,
-    overlap_pad_value: int = 128,
+    canvas_fill_pixel_value: int = 0,
     draw: bool = False,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
@@ -913,7 +912,7 @@ def blend_video(
                             dtype=remapped_tensor_1.dtype,
                             device=remapped_tensor_1.device,
                         )
-                        + overlap_pad_value
+                        + canvas_fill_pixel_value
                     )
                     dh1 = image_height(remapped_tensor_1)
                     dh2 = image_height(remapped_tensor_2)
