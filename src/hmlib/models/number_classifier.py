@@ -12,8 +12,8 @@ from mmengine.infer.infer import BaseInferencer
 from torchvision.transforms.functional import normalize
 
 from hmlib.builder import NECKS
-from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.utils import xyxy2xywh
+from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     image_height,

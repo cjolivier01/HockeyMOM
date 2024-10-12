@@ -86,9 +86,8 @@ def make_parser():
 
 @dataclass
 class BlendImageInfo:
-    def __init__(self, width: int, height: int, xpos: int, ypos: int):
-        self.width = width
-        self.height = height
+
+    def __init__(self, xpos: int, ypos: int):
         self.xpos = xpos
         self.ypos = ypos
 
@@ -305,10 +304,9 @@ def make_cv_compatible_tensor(tensor):
 
 def make_seam_and_xor_masks(
     dir_name: str,
-    images_and_positions: List[ImageAndPos],
+    images_and_positions: List[ImageAndPos] | None = None,
     force: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
     if not force and os.path.isfile(seam_filename):
@@ -326,24 +324,29 @@ def make_seam_and_xor_masks(
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
-        blender = core.EnBlender(
-            args=[
-                f"--save-seams",
-                seam_filename,
-                f"--save-xor",
-                xor_filename,
-            ]
-        )
-        # Blend one image to create the seam file
-        _ = blender.blend_images(
-            left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-            left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-            right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-            right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-        )
+        assert False  # should generate this when generating other stitch mappings
+        # assert len(images_and_positions) == 2
+        # blender = core.EnBlender(
+        #     args=[
+        #         f"--save-seams",
+        #         seam_filename,
+        #         f"--save-xor",
+        #         xor_filename,
+        #     ]
+        # )
+        # # Blend one image to create the seam file
+        # _ = blender.blend_images(
+        #     left_image=make_cv_compatible_tensor(images_and_positions[0].image),
+        #     left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+        #     right_image=make_cv_compatible_tensor(images_and_positions[1].image),
+        #     right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+        # )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
-    xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
-    return seam_tensor, xor_tensor
+    xor_mask_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
+    return (
+        torch.from_numpy(seam_tensor).contiguous(),
+        torch.from_numpy(xor_mask_tensor).contiguous(),
+    )
 
 
 def create_blender_config(
@@ -466,6 +469,7 @@ def get_canvas_info(
 
 
 class SmartBlender:
+
     def __init__(
         self,
         remapper_1: ImageRemapper,
@@ -475,6 +479,10 @@ class SmartBlender:
         dtype: torch.dtype,
         overlap_pad: int,
         draw: bool,
+        blend_mode: str,
+        seam_tensor: torch.Tensor,
+        xor_mask_tensor: torch.Tensor | None,
+        device: torch.device,
     ) -> None:
         self._remapper_1 = copy.deepcopy(remapper_1)
         self._remapper_2 = copy.deepcopy(remapper_2)
@@ -490,6 +498,12 @@ class SmartBlender:
         self._draw = draw
         self._minimize_blend = minimize_blend
         self._padded_blended_tlbr = None
+        self._blend_mode = blend_mode
+        self._device = device
+        self._seam_tensor = self.convert_mask_tensor(seam_tensor)
+        self._xor_mask_tensor = self.convert_mask_tensor(
+            xor_mask_tensor if xor_mask_tensor is not None else None
+        )
         self._init()
 
     def _init(self) -> None:
@@ -520,6 +534,39 @@ class SmartBlender:
         assert x2 - self._overlap_pad >= 0
         assert width_1 + self._overlap_pad <= self._canvas_info.width
 
+        if not self._use_python_blender:
+            # assert False  # Not interested in this path atm
+            self._blender = core.ImageBlender(
+                mode=(
+                    core.ImageBlenderMode.Laplacian
+                    if self._blend_mode == "laplacian"
+                    else core.ImageBlenderMode.HardSeam
+                ),
+                half=False,
+                levels=10,
+                seam=self._seam_tensor,
+                xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
+                lazy_init=True,
+                interpolation="bilinear",
+            )
+            self._blender.to(self._device)
+        else:
+            self._blender = PtImageBlender(
+                images_info=[
+                    BlendImageInfo(
+                        xpos=self._remapper_1.xpos,
+                        ypos=self._remapper_1.ypos,
+                    ),
+                    BlendImageInfo(
+                        xpos=self._remapper_2.xpos,
+                        ypos=self._remapper_2.ypos,
+                    ),
+                ],
+                seam_mask=self._seam_tensor,
+                xor_mask=self._xor_mask_tensor,
+                laplacian_blend=self._blend_mode == "laplacian",
+            )
+
     def convert_mask_tensor(self, mask: torch.Tensor) -> torch.Tensor:
         # Mask should be the same size as our canvas
         assert image_width(mask) == self._canvas_info.width
@@ -532,6 +579,9 @@ class SmartBlender:
             - self._overlap_pad : self._remapper_1.width
             + self._overlap_pad,
         ]
+
+    # @property
+    # def blending_width(self, image: int) -> int:
 
     def draw(self):
         pass
@@ -634,6 +684,8 @@ def blend_video(
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
 
+    seam_tensor, xor_mask_tensor = make_seam_and_xor_masks(dir_name=dir_name)
+
     smart_blender = SmartBlender(
         remapper_1=remapper_1,
         remapper_2=remapper_2,
@@ -642,6 +694,10 @@ def blend_video(
         draw=draw,
         use_python_blender=python_blend,
         dtype=dtype,
+        blend_mode=blend_mode,
+        seam_tensor=seam_tensor,
+        xor_mask_tensor=xor_mask_tensor,
+        device=device,
     )
 
     video_out = None
@@ -665,21 +721,6 @@ def blend_video(
             )
 
             if frame_count == 0:
-                seam_tensor, xor_tensor = make_seam_and_xor_masks(
-                    dir_name=dir_name,
-                    images_and_positions=[
-                        ImageAndPos(
-                            image=remapped_tensor_1[0],
-                            xpos=remapper_1.xpos,
-                            ypos=remapper_1.ypos,
-                        ),
-                        ImageAndPos(
-                            image=remapped_tensor_2[0],
-                            xpos=remapper_2.xpos,
-                            ypos=remapper_2.ypos,
-                        ),
-                    ],
-                )
                 if minimize_blend:
                     canvas_width = image_width(seam_tensor)
                     canvas_height = image_height(seam_tensor)
@@ -722,15 +763,16 @@ def blend_video(
                     assert width_1 + overlap_pad <= image_width(seam_tensor)
 
                     seam_tensor = smart_blender.convert_mask_tensor(seam_tensor)
-                    xor_tensor = smart_blender.convert_mask_tensor(xor_tensor)
+                    xor_mask_tensor = smart_blender.convert_mask_tensor(xor_mask_tensor)
 
                     # seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                    # xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                    cap_1_width = overlapping_width + overlap_pad + overlap_pad
-                    cap_2_width = overlapping_width + overlap_pad + overlap_pad
+                    # xor_mask_tensor = xor_mask_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+
+                    # cap_1_width = overlapping_width + overlap_pad + overlap_pad
+                    # cap_2_width = overlapping_width + overlap_pad + overlap_pad
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
-                # show_image("xor_tensor", torch.from_numpy(xor_tensor))
+                # show_image("xor_mask_tensor", torch.from_numpy(xor_mask_tensor))
                 if not python_blend:
                     # assert False  # Not interested in this path atm
                     blender = core.ImageBlender(
@@ -742,7 +784,7 @@ def blend_video(
                         half=False,
                         levels=10,
                         seam=torch.from_numpy(seam_tensor),
-                        xor_map=torch.from_numpy(xor_tensor),
+                        xor_map=torch.from_numpy(xor_mask_tensor),
                         lazy_init=True,
                         interpolation="bilinear",
                     )
@@ -751,20 +793,16 @@ def blend_video(
                     blender = PtImageBlender(
                         images_info=[
                             BlendImageInfo(
-                                width=cap_1_width,
-                                height=cap_1.height,
                                 xpos=remapper_1.xpos,
                                 ypos=remapper_1.ypos,
                             ),
                             BlendImageInfo(
-                                width=cap_2_width,
-                                height=cap_2.height,
                                 xpos=remapper_2.xpos,
                                 ypos=remapper_2.ypos,
                             ),
                         ],
-                        seam_mask=torch.from_numpy(seam_tensor).contiguous().to(device),
-                        xor_mask=torch.from_numpy(xor_tensor).contiguous().to(device),
+                        seam_mask=seam_tensor.contiguous().to(device),
+                        xor_mask=xor_mask_tensor.contiguous().to(device),
                         laplacian_blend=blend_mode == "laplacian",
                     )
 
