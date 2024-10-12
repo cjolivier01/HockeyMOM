@@ -3,6 +3,7 @@ Experiments in stitching
 """
 
 import argparse
+import copy
 import datetime
 import logging
 import os
@@ -16,7 +17,7 @@ import torch
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
-from hmlib.stitching.laplacian_blend2 import LaplacianBlend
+from hmlib.stitching.laplacian_blend import LaplacianBlend
 from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
@@ -162,12 +163,6 @@ class PtImageBlender:
         return self._forward(image_1, image_2)
 
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
-        # print(
-        #     f"1={image_1.shape} @ {self._images_info[0].xpos}, {self._images_info[0].ypos}"
-        # )
-        # print(
-        #     f"2={image_2.shape} @ {self._images_info[1].xpos}, {self._images_info[1].ypos}"
-        # )
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
 
@@ -182,30 +177,6 @@ class PtImageBlender:
                 dtype=torch.uint8 if self._laplacian_blend is None else self._dtype,
                 device=self._seam_mask.device,
             )
-            # full_left = torch.zeros_like(canvas)
-            # full_right = torch.zeros_like(canvas)
-        else:
-            # full_left = torch.zeros(
-            #     size=(
-            #         batch_size,
-            #         channels,
-            #         self._seam_mask.shape[0],
-            #         self._seam_mask.shape[1],
-            #     ),
-            #     dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
-            #     device=self._seam_mask.device,
-            # )
-            # full_right = torch.zeros(
-            #     size=(
-            #         batch_size,
-            #         channels,
-            #         self._seam_mask.shape[0],
-            #         self._seam_mask.shape[1],
-            #     ),
-            #     dtype=torch.uint8 if self._laplacian_blend is None else torch.float,
-            #     device=self._seam_mask.device,
-            # )
-            pass
 
         H1 = 0
         W1 = 1
@@ -258,20 +229,7 @@ class PtImageBlender:
             level_ainfo_2.append(ainfo_2)
             level_canvas_dims.append(canvas_dims)
 
-        # def _make_full(img_1, img_2):
-        #     img1 = img_1[:, :, 0:h1, 0:w1]
-        #     full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img1
-
-        #     img2 = img_2[:, :, 0:h2, 0:w2]
-        #     full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img2
-        #     return full_left, full_right
-
         def _make_full(img_1, img_2, level):
-            # assert h1 == img_1.shape[2]
-            # assert w1 == img_1.shape[3]
-            # img1 = img_1[:, :, 0:h1, 0:w1]
-            # full_left[:, :, y1 : y1 + h1 + y1, x1 : x1 + w1] = img_1
-
             ainfo_1 = level_ainfo_1[level]
             ainfo_2 = level_ainfo_2[level]
 
@@ -301,12 +259,6 @@ class PtImageBlender:
                 mode="constant",
             )
 
-            # assert h2 == img_2.shape[2]
-            # assert w2 == img_2.shape[3]
-            # img2 = img_2[:, :, 0:h2, 0:w2]
-
-            # full_right[:, :, y2 : y2 + h2, x2 : x2 + w2] = img_2
-
             full_right = torch.nn.functional.pad(
                 img_2,
                 (
@@ -322,10 +274,6 @@ class PtImageBlender:
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
-
-            # full_left, full_right = _make_full(image_1, image_2, level=0)
-            # canvas = self._laplacian_blend.forward(left=full_left, right=full_right)
-
             canvas = self._laplacian_blend.forward(
                 left=image_1,
                 right=image_2,
@@ -460,21 +408,141 @@ def my_draw_box(
         x1 = 0
     if y1 is None:
         y1 = 0
-    w, h = image_width(image)
+    w, h = image_width(image), image_height(image)
     if x2 is None:
-        x2 = image_width(image) - 1
-    elif x2 == image_width(image):
-        x2 = 
+        x2 = w - 1
+    elif x2 == w:
+        x2 -= 1
     if y2 is None:
-        y2 = image_height(image) - 1
+        y2 = h - 1
+    elif y2 == h:
+        y2 -= 1
     return draw_box(
         image=image, tlbr=[int(x1), int(y1), int(x2), int(y2)], color=color, thickness=thickness
     )
 
 
-# class SmartBlender:
-#     def __init__
+@dataclass
+class Point:
+    x: int
+    y: int
 
+
+@dataclass
+class CanvasInfo:
+    positions: Union[List[Point], None] = None
+    width: int = 0
+    height: int = 0
+
+
+def get_canvas_info(
+    size_1: List[int], xy_pos_1: List[int], size_2: List[int], xy_pos_2: List[int]
+) -> CanvasInfo:
+    """
+    returns (height, width)
+    """
+    h1, w1 = size_1[-2:]
+    h2, w2 = size_2[-2:]
+    x1, y1 = xy_pos_1
+    x2, y2 = xy_pos_2
+    assert x1 >= 0 and x2 >= 0 and y1 >= 0 and y2 >= 0
+    if x1 <= x2:
+        x2 -= x1
+        x1 = 0
+    else:
+        x1 -= x2
+        x2 = 0
+    if y1 <= y2:
+        y2 -= y1
+        y1 = 0
+    else:
+        y1 -= y2
+        y2 = 0
+    canvas_w = max(x1 + w1, x2 + w2)
+    canvas_h = max(y1 + h1, y2 + h2)
+    return CanvasInfo(
+        positions=[Point(x=x1, y=y1), Point(x=x2, y=y2)], width=canvas_w, height=canvas_h
+    )
+
+
+class SmartBlender:
+    def __init__(
+        self,
+        remapper_1: ImageRemapper,
+        remapper_2: ImageRemapper,
+        minimize_blend: bool,
+        use_python_blender: bool,
+        dtype: torch.dtype,
+        overlap_pad: int,
+        draw: bool,
+    ) -> None:
+        self._remapper_1 = copy.deepcopy(remapper_1)
+        self._remapper_2 = copy.deepcopy(remapper_2)
+        self._use_python_blender = use_python_blender
+        self._canvas_info: CanvasInfo = get_canvas_info(
+            size_1=[self._remapper_1.height, self._remapper_1.width],
+            xy_pos_1=[self._remapper_1.xpos, self._remapper_1.ypos],
+            size_2=[self._remapper_2.height, self._remapper_2.width],
+            xy_pos_2=[self._remapper_2.xpos, self._remapper_2.ypos],
+        )
+        self._dtype = dtype
+        self._overlap_pad = overlap_pad
+        self._draw = draw
+        self._minimize_blend = minimize_blend
+        self._padded_blended_tlbr = None
+        self._init()
+
+    def _init(self) -> None:
+        if not self._minimize_blend:
+            return
+        x1, y1, x2, y2 = (
+            self._canvas_info.positions[0].x,
+            self._canvas_info.positions[0].y,
+            self._canvas_info.positions[1].x,
+            self._canvas_info.positions[1].y,
+        )
+
+        self._remapper_1.xpos = x1
+        self._remapper_2.xpos = x1 + self._overlap_pad  # start overlapping right away
+        width_1 = self._remapper_1.width
+        overlapping_width = int(width_1 - x2)
+        assert width_1 > x2
+        # seam tensor box (box we'll be blending)
+        self._padded_blended_tlbr = [
+            x2 - self._overlap_pad,  # x1
+            max(0, min(y1, y2) - self._overlap_pad),  # y1
+            width_1 + self._overlap_pad,  # x2
+            min(
+                self._canvas_info.height,
+                max(y1 + self._remapper_1.height, y2 + self._remapper_2.height) + self._overlap_pad,
+            ),  # y2
+        ]
+        assert x2 - self._overlap_pad >= 0
+        assert width_1 + self._overlap_pad <= self._canvas_info.width
+
+    def convert_mask_tensor(self, mask: torch.Tensor) -> torch.Tensor:
+        # Mask should be the same size as our canvas
+        assert image_width(mask) == self._canvas_info.width
+        assert image_height(mask) == self._canvas_info.height
+        if not self._minimize_blend:
+            return mask
+        return mask[
+            ...,
+            self._canvas_info.positions[1].x
+            - self._overlap_pad : self._remapper_1.width
+            + self._overlap_pad,
+        ]
+
+    def draw(self):
+        pass
+
+    def forward(
+        self, remapped_image_1: torch.Tensor, remapped_image_2: torch.Tensor
+    ) -> torch.Tensor:
+        pass
+
+    # if self._draw:
+    #     self.draw(image)
 
 
 def blend_video(
@@ -566,6 +634,16 @@ def blend_video(
     remapper_2.init(batch_size=batch_size)
     remapper_2.to(device=device)
 
+    smart_blender = SmartBlender(
+        remapper_1=remapper_1,
+        remapper_2=remapper_2,
+        minimize_blend=minimize_blend,
+        overlap_pad=overlap_pad,
+        draw=draw,
+        use_python_blender=python_blend,
+        dtype=dtype,
+    )
+
     video_out = None
 
     timer = Timer()
@@ -642,8 +720,12 @@ def blend_video(
                     ]
                     assert x2 - overlap_pad >= 0
                     assert width_1 + overlap_pad <= image_width(seam_tensor)
-                    seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                    xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+
+                    seam_tensor = smart_blender.convert_mask_tensor(seam_tensor)
+                    xor_tensor = smart_blender.convert_mask_tensor(xor_tensor)
+
+                    # seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+                    # xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
                     cap_1_width = overlapping_width + overlap_pad + overlap_pad
                     cap_2_width = overlapping_width + overlap_pad + overlap_pad
 
