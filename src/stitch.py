@@ -229,6 +229,8 @@ def stitch_videos(
         pass
     finally:
         data_loader.close()
+        if shower is not None:
+            shower.close()
     return lfo, rfo
 
 
