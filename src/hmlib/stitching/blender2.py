@@ -27,10 +27,9 @@ from hmlib.utils.image import (
     image_height,
     image_width,
     make_channels_first,
-    make_channels_last,
 )
 from hmlib.utils.pt_visualization import draw_box
-from hmlib.video_out import VideoOutput, resize_image, rotate_image
+from hmlib.video_out import VideoOutput
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
@@ -73,12 +72,6 @@ def make_parser():
         "--draw",
         action="store_true",
         help="Draw boxes",
-    )
-    parser.add_argument(
-        "--rotation_angle",
-        default=0,
-        type=int,
-        help="Rotation angle of final stitched image(s)",
     )
     return parser
 
@@ -304,7 +297,6 @@ def make_cv_compatible_tensor(tensor):
 
 def make_seam_and_xor_masks(
     dir_name: str,
-    images_and_positions: List[ImageAndPos] | None = None,
     force: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     seam_filename = os.path.join(dir_name, "seam_file.png")
@@ -323,24 +315,6 @@ def make_seam_and_xor_masks(
                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
-    if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
-        assert False  # should generate this when generating other stitch mappings
-        # assert len(images_and_positions) == 2
-        # blender = core.EnBlender(
-        #     args=[
-        #         f"--save-seams",
-        #         seam_filename,
-        #         f"--save-xor",
-        #         xor_filename,
-        #     ]
-        # )
-        # # Blend one image to create the seam file
-        # _ = blender.blend_images(
-        #     left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-        #     left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-        #     right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-        #     right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-        # )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
     xor_mask_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
     return (
@@ -705,7 +679,6 @@ def blend_video(
     start_frame_number: int = 0,
     output_video: str = None,
     max_width: int = 9999,
-    rotation_angle: int = 0,
     batch_size: int = 8,
     skip_final_video_save: bool = False,
     blend_mode: str = "laplacian",
@@ -984,7 +957,6 @@ def main(args):
             show_scaled=args.show_scaled,
             output_video=args.output_file,
             output_device=video_gpu,
-            rotation_angle=args.rotation_angle,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
