@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui import show_image
 from hmlib.utils.box_functions import height, width
 
 from .image import (
