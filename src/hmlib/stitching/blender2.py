@@ -659,7 +659,7 @@ class ImageStitcher(torch.nn.Module):
         blend_levels: int = 6,
         minimize_blend: bool = True,
         overlap_pad: int = 120,
-        use_python_blender: bool = True,
+        use_python_blender: bool = False,
         draw: bool = False,
         **kwargs,
     ) -> None:
