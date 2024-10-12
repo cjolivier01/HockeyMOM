@@ -796,12 +796,8 @@ def blend_video(
 
     timer = Timer()
     frame_count = 0
-    blender = None
     frame_id = start_frame_number
     try:
-        width_1, width_2 = remapper_1.width, remapper_2.width
-        overlapping_width, x1 = None, None
-        canvas_width, canvas_height = None, None
         while True:
             remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
                 device=device, non_blocking=True
@@ -810,168 +806,7 @@ def blend_video(
                 device=device, non_blocking=True
             )
 
-            if False:
-                if frame_count == 0:
-                    if minimize_blend:
-                        canvas_width = image_width(seam_tensor)
-                        canvas_height = image_height(seam_tensor)
-                        x1, y1, x2, y2 = (
-                            remapper_1.xpos,
-                            remapper_1.ypos,
-                            remapper_2.xpos,
-                            remapper_2.ypos,
-                        )
-                        if y1 <= y2:
-                            y2 -= y1
-                            y1 = 0
-                        else:
-                            y1 -= y2
-                            y2 = 0
-                        width_1 = image_width(remapped_tensor_1)
-                        width_2 = image_width(remapped_tensor_2)
-                        assert x1 != x2  # they shouldn;t be starting in the same place
-                        if x1 <= x2:
-                            x2 -= x1
-                            x1 = 0
-                        elif x2 <= x1:
-                            x1 -= x2
-                            x2 = 0
-                        remapper_1.xpos = x1
-                        remapper_2.xpos = x1 + overlap_pad  # start overlapping right away
-                        overlapping_width = int(width_1 - x2)
-                        assert width_1 > x2
-                        # seam tensor box (box we'll be blending)
-                        padded_blended_tlbr = [
-                            x2 - overlap_pad,  # x1
-                            max(0, min(y1, y2) - overlap_pad),  # y1
-                            width_1 + overlap_pad,  # x2
-                            min(
-                                image_height(seam_tensor),
-                                max(y1 + remapper_1.height, y2 + remapper_2.height) + overlap_pad,
-                            ),  # y2
-                        ]
-                        assert x2 - overlap_pad >= 0
-                        assert width_1 + overlap_pad <= image_width(seam_tensor)
-
-                        seam_tensor = smart_blender.convert_mask_tensor(seam_tensor)
-                        xor_mask_tensor = smart_blender.convert_mask_tensor(xor_mask_tensor)
-
-                        # seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                        # xor_mask_tensor = xor_mask_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-
-                        # cap_1_width = overlapping_width + overlap_pad + overlap_pad
-                        # cap_2_width = overlapping_width + overlap_pad + overlap_pad
-
-                    # show_image("seam_tensor", torch.from_numpy(seam_tensor))
-                    # show_image("xor_mask_tensor", torch.from_numpy(xor_mask_tensor))
-                    if not python_blend:
-                        # assert False  # Not interested in this path atm
-                        blender = core.ImageBlender(
-                            mode=(
-                                core.ImageBlenderMode.Laplacian
-                                if blend_mode == "laplacian"
-                                else core.ImageBlenderMode.HardSeam
-                            ),
-                            half=False,
-                            levels=10,
-                            seam=seam_tensor.contiguous().to(device),
-                            xor_map=xor_mask_tensor.contiguous().to(device),
-                            lazy_init=True,
-                            interpolation="bilinear",
-                        )
-                        blender.to(device)
-                    else:
-                        blender = PtImageBlender(
-                            images_info=[
-                                BlendImageInfo(
-                                    xpos=remapper_1.xpos,
-                                    ypos=remapper_1.ypos,
-                                ),
-                                BlendImageInfo(
-                                    xpos=remapper_2.xpos,
-                                    ypos=remapper_2.ypos,
-                                ),
-                            ],
-                            seam_mask=seam_tensor.contiguous().to(device),
-                            xor_mask=xor_mask_tensor.contiguous().to(device),
-                            laplacian_blend=blend_mode == "laplacian",
-                        )
-
-                if overlapping_width:
-                    assert image_width(remapped_tensor_1) == width_1  # sanity
-                    canvas = (
-                        torch.zeros(
-                            size=(
-                                remapped_tensor_1.shape[0],
-                                remapped_tensor_1.shape[1],
-                                canvas_height,
-                                canvas_width,
-                            ),
-                            dtype=remapped_tensor_1.dtype,
-                            device=remapped_tensor_1.device,
-                        )
-                        + canvas_fill_pixel_value
-                    )
-                    dh1 = image_height(remapped_tensor_1)
-                    dh2 = image_height(remapped_tensor_2)
-                    # TODO: can be ... instead of so many colons
-
-                    partial_1 = remapped_tensor_1[:, :, :, : x2 + overlap_pad]
-                    partial_2 = remapped_tensor_2[:, :, :, overlapping_width - overlap_pad :]
-                    remapped_tensor_1 = remapped_tensor_1[:, :, :, x2 - overlap_pad : width_1]
-                    remapped_tensor_2 = remapped_tensor_2[
-                        :, :, :, : overlapping_width + overlap_pad
-                    ]
-
-                fwd_args = dict(
-                    image_1=remapped_tensor_1.to(torch.float, non_blocking=True),
-                    image_2=remapped_tensor_2.to(torch.float, non_blocking=True),
-                )
-                if not python_blend:
-                    fwd_args.update(
-                        dict(
-                            xy_pos_1=[remapper_1.xpos, remapper_1.ypos],
-                            xy_pos_2=[remapper_2.xpos, remapper_2.ypos],
-                        )
-                    )
-                blended_img = blender.forward(**fwd_args)
-
-                if overlapping_width:
-                    canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
-                        blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
-                    )
-                    canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
-                    canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
-                    blended = canvas
-                    if draw:
-                        # left box
-                        blended = my_draw_box(
-                            blended,
-                            x1=None,
-                            y1=y1,
-                            x2=x2 + overlap_pad - 1,
-                            y2=dh1 + y1 - 1,
-                            color=(255, 255, 0),
-                        )
-                        # right box
-                        blended = my_draw_box(
-                            blended,
-                            x1=x2 + overlapping_width - overlap_pad,
-                            y1=y2,
-                            x2=None,
-                            y2=dh2 + y2 - 1,
-                            color=(0, 255, 255),
-                        )
-                        # Blended box
-                        blended = my_draw_box(
-                            blended,
-                            *padded_blended_tlbr,
-                            color=(255, 0, 0),
-                        )
-                else:
-                    blended = blended_img
-            else:
-                blended = smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
+            blended = smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
             # show_image("blended", blended, wait=False)
 
             if output_video:
@@ -995,51 +830,20 @@ def blend_video(
                         # batch_size=batch_size,
                         cache_size=queue_size,
                     )
-                if video_dim_height != blended.shape[-2] or video_dim_width != blended.shape[-1]:
-                    assert False  # why is this?
-                    for this_blended in blended:
-                        resized = resize_image(
-                            img=this_blended.permute(1, 2, 0),
-                            new_width=video_dim_width,
-                            new_height=video_dim_height,
-                        )
-                        if isinstance(video_out, VideoStreamWriter):
-                            video_out.append(resized)
-                            frame_id += batch_size
-                        else:
-                            video_out.append(
-                                dict(
-                                    frame_id=frame_id,
-                                    img=resized.contiguous().cpu(),
-                                    current_box=None,
-                                )
-                            )
-                else:
-                    my_blended = make_channels_last(blended)
-                    del blended
 
-                    if rotation_angle:
-                        my_blended = rotate_image(
-                            img=my_blended,
-                            angle=rotation_angle,
-                            rotation_point=(
-                                my_blended.shape[-2] // 2,
-                                my_blended.shape[-3] // 2,
-                            ),
-                        )
-                    if show:
-                        for img in my_blended:
-                            show_image("stitched", img, wait=False)
-                    if True:
-                        video_out.append(
-                            {
-                                "frame_id": torch.tensor(frame_id, dtype=torch.int64),
-                                "img": my_blended,
-                                "current_box": None,
-                            }
-                        )
-                        frame_id += len(my_blended)
-                del my_blended
+            if show:
+                for img in blended:
+                    show_image("stitched", img, wait=False)
+            if video_out is not None:
+                video_out.append(
+                    {
+                        "frame_id": torch.tensor(frame_id, dtype=torch.int64),
+                        "img": blended,
+                        "current_box": None,
+                    }
+                )
+                frame_id += len(blended)
+            del blended
 
             frame_id += 1
             frame_count += 1
