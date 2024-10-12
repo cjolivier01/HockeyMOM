@@ -21,9 +21,7 @@ from hmlib.stitching.remapper import ImageRemapper, read_frame_batch
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
-from hmlib.utils.gpu import (
-    GpuAllocator,
-)
+from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -544,8 +542,12 @@ def blend_video(
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(device)
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(device)
+            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+                device=device, non_blocking=True
+            )
+            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+                device=device, non_blocking=True
+            )
 
             if frame_count == 0:
                 seam_tensor, xor_tensor = make_seam_and_xor_masks(
@@ -657,8 +659,8 @@ def blend_video(
                 # torch.cuda.synchronize()
 
             fwd_args = dict(
-                image_1=destination_tensor_1,
-                image_2=destination_tensor_2,
+                image_1=destination_tensor_1.to(torch.float, non_blocking=True),
+                image_2=destination_tensor_2.to(torch.float, non_blocking=True),
             )
             if not python_blend:
                 fwd_args.update(
@@ -672,10 +674,10 @@ def blend_video(
             if overlapping_width:
                 torch.cuda.synchronize()
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
-                    blended_img
+                    blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
                 )
                 # torch.cuda.synchronize()
-                if True or frame_id % 2 == 0:
+                if False and frame_id % 2 == 0:
                     canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
                     canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
                     # torch.cuda.synchronize()
