@@ -897,6 +897,7 @@ def main(args):
             queue_size=args.queue_size,
             device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
+            minimize_blend=True,
         )
 
 
