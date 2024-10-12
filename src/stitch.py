@@ -46,16 +46,6 @@ def convert_seconds_to_hms(total_seconds):
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
-def stitch_single_frame(
-    game_id: str,
-    device: torch.device,
-    start_frame_time: Optional[str] = None,
-    auto_adjust_exposure: Optional[bool] = True,
-):
-    pass
-    assert False  # implement me! dof ro rink config at startup
-
-
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -84,8 +74,8 @@ def stitch_videos(
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
-    left_vid = BasicVideoInfo(videos["left"])
-    right_vid = BasicVideoInfo(videos["right"])
+    left_vid = BasicVideoInfo(",".join(videos["left"]))
+    right_vid = BasicVideoInfo(",".join(videos["right"]))
     total_frames = min(left_vid.frame_count, right_vid.frame_count)
     print(f"Total possible stitched video frames: {total_frames}")
 

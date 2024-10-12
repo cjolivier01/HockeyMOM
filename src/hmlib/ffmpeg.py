@@ -22,10 +22,12 @@ def preexec_fn():
     libc.prctl(1, signal.SIGTERM)
 
 
-# @classinstancememoize
+@classinstancememoize
 class BasicVideoInfo:
 
-    def __init__(self, video_file: Path | str | List[Path | str], use_ffprobe: bool = True):
+    def __init__(self, video_file: str, use_ffprobe: bool = True):
+        assert isinstance(video_file, str)
+        video_file = video_file.split(",")
         self._multiple = None
         if isinstance(video_file, list) and len(video_file) == 1:
             video_file = video_file[0]

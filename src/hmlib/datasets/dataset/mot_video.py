@@ -146,7 +146,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vw = self.cap.width
             self.vh = self.cap.height
 
-            info = BasicVideoInfo(self._path_list)
+            info = BasicVideoInfo(",".join(self._path_list))
             self.vn = info.frame_count
             self.fps = info.fps
 
@@ -522,7 +522,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def __len__(self):
         if self.vn is None:
-            info = BasicVideoInfo(self._path_list)
+            info = BasicVideoInfo(",".join(self._path_list))
             self.vn = info.frame_count
             self.fps = info.fps
         return self.vn  # number of frames

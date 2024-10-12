@@ -16,6 +16,8 @@ import torch
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.stitching.blender import create_stitcher
+
+# from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
@@ -142,8 +144,6 @@ class StitchDataset:
         self,
         videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        # video_1_offset_frame: int = None,
-        # video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
@@ -164,6 +164,7 @@ class StitchDataset:
         verbose: bool = False,
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
+        minimize_blend: bool = True,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -178,8 +179,6 @@ class StitchDataset:
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
-        # self._video_file_1 = video_file_1
-        # self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
@@ -225,8 +224,8 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
-        self._video_left_info = BasicVideoInfo(videos["left"]["files"])
-        self._video_right_info = BasicVideoInfo(videos["right"]["files"])
+        self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
+        self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
         self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
@@ -341,15 +340,9 @@ class StitchDataset:
             self.configure_stitching()
 
     def _load_video_props(self):
-        info = BasicVideoInfo(self._videos["left"]["files"])
+        info = BasicVideoInfo(",".join(self._videos["left"]["files"]))
         self._fps = info.fps
         self._bitrate = info.bitrate
-        # video1 = cv2.VideoCapture(self._video_file_1)
-        # if not video1.isOpened():
-        #     raise AssertionError(f"Could not open video file: {self._video_file_1}")
-        # self._fps = video1.get(cv2.CAP_PROP_FPS)
-        # self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
-        # video1.release()
 
     @property
     def fps(self):
