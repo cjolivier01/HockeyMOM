@@ -644,14 +644,17 @@ def blend_video(
                     )
                     + overlap_pad_value
                 )
+                # torch.cuda.synchronize()
                 dh1 = image_height(destination_tensor_1)
                 dh2 = image_height(destination_tensor_2)
+                # TODO: can be ... instead of so many colons
                 partial_1 = destination_tensor_1[:, :, :, : x2 + overlap_pad]
                 partial_2 = destination_tensor_2[:, :, :, overlapping_width - overlap_pad :]
                 destination_tensor_1 = destination_tensor_1[:, :, :, x2 - overlap_pad : width_1]
                 destination_tensor_2 = destination_tensor_2[
                     :, :, :, : overlapping_width + overlap_pad
                 ]
+                # torch.cuda.synchronize()
 
             fwd_args = dict(
                 image_1=destination_tensor_1,
@@ -667,14 +670,16 @@ def blend_video(
             blended_img = blender.forward(**fwd_args)
 
             if overlapping_width:
-                # torch.cuda.synchronize()
+                torch.cuda.synchronize()
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
                     blended_img
                 )
-                # if True or frame_id % 2 == 0:
-                #     canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
-                #     canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
-                blended = canvas
+                # torch.cuda.synchronize()
+                if True or frame_id % 2 == 0:
+                    canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
+                    canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
+                    # torch.cuda.synchronize()
+                blended = canvas.cpu()
             else:
                 blended = blended_img
 
