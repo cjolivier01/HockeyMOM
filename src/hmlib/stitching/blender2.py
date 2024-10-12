@@ -476,6 +476,7 @@ class SmartBlender:
         remapper_2: ImageRemapper,
         minimize_blend: bool,
         use_python_blender: bool,
+        blend_levels: int,
         dtype: torch.dtype,
         overlap_pad: int,
         draw: bool,
@@ -497,6 +498,7 @@ class SmartBlender:
         self._overlap_pad = overlap_pad
         self._draw = draw
         self._minimize_blend = minimize_blend
+        self._blend_levels = blend_levels
         self._padded_blended_tlbr = None
         self._blend_mode = blend_mode
         self._device = device
@@ -546,7 +548,7 @@ class SmartBlender:
                     else core.ImageBlenderMode.HardSeam
                 ),
                 half=False,
-                levels=10,
+                levels=self._blend_levels,
                 seam=self._seam_tensor,
                 xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
                 lazy_init=True,
@@ -572,6 +574,7 @@ class SmartBlender:
                     else None
                 ),
                 laplacian_blend=self._blend_mode == "laplacian",
+                max_levels=self._blend_levels,
             )
 
     def convert_mask_tensor(self, mask: torch.Tensor) -> torch.Tensor:
@@ -709,7 +712,7 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
-    overlap_pad: int = 25,
+    overlap_pad: int = 100,
     overlap_pad_value: int = 128,
     draw: bool = False,
 ):
@@ -779,6 +782,7 @@ def blend_video(
         remapper_1=remapper_1,
         remapper_2=remapper_2,
         minimize_blend=minimize_blend,
+        blend_levels=6,
         overlap_pad=overlap_pad,
         draw=draw,
         use_python_blender=python_blend,
