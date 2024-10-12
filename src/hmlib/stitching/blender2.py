@@ -936,7 +936,6 @@ def main(args):
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
-    video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
     with torch.no_grad():
         blend_video(
@@ -954,7 +953,6 @@ def main(args):
             show=args.show_image,
             show_scaled=args.show_scaled,
             output_video=args.output_file,
-            output_device=video_gpu,
             batch_size=args.batch_size,
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
