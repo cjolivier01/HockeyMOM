@@ -460,13 +460,21 @@ def my_draw_box(
         x1 = 0
     if y1 is None:
         y1 = 0
+    w, h = image_width(image)
     if x2 is None:
         x2 = image_width(image) - 1
+    elif x2 == image_width(image):
+        x2 = 
     if y2 is None:
         y2 = image_height(image) - 1
     return draw_box(
         image=image, tlbr=[int(x1), int(y1), int(x2), int(y2)], color=color, thickness=thickness
     )
+
+
+# class SmartBlender:
+#     def __init__
+
 
 
 def blend_video(
@@ -615,26 +623,29 @@ def blend_video(
                     if x1 <= x2:
                         x2 -= x1
                         x1 = 0
-                        remapper_1.xpos = x1
-                        remapper_2.xpos = x1 + overlap_pad  # start overlapping right away
-                        overlapping_width = int(width_1 - x2)
-                        assert width_1 > x2
-                        # seam tensor box (box we'll be blending)
-                        padded_blended_tlbr = [
-                            x2 - overlap_pad,  # x1
-                            None,  # y1
-                            width_1 + overlap_pad,  # x2
-                            None,  # y2
-                        ]
-                        assert x2 - overlap_pad >= 0
-                        assert width_1 + overlap_pad <= image_width(seam_tensor)
-                        seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                        xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
-                        cap_1_width = overlapping_width + overlap_pad + overlap_pad
-                        cap_2_width = overlapping_width + overlap_pad + overlap_pad
-                    else:
-                        # implement this? or just switch?
-                        assert False
+                    elif x2 <= x1:
+                        x1 -= x2
+                        x2 = 0
+                    remapper_1.xpos = x1
+                    remapper_2.xpos = x1 + overlap_pad  # start overlapping right away
+                    overlapping_width = int(width_1 - x2)
+                    assert width_1 > x2
+                    # seam tensor box (box we'll be blending)
+                    padded_blended_tlbr = [
+                        x2 - overlap_pad,  # x1
+                        max(0, min(y1, y2) - overlap_pad),  # y1
+                        width_1 + overlap_pad,  # x2
+                        min(
+                            image_height(seam_tensor),
+                            max(y1 + remapper_1.height, y2 + remapper_2.height) + overlap_pad,
+                        ),  # y2
+                    ]
+                    assert x2 - overlap_pad >= 0
+                    assert width_1 + overlap_pad <= image_width(seam_tensor)
+                    seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+                    xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
+                    cap_1_width = overlapping_width + overlap_pad + overlap_pad
+                    cap_2_width = overlapping_width + overlap_pad + overlap_pad
 
                 # show_image("seam_tensor", torch.from_numpy(seam_tensor))
                 # show_image("xor_tensor", torch.from_numpy(xor_tensor))
@@ -690,7 +701,6 @@ def blend_video(
                     )
                     + overlap_pad_value
                 )
-                # torch.cuda.synchronize()
                 dh1 = image_height(remapped_tensor_1)
                 dh2 = image_height(remapped_tensor_2)
                 # TODO: can be ... instead of so many colons
@@ -699,7 +709,6 @@ def blend_video(
                 partial_2 = remapped_tensor_2[:, :, :, overlapping_width - overlap_pad :]
                 remapped_tensor_1 = remapped_tensor_1[:, :, :, x2 - overlap_pad : width_1]
                 remapped_tensor_2 = remapped_tensor_2[:, :, :, : overlapping_width + overlap_pad]
-                # torch.cuda.synchronize()
 
             fwd_args = dict(
                 image_1=remapped_tensor_1.to(torch.float, non_blocking=True),
@@ -804,7 +813,6 @@ def blend_video(
                             ),
                         )
                     if show:
-                        # torch.cuda.synchronize()
                         for img in my_blended:
                             show_image("stitched", img, wait=False)
                     if True:
