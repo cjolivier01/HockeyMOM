@@ -100,13 +100,14 @@ class ImageAndPos:
 
 
 class PtImageBlender:
+
     def __init__(
         self,
         images_info: List[BlendImageInfo],
         seam_mask: torch.Tensor,
         xor_mask: torch.Tensor,
         laplacian_blend: False,
-        max_levels: int = 4,
+        max_levels: int = 6,
         cuda_stream: torch.cuda.Stream = None,
         dtype: torch.dtype = torch.float,
     ):
