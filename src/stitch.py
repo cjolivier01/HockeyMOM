@@ -7,7 +7,7 @@ import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import torch
 
@@ -19,7 +19,7 @@ from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.ui.show import show_image
+from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -68,6 +68,7 @@ def stitch_videos(
     max_frames: int = None,
     batch_size: int = 1,
     show: bool = False,
+    show_scaled: Optional[float] = None,
     output_stitched_video_file: str = os.path.join(".", "stitched_output.mkv"),
     decoder_device: Optional[torch.device] = None,
     remapping_device: torch.device = torch.device("cuda", 0),
@@ -150,6 +151,13 @@ def stitch_videos(
     use_progress_bar: bool = True
     scroll_output: Optional[ScrollOutput] = None
 
+    shower = None
+    if show:
+        shower = Shower(
+            label="stitched_image",
+            show_scaled=show_scaled,
+        )
+
     if use_progress_bar:
         total_frame_count = len(data_loader)
 
@@ -205,8 +213,8 @@ def stitch_videos(
 
             frame_count += batch_size
 
-            if show:
-                show_image("stitched_image", stitched_image, wait=False)
+            if shower is not None:
+                shower.show(stitched_image)
 
             if i == 1:
                 start = time.time()
@@ -240,6 +248,7 @@ def main(args):
             project_file_name=args.project_file,
             game_id=args.game_id,
             show=args.show_image,
+            show_scaled=args.show_scaled,
             max_frames=args.max_frames,
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,

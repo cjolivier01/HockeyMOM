@@ -13,7 +13,8 @@ from hmlib.utils.image import make_visible_image
 
 class Shower:
 
-    def __init__(self, show_scaled: Optional[float] = None, max_size: int = 4):
+    def __init__(self, label: str, show_scaled: Optional[float] = None, max_size: int = 4):
+        self._label = label
         self._show_scaled = show_scaled
         self._max_size = max_size
         self._q = create_queue(mp=False)
@@ -30,7 +31,7 @@ class Shower:
             img = img.get()
         for s_img in img:
             cv2.imshow(
-                "online_im",
+                self._label,
                 make_visible_image(s_img, enable_resizing=self._show_scaled),
             )
             cv2.waitKey(1)
