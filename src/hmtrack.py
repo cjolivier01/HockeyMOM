@@ -635,11 +635,8 @@ def main(args, num_gpu):
                     # input_video_files = [vl, vr]
                     input_video_files = game_videos
 
-                left_vid = BasicVideoInfo(game_videos["left"])
-                right_vid = BasicVideoInfo(game_videos["right"])
-
-                # left_vid = BasicVideoInfo(vl)
-                # right_vid = BasicVideoInfo(vr)
+                left_vid = BasicVideoInfo(",".join(game_videos["left"]))
+                right_vid = BasicVideoInfo(",".join(game_videos["right"]))
 
                 total_frames = min(left_vid.frame_count, right_vid.frame_count)
                 print(f"Total possible stitched video frames: {total_frames}")
