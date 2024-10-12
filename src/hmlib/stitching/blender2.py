@@ -511,33 +511,32 @@ class SmartBlender:
         self._init()
 
     def _init(self) -> None:
-        if not self._minimize_blend:
-            return
-        self._x1, self._y1, self._x2, self._y2 = (
-            self._canvas_info.positions[0].x,
-            self._canvas_info.positions[0].y,
-            self._canvas_info.positions[1].x,
-            self._canvas_info.positions[1].y,
-        )
+        if self._minimize_blend:
+            self._x1, self._y1, self._x2, self._y2 = (
+                self._canvas_info.positions[0].x,
+                self._canvas_info.positions[0].y,
+                self._canvas_info.positions[1].x,
+                self._canvas_info.positions[1].y,
+            )
 
-        self._remapper_1.xpos = self._x1
-        self._remapper_2.xpos = self._x1 + self._overlap_pad  # start overlapping right away
-        width_1 = self._remapper_1.width
-        self._overlapping_width = width_1 - self._x2
-        assert width_1 > self._x2
-        # seam tensor box (box we'll be blending)
-        self._padded_blended_tlbr = [
-            self._x2 - self._overlap_pad,  # x1
-            max(0, min(self._y1, self._y2) - self._overlap_pad),  # y1
-            width_1 + self._overlap_pad,  # x2
-            min(
-                self._canvas_info.height,
-                max(self._y1 + self._remapper_1.height, self._y2 + self._remapper_2.height)
-                + self._overlap_pad,
-            ),  # y2
-        ]
-        assert self._x2 - self._overlap_pad >= 0
-        assert width_1 + self._overlap_pad <= self._canvas_info.width
+            self._remapper_1.xpos = self._x1
+            self._remapper_2.xpos = self._x1 + self._overlap_pad  # start overlapping right away
+            width_1 = self._remapper_1.width
+            self._overlapping_width = width_1 - self._x2
+            assert width_1 > self._x2
+            # seam tensor box (box we'll be blending)
+            self._padded_blended_tlbr = [
+                self._x2 - self._overlap_pad,  # x1
+                max(0, min(self._y1, self._y2) - self._overlap_pad),  # y1
+                width_1 + self._overlap_pad,  # x2
+                min(
+                    self._canvas_info.height,
+                    max(self._y1 + self._remapper_1.height, self._y2 + self._remapper_2.height)
+                    + self._overlap_pad,
+                ),  # y2
+            ]
+            assert self._x2 - self._overlap_pad >= 0
+            assert width_1 + self._overlap_pad <= self._canvas_info.width
 
         if not self._use_python_blender:
             # assert False  # Not interested in this path atm
@@ -1017,6 +1016,7 @@ def blend_video(
                             )
                 else:
                     my_blended = make_channels_last(blended)
+                    del blended
 
                     if rotation_angle:
                         my_blended = rotate_image(
@@ -1039,18 +1039,7 @@ def blend_video(
                             }
                         )
                         frame_id += len(my_blended)
-                    else:
-                        for this_blended in my_blended:
-                            video_out.append(
-                                dict(
-                                    frame_id=frame_id,
-                                    img=this_blended,
-                                    current_box=None,
-                                )
-                            )
                 del my_blended
-            else:
-                pass
 
             frame_id += 1
             frame_count += 1
