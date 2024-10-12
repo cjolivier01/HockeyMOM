@@ -672,7 +672,7 @@ def blend_video(
             blended_img = blender.forward(**fwd_args)
 
             if overlapping_width:
-                torch.cuda.synchronize()
+                # torch.cuda.synchronize()
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
                     blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
                 )
