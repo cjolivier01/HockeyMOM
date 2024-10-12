@@ -831,9 +831,6 @@ def blend_video(
                         cache_size=queue_size,
                     )
 
-            if show:
-                for img in blended:
-                    show_image("stitched", img, wait=False)
             if video_out is not None:
                 video_out.append(
                     {
@@ -843,7 +840,6 @@ def blend_video(
                     }
                 )
                 frame_id += len(blended)
-            del blended
 
             frame_id += 1
             frame_count += 1
@@ -870,6 +866,9 @@ def blend_video(
             source_tensor_1 = make_channels_first(next(v1_iter))
             source_tensor_2 = make_channels_first(next(v2_iter))
             timer.tic()
+
+            del blended
+
     except StopIteration:
         # All done.
         pass
