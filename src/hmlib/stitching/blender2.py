@@ -802,8 +802,6 @@ def blend_video(
     try:
         width_1, width_2 = remapper_1.width, remapper_2.width
         overlapping_width, x1 = None, None
-        cap_1_width = cap_1.width
-        cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
         while True:
             remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
