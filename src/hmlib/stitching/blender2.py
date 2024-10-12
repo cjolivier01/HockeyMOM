@@ -676,6 +676,7 @@ def blend_video(
                 canvas[:, :, :, x2 - overlap_pad : x2 + overlapping_width + overlap_pad] = (
                     blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
                 )
+
                 # torch.cuda.synchronize()
                 if False and frame_id % 2 == 0:
                     canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
