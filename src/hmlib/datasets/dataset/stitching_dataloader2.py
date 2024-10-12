@@ -15,7 +15,6 @@ import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.stitching.blender import create_stitcher
 
 # from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -41,6 +40,7 @@ def _get_dir_name(path):
         return path
     return Path(path).parent
 
+_USE_NEW_STITCHER: bool = True
 
 from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
 
@@ -438,20 +438,26 @@ class StitchDataset:
                 stream = None
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
-                    sinfo_1 = core.StitchImageInfo()
-                    sinfo_1.image = _prepare_image(to_tensor(imgs_1))
-                    sinfo_1.xy_pos = self._xy_pos_1
-
-                    sinfo_2 = core.StitchImageInfo()
-                    sinfo_2.image = _prepare_image(to_tensor(imgs_2))
-                    sinfo_2.xy_pos = self._xy_pos_2
-
-                    if self._auto_adjust_exposure:
-                        sinfo_1.image, sinfo_2.image = self._adjust_exposures(
-                            images=[sinfo_1.image, sinfo_2.image]
+                    if _USE_NEW_STITCHER:
+                        blended_stream_tensor = self._stitcher.forward(
+                            image_1=_prepare_image(to_tensor(imgs_1)),
+                            image_2=_prepare_image(to_tensor(imgs_2)),
                         )
+                    else:
+                        sinfo_1 = core.StitchImageInfo()
+                        sinfo_1.image = _prepare_image(to_tensor(imgs_1))
+                        sinfo_1.xy_pos = self._xy_pos_1
 
-                    blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                        sinfo_2 = core.StitchImageInfo()
+                        sinfo_2.image = _prepare_image(to_tensor(imgs_2))
+                        sinfo_2.xy_pos = self._xy_pos_2
+
+                        if self._auto_adjust_exposure:
+                            sinfo_1.image, sinfo_2.image = self._adjust_exposures(
+                                images=[sinfo_1.image, sinfo_2.image]
+                            )
+
+                        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
@@ -540,17 +546,37 @@ class StitchDataset:
             # Create the stitcher
             #
             assert self._stitcher is None
-            self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
-                dir_name=self._dir_name,
-                batch_size=self._batch_size,
-                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                right_image_size_wh=(self._video_right_info.width, self._video_right_info.height),
-                device=self._remapping_device,
-                dtype=self._dtype,
-                remap_on_async_stream=self._remap_on_async_stream,
-            )
             assert self._remapping_device.type != "cpu"
-            self._stitcher.to(self._remapping_device)
+            if _USE_NEW_STITCHER:
+                from hmlib.stitching.blender2 import create_stitcher
+
+                self._stitcher = create_stitcher(
+                    dir_name=self._dir_name,
+                    batch_size=self._batch_size,
+                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                    right_image_size_wh=(
+                        self._video_right_info.width,
+                        self._video_right_info.height,
+                    ),
+                    device=self._remapping_device,
+                    dtype=self._dtype,
+                )
+            else:
+                from hmlib.stitching.blender import create_stitcher
+
+                self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
+                    dir_name=self._dir_name,
+                    batch_size=self._batch_size,
+                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                    right_image_size_wh=(
+                        self._video_right_info.width,
+                        self._video_right_info.height,
+                    ),
+                    device=self._remapping_device,
+                    dtype=self._dtype,
+                    remap_on_async_stream=self._remap_on_async_stream,
+                )
+                self._stitcher.to(self._remapping_device)
 
             frame_count = 0
             while frame_count < self._max_frames:
