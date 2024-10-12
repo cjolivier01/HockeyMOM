@@ -192,6 +192,7 @@ class StitchDataset:
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
+        self._xy_pos_1, self._xy_pos_2 = None, None
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)

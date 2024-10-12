@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 import hockeymom.core as core
+from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend
@@ -327,32 +328,15 @@ def create_blender_config(
     levels: int = 10,
     lazy_init: bool = False,
     interpolation: str = "bilinear",
-) -> core.RemapperConfig:
+) -> core.BlenderConfig:
     config = core.BlenderConfig()
     if not mode or mode == "multiblend":
         # Nothing needed for legacy multiblend mode
         return config
-
-    left_file = os.path.join(dir_name, f"{basename}0000.tif")
-    right_file = os.path.join(dir_name, f"{basename}0001.tif")
-    left_pos = get_image_geo_position(tiff_image_file=left_file)
-    right_pos = get_image_geo_position(tiff_image_file=right_file)
-
-    left_img = torch.from_numpy(cv2.imread(left_file))
-    right_img = torch.from_numpy(cv2.imread(right_file))
-    assert left_img is not None and right_img is not None
     config.mode = mode
     config.levels = levels
     config.device = str(device)
-    seam, xor_map = make_seam_and_xor_masks(
-        dir_name=dir_name,
-        images_and_positions=[
-            ImageAndPos(image=left_img, xpos=left_pos[0], ypos=left_pos[1]),
-            ImageAndPos(image=right_img, xpos=right_pos[0], ypos=right_pos[1]),
-        ],
-    )
-    config.seam = torch.from_numpy(seam)
-    config.xor_map = torch.from_numpy(xor_map)
+    config.seam, config.xor_map = make_seam_and_xor_masks(dir_name=dir_name)
     config.lazy_init = lazy_init
     config.interpolation = interpolation
     return config
@@ -656,6 +640,109 @@ class SmartBlender:
         return blended
 
 
+@dataclass
+class StitchImageInfo:
+    image: torch.Tensor
+    xy_pos: Tuple[int, int]
+
+
+class RemapInfoEx(core.RemapImageInfo):
+    def __init__(self, *args, xpos: int = None, ypos: int = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.xpos: int = xpos
+        self.ypos: int = ypos
+
+
+class ImageStitcher(torch.nn.Module):
+
+    def __init__(
+        self,
+        batch_size: int,
+        remap_image_info: List[RemapInfoEx],
+        blender_config: core.BlenderConfig,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._batch_size = batch_size
+        self._remap_image_info = remap_image_info
+        self._blender_config = blender_config
+
+    def forward(self, inputs: List[StitchImageInfo]) -> torch.Tensor:
+        pass
+
+
+def get_mapping(dir_name: str, basename: str):
+    x_file = os.path.join(dir_name, f"{basename}_x.tif")
+    y_file = os.path.join(dir_name, f"{basename}_y.tif")
+    xpos, ypos = get_image_geo_position(os.path.join(dir_name, f"{basename}.tif"))
+
+    x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+    y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+    if x_map is None:
+        raise AssertionError(f"Could not read mapping file: {x_file}")
+    if y_map is None:
+        raise AssertionError(f"Could not read mapping file: {y_file}")
+    col_map = torch.from_numpy(x_map.astype(np.int64))
+    row_map = torch.from_numpy(y_map.astype(np.int64))
+    return xpos, ypos, col_map, row_map
+
+
+def create_stitcher(
+    dir_name: str,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    left_image_size_wh: Tuple[int, int],
+    right_image_size_wh: Tuple[int, int],
+    mapping_basename_1: str = "mapping_0000",
+    mapping_basename_2: str = "mapping_0001",
+    remapped_basename: str = "nona",
+    blend_mode: str = "laplacian",
+    interpolation: str = "bilinear",
+    levels: int = 6,
+):
+    blender_config: core.BlenderConfig = create_blender_config(
+        mode=blend_mode,
+        dir_name=dir_name,
+        basename=remapped_basename,
+        device=device,
+        levels=levels,
+        lazy_init=False,
+        interpolation=interpolation,
+    )
+
+    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
+    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
+
+    remap_info_1 = RemapInfoEx()
+    remap_info_1.src_width = int(left_image_size_wh[0])
+    remap_info_1.src_height = int(left_image_size_wh[1])
+    remap_info_1.col_map = col_map_1
+    remap_info_1.row_map = row_map_1
+    remap_info_1.xpos = xpos_1
+    remap_info_1.ypos = ypos_1
+
+    remap_info_2 = RemapInfoEx()
+    remap_info_2.src_width = int(right_image_size_wh[0])
+    remap_info_2.src_height = int(right_image_size_wh[1])
+    remap_info_2.col_map = col_map_2
+    remap_info_2.row_map = row_map_2
+    remap_info_2.xpos = xpos_2
+    remap_info_2.ypos = ypos_2
+
+    stitcher = ImageStitcher(
+        batch_size=batch_size,
+        remap_image_info=[remap_info_1, remap_info_2],
+        # blender_mode=core.ImageBlenderMode.Laplacian,
+        # half=dtype == torch.float16,
+        blender_config=blender_config,
+        # levels=blender_config.levels,
+        # seam=blender_config.seam,
+        # xor_map=blender_config.xor_map,
+    )
+    return stitcher
+
+
 def blend_video(
     opts: object,
     video_file_1: str,
@@ -685,8 +772,17 @@ def blend_video(
     video_file_1 = os.path.join(dir_name, video_file_1)
     video_file_2 = os.path.join(dir_name, video_file_2)
 
-    video_file_1 = os.path.join(dir_name, video_file_1)
-    video_file_2 = os.path.join(dir_name, video_file_2)
+    vidinfo_1 = BasicVideoInfo(video_file_1)
+    vidinfo_2 = BasicVideoInfo(video_file_2)
+
+    stitcher = create_stitcher(
+        dir_name=dir_name,
+        batch_size=batch_size,
+        left_image_size_wh=(vidinfo_1.width, vidinfo_1.height),
+        right_image_size_wh=(vidinfo_2.width, vidinfo_2.height),
+        device=device,
+        dtype=dtype,
+    )
 
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
@@ -849,76 +945,6 @@ def blend_video(
                 video_out.close()
             else:
                 video_out.stop()
-
-
-def get_mapping(dir_name: str, basename: str):
-    x_file = os.path.join(dir_name, f"{basename}_x.tif")
-    y_file = os.path.join(dir_name, f"{basename}_y.tif")
-    xpos, ypos = get_image_geo_position(os.path.join(dir_name, f"{basename}.tif"))
-
-    x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
-    y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
-    if x_map is None:
-        raise AssertionError(f"Could not read mapping file: {x_file}")
-    if y_map is None:
-        raise AssertionError(f"Could not read mapping file: {y_file}")
-    col_map = torch.from_numpy(x_map.astype(np.int64))
-    row_map = torch.from_numpy(y_map.astype(np.int64))
-    return xpos, ypos, col_map, row_map
-
-
-def create_stitcher(
-    dir_name: str,
-    batch_size: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    left_image_size_wh: Tuple[int, int],
-    right_image_size_wh: Tuple[int, int],
-    mapping_basename_1: str = "mapping_0000",
-    mapping_basename_2: str = "mapping_0001",
-    remapped_basename: str = "nona",
-    blend_mode: str = "laplacian",
-    interpolation: str = "bilinear",
-    remap_on_async_stream: bool = False,
-    levels: int = 6,
-):
-    blender_config = create_blender_config(
-        mode=blend_mode,
-        dir_name=dir_name,
-        basename=remapped_basename,
-        device=device,
-        levels=levels,
-        lazy_init=False,
-        interpolation=interpolation,
-    )
-
-    xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
-    xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
-
-    remap_info_1 = core.RemapImageInfo()
-    remap_info_1.src_width = int(left_image_size_wh[0])
-    remap_info_1.src_height = int(left_image_size_wh[1])
-    remap_info_1.col_map = col_map_1
-    remap_info_1.row_map = row_map_1
-
-    remap_info_2 = core.RemapImageInfo()
-    remap_info_2.src_width = int(right_image_size_wh[0])
-    remap_info_2.src_height = int(right_image_size_wh[1])
-    remap_info_2.col_map = col_map_2
-    remap_info_2.row_map = row_map_2
-
-    stitcher = core.ImageStitcher(
-        batch_size=batch_size,
-        remap_image_info=[remap_info_1, remap_info_2],
-        blender_mode=core.ImageBlenderMode.Laplacian,
-        half=dtype == torch.float16,
-        levels=blender_config.levels,
-        remap_on_async_stream=remap_on_async_stream,
-        seam=blender_config.seam,
-        xor_map=blender_config.xor_map,
-        lazy_init=False,
-    )
-    return stitcher, [xpos_1, ypos_1], [xpos_2, ypos_2]
 
 
 def gpu_index(want: int = 1):
