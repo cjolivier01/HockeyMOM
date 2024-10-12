@@ -19,7 +19,7 @@ from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend
-from hmlib.stitching.remapper import ImageRemapper
+from hmlib.stitching.remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
@@ -646,26 +646,47 @@ class StitchImageInfo:
     xy_pos: Tuple[int, int]
 
 
-class RemapInfoEx(core.RemapImageInfo):
-    def __init__(self, *args, xpos: int = None, ypos: int = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.xpos: int = xpos
-        self.ypos: int = ypos
-
-
 class ImageStitcher(torch.nn.Module):
 
     def __init__(
         self,
         batch_size: int,
-        remap_image_info: List[RemapInfoEx],
+        remap_image_info: List[RemapImageInfoEx],
         blender_config: core.BlenderConfig,
+        dtype: torch.dtype,
+        channels: int = 3,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self._batch_size = batch_size
         self._remap_image_info = remap_image_info
         self._blender_config = blender_config
+        self._dtype = dtype
+
+        self._remapper_1 = ImageRemapper(
+            remap_info=remap_image_info[0],
+            channels=channels,
+            interpolation=self._blender_config.interpolation,
+            add_alpha_channel=False,
+            use_cpp_remap_op=False,
+        )
+        self._remapper_1.init(batch_size=batch_size)
+
+        self._remapper_2 = ImageRemapper(
+            remap_info=remap_image_info[1],
+            channels=channels,
+            interpolation=self._blender_config.interpolation,
+            add_alpha_channel=False,
+            use_cpp_remap_op=False,
+        )
+        self._remapper_2.init(batch_size=batch_size)
+
+    def to(self, *args, device: torch.device, non_blocking: bool = False):
+        assert isinstance(device, (torch.device, str))
+        result = super().to(device=device, non_blocking=non_blocking)
+        result._remapper_1.to(device=device)
+        result._remapper_2.to(device=device)
+        return result
 
     def forward(self, inputs: List[StitchImageInfo]) -> torch.Tensor:
         pass
@@ -714,7 +735,7 @@ def create_stitcher(
     xpos_1, ypos_1, col_map_1, row_map_1 = get_mapping(dir_name, mapping_basename_1)
     xpos_2, ypos_2, col_map_2, row_map_2 = get_mapping(dir_name, mapping_basename_2)
 
-    remap_info_1 = RemapInfoEx()
+    remap_info_1 = RemapImageInfoEx()
     remap_info_1.src_width = int(left_image_size_wh[0])
     remap_info_1.src_height = int(left_image_size_wh[1])
     remap_info_1.col_map = col_map_1
@@ -722,7 +743,7 @@ def create_stitcher(
     remap_info_1.xpos = xpos_1
     remap_info_1.ypos = ypos_1
 
-    remap_info_2 = RemapInfoEx()
+    remap_info_2 = RemapImageInfoEx()
     remap_info_2.src_width = int(right_image_size_wh[0])
     remap_info_2.src_height = int(right_image_size_wh[1])
     remap_info_2.col_map = col_map_2
@@ -733,13 +754,11 @@ def create_stitcher(
     stitcher = ImageStitcher(
         batch_size=batch_size,
         remap_image_info=[remap_info_1, remap_info_2],
-        # blender_mode=core.ImageBlenderMode.Laplacian,
-        # half=dtype == torch.float16,
         blender_config=blender_config,
-        # levels=blender_config.levels,
-        # seam=blender_config.seam,
-        # xor_map=blender_config.xor_map,
+        dtype=dtype,
     )
+    if device is not None:
+        stitcher = stitcher.to(device=device)
     return stitcher
 
 
