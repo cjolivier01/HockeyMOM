@@ -439,8 +439,8 @@ class SmartBlender:
         xor_mask_tensor: torch.Tensor | None,
         device: torch.device,
     ) -> None:
-        self._remapper_1 = copy.deepcopy(remapper_1)
-        self._remapper_2 = copy.deepcopy(remapper_2)
+        self._remapper_1 = remapper_1
+        self._remapper_2 = remapper_2
         self._use_python_blender = use_python_blender
         self._canvas_info: CanvasInfo = get_canvas_info(
             size_1=[self._remapper_1.height, self._remapper_1.width],
@@ -651,10 +651,16 @@ class ImageStitcher(torch.nn.Module):
     def __init__(
         self,
         batch_size: int,
+        device: torch.device,
         remap_image_info: List[RemapImageInfoEx],
         blender_config: core.BlenderConfig,
         dtype: torch.dtype,
         channels: int = 3,
+        blend_levels: int = 6,
+        minimize_blend: bool = True,
+        overlap_pad: int = 100,
+        use_python_blender: bool = True,
+        draw: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -680,6 +686,22 @@ class ImageStitcher(torch.nn.Module):
             use_cpp_remap_op=False,
         )
         self._remapper_2.init(batch_size=batch_size)
+
+        self._smart_blender = SmartBlender(
+            remapper_1=self._remapper_1,
+            remapper_2=self._remapper_2,
+            minimize_blend=minimize_blend,
+            blend_levels=blend_levels,
+            overlap_pad=overlap_pad,
+            draw=draw,
+            use_python_blender=use_python_blender,
+            dtype=dtype,
+            blend_mode=blender_config.mode,
+            seam_tensor=self._blender_config.seam,
+            xor_mask_tensor=self._blender_config.xor_map,
+            device=device,
+        )
+        self.to(device=device)
 
     def to(self, *args, device: torch.device, non_blocking: bool = False):
         assert isinstance(device, (torch.device, str))
@@ -753,6 +775,7 @@ def create_stitcher(
 
     stitcher = ImageStitcher(
         batch_size=batch_size,
+        device=device,
         remap_image_info=[remap_info_1, remap_info_2],
         blender_config=blender_config,
         dtype=dtype,

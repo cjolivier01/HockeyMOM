@@ -122,6 +122,9 @@ class ImageRemapper:
         self._remap_op_device = "cpu"
         self._remap_info = remap_info
         self.xpos, self.ypos = None, None
+        self._dest_w, self._dest_h = None, None
+        self._working_w, self._working_h = None, None
+        self._col_map, self._row_map, self._mask = None, None, None
         if self._remap_info is not None and not self._source_hw:
             self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
 
@@ -179,9 +182,6 @@ class ImageRemapper:
             assert col_map.shape == row_map.shape
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
-
-            # self._working_w = self._dest_w
-            # self._working_h = self._dest_h
 
             self._working_w = max(src_w, self._dest_w)
             self._working_h = max(src_h, self._dest_h)
