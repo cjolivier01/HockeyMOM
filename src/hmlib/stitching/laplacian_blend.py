@@ -1,6 +1,5 @@
-from typing import Optional, Union
+from typing import Optional
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -141,7 +140,7 @@ class LaplacianBlend(torch.nn.Module):
             # print(
             #     f"AFTER mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
             # )
-        print("Done creating masks")
+        # print("Done creating masks")
 
     def initialize(self, input_shape: torch.Size, device: torch.device):
         assert not self._initialized
