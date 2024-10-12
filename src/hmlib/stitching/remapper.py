@@ -22,7 +22,6 @@ from hmlib.utils.image import (
 )
 from hmlib.video_stream import VideoStreamReader
 
-
 ROOT_DIR = os.getcwd()
 
 
@@ -151,7 +150,7 @@ class ImageRemapper:
                 src_h,
                 col_map,
                 row_map,
-                dtype=
+                torch.float,
                 self._add_alpha_channel,
                 self._interpolation,
             )

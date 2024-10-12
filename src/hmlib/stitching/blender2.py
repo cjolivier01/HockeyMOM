@@ -23,11 +23,7 @@ from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first
 from hmlib.utils.pt_visualization import draw_box
 from hmlib.video_out import VideoOutput
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
@@ -817,6 +813,8 @@ def blend_video(
             frame_id += 1
             frame_count += 1
 
+            torch.cuda.synchronize()
+
             if frame_count != 1:
                 timer.toc()
 
@@ -839,7 +837,6 @@ def blend_video(
             source_tensor_1 = make_channels_first(next(v1_iter))
             source_tensor_2 = make_channels_first(next(v2_iter))
             timer.tic()
-
             del blended
 
     except StopIteration:
@@ -960,8 +957,8 @@ def main(args):
             queue_size=args.queue_size,
             device=fast_gpu,
             dtype=torch.float16 if args.fp16 else torch.float,
-            minimize_blend=True,
             draw=args.draw,
+            minimize_blend=args.minimize_blend,
         )
 
 
