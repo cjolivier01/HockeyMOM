@@ -29,6 +29,7 @@ from hmlib.utils.image import (
     make_channels_last,
 )
 from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.pt_visualization import draw_box
 from hmlib.video_out import VideoOutput, resize_image, rotate_image
 from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
 
@@ -441,6 +442,28 @@ def get_dims_for_output_video(height: int, width: int, max_width: int, allow_res
     return int(height), int(width)
 
 
+def my_draw_box(
+    image: torch.Tensor,
+    x1: int | None,
+    y1: int | None,
+    x2: int | None,
+    y2: int | None,
+    color: Tuple[int, int, int],
+    thickness: int = 4,
+) -> torch.Tensor:
+    if x1 is None:
+        x1 = 0
+    if y1 is None:
+        y1 = 0
+    if x2 is None:
+        x2 = image_width(image) - 1
+    if y2 is None:
+        y2 = image_height(image) - 1
+    return draw_box(
+        image=image, tlbr=[int(x1), int(y1), int(x2), int(y2)], color=color, thickness=thickness
+    )
+
+
 def blend_video(
     opts: object,
     video_file_1: str,
@@ -466,7 +489,7 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
-    overlap_pad: int = 0,
+    overlap_pad: int = 25,
     overlap_pad_value: int = 128,
 ):
     video_file_1 = os.path.join(dir_name, video_file_1)
@@ -542,10 +565,10 @@ def blend_video(
         cap_2_width = cap_2.width
         canvas_width, canvas_height = None, None
         while True:
-            destination_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
+            remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
                 device=device, non_blocking=True
             )
-            destination_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
+            remapped_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
                 device=device, non_blocking=True
             )
 
@@ -554,12 +577,12 @@ def blend_video(
                     dir_name=dir_name,
                     images_and_positions=[
                         ImageAndPos(
-                            image=destination_tensor_1[0],
+                            image=remapped_tensor_1[0],
                             xpos=remapper_1.xpos,
                             ypos=remapper_1.ypos,
                         ),
                         ImageAndPos(
-                            image=destination_tensor_2[0],
+                            image=remapped_tensor_2[0],
                             xpos=remapper_2.xpos,
                             ypos=remapper_2.ypos,
                         ),
@@ -574,8 +597,14 @@ def blend_video(
                         remapper_2.xpos,
                         remapper_2.ypos,
                     )
-                    width_1 = image_width(destination_tensor_1)
-                    width_2 = image_width(destination_tensor_2)
+                    if y1 <= y2:
+                        y2 -= y1
+                        y1 = 0
+                    else:
+                        y1 -= y2
+                        y2 = 0
+                    width_1 = image_width(remapped_tensor_1)
+                    width_2 = image_width(remapped_tensor_2)
                     assert x1 != x2  # they shouldn;t be starting in the same place
                     if x1 <= x2:
                         x2 -= x1
@@ -584,6 +613,15 @@ def blend_video(
                         remapper_2.xpos = x1 + overlap_pad  # start overlapping right away
                         overlapping_width = int(width_1 - x2)
                         assert width_1 > x2
+                        # seam tensor box (box we'll be blending)
+                        padded_blended_tlbr = [
+                            x2 - overlap_pad,  # x1
+                            None,  # y1
+                            width_1 + overlap_pad,  # x2
+                            None,  # y2
+                        ]
+                        assert x2 - overlap_pad >= 0
+                        assert width_1 + overlap_pad <= image_width(seam_tensor)
                         seam_tensor = seam_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
                         xor_tensor = xor_tensor[:, x2 - overlap_pad : width_1 + overlap_pad]
                         cap_1_width = overlapping_width + overlap_pad + overlap_pad
@@ -632,35 +670,34 @@ def blend_video(
                     )
 
             if overlapping_width:
-                assert image_width(destination_tensor_1) == width_1  # sanity
+                assert image_width(remapped_tensor_1) == width_1  # sanity
                 canvas = (
                     torch.zeros(
                         size=(
-                            destination_tensor_1.shape[0],
-                            destination_tensor_1.shape[1],
+                            remapped_tensor_1.shape[0],
+                            remapped_tensor_1.shape[1],
                             canvas_height,
                             canvas_width,
                         ),
-                        dtype=destination_tensor_1.dtype,
-                        device=destination_tensor_1.device,
+                        dtype=remapped_tensor_1.dtype,
+                        device=remapped_tensor_1.device,
                     )
                     + overlap_pad_value
                 )
                 # torch.cuda.synchronize()
-                dh1 = image_height(destination_tensor_1)
-                dh2 = image_height(destination_tensor_2)
+                dh1 = image_height(remapped_tensor_1)
+                dh2 = image_height(remapped_tensor_2)
                 # TODO: can be ... instead of so many colons
-                partial_1 = destination_tensor_1[:, :, :, : x2 + overlap_pad]
-                partial_2 = destination_tensor_2[:, :, :, overlapping_width - overlap_pad :]
-                destination_tensor_1 = destination_tensor_1[:, :, :, x2 - overlap_pad : width_1]
-                destination_tensor_2 = destination_tensor_2[
-                    :, :, :, : overlapping_width + overlap_pad
-                ]
+
+                partial_1 = remapped_tensor_1[:, :, :, : x2 + overlap_pad]
+                partial_2 = remapped_tensor_2[:, :, :, overlapping_width - overlap_pad :]
+                remapped_tensor_1 = remapped_tensor_1[:, :, :, x2 - overlap_pad : width_1]
+                remapped_tensor_2 = remapped_tensor_2[:, :, :, : overlapping_width + overlap_pad]
                 # torch.cuda.synchronize()
 
             fwd_args = dict(
-                image_1=destination_tensor_1.to(torch.float, non_blocking=True),
-                image_2=destination_tensor_2.to(torch.float, non_blocking=True),
+                image_1=remapped_tensor_1.to(torch.float, non_blocking=True),
+                image_2=remapped_tensor_2.to(torch.float, non_blocking=True),
             )
             if not python_blend:
                 fwd_args.update(
@@ -678,11 +715,27 @@ def blend_video(
                 )
 
                 # torch.cuda.synchronize()
-                if False and frame_id % 2 == 0:
+                # if False and frame_id % 2 == 0:
+                if True:
                     canvas[:, :, y1 : dh1 + y1, : x2 + overlap_pad] = partial_1
-                    canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
-                    # torch.cuda.synchronize()
-                blended = canvas.cpu()
+                    # canvas[:, :, y2 : dh2 + y2, x2 + overlapping_width - overlap_pad :] = partial_2
+                # torch.cuda.synchronize()
+                blended = canvas
+                # left box
+                blended = my_draw_box(
+                    blended,
+                    x1=None,
+                    y1=y1,
+                    x2=x2 + overlap_pad - 1,
+                    y2=dh1 + y1 - 1,
+                    color=(255, 255, 0),
+                )
+                # Blended box
+                blended = my_draw_box(
+                    blended,
+                    *padded_blended_tlbr,
+                    color=(255, 0, 0),
+                )
             else:
                 blended = blended_img
 
