@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 class MultiDatasetWrapper(Dataset):
     def __init__(self, *args, **kwargs):
-        super(MultiDatasetWrapper, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._datasets: OrderedDict[str, Dataset] = {}
         self._iters: OrderedDict[str, Iterable[Any]] = {}
         self._len = None
@@ -48,6 +48,12 @@ class MultiDatasetWrapper(Dataset):
         for key, iter_item in self._datasets.items():
             data[key] = next(iter_item)
         return data
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        results: Dict[str, Any] = {}
+        for key, ds in self._datasets.items():
+            results[key] = ds[idx]
+        return results
 
     def __getattr__(self, name):
         """Delegate attribute access to the wrapped object if it's not found in Wrapper."""
