@@ -18,11 +18,11 @@ from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
-from hmlib.ui.show import show_image
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
@@ -373,7 +373,7 @@ class VideoOutput:
             os.makedirs(self._save_frame_dir)
 
         if self.has_args() and self._args.show_image:
-            self._shower = Shower(show_scaled=self._args.show_scaled)
+            self._shower = Shower(label="Video Out", show_scaled=self._args.show_scaled)
         else:
             self._shower = None
 
@@ -683,7 +683,13 @@ class VideoOutput:
         imgproc_data["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
 
         # We clone, since it gets modified sometimes wrt rotation optimizations
-        current_box = imgproc_data["current_box"].clone()
+        current_box = imgproc_data["current_box"]
+        if current_box is None:
+            current_box = torch.tensor(
+                [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
+            )
+        else:
+            current_box = current_box.clone()
 
         if isinstance(online_im, StreamTensor):
             online_im._verbose = True

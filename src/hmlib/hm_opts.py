@@ -208,6 +208,12 @@ class hm_opts(object):
             help="Video directory to find 'left.mp4' and 'right.mp4'",
         )
         parser.add_argument(
+            "--minimize-blend",
+            type=int,
+            default=True,
+            help="Minimize blending compute to only blend (mostly) overlapping portions of frames",
+        )
+        parser.add_argument(
             "--blend-mode",
             "--blend_mode",
             default="laplacian",

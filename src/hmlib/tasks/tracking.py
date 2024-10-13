@@ -148,6 +148,9 @@ def run_mmtrack(
                         if "original_images" not in data:
                             data["original_images"] = origin_imgs
 
+                        if dataset_results:
+                            data["dataset_results"] = dataset_results
+
                         # forward the model
                         detect_timer.tic()
                         for i in range(1):

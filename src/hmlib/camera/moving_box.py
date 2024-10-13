@@ -314,6 +314,8 @@ class MovingBox(ResizingBox):
         stop_on_dir_change: bool,
         min_width: int = 10,
         min_height: int = 10,
+        max_speed_w: Optional[torch.Tensor] = None,
+        max_speed_h: Optional[torch.Tensor] = None,
         scale_width: Optional[torch.Tensor] = None,
         scale_height: Optional[torch.Tensor] = None,
         arena_box: Optional[torch.Tensor] = None,
@@ -331,8 +333,8 @@ class MovingBox(ResizingBox):
         super().__init__(
             bbox=bbox,
             device=device,
-            max_speed_w=max_speed_x / 2,
-            max_speed_h=max_speed_y / 2,
+            max_speed_w=max_speed_w if max_speed_w is not None else max_speed_x / 1.8,
+            max_speed_h=max_speed_h if max_speed_h is not None else max_speed_y / 1.8,
             max_accel_w=max_accel_x,
             max_accel_h=max_accel_y,
             stop_on_dir_change=stop_on_dir_change,
@@ -358,14 +360,6 @@ class MovingBox(ResizingBox):
             [1, 1, -1, -1], dtype=torch.float, device=self.device
         )
 
-        # if isinstance(bbox, BasicBox):
-        #     self._following_box = bbox
-        #     bbox = self._following_box.bounding_box()
-        # else:
-        #     self._following_box = None
-        #     self._size_is_frozen = False
-
-        # self._following_box = None
         self._size_is_frozen = False
 
         self._scale_width = self._one_float_tensor if scale_width is None else scale_width

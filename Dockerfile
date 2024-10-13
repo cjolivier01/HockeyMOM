@@ -46,8 +46,8 @@ RUN apt-get install -y \
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 RUN apt-get install -y \
-  nvidia-driver-535 \
-  nvidia-utils-535 \
+  nvidia-driver-550 \
+  nvidia-utils-550 \
   nvidia-cuda-dev \
   nvidia-cuda-toolkit \
   libffmpeg-nvenc-dev \
@@ -89,12 +89,12 @@ RUN git clone https://github.com/FFmpeg/FFmpeg.git && cd FFmpeg && git checkout 
 
 # Configure FFmpeg with the desired codecs and options
 WORKDIR /root/FFmpeg
-RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75" \
+RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
   ./configure \
   --prefix="/usr/local" \
   --extra-cflags='-I/usr/local/cuda/include' \
   --extra-ldflags='-L/usr/local/cuda/lib64' \
-  --nvccflags="-gencode arch=compute_75,code=sm_75 -O2" \
+  --nvccflags="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_89,code=sm_89 -O2" \
   --disable-doc \
   --enable-decoder=aac \
   --enable-decoder=h264 \

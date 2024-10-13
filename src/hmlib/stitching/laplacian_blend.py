@@ -1,13 +1,8 @@
-from typing import Optional, Union
+from typing import Optional
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import make_visible_image
-from hmlib.ui.show import show_image as ui_show_image
 
 
 def create_gaussian_kernel(
@@ -49,10 +44,6 @@ def downsample(x):
     return downsample
 
 
-def show_image(*args, **kwargs):
-    return ui_show_image(*args, **kwargs)
-
-
 def upsample(image, size):
     # print(f"upsample {image.shape[-2:]} -> {size}")
     # return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
@@ -75,9 +66,7 @@ def create_laplacian_pyramid(x, kernel, levels):
 def one_level_gaussian_pyramid(img, kernel):
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
-    print(
-        f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}"
-    )
+    print(f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}")
     # Downsample blurred A
     down = downsample(gauss_filtered_x)
     # print(down.shape)
@@ -145,13 +134,13 @@ class LaplacianBlend(torch.nn.Module):
             # print(
             #     f"BEFORE mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
             # )
-            self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[
-                i
-            ] / torch.max(self.mask_small_gaussian_blurred[i])
+            self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[i] / torch.max(
+                self.mask_small_gaussian_blurred[i]
+            )
             # print(
             #     f"AFTER mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
             # )
-        print("Done creating masks")
+        # print("Done creating masks")
 
     def initialize(self, input_shape: torch.Size, device: torch.device):
         assert not self._initialized
@@ -204,8 +193,7 @@ class LaplacianBlend(torch.nn.Module):
                 )
 
             F_2 = (
-                left_small_gaussian_blurred * mask_left
-                + right_small_gaussian_blurred * mask_right
+                left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
             )
             # show_image("F_2", F_2)
 
@@ -256,9 +244,7 @@ class LaplacianBlend(torch.nn.Module):
         for level in range(self.max_levels):
             seam_mask = self.mask_small_gaussian_blurred[level]
             assert seam_mask.shape[-2:] == pyramid1[level].shape[-2:]
-            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (
-                1 - seam_mask
-            )
+            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (1 - seam_mask)
             blended_pyramid.append(blended_level)
 
         # Reconstruct the blended image from the blended pyramid
@@ -270,9 +256,7 @@ class LaplacianBlend(torch.nn.Module):
         pyramid = []
         for _ in range(self.max_levels):
             blurred = F.avg_pool2d(image, kernel_size=2)
-            upsampled = F.interpolate(
-                blurred, scale_factor=2, mode="bilinear", align_corners=False
-            )
+            upsampled = F.interpolate(blurred, scale_factor=2, mode="bilinear", align_corners=False)
             residual = image - upsampled
             pyramid.append(residual)
             image = blurred
@@ -282,8 +266,6 @@ class LaplacianBlend(torch.nn.Module):
     def reconstruct_laplacian_pyramid(self, pyramid):
         image = pyramid[-1]
         for i in range(self.max_levels - 2, -1, -1):
-            upsampled = F.interpolate(
-                image, scale_factor=2, mode="bilinear", align_corners=False
-            )
+            upsampled = F.interpolate(image, scale_factor=2, mode="bilinear", align_corners=False)
             image = upsampled + pyramid[i]
         return image

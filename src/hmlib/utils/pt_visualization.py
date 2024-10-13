@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-from hmlib.stitching.laplacian_blend import show_image
+from hmlib.ui import show_image
 from hmlib.utils.box_functions import height, width
 
 from .image import (
@@ -258,6 +258,9 @@ def draw_horizontal_line(
 
     falpha = float(alpha) / 255.0
 
+    if start_y >= thickness // 2:
+        start_y -= thickness // 2
+
     was_channels_last = is_channels_last(image)
     if was_channels_last:
         image = make_channels_first(image)
@@ -265,6 +268,8 @@ def draw_horizontal_line(
     if not isinstance(color, torch.Tensor):
         # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
         color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+    else:
+        color_tensor = color
 
     H, W = image_height(image), image_width(image)
     if start_x + length > W or start_y > H:
@@ -298,6 +303,7 @@ def draw_vertical_line(
     Draw a horizontal line on the image at specified location using PyTorch.
     """
     # Ensure the square doesn't go out of the image boundaries
+    # assert length > 1
     assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
 
@@ -307,6 +313,9 @@ def draw_vertical_line(
 
     falpha = float(alpha) / 255.0
 
+    if start_x >= thickness // 2:
+        start_x -= thickness // 2
+
     was_channels_last = is_channels_last(image)
     if was_channels_last:
         image = make_channels_first(image)
@@ -314,9 +323,11 @@ def draw_vertical_line(
     if not isinstance(color, torch.Tensor):
         # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
         color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+    else:
+        color_tensor = color
 
     H, W = image_height(image), image_width(image)
-    if start_x + length > W or start_y > H:
+    if start_x > W or start_y + length > H:
         raise ValueError("Line goes out of image boundaries.")
 
     if alpha == 255:

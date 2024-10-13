@@ -27,7 +27,7 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
-from hmlib.stitching.laplacian_blend import show_image as do_show_image
+from hmlib.ui import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_last
 
