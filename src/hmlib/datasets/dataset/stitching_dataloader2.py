@@ -490,7 +490,9 @@ class StitchDataset:
             self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
-            traceback.print_ex()
+            if not isinstance(ex, StopIteration):
+                print(ex)
+                traceback.print_exc()
             self._ordering_queue.put((None, None))
 
     def _start_coordinator_thread(self):
