@@ -65,6 +65,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         dtype: torch.dtype = None,
         data_pipeline: Callable = None,
         frame_step: int = 1,
+        result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
     ):
         assert not isinstance(img_size, str)
@@ -86,6 +87,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
         self.calculated_clip_box = None
+        self._result_as_dict = result_as_dict
         self._adjust_exposure = adjust_exposure
         if img_size is None:
             self.process_height = None
@@ -408,15 +410,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     and self._device_for_original_image != orig_img.device
                 ):
                     orig_img = orig_img.to(self._device_for_original_image, non_blocking=True)
-                # cuda_stream.synchronize()
-                # torch.cuda.synchronize()
                 return StreamCheckpoint(
                     tensor=orig_img,
-                    # stream=cuda_stream,
-                    # event=torch.cuda.Event(),
-                    # owns_stream=False,
                 )
-            # torch.cuda.synchronize()
             return orig_img
 
         # END _wrap_original_image
@@ -426,23 +422,37 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 for i, img in enumerate(data["img"]):
                     img = StreamCheckpoint(
                         tensor=img,
-                        # stream=None,
-                        # event=torch.cuda.Event(),
-                        # owns_stream=False,
                     )
                     data["img"][i] = img
+            if self._result_as_dict:
+                return dict(
+                    original_imgs=_wrap_original_image(original_img0),
+                    data=data,
+                    imgs_info=imgs_info,
+                    ids=ids,
+                )
             return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
             if not isinstance(original_img0, StreamTensor):
                 original_img0 = _wrap_original_image(original_img0)
+            if self._result_as_dict:
+                return dict(
+                    original_imgs=original_img0,
+                    imgs_info=imgs_info,
+                    ids=ids,
+                )
             return original_img0, None, None, imgs_info, ids
         else:
             if cuda_stream is not None:
                 img = StreamCheckpoint(
                     tensor=img,
-                    # stream=None,
-                    # event=torch.cuda.Event(),
-                    # owns_stream=False,
+                )
+            if self._result_as_dict:
+                return dict(
+                    original_imgs=_wrap_original_image(original_img0),
+                    img=img,
+                    imgs_info=imgs_info,
+                    ids=ids,
                 )
             return _wrap_original_image(original_img0), img, None, imgs_info, ids
 
