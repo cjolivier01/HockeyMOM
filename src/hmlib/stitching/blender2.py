@@ -292,10 +292,31 @@ def make_cv_compatible_tensor(tensor):
     return np.ascontiguousarray(tensor)
 
 
+def get_images_and_positions(dir_name: str) -> List[ImageAndPos]:
+    xpos_1, ypos_1, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0000")
+    xpos_2, ypos_2, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0001")
+
+    images_and_positions = [
+        ImageAndPos(
+            image=cv2.imread(os.path.join(dir_name, "nona0000.tif")),
+            xpos=xpos_1,
+            ypos=ypos_1,
+        ),
+        ImageAndPos(
+            image=cv2.imread(os.path.join(dir_name, "nona0001.tif")),
+            xpos=xpos_2,
+            ypos=ypos_2,
+        ),
+    ]
+    return images_and_positions
+
+
 def make_seam_and_xor_masks(
     dir_name: str,
+    images_and_positions: List[ImageAndPos] = None,
     force: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert images_and_positions is None or len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
     if not force and os.path.isfile(seam_filename):
@@ -312,12 +333,75 @@ def make_seam_and_xor_masks(
                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
+    if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
+        blender = core.EnBlender(
+            args=[
+                f"--save-seams",
+                seam_filename,
+                f"--save-xor",
+                xor_filename,
+            ]
+        )
+
+        if not images_and_positions:
+            images_and_positions = get_images_and_positions(dir_name=dir_name)
+
+        # Blend one image to create the seam file
+        _ = blender.blend_images(
+            left_image=make_cv_compatible_tensor(images_and_positions[0].image),
+            left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+            right_image=make_cv_compatible_tensor(images_and_positions[1].image),
+            right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+        )
     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
-    xor_mask_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
-    return (
-        torch.from_numpy(seam_tensor).contiguous(),
-        torch.from_numpy(xor_mask_tensor).contiguous(),
-    )
+    xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
+    return seam_tensor, xor_tensor
+
+
+# def make_seam_and_xor_masks(
+#     dir_name: str,
+#     force: bool = False,
+# ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+#     seam_filename = os.path.join(dir_name, "seam_file.png")
+#     xor_filename = os.path.join(dir_name, "xor_file.png")
+#     if not force and os.path.isfile(seam_filename):
+#         mapping_file = os.path.join(dir_name, "mapping_0000.tif")
+#         if os.path.exists(mapping_file):
+#             mapping_file_mtime = datetime.datetime.fromtimestamp(
+#                 os.path.getmtime(mapping_file)
+#             ).isoformat()
+#             seam_file_mtime = datetime.datetime.fromtimestamp(
+#                 os.path.getmtime(seam_filename)
+#             ).isoformat()
+#             force = mapping_file_mtime >= seam_file_mtime
+#             if force:
+#                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
+#         else:
+#             print(f"Warning: no mapping file found: {mapping_file}")
+
+#     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
+#         blender = core.EnBlender(
+#             args=[
+#                 f"--save-seams",
+#                 seam_filename,
+#                 f"--save-xor",
+#                 xor_filename,
+#             ]
+#         )
+#         # Blend one image to create the seam file
+#         _ = blender.blend_images(
+#             left_image=make_cv_compatible_tensor(images_and_positions[0].image),
+#             left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+#             right_image=make_cv_compatible_tensor(images_and_positions[1].image),
+#             right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+#         )
+
+#     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
+#     xor_mask_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
+#     return (
+#         torch.from_numpy(seam_tensor).contiguous(),
+#         torch.from_numpy(xor_mask_tensor).contiguous(),
+#     )
 
 
 def create_blender_config(

@@ -180,10 +180,10 @@ def build_stitching_project(
             if os.path.exists(MULTIBLEND_BIN):
                 cmd = [
                     MULTIBLEND_BIN,
-                    "--save-seams",
-                    os.path.join(dir_name, "seam_file.png"),
-                    "--save-xor",
-                    os.path.join(dir_name, "xor_file.png"),
+                    # "--save-seams",
+                    # os.path.join(dir_name, "seam_file.png"),
+                    # "--save-xor",
+                    # os.path.join(dir_name, "xor_file.png"),
                     "-o",
                     os.path.join(dir_name, "panorama.tif"),
                     os.path.join(dir_name, "nona*.tif"),
@@ -194,23 +194,6 @@ def build_stitching_project(
     finally:
         os.chdir(curr_dir)
     return True
-
-    # if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
-    #     blender = core.EnBlender(
-    #         args=[
-    #             f"--save-seams",
-    #             seam_filename,
-    #             f"--save-xor",
-    #             xor_filename,
-    #         ]
-    #     )
-    #     # Blend one image to create the seam file
-    #     _ = blender.blend_images(
-    #         left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-    #         left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-    #         right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-    #         right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-    #     )
 
 
 def load_or_calculate_control_points(
