@@ -30,21 +30,23 @@ def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
     return torch.norm(pt0 - pt1)
 
 
-# Doesn't work?
-def order_points_clockwise(points: Tensor) -> Tensor:
-    # Sort by y first (top), then by x (left)
+# does not work
+def order_points_clockwise(points: torch.Tensor) -> torch.Tensor:
+    # Sort by y first (top), then by x (left) to find the top-left point
     sorted_points = points[points[:, 1].argsort()]  # Sort by the second column (y)
 
     # Top-left is the first point after sorting
     top_left = sorted_points[0]
 
-    # Sort the remaining points based on their relative positions from the top-left
-    def angle_from_top_left(point: Tensor) -> float:
-        x_diff = point[0].item() - top_left[0].item()
-        y_diff = point[1].item() - top_left[1].item()
-        return -y_diff / (abs(x_diff) + 1e-10)  # To avoid division by zero
+    # Calculate the vector cross-product to determine clockwise order
+    def cross_product(point: Tensor) -> float:
+        # Using the cross product to determine the relative orientation from top-left
+        x_diff = point[0] - top_left[0]
+        y_diff = point[1] - top_left[1]
+        return x_diff * (-1) + y_diff  # Clockwise: positive x, negative y
 
-    remaining_points = sorted(sorted_points[1:], key=angle_from_top_left, reverse=True)
+    remaining_points = sorted(sorted_points[1:], key=cross_product)
+    remaining_points = reversed(remaining_points)
 
     # Stack the top-left point with the remaining points in clockwise order
     ordered_points = torch.vstack(
@@ -76,6 +78,9 @@ class Scoreboard(torch.nn.Module):
             assert False
         # self._src_pts = order_points_clockwise(src_pts)
         self._src_pts = src_pts.clone()
+
+        # self._src_pts = order_points_clockwise(src_pts)
+
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
                 clip_box = torch.tensor(
