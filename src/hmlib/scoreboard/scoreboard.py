@@ -30,6 +30,30 @@ def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
     return torch.norm(pt0 - pt1)
 
 
+# Doesn't work?
+def order_points_clockwise(points: Tensor) -> Tensor:
+    # Sort by y first (top), then by x (left)
+    sorted_points = points[points[:, 1].argsort()]  # Sort by the second column (y)
+
+    # Top-left is the first point after sorting
+    top_left = sorted_points[0]
+
+    # Sort the remaining points based on their relative positions from the top-left
+    def angle_from_top_left(point: Tensor) -> float:
+        x_diff = point[0].item() - top_left[0].item()
+        y_diff = point[1].item() - top_left[1].item()
+        return -y_diff / (abs(x_diff) + 1e-10)  # To avoid division by zero
+
+    remaining_points = sorted(sorted_points[1:], key=angle_from_top_left, reverse=True)
+
+    # Stack the top-left point with the remaining points in clockwise order
+    ordered_points = torch.vstack(
+        [top_left.unsqueeze(0)] + [p.unsqueeze(0) for p in remaining_points]
+    )
+
+    return ordered_points
+
+
 class Scoreboard(torch.nn.Module):
 
     def __init__(
@@ -41,13 +65,16 @@ class Scoreboard(torch.nn.Module):
         clip_box: Union[torch.Tensor, None] = None,
         device: Union[torch.device, None] = None,
         auto_aspect: bool = True,
+        **kwargs,
     ):
+        super().__init__(**kwargs)
         if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
         assert len(src_pts) == 4
         # Check for all zeros
         if torch.sum(src_pts.to(torch.int64)) == 0:
             assert False
+        # self._src_pts = order_points_clockwise(src_pts)
         self._src_pts = src_pts.clone()
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
@@ -65,10 +92,18 @@ class Scoreboard(torch.nn.Module):
         src_height = self._bbox_src[3] - self._bbox_src[1]
 
         if auto_aspect:
+            #
+            # Points expected to be in clockwise order, starting from top-left:
+            #
+            #  0----------------1
+            #  |                |
+            #  |                |
+            #  3----------------2
+            #
             w_across_top = point_distance(self._src_pts[0], self._src_pts[1])
             w_across_bottom = point_distance(self._src_pts[2], self._src_pts[3])
             h_left = point_distance(self._src_pts[3], self._src_pts[0])
-            h_right = point_distance(self._src_pts[2], self._src_pts[3])
+            h_right = point_distance(self._src_pts[1], self._src_pts[2])
             w_avg = (w_across_top + w_across_bottom) / 2
             h_avg = (h_left + h_right) / 2
             aspect_ratio = w_avg / h_avg
