@@ -374,11 +374,13 @@ class StitchDataset:
             # TODO: would be good to only check the rink segmentation area
             means: List[torch.Tensor] = []
             max_mean = -1
+            min_mean = 256
             max_index = -1
             for i, img in enumerate(images):
                 img = make_channels_first(img)
                 w = int(image_width(img))
-                slice_w = int(w // 4)
+                # slice_w = int(w // 4)
+                slice_w = w
                 if i == 0:
                     # Left image
                     img = img[:, :, :, w - slice_w :]
@@ -396,6 +398,8 @@ class StitchDataset:
                 if this_mean > max_mean:
                     max_mean = this_mean
                     max_index = i
+                if this_mean < min_mean:
+                    min_mean = this_mean
             for i, m in enumerate(means):
                 if i == max_index:
                     self._exposure_adjustment.append(None)
