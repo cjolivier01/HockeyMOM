@@ -272,6 +272,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Save tracking data to camera.csv",
     )
     parser.add_argument(
+        "--audio-only",
+        action="store_true",
+        help="Only transfer the audio",
+    )
+    parser.add_argument(
         "--output-video",
         type=str,
         default=None,
@@ -885,20 +890,20 @@ def main(args, num_gpu):
                 "dataloader": dataloader,
                 "postprocessor": postprocessor,
             }
-
-            run_mmtrack(
-                model=model,
-                pose_model=pose_model,
-                pose_dataset_type=pose_dataset,
-                pose_dataset_info=pose_dataset_info,
-                config=vars(args),
-                device=main_device,
-                tracking_data=tracking_data,
-                fp16=args.fp16,
-                input_cache_size=args.cache_size,
-                progress_bar=progress_bar,
-                **other_kwargs,
-            )
+            if not args.audio_only:
+                run_mmtrack(
+                    model=model,
+                    pose_model=pose_model,
+                    pose_dataset_type=pose_dataset,
+                    pose_dataset_info=pose_dataset_info,
+                    config=vars(args),
+                    device=main_device,
+                    tracking_data=tracking_data,
+                    fp16=args.fp16,
+                    input_cache_size=args.cache_size,
+                    progress_bar=progress_bar,
+                    **other_kwargs,
+                )
 
         #
         # Now add the audio
