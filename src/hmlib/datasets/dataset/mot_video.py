@@ -276,50 +276,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self.vh = image_height(img)
         return True, img
 
-    # def scale_letterbox_to_original_image_coordinates(self, yolox_detections):
-    #     assert False
-    #     # Offset the boxes
-    #     if self._mapping_offset is None:
-    #         device = yolox_detections[0].device
-    #         self._mapping_offset = torch.tensor(
-    #             [
-    #                 self.letterbox_dw,
-    #                 self.letterbox_dh,
-    #                 self.letterbox_dw,
-    #                 self.letterbox_dh,
-    #             ],
-    #             dtype=yolox_detections[0].dtype,
-    #             device=device,
-    #         )
-    #         if self._scale_inscribed_to_original.device != device:
-    #             self._scale_inscribed_to_original = self._scale_inscribed_to_original.to(device)
-    #     if len(yolox_detections):
-    #         # [0:4] detections are tlbr
-    #         for i in range(len(yolox_detections)):
-    #             dets = yolox_detections[i]
-    #             if dets is None:
-    #                 continue
-    #             yolox_detections[i][:, 0:4] -= self._mapping_offset
-    #             # Scale the width and height
-    #             yolox_detections[i][:, 0:4] /= self._scale_inscribed_to_original
-    #     return yolox_detections
-
-    # def make_letterbox_images(self, img: torch.Tensor):
-    #     (
-    #         img,
-    #         _,
-    #         self.letterbox_ratio,
-    #         self.letterbox_dw,
-    #         self.letterbox_dh,
-    #     ) = py_letterbox(
-    #         img,
-    #         height=self.process_height,
-    #         width=self.process_width,
-    #     )
-    #     # cv2.imshow("online_im", make_visible_image(img[0]))
-    #     # cv2.waitKey(1)
-    #     return img
-
     def _is_cuda(self):
         return self._device.type == "cuda"
 
@@ -328,10 +284,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if current_count == len(self) or (self._max_frames and current_count >= self._max_frames):
             raise StopIteration
 
-        ALL_NON_BLOCKING = True
-
         cuda_stream = self._cuda_stream
-        # cuda_stream = None
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
             # BEGIN READ NEXT IMAGE
@@ -361,7 +314,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img0 = self._preproc(img0)
 
             if self._device.type != "cpu" and img0.device != self._device:
-                img0 = img0.to(self._device, non_blocking=ALL_NON_BLOCKING)
+                img0 = img0.to(self._device, non_blocking=True)
 
             if (
                 self._adjust_exposure is not None
@@ -417,12 +370,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
                 if not self._original_image_only:
                     if self._dtype is not None and img0.dtype != self._dtype:
-                        img0 = img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
+                        img0 = img0.to(self._dtype, non_blocking=True)
                     assert False  # Don't use this path anymore
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
                     if self._dtype is not None and self._dtype != original_img0.dtype:
-                        original_img0 = original_img0.to(self._dtype, non_blocking=ALL_NON_BLOCKING)
+                        original_img0 = original_img0.to(self._dtype, non_blocking=True)
                     img = original_img0
 
             if self.width_t is None:
