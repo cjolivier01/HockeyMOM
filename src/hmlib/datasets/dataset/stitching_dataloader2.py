@@ -399,12 +399,16 @@ class StitchDataset:
                     max_mean = this_mean
                     max_index = i
                 if this_mean < min_mean:
+                    # TODO: Can we adjust them all an equal-ish amount?
                     min_mean = this_mean
+            max_exposure_ratio = 0
             for i, m in enumerate(means):
                 if i == max_index:
                     self._exposure_adjustment.append(None)
                     continue
                 exposure_ratio = max_mean / m
+                if exposure_ratio > max_exposure_ratio:
+                    max_exposure_ratio = exposure_ratio
                 self._exposure_adjustment.append(exposure_ratio)
         if self._exposure_adjustment is not None and not self._exposure_adjustment:
             # No exposure entries
