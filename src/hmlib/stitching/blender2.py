@@ -84,7 +84,7 @@ class BlendImageInfo:
 @dataclass
 class ImageAndPos:
     def __init__(self, image: torch.Tensor, xpos: int, ypos: int):
-        self.image = image
+        self.image: np.ndarray = image
         self.xpos = xpos
         self.ypos = ypos
 
@@ -292,18 +292,18 @@ def make_cv_compatible_tensor(tensor):
     return np.ascontiguousarray(tensor)
 
 
-def get_images_and_positions(dir_name: str) -> List[ImageAndPos]:
+def get_images_and_positions(dir_name: str, basename: str = "nona") -> List[ImageAndPos]:
     xpos_1, ypos_1, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0000")
     xpos_2, ypos_2, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0001")
 
     images_and_positions = [
         ImageAndPos(
-            image=cv2.imread(os.path.join(dir_name, "nona0000.tif")),
+            image=cv2.imread(os.path.join(dir_name, f"{basename}0000.tif")),
             xpos=xpos_1,
             ypos=ypos_1,
         ),
         ImageAndPos(
-            image=cv2.imread(os.path.join(dir_name, "nona0001.tif")),
+            image=cv2.imread(os.path.join(dir_name, f"{basename}0001.tif")),
             xpos=xpos_2,
             ypos=ypos_2,
         ),
@@ -313,6 +313,7 @@ def get_images_and_positions(dir_name: str) -> List[ImageAndPos]:
 
 def make_seam_and_xor_masks(
     dir_name: str,
+    basename: str,
     images_and_positions: List[ImageAndPos] = None,
     force: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -344,7 +345,7 @@ def make_seam_and_xor_masks(
         )
 
         if not images_and_positions:
-            images_and_positions = get_images_and_positions(dir_name=dir_name)
+            images_and_positions = get_images_and_positions(dir_name=dir_name, basename=basename)
 
         # Blend one image to create the seam file
         _ = blender.blend_images(
@@ -353,8 +354,8 @@ def make_seam_and_xor_masks(
             right_image=make_cv_compatible_tensor(images_and_positions[1].image),
             right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
         )
-    seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
-    xor_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
+    seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+    xor_tensor = torch.from_numpy(cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH))
     return seam_tensor, xor_tensor
 
 
@@ -420,7 +421,7 @@ def create_blender_config(
     config.mode = mode
     config.levels = levels
     config.device = str(device)
-    config.seam, config.xor_map = make_seam_and_xor_masks(dir_name=dir_name)
+    config.seam, config.xor_map = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
     config.lazy_init = lazy_init
     config.interpolation = interpolation
     return config
