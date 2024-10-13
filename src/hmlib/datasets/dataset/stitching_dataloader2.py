@@ -380,6 +380,7 @@ class StitchDataset:
                 img = make_channels_first(img)
                 w = int(image_width(img))
                 # slice_w = int(w // 4)
+                # slice_w = int(w // 2)
                 slice_w = w
                 if i == 0:
                     # Left image
@@ -410,6 +411,17 @@ class StitchDataset:
                 if exposure_ratio > max_exposure_ratio:
                     max_exposure_ratio = exposure_ratio
                 self._exposure_adjustment.append(exposure_ratio)
+            exposure_diff = abs(1.0 - max_exposure_ratio)
+            exposure_diff_half = exposure_diff / 2
+            # self._exposure_adjustment.clear()
+            for i, e_ratio in enumerate(self._exposure_adjustment):
+                if e_ratio is None:
+                    self._exposure_adjustment[i] = 1 - exposure_diff_half
+                elif e_ratio < 1:
+                    self._exposure_adjustment[i] += exposure_diff_half
+                else:
+                    self._exposure_adjustment[i] = e_ratio - exposure_diff_half
+
         if self._exposure_adjustment is not None and not self._exposure_adjustment:
             # No exposure entries
             return images
@@ -478,6 +490,7 @@ class StitchDataset:
             self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
+            traceback.print_ex()
             self._ordering_queue.put((None, None))
 
     def _start_coordinator_thread(self):
