@@ -438,6 +438,9 @@ class StitchDataset:
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
                     if _USE_NEW_STITCHER:
+                        if self._auto_adjust_exposure:
+                            imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
+
                         blended_stream_tensor = self._stitcher.forward(
                             image_1=_prepare_image(to_tensor(imgs_1)),
                             image_2=_prepare_image(to_tensor(imgs_2)),
