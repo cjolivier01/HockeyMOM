@@ -216,18 +216,18 @@ RUN \
 #
 # Build TorchVision
 #
-WORKDIR /root
-RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
-WORKDIR /root/src/vision
-RUN \
-  MAX_JOBS=12 \
-  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-  BUILD_TEST=0 \
-  USE_CUDA=1 \
-  USE_NUMPY=1 \
-  USE_ROCM=OFF \
-  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
+# WORKDIR /root/src/vision
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
 
 
 #
