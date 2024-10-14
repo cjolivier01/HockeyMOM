@@ -197,6 +197,8 @@ RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch
 WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
+RUN apt install -y ni
+
 # Configure pytorch first (makes it easier to check if cuda was properly detected)
 RUN \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
@@ -205,7 +207,9 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py --cmake-only bdist_wheel
+  python3 setup.py bdist_wheel
+
+
 
 # WORKDIR /root
 # RUN git clone https://github.com/cjolivier01/vigra && \
