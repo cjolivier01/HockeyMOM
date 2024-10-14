@@ -201,6 +201,7 @@ RUN apt install -y ninja-build
 
 # Configure pytorch first (makes it easier to check if cuda was properly detected)
 RUN \
+  MAX_JOBS=12 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
@@ -209,7 +210,19 @@ RUN \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
   python3 setup.py bdist_wheel
 
+#
+# Build TorchVision
+#
 
+
+#
+# Build TorchAudio
+#
+
+
+#
+# Build Vigra
+#
 
 # WORKDIR /root
 # RUN git clone https://github.com/cjolivier01/vigra && \
