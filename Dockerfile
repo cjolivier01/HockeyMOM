@@ -197,7 +197,7 @@ RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch
 WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
-RUN apt install -y ni
+RUN apt install -y ninja-build
 
 # Configure pytorch first (makes it easier to check if cuda was properly detected)
 RUN \
