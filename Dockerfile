@@ -198,7 +198,9 @@ WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
 # Configure pytorch first (makes it easier to check if cuda was properly detected)
-RUN BUILD_TEST=0 \
+RUN \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
   USE_CUDA=1 \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
