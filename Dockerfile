@@ -211,23 +211,45 @@ RUN \
   python3 setup.py bdist_wheel --cmake-only
 
 # RUN cd build && cmake --build . --target install --config Release -- -j 12
-
-
+# RUN pip install dist/*.whl
 
 #
 # Build TorchVision
 #
+WORKDIR /root
+RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
+WORKDIR /root/src/vision
+RUN \
+  MAX_JOBS=12 \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  python3 setup.py bdist_wheel
 
 
 #
 # Build TorchAudio
 #
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
+# WORKDIR /root/src/audio
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
 
 
 #
 # Build Vigra
 #
-
 # WORKDIR /root
 # RUN git clone https://github.com/cjolivier01/vigra && \
 #   cd vigra && \
@@ -244,5 +266,6 @@ RUN \
 # RUN rm -rf vigra
 
 # Entry point
+WORKDIR /root
 CMD ["/bin/bash"]
 
