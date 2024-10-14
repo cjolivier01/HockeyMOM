@@ -199,7 +199,6 @@ RUN pip install -r requirements.txt
 
 RUN apt install -y ninja-build
 
-# Configure pytorch first (makes it easier to check if cuda was properly detected)
 RUN \
   MAX_JOBS=12 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
