@@ -253,11 +253,6 @@ class VideoOutput:
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
     ):
-        if device is not None:
-            logger.info(
-                f"Video output {output_frame_width}x{output_frame_height} "
-                f"using device: {device} ({output_video_path})"
-            )
         self._args = args
         self._allow_scaling = False
         if simple_save:
@@ -269,6 +264,12 @@ class VideoOutput:
             if pre_area != post_area:
                 # We had to scale down
                 self._allow_scaling = True
+
+        if device is not None:
+            logger.info(
+                f"Video output {output_frame_width}x{output_frame_height} "
+                f"using device: {device} ({output_video_path})"
+            )
 
         self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._name = name
