@@ -178,24 +178,24 @@ WORKDIR /root
 RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
 
 # TODO: move to cuda install above
-RUN apt-get install -y cuda-12-3 cudnn9-cuda-12
+# RUN apt-get install -y cuda-12-3 cudnn9-cuda-12
 
 WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
-RUN TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9" \
-  CUDA_HOME=/usr/local/cuda \
-  CUDA_ROOT=/usr/local/cuda \
-  CMAKE_CUDA_COMPILER="/usr/bin/nvcc" \
-  CUDNN_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
-  CUDNN_LIB_DIR=/usr/lib/x86_64-linux-gnu \
-  CUDNN_INCLUDE_PATH=/usr/include \
-  CUDNN_INCLUDE_DIR=/usr/include \
-  BUILD_TEST=0 \
-  USE_CUDA=1 \
-  USE_NUMPY=1 \
-  USE_ROCM=OFF \
-  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
+# RUN TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9" \
+#   CUDA_HOME=/usr/local/cuda \
+#   CUDA_ROOT=/usr/local/cuda \
+#   CMAKE_CUDA_COMPILER="/usr/bin/nvcc" \
+#   CUDNN_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
+#   CUDNN_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+#   CUDNN_INCLUDE_PATH=/usr/include \
+#   CUDNN_INCLUDE_DIR=/usr/include \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
 
 # WORKDIR /root
 # RUN git clone https://github.com/cjolivier01/vigra && \
