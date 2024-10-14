@@ -61,7 +61,7 @@ RUN apt-get install -y \
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 RUN apt-get install -y \
   cuda-12-3 \
-  cudnn9-cuda-12 \
+  libcudnn8-dev \
   cuda-toolkit-12-3 \
   libffmpeg-nvenc-dev \
   && apt-get clean
@@ -198,7 +198,7 @@ WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
 RUN apt install -y ninja-build
-
+# libcudnn8-dev ?
 RUN \
   MAX_JOBS=12 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
@@ -209,7 +209,7 @@ RUN \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
   python3 setup.py bdist_wheel --cmake-only
 
-# RUN cmake --build . --target install --config Release -- -j 12
+# RUN cd build && cmake --build . --target install --config Release -- -j 12
 
 
 
