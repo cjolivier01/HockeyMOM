@@ -47,7 +47,11 @@ from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.pt_visualization import draw_text
 
-from .video_stream import VideoStreamWriterInterface, create_output_video_stream
+from .video_stream import (
+    VideoStreamWriterInterface,
+    clamp_max_video_dimensions,
+    create_output_video_stream,
+)
 
 
 def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -255,6 +259,16 @@ class VideoOutput:
                 f"using device: {device} ({output_video_path})"
             )
         self._args = args
+        self._allow_scaling = False
+        if simple_save:
+            pre_area = output_frame_width * output_frame_height
+            output_frame_width, output_frame_height = clamp_max_video_dimensions(
+                output_frame_width, output_frame_height
+            )
+            post_area = output_frame_width * output_frame_height
+            if pre_area != post_area:
+                # We had to scale down
+                self._allow_scaling = True
 
         self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._name = name
@@ -591,13 +605,24 @@ class VideoOutput:
                 data = self.forward(imgproc_data)
 
                 online_im = data["img"]
+                image_w = image_width(online_im)
+                image_h = image_height(online_im)
                 assert online_im.ndim == 4  # Should have a batch dimension
                 batch_size = online_im.size(0)
 
+                if self._allow_scaling and int(self._output_frame_width) != image_w:
+                    online_im = resize_image(
+                        img=online_im,
+                        new_width=self._output_frame_width,
+                        new_height=self._output_frame_height,
+                    )
+                    image_w = image_width(online_im)
+                    image_h = image_height(online_im)
+
                 # Output (and maybe show) the final image
                 online_im = make_channels_last(online_im)
-                assert int(self._output_frame_width) == online_im.shape[-2]
-                assert int(self._output_frame_height) == online_im.shape[-3]
+                assert int(self._output_frame_width) == image_w
+                assert int(self._output_frame_height) == image_h
                 if not self._skip_final_save:
                     if self.VIDEO_DEFAULT in self._output_videos:
                         if not isinstance(online_im, StreamTensor):
@@ -728,14 +753,15 @@ class VideoOutput:
         #
         scoreboard_img = None
         if self._scoreboard is not None:
-            online_im = slow_to_tensor(online_im)
+            # online_im = slow_to_tensor(online_im)
             scoreboard_img = make_channels_last(self._scoreboard.forward(online_im))
 
         #
         # Perspective rotation
         #
         if (
-            self.has_args()
+            not self._simple_save
+            and self.has_args()
             and self._args.fixed_edge_rotation
             and self._args.fixed_edge_rotation_angle
         ):
@@ -802,7 +828,7 @@ class VideoOutput:
         #
         # Crop to output video frame image
         #
-        if self.has_args() and self._args.crop_output_image:
+        if not self._simple_save and self.has_args() and self._args.crop_output_image:
             online_im = slow_to_tensor(online_im)
             online_im = _to_float(
                 online_im,
@@ -842,27 +868,27 @@ class VideoOutput:
                 cropped_images.append(img)
             online_im = torch.stack(cropped_images)
 
-        #
-        # BEGIN END-ZONE
-        #
-        if self._end_zones is not None:
-            imgproc_data = self._end_zones(imgproc_data)
-            ez_image = self._end_zones.get_ez_image(imgproc_data, dtype=online_im.dtype)
-            if ez_image is not None:
-                # Apply the final overlays to the end-zone image
-                imgproc_data = self._end_zones.put_ez_image(
-                    data=imgproc_data,
-                    img=self.draw_final_overlays(
-                        img=ez_image, frame_id=frame_id, scoreboard_img=scoreboard_img
-                    ),
-                )
-        #
-        # END END-ZONE
-        #
-
-        online_im = self.draw_final_overlays(
-            img=online_im, frame_id=frame_id, scoreboard_img=scoreboard_img
-        )
+        if not self._simple_save:
+            #
+            # BEGIN END-ZONE
+            #
+            if self._end_zones is not None:
+                imgproc_data = self._end_zones(imgproc_data)
+                ez_image = self._end_zones.get_ez_image(imgproc_data, dtype=online_im.dtype)
+                if ez_image is not None:
+                    # Apply the final overlays to the end-zone image
+                    imgproc_data = self._end_zones.put_ez_image(
+                        data=imgproc_data,
+                        img=self.draw_final_overlays(
+                            img=ez_image, frame_id=frame_id, scoreboard_img=scoreboard_img
+                        ),
+                    )
+            #
+            # END END-ZONE
+            #
+            online_im = self.draw_final_overlays(
+                img=online_im, frame_id=frame_id, scoreboard_img=scoreboard_img
+            )
 
         imgproc_data["img"] = online_im
         return imgproc_data
