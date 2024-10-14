@@ -46,10 +46,8 @@ RUN apt-get install -y \
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 RUN apt-get install -y \
-  nvidia-driver-550 \
-  nvidia-utils-550 \
-  nvidia-cuda-dev \
-  nvidia-cuda-toolkit \
+  cuda-12-3 \
+  cudnn9-cuda-12 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
@@ -94,7 +92,6 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   --prefix="/usr/local" \
   --extra-cflags='-I/usr/local/cuda/include' \
   --extra-ldflags='-L/usr/local/cuda/lib64' \
-  --nvccflags="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_89,code=sm_89 -O2" \
   --disable-doc \
   --enable-decoder=aac \
   --enable-decoder=h264 \
@@ -130,10 +127,11 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   && make -j$(nproc) \
   && make install
 
+# Cleanup
+# WORKDIR /root
+# RUN rm -rf FFmpeg
 
-RUN apt-get install -y \
-  python3-pip \
-  && apt-get clean
+RUN apt-get install -y python3-pip && apt-get clean
 
 RUN pip install \
   cython \
@@ -164,23 +162,44 @@ RUN pip install \
   scikit-learn \
   lmdb \
   loguru \
-  thop \
   pycocotools \
   sympy \
-  python-ipmi \
   numba \
   pyquaternion
-
 
 # Again, force the proper numpy version
 RUN pip install numpy==1.23.5
 
-# Cleanup
-# WORKDIR /root
-# RUN rm -rf FFmpeg
-
+#
+# Build PyTorch
+#
 WORKDIR /root
-RUN git clone https://github.com/cjolivier01/vigra && cd vigra && git checkout colivier/hm
+RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
+
+# TODO: move to cuda install above
+RUN apt-get install -y cuda-12-3 cudnn9-cuda-12
+
+WORKDIR /root/src/pytorch
+RUN pip install -r requirements.txt
+RUN TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9" \
+  CUDA_HOME=/usr/local/cuda \
+  CUDA_ROOT=/usr/local/cuda \
+  CMAKE_CUDA_COMPILER="/usr/bin/nvcc" \
+  CUDNN_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
+  CUDNN_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+  CUDNN_INCLUDE_PATH=/usr/include \
+  CUDNN_INCLUDE_DIR=/usr/include \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  python3 setup.py bdist_wheel
+
+# WORKDIR /root
+# RUN git clone https://github.com/cjolivier01/vigra && \
+#   cd vigra && \
+#   git checkout colivier/hm
 
   # && mkdir build \
   # && cd build \
