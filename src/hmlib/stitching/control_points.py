@@ -172,7 +172,8 @@ def calculate_control_points(
     image0: Union[str, Path, torch.Tensor],
     image1: Union[str, Path, torch.Tensor],
     device: Optional[torch.device] = None,
-    max_control_points: int = 500,
+    # max_control_points: int = 500,
+    max_control_points: int = 120,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
@@ -293,7 +294,9 @@ def opencv_stitch(image1, image2, H):
 
 if __name__ == "__main__":
     results = calculate_control_points(
-        image0=f"{os.environ['HOME']}/Videos/ev-sabercats-1/left.png",
-        image1=f"{os.environ['HOME']}/Videos/ev-sabercats-1/right.png",
+        image0=f"{os.environ['HOME']}/Videos/ev-sabercats-2/left.png",
+        image1=f"{os.environ['HOME']}/Videos/ev-sabercats-2/right.png",
+        device=torch.device("cuda", 0),
+        output_directory=".",
     )
     print("Done.")

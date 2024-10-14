@@ -5,8 +5,7 @@ which is usual;;ly base dupon some homography matrix)
 
 import argparse
 import os
-import time
-from typing import Tuple
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -14,7 +13,6 @@ import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
-from hmlib.hm_opts import hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.image import (
@@ -23,9 +21,6 @@ from hmlib.utils.image import (
     pad_tensor_to_size_batched,
 )
 from hmlib.video_stream import VideoStreamReader
-
-# from hmlib.async_worker import AsyncWorker
-
 
 ROOT_DIR = os.getcwd()
 
@@ -89,21 +84,29 @@ def create_remapper_config(
     return config
 
 
+class RemapImageInfoEx(core.RemapImageInfo):
+    def __init__(self, *args, xpos: int = None, ypos: int = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.xpos: int = xpos
+        self.ypos: int = ypos
+
+
 class ImageRemapper:
     UNMAPPED_PIXEL_VALUE = 65535
 
     def __init__(
         self,
-        dir_name: str,
-        basename: str,
-        source_hw: Tuple[int],
+        source_hw: Tuple[int] = None,
+        dir_name: str = None,
+        basename: str = None,
+        remap_info: RemapImageInfoEx = None,
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
         fake_remapping: bool = False,
         use_cpp_remap_op: bool = False,
     ):
-        assert len(source_hw) == 2
+        assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
         self._dir_name = dir_name
         self._basename = basename
@@ -117,6 +120,13 @@ class ImageRemapper:
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
+        self._remap_info = remap_info
+        self.xpos, self.ypos = None, None
+        self._dest_w, self._dest_h = None, None
+        self._working_w, self._working_h = None, None
+        self._col_map, self._row_map, self._mask = None, None, None
+        if self._remap_info is not None and not self._source_hw:
+            self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
 
     @property
     def device(self):
@@ -127,36 +137,45 @@ class ImageRemapper:
         return self._mask.device
 
     def init(self, batch_size: int):
-        x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
-        y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
-        self.xpos, self.ypos = get_image_geo_position(
-            os.path.join(self._dir_name, f"{self._basename}.tif")
-        )
+        if self._remap_info is not None:
+            self.xpos = self._remap_info.xpos
+            self.ypos = self._remap_info.ypos
+            col_map = self._remap_info.col_map
+            row_map = self._remap_info.row_map
+        else:
+            assert self._dir_name is not None
+            assert self._basename
+            x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
+            y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
+            self.xpos, self.ypos = get_image_geo_position(
+                os.path.join(self._dir_name, f"{self._basename}.tif")
+            )
+
+            x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+            y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+            if x_map is None:
+                raise AssertionError(f"Could not read mapping file: {x_file}")
+            if y_map is None:
+                raise AssertionError(f"Could not read mapping file: {y_file}")
+            col_map = torch.from_numpy(x_map.astype(np.int64))
+            row_map = torch.from_numpy(y_map.astype(np.int64))
 
         if self._fake_remapping:
             self._initialized = True
             return
-
-        x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
-        y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
-        if x_map is None:
-            raise AssertionError(f"Could not read mapping file: {x_file}")
-        if y_map is None:
-            raise AssertionError(f"Could not read mapping file: {y_file}")
-        col_map = torch.from_numpy(x_map.astype(np.int64))
-        row_map = torch.from_numpy(y_map.astype(np.int64))
 
         src_w = self._source_hw[1]
         src_h = self._source_hw[0]
 
         if self._use_cpp_remap_op:
             self._remap_op = core.ImageRemapper(
-                src_w,
-                src_h,
-                col_map,
-                row_map,
-                self._add_alpha_channel,
-                self._interpolation,
+                src_width=src_w,
+                src_height=src_h,
+                col_map=col_map,
+                row_map=row_map,
+                dtype=torch.float32,
+                add_alpha_channel=self._add_alpha_channel,
+                interpolation=self._interpolation,
             )
             self._remap_op.init(batch_size=batch_size)
         else:
@@ -164,12 +183,9 @@ class ImageRemapper:
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
 
-            # self._working_w = self._dest_w
-            # self._working_h = self._dest_h
-
             self._working_w = max(src_w, self._dest_w)
             self._working_h = max(src_h, self._dest_h)
-            print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
+            # print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
             col_map = pad_tensor_to_size_batched(
                 col_map.unsqueeze(0),
@@ -224,10 +240,18 @@ class ImageRemapper:
         # Done.
         self._initialized = True
 
+    @property
+    def width(self):
+        assert self._initialized
+        return self._dest_w
+
+    @property
+    def height(self):
+        return self._dest_h
+
     def to(self, device: torch.device):
         if self._fake_remapping:
             return
-        # dev = str(device)
         dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
@@ -267,9 +291,7 @@ class ImageRemapper:
         elif len(source_tensor.shape) == 4:  # Multiple channels
             if not self._interpolation:
                 destination_tensor = torch.empty_like(source_tensor)
-                destination_tensor[:, :] = source_tensor[
-                    :, :, self._row_map, self._col_map
-                ]
+                destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
             else:
                 # Perform the grid sampling with bicubic interpolation
                 destination_tensor = F.grid_sample(
@@ -279,16 +301,12 @@ class ImageRemapper:
                     padding_mode="zeros",
                     align_corners=False,
                 )
-                destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(
-                    torch.uint8
-                )
+                destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
         destination_tensor[:, :, self._mask] = 0
 
         # Add an alpha channel if necessary
         if self._add_alpha_channel:
-            destination_tensor = torch.cat(
-                (destination_tensor, self._alpha_channel), dim=1
-            )
+            destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
 
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
@@ -307,9 +325,7 @@ def remap_video(
 ):
     cap = VideoStreamReader(os.path.join(dir_name, video_file), type="cv2")
     if not cap or not cap.isOpened():
-        raise AssertionError(
-            f"Could not open video file: {os.path.join(dir_name, video_file)}"
-        )
+        raise AssertionError(f"Could not open video file: {os.path.join(dir_name, video_file)}")
     video_iter = iter(cap)
     source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
 
@@ -334,22 +350,17 @@ def remap_video(
             timer.toc()
 
         if frame_count % 20 == 0:
-            print(
-                "Remapping: {:.2f} fps".format(
-                    batch_size * 1.0 / max(1e-5, timer.average_time)
-                )
+            logger.info(
+                "Remapping: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
             )
             if frame_count % 50 == 0:
                 timer = Timer()
 
         if show:
-            for i in range(len(destination_tensor)):
+            for this_image in destination_tensor:
                 cv2.imshow(
                     "mapped image",
-                    # destination_tensor[i].permute(1, 2, 0).numpy(),
-                    make_visible_image(
-                        destination_tensor[i], enable_resizing=opts.show_scaled
-                    ),
+                    make_visible_image(this_image, enable_resizing=opts.show_scaled),
                 )
                 cv2.waitKey(1)
 
@@ -363,14 +374,15 @@ def main(args):
         "left.mp4",
         args.video_dir,
         "mapping_0000",
-        # interpolation="bilinear",
-        interpolation=None,
+        interpolation="bilinear",
         show=True,
         device=torch.device("cpu"),
     )
 
 
 if __name__ == "__main__":
+    from hmlib.hm_opts import hm_opts
+
     args = hm_opts.parser(make_parser()).parse_args()
 
     main(args)

@@ -154,6 +154,7 @@ class CamTrackHead:
             self._hockey_mom = HockeyMOM(
                 image_width=image_width(original_img),
                 image_height=image_height(original_img),
+                fps=self._fps,
                 device=device,
                 camera_name=self._camera_name,
             )

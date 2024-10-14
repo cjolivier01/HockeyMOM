@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from hmlib.builder import HM, PIPELINES
+from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
@@ -81,7 +82,7 @@ class PlayTracker(torch.nn.Module):
 
     def __init__(
         self,
-        hockey_mom,
+        hockey_mom: HockeyMOM,
         play_box: torch.Tensor,
         device: torch.device,
         original_clip_box: Optional[torch.Tensor],
@@ -100,7 +101,8 @@ class PlayTracker(torch.nn.Module):
         """
         super(PlayTracker, self).__init__()
         self._args = args
-        self._hockey_mom = hockey_mom
+        self._hockey_mom: HockeyMOM = hockey_mom
+        # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = play_box
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
@@ -146,15 +148,18 @@ class PlayTracker(torch.nn.Module):
         assert width(self._play_box) == self._hockey_mom._video_frame.width
         assert height(self._play_box) == self._hockey_mom._video_frame.height
 
+        # speed_scale = 1.0
+        speed_scale = self._hockey_mom.fps_speed_scale
+
         start_box = self._play_box.clone()
         self._current_roi = MovingBox(
             label="Current ROI",
             bbox=start_box.clone(),
             arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1,
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1,
+            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
+            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
+            max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
+            max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
             max_width=play_width,
             max_height=play_height,
             stop_on_dir_change=False,
@@ -167,10 +172,10 @@ class PlayTracker(torch.nn.Module):
             label="AspectRatio",
             bbox=start_box.clone(),
             arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone(),
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone(),
+            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
+            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
+            max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
+            max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
             max_width=play_width,
             max_height=play_height,
             stop_on_dir_change=True,
@@ -490,7 +495,6 @@ class PlayTracker(torch.nn.Module):
             group_threshhold=self._breakaway_detection.group_ratio_threshold,
         )
         if group_x_velocity:
-            # logger.info(f"frame {frame_id} group x velocity: {group_x_velocity}")
             if self._args.plot_individual_player_tracking:
                 """
                 When detecting a breakaway, draw a circle on the player

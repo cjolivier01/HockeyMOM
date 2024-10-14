@@ -167,26 +167,28 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.input_audio and "," in args.input_audio:
         args.input_audio = args.input_audio.split(",")
+    home = os.environ["HOME"]
+    game_id = "ev-sabercats-3"
     file_list = {
         "left": [
             # "/olivier-pool/Videos/test/left-1.mp4",
             # "/olivier-pool/Videos/test/left-2.mp4",
             # "/olivier-pool/Videos/test/left-3.mp4",
-            "/olivier-pool/Videos/test3/GX010084.MP4",
-            "/olivier-pool/Videos/test3/GX020084.MP4",
-            "/olivier-pool/Videos/test3/GX030084.MP4",
+            f"{home}/Videos/{game_id}/GX010084.MP4",
+            f"{home}/Videos/{game_id}/GX020084.MP4",
+            f"{home}/Videos/{game_id}/GX030084.MP4",
         ],
         "right": [
             # "/olivier-pool/Videos/test/right-1.mp4",
             # "/olivier-pool/Videos/test/right-2.mp4",
             # "/olivier-pool/Videos/test/right-3.mp4",
-            "/olivier-pool/Videos/test3/GX010004.MP4",
-            "/olivier-pool/Videos/test3/GX020004.MP4",
-            "/olivier-pool/Videos/test3/GX030004.MP4",
+            f"{home}/Videos/{game_id}/GX010004.MP4",
+            f"{home}/Videos/{game_id}/GX020004.MP4",
+            f"{home}/Videos/{game_id}/GX030004.MP4",
         ],
     }
     # concatenate_videos(file_list["right"], "/olivier-pool/Videos/test3/right.mp4")
-    args.input_video = "/olivier-pool/Videos/test3/tracking_output.mkv"
+    # args.input_video = f"{home}/Videos/{game_id}/tracking_output.mkv"
     # args.input_video = "/home/colivier/rsrc/hm/test2.mkv"
     args.output_video = "withsound.mp4"
     copy_audio(

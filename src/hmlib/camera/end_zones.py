@@ -84,7 +84,7 @@ class EndZones(torch.nn.Module):
         return data
 
     def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        dataset_data = data["data"]
+        dataset_data = data["dataset_results"]
         if "far_left" not in dataset_data and "far_right" not in dataset_data:
             return data
         bbox = data.get(self._box_key)

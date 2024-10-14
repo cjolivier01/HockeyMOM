@@ -164,7 +164,7 @@ def build_stitching_project(
         ]
         os.system(" ".join(cmd))
 
-        if test_blend:
+        if test_blend or True:
             cmd = [
                 "nona",
                 "-m",
@@ -180,9 +180,13 @@ def build_stitching_project(
             if os.path.exists(MULTIBLEND_BIN):
                 cmd = [
                     MULTIBLEND_BIN,
+                    # "--save-seams",
+                    # os.path.join(dir_name, "seam_file.png"),
+                    # "--save-xor",
+                    # os.path.join(dir_name, "xor_file.png"),
                     "-o",
                     os.path.join(dir_name, "panorama.tif"),
-                    os.path.join(dir_name, autooptimiser_out + "*.tif"),
+                    os.path.join(dir_name, "nona*.tif"),
                 ]
             else:
                 print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")

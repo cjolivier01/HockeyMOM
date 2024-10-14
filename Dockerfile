@@ -1,5 +1,19 @@
 FROM nvidia/cuda:12.3.2-base-ubuntu22.04
 
+#
+#
+# To use on host:
+#
+# distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+# curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+# curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+# sudo apt-get update
+# sudo apt-get install -y nvidia-docker2
+# sudo systemctl restart docker
+# docker run --gpus all nvidia/cuda:12.3.2-base-ubuntu22.04 nvidia-smi
+#
+#
+
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -45,11 +59,11 @@ RUN apt-get install -y \
 
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
+# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
-  nvidia-driver-535 \
-  nvidia-utils-535 \
-  nvidia-cuda-dev \
-  nvidia-cuda-toolkit \
+  cuda-12-3 \
+  libcudnn8-dev \
+  cuda-toolkit-12-3 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
@@ -89,12 +103,11 @@ RUN git clone https://github.com/FFmpeg/FFmpeg.git && cd FFmpeg && git checkout 
 
 # Configure FFmpeg with the desired codecs and options
 WORKDIR /root/FFmpeg
-RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75" \
+RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
   ./configure \
   --prefix="/usr/local" \
   --extra-cflags='-I/usr/local/cuda/include' \
   --extra-ldflags='-L/usr/local/cuda/lib64' \
-  --nvccflags="-gencode arch=compute_75,code=sm_75 -O2" \
   --disable-doc \
   --enable-decoder=aac \
   --enable-decoder=h264 \
@@ -130,10 +143,11 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
   && make -j$(nproc) \
   && make install
 
+# Cleanup
+# WORKDIR /root
+# RUN rm -rf FFmpeg
 
-RUN apt-get install -y \
-  python3-pip \
-  && apt-get clean
+RUN apt-get install -y python3-pip && apt-get clean
 
 RUN pip install \
   cython \
@@ -164,34 +178,94 @@ RUN pip install \
   scikit-learn \
   lmdb \
   loguru \
-  thop \
   pycocotools \
   sympy \
-  python-ipmi \
   numba \
   pyquaternion
-
 
 # Again, force the proper numpy version
 RUN pip install numpy==1.23.5
 
-# Cleanup
-# WORKDIR /root
-# RUN rm -rf FFmpeg
-
+#
+# Build PyTorch
+#
 WORKDIR /root
-RUN git clone https://github.com/cjolivier01/vigra && cd vigra && git checkout colivier/hm
+RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
 
-  # && mkdir build \
-  # && cd build \
-  # && ../cfig \
-  # && make $(nproc) \
-  # && make install
+# TODO: move to cuda install above
+# RUN apt-get install -y cuda-12-3 cudnn9-cuda-12
+
+WORKDIR /root/src/pytorch
+RUN pip install -r requirements.txt
+
+RUN apt install -y ninja-build
+# libcudnn8-dev ?
+RUN \
+  MAX_JOBS=12 \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  python3 setup.py bdist_wheel --cmake-only
+
+# RUN cd build && cmake --build . --target install --config Release -- -j 12
+# RUN pip install dist/*.whl
+
+#
+# Build TorchVision
+#
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
+# WORKDIR /root/src/vision
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
+
+
+#
+# Build TorchAudio
+#
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
+# WORKDIR /root/src/audio
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
+
+
+#
+# Build Vigra
+#
+# WORKDIR /root
+# RUN git clone https://github.com/cjolivier01/vigra && \
+#   cd vigra && \
+#   git checkout colivier/hm
+
+# && mkdir build \
+# && cd build \
+# && ../cfig \
+# && make $(nproc) \
+# && make install
 
 # Cleanup
 # WORKDIR /root
 # RUN rm -rf vigra
 
 # Entry point
+WORKDIR /root
 CMD ["/bin/bash"]
 

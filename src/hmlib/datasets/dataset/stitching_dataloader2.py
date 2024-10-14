@@ -15,9 +15,9 @@ import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.stitching.blender import create_stitcher
+
+# from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
@@ -39,6 +39,7 @@ def _get_dir_name(path):
         return path
     return Path(path).parent
 
+_USE_NEW_STITCHER: bool = True
 
 from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
 
@@ -142,8 +143,6 @@ class StitchDataset:
         self,
         videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        # video_1_offset_frame: int = None,
-        # video_2_offset_frame: int = None,
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
@@ -164,6 +163,7 @@ class StitchDataset:
         verbose: bool = False,
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
+        minimize_blend: bool = True,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -178,8 +178,6 @@ class StitchDataset:
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
-        # self._video_file_1 = video_file_1
-        # self._video_file_2 = video_file_2
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._remap_thread_count = remap_thread_count
@@ -193,6 +191,7 @@ class StitchDataset:
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
+        self._xy_pos_1, self._xy_pos_2 = None, None
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -225,8 +224,8 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
-        self._video_left_info = BasicVideoInfo(videos["left"]["files"])
-        self._video_right_info = BasicVideoInfo(videos["right"]["files"])
+        self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
+        self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
         self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
@@ -341,15 +340,9 @@ class StitchDataset:
             self.configure_stitching()
 
     def _load_video_props(self):
-        info = BasicVideoInfo(self._videos["left"]["files"])
+        info = BasicVideoInfo(",".join(self._videos["left"]["files"]))
         self._fps = info.fps
         self._bitrate = info.bitrate
-        # video1 = cv2.VideoCapture(self._video_file_1)
-        # if not video1.isOpened():
-        #     raise AssertionError(f"Could not open video file: {self._video_file_1}")
-        # self._fps = video1.get(cv2.CAP_PROP_FPS)
-        # self._bitrate = video1.get(cv2.CAP_PROP_BITRATE)
-        # video1.release()
 
     @property
     def fps(self):
@@ -381,11 +374,14 @@ class StitchDataset:
             # TODO: would be good to only check the rink segmentation area
             means: List[torch.Tensor] = []
             max_mean = -1
+            min_mean = 256
             max_index = -1
             for i, img in enumerate(images):
                 img = make_channels_first(img)
                 w = int(image_width(img))
-                slice_w = int(w // 4)
+                # slice_w = int(w // 4)
+                # slice_w = int(w // 2)
+                slice_w = w
                 if i == 0:
                     # Left image
                     img = img[:, :, :, w - slice_w :]
@@ -403,12 +399,29 @@ class StitchDataset:
                 if this_mean > max_mean:
                     max_mean = this_mean
                     max_index = i
+                if this_mean < min_mean:
+                    # TODO: Can we adjust them all an equal-ish amount?
+                    min_mean = this_mean
+            max_exposure_ratio = 0
             for i, m in enumerate(means):
                 if i == max_index:
                     self._exposure_adjustment.append(None)
                     continue
                 exposure_ratio = max_mean / m
+                if exposure_ratio > max_exposure_ratio:
+                    max_exposure_ratio = exposure_ratio
                 self._exposure_adjustment.append(exposure_ratio)
+            exposure_diff = abs(1.0 - max_exposure_ratio)
+            exposure_diff_half = exposure_diff / 2
+            # self._exposure_adjustment.clear()
+            for i, e_ratio in enumerate(self._exposure_adjustment):
+                if e_ratio is None:
+                    self._exposure_adjustment[i] = 1 - exposure_diff_half
+                elif e_ratio < 1:
+                    self._exposure_adjustment[i] += exposure_diff_half
+                else:
+                    self._exposure_adjustment[i] = e_ratio - exposure_diff_half
+
         if self._exposure_adjustment is not None and not self._exposure_adjustment:
             # No exposure entries
             return images
@@ -444,20 +457,31 @@ class StitchDataset:
                 stream = None
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
-                    sinfo_1 = core.StitchImageInfo()
-                    sinfo_1.image = _prepare_image(to_tensor(imgs_1))
-                    sinfo_1.xy_pos = self._xy_pos_1
+                    if _USE_NEW_STITCHER:
+                        imgs_1 = to_tensor(imgs_1)
+                        imgs_2 = to_tensor(imgs_2)
+                        if self._auto_adjust_exposure:
+                            imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
 
-                    sinfo_2 = core.StitchImageInfo()
-                    sinfo_2.image = _prepare_image(to_tensor(imgs_2))
-                    sinfo_2.xy_pos = self._xy_pos_2
-
-                    if self._auto_adjust_exposure:
-                        sinfo_1.image, sinfo_2.image = self._adjust_exposures(
-                            images=[sinfo_1.image, sinfo_2.image]
+                        blended_stream_tensor = self._stitcher.forward(
+                            image_1=_prepare_image(imgs_1),
+                            image_2=_prepare_image(imgs_2),
                         )
+                    else:
+                        sinfo_1 = core.StitchImageInfo()
+                        sinfo_1.image = _prepare_image(to_tensor(imgs_1))
+                        sinfo_1.xy_pos = self._xy_pos_1
 
-                    blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                        sinfo_2 = core.StitchImageInfo()
+                        sinfo_2.image = _prepare_image(to_tensor(imgs_2))
+                        sinfo_2.xy_pos = self._xy_pos_2
+
+                        if self._auto_adjust_exposure:
+                            sinfo_1.image, sinfo_2.image = self._adjust_exposures(
+                                images=[sinfo_1.image, sinfo_2.image]
+                            )
+
+                        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
@@ -466,6 +490,9 @@ class StitchDataset:
             self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
+            if not isinstance(ex, StopIteration):
+                print(ex)
+                traceback.print_exc()
             self._ordering_queue.put((None, None))
 
     def _start_coordinator_thread(self):
@@ -546,17 +573,37 @@ class StitchDataset:
             # Create the stitcher
             #
             assert self._stitcher is None
-            self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
-                dir_name=self._dir_name,
-                batch_size=self._batch_size,
-                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                right_image_size_wh=(self._video_right_info.width, self._video_right_info.height),
-                device=self._remapping_device,
-                dtype=self._dtype,
-                remap_on_async_stream=self._remap_on_async_stream,
-            )
             assert self._remapping_device.type != "cpu"
-            self._stitcher.to(self._remapping_device)
+            if _USE_NEW_STITCHER:
+                from hmlib.stitching.blender2 import create_stitcher
+
+                self._stitcher = create_stitcher(
+                    dir_name=self._dir_name,
+                    batch_size=self._batch_size,
+                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                    right_image_size_wh=(
+                        self._video_right_info.width,
+                        self._video_right_info.height,
+                    ),
+                    device=self._remapping_device,
+                    dtype=self._dtype,
+                )
+            else:
+                from hmlib.stitching.blender import create_stitcher
+
+                self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
+                    dir_name=self._dir_name,
+                    batch_size=self._batch_size,
+                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                    right_image_size_wh=(
+                        self._video_right_info.width,
+                        self._video_right_info.height,
+                    ),
+                    device=self._remapping_device,
+                    dtype=self._dtype,
+                    remap_on_async_stream=self._remap_on_async_stream,
+                )
+                self._stitcher.to(self._remapping_device)
 
             frame_count = 0
             while frame_count < self._max_frames:

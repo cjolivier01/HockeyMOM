@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -35,8 +35,7 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 1280
-
+MAX_VIDEO_WIDTH = 7680  # 8K is 7680 x 4320
 
 class VideoStreamWriterInterface:
     # TODO: Add the interface stubs
@@ -57,6 +56,22 @@ def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     return w, h, False
 
 
+def clamp_max_video_dimensions(
+    width: torch.Tensor, height: torch.Tensor, max_width: Union[int, torch.Tensor] = MAX_VIDEO_WIDTH
+) -> Tuple[int, int]:
+    if width.ndim == 0:
+        wh = torch.tensor([width, height])
+    else:
+        wh = torch.cat([width, height])
+    wh_f = wh.to(torch.float)
+    new_width = torch.ones_like(wh[0]) * max_width
+    new_height = new_width.to(torch.float) / (wh_f[0] / wh_f[1])
+    result_wh = torch.where(
+        wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)])
+    )
+    return result_wh[0], result_wh[1]
+
+
 def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_WIDTH):
     assert tensor.ndim == 4 and (tensor.shape[-1] == 3 or tensor.shape[-1] == 4)
     h = tensor.shape[1]
@@ -65,7 +80,6 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     if resized:
         return resize_image(tensor, new_height=h, new_width=w)
     return tensor
-
 
 def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float):
     """

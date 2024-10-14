@@ -30,6 +30,32 @@ def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
     return torch.norm(pt0 - pt1)
 
 
+# does not work
+def order_points_clockwise(points: torch.Tensor) -> torch.Tensor:
+    # Sort by y first (top), then by x (left) to find the top-left point
+    sorted_points = points[points[:, 1].argsort()]  # Sort by the second column (y)
+
+    # Top-left is the first point after sorting
+    top_left = sorted_points[0]
+
+    # Calculate the vector cross-product to determine clockwise order
+    def cross_product(point: Tensor) -> float:
+        # Using the cross product to determine the relative orientation from top-left
+        x_diff = point[0] - top_left[0]
+        y_diff = point[1] - top_left[1]
+        return x_diff * (-1) + y_diff  # Clockwise: positive x, negative y
+
+    remaining_points = sorted(sorted_points[1:], key=cross_product)
+    remaining_points = reversed(remaining_points)
+
+    # Stack the top-left point with the remaining points in clockwise order
+    ordered_points = torch.vstack(
+        [top_left.unsqueeze(0)] + [p.unsqueeze(0) for p in remaining_points]
+    )
+
+    return ordered_points
+
+
 class Scoreboard(torch.nn.Module):
 
     def __init__(
@@ -41,14 +67,20 @@ class Scoreboard(torch.nn.Module):
         clip_box: Union[torch.Tensor, None] = None,
         device: Union[torch.device, None] = None,
         auto_aspect: bool = True,
+        **kwargs,
     ):
+        super().__init__(**kwargs)
         if not isinstance(src_pts, torch.Tensor):
             src_pts = torch.tensor(src_pts, dtype=torch.float)
         assert len(src_pts) == 4
         # Check for all zeros
         if torch.sum(src_pts.to(torch.int64)) == 0:
             assert False
+        # self._src_pts = order_points_clockwise(src_pts)
         self._src_pts = src_pts.clone()
+
+        # self._src_pts = order_points_clockwise(src_pts)
+
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
                 clip_box = torch.tensor(
@@ -65,10 +97,18 @@ class Scoreboard(torch.nn.Module):
         src_height = self._bbox_src[3] - self._bbox_src[1]
 
         if auto_aspect:
+            #
+            # Points expected to be in clockwise order, starting from top-left:
+            #
+            #  0----------------1
+            #  |                |
+            #  |                |
+            #  3----------------2
+            #
             w_across_top = point_distance(self._src_pts[0], self._src_pts[1])
             w_across_bottom = point_distance(self._src_pts[2], self._src_pts[3])
             h_left = point_distance(self._src_pts[3], self._src_pts[0])
-            h_right = point_distance(self._src_pts[2], self._src_pts[3])
+            h_right = point_distance(self._src_pts[1], self._src_pts[2])
             w_avg = (w_across_top + w_across_bottom) / 2
             h_avg = (h_left + h_right) / 2
             aspect_ratio = w_avg / h_avg
