@@ -207,7 +207,11 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
+  python3 setup.py bdist_wheel --cmake-only
+
+# RUN cmake --build . --target install --config Release -- -j 12
+
+
 
 #
 # Build TorchVision
