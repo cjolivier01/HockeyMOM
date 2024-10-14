@@ -59,6 +59,7 @@ RUN apt-get install -y \
 
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
+# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
   cuda-12-3 \
   libcudnn8-dev \
@@ -102,7 +103,7 @@ RUN git clone https://github.com/FFmpeg/FFmpeg.git && cd FFmpeg && git checkout 
 
 # Configure FFmpeg with the desired codecs and options
 WORKDIR /root/FFmpeg
-RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
+RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
   ./configure \
   --prefix="/usr/local" \
   --extra-cflags='-I/usr/local/cuda/include' \
@@ -232,11 +233,11 @@ RUN \
 #   cd vigra && \
 #   git checkout colivier/hm
 
-  # && mkdir build \
-  # && cd build \
-  # && ../cfig \
-  # && make $(nproc) \
-  # && make install
+# && mkdir build \
+# && cd build \
+# && ../cfig \
+# && make $(nproc) \
+# && make install
 
 # Cleanup
 # WORKDIR /root
