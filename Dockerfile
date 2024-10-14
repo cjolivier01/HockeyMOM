@@ -48,6 +48,7 @@ RUN apt-get install -y \
 RUN apt-get install -y \
   cuda-12-3 \
   cudnn9-cuda-12 \
+  cuda-toolkit-12-3 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
