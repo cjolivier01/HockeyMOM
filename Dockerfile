@@ -198,7 +198,7 @@ RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch
 WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
-RUN apt install -y ninja-build
+# RUN apt install -y ninja-build
 # libcudnn8-dev ?
 RUN \
   MAX_JOBS=12 \
@@ -210,7 +210,7 @@ RUN \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
   python3 setup.py bdist_wheel --cmake-only
 
-# RUN cd build && cmake --build . --target install --config Release -- -j 12
+# RUN cd build && cmake --build . --target install --config Release -- -j 8
 # RUN pip install dist/*.whl
 
 #
