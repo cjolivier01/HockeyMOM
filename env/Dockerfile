@@ -282,6 +282,8 @@ RUN git clone https://github.com/cjolivier01/vigra && \
 RUN apt-get install -y \
   libwxgtk3.0-gtk3-dev
 
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
 #
 # User setup
 #
