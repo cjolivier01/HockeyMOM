@@ -264,16 +264,15 @@ RUN pip install dist/*.whl
 #
 # Build Vigra
 #
-# WORKDIR /root
-# RUN git clone https://github.com/cjolivier01/vigra && \
-#   cd vigra && \
-#   git checkout colivier/hm
-
-# && mkdir build \
-# && cd build \
-# && ../cfig \
-# && make $(nproc) \
-# && make install
+WORKDIR /root
+RUN git clone https://github.com/cjolivier01/vigra && \
+  cd vigra && \
+  git checkout colivier/hm \
+  && mkdir build \
+  && cd build \
+  && ../cfig \
+  && make -j $(nproc) \
+  && make install
 
 # Cleanup
 # WORKDIR /root
