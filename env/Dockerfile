@@ -291,6 +291,8 @@ ARG USERNAME
 ARG UID
 ARG GID
 
+ENV SHELL=/bin/bash
+
 # Create a new user with the provided USERNAME, UID, and GID
 RUN groupadd -g $GID $USERNAME \
     && useradd -m -s /bin/bash -u $UID -g $GID -G sudo $USERNAME
