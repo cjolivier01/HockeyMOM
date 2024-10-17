@@ -272,11 +272,10 @@ RUN git clone https://github.com/cjolivier01/vigra && \
   && cd build \
   && ../cfig \
   && make -j $(nproc) \
-  && make install
+  && make install \
+  && cd ../.. \
+  && rm -rf vigra
 
-# Cleanup
-# WORKDIR /root
-# RUN rm -rf vigra
 
 # Entry point
 WORKDIR /root
