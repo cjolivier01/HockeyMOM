@@ -276,6 +276,11 @@ RUN git clone https://github.com/cjolivier01/vigra && \
   && cd ../.. \
   && rm -rf vigra
 
+#
+# HM Deps
+#
+RUN apt-get install -y \
+  libwxgtk3.0-gtk3-dev
 
 #
 # User setup
@@ -287,6 +292,9 @@ ARG GID
 # Create a new user with the provided USERNAME, UID, and GID
 RUN groupadd -g $GID $USERNAME \
     && useradd -m -s /bin/bash -u $UID -g $GID -G sudo $USERNAME
+
+# Set a password for the user
+# RUN echo "$USERNAME:password" | chpasswd
 
 # Set the user and prevent the container from running as root
 USER $USERNAME
