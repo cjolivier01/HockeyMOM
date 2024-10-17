@@ -199,7 +199,7 @@ WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
 
 # RUN apt install -y ninja-build
-# libcudnn8-dev ?
+
 RUN \
   MAX_JOBS=12 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
@@ -245,11 +245,12 @@ RUN pip install dist/*.whl
 #
 # Build TorchAudio
 #
+RUN apt install -y ninja-build
 WORKDIR /root
 RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 WORKDIR /root/src/audio
 RUN \
-  MAX_JOBS=12 \
+  MAX_JOBS=16 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
