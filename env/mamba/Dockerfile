@@ -199,6 +199,146 @@ WORKDIR /home/$USERNAME/src
 
 ####################################################################
 #
+# PIP Dependencies
+#
+####################################################################
+RUN conda init
+
+RUN conda run -n ubuntu \
+  pip install \
+    cython \
+    numpy==1.23.5 \
+    screeninfo \
+    yacs \
+    moviepy \
+    opencv-python \
+    PyYAML \
+    cython-bbox \
+    scipy \
+    progress \
+    motmetrics \
+    matplotlib \
+    openpyxl \
+    Pillow-simd \
+    psutil \
+    filterpy \
+    screeninfo \
+    gast \
+    astunparse \
+    fvcore \
+    opencv-python \
+    opencv-contrib-python \
+    cameratransform \
+    tifffile \
+    scikit-build \
+    scikit-learn \
+    lmdb \
+    loguru \
+    pycocotools \
+    sympy \
+    numba \
+    pyquaternion
+
+# Again, force the proper numpy version
+RUN conda run -n ubuntu \
+  pip install numpy==1.23.5
+
+
+####################################################################
+#
+# Build PyTorch
+#
+####################################################################
+# WORKDIR /home/$USERNAME/src
+# RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
+
+# WORKDIR /home/$USERNAME/src/pytorch
+# RUN conda run -n ubuntu pip install -r requirements.txt
+
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   conda run -n ubuntu \
+#   python3 setup.py bdist_wheel
+
+# RUN cd build && cmake --build . --target install --config Release -- -j 12
+
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
+
+# RUN pip install dist/*.whl
+
+#
+# Build TorchVision
+#
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
+# WORKDIR /root/src/vision
+# RUN \
+#   MAX_JOBS=12 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
+
+# RUN pip install dist/*.whl
+
+# #
+# # Build TorchAudio
+# #
+# WORKDIR /root
+# RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
+# WORKDIR /root/src/audio
+# RUN \
+#   MAX_JOBS=16 \
+#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+#   BUILD_TEST=0 \
+#   USE_CUDA=1 \
+#   USE_NUMPY=1 \
+#   USE_ROCM=OFF \
+#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+#   python3 setup.py bdist_wheel
+
+# RUN pip install dist/*.whl
+
+# #
+# # Build Vigra
+# #
+# WORKDIR /root
+# RUN git clone https://github.com/cjolivier01/vigra && \
+#   cd vigra && \
+#   git checkout colivier/hm \
+#   && mkdir build \
+#   && cd build \
+#   && ../cfig \
+#   && make -j $(nproc) \
+#   && make install \
+#   && cd ../.. \
+#   && rm -rf vigra
+
+# #
+# # HM Deps
+# #
+# RUN apt-get install -y \
+#   libwxgtk3.0-gtk3-dev
+
+####################################################################
+#
 # Switch back to root to configure SSH
 #
 ####################################################################

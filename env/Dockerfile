@@ -193,13 +193,8 @@ RUN pip install numpy==1.23.5
 WORKDIR /root
 RUN mkdir src && cd src && git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
 
-# TODO: move to cuda install above
-# RUN apt-get install -y cuda-12-3 cudnn9-cuda-12
-
 WORKDIR /root/src/pytorch
 RUN pip install -r requirements.txt
-
-# RUN apt install -y ninja-build
 
 RUN \
   MAX_JOBS=12 \
