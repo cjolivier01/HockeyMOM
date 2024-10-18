@@ -37,7 +37,6 @@ pycocotools
 sympy
 python-ipmi
 numba
-kornia
 ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans
