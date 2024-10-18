@@ -86,9 +86,11 @@ RUN apt-get install -y \
   zlib1g-dev \
   && apt-get clean
 
+####################################################################
 #
 # User setup
 #
+####################################################################
 ARG USERNAME
 ARG UID
 ARG GID
@@ -108,8 +110,11 @@ USER $USERNAME
 # Set the working directory
 WORKDIR /home/$USERNAME
 
+####################################################################
+#
 # Download and install Mambaforge for the non-root user
-# RUN wget -qO- https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh | bash -s -- -b
+#
+####################################################################
 RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh
 RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /home/$USERNAME/dconda
 RUN rm Mambaforge-Linux-x86_64.sh
@@ -124,8 +129,11 @@ RUN mamba create -n ubuntu python=3.11 -y
 RUN echo "source /home/${USER}/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
 RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 
-
-# # Switch back to root to configure SSH
+####################################################################
+#
+# Switch back to root to configure SSH
+#
+####################################################################
 USER root
 RUN mkdir /var/run/sshd
 # RUN echo 'myuser:password' | chpasswd
