@@ -272,22 +272,22 @@ USER $USERNAME
 # Build PyTorch
 #
 ####################################################################
-# WORKDIR /home/$USERNAME/src
-# RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
 
-# WORKDIR /home/$USERNAME/src/pytorch
-# RUN conda run -n ubuntu pip install -r requirements.txt
+WORKDIR /home/$USERNAME/src/pytorch
+RUN conda run -n ubuntu pip install -r requirements.txt
 
-# RUN \
-#   MAX_JOBS=12 \
-#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-#   BUILD_TEST=0 \
-#   USE_CUDA=1 \
-#   USE_NUMPY=1 \
-#   USE_ROCM=OFF \
-#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-#   conda run -n ubuntu \
-#   python3 setup.py bdist_wheel
+RUN \
+  MAX_JOBS=12 \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  conda run -n ubuntu \
+  python3 setup.py bdist_wheel
 
 # RUN cd build && cmake --build . --target install --config Release -- -j 12
 
@@ -301,7 +301,7 @@ USER $USERNAME
 #   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
 #   python3 setup.py bdist_wheel
 
-# RUN pip install dist/*.whl
+RUN pip install dist/*.whl
 
 ####################################################################
 #
