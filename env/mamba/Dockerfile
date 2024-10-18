@@ -134,8 +134,61 @@ RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 # Build packages
 #
 ####################################################################
+RUN mkdir src
+WORKDIR /home/$USERNAME/src
 
+USER root
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
 
+USER $USERNAME
+RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg && cd ffmpeg && git checkout n5.1.4
+
+# Configure FFmpeg with the desired codecs and options
+WORKDIR /home/$USERNAME/src/ffmpeg
+RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
+  ./configure \
+  --prefix="/usr/local" \
+  --extra-cflags='-I/usr/local/cuda/include' \
+  --extra-ldflags='-L/usr/local/cuda/lib64' \
+  --disable-doc \
+  --enable-decoder=aac \
+  --enable-decoder=h264 \
+  --enable-decoder=h264_cuvid \
+  --enable-decoder=hevc_cuvid \
+  --enable-decoder=av1_cuvid \
+  --enable-decoder=rawvideo \
+  --enable-indev=lavfi \
+  --enable-encoder=libx264 \
+  --enable-encoder=h264_nvenc \
+  --enable-encoder=hevc_nvenc \
+  --enable-encoder=av1_nvenc \
+  --enable-demuxer=mov \
+  --enable-muxer=mp4 \
+  --enable-filter=scale \
+  --enable-filter=testsrc2 \
+  --enable-protocol=file \
+  --enable-protocol=https \
+  --enable-gnutls \
+  --enable-shared \
+  --enable-gpl \
+  --enable-nonfree \
+  --enable-cuda-nvcc \
+  --enable-libx264 \
+  --enable-libnpp \
+  --enable-nvenc \
+  --enable-cuvid \
+  --enable-nvdec \
+  --enable-pic \
+  --enable-rpath \
+  --extra-cflags=-I/usr/local/cuda/include \
+  --extra-ldflags=-L/usr/local/cuda/lib64 \
+  && make -j$(nproc)
+
+USER root
+RUN make -j $(nproc) install
+
+USER $USERNAME
+WORKDIR /home/$USERNAME/src
 
 ####################################################################
 #
