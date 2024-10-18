@@ -131,12 +131,19 @@ RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 
 ####################################################################
 #
+#
 # Build packages
+#
 #
 ####################################################################
 RUN mkdir src
 WORKDIR /home/$USERNAME/src
 
+####################################################################
+#
+# FFMPeg
+#
+####################################################################
 USER root
 RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
 
