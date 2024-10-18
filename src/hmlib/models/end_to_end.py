@@ -21,6 +21,13 @@ class HmEndToEnd(ByteTrack):
         num_classes_override: Optional[int] = None,
         **kwargs,
     ):
+        # BaseModel tries to build it from the mmengine
+        # registry, which can't find shit
+        data_preprocessor = kwargs.get("data_preprocessor")
+        if data_preprocessor and isinstance(data_preprocessor, dict):
+            data_preprocessor = MODELS.build(data_preprocessor)
+            kwargs["data_preprocessor"] = data_preprocessor
+
         super(HmEndToEnd, self).__init__(*args, **kwargs)
         self._enabled = enabled
         self.post_detection_pipeline = post_detection_pipeline

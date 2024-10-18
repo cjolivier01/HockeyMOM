@@ -16,8 +16,9 @@ import torch
 # )
 from mmpose.structures.bbox.transforms import bbox_cs2xywh, bbox_xywh2cs
 from torchvision.transforms import functional as F
+from mmengine.registry import TRANSFORMS
 
-from hmlib.builder import PIPELINES
+# from hmlib.builder import TRANSFORMS
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.utils.image import (
@@ -453,7 +454,7 @@ def hm_impad_to_multiple(
     return hm_impad(img, shape=(pad_h, pad_w), pad_val=pad_val)
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmImageToTensor:
     """Convert image to :obj:`torch.Tensor` by given keys.
 
@@ -495,7 +496,7 @@ class HmImageToTensor:
         return self.__class__.__name__ + f"(keys={self.keys})"
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmPad:
     """Pad the image & masks & segmentation map.
 
@@ -600,7 +601,7 @@ class HmPad:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmResize:
     """Resize images & bbox & mask.
 
@@ -909,7 +910,7 @@ class HmResize:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmCrop:
     def __init__(
         self,
@@ -984,7 +985,7 @@ class HmCrop:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class CloneImage:
     def __init__(
         self,
@@ -1209,7 +1210,7 @@ class CloneImage:
 #         return results
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmTopDownAffine:
     """Affine transform the image to make input.
 
@@ -1292,7 +1293,7 @@ class HmTopDownAffine:
         return results
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmExtractBoundingBoxes:
     def __init__(self, source_name: str = "det_bboxes"):
         self.source_name = source_name
@@ -1302,7 +1303,7 @@ class HmExtractBoundingBoxes:
         return results
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmTopDownGetBboxCenterScale:
     """Convert bbox from [x, y, w, h] to center and scale.
 
@@ -1347,4 +1348,120 @@ class HmTopDownGetBboxCenterScale:
 
             results["center"] = center
             results["scale"] = scale
+        return results
+
+
+@TRANSFORMS.register_module()
+class HmVideoCollect(object):
+    """Collect data from the loader relevant to the specific task.
+
+    Args:
+        keys (Sequence[str]): Keys of results to be collected in ``data``.
+        meta_keys (Sequence[str]): Meta keys to be converted to
+            ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
+            Defaults to None.
+        default_meta_keys (tuple): Default meta keys. Defaults to ('filename',
+            'ori_filename', 'ori_shape', 'img_shape', 'pad_shape',
+            'scale_factor', 'flip', 'flip_direction', 'img_norm_cfg',
+            'frame_id', 'is_video_data').
+    """
+
+    def __init__(
+        self,
+        keys,
+        meta_keys=None,
+        default_meta_keys=(
+            "filename",
+            "ori_filename",
+            "ori_shape",
+            "img_shape",
+            "pad_shape",
+            "scale_factor",
+            "flip",
+            "flip_direction",
+            "img_norm_cfg",
+            "frame_id",
+            "is_video_data",
+        ),
+    ):
+        self.keys = keys
+        self.meta_keys = default_meta_keys
+        if meta_keys is not None:
+            if isinstance(meta_keys, str):
+                meta_keys = (meta_keys,)
+            else:
+                assert isinstance(meta_keys, tuple), "meta_keys must be str or tuple"
+            self.meta_keys += meta_keys
+
+    def __call__(self, results):
+        """Call function to collect keys in results.
+
+        The keys in ``meta_keys`` and ``default_meta_keys`` will be converted
+        to :obj:mmcv.DataContainer.
+
+        Args:
+            results (list[dict] | dict): List of dict or dict which contains
+                the data to collect.
+
+        Returns:
+            list[dict] | dict: List of dict or dict that contains the
+            following keys:
+
+            - keys in ``self.keys``
+            - ``img_metas``
+        """
+        results_is_dict = isinstance(results, dict)
+        if results_is_dict:
+            results = [results]
+        outs = []
+        for _results in results:
+            _results = self._add_default_meta_keys(_results)
+            _results = self._collect_meta_keys(_results)
+            outs.append(_results)
+
+        if results_is_dict:
+            outs[0]["img_metas"] = DC(outs[0]["img_metas"], cpu_only=True)
+
+        return outs[0] if results_is_dict else outs
+
+    def _collect_meta_keys(self, results):
+        """Collect `self.keys` and `self.meta_keys` from `results` (dict)."""
+        data = {}
+        img_meta = {}
+        for key in self.meta_keys:
+            if key in results:
+                img_meta[key] = results[key]
+            elif key in results["img_info"]:
+                img_meta[key] = results["img_info"][key]
+        data["img_metas"] = img_meta
+        for key in self.keys:
+            if key in results:
+                data[key] = results[key]
+        return data
+
+    def _add_default_meta_keys(self, results):
+        """Add default meta keys.
+
+        We set default meta keys including `pad_shape`, `scale_factor` and
+        `img_norm_cfg` to avoid the case where no `Resize`, `Normalize` and
+        `Pad` are implemented during the whole pipeline.
+
+        Args:
+            results (dict): Result dict contains the data to convert.
+
+        Returns:
+            results (dict): Updated result dict contains the data to convert.
+        """
+        img = results["img"]
+        results.setdefault("pad_shape", img.shape)
+        results.setdefault("scale_factor", 1.0)
+        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
+        results.setdefault(
+            "img_norm_cfg",
+            dict(
+                mean=np.zeros(num_channels, dtype=np.float32),
+                std=np.ones(num_channels, dtype=np.float32),
+                to_rgb=False,
+            ),
+        )
         return results

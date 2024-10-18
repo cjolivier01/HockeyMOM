@@ -85,6 +85,31 @@ test_pipeline = [
     ),
     dict(type="PackTrackInputs"),
 ]
+
+inference_pipeline = [
+    dict(type="LoadImageFromFile"),
+    # Crop first in order to not affect any subsequent coordinates,
+    # as well as not waste compute on parts of the image that will be thrown away
+    dict(type="HmCrop", keys=["img"], save_clipped_images=True),
+    dict(
+        type="MultiScaleFlipAug",
+        # img_scale=img_scale,
+        allow_flip=False,
+        transforms=[
+            dict(type="HmImageToTensor", keys=["img"]),
+            dict(type="HmResize", keep_ratio=True),
+            dict(type="RandomFlip"),
+            # dict(type="Normalize", **img_norm_cfg),
+            dict(
+                type="HmPad",
+                pad_val=114.0,
+                size_divisor=32,
+            ),
+            dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
+        ],
+    ),
+]
+
 train_dataloader = dict(
     _delete_=True,
     batch_size=batch_size,

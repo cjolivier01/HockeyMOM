@@ -7,7 +7,8 @@ from mmengine import Registry
 # from mmtrack.models.builder import MODELS as MMTRACK_MODELS
 
 DATASETS = Registry("dataset")
-PIPELINES = Registry("pipeline")
+# PIPELINES = Registry("pipeline")
+from mmengine import TRANSFORMS as PIPELINES
 
 # MODELS = Registry("models", parent=MMTRACK_MODELS)
 # MODELS = MMTRACK_MODELS

@@ -575,15 +575,24 @@ def main(args, num_gpu):
                     # Maybe apply a clip box in the data pipeline
                     orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                     if orig_clip_box:
-                        hm_crop = get_pipeline_item(model.cfg.data.inference.pipeline, "HmCrop")
+                        hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
                         if hm_crop is not None:
                             hm_crop["rectangle"] = orig_clip_box
 
                     if args.checkpoint:
                         load_checkpoint_to_model(model, args.checkpoint)
+                    # first_stage = model.cfg.test_dataloader.dataset.pipeline
+                    # if first_stage[0].type == "TransformBroadcaster":
+                    #     first_stage["transforms"][0].type = "mmdet.LoadImageFromNDArray"
+                    # else:
+                    #     model.cfg.test_dataloader.dataset.pipeline[0].type = (
+                    #         "mmdet.LoadImageFromNDArray"
+                    #     )
+                    # data_pipeline = Compose(model.cfg.test_dataloader.dataset.pipeline)
                     cfg = model.cfg.copy()
-                    pipeline = cfg.data.inference.pipeline
-                    pipeline[0].type = "LoadImageFromWebcam"
+                    pipeline = cfg.inference_pipeline
+                    pipeline = cfg.inference_pipeline
+                    pipeline[0].type = "mmdet.LoadImageFromNDArray"
                     data_pipeline = Compose(pipeline)
 
                 #
@@ -646,12 +655,6 @@ def main(args, num_gpu):
                     game_videos = configure_game_videos(game_id=args.game_id)
                     dir_name = args.input_video
                     assert dir_name
-                    # video_left = "left.mp4"
-                    # video_right = "right.mp4"
-                    # vl = os.path.join(dir_name, video_left)
-                    # vr = os.path.join(dir_name, video_right)
-                    # vl =
-                    # input_video_files = [vl, vr]
                     input_video_files = game_videos
 
                 left_vid = BasicVideoInfo(",".join(game_videos["left"]))
