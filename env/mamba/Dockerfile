@@ -246,6 +246,29 @@ RUN conda run -n ubuntu \
 
 ####################################################################
 #
+# Build Vigra (dependency of Hugin tools)
+# We need to build it because it has a patch in one of the headers
+# that fixes a compile problem with Hugin.
+#
+####################################################################
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/cjolivier01/vigra && \
+   cd vigra && \
+   git checkout colivier/hm \
+   && mkdir build \
+   && cd build \
+   && ../cfig \
+   && make -j $(nproc)
+
+USER root
+WORKDIR /home/$USERNAME/src/vigra/build
+RUN make install
+WORKDIR /home/$USERNAME/src
+RUN rm -rf vigra
+USER $USERNAME
+
+####################################################################
+#
 # Build PyTorch
 #
 ####################################################################
@@ -280,9 +303,11 @@ RUN conda run -n ubuntu \
 
 # RUN pip install dist/*.whl
 
+####################################################################
 #
 # Build TorchVision
 #
+####################################################################
 # WORKDIR /root
 # RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
 # WORKDIR /root/src/vision
@@ -298,9 +323,11 @@ RUN conda run -n ubuntu \
 
 # RUN pip install dist/*.whl
 
-# #
-# # Build TorchAudio
-# #
+####################################################################
+#
+# Build TorchAudio
+#
+####################################################################
 # WORKDIR /root
 # RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 # WORKDIR /root/src/audio
@@ -315,21 +342,6 @@ RUN conda run -n ubuntu \
 #   python3 setup.py bdist_wheel
 
 # RUN pip install dist/*.whl
-
-# #
-# # Build Vigra
-# #
-# WORKDIR /root
-# RUN git clone https://github.com/cjolivier01/vigra && \
-#   cd vigra && \
-#   git checkout colivier/hm \
-#   && mkdir build \
-#   && cd build \
-#   && ../cfig \
-#   && make -j $(nproc) \
-#   && make install \
-#   && cd ../.. \
-#   && rm -rf vigra
 
 # #
 # # HM Deps
