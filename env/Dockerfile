@@ -246,7 +246,6 @@ RUN pip install dist/*.whl
 #
 # Build TorchAudio
 #
-# RUN apt install -y ninja-build
 WORKDIR /root
 RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 WORKDIR /root/src/audio
