@@ -72,6 +72,7 @@ RUN apt-get install -y \
   autoconf \
   automake \
   cmake \
+  ninja-build \
   libtool \
   libass-dev \
   libfreetype6-dev \
@@ -245,7 +246,7 @@ RUN pip install dist/*.whl
 #
 # Build TorchAudio
 #
-RUN apt install -y ninja-build
+# RUN apt install -y ninja-build
 WORKDIR /root
 RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 WORKDIR /root/src/audio

@@ -3,6 +3,7 @@ FROM nvidia/cuda:12.3.2-base-ubuntu22.04
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Build up the base system
 RUN apt-get update
 # RUN apt-get install -y libnvidia-compute-550
 
@@ -10,81 +11,80 @@ RUN apt-get update
 RUN apt-get install -y wget ssh openssh-server
 
 # Update package list and install essential build tools
-# RUN apt-get update && apt-get install -y \
-#   build-essential \
-#   git \
-#   yasm \
-#   pkg-config \
-#   wget \
-#   unzip \
-#   && apt-get clean
+RUN apt-get update && apt-get install -y \
+  build-essential \
+  git \
+  yasm \
+  pkg-config \
+  wget \
+  unzip \
+  && apt-get clean
 
-# # Install Vigra/Hugin dependencies
-# RUN apt-get install -y \
-#   ccache \
-#   libpano13-dev \
-#   libglew-dev \
-#   libexiv2-dev \
-#   libopenexr-dev \
-#   libilmbase-dev \
-#   liblcms2-dev \
-#   libgl1-mesa-dev \
-#   libglu1-mesa-dev \
-#   libsqlite3-dev \
-#   libavformat-dev \
-#   liblapack-dev \
-#   gettext \
-#   libyaml-cpp-dev \
-#   liblapack-dev \
-#   libglfw3-dev \
-#   libfftw3-dev \
-#   libglew-dev \
-#   libgl-dev \
-#   libjpeg-turbo8-dev \
-#   libtiff-dev \
-#   libopus-dev \
-#   libboost-all-dev \
-#   libprotobuf-dev \
-#   libpng-dev \
-#   libopenblas-dev \
-#   libomp-dev \
-#   && apt-get clean
+# Install Vigra/Hugin dependencies
+RUN apt-get install -y \
+  ccache \
+  libpano13-dev \
+  libglew-dev \
+  libexiv2-dev \
+  libopenexr-dev \
+  libilmbase-dev \
+  liblcms2-dev \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev \
+  libsqlite3-dev \
+  libavformat-dev \
+  liblapack-dev \
+  gettext \
+  libyaml-cpp-dev \
+  liblapack-dev \
+  libglfw3-dev \
+  libfftw3-dev \
+  libglew-dev \
+  libgl-dev \
+  libjpeg-turbo8-dev \
+  libtiff-dev \
+  libopus-dev \
+  libboost-all-dev \
+  libprotobuf-dev \
+  libpng-dev \
+  libopenblas-dev \
+  libomp-dev \
+  && apt-get clean
 
 
-# # Install NVIDIA driver dependencies and the NVIDIA codec SDK
-# # CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
-# RUN apt-get install -y \
-#   libffmpeg-nvenc-dev \
-#   && apt-get clean
+RUN apt-get install -y \
+  libffmpeg-nvenc-dev \
+  && apt-get clean
 
 # # Install FFmpeg build dependencies
-# RUN apt-get install -y \
-#   autoconf \
-#   automake \
-#   cmake \
-#   libtool \
-#   libass-dev \
-#   libfreetype6-dev \
-#   libsdl2-dev \
-#   libx264-dev \
-#   libx265-dev \
-#   libtheora-dev \
-#   libva-dev \
-#   libvdpau-dev \
-#   libvorbis-dev \
-#   libxcb1-dev \
-#   libxcb-shm0-dev \
-#   libxcb-xfixes0-dev \
-#   pkg-config \
-#   texinfo \
-#   zlib1g-dev \
-#   && apt-get clean
+RUN apt-get install -y \
+  autoconf \
+  automake \
+  cmake \
+  ninja-build \
+  libtool \
+  libass-dev \
+  libfreetype6-dev \
+  libsdl2-dev \
+  libx264-dev \
+  libx265-dev \
+  libtheora-dev \
+  libva-dev \
+  libvdpau-dev \
+  libvorbis-dev \
+  libxcb1-dev \
+  libxcb-shm0-dev \
+  libxcb-xfixes0-dev \
+  pkg-config \
+  texinfo \
+  zlib1g-dev \
+  && apt-get clean
 
 # # Some more dependencies
-# RUN apt-get install -y \
-#   vim \
-#   libgnutls28-dev \
-#   && apt-get clean
+RUN apt-get install -y \
+  vim \
+  libgnutls28-dev \
+  && apt-get clean
 
 #
 # User setup
