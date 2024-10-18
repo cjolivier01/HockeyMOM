@@ -51,13 +51,18 @@ RUN apt-get install -y \
   libomp-dev \
   && apt-get clean
 
-
+# Install NVIDIA driver dependencies and the NVIDIA codec SDK
+# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
+  cuda-12-3 \
+  libcudnn8-dev \
+  cuda-toolkit-12-3 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
 # # Install FFmpeg build dependencies
 RUN apt-get install -y \
+  vim \
   autoconf \
   automake \
   cmake \
@@ -70,6 +75,7 @@ RUN apt-get install -y \
   libx265-dev \
   libtheora-dev \
   libva-dev \
+  libgnutls28-dev \
   libvdpau-dev \
   libvorbis-dev \
   libxcb1-dev \
@@ -78,12 +84,6 @@ RUN apt-get install -y \
   pkg-config \
   texinfo \
   zlib1g-dev \
-  && apt-get clean
-
-# # Some more dependencies
-RUN apt-get install -y \
-  vim \
-  libgnutls28-dev \
   && apt-get clean
 
 #
