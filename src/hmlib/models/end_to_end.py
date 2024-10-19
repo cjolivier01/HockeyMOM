@@ -59,12 +59,11 @@ class HmEndToEnd(ByteTrack):
         data_samples: OptTrackSampleList = None,
         **kwargs: Dict[str, Any],
     ):
-        return self.simple_test(img=inputs, data_samples=data_samples, **kwargs)
+        return self.simple_test(inputs=inputs, data_samples=data_samples, **kwargs)
 
     def simple_test(
         self,
-        img,
-        # img_metas,
+        inputs,
         rescale=False,
         data_samples: OptTrackSampleList = None,
         **kwargs,
@@ -84,102 +83,112 @@ class HmEndToEnd(ByteTrack):
         Returns:
             dict[str : list(ndarray)]: The tracking results.
         """
+        if False:
+            if isinstance(data_samples, list):
+                assert len(data_samples) == 1
+                track_data_sample = data_samples[0]
+            else:
+                track_data_sample = data_samples
+            video_len = len(track_data_sample)
 
-        # track_data_sample = data_samples[0]
-        # video_len = len(track_data_sample)
+            for frame_id in range(video_len):
+                img_data_sample = track_data_sample[frame_id]
+                single_img = inputs[:, frame_id].contiguous()
+                # det_results List[DetDataSample]
+                det_results = self.detector.predict(single_img, [img_data_sample])
+                assert len(det_results) == 1, "Batch inference is not supported."
 
-        # for frame_id in range(video_len):
-        #     img_data_sample = track_data_sample[frame_id]
-        #     single_img = inputs[:, frame_id].contiguous()
-        #     # det_results List[DetDataSample]
-        #     det_results = self.detector.predict(single_img, [img_data_sample])
-        #     assert len(det_results) == 1, 'Batch inference is not supported.'
+                pred_track_instances = self.tracker.track(data_sample=det_results[0], **kwargs)
+                img_data_sample.pred_track_instances = pred_track_instances
 
-        #     pred_track_instances = self.tracker.track(
-        #         data_sample=det_results[0], **kwargs)
-        #     img_data_sample.pred_track_instances = pred_track_instances
+            return [track_data_sample]
+        else:
 
-        # return [track_data_sample]
+            if not isinstance(data_samples, list):
+                data_samples = [data_samples]
+            track_data_samples = super().predict(
+                inputs=inputs, data_samples=data_samples, redcale=rescale, **kwargs
+            )
 
-        # if isinstance(img_metas, list):
-        #     assert len(img_metas) == 1
-        #     img_metas = img_metas[0]
-        # frame_id = img_metas.get("frame_id", -1)
-        frame_id = data_samples.video_data_samples[0].metainfo["img_id"]
-        if frame_id == 0:
-            self.tracker.reset()
+            frame_id = track_data_samples.video_data_samples[0].metainfo["img_id"]
+            if frame_id == 0:
+                self.tracker.reset()
 
-        if img.ndim == 5:
-            assert img.size(0) == 1
-            img = img.squeeze(0)
+            if img.ndim == 5:
+                assert img.size(0) == 1
+                img = img.squeeze(0)
 
-        # img_meta_object = DictToObject(dict(metainfo=img_metas))
-        det_results = self.detector.predict(img, data_samples.video_data_samples, rescale=rescale)
-        assert len(det_results) == 1, "Batch inference is not supported."
-        bbox_results = det_results[0]
-        num_classes = len(bbox_results)
+            # img_meta_object = DictToObject(dict(metainfo=img_metas))
+            det_results = self.detector.predict(
+                img, data_samples.video_data_samples, rescale=rescale
+            )
+            assert len(det_results) == 1, "Batch inference is not supported."
+            bbox_results = det_results[0]
+            num_classes = len(bbox_results)
 
-        outs_det = results2outs(bbox_results=bbox_results)
-        det_bboxes = torch.from_numpy(outs_det["bboxes"]).to(img)
-        det_labels = torch.from_numpy(outs_det["labels"]).to(img).long()
+            outs_det = results2outs(bbox_results=bbox_results)
+            det_bboxes = torch.from_numpy(outs_det["bboxes"]).to(img)
+            det_labels = torch.from_numpy(outs_det["labels"]).to(img).long()
 
-        if self.post_detection_composed_pipeline is not None:
-            data = {
-                "det_bboxes": det_bboxes,
-                "labels": det_labels,
-                "prune_list": ["det_bboxes", "labels"],
-            }
-            data.update(**kwargs)
-            data = self.post_detection_composed_pipeline(data)
-            det_bboxes = data["det_bboxes"]
-            det_labels = data["labels"]
-            assert len(det_bboxes) == len(det_labels)
+            if self.post_detection_composed_pipeline is not None:
+                data = {
+                    "det_bboxes": det_bboxes,
+                    "labels": det_labels,
+                    "prune_list": ["det_bboxes", "labels"],
+                }
+                data.update(**kwargs)
+                data = self.post_detection_composed_pipeline(data)
+                det_bboxes = data["det_bboxes"]
+                det_labels = data["labels"]
+                assert len(det_bboxes) == len(det_labels)
 
-        track_bboxes, track_labels, track_ids = self.tracker.track(
-            img=img,
-            img_metas=img_metas,
-            model=self,
-            bboxes=det_bboxes,
-            labels=det_labels,
-            frame_id=frame_id,
-            rescale=rescale,
-            **kwargs,
-        )
-        assert len(track_bboxes) == len(track_ids)
-        # print(f"track id {int(track_ids[0])} -> bbox = {[int(i) for i in track_bboxes[0]]}")
-        track_results = outs2results(
-            bboxes=track_bboxes,
-            labels=track_labels,
-            ids=track_ids,
-            num_classes=num_classes,
-        )
-        det_results = outs2results(
-            bboxes=det_bboxes,
-            labels=det_labels,
-            num_classes=(
-                num_classes if self._num_classes_override is None else self._num_classes_override
-            ),
-        )
-
-        results = dict(
-            det_bboxes=det_results["bbox_results"],
-            track_bboxes=track_results["bbox_results"],
-            data=data,
-        )
-        assert results["data"]["original_images"].ndim == 4
-        if self.neck is not None:
-            jersey_results = self.neck(
-                data=dict(
-                    img=results["data"]["original_images"],
-                    category_bboxes=track_results["bbox_results"],
+            track_bboxes, track_labels, track_ids = self.tracker.track(
+                img=img,
+                img_metas=img_metas,
+                model=self,
+                bboxes=det_bboxes,
+                labels=det_labels,
+                frame_id=frame_id,
+                rescale=rescale,
+                **kwargs,
+            )
+            assert len(track_bboxes) == len(track_ids)
+            # print(f"track id {int(track_ids[0])} -> bbox = {[int(i) for i in track_bboxes[0]]}")
+            track_results = outs2results(
+                bboxes=track_bboxes,
+                labels=track_labels,
+                ids=track_ids,
+                num_classes=num_classes,
+            )
+            det_results = outs2results(
+                bboxes=det_bboxes,
+                labels=det_labels,
+                num_classes=(
+                    num_classes
+                    if self._num_classes_override is None
+                    else self._num_classes_override
                 ),
             )
-            results["jersey_results"] = (
-                jersey_results["jersey_results"] if "jersey_results" in jersey_results else None
-            )
-        assert results["data"]["original_images"].ndim == 4
 
-        return results
+            results = dict(
+                det_bboxes=det_results["bbox_results"],
+                track_bboxes=track_results["bbox_results"],
+                data=data,
+            )
+            assert results["data"]["original_images"].ndim == 4
+            if self.neck is not None:
+                jersey_results = self.neck(
+                    data=dict(
+                        img=results["data"]["original_images"],
+                        category_bboxes=track_results["bbox_results"],
+                    ),
+                )
+                results["jersey_results"] = (
+                    jersey_results["jersey_results"] if "jersey_results" in jersey_results else None
+                )
+            assert results["data"]["original_images"].ndim == 4
+
+            return results
 
 
 def imrenormalize(img, img_norm_cfg, new_img_norm_cfg):
