@@ -119,32 +119,53 @@ def run_mmtrack(
                     if not using_precalculated_tracking:
                         if detect_timer is None:
                             detect_timer = Timer()
+                        # if not isinstance(data["img"], list):
+                        #     # make it a list for some damned reason
+                        #     # TODO: would prefer to have a batch tensor than a list
+                        #     data["img"] = [data["img"]]
 
-                        if isinstance(data["img"][0], StreamTensor):
-                            get_timer.tic()
-                            for i in range(len(data["img"])):
-                                data["img"][i] = data["img"][i].get()
-                            get_timer.toc()
+                        if isinstance(data["img"], list):
+                            if isinstance(data["img"][0], StreamTensor):
+                                get_timer.tic()
+                                for i in range(len(data["img"])):
+                                    data["img"][i] = data["img"][i].get()
+                                get_timer.toc()
+                            else:
+                                get_timer = None
+                            data = collate([data], samples_per_gpu=batch_size)
+                            if next(model.parameters()).is_cuda:
+                                # scatter to specified GPU
+                                data = scatter(data, [device])[0]
+                            else:
+                                for m in model.modules():
+                                    assert not isinstance(
+                                        m, RoIPool
+                                    ), "CPU inference with RoIPool is not supported currently."
+                                # just get the actual data from DataContainer
+                                data["img_metas"] = data["img_metas"][0].data
+
+                            for i, img in enumerate(data["img"]):
+                                data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
+                                    torch.float16 if fp16 else torch.float,
+                                    non_blocking=True,
+                                )
+
                         else:
-                            get_timer = None
-
-                        data = collate([data], samples_per_gpu=batch_size)
-                        if next(model.parameters()).is_cuda:
-                            # scatter to specified GPU
-                            data = scatter(data, [device])[0]
-                        else:
-                            for m in model.modules():
-                                assert not isinstance(
-                                    m, RoIPool
-                                ), "CPU inference with RoIPool is not supported currently."
-                            # just get the actual data from DataContainer
-                            data["img_metas"] = data["img_metas"][0].data
-
-                        for i, img in enumerate(data["img"]):
-                            data["img"][i] = make_channels_first(data["img"][i].squeeze(0)).to(
-                                torch.float16 if fp16 else torch.float,
-                                non_blocking=True,
-                            )
+                            # TODO: maybe make f16/bf16?
+                            # So far, tracking goes to Hell for some reason when using 16-bit,
+                            # maybe the Kalman filter. Seems like detection itself should be good
+                            # enough at 16-bit, so maybe need to modify that
+                            # ByteTrack does a "batch" of just one, but the second dim
+                            # is the # frames, so it's like a batch, but the frames of the same
+                            # video are the batch items.  This is why we unsqueeze here.
+                            data["img"] = make_channels_first(data["img"])
+                            if isinstance(data["img"], StreamTensor):
+                                data["img"].verbose = True
+                                data["img"] = data["img"].get()
+                                # data["img"] = data["img"].wait()
+                            # Make batch size of 1, but some T number of frames (prev batch size)
+                            data["img"] = data["img"].unsqueeze(0)
+                            assert data["img"].ndim == 5
 
                         if "original_images" not in data:
                             data["original_images"] = origin_imgs

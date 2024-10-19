@@ -5,8 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
 import mmcv
+import mmengine
 import numpy as np
 import torch
+from mmcv.transforms import LoadImageFromFile
+from mmengine.registry import TRANSFORMS
 
 # from mmpose.core.post_processing import (
 #     affine_transform,
@@ -16,8 +19,6 @@ import torch
 # )
 from mmpose.structures.bbox.transforms import bbox_cs2xywh, bbox_xywh2cs
 from torchvision.transforms import functional as F
-from mmengine.registry import TRANSFORMS
-from mmcv.transforms import LoadImageFromFile
 
 # from hmlib.builder import TRANSFORMS
 from hmlib.ui.show import show_image
@@ -666,7 +667,7 @@ class HmResize:
                 self.img_scale = img_scale
             else:
                 self.img_scale = [img_scale]
-            assert mmcv.is_list_of(self.img_scale, tuple)
+            assert mmengine.is_list_of(self.img_scale, tuple)
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
@@ -697,7 +698,7 @@ class HmResize:
                 ``scale_idx`` is the selected index in the given candidates.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple)
+        assert mmengine.is_list_of(img_scales, tuple)
         scale_idx = np.random.randint(len(img_scales))
         img_scale = img_scales[scale_idx]
         return img_scale, scale_idx
@@ -717,7 +718,7 @@ class HmResize:
                 to be consistent with :func:`random_select`.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple) and len(img_scales) == 2
+        assert mmengine.is_list_of(img_scales, tuple) and len(img_scales) == 2
         img_scale_long = [max(s) for s in img_scales]
         img_scale_short = [min(s) for s in img_scales]
         long_edge = np.random.randint(min(img_scale_long), max(img_scale_long) + 1)
@@ -814,9 +815,10 @@ class HmResize:
                 )
             results[key] = img
 
-            scale_factor = np.array(
-                [w_scale, h_scale, w_scale, h_scale], dtype=np.float32
-            )
+            # scale_factor = np.array(
+            #     [w_scale, h_scale, w_scale, h_scale], dtype=np.float32
+            # )
+            scale_factor = np.array([w_scale, h_scale], dtype=np.float32)
             results["img_shape"] = [image_height(img), image_width(img), 3]
             # in case that there is no padding
             results["pad_shape"] = results["img_shape"]
@@ -1420,8 +1422,8 @@ class HmVideoCollect(object):
             _results = self._collect_meta_keys(_results)
             outs.append(_results)
 
-        if results_is_dict:
-            outs[0]["img_metas"] = DC(outs[0]["img_metas"], cpu_only=True)
+        # if results_is_dict:
+        #     outs[0]["img_metas"] = DC(outs[0]["img_metas"], cpu_only=True)
 
         return outs[0] if results_is_dict else outs
 

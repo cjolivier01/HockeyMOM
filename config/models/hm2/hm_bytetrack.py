@@ -1,3 +1,4 @@
+# pylint: disable=use-dict-literal
 _base_ = ["../../../openmm/mmdetection/configs/yolox/yolox_s_8xb8-300e_coco.py"]
 
 dataset_type = "MOTChallengeDataset"
@@ -91,23 +92,36 @@ inference_pipeline = [
     # Crop first in order to not affect any subsequent coordinates,
     # as well as not waste compute on parts of the image that will be thrown away
     dict(type="HmCrop", keys=["img"], save_clipped_images=True),
+    # Make sure this is a PyTorch tensor
+    dict(type="HmImageToTensor", keys=["img"]),
+    # Do the resize
+    dict(type="HmResize", img_scale=img_scale, keep_ratio=True),
+    # Make it a letterbox of the correct aspect ratio and padding
     dict(
-        type="MultiScaleFlipAug",
-        # img_scale=img_scale,
-        allow_flip=False,
-        transforms=[
-            dict(type="HmImageToTensor", keys=["img"]),
-            dict(type="HmResize", keep_ratio=True),
-            dict(type="RandomFlip"),
-            # dict(type="Normalize", **img_norm_cfg),
-            dict(
-                type="HmPad",
-                pad_val=114.0,
-                size_divisor=32,
-            ),
-            dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
-        ],
+        type="HmPad",
+        pad_val=114.0,
+        size_divisor=32,
     ),
+    # Not sure exactly what this does.  Puts stuff in particular dicrt entries, maybe?
+    # dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
+    dict(type="mmdet.PackTrackInputs"),
+    # dict(
+    #     type="MultiScaleFlipAug",
+    #     # img_scale=img_scale,
+    #     allow_flip=False,
+    #     transforms=[
+    #         dict(type="HmImageToTensor", keys=["img"]),
+    #         dict(type="HmResize", keep_ratio=True),
+    #         dict(type="RandomFlip"),
+    #         # dict(type="Normalize", **img_norm_cfg),
+    #         dict(
+    #             type="HmPad",
+    #             pad_val=114.0,
+    #             size_divisor=32,
+    #         ),
+    #         dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
+    #     ],
+    # ),
 ]
 
 train_dataloader = dict(

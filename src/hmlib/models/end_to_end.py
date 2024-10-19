@@ -1,11 +1,13 @@
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import mmcv
+import mmengine
 import numpy as np
 import torch
 from mmcv.transforms import Compose
 from mmdet.models.mot.bytetrack import ByteTrack
 from mmdet.registry import MODELS
+from mmdet.structures import OptTrackSampleList
 from mmdet.structures.bbox import bbox2result
 
 
@@ -28,7 +30,7 @@ class HmEndToEnd(ByteTrack):
             data_preprocessor = MODELS.build(data_preprocessor)
             kwargs["data_preprocessor"] = data_preprocessor
 
-        super(HmEndToEnd, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._enabled = enabled
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
@@ -40,18 +42,33 @@ class HmEndToEnd(ByteTrack):
             # self.neck = build_neck(neck)
 
     def __call__(self, *args, **kwargs):
-        return super(HmEndToEnd, self).__call__(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, img, return_loss=True, **kwargs):
         if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
             self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
-        results = super(HmEndToEnd, self).forward(img, return_loss=return_loss, **kwargs)
+        results = super().forward(img, return_loss=return_loss, **kwargs)
         # if self.post_detection_composed_pipeline is not None:
         #     results = self.post_detection_composed_pipeline(results)
         return results
 
-    def simple_test(self, img, img_metas, rescale=False, **kwargs):
+    def predict(
+        self,
+        inputs: Union[Dict[str, torch.Tensor], torch.Tensor],
+        data_samples: OptTrackSampleList = None,
+        **kwargs: Dict[str, Any],
+    ):
+        return self.simple_test(img=inputs, data_samples=data_samples, **kwargs)
+
+    def simple_test(
+        self,
+        img,
+        img_metas,
+        rescale=False,
+        data_samples: OptTrackSampleList = None,
+        **kwargs,
+    ):
         """Test without augmentations.
 
         Args:
@@ -67,11 +84,36 @@ class HmEndToEnd(ByteTrack):
         Returns:
             dict[str : list(ndarray)]: The tracking results.
         """
-        frame_id = img_metas[0].get("frame_id", -1)
+
+        # track_data_sample = data_samples[0]
+        # video_len = len(track_data_sample)
+
+        # for frame_id in range(video_len):
+        #     img_data_sample = track_data_sample[frame_id]
+        #     single_img = inputs[:, frame_id].contiguous()
+        #     # det_results List[DetDataSample]
+        #     det_results = self.detector.predict(single_img, [img_data_sample])
+        #     assert len(det_results) == 1, 'Batch inference is not supported.'
+
+        #     pred_track_instances = self.tracker.track(
+        #         data_sample=det_results[0], **kwargs)
+        #     img_data_sample.pred_track_instances = pred_track_instances
+
+        # return [track_data_sample]
+
+        if isinstance(img_metas, list):
+            assert len(img_metas) == 1
+            img_metas = img_metas[0]
+        frame_id = img_metas.get("frame_id", -1)
         if frame_id == 0:
             self.tracker.reset()
 
-        det_results = self.detector.simple_test(img, img_metas, rescale=rescale)
+        if img.ndim == 5:
+            assert img.size(0) == 1
+            img = img.squeeze(0)
+
+        # img_meta_object = DictToObject(dict(metainfo=img_metas))
+        det_results = self.detector.predict(img, [img_meta_object], rescale=rescale)
         assert len(det_results) == 1, "Batch inference is not supported."
         bbox_results = det_results[0]
         num_classes = len(bbox_results)
@@ -286,7 +328,7 @@ def results2outs(bbox_results=None, mask_results=None, mask_shape=None, **kwargs
     if mask_results is not None:
         assert mask_shape is not None
         mask_height, mask_width = mask_shape
-        mask_results = mmcv.concat_list(mask_results)
+        mask_results = mmengine.concat_list(mask_results)
         if len(mask_results) == 0:
             masks = np.zeros((0, mask_height, mask_width)).astype(bool)
         else:
@@ -294,3 +336,9 @@ def results2outs(bbox_results=None, mask_results=None, mask_shape=None, **kwargs
         outputs["masks"] = masks
 
     return outputs
+
+
+class DictToObject:
+    def __init__(self, dictionary):
+        for key, value in dictionary.items():
+            setattr(self, key, value)

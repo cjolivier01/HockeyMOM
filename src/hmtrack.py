@@ -591,8 +591,8 @@ def main(args, num_gpu):
                     # data_pipeline = Compose(model.cfg.test_dataloader.dataset.pipeline)
                     cfg = model.cfg.copy()
                     pipeline = cfg.inference_pipeline
-                    pipeline = cfg.inference_pipeline
-                    pipeline[0].type = "mmdet.HmLoadImageFromWebcam"
+                    # pipeline[0].type = "mmdet.HmLoadImageFromWebcam"
+                    pipeline[0].type = "HmLoadImageFromWebcam"
                     data_pipeline = Compose(pipeline)
 
                 #

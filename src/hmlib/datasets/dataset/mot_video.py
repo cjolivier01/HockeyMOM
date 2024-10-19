@@ -349,6 +349,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img=make_channels_last(img0),
                     img_info=dict(frame_id=ids[0]),
                     img_prefix=None,
+                    img_id=ids,
                 )
                 data_item = self._data_pipeline(data_item)
                 img = data_item["img"]
@@ -366,6 +367,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img, list):
                     assert len(img) == 1
                     img = img[0]
+                    data = data_item
+                else:
+                    # mmcv2, trying not to use that weird DataContainer class,
+                    # whatever the Hell that is supposed to be for
                     data = data_item
             else:
                 original_img0 = img0
@@ -419,11 +424,16 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if self._data_pipeline is not None:
             if cuda_stream is not None:
-                for i, img in enumerate(data["img"]):
-                    img = StreamCheckpoint(
-                        tensor=img,
-                    )
-                    data["img"][i] = img
+                if isinstance(data["img"], list):
+                    # mmcv1 path
+                    for i, img in enumerate(data["img"]):
+                        img = StreamCheckpoint(
+                            tensor=img,
+                        )
+                else:
+                    # New mmcv2 path
+                    assert isinstance(data["img"], torch.Tensor)
+                    data["img"] = StreamCheckpoint(tensor=data["img"])
             if self._result_as_dict:
                 return dict(
                     original_imgs=_wrap_original_image(original_img0),
