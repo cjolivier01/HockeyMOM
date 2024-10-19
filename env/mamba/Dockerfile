@@ -338,7 +338,8 @@ WORKDIR /home/$USERNAME
 #
 # HM Deps
 #
-RUN apt-get install -y libwxgtk3.0-gtk3-dev
+USER root
+RUN apt-get install -y libwxgtk3.0-gtk3-dev && apt-get clean
 
 ####################################################################
 #
