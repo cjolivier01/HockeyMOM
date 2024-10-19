@@ -318,7 +318,7 @@ RUN conda run -n ubuntu pip install dist/*.whl
 #
 ####################################################################
 WORKDIR /home/$USERNAME/src
-RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
+RUN git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 WORKDIR /home/$USERNAME/src/audio
 RUN \
   MAX_JOBS=16 \
@@ -338,8 +338,7 @@ WORKDIR /home/$USERNAME
 #
 # HM Deps
 #
-RUN apt-get install -y \
-  libwxgtk3.0-gtk3-dev
+RUN apt-get install -y libwxgtk3.0-gtk3-dev
 
 ####################################################################
 #
