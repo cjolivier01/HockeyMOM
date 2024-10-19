@@ -17,6 +17,7 @@ import torch
 from mmpose.structures.bbox.transforms import bbox_cs2xywh, bbox_xywh2cs
 from torchvision.transforms import functional as F
 from mmengine.registry import TRANSFORMS
+from mmcv.transforms import LoadImageFromFile
 
 # from hmlib.builder import TRANSFORMS
 from hmlib.ui.show import show_image
@@ -1464,4 +1465,44 @@ class HmVideoCollect(object):
                 to_rgb=False,
             ),
         )
+        return results
+
+
+def _to_float(t: Union[np.ndarray, torch.Tensor]):
+    if isinstance(t, torch.Tensor):
+        if not torch.is_floating_point(t):
+            return t.to(torch.float, non_blocking=True)
+        return t
+    return t.astype(np.float32)
+
+
+@TRANSFORMS.register_module()
+class HmLoadImageFromWebcam(LoadImageFromFile):
+    """Load an image from webcam.
+
+    Similar with :obj:`LoadImageFromFile`, but the image read from webcam is in
+    ``results['img']``.
+    """
+
+    def __call__(self, results):
+        """Call functions to add image meta information.
+
+        Args:
+            results (dict): Result dict with Webcam read image in
+                ``results['img']``.
+
+        Returns:
+            dict: The dict contains loaded image and meta information.
+        """
+
+        img = results["img"]
+        if self.to_float32:
+            img = _to_float(img)
+
+        results["filename"] = None
+        results["ori_filename"] = None
+        results["img"] = img
+        results["img_shape"] = img.shape
+        results["ori_shape"] = img.shape
+        results["img_fields"] = ["img"]
         return results

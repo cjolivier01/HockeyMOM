@@ -592,7 +592,7 @@ def main(args, num_gpu):
                     cfg = model.cfg.copy()
                     pipeline = cfg.inference_pipeline
                     pipeline = cfg.inference_pipeline
-                    pipeline[0].type = "mmdet.LoadImageFromNDArray"
+                    pipeline[0].type = "mmdet.HmLoadImageFromWebcam"
                     data_pipeline = Compose(pipeline)
 
                 #
