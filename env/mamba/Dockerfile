@@ -334,23 +334,38 @@ RUN \
 RUN conda run -n ubuntu pip install dist/*.whl
 
 #
-# Clean up builds
-#
-USER root
-WORKDIR /home/$USERNAME
-RUN rm -rf src/*
-
-#
 # HM Deps
 #
 USER root
 RUN apt-get install -y libwxgtk3.0-gtk3-dev && apt-get clean
+
+USER $USERNAME
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/cjolivier01/hugin --branch=colivier/hockeymom --recursive
+WORKDIR /home/$USERNAME/src/hugin
+RUN mkdir build && cd build && \
+  cmake .. && \
+  make -j $(nproc)
+
+USER root
+RUN make install
+
+USER root
+RUN conda run -n ubuntu pip install dist/*.whl
 
 ####################################################################
 #
 # Build and install Hugin
 #
 ####################################################################
+
+
+#
+# Clean up builds
+#
+USER root
+WORKDIR /home/$USERNAME
+RUN rm -rf src/*
 
 
 ####################################################################
