@@ -117,16 +117,16 @@ class HmEndToEnd(ByteTrack):
                     det_scores = data["scores"]
 
                     instance_data = InstanceData()
-                    instance_data.img_shape = det_data_sample.pred_instances.img_shape
-                    instance_data.pad_shape = det_data_sample.pred_instances.pad_shape
-                    instance_data.det_scores = det_scores
-                    instance_data.det_labels = det_labels
-                    instance_data.det_bboxes = det_bboxes
-                    instance_data.polygons = det_data_sample.pred_instances.polygons
+                    # instance_data["img_shape"] = det_data_sample.pred_instances.img_shape
+                    # instance_data["pad_shape"] = det_data_sample.pred_instances.pad_shape
+                    instance_data["scores"] = det_scores
+                    instance_data["labels"] = det_labels
+                    instance_data["bboxes"] = det_bboxes
+                    det_data_sample.pred_instances = instance_data
 
-                    det_data_sample.pred_instances["bboxes"] = det_bboxes
-                    det_data_sample.pred_instances.labels = det_labels
-                    det_data_sample.pred_instances.scores = det_scores
+                    # det_data_sample.pred_instances["bboxes"] = det_bboxes
+                    # det_data_sample.pred_instances.labels = det_labels
+                    # det_data_sample.pred_instances.scores = det_scores
                     assert len(det_bboxes) == len(det_labels)
                     assert len(det_scores) == len(det_labels)
 
