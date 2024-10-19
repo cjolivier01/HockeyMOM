@@ -215,6 +215,9 @@ class SegmBoundaries:
         elif bbox_tensors.shape[1] == 5:
             # Detection tlbr + score
             bboxes = bbox_tensors[:, :4]
+        elif bbox_tensors.shape[1] == 4:
+            # Detection tlbr only
+            bboxes = bbox_tensors
         else:
             assert False
         keep_indexes = self.prune_items_index(batch_item_bboxes=bboxes)

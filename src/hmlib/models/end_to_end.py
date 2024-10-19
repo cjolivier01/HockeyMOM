@@ -9,6 +9,7 @@ from mmdet.models.mot.bytetrack import ByteTrack
 from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmdet.structures.bbox import bbox2result
+from mmengine.structures import BaseDataElement, InstanceData, PixelData
 
 
 @MODELS.register_module()
@@ -83,7 +84,7 @@ class HmEndToEnd(ByteTrack):
         Returns:
             dict[str : list(ndarray)]: The tracking results.
         """
-        if False:
+        if True:
             if isinstance(data_samples, list):
                 assert len(data_samples) == 1
                 track_data_sample = data_samples[0]
@@ -97,6 +98,37 @@ class HmEndToEnd(ByteTrack):
                 # det_results List[DetDataSample]
                 det_results = self.detector.predict(single_img, [img_data_sample])
                 assert len(det_results) == 1, "Batch inference is not supported."
+                det_data_sample = det_results[0]
+                det_bboxes = det_data_sample.pred_instances.bboxes
+                det_labels = det_data_sample.pred_instances.labels
+                det_scores = det_data_sample.pred_instances.scores
+                if self.post_detection_composed_pipeline is not None:
+                    # We may prune the detections to relevent items
+                    data = {
+                        "det_bboxes": det_bboxes,
+                        "labels": det_labels,
+                        "scores": det_scores,
+                        "prune_list": ["det_bboxes", "labels", "scores"],
+                    }
+                    data.update(**kwargs)
+                    data = self.post_detection_composed_pipeline(data)
+                    det_bboxes = data["det_bboxes"]
+                    det_labels = data["labels"]
+                    det_scores = data["scores"]
+
+                    instance_data = InstanceData()
+                    instance_data.img_shape = det_data_sample.pred_instances.img_shape
+                    instance_data.pad_shape = det_data_sample.pred_instances.pad_shape
+                    instance_data.det_scores = det_scores
+                    instance_data.det_labels = det_labels
+                    instance_data.det_bboxes = det_bboxes
+                    instance_data.polygons = det_data_sample.pred_instances.polygons
+
+                    det_data_sample.pred_instances["bboxes"] = det_bboxes
+                    det_data_sample.pred_instances.labels = det_labels
+                    det_data_sample.pred_instances.scores = det_scores
+                    assert len(det_bboxes) == len(det_labels)
+                    assert len(det_scores) == len(det_labels)
 
                 pred_track_instances = self.tracker.track(data_sample=det_results[0], **kwargs)
                 img_data_sample.pred_track_instances = pred_track_instances
