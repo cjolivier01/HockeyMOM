@@ -289,7 +289,7 @@ RUN \
   conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN pip install dist/*.whl
+RUN  conda run -n ubuntu pip install dist/*.whl
 
 ####################################################################
 #
@@ -307,9 +307,10 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN pip install dist/*.whl
+RUN conda run -n ubuntu pip install dist/*.whl
 
 ####################################################################
 #
@@ -327,9 +328,10 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN pip install dist/*.whl
+RUN conda run -n ubuntu pip install dist/*.whl
 
 WORKDIR /home/$USERNAME
 
