@@ -333,6 +333,12 @@ RUN \
 
 RUN conda run -n ubuntu pip install dist/*.whl
 
+####################################################################
+#
+# Build and install Hugin
+#
+####################################################################
+
 #
 # HM Deps
 #
@@ -348,16 +354,8 @@ RUN mkdir build && cd build && \
   make -j $(nproc)
 
 USER root
+WORKDIR /home/$USERNAME/src/hugin/build
 RUN make install
-
-USER root
-RUN conda run -n ubuntu pip install dist/*.whl
-
-####################################################################
-#
-# Build and install Hugin
-#
-####################################################################
 
 
 #
