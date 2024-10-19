@@ -333,7 +333,12 @@ RUN \
 
 RUN conda run -n ubuntu pip install dist/*.whl
 
+#
+# Clean up builds
+#
+USER root
 WORKDIR /home/$USERNAME
+RUN rm -rf src/*
 
 #
 # HM Deps
