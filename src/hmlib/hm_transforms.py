@@ -819,11 +819,11 @@ class HmResize:
             #     [w_scale, h_scale, w_scale, h_scale], dtype=np.float32
             # )
             scale_factor = np.array([w_scale, h_scale], dtype=np.float32)
-            results["img_shape"] = [image_height(img), image_width(img), 3]
+            results["img_shape"] = [(image_height(img), image_width(img))]
             # in case that there is no padding
             results["pad_shape"] = results["img_shape"]
-            results["scale_factor"] = scale_factor
-            results["keep_ratio"] = self.keep_ratio
+            results["scale_factor"] = [scale_factor]
+            results["keep_ratio"] = [self.keep_ratio]
 
     def _resize_bboxes(self, results):
         """Resize bounding boxes with ``results['scale_factor']``."""
@@ -974,8 +974,9 @@ class HmCrop:
                     img = make_channels_last(img)
                 results[key] = img
                 if key == "img":
-                    results["img_shape"] = torch.tensor(img.shape, dtype=torch.int64)
-                    results["ori_shape"] = results["img_shape"].clone()
+                    # TODO: shape probably needs to be 2 elements only
+                    results["img_shape"] = [torch.tensor(img.shape, dtype=torch.int64)]
+                    results["ori_shape"] = [results["img_shape"][0].clone()]
                 if self.save_clipped_images:
                     if "clipped_image" not in results:
                         results["clipped_image"] = dict()
@@ -1500,11 +1501,13 @@ class HmLoadImageFromWebcam(LoadImageFromFile):
         img = results["img"]
         if self.to_float32:
             img = _to_float(img)
-
+        assert img.ndim == 4
+        img = make_channels_last(img)
+        shape = img.shape[1:3]
         results["filename"] = None
         results["ori_filename"] = None
         results["img"] = img
-        results["img_shape"] = img.shape
-        results["ori_shape"] = img.shape
+        results["img_shape"] = [shape]
+        results["ori_shape"] = [shape]
         results["img_fields"] = ["img"]
         return results

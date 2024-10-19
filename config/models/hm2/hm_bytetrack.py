@@ -104,7 +104,7 @@ inference_pipeline = [
     ),
     # Not sure exactly what this does.  Puts stuff in particular dicrt entries, maybe?
     # dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
-    dict(type="mmdet.PackTrackInputs"),
+    dict(type="mmdet.PackTrackInputs", meta_keys=("img_metas")),
     # dict(
     #     type="MultiScaleFlipAug",
     #     # img_scale=img_scale,

@@ -64,7 +64,7 @@ class HmEndToEnd(ByteTrack):
     def simple_test(
         self,
         img,
-        img_metas,
+        # img_metas,
         rescale=False,
         data_samples: OptTrackSampleList = None,
         **kwargs,
@@ -101,10 +101,11 @@ class HmEndToEnd(ByteTrack):
 
         # return [track_data_sample]
 
-        if isinstance(img_metas, list):
-            assert len(img_metas) == 1
-            img_metas = img_metas[0]
-        frame_id = img_metas.get("frame_id", -1)
+        # if isinstance(img_metas, list):
+        #     assert len(img_metas) == 1
+        #     img_metas = img_metas[0]
+        # frame_id = img_metas.get("frame_id", -1)
+        frame_id = data_samples.video_data_samples[0].metainfo["img_id"]
         if frame_id == 0:
             self.tracker.reset()
 
@@ -113,7 +114,7 @@ class HmEndToEnd(ByteTrack):
             img = img.squeeze(0)
 
         # img_meta_object = DictToObject(dict(metainfo=img_metas))
-        det_results = self.detector.predict(img, [img_meta_object], rescale=rescale)
+        det_results = self.detector.predict(img, data_samples.video_data_samples, rescale=rescale)
         assert len(det_results) == 1, "Batch inference is not supported."
         bbox_results = det_results[0]
         num_classes = len(bbox_results)

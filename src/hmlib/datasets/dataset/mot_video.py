@@ -352,6 +352,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img_id=ids,
                 )
                 data_item = self._data_pipeline(data_item)
+                assert "img" not in data_item
+                data_item["img"] = data_item.pop("inputs")
                 img = data_item["img"]
 
                 # Maybe get back the clipped image as the "original"
