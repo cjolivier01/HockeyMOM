@@ -109,6 +109,7 @@ class HmEndToEnd(ByteTrack):
             track_data_samples = super().predict(
                 inputs=inputs, data_samples=data_samples, redcale=rescale, **kwargs
             )
+            assert len(track_data_samples) == 1
 
             frame_id = track_data_samples.video_data_samples[0].metainfo["img_id"]
             if frame_id == 0:
