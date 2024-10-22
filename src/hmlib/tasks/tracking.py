@@ -1,10 +1,11 @@
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import numpy as np
 import torch
 from mmcv.ops import RoIPool
+from mmdet.structures import TrackDataSample, DetDataSample
 
 # from mmcv.parallel import collate, scatter
 from torch.cuda.amp import autocast
@@ -182,10 +183,24 @@ def run_mmtrack(
                                         return_loss=False, rescale=True, **data
                                     )
                         detect_timer.toc()
+                        assert len(tracking_results) == 1
+                        track_sample_data: TrackDataSample = tracking_results[0]
+                        # will this list be larger for more than one frame? find out.
+                        video_data_samples_list: List[DetDataSample] = (
+                            track_sample_data.video_data_samples
+                        )
+                        assert len(video_data_samples_list) == 1
+                        video_data_samples = video_data_samples_list[0]
+                        pred_track_instances = video_data_samples.pred_track_instances
 
-                        det_bboxes = tracking_results["det_bboxes"]
-                        track_bboxes = tracking_results["track_bboxes"]
-                        origin_imgs = tracking_results["data"]["original_images"]
+                        # TODO: Pass around TrackDataSample or a
+                        # higher-level wrapper/container class
+                        det_bboxes = video_data_samples.pred_instances.bboxes
+                        # track_bboxes = pred_track_instances.bboxes
+                        # det_bboxes = tracking_results["det_bboxes"]
+                        # track_bboxes = tracking_results["track_bboxes"]
+                        # origin_imgs = tracking_results["data"]["original_images"]
+                        # Does origin_imgs get clipped?
 
                     for frame_index, frame_id in enumerate(info_imgs[2]):
                         # for frame_index in range(len(origin_imgs)):
@@ -221,11 +236,17 @@ def run_mmtrack(
                                 )
 
                             detections = det_bboxes[frame_index]
-                            tracking_items = track_bboxes[frame_index]
+                            # tracking_items = track_bboxes[frame_index]
 
-                            track_ids = tracking_items[:, 0].astype(np.int64)
-                            bboxes = tracking_items[:, 1:5]
-                            scores = tracking_items[:, -1]
+                            # track_ids = tracking_items[:, 0].astype(np.int64)
+                            # bboxes = tracking_items[:, 1:5]
+                            # scores = tracking_items[:, -1]
+                            video_data_samples = video_data_samples_list[frame_index]
+                            pred_track_instances = video_data_samples.pred_track_instances
+                            # TOD: Are we pruning by label/class?
+                            track_ids = pred_track_instances.instances_id
+                            bboxes = pred_track_instances.bboxes
+                            scores = pred_track_instances.scores
 
                             if tracking_data is not None:
                                 tracking_data.add_frame_records(
@@ -235,7 +256,8 @@ def run_mmtrack(
                                     scores=scores,
                                 )
 
-                            online_tlwhs = torch.from_numpy(bboxes)
+                            # online_tlwhs = torch.from_numpy(bboxes)
+                            online_tlwhs = bboxes.clone()
                             # make boxes tlwh
                             online_tlwhs[:, 2] = (
                                 online_tlwhs[:, 2] - online_tlwhs[:, 0]
@@ -251,8 +273,10 @@ def run_mmtrack(
                             online_tlwhs = torch.from_numpy(bboxes)
                             tracking_results = None
 
-                        online_ids = torch.from_numpy(track_ids)
-                        online_scores = torch.from_numpy(scores)
+                        # online_ids = torch.from_numpy(track_ids)
+                        # online_scores = torch.from_numpy(scores)
+                        online_ids = track_ids.clone()
+                        online_scores = scores.clone()
 
                         # Clean data to send of the batched images
                         data_to_send = data.copy()

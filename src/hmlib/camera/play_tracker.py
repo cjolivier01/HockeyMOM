@@ -268,6 +268,8 @@ class PlayTracker(torch.nn.Module):
         return boxes_map, torch.stack(boxes_list)
 
     def process_jerseys_info(self, data: Dict[str, Any]) -> None:
+        return None
+
         jersey_results = data["tracking_results"].get("jersey_results")
         if not jersey_results:
             return
