@@ -147,6 +147,6 @@ def convert_tlbr_to_tlwh(tlbr: Union[np.ndarray, torch.Tensor]):
     h = tlbr[:, 3] - tlbr[:, 1]
 
     # Stack the results into a new tensor and return
-    if isinstance(tlbr, np.nbdarray):
+    if isinstance(tlbr, np.ndarray):
         return np.stack([x, y, w, h], axis=1)
     return torch.stack([x, y, w, h], dim=1)
