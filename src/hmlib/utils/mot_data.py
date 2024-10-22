@@ -1,7 +1,8 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import numpy as np
 import pandas as pd
+import torch
 
 from hmlib.tracking_utils.log import logger
 
@@ -123,7 +124,7 @@ class MOTTrackingData(TrackingDataBase):
         return tracking_ids, scores, tlwh
 
 
-def convert_tlbr_to_tlwh(tlbr: np.ndarray):
+def convert_tlbr_to_tlwh(tlbr: Union[np.ndarray, torch.Tensor]):
     """
     Convert bounding boxes from TLBR format to TLWH format.
 
@@ -146,4 +147,6 @@ def convert_tlbr_to_tlwh(tlbr: np.ndarray):
     h = tlbr[:, 3] - tlbr[:, 1]
 
     # Stack the results into a new tensor and return
-    return np.stack([x, y, w, h], axis=1)
+    if isinstance(tlbr, np.nbdarray):
+        return np.stack([x, y, w, h], axis=1)
+    return torch.stack([x, y, w, h], dim=1)
