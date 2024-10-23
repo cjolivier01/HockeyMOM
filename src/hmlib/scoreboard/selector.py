@@ -1,20 +1,20 @@
-import os
-import torch
 import argparse
+import os
 import sys
 import tkinter as tk
 from tkinter import messagebox
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
+import torch
 from PIL import Image, ImageTk
 
 from hmlib.config import (
     get_game_config,
     get_game_dir,
+    get_nested_value,
     save_private_config,
     set_nested_value,
-    get_nested_value,
 )
 from hmlib.hm_opts import hm_opts
 
@@ -25,7 +25,7 @@ class ScoreboardSelector:
 
     def __init__(
         self,
-        image: Union[Image, np.ndarray],
+        image: Union[Image.Image, np.ndarray],
         initial_points: Optional[List[Tuple[int, int]]] = None,
     ) -> None:
         try:

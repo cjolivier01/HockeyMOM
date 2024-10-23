@@ -1,11 +1,11 @@
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
 from mmcv.ops import RoIPool
-from mmdet.structures import TrackDataSample, DetDataSample
+from mmdet.structures import DetDataSample, TrackDataSample
 
 # from mmcv.parallel import collate, scatter
 from torch.cuda.amp import autocast
@@ -195,7 +195,7 @@ def run_mmtrack(
 
                         # TODO: Pass around TrackDataSample or a
                         # higher-level wrapper/container class
-                        det_bboxes = video_data_samples.pred_instances.bboxes
+                        # det_bboxes = video_data_samples.pred_instances.bboxes
                         # track_bboxes = pred_track_instances.bboxes
                         # det_bboxes = tracking_results["det_bboxes"]
                         # track_bboxes = tracking_results["track_bboxes"]
@@ -235,7 +235,7 @@ def run_mmtrack(
                                     device=origin_imgs.device, non_blocking=True
                                 )
 
-                            detections = det_bboxes[frame_index]
+                            # detections = det_bboxes[frame_index]
                             # tracking_items = track_bboxes[frame_index]
 
                             # track_ids = tracking_items[:, 0].astype(np.int64)
