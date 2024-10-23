@@ -274,8 +274,16 @@ def draw_horizontal_line(
         color_tensor = color
 
     H, W = image_height(image), image_width(image)
-    if start_x + length > W or start_y > H:
-        raise ValueError("Line goes out of image boundaries.")
+
+    if start_y < 0 or start_y > H:
+        return image
+
+    if start_x + length > W:
+        length = W - start_x
+        if length < 0:  # it's all off the screen?
+            assert False  # just check
+            return image
+        # raise ValueError("Line goes out of image boundaries.")
 
     if alpha == 255:
         image[:, :, start_y : start_y + thickness, start_x : start_x + length] = color_tensor
@@ -306,6 +314,7 @@ def draw_vertical_line(
     """
     # Ensure the square doesn't go out of the image boundaries
     # assert length > 1
+    thickness += 10
     assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
 
@@ -329,8 +338,16 @@ def draw_vertical_line(
         color_tensor = color
 
     H, W = image_height(image), image_width(image)
-    if start_x > W or start_y + length > H:
-        raise ValueError("Line goes out of image boundaries.")
+    if start_x < 0 or start_x > W:
+        return image
+    if start_y < 0:
+        start_y = 0
+    if start_y + length > H:
+        length = H - start_y
+        if length < 0:  # it's all off the screen?
+            assert False  # just check
+            return image
+        # raise ValueError("Line goes out of image boundaries.")
 
     if alpha == 255:
         image[:, :, start_y : start_y + length, start_x : start_x + thickness] = color_tensor
