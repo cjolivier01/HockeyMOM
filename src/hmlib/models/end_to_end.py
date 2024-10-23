@@ -92,7 +92,7 @@ class HmEndToEnd(ByteTrack):
                 track_data_sample = data_samples
             video_len = len(track_data_sample)
 
-            detect_all = True
+            detect_all = False
             if detect_all:
                 assert inputs.ndim == 5
                 # only one video, but can be multiple frames
@@ -138,7 +138,9 @@ class HmEndToEnd(ByteTrack):
                     assert len(det_bboxes) == len(det_labels)
                     assert len(det_scores) == len(det_labels)
 
+                # print(len(det_data_sample.pred_instances.bboxes))
                 pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
+                # print(len(pred_track_instances.bboxes))
                 img_data_sample.pred_track_instances = pred_track_instances
 
             return [track_data_sample]
