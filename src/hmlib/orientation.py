@@ -236,10 +236,10 @@ def get_game_videos_analysis(
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
 
-        sum_map: Dict[str, float] = get_orientation_dict(torch.from_numpy(mask))
+        sum_map: Dict[str, float] = get_orientation_dict(mask)
         video_ssm[key] = sum_map
 
-        orientation = get_orientation(torch.from_numpy(mask))
+        orientation = get_orientation(mask)
         if isinstance(key, str):
             if key.startswith("left"):
                 assert orientation == "left"
