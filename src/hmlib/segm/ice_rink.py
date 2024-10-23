@@ -1,6 +1,7 @@
 """
 Ice Rink segmentation stuff
 """
+
 import argparse
 import os
 import time
@@ -125,6 +126,37 @@ def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     return torch.from_numpy(frame).unsqueeze(0)
 
 
+def find_extreme_points(
+    mask: torch.Tensor,
+) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
+    """
+    Find the extreme points in a binary mask where the bit is set.
+
+    Args:
+    - mask (torch.Tensor): A 2D tensor representing the binary mask.
+
+    Returns:
+    - Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
+      Returns the coordinates (y, x) of the smallest x, largest x, smallest y, and largest y that have the bit set.
+    """
+    # Get the indices where the bit is set (value is 1)
+    y_indices, x_indices = torch.where(mask == 1)
+
+    # Find minimum and maximum x and y
+    min_x = torch.min(x_indices)
+    max_x = torch.max(x_indices)
+    min_y = torch.min(y_indices)
+    max_y = torch.max(y_indices)
+
+    # Get the corresponding y and x positions
+    min_x_pos = (y_indices[x_indices == min_x][0].item(), min_x.item())
+    max_x_pos = (y_indices[x_indices == max_x][0].item(), max_x.item())
+    min_y_pos = (min_y.item(), x_indices[y_indices == min_y][0].item())
+    max_y_pos = (max_y.item(), x_indices[y_indices == max_y][0].item())
+
+    return min_x_pos, max_x_pos, min_y_pos, max_y_pos
+
+
 def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
     if isinstance(bboxes, np.ndarray):
         bboxes = torch.from_numpy(bboxes)
@@ -160,28 +192,10 @@ def result_to_polygons(
     """
     Theoretically, could return more than one polygon, especially if there's an obstruction
     """
-    if isinstance(inference_result, DetDataSample):
-        bboxes = inference_result.pred_instances.bboxes
-        labels = inference_result.pred_instances.labels
-        segm_result = inference_result.pred_sem_seg
-    else:
-        if isinstance(inference_result, tuple):
-            bbox_result, segm_result = inference_result
-            if isinstance(segm_result, tuple):
-                segm_result = segm_result[0]  # ms rcnn
-        else:
-            bbox_result, segm_result = inference_result, None
-        bboxes = np.vstack(bbox_result)
-        labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
-        labels = np.concatenate(labels)
-
-    segms = None
-    if segm_result is not None and len(labels) > 0:  # non empty
-        segms = mmcv.concat_list(segm_result)
-        if isinstance(segms[0], torch.Tensor):
-            segms = torch.stack(segms, dim=0).detach().cpu().numpy()
-        else:
-            segms = np.stack(segms, axis=0)
+    bboxes = inference_result.pred_instances.bboxes
+    labels = inference_result.pred_instances.labels
+    segms = inference_result.pred_instances.masks
+    scores = inference_result.pred_instances.scores
 
     category_mask = labels == category_id
     bboxes = bboxes[category_mask, :]
@@ -190,8 +204,8 @@ def result_to_polygons(
         segms = segms[category_mask, ...]
 
     if score_thr > 0:
-        assert bboxes is not None and bboxes.shape[1] == 5
-        scores = bboxes[:, -1]
+        # assert bboxes is not None and bboxes.shape[1] == 5
+        # scores = bboxes[:, -1]
         inds = scores > score_thr
         bboxes = bboxes[inds, :]
         labels = labels[inds]
@@ -210,7 +224,7 @@ def result_to_polygons(
         contours, _ = bitmap_to_polygon(mask)
         # split_points_by_x_trend_efficient(contours)
         contours_list += contours
-        mask = mask.astype(bool)
+        mask = mask.to(torch.bool)
         if combined_mask is None:
             combined_mask = mask
         else:
@@ -218,18 +232,18 @@ def result_to_polygons(
         mask_list.append(mask)
 
         if show:
-            mask_image = mask.astype(np.uint8) * 255
+            mask_image = mask.to(np.uint8) * 255
             # cv2.namedWindow("Ice-rink", 0)
             # mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
             do_show_image("Ice-rink", mask_image)
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
-    results["masks"] = mask_list
-    results["combined_mask"] = combined_mask
-    results["centroid"] = calculate_centroid(contours_list)
-    results["bboxes"] = bboxes
-    results["combined_bbox"] = combined_bbox
+    results["masks"] = mask_list.cpu()
+    results["combined_mask"] = combined_mask.cpu()
+    results["centroid"] = calculate_centroid(contours_list).cpu()
+    results["bboxes"] = bboxes.cpu()
+    results["combined_bbox"] = combined_bbox.cpu()
 
     return results
 
@@ -250,7 +264,7 @@ def detect_ice_rink_mask(
             image = image.squeeze(0)
         image = image.cpu().numpy()
     image = make_channels_last(image)
-    result = inference_detector(model, image)
+    result: DetDataSample = inference_detector(model, image)
 
     if show:
         show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
@@ -439,7 +453,9 @@ def confgure_ice_rink_mask(
         if combined_mask is not None:
             return combined_mask
 
-    model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+    model_config_file, model_checkpoint = get_model_config(
+        game_id=game_id, model_name="ice_rink_segm"
+    )
 
     assert model_config_file
     assert model_checkpoint
@@ -480,6 +496,8 @@ if __name__ == "__main__":
         if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
         else torch.device("cpu")
     )
+
+    args.game_id = "pdp"
 
     assert args.game_id
 
