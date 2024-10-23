@@ -14,6 +14,7 @@ import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.models.detectors.base import BaseDetector
+from mmdet.structures import DetDataSample
 from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
 from PIL import Image
 
@@ -151,7 +152,7 @@ def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
 
 
 def result_to_polygons(
-    inference_result: np.ndarray,
+    inference_result: DetDataSample,
     category_id: int = 1,
     score_thr: float = 0,
     show: bool = False,
@@ -159,15 +160,20 @@ def result_to_polygons(
     """
     Theoretically, could return more than one polygon, especially if there's an obstruction
     """
-    if isinstance(inference_result, tuple):
-        bbox_result, segm_result = inference_result
-        if isinstance(segm_result, tuple):
-            segm_result = segm_result[0]  # ms rcnn
+    if isinstance(inference_result, DetDataSample):
+        bboxes = inference_result.pred_instances.bboxes
+        labels = inference_result.pred_instances.labels
+        segm_result = inference_result.pred_sem_seg
     else:
-        bbox_result, segm_result = inference_result, None
-    bboxes = np.vstack(bbox_result)
-    labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
-    labels = np.concatenate(labels)
+        if isinstance(inference_result, tuple):
+            bbox_result, segm_result = inference_result
+            if isinstance(segm_result, tuple):
+                segm_result = segm_result[0]  # ms rcnn
+        else:
+            bbox_result, segm_result = inference_result, None
+        bboxes = np.vstack(bbox_result)
+        labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
+        labels = np.concatenate(labels)
 
     segms = None
     if segm_result is not None and len(labels) > 0:  # non empty
