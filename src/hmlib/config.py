@@ -59,6 +59,7 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                 return yaml_content
             except yaml.YAMLError as exc:
                 print(exc)
+                raise
     return {} if not merge_into_config else merge_into_config
 
 
