@@ -4,7 +4,7 @@ PyTorch drawing functions
 
 import string
 import subprocess
-from typing import Dict, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import torch
@@ -53,6 +53,7 @@ def create_text_images(
     font_path: str, font_size: int, font_color: Tuple[int, int, int], device=torch.device
 ) -> Dict[str, torch.Tensor]:
     global CHARACTERS
+    assert font_path
 
     key = (font_path, font_size)
     found = CHARACTERS.get(key)
@@ -103,17 +104,18 @@ def create_text_images(
     return char_tensors
 
 
-# "DejaVuSerif.ttf"
-# "FreeSerif.ttf"
-def find_font_path(font_name: str = "Ubuntu Sans:style=Thin"):
-    # Command to find the font file
-    command = ["fc-list", ": family file", "|", "grep", "-i", font_name]
-    result = subprocess.run(command, stdout=subprocess.PIPE, text=True, shell=True)
-    lines = result.stdout.split("\n")
-    for line in lines:
-        if font_name in line:
-            font_path = line.split(":")[0]
-            return font_path
+def find_font_path(font_name_list: List[str] = None):
+    if not font_name_list:
+        font_name_list = ["Ubuntu Sans:style=Thin", "DejaVuSerif.ttf", "FreeSerif.ttf"]
+    for font_name in font_name_list:
+        # Command to find the font file
+        command = ["fc-list", ": family file", "|", "grep", "-i", font_name]
+        result = subprocess.run(command, stdout=subprocess.PIPE, text=True, shell=True)
+        lines = result.stdout.split("\n")
+        for line in lines:
+            if font_name in line:
+                font_path = line.split(":")[0]
+                return font_path
     return None
 
 
