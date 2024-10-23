@@ -155,12 +155,12 @@ def run_mmtrack(
                         assert len(tracking_results) == 1
                         track_sample_data: TrackDataSample = tracking_results[0]
                         # will this list be larger for more than one frame? find out.
-                        video_data_samples_list: List[DetDataSample] = (
-                            track_sample_data.video_data_samples
-                        )
-                        assert len(video_data_samples_list) == 1
-                        video_data_samples = video_data_samples_list[0]
-                        pred_track_instances = video_data_samples.pred_track_instances
+                        # video_data_samples_list: List[DetDataSample] = (
+                        #     track_sample_data.video_data_samples
+                        # )
+                        # assert len(video_data_samples_list) == 1
+                        # video_data_samples = video_data_samples_list[0]
+                        # pred_track_instances = video_data_samples.pred_track_instances
 
                         # TODO: Pass around TrackDataSample or a
                         # higher-level wrapper/container class
@@ -172,6 +172,10 @@ def run_mmtrack(
                         # Does origin_imgs get clipped?
 
                     for frame_index, frame_id in enumerate(info_imgs[2]):
+
+                        video_data_samples = track_sample_data.video_data_samples[frame_index]
+                        pred_track_instances = video_data_samples.pred_track_instances
+
                         # for frame_index in range(len(origin_imgs)):
                         # frame_id = info_imgs[2][frame_index]
 
@@ -208,8 +212,8 @@ def run_mmtrack(
                             # track_ids = tracking_items[:, 0].astype(np.int64)
                             # bboxes = tracking_items[:, 1:5]
                             # scores = tracking_items[:, -1]
-                            video_data_samples = video_data_samples_list[frame_index]
-                            pred_track_instances = video_data_samples.pred_track_instances
+                            # video_data_samples = video_data_samples_list[frame_index]
+                            # pred_track_instances = video_data_samples.pred_track_instances
                             # TOD: Are we pruning by label/class?
                             track_ids = pred_track_instances.instances_id
                             bboxes = pred_track_instances.bboxes

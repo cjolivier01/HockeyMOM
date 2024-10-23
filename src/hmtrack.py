@@ -532,7 +532,7 @@ def main(args, num_gpu):
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
             args.stitch_cache_size = 0
-            args.batch_size = 1
+            # args.batch_size = 1
 
         main_device = torch.device("cuda")
         for name in ["detection", "stitching", "encoder"]:

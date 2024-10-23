@@ -659,7 +659,7 @@ class VideoOutput:
                             cuda_stream.synchronize()
                         show_img = online_im
                         # show_img = ez_img
-                        self._shower.show(show_img)
+                        self._shower.show(show_img.cpu())
 
                 # Save frames as individual frames
                 if self._save_frame_dir:

@@ -156,9 +156,7 @@ def hm_imrescale(
         assert img.ndim == 4 and img.shape[-1] in (3, 4)
         h, w = img.shape[1:3]
     new_size, scale_factor = mmcv.rescale_size((w, h), scale, return_scale=True)
-    rescaled_img = hm_imresize(
-        img, new_size, interpolation=interpolation, backend=backend
-    )
+    rescaled_img = hm_imresize(img, new_size, interpolation=interpolation, backend=backend)
     if return_scale:
         return rescaled_img, scale_factor
     else:
@@ -246,9 +244,7 @@ def hm_imresize(
                 # C, W, H -> H, W, C
                 resized_img = resized_img.permute(2, 1, 0)
     else:
-        resized_img = cv2.resize(
-            img, size, dst=out, interpolation=cv2_interp_codes[interpolation]
-        )
+        resized_img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
     if not return_scale:
         return resized_img
     else:
@@ -375,9 +371,7 @@ def hm_impad(
     if isinstance(pad_val, tuple):
         assert len(pad_val) == img.shape[-1]
     elif not isinstance(pad_val, numbers.Number):
-        raise TypeError(
-            "pad_val must be a int or a tuple. " f"But received {type(pad_val)}"
-        )
+        raise TypeError("pad_val must be a int or a tuple. " f"But received {type(pad_val)}")
 
     # check padding
     if isinstance(padding, tuple) and len(padding) in [2, 4]:
@@ -387,8 +381,7 @@ def hm_impad(
         padding = (padding, padding, padding, padding)
     else:
         raise ValueError(
-            "Padding must be a int or a 2, or 4 element tuple."
-            f"But received {padding}"
+            "Padding must be a int or a 2, or 4 element tuple." f"But received {padding}"
         )
 
     # check padding mode
@@ -556,9 +549,7 @@ class HmPad:
             if self.size is not None:
                 padded_img = hm_impad(results[key], shape=self.size, pad_val=pad_val)
             elif self.size_divisor is not None:
-                padded_img = hm_impad_to_multiple(
-                    results[key], self.size_divisor, pad_val=pad_val
-                )
+                padded_img = hm_impad_to_multiple(results[key], self.size_divisor, pad_val=pad_val)
             results[key] = padded_img
         results["pad_shape"] = [image_height(padded_img), image_width(padded_img)]
         results["pad_fixed_size"] = self.size
@@ -576,9 +567,7 @@ class HmPad:
         ``results['pad_shape']``."""
         pad_val = self.pad_val.get("seg", 255)
         for key in results.get("seg_fields", []):
-            results[key] = hm_impad(
-                results[key], shape=results["pad_shape"][:2], pad_val=pad_val
-            )
+            results[key] = hm_impad(results[key], shape=results["pad_shape"][:2], pad_val=pad_val)
 
     def __call__(self, results):
         """Call function to pad images, masks, semantic segmentation maps.
@@ -772,9 +761,7 @@ class HmResize:
         """
 
         if self.ratio_range is not None:
-            scale, scale_idx = self.random_sample_ratio(
-                self.img_scale[0], self.ratio_range
-            )
+            scale, scale_idx = self.random_sample_ratio(self.img_scale[0], self.ratio_range)
         elif len(self.img_scale) == 1:
             scale, scale_idx = self.img_scale[0], 0
         elif self.multiscale_mode == "range":
@@ -814,16 +801,14 @@ class HmResize:
                     backend=self.backend,
                 )
             results[key] = img
-
-            # scale_factor = np.array(
-            #     [w_scale, h_scale, w_scale, h_scale], dtype=np.float32
-            # )
+            batch_size = img.shape[0]
             scale_factor = np.array([w_scale, h_scale], dtype=np.float32)
-            results["img_shape"] = [(image_height(img), image_width(img))]
+            iw, ih = image_width(img), image_height(img)
+            results["img_shape"] = [(ih, iw) for _ in range(batch_size)]
             # in case that there is no padding
-            results["pad_shape"] = results["img_shape"]
-            results["scale_factor"] = [scale_factor]
-            results["keep_ratio"] = [self.keep_ratio]
+            results["pad_shape"] = results["img_shape"].copy()
+            results["scale_factor"] = [scale_factor for _ in range(batch_size)]
+            results["keep_ratio"] = [self.keep_ratio for _ in range(batch_size)]
 
     def _resize_bboxes(self, results):
         """Resize bounding boxes with ``results['scale_factor']``."""
@@ -881,16 +866,12 @@ class HmResize:
                 img_shape = results["img"].shape[:2]
                 scale_factor = results["scale_factor"]
                 assert isinstance(scale_factor, float)
-                results["scale"] = tuple(
-                    [int(x * scale_factor) for x in img_shape][::-1]
-                )
+                results["scale"] = tuple([int(x * scale_factor) for x in img_shape][::-1])
             else:
                 self._random_scale(results)
         else:
             if not self.override:
-                assert (
-                    "scale_factor" not in results
-                ), "scale and scale_factor cannot be both set."
+                assert "scale_factor" not in results, "scale and scale_factor cannot be both set."
             else:
                 results.pop("scale")
                 if "scale_factor" in results:
@@ -998,9 +979,7 @@ class CloneImage:
     ):
         self.source_key = source_key
         self.dest_key = dest_key
-        assert (self.source_key and self.dest_key) or (
-            not self.source_key and not self.dest_key
-        )
+        assert (self.source_key and self.dest_key) or (not self.source_key and not self.dest_key)
 
     def __call__(self, results):
         if self.source_key:
@@ -1355,120 +1334,120 @@ class HmTopDownGetBboxCenterScale:
         return results
 
 
-@TRANSFORMS.register_module()
-class HmVideoCollect(object):
-    """Collect data from the loader relevant to the specific task.
+# @TRANSFORMS.register_module()
+# class HmVideoCollect(object):
+#     """Collect data from the loader relevant to the specific task.
 
-    Args:
-        keys (Sequence[str]): Keys of results to be collected in ``data``.
-        meta_keys (Sequence[str]): Meta keys to be converted to
-            ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
-            Defaults to None.
-        default_meta_keys (tuple): Default meta keys. Defaults to ('filename',
-            'ori_filename', 'ori_shape', 'img_shape', 'pad_shape',
-            'scale_factor', 'flip', 'flip_direction', 'img_norm_cfg',
-            'frame_id', 'is_video_data').
-    """
+#     Args:
+#         keys (Sequence[str]): Keys of results to be collected in ``data``.
+#         meta_keys (Sequence[str]): Meta keys to be converted to
+#             ``mmcv.DataContainer`` and collected in ``data[img_metas]``.
+#             Defaults to None.
+#         default_meta_keys (tuple): Default meta keys. Defaults to ('filename',
+#             'ori_filename', 'ori_shape', 'img_shape', 'pad_shape',
+#             'scale_factor', 'flip', 'flip_direction', 'img_norm_cfg',
+#             'frame_id', 'is_video_data').
+#     """
 
-    def __init__(
-        self,
-        keys,
-        meta_keys=None,
-        default_meta_keys=(
-            "filename",
-            "ori_filename",
-            "ori_shape",
-            "img_shape",
-            "pad_shape",
-            "scale_factor",
-            "flip",
-            "flip_direction",
-            "img_norm_cfg",
-            "frame_id",
-            "is_video_data",
-        ),
-    ):
-        self.keys = keys
-        self.meta_keys = default_meta_keys
-        if meta_keys is not None:
-            if isinstance(meta_keys, str):
-                meta_keys = (meta_keys,)
-            else:
-                assert isinstance(meta_keys, tuple), "meta_keys must be str or tuple"
-            self.meta_keys += meta_keys
+#     def __init__(
+#         self,
+#         keys,
+#         meta_keys=None,
+#         default_meta_keys=(
+#             "filename",
+#             "ori_filename",
+#             "ori_shape",
+#             "img_shape",
+#             "pad_shape",
+#             "scale_factor",
+#             "flip",
+#             "flip_direction",
+#             "img_norm_cfg",
+#             "frame_id",
+#             "is_video_data",
+#         ),
+#     ):
+#         self.keys = keys
+#         self.meta_keys = default_meta_keys
+#         if meta_keys is not None:
+#             if isinstance(meta_keys, str):
+#                 meta_keys = (meta_keys,)
+#             else:
+#                 assert isinstance(meta_keys, tuple), "meta_keys must be str or tuple"
+#             self.meta_keys += meta_keys
 
-    def __call__(self, results):
-        """Call function to collect keys in results.
+#     def __call__(self, results):
+#         """Call function to collect keys in results.
 
-        The keys in ``meta_keys`` and ``default_meta_keys`` will be converted
-        to :obj:mmcv.DataContainer.
+#         The keys in ``meta_keys`` and ``default_meta_keys`` will be converted
+#         to :obj:mmcv.DataContainer.
 
-        Args:
-            results (list[dict] | dict): List of dict or dict which contains
-                the data to collect.
+#         Args:
+#             results (list[dict] | dict): List of dict or dict which contains
+#                 the data to collect.
 
-        Returns:
-            list[dict] | dict: List of dict or dict that contains the
-            following keys:
+#         Returns:
+#             list[dict] | dict: List of dict or dict that contains the
+#             following keys:
 
-            - keys in ``self.keys``
-            - ``img_metas``
-        """
-        results_is_dict = isinstance(results, dict)
-        if results_is_dict:
-            results = [results]
-        outs = []
-        for _results in results:
-            _results = self._add_default_meta_keys(_results)
-            _results = self._collect_meta_keys(_results)
-            outs.append(_results)
+#             - keys in ``self.keys``
+#             - ``img_metas``
+#         """
+#         results_is_dict = isinstance(results, dict)
+#         if results_is_dict:
+#             results = [results]
+#         outs = []
+#         for _results in results:
+#             _results = self._add_default_meta_keys(_results)
+#             _results = self._collect_meta_keys(_results)
+#             outs.append(_results)
 
-        # if results_is_dict:
-        #     outs[0]["img_metas"] = DC(outs[0]["img_metas"], cpu_only=True)
+#         # if results_is_dict:
+#         #     outs[0]["img_metas"] = DC(outs[0]["img_metas"], cpu_only=True)
 
-        return outs[0] if results_is_dict else outs
+#         return outs[0] if results_is_dict else outs
 
-    def _collect_meta_keys(self, results):
-        """Collect `self.keys` and `self.meta_keys` from `results` (dict)."""
-        data = {}
-        img_meta = {}
-        for key in self.meta_keys:
-            if key in results:
-                img_meta[key] = results[key]
-            elif key in results["img_info"]:
-                img_meta[key] = results["img_info"][key]
-        data["img_metas"] = img_meta
-        for key in self.keys:
-            if key in results:
-                data[key] = results[key]
-        return data
+#     def _collect_meta_keys(self, results):
+#         """Collect `self.keys` and `self.meta_keys` from `results` (dict)."""
+#         data = {}
+#         img_meta = {}
+#         for key in self.meta_keys:
+#             if key in results:
+#                 img_meta[key] = results[key]
+#             elif key in results["img_info"]:
+#                 img_meta[key] = results["img_info"][key]
+#         data["img_metas"] = img_meta
+#         for key in self.keys:
+#             if key in results:
+#                 data[key] = results[key]
+#         return data
 
-    def _add_default_meta_keys(self, results):
-        """Add default meta keys.
+#     def _add_default_meta_keys(self, results):
+#         """Add default meta keys.
 
-        We set default meta keys including `pad_shape`, `scale_factor` and
-        `img_norm_cfg` to avoid the case where no `Resize`, `Normalize` and
-        `Pad` are implemented during the whole pipeline.
+#         We set default meta keys including `pad_shape`, `scale_factor` and
+#         `img_norm_cfg` to avoid the case where no `Resize`, `Normalize` and
+#         `Pad` are implemented during the whole pipeline.
 
-        Args:
-            results (dict): Result dict contains the data to convert.
+#         Args:
+#             results (dict): Result dict contains the data to convert.
 
-        Returns:
-            results (dict): Updated result dict contains the data to convert.
-        """
-        img = results["img"]
-        results.setdefault("pad_shape", img.shape)
-        results.setdefault("scale_factor", 1.0)
-        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
-        results.setdefault(
-            "img_norm_cfg",
-            dict(
-                mean=np.zeros(num_channels, dtype=np.float32),
-                std=np.ones(num_channels, dtype=np.float32),
-                to_rgb=False,
-            ),
-        )
-        return results
+#         Returns:
+#             results (dict): Updated result dict contains the data to convert.
+#         """
+#         img = results["img"]
+#         results.setdefault("pad_shape", img.shape)
+#         results.setdefault("scale_factor", 1.0)
+#         num_channels = 1 if len(img.shape) < 3 else img.shape[2]
+#         results.setdefault(
+#             "img_norm_cfg",
+#             dict(
+#                 mean=np.zeros(num_channels, dtype=np.float32),
+#                 std=np.ones(num_channels, dtype=np.float32),
+#                 to_rgb=False,
+#             ),
+#         )
+#         return results
 
 
 def _to_float(t: Union[np.ndarray, torch.Tensor]):
@@ -1503,11 +1482,12 @@ class HmLoadImageFromWebcam(LoadImageFromFile):
             img = _to_float(img)
         assert img.ndim == 4
         img = make_channels_last(img)
+        batch_size = img.size(0)
         shape = img.shape[1:3]
-        results["filename"] = None
-        results["ori_filename"] = None
         results["img"] = img
-        results["img_shape"] = [shape]
-        results["ori_shape"] = [shape]
-        results["img_fields"] = ["img"]
+        results["filename"] = [None for _ in range(batch_size)]
+        results["ori_filename"] = [None for _ in range(batch_size)]
+        results["img_shape"] = [shape for _ in range(batch_size)]
+        results["ori_shape"] = [shape for _ in range(batch_size)]
+        results["img_fields"] = ["img" for _ in range(batch_size)]
         return results

@@ -92,13 +92,27 @@ class HmEndToEnd(ByteTrack):
                 track_data_sample = data_samples
             video_len = len(track_data_sample)
 
+            detect_all = True
+            if detect_all:
+                assert inputs.ndim == 5
+                # only one video, but can be multiple frames
+                assert inputs.shape[0] == 1
+                if True:
+                    # makes a difference?
+                    det_inputs = inputs.squeeze(0).contiguous()
+                all_det_results = self.detector.predict(det_inputs, track_data_sample)
+
             for frame_id in range(video_len):
-                img_data_sample = track_data_sample[frame_id]
-                single_img = inputs[:, frame_id].contiguous()
-                # det_results List[DetDataSample]
-                det_results = self.detector.predict(single_img, [img_data_sample])
-                assert len(det_results) == 1, "Batch inference is not supported."
-                det_data_sample = det_results[0]
+                if detect_all:
+                    det_data_sample = all_det_results[frame_id]
+                    img_data_sample = track_data_sample[frame_id]
+                else:
+                    img_data_sample = track_data_sample[frame_id]
+                    single_img = inputs[:, frame_id].contiguous()
+                    # det_results List[DetDataSample]
+                    det_results = self.detector.predict(single_img, [img_data_sample])
+                    assert len(det_results) == 1, "Batch inference is not supported."
+                    det_data_sample = det_results[0]
                 det_bboxes = det_data_sample.pred_instances.bboxes
                 det_labels = det_data_sample.pred_instances.labels
                 det_scores = det_data_sample.pred_instances.scores
@@ -130,7 +144,7 @@ class HmEndToEnd(ByteTrack):
                     assert len(det_bboxes) == len(det_labels)
                     assert len(det_scores) == len(det_labels)
 
-                pred_track_instances = self.tracker.track(data_sample=det_results[0], **kwargs)
+                pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
                 img_data_sample.pred_track_instances = pred_track_instances
 
             return [track_data_sample]
