@@ -239,7 +239,7 @@ def result_to_polygons(
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
-    results["masks"] = mask_list.cpu()
+    results["masks"] = [m.cpu() for m in mask_list]
     results["combined_mask"] = combined_mask.cpu()
     results["centroid"] = calculate_centroid(contours_list).cpu()
     results["bboxes"] = bboxes.cpu()
