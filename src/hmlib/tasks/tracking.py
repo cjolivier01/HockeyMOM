@@ -299,7 +299,7 @@ def run_mmtrack(
                                     online_tlwhs=online_tlwhs,
                                     online_ids=online_ids,
                                     online_scores=online_scores,
-                                    detections=detections,
+                                    detections=video_data_samples.pred_instances.bboxes,
                                     info_imgs=info_imgs,
                                     letterbox_img=None,
                                     original_img=origin_imgs[frame_index].unsqueeze(0),
