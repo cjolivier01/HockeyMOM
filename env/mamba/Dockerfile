@@ -84,6 +84,8 @@ RUN apt-get install -y \
   pkg-config \
   texinfo \
   zlib1g-dev \
+  libmkl-full-dev \
+  libwxgtk3.0-gtk3-dev \
   && apt-get clean
 
 ####################################################################
@@ -116,7 +118,8 @@ WORKDIR /home/$USERNAME
 #
 ####################################################################
 USER root
-RUN mkdir -p /opt/$USERNAME/dconda && chown $USERNAME /opt/$USERNAME/dconda
+RUN mkdir -p /opt/$USERNAME
+RUN chown $USERNAME /opt/$USERNAME
 
 USER $USERNAME
 WORKDIR /home/$USERNAME
@@ -344,12 +347,6 @@ RUN conda run -n ubuntu pip install dist/*.whl
 #
 ####################################################################
 
-#
-# HM Deps
-#
-USER root
-RUN apt-get install -y libwxgtk3.0-gtk3-dev && apt-get clean
-
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
 RUN git clone https://github.com/cjolivier01/hugin --branch=colivier/hockeymom --recursive
@@ -361,10 +358,6 @@ RUN mkdir build && cd build && \
 USER root
 WORKDIR /home/$USERNAME/src/hugin/build
 RUN make install
-
-#
-# TODO: move up to earlier
-RUN apt-get install -y libmkl-full-dev
 
 #
 # Clean up builds
@@ -400,6 +393,6 @@ RUN sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid
 # Expose the SSH port
 EXPOSE 22298
 
-# # Start the SSH daemon
+# Start the SSH daemon
 CMD ["/usr/sbin/sshd", "-D"]
 # CMD ["/bin/bash"]
