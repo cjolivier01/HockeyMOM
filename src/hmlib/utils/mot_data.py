@@ -69,6 +69,12 @@ class MOTTrackingData(TrackingDataBase):
             )
             print("Data loaded successfully.")
 
+    @staticmethod
+    def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+        if isinstance(t, torch.Tensor):
+            return t.to("cpu").numpy()
+        return t
+
     def add_frame_records(
         self,
         frame_id: int,
@@ -82,6 +88,9 @@ class MOTTrackingData(TrackingDataBase):
             tlwh = convert_tlbr_to_tlwh(tlbr)
 
         frame_id = int(frame_id)
+        tracking_ids = self._make_array(tracking_ids)
+        tlwh = self._make_array(tlwh)
+        scores = self._make_array(scores)
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
