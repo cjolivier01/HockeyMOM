@@ -5,7 +5,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Build up the base system
 RUN apt-get update
-# RUN apt-get install -y libnvidia-compute-550
 
 # Install necessary packages
 RUN apt-get install -y wget ssh openssh-server
@@ -84,9 +83,10 @@ RUN apt-get install -y \
   pkg-config \
   texinfo \
   zlib1g-dev \
-  libmkl-full-dev \
-  libwxgtk3.0-gtk3-dev \
   && apt-get clean
+
+RUN apt-get install -y libmkl-full-dev && apt-get clean
+RUN apt-get install -y  libwxgtk3.0-gtk3-dev && apt-get clean
 
 ####################################################################
 #
