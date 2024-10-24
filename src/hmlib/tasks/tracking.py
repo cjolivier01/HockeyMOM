@@ -133,6 +133,10 @@ def run_mmtrack(
                             data["img"].verbose = True
                             data["img"] = data["img"].get()
                             # data["img"] = data["img"].wait()
+
+                        if data["img"].device != device:
+                            data["img"] = data["img"].to(device, non_blocking=True)
+
                         # Make batch size of 1, but some T number of frames (prev batch size)
                         data["img"] = data["img"].unsqueeze(0)
                         assert data["img"].ndim == 5
