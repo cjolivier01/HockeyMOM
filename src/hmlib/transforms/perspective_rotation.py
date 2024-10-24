@@ -171,7 +171,7 @@ class HmPerspectiveRotation:
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
-                image_width, invert=True, show=True
+                image_width, invert=True, show=False
             )
         else:
             assert image_width == self._horizontal_image_gaussian_distribution.width
