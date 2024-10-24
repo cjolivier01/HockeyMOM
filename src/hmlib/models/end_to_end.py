@@ -92,7 +92,7 @@ class HmEndToEnd(ByteTrack):
                 track_data_sample = data_samples
             video_len = len(track_data_sample)
 
-            detect_all = False
+            detect_all = True
             if detect_all:
                 assert inputs.ndim == 5
                 # only one video, but can be multiple frames
