@@ -20,6 +20,13 @@ number_classifier = dict(
     ),
 )
 
+video_out_pipeline = [
+    dict(
+        type="HmPerspectiveRotation",
+        pre_clip=True,
+    )
+]
+
 model = dict(
     type="HmEndToEnd",
     post_detection_pipeline=post_detection_pipeline,
