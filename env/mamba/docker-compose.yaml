@@ -14,5 +14,3 @@ services:
       - /etc/gshadow:/etc/gshadow:ro
       - /etc/sudoers:/etc/sudoers:ro
     restart: always
-    environment:
-      - "IN_HMBASE_CONTAINER=1"

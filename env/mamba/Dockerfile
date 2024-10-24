@@ -115,18 +115,23 @@ WORKDIR /home/$USERNAME
 # Download and install Mambaforge for the non-root user
 #
 ####################################################################
+USER root
+RUN mkdir -p /opt/$USERNAME/dconda && chown $USERNAME /opt/$USERNAME/dconda
+
+USER $USERNAME
+WORKDIR /home/$USERNAME
 RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh
-RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /home/$USERNAME/dconda
+RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /opt/$USERNAME/dconda
 RUN rm Mambaforge-Linux-x86_64.sh
 
 # Set the environment path
-ENV PATH /home/$USERNAME/dconda/bin:$PATH
+ENV PATH /opt/$USERNAME/dconda/bin:$PATH
 
 # # Create a Python environment called 'ubuntu'
 RUN mamba create -n ubuntu python=3.11 -y
 
 # # Activate the environment automatically on login
-RUN echo "source /home/${USER}/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
+RUN echo "source /opt/$USERNAME/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
 RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 
 ####################################################################
@@ -357,6 +362,9 @@ USER root
 WORKDIR /home/$USERNAME/src/hugin/build
 RUN make install
 
+#
+# TODO: move up to earlier
+RUN apt-get install -y libmkl-full-dev
 
 #
 # Clean up builds
@@ -364,6 +372,12 @@ RUN make install
 USER root
 WORKDIR /home/$USERNAME
 RUN rm -rf src/*
+
+#
+# Some environment stuff
+#
+RUN echo "export HMBASE_CONDA_PATH=/opt/$USERNAME/dconda/bin" >> /etc/profile
+RUN echo "export HMBASE_CONDA_ENV=ubuntu"  >> /etc/profile
 
 
 ####################################################################
