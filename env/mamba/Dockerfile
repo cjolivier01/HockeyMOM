@@ -374,13 +374,18 @@ RUN rm -rf src/*
 USER root
 RUN mkdir /var/run/sshd
 # RUN echo 'myuser:password' | chpasswd
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+# Update SSH configuration to expose it on a non-standard port and permit password authentication
+RUN sed -i 's/#Port 22/Port 22298/' /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
 # SSH login fix. Otherwise user is kicked off after login
 RUN sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
 
-# # Expose the default SSH port
-EXPOSE 22
+# Expose the SSH port
+EXPOSE 22298
 
 # # Start the SSH daemon
-# CMD ["/usr/sbin/sshd", "-D"]
-CMD ["/bin/bash"]
+CMD ["/usr/sbin/sshd", "-D"]
+# CMD ["/bin/bash"]
