@@ -104,6 +104,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._count = torch.tensor([0], dtype=torch.int32)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
         if self._next_frame_id == 0:
+            # frame number is 1-based
             self._next_frame_id = 1
         self.video_id = torch.tensor([video_id], dtype=torch.int32)
         self._last_size = None
@@ -125,7 +126,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._embedded_data_loader_iter = None
         self._stream_tensors = stream_tensors
         self._cuda_stream = None
+        self._next_counter = 0
         self._frame_read_count = 0
+        self.fps = None
 
         if self._image_channel_adjustment:
             assert len(self._image_channel_adjustment) == 3
@@ -482,6 +485,22 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._next_counter += 1
         self._frame_read_count += 1
         return results
+
+    def tell(self) -> int:
+        """
+        Get which frame the dataset is on (which one it will load next)
+        """
+        return self._next_frame_id.clone()
+
+    def seek(self, frame_number: int) -> None:
+        """
+        Seek to the frame number
+        """
+        assert frame_number > 0  # 1-based
+        if frame_number == self._next_frame_id:
+            return
+        assert False  # implement me
+        return
 
     def __len__(self):
         if self.vn is None:
