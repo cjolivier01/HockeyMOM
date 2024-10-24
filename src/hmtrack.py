@@ -130,30 +130,30 @@ def make_parser(parser: argparse.ArgumentParser = None):
     #
     # GPUs/Devices
     #
-    parser.add_argument(
-        "--detection-gpu",
-        help="GPU used for detections",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--decoder-gpu",
-        help="GPU used for video decoding",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--encoder-gpu",
-        help="GPU used for video encoding",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--cam-tracking-gpu",
-        help="GPU used for camera tracking trunk (default us CPU)",
-        type=int,
-        default=None,
-    )
+    # parser.add_argument(
+    #     "--detection-gpu",
+    #     help="GPU used for detections",
+    #     type=int,
+    #     default=None,
+    # )
+    # parser.add_argument(
+    #     "--decoder-gpu",
+    #     help="GPU used for video decoding",
+    #     type=int,
+    #     default=None,
+    # )
+    # parser.add_argument(
+    #     "--encoder-gpu",
+    #     help="GPU used for video encoding",
+    #     type=int,
+    #     default=None,
+    # )
+    # parser.add_argument(
+    #     "--cam-tracking-gpu",
+    #     help="GPU used for camera tracking trunk (default us CPU)",
+    #     type=int,
+    #     default=None,
+    # )
     # cam args
     parser.add_argument(
         "--adjust-exposure",
@@ -534,6 +534,8 @@ def main(args, num_gpu):
             args.stitch_cache_size = 0
             # args.batch_size = 1
 
+        # This would be way too slow on CPU
+        assert torch.cuda.is_available()
         main_device = torch.device("cuda")
         for name in ["detection", "stitching", "encoder"]:
             if name in gpus:

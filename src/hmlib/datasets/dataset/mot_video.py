@@ -60,6 +60,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
+        # device_for_img: torch.device = None,
         device_for_original_image: torch.device = None,
         stream_tensors: bool = False,
         log_messages: bool = False,
@@ -90,6 +91,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.calculated_clip_box = None
         self._result_as_dict = result_as_dict
         self._adjust_exposure = adjust_exposure
+        # self._device_for_img = device_for_img
         if img_size is None:
             self.process_height = None
             self.process_width = None

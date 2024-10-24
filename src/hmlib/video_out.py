@@ -437,23 +437,6 @@ class VideoOutput:
                 ) and counter % 10 == 0:
                     logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                 time.sleep(0.001)
-
-            # Maybe move devices on a different stream
-            # if (
-            #     not isinstance(img_proc_data.img, np.ndarray)
-            #     and img_proc_data.img.device != self._device
-            # ):
-            #     if isinstance(img_proc_data.img, torch.Tensor):
-            #         # img_proc_data.img = img_proc_data.img.to(
-            #         #     device=self._device, non_blocking=True
-            #         # )
-            #         # img_proc_data.img = StreamCheckpoint(tensor=img_proc_data.img)
-            #         # img_proc_data.img = StreamTensorToDevice(
-            #         #     tensor=img_proc_data.img,
-            #         #     device=self._device,
-            #         #     verbose=False,
-            #         # )
-            #         pass
             self._imgproc_queue.put(img_proc_data)
 
     def _final_image_processing_wrapper(self):
