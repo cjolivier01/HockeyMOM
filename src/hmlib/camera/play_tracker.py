@@ -541,7 +541,7 @@ class PlayTracker(torch.nn.Module):
                 )
                 if should_adjust_speed.item():
                     speed_adjust_box.adjust_speed(
-                        accel_x=group_x_velocity
+                        accel_x=group_x_velocity.cpu()
                         * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,
