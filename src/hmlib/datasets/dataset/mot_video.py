@@ -217,7 +217,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if cmd.startswith("seek:"):
                     # It's a seek command!  Totally untested so far...
                     seek_to_frame = int(cmd.split(":"))
-                    assert self.cap is not None:
+                    assert self.cap is not None
                     self.cap.seek(frame_number=seek_to_frame)
                     self._vid_iter = iter(self.cap)
                     self._from_worker_queue.put("seek_ok")
