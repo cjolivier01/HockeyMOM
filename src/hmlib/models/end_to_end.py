@@ -135,7 +135,7 @@ class HmEndToEnd(ByteTrack):
                 assert len(det_scores) == len(det_labels)
 
             pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
-            print(len(det_data_sample.pred_instances.bboxes), len(pred_track_instances.bboxes))
+            # print(len(det_data_sample.pred_instances.bboxes), len(pred_track_instances.bboxes))
             img_data_sample.pred_track_instances = pred_track_instances
 
         return [track_data_sample]
