@@ -1,6 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
+from threading import Lock
 from typing import Callable, List, Optional, Tuple, Union
 
 import cv2
@@ -129,6 +130,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._next_counter = 0
         self._frame_read_count = 0
         self.fps = None
+        self._seek_lock = Lock()
 
         if self._image_channel_adjustment:
             assert len(self._image_channel_adjustment) == 3
@@ -460,31 +462,32 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             return _wrap_original_image(original_img0), img, None, imgs_info, ids
 
     def __next__(self):
-        self._timer.tic()
-        self._to_worker_queue.put("ok")
-        results = self._from_worker_queue.get()
-        if isinstance(results, Exception):
-            if not isinstance(results, StopIteration):
-                print(results)
-                traceback.print_exc()
-            self.close()
-            raise results
-        self._timer.toc()
+        with self._seek_lock:
+            self._timer.tic()
+            self._to_worker_queue.put("ok")
+            results = self._from_worker_queue.get()
+            if isinstance(results, Exception):
+                if not isinstance(results, StopIteration):
+                    print(results)
+                    traceback.print_exc()
+                self.close()
+                raise results
+            self._timer.toc()
 
-        self._timer_counter += self._batch_size
-        if self._log_messages and self._next_counter and self._next_counter % 20 == 0:
-            logger.info(
-                "Video Dataset frame delivery {} ({:.2f} fps)".format(
-                    self._timer_counter,
-                    self._batch_size * 1.0 / max(1e-5, self._timer.average_time),
+            self._timer_counter += self._batch_size
+            if self._log_messages and self._next_counter and self._next_counter % 20 == 0:
+                logger.info(
+                    "Video Dataset frame delivery {} ({:.2f} fps)".format(
+                        self._timer_counter,
+                        self._batch_size * 1.0 / max(1e-5, self._timer.average_time),
+                    )
                 )
-            )
-            if self._next_counter and self._next_counter % 100 == 0:
-                self._timer = Timer()
-                self._timer_counter = 0
-        self._next_counter += 1
-        self._frame_read_count += 1
-        return results
+                if self._next_counter and self._next_counter % 100 == 0:
+                    self._timer = Timer()
+                    self._timer_counter = 0
+            self._next_counter += 1
+            self._frame_read_count += 1
+            return results
 
     def tell(self) -> int:
         """
@@ -496,10 +499,18 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         """
         Seek to the frame number
         """
-        assert frame_number > 0  # 1-based
-        if frame_number == self._next_frame_id:
-            return
-        assert False  # implement me
+        with self._seek_lock:
+            assert frame_number > 0  # 1-based
+            if frame_number == self._next_frame_id:
+                return
+            self._to_worker_queue.put(f"seek:{frame_number}")
+            while True:
+                response = self._from_worker_queue.get()
+                if isinstance(response, Exception):
+                    raise response
+                if isinstance(response, str) and response == "seek_ok":
+                    break
+                    # otherwise it's probably a queued frame, so discard it
         return
 
     def __len__(self):
