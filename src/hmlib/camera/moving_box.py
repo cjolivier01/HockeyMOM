@@ -19,7 +19,7 @@ from hmlib.utils.box_functions import (
     shift_box_to_edge,
     width,
 )
-from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 
 
 class BasicBox(torch.nn.Module):
@@ -384,7 +384,7 @@ class MovingBox(ResizingBox):
 
         if self._arena_box is not None:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
-                width(self._arena_box)
+                width(self._arena_box), invert=True
             )
         else:
             self._horizontal_image_gaussian_distribution = None

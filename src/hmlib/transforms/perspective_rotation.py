@@ -1,40 +1,13 @@
-import threading
-import traceback
 from contextlib import contextmanager
-from threading import Lock
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Tuple, Union
 
-import cv2
-import numpy as np
 import torch
 from mmengine.registry import TRANSFORMS
-from torch.utils.data import Dataset
 
-from hmlib.ffmpeg import BasicVideoInfo
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.box_functions import center, height, width
-from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    allocate_stream,
-    cuda_stream_scope,
-)
-from hmlib.utils.image import (
-    ImageColorScaler,
-    ImageHorizontalGaussianDistribution,
-    crop_image,
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-    resize_image,
-    rotate_image,
-    to_float_image,
-    to_uint8_image,
-)
+from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video_stream import VideoStreamReader
 
@@ -173,7 +146,7 @@ class HmPerspectiveRotation:
         )
         if image.ndim == 3:
             # no batch dimension
-            image = image[:, clip_left : clip_right, :]
+            image = image[:, clip_left:clip_right, :]
         else:
             # with batch dimension
             image = image[:, :, int(clip_left) : int(clip_right), :]
@@ -197,6 +170,6 @@ class HmPerspectiveRotation:
     def _get_gaussian(self, image_width: int):
         if self._horizontal_image_gaussian_distribution is None:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
-                image_width
+                image_width, invert=True, show=True
             )
         return self._horizontal_image_gaussian_distribution
