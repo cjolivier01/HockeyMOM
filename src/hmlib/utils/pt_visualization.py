@@ -314,7 +314,6 @@ def draw_vertical_line(
     """
     # Ensure the square doesn't go out of the image boundaries
     # assert length > 1
-    thickness += 10
     assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
 

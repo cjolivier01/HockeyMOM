@@ -55,7 +55,7 @@ class SegmBoundaries:
             self._rink_mask = self._rink_mask[y1:y2, x1:x2]
 
     def draw(self, img):
-        return img
+        # return img
         if self._rink_mask is not None:
             assert self._rink_mask.ndim == 2
             assert self._rink_mask.shape[0] == image_height(img)
