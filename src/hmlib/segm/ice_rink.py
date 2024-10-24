@@ -221,7 +221,7 @@ def result_to_polygons(
     combined_bbox = enclosing_bbox(bboxes)
 
     for _, mask in enumerate(masks):
-        contours, _ = bitmap_to_polygon(mask)
+        contours, _ = bitmap_to_polygon(mask.cpu().numpy())
         # split_points_by_x_trend_efficient(contours)
         contours_list += contours
         mask = mask.to(torch.bool)
