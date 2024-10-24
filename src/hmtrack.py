@@ -311,11 +311,11 @@ def set_torch_multiprocessing_use_filesystem():
     torch.multiprocessing.set_sharing_strategy("file_system")
 
 
-def set_deterministic(seed: int = 42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+# def set_deterministic(seed: int = 42):
+#     torch.manual_seed(seed)
+#     torch.cuda.manual_seed_all(seed)
+#     torch.backends.cudnn.deterministic = True
+#     torch.backends.cudnn.benchmark = False
 
 
 def to_32bit_mul(val):
@@ -566,11 +566,6 @@ def main(args, num_gpu):
                         args.reid,
                         device=main_device,
                     )
-                    # model = init_model(
-                    #     args.config,
-                    #     args.checkpoint,
-                    #     device=main_device,
-                    # )
 
                     # Maybe apply a clip box in the data pipeline
                     orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
@@ -581,17 +576,8 @@ def main(args, num_gpu):
 
                     if args.checkpoint:
                         load_checkpoint_to_model(model, args.checkpoint)
-                    # first_stage = model.cfg.test_dataloader.dataset.pipeline
-                    # if first_stage[0].type == "TransformBroadcaster":
-                    #     first_stage["transforms"][0].type = "mmdet.LoadImageFromNDArray"
-                    # else:
-                    #     model.cfg.test_dataloader.dataset.pipeline[0].type = (
-                    #         "mmdet.LoadImageFromNDArray"
-                    #     )
-                    # data_pipeline = Compose(model.cfg.test_dataloader.dataset.pipeline)
                     cfg = model.cfg.copy()
                     pipeline = cfg.inference_pipeline
-                    # pipeline[0].type = "mmdet.HmLoadImageFromWebcam"
                     pipeline[0].type = "HmLoadImageFromWebcam"
                     data_pipeline = Compose(pipeline)
 
@@ -842,7 +828,6 @@ def main(args, num_gpu):
             data_type="mot",
             camera_name=get_nested_value(game_config, "camera.name"),
             async_post_processing=True,
-            # async_post_processing=False,
         )
         postprocessor._args.skip_final_video_save = args.skip_final_video_save
 
