@@ -6,17 +6,27 @@ import torch
 
 
 class ImageHorizontalGaussianDistribution:
-    def __init__(
-        self, image_width: Union[int, torch.Tensor], invert: bool = True, show: bool = False
-    ):
+    def __init__(self, width: Union[int, torch.Tensor], invert: bool = True, show: bool = False):
         self._invert = invert
         self._show = show
-        self.setup_gaussian(length=image_width)
+        self._width = int(width)
+        self.setup_gaussian(length=width)
 
-    def get_gaussian_y_from_image_x_position(self, image_x_position: int, wide: bool = False):
+    @property
+    def width(self) -> int:
+        return self._width
+
+    def get_gaussian_y_from_image_x_position(self, xpos: int, wide: bool = False):
+        if xpos < 0:
+            xpos = 0
+        elif xpos >= self._width:
+            xpos = self._width - 1
+        xpos = int(xpos)
         if not wide:
-            return self.gaussian_y[int(image_x_position)]
-        return self.gaussian_wide[int(image_x_position)]
+            # Steep curve
+            return self.gaussian_y[xpos]
+        # Much wider curve
+        return self.gaussian_wide[xpos]
 
     def setup_gaussian(self, length: Union[int, torch.Tensor]):
         # Thinner gaussian
@@ -54,7 +64,8 @@ class ImageHorizontalGaussianDistribution:
         self.gaussian_wide = self.gaussian_wide / (max - min)
 
         # Flip upside down
-        if not self._invert:
+        if self._invert:
+            self.gaussian_y = np.ones_like(self.gaussian_y) - self.gaussian_y
             self.gaussian_wide = np.ones_like(self.gaussian_wide) - self.gaussian_wide
 
         if self._show:

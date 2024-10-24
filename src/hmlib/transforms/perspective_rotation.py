@@ -74,7 +74,8 @@ class HmPerspectiveRotation:
                 mult = 1
 
             gaussian = 1 - self._get_gaussian(src_image_width).get_gaussian_y_from_image_x_position(
-                rotation_point[0], wide=True
+                rotation_point[0],
+                wide=True,
             )
 
             fixed_edge_rotation_angle = self._fixed_edge_rotation_angle
@@ -172,4 +173,6 @@ class HmPerspectiveRotation:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
                 image_width, invert=True, show=True
             )
+        else:
+            assert image_width == self._horizontal_image_gaussian_distribution.width
         return self._horizontal_image_gaussian_distribution
