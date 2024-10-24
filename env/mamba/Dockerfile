@@ -289,65 +289,82 @@ RUN \
   conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-# RUN cd build && cmake --build . --target install --config Release -- -j 12
-
-# RUN \
-#   MAX_JOBS=12 \
-#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-#   BUILD_TEST=0 \
-#   USE_CUDA=1 \
-#   USE_NUMPY=1 \
-#   USE_ROCM=OFF \
-#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-#   python3 setup.py bdist_wheel
-
-RUN pip install dist/*.whl
+RUN  conda run -n ubuntu pip install dist/*.whl
 
 ####################################################################
 #
 # Build TorchVision
 #
 ####################################################################
-# WORKDIR /root
-# RUN cd src && git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
-# WORKDIR /root/src/vision
-# RUN \
-#   MAX_JOBS=12 \
-#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-#   BUILD_TEST=0 \
-#   USE_CUDA=1 \
-#   USE_NUMPY=1 \
-#   USE_ROCM=OFF \
-#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-#   python3 setup.py bdist_wheel
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
+WORKDIR /home/$USERNAME/src/vision
+RUN \
+  MAX_JOBS=12 \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  conda run -n ubuntu \
+  python3 setup.py bdist_wheel
 
-# RUN pip install dist/*.whl
+RUN conda run -n ubuntu pip install dist/*.whl
 
 ####################################################################
 #
 # Build TorchAudio
 #
 ####################################################################
-# WORKDIR /root
-# RUN cd src && git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
-# WORKDIR /root/src/audio
-# RUN \
-#   MAX_JOBS=16 \
-#   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-#   BUILD_TEST=0 \
-#   USE_CUDA=1 \
-#   USE_NUMPY=1 \
-#   USE_ROCM=OFF \
-#   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-#   python3 setup.py bdist_wheel
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
+WORKDIR /home/$USERNAME/src/audio
+RUN \
+  MAX_JOBS=16 \
+  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  BUILD_TEST=0 \
+  USE_CUDA=1 \
+  USE_NUMPY=1 \
+  USE_ROCM=OFF \
+  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
+  conda run -n ubuntu \
+  python3 setup.py bdist_wheel
 
-# RUN pip install dist/*.whl
+RUN conda run -n ubuntu pip install dist/*.whl
 
-# #
-# # HM Deps
-# #
-# RUN apt-get install -y \
-#   libwxgtk3.0-gtk3-dev
+####################################################################
+#
+# Build and install Hugin
+#
+####################################################################
+
+#
+# HM Deps
+#
+USER root
+RUN apt-get install -y libwxgtk3.0-gtk3-dev && apt-get clean
+
+USER $USERNAME
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/cjolivier01/hugin --branch=colivier/hockeymom --recursive
+WORKDIR /home/$USERNAME/src/hugin
+RUN mkdir build && cd build && \
+  cmake .. && \
+  make -j $(nproc)
+
+USER root
+WORKDIR /home/$USERNAME/src/hugin/build
+RUN make install
+
+
+#
+# Clean up builds
+#
+USER root
+WORKDIR /home/$USERNAME
+RUN rm -rf src/*
+
 
 ####################################################################
 #
