@@ -53,6 +53,7 @@ def run_mmtrack(
             total_frames_in_video = batch_size * total_batches_in_video
             number_of_batches_processed = 0
             total_duration_str = convert_seconds_to_hms(len(dataloader) / dataloader.fps)
+            nr_tracks = 0
 
             if model is not None:
                 model.eval()
@@ -91,6 +92,7 @@ def run_mmtrack(
                         table_map["ETA"] = convert_seconds_to_hms(
                             remaining_frames_to_process / processing_fps
                         )
+                        table_map["Track count"] = str(nr_tracks)
 
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
@@ -155,22 +157,9 @@ def run_mmtrack(
                         detect_timer.toc()
                         assert len(tracking_results) == 1
                         track_sample_data: TrackDataSample = tracking_results[0]
-                        # will this list be larger for more than one frame? find out.
-                        # video_data_samples_list: List[DetDataSample] = (
-                        #     track_sample_data.video_data_samples
-                        # )
-                        # assert len(video_data_samples_list) == 1
-                        # video_data_samples = video_data_samples_list[0]
-                        # pred_track_instances = video_data_samples.pred_track_instances
-
-                        # TODO: Pass around TrackDataSample or a
-                        # higher-level wrapper/container class
-                        # det_bboxes = video_data_samples.pred_instances.bboxes
-                        # track_bboxes = pred_track_instances.bboxes
-                        # det_bboxes = tracking_results["det_bboxes"]
-                        # track_bboxes = tracking_results["track_bboxes"]
-                        # origin_imgs = tracking_results["data"]["original_images"]
-                        # Does origin_imgs get clipped?
+                        nr_tracks = int(
+                            track_sample_data.video_data_samples[0].metainfo["nr_tracks"]
+                        )
 
                     for frame_index, frame_id in enumerate(info_imgs[2]):
 
