@@ -98,13 +98,13 @@ class HmEndToEnd(ByteTrack):
 
             all_det_results = self.detector.predict(det_inputs, track_data_sample)
 
-        for frame_id in range(video_len):
+        for frame_index in range(video_len):
             if detect_all:
-                det_data_sample = all_det_results[frame_id]
-                img_data_sample = track_data_sample[frame_id]
+                det_data_sample = all_det_results[frame_index]
+                img_data_sample = track_data_sample[frame_index]
             else:
-                img_data_sample = track_data_sample[frame_id]
-                single_img = inputs[:, frame_id].contiguous()
+                img_data_sample = track_data_sample[frame_index]
+                single_img = inputs[:, frame_index].contiguous()
                 det_results = self.detector.predict(single_img, [img_data_sample])
                 assert len(det_results) == 1, "Batch inference is not supported."
                 det_data_sample = det_results[0]
@@ -136,7 +136,6 @@ class HmEndToEnd(ByteTrack):
 
                 assert len(det_bboxes) == len(det_labels)
                 assert len(det_scores) == len(det_labels)
-
             pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
             # print(len(det_data_sample.pred_instances.bboxes), len(pred_track_instances.bboxes))
             img_data_sample.pred_track_instances = pred_track_instances
