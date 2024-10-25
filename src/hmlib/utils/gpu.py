@@ -64,6 +64,26 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
             yield r
 
 
+def copy_gpu_to_gpu_async(
+    tensor: torch.Tensor,
+    src_stream: torch.cuda.Stream,
+    dest_device: torch.device,
+    dest_stream: torch.cuda.Stream,
+) -> Tuple[torch.Tensor, torch.cuda.Event]:
+    if tensor.device == dest_device:
+        return tensor, None
+    with cuda_stream_scope(src_stream):
+        tensor_dest = torch.empty_like(tensor, device=dest_device)
+        tensor_dest.copy_(tensor, non_blocking=True)
+        src_event = torch.cuda.Event()
+        src_stream.record_event(src_event)
+    with cuda_stream_scope(src_stream):
+        dest_stream.wait_event(src_event)
+        dest_event = torch.cuda.Event()
+        dest_stream.record_event(dest_event)
+    return tensor_dest, dest_event
+
+
 class GpuAllocator:
     def __init__(self, gpus: str | List[int]):
         if gpus is None:
@@ -264,7 +284,6 @@ class StreamTensor(StreamTensorBase):
             )
             pass
         t = self._tensor
-        # self._tensor = None
         return t
 
     @property

@@ -22,6 +22,7 @@ class HmEndToEnd(ByteTrack):
         post_detection_pipeline: List[Any] = None,
         enabled: bool = True,
         num_classes_override: Optional[int] = None,
+        dataset_meta: Dict[str, Any] = None,
         **kwargs,
     ):
         # BaseModel tries to build it from the mmengine
@@ -37,6 +38,7 @@ class HmEndToEnd(ByteTrack):
         self.post_detection_composed_pipeline = None
         self.neck = None
         self._num_classes_override = num_classes_override
+        self.dataset_meta = dataset_meta
 
         if neck is not None:
             assert False
@@ -137,9 +139,9 @@ class HmEndToEnd(ByteTrack):
                 assert len(det_bboxes) == len(det_labels)
                 assert len(det_scores) == len(det_labels)
             pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
+            img_data_sample.pred_track_instances = pred_track_instances
+
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)
             det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})
-            # print(len(det_data_sample.pred_instances.bboxes), len(pred_track_instances.bboxes))
-            img_data_sample.pred_track_instances = pred_track_instances
 
         return [track_data_sample]

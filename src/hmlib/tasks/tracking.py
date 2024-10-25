@@ -164,10 +164,13 @@ def run_mmtrack(
                     for frame_index, frame_id in enumerate(info_imgs[2]):
 
                         video_data_samples = track_sample_data.video_data_samples[frame_index]
-                        pred_track_instances = video_data_samples.pred_track_instances
-
-                        # for frame_index in range(len(origin_imgs)):
-                        # frame_id = info_imgs[2][frame_index]
+                        pred_track_instances = getattr(
+                            video_data_samples, "pred_track_instances", None
+                        )
+                        if pred_track_instances is None:
+                            # we arent tracking anything (probably a performance test)
+                            cuda_stream.synchronize()
+                            continue
 
                         if not using_precalculated_tracking:
                             if pose_model is not None:

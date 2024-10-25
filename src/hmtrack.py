@@ -82,6 +82,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Don't start with a tracking box of the entire input frame. Immediately track to player detections.",
     )
     parser.add_argument(
+        "--no-play-tracking",
+        default=False,
+        action="store_true",
+        help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
+    )
+    parser.add_argument(
         "--infer",
         default=False,
         action="store_true",
@@ -548,71 +554,68 @@ def main(args, num_gpu):
         if not args.checkpoint:
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
 
-        if tracker == "mmtrack":
-            args.config = args.exp_file
-            if not using_precalculated_tracking:
-                if args.tracking or args.multi_pose:
+        args.config = args.exp_file
+        if not using_precalculated_tracking:
+            if args.tracking or args.multi_pose:
 
-                    # build the model from a config file and a checkpoint file
-                    model = init_track_model(
-                        args.config,
-                        args.checkpoint,
-                        args.detector,
-                        args.reid,
-                        device=main_device,
-                    )
-
-                    # Maybe apply a clip box in the data pipeline
-                    orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
-                    if orig_clip_box:
-                        hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
-                        if hm_crop is not None:
-                            hm_crop["rectangle"] = orig_clip_box
-
-                    if args.checkpoint:
-                        load_checkpoint_to_model(model, args.checkpoint)
-                    cfg = model.cfg.copy()
-                    pipeline = cfg.inference_pipeline
-                    pipeline[0].type = "HmLoadImageFromWebcam"
-                    data_pipeline = Compose(pipeline)
-
-                #
-                # post-detection pipeline updates
-                #
-                configure_boundaries(
-                    game_id=args.game_id,
-                    model=model,
-                    top_border_lines=cam_args.top_border_lines,
-                    bottom_border_lines=cam_args.bottom_border_lines,
-                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                    gpu_allocator=gpu_allocator,
-                    plot_tracking=args.plot_tracking,
+                # build the model from a config file and a checkpoint file
+                model = init_track_model(
+                    args.config,
+                    args.checkpoint,
+                    args.detector,
+                    args.reid,
+                    device=main_device,
                 )
-            if args.multi_pose:
-                from mmpose.apis import init_pose_model
-                from mmpose.datasets import DatasetInfo
 
-                if not args.pose_config:
-                    args.pose_config = get_nested_value(game_config, "model.pose.config")
-                if not args.pose_checkpoint:
-                    args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
+                # Maybe apply a clip box in the data pipeline
+                orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
+                if orig_clip_box:
+                    hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
+                    if hm_crop is not None:
+                        hm_crop["rectangle"] = orig_clip_box
 
-                pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                if args.checkpoint:
+                    load_checkpoint_to_model(model, args.checkpoint)
+                cfg = model.cfg.copy()
+                pipeline = cfg.inference_pipeline
+                pipeline[0].type = "HmLoadImageFromWebcam"
+                data_pipeline = Compose(pipeline)
+
+            #
+            # post-detection pipeline updates
+            #
+            configure_boundaries(
+                game_id=args.game_id,
+                model=model,
+                top_border_lines=cam_args.top_border_lines,
+                bottom_border_lines=cam_args.bottom_border_lines,
+                original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+                gpu_allocator=gpu_allocator,
+                plot_tracking=args.plot_tracking,
+            )
+        if args.multi_pose:
+            from mmpose.apis import init_pose_model
+            from mmpose.datasets import DatasetInfo
+
+            if not args.pose_config:
+                args.pose_config = get_nested_value(game_config, "model.pose.config")
+            if not args.pose_checkpoint:
+                args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
+
+            pose_model = init_pose_model(
+                args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+            )
+            pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
+            pose_dataset = pose_model.cfg.data["test"]["type"]
+            pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
+            if pose_dataset_info is None:
+                warnings.warn(
+                    "Please set `dataset_info` in the config."
+                    "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
+                    DeprecationWarning,
                 )
-                pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
-                pose_dataset = pose_model.cfg.data["test"]["type"]
-                pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
-                if pose_dataset_info is None:
-                    warnings.warn(
-                        "Please set `dataset_info` in the config."
-                        "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
-                        DeprecationWarning,
-                    )
-                else:
-                    pose_dataset_info = DatasetInfo(pose_dataset_info)
-        else:
-            assert False and "No longer supported"
+            else:
+                pose_dataset_info = DatasetInfo(pose_dataset_info)
 
         dataloader = MultiDatasetWrapper()
         postprocessor = None
@@ -809,98 +812,44 @@ def main(args, num_gpu):
             save_dir = results_folder
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
 
-        # TODO: can this be part of the openmm pipeline?
-        postprocessor = CamTrackHead(
-            opt=args,
-            args=cam_args,
-            fps=dataloader.fps if args.output_fps is None else args.output_fps,
-            save_dir=save_dir,
-            output_video_path=output_video_path,
-            save_frame_dir=args.save_frame_dir,
-            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-            device=gpus["camera"],
-            video_out_device=gpus["encoder"],
-            data_type="mot",
-            camera_name=get_nested_value(game_config, "camera.name"),
-            async_post_processing=True,
-        )
-        postprocessor._args.skip_final_video_save = args.skip_final_video_save
-
-        if not isinstance(exp, FakeExp):
-            trt_file = None
-            decoder = None
-            if model is not None:
-                model = model.to(main_device)
-                model.eval()
-
-                if not args.speed and not args.trt:
-                    if args.load_model is None:
-                        ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
-                    else:
-                        ckpt_file = args.load_model
-                    logger.info("loading checkpoint")
-                    loc = "cuda:{}".format(rank)
-                    ckpt = torch.load(ckpt_file, map_location=loc)
-                    # load the model state dict
-                    if "model" in ckpt:
-                        model.load_state_dict(ckpt["model"])
-                    # torch.jit.load()
-                    logger.info("loaded checkpoint done.")
-
-                if is_distributed:
-                    model = DDP(model, device_ids=[rank])
-
-                if args.trt:
-                    assert (
-                        not args.fuse and not is_distributed and args.batch_size == 1
-                    ), "TensorRT model is not support model fusing and distributed inferencing!"
-                    trt_file = os.path.join(file_name, "model_trt.pth")
-                    assert os.path.exists(
-                        trt_file
-                    ), "TensorRT model is not found!\n Run tools/trt.py first!"
-                    model.head.decode_in_inference = False
-                    decoder = model.head.decode_outputs
+        if not args.audio_only:
+            if not args.no_play_tracking:
+                postprocessor = CamTrackHead(
+                    opt=args,
+                    args=cam_args,
+                    fps=dataloader.fps if args.output_fps is None else args.output_fps,
+                    save_dir=save_dir,
+                    output_video_path=output_video_path,
+                    save_frame_dir=args.save_frame_dir,
+                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+                    device=gpus["camera"],
+                    video_out_device=gpus["encoder"],
+                    data_type="mot",
+                    camera_name=get_nested_value(game_config, "camera.name"),
+                    async_post_processing=True,
+                )
+                postprocessor._args.skip_final_video_save = args.skip_final_video_save
             else:
-                args.device = f"cuda:{rank}"
+                postprocessor = None
 
-            eval_functions = {
-                "mmtrack": {"function": run_mmtrack},
-            }
-
-            # start evaluate
-            args.device = main_device
-
-            *_, summary = eval_functions[tracker]["function"](
-                model=model,
-                config=args.game_config,
-                fp16=args.fp16,
-                distributed=is_distributed,
-                half=args.fp16,
-                trt_file=trt_file,
-                decoder=decoder,
-                test_size=exp.test_size,
-                result_folder=results_folder,
-                device=main_device,
-            )
-        else:
             other_kwargs = {
                 "dataloader": dataloader,
                 "postprocessor": postprocessor,
             }
-            if not args.audio_only:
-                run_mmtrack(
-                    model=model,
-                    pose_model=pose_model,
-                    pose_dataset_type=pose_dataset,
-                    pose_dataset_info=pose_dataset_info,
-                    config=vars(args),
-                    device=main_device,
-                    tracking_data=tracking_data,
-                    fp16=args.fp16,
-                    input_cache_size=args.cache_size,
-                    progress_bar=progress_bar,
-                    **other_kwargs,
-                )
+
+            run_mmtrack(
+                model=model,
+                pose_model=pose_model,
+                pose_dataset_type=pose_dataset,
+                pose_dataset_info=pose_dataset_info,
+                config=vars(args),
+                device=main_device,
+                tracking_data=tracking_data,
+                fp16=args.fp16,
+                input_cache_size=args.cache_size,
+                progress_bar=progress_bar,
+                **other_kwargs,
+            )
 
         #
         # Now add the audio
