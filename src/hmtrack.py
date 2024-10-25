@@ -9,12 +9,8 @@ from typing import List, Tuple
 
 import torch
 import torch.backends.cudnn as cudnn
-
-# from mmcv.utils import get_logger as mmcv_get_logger
 from mmcv.transforms import Compose
-
-# from mmtrack.apis import init_model
-from mmdet.apis import inference_mot, init_track_model
+from mmdet.apis import init_track_model
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import hmlib.tracking_utils.ice_rink_segm_boundaries
@@ -36,16 +32,13 @@ from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
 from hmlib.orientation import configure_game_videos
-
-# from hmlib.segm.ice_rink import confgure_ice_rink_mask
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.mot_data import MOTTrackingData
-from hmlib.utils.pipeline import get_model_item, get_pipeline_item, update_pipeline_item
+from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
@@ -945,8 +938,8 @@ def setup_logging():
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     logger.info("Logger initialized")
-    # mmcv_logger = mmcv_get_logger("mmcv")
-    # mmcv_logger.setLevel(logging.WARN)
+    mmcv_logger = mmcv_get_logger("mmcv")
+    mmcv_logger.setLevel(logging.WARN)
     # logger.info("Logger initialized")
 
 
