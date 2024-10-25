@@ -401,7 +401,6 @@ def plot_tracking(
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
 ):
-    # image = to_cv2(image)
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame
@@ -410,11 +409,7 @@ def plot_tracking(
     assert len(tlwhs) == len(obj_ids)
     if speeds:
         assert len(speeds) == len(obj_ids)
-    # TODO: is this an unnecessary copy?
-    # im = np.ascontiguousarray(image)
     im = image
-
-    # im = to_cv2(im)
 
     text_scale = max(2, image.shape[1] / 1600.0)
     text_thickness = 2

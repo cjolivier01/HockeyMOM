@@ -88,72 +88,71 @@ class CamTrackHead:
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         return outputs, output_results
 
-    def _maybe_init(
-        self,
-        frame_id,
-        letterbox_img,
-        original_img,
-    ):
+    def _maybe_init(self, frame_id, img_width: int, img_height: int, device: torch.device):
         if self._postprocessor is None:
             self.on_first_image(
-                frame_id,
-                letterbox_img,
-                original_img,
-                device=self._device,
+                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device
             )
+
+    def is_initialized(self) -> bool:
+        return not self._hockey_mom is None
 
     def process_tracking(
         self,
-        tracking_results,
-        frame_id,
-        online_tlwhs,
-        online_ids,
-        detections,
-        info_imgs,
-        letterbox_img,
-        original_img,
-        online_scores,
-        data: Dict[str, Any],
+        # tracking_results,
+        # frame_id,
+        # online_tlwhs,
+        # online_ids,
+        # detections,
+        # info_imgs,
+        # original_img,
+        # online_scores,
+        results: Dict[str, Any],
     ):
         self._counter += 1
         if self._counter % 100 == 0:
             logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
-            return detections, online_tlwhs
-        if letterbox_img is not None:
-            letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
-        original_img = to_rgb_non_planar(original_img)
-        if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
-            online_tlwhs = torch.stack(
-                [_pt_tensor(t, device=self._device) for t in online_tlwhs]
-            ).to(self._device)
-        self._maybe_init(
-            frame_id,
-            letterbox_img,
-            original_img,
-        )
-        assert isinstance(online_ids, torch.Tensor) or (
-            isinstance(online_ids, list) and len(online_ids) == 0
-        )
-        send_data: Dict[str, Any] = {
-            "online_tlwhs": online_tlwhs,
-            "online_ids": online_ids,
-            "detections": detections,
-            "info_imgs": info_imgs,
-            "original_img": original_img,
-            "tracking_results": tracking_results,
-        }
-        data.update(send_data)
-        data = self._postprocessor.send(data)
-        if not self._async_post_processing:
-            tracking_results.update(data)
-        return tracking_results, detections, online_tlwhs
+            return results
+        # if letterbox_img is not None:
+        #     letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
+        # original_img = to_rgb_non_planar(original_img)
+        # if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
+        #     online_tlwhs = torch.stack(
+        #         [_pt_tensor(t, device=self._device) for t in online_tlwhs]
+        #     ).to(self._device)
+        if not self.is_initialized():
+            video_data_sample = results["data_samples"].video_data_samples[0]
+            metainfo = video_data_sample.metainfo
+            original_shape = metainfo["ori_shape"]
+            # torch.Size will be (H, W)
+            assert isinstance(original_shape, torch.Size)
+            self._maybe_init(
+                frame_id=video_data_sample.frame_id,
+                img_height=original_shape[0],
+                img_width=original_shape[1],
+                device=self._device,
+            )
+        # assert isinstance(online_ids, torch.Tensor) or (
+        #     isinstance(online_ids, list) and len(online_ids) == 0
+        # )
+        # send_data: Dict[str, Any] = {
+        #     "online_tlwhs": online_tlwhs,
+        #     "online_ids": online_ids,
+        #     "detections": detections,
+        #     "info_imgs": info_imgs,
+        #     "original_img": original_img,
+        #     "tracking_results": tracking_results,
+        # }
+        # data.update(send_data)
+        results = self._postprocessor.send(results)
+        return results
 
-    def on_first_image(self, frame_id, letterbox_img, original_img, device):
+    def on_first_image(self, frame_id, img_width: int, img_height: int, device: torch.device):
         if self._hockey_mom is None:
             self._hockey_mom = HockeyMOM(
-                image_width=image_width(original_img),
-                image_height=image_height(original_img),
+                image_width=img_width,
+                image_height=img_height,
                 fps=self._fps,
                 device=device,
                 camera_name=self._camera_name,

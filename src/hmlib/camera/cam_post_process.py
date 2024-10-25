@@ -352,7 +352,7 @@ class CamTrackPostProcessor:
                     self._queue.put(data)
             else:
                 with torch.no_grad():
-                    data = self._play_tracker.forward(online_targets_and_img=data)
+                    data = self._play_tracker.forward(results=data)
                 current_box = data["current_box"]
                 assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 if self._video_output_campp is not None:
@@ -382,23 +382,22 @@ class CamTrackPostProcessor:
 
     def _postprocess_frame_worker(self):
         while True:
-            online_targets_and_img = self._queue.get()
-            if online_targets_and_img is None:
+            results = self._queue.get()
+            if results is None:
                 break
 
             with torch.no_grad():
-                data = self._play_tracker.forward(online_targets_and_img=online_targets_and_img)
-            current_box = data["current_box"]
-            assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-            if self._video_output_campp is not None:
-                self._video_output_campp.append(data)
-            if self._camera_tracking_data is not None:
-                self._camera_tracking_data.add_frame_records(
-                    frame_id=data["frame_id"],
-                    tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
-                )
+                results = self._play_tracker.forward(results=results)
 
-    _INFO_IMGS_FRAME_ID_INDEX = 2
+            for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
+                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                if self._camera_tracking_data is not None:
+                    self._camera_tracking_data.add_frame_records(
+                        frame_id=frame_id,
+                        tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
+                    )
+            if self._video_output_campp is not None:
+                self._video_output_campp.append(results)
 
     def get_arena_box(self):
         return self._hockey_mom._video_frame.bounding_box()

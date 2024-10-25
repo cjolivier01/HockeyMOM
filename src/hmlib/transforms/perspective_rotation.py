@@ -113,9 +113,10 @@ class HmPerspectiveRotation:
             )
             rotated_images.append(img)
             current_boxes.append(bbox)
-        online_im = torch.stack(rotated_images)
+        # online_im = torch.stack(rotated_images)
         current_box = torch.stack(current_boxes)
-        results[self._image_label] = online_im
+        # results[self._image_label] = online_im
+        results[self._image_label] = rotated_images
         results[self._bbox_label] = current_box
 
         return results
