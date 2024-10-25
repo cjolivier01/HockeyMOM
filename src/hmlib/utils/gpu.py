@@ -651,6 +651,12 @@ def select_gpus(
             detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
         if is_stitching and stitching_device is None:
             stitching_device = detection_device
+
+    if False:
+        # just always have encoder be detection device
+        if video_encoding_device is not None and detection_device is not None:
+            video_encoding_device = detection_device
+
     #
     # END GPU SELECTION
     #
