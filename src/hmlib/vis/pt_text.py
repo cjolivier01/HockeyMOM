@@ -68,15 +68,16 @@ def _create_text_images(
     font = ImageFont.truetype(font_path, font_size)
 
     # Dictionary to hold the character images as tensors
-    char_tensors = {}
+    char_tensors: Dict[str, torch.Tensor] = {}
 
     max_height = 0
 
     # Create an image for each character
     for char in characters:
+        char_width = font.getlength(text=char)
+
         # Create an image with transparent background
-        # image = Image.new("RGBA", (font.getsize(char)[0] + 10, font_size + 10), (255, 255, 255, 0))
-        image = Image.new("RGBA", (font.getsize(char)[0] + 10, font_size + 10), (255, 255, 255, 0))
+        image = Image.new("RGBA", (int(char_width + 10), font_size + 10), (255, 255, 255, 0))
         draw = ImageDraw.Draw(image)
 
         # Draw the text
