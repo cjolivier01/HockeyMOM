@@ -268,7 +268,7 @@ class CamTrackPostProcessor:
                 output_file=os.path.join(self._save_dir, "camera.csv")
             )
 
-        if not self._no_frame_postprocessing:
+        if not self._no_frame_postprocessing and self.output_video_path:
             assert self._video_output_campp is None
             self._video_output_campp = VideoOutput(
                 name="TRACKING",
