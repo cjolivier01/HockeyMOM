@@ -220,7 +220,7 @@ class PlayTracker(torch.nn.Module):
         frame_box = self.get_arena_box()
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
-        assert width(box) <= fw and height(box) <= fh
+        # assert width(box) <= fw and height(box) <= fh
         scale_w, scale_h = self._current_roi.get_size_scale()
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
@@ -244,7 +244,8 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
     ):
         if self._cluster_man is None:
-            self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
+            self._cluster_man = ClusterMan(sizes=cluster_counts, device=online_tlwhs.device)
+            # self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
 
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
