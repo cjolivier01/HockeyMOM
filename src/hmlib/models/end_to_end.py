@@ -68,6 +68,7 @@ class HmEndToEnd(ByteTrack):
         self,
         inputs,
         data_samples: OptTrackSampleList = None,
+        track: bool = True,
         **kwargs,
     ):
         """Test without augmentations.
@@ -132,14 +133,18 @@ class HmEndToEnd(ByteTrack):
                 instance_data["labels"] = det_labels
                 instance_data["bboxes"] = det_bboxes
                 det_data_sample.pred_instances = instance_data
-                frame_id = det_data_sample.metainfo["img_id"].reshape([1])
-                # frame_id = frame_id.repeat(len(det_bboxes))
-                det_data_sample.set_metainfo({"frame_id": frame_id.item()})
-
                 assert len(det_bboxes) == len(det_labels)
                 assert len(det_scores) == len(det_labels)
-            pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
-            img_data_sample.pred_track_instances = pred_track_instances
+
+            # Tracker will want to know the frame id so that it can expire lost tracks
+            frame_id = det_data_sample.metainfo["img_id"].reshape([1])
+            det_data_sample.set_metainfo({"frame_id": frame_id.item()})
+
+            # track = False
+
+            if track:
+                pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
+                img_data_sample.pred_track_instances = pred_track_instances
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)
             det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})

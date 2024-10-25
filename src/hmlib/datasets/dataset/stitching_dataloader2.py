@@ -20,7 +20,7 @@ from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, async_to, cuda_stream_scope
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
 from hmlib.utils.image import (
     image_height,
     image_width,

@@ -14,7 +14,7 @@ import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.mot_data import MOTTrackingData
@@ -103,11 +103,7 @@ def run_mmtrack(
             for cur_iter, dataset_results in enumerate(dataloader_iterator):
                 origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
                 with torch.no_grad():
-                    # init tracker
                     frame_id = info_imgs[2][0]
-
-                    # if isinstance(origin_imgs, StreamTensor):
-                    #     origin_imgs = origin_imgs.get()
 
                     batch_size = origin_imgs.shape[0]
 
@@ -130,18 +126,22 @@ def run_mmtrack(
                         # ByteTrack does a "batch" of just one, but the second dim
                         # is the # frames, so it's like a batch, but the frames of the same
                         # video are the batch items.  This is why we unsqueeze here.
-                        data["img"] = make_channels_first(data["img"])
-                        if isinstance(data["img"], StreamTensor):
-                            data["img"].verbose = True
-                            data["img"] = data["img"].get()
-                            # data["img"] = data["img"].wait()
+                        detection_image = data["img"]
+                        detection_image = make_channels_first(detection_image)
+                        if isinstance(detection_image, StreamTensor):
+                            detection_image.verbose = True
+                            detection_image = detection_image.get()
+                            # detection_image = detection_image.wait()
 
-                        if data["img"].device != device:
-                            data["img"] = data["img"].to(device, non_blocking=True)
+                        if detection_image.device != device:
+                            detection_image, _ = copy_gpu_to_gpu_async(
+                                tensor=detection_image, dest_device=device
+                            )
+                            # detection_image = detection_image.to(device, non_blocking=True)
 
                         # Make batch size of 1, but some T number of frames (prev batch size)
-                        data["img"] = data["img"].unsqueeze(0)
-                        assert data["img"].ndim == 5
+                        detection_image = detection_image.unsqueeze(0)
+                        assert detection_image.ndim == 5
 
                         if "original_images" not in data:
                             data["original_images"] = origin_imgs
@@ -153,8 +153,11 @@ def run_mmtrack(
                         detect_timer.tic()
                         with torch.no_grad():
                             with autocast() if fp16 else nullcontext():
+                                data["img"] = detection_image
                                 tracking_results = model(return_loss=False, rescale=True, **data)
                         detect_timer.toc()
+                        del data["img"]
+                        del detection_image
                         assert len(tracking_results) == 1
                         track_sample_data: TrackDataSample = tracking_results[0]
                         nr_tracks = int(
@@ -244,7 +247,8 @@ def run_mmtrack(
                         # Clean data to send of the batched images
                         data_to_send = data.copy()
                         del data_to_send["original_images"]
-                        del data_to_send["img"]
+                        if "img" in data_to_send:
+                            del data_to_send["img"]
 
                         # sanity check that no batched tensors left
                         for _, val in data_to_send.items():
