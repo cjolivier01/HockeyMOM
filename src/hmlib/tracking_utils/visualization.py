@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import torch
 
-import hmlib.utils.pt_visualization as ptv
+import hmlib.vis.pt_visualization as ptv
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_width
 

@@ -47,7 +47,7 @@ from hmlib.utils.image import (
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.utils.pt_visualization import draw_text
+from hmlib.vis.pt_text import draw_text
 
 from .video_stream import (
     VideoStreamWriterInterface,
