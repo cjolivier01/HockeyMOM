@@ -553,7 +553,6 @@ class VideoOutput:
                         final_all_timer.tic()
             except:
                 traceback.print_exc()
-    
 
     def forward(self, imgproc_data) -> Dict[str, Any]:
         online_im = imgproc_data.pop("img")
@@ -693,6 +692,7 @@ class VideoOutput:
             cropped_images = []
             for img, bbox in zip(online_im, current_box):
                 intbox = [int(i) for i in bbox]
+                # print(intbox)
                 x1 = intbox[0]
                 y1 = intbox[1]
                 y2 = intbox[3]

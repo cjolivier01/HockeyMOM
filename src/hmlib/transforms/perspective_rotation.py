@@ -151,9 +151,9 @@ class HmPerspectiveRotation:
         else:
             # with batch dimension
             image = image[:, :, int(clip_left) : int(clip_right), :]
-        current_box[0] -= clip_left.to(current_box.device, non_blocking=True)
-        current_box[2] -= clip_left.to(current_box.device, non_blocking=True)
-
+        current_box[0] -= clip_left.to(current_box.device)
+        current_box[2] -= clip_left.to(current_box.device)
+        # print(f"{clip_left=}")
         # Adjust our output frame size if necessary
         # if not self._args.crop_output_image and image.shape[1] != self._output_frame_width_int:
         #     self._output_frame_width = torch.tensor(
