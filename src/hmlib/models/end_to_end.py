@@ -130,8 +130,8 @@ class HmEndToEnd(ByteTrack):
                 instance_data["labels"] = det_labels
                 instance_data["bboxes"] = det_bboxes
                 det_data_sample.pred_instances = instance_data
-                frame_id = det_data_sample.meta_info["img_id"]
-                frame_id = frame_id.repeat(len(det_bboxes))
+                frame_id = det_data_sample.metainfo["img_id"]
+                # frame_id = frame_id.repeat(len(det_bboxes))
                 det_data_sample.set_metainfo({"frame_id": frame_id})
 
                 assert len(det_bboxes) == len(det_labels)
