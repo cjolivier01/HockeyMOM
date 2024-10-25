@@ -14,7 +14,6 @@ import numpy as np
 import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.ffmpeg import BasicVideoInfo
 
 # from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -30,7 +29,8 @@ from hmlib.utils.image import (
     make_visible_image,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_out import VideoOutput  # optional_with,
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_out import VideoOutput  # optional_with,
 from hockeymom import core
 
 

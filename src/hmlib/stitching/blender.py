@@ -35,8 +35,8 @@ from hmlib.utils.image import (
     rotate_image,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_out import VideoOutput
-from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
+from hmlib.video.video_out import VideoOutput
+from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 

@@ -18,7 +18,7 @@ from hmlib.utils.box_functions import aspect_ratio
 from hmlib.utils.camera_data import CameraTrackingData
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.video_out import VideoOutput
+from hmlib.video.video_out import VideoOutput
 from hockeymom import core
 
 # MAX_CROPPED_WIDTH = 4096

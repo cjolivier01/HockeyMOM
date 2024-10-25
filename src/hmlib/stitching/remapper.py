@@ -20,7 +20,7 @@ from hmlib.utils.image import (
     make_visible_image,
     pad_tensor_to_size_batched,
 )
-from hmlib.video_stream import VideoStreamReader
+from hmlib.video.video_stream import VideoStreamReader
 
 ROOT_DIR = os.getcwd()
 

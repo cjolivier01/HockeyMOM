@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
@@ -26,7 +25,8 @@ from hmlib.utils.image import (
     make_channels_last,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_stream import VideoStreamReader
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_stream import VideoStreamReader
 
 
 @contextmanager

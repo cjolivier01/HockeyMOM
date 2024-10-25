@@ -13,7 +13,6 @@ import torch
 
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -23,6 +22,7 @@ from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
+from hmlib.video.ffmpeg import BasicVideoInfo
 
 ROOT_DIR = os.getcwd()
 

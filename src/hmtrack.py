@@ -32,7 +32,6 @@ from hmlib.config import (
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
@@ -48,7 +47,8 @@ from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.mot_data import MOTTrackingData
 from hmlib.utils.pipeline import get_model_item, get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hmlib.video_stream import time_to_frame
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
 
@@ -943,7 +943,7 @@ def tensor_to_image(tensor: torch.Tensor):  ##
 
 def setup_logging():
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.WARN)
+    logger.setLevel(logging.INFO)
     logger.info("Logger initialized")
     # mmcv_logger = mmcv_get_logger("mmcv")
     # mmcv_logger.setLevel(logging.WARN)

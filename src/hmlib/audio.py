@@ -9,8 +9,8 @@ import sys
 import tempfile
 from typing import List, Union
 
-from hmlib.ffmpeg import concatenate_videos
 from hmlib.stitching.synchronize import synchronize_by_audio
+from hmlib.video.ffmpeg import concatenate_videos
 
 
 def make_parser():

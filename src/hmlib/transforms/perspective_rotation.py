@@ -9,7 +9,7 @@ from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_stream import VideoStreamReader
+from hmlib.video.video_stream import VideoStreamReader
 
 
 def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
