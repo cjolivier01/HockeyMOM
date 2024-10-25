@@ -617,6 +617,9 @@ class VideoOutput:
                 results["img"] = online_im
                 results["camera_box"] = current_boxes
                 results = self._perspective_rotation(results=results)
+                # online_im may come back as a list of images, since the post-rotation clip
+                # optimization may generate differently-sized images based on the size
+                # of the current_box
                 online_im = results.pop("img")
                 current_boxes = results.pop("camera_box")
 
