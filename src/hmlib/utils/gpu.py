@@ -99,9 +99,15 @@ class GpuAllocator:
         self._last_allocated: int = None
         self._is_single_lowmem_gpu: Union[bool, None] = None
 
-        gpu_info = get_gpu_capabilities()
-        for i in range(len(gpu_info)):
-            print(f"GPU {i}: {gpu_info[i]['name']}")
+        self._all_gpu_info = get_gpu_capabilities()
+        for i in range(len(self._all_gpu_info)):
+            print(f"GPU {i}: {self._all_gpu_info[i]['name']}")
+
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        return self._all_gpu_info[index]
+
+    def __len__(self) -> int:
+        return len(self._all_gpu_info)
 
     def allocate_modern(self, name: Optional[Union[str, None]] = None):
         """
@@ -476,42 +482,6 @@ class StreamTensorToDtype(StreamTensor):
                 self._event.record()
 
 
-def async_to(
-    tensor: Union[torch.tensor, StreamTensor],
-    device: Union[torch.device, str, None] = None,
-    dtype: Union[torch.dtype, None] = None,
-) -> StreamTensor:
-    assert False
-    assert device is not None or dtype is not None
-    if isinstance(tensor, StreamTensor):
-        assert tensor.owns_stream
-        stream = tensor.stream
-        with torch.cuda.stream(stream):
-            if device is not None:
-                assert (
-                    device == tensor.device
-                )  # Need to handle this case, do we need to sync first?
-                tensor._tensor = tensor.ref().to(device=device, non_blocking=True)
-                tensor._event = torch.cuda.Event()
-                tensor._event.record()
-            if dtype is not None:
-                tensor._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
-                tensor._event = torch.cuda.Event()
-                tensor._event.record()
-        return tensor
-    else:
-        # How do we do this across two devices?
-        stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
-        with torch.cuda.stream(stream):
-            if device is not None:
-                tensor = tensor.to(device=device, non_blocking=True)
-            if dtype is not None:
-                tensor = tensor.to(dtype=dtype, non_blocking=True)
-            event = torch.cuda.Event()
-            event.record()
-            return StreamCheckpoint(tensor=tensor, stream=stream, event=event, owns_stream=True)
-
-
 def get_gpu_capabilities():
     if not torch.cuda.is_available():
         return None
@@ -611,6 +581,8 @@ def select_gpus(
     is_multipose: bool = False,
     is_encoding: bool = True,
     is_camera: bool = True,
+    stitch_with_fastest: bool = True,
+    verbose: bool = True,
 ) -> Tuple[Dict[str, torch.device], bool]:
     #
     # BEGIN GPU SELECTION
@@ -631,7 +603,7 @@ def select_gpus(
             if is_detecting:
                 detection_device = multipose_device
         else:
-            if True:
+            if stitch_with_fastest:
                 if is_stitching:
                     if gpu_allocator.free_count() or not is_detecting:
                         stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
@@ -683,14 +655,23 @@ def select_gpus(
     _check_is(stitching_device, is_stitching)
     _check_is(camera_device, is_camera)
     _check_is(video_encoding_device, is_encoding)
-    if stitching_device is not None:
-        gpus["stitching"] = stitching_device
     if detection_device is not None:
         gpus["detection"] = detection_device
+    if stitching_device is not None:
+        gpus["stitching"] = stitching_device
     if multipose_device is not None:
         gpus["multipose"] = multipose_device
     if camera_device is not None:
         gpus["camera"] = camera_device
     if video_encoding_device is not None:
         gpus["encoder"] = video_encoding_device
+
+    if verbose:
+        for k in sorted(gpus.keys()):
+            device = gpus[k]
+            if device.type != "cuda":
+                continue
+            name = gpu_allocator[device.index]["name"]
+            print(f"{k} device: {device} ({name})")
+
     return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator
