@@ -28,6 +28,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.log import logger
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
@@ -307,7 +308,7 @@ def find_ice_rink_masks(
         image = [image]
 
     if device.type == "cpu":
-        print("Looking for the ice at the rink, this may take awhile...")
+        logger.info("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
     results: List[
         Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
@@ -318,7 +319,7 @@ def find_ice_rink_masks(
         )
 
     if device.type == "cpu":
-        print("Found the ice at the rink, continuing...")
+        logger.info("Found the ice at the rink, continuing...")
 
     if not was_list:
         assert len(results) == 1
@@ -612,6 +613,6 @@ if __name__ == "__main__":
     centroid = [int(i) for i in results["centroid"]]
     checker = MaskEdgeDistances.from_mask(mask)
     cent_dist = checker.distances_to_edges(x=centroid[0], y=centroid[1])
-    print(
+    logger.info(
         f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
     )
