@@ -12,7 +12,7 @@ from torch.cuda.amp import autocast
 
 import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_first, make_channels_last

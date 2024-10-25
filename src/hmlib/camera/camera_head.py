@@ -8,7 +8,7 @@ import torch
 from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
 
 

@@ -31,10 +31,10 @@ from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
+from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
-from hmlib.tracking_utils.log import logger
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.mot_data import MOTTrackingData
@@ -935,12 +935,8 @@ def tensor_to_image(tensor: torch.Tensor):  ##
 
 
 def setup_logging():
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-    logger.info("Logger initialized")
-    mmcv_logger = mmcv_get_logger("mmcv")
-    mmcv_logger.setLevel(logging.WARN)
-    # logger.info("Logger initialized")
+    mm_logger = get_root_logger(level=logging.INFO)
+    mm_logger.setLevel(logging.INFO)
 
 
 if __name__ == "__main__":

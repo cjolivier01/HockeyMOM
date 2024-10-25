@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 import torch
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 
 from .containers import LinkedList
 

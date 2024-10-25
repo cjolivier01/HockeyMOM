@@ -5,8 +5,8 @@ import numpy as np
 import torch
 
 from hmlib.config import get_nested_value
+from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import center
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.letterbox import py_letterbox

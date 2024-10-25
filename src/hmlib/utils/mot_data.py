@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 
 
 class TrackingDataBase:

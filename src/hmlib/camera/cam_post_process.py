@@ -12,7 +12,7 @@ import torch
 from hmlib.builder import HM
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.box_functions import aspect_ratio
 from hmlib.utils.camera_data import CameraTrackingData

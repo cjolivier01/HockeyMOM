@@ -7,7 +7,7 @@ import torchaudio
 import torchvision
 from typeguard import typechecked
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, resize_image

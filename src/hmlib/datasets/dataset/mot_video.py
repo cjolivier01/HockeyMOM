@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import (

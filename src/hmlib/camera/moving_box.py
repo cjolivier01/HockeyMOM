@@ -5,8 +5,8 @@ import numpy as np
 import torch
 
 from hmlib.builder import HM
+from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
 from hmlib.utils.box_functions import (
     aspect_ratio,
     center,

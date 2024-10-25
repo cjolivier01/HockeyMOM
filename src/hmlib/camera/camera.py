@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.utils.box_functions import (
     center,
     clamp_box,

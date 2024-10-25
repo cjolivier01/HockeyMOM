@@ -1,14 +1,10 @@
-# --------------------------------------------------------
-# Fast R-CNN
-# Copyright (c) 2015 Microsoft
-# Licensed under The MIT License [see LICENSE for details]
-# Written by Ross Girshick
-# --------------------------------------------------------
+"""
+Simple timer classes for basic performance analysis
+"""
 
 import time
-import contextlib
 
-from .log import logger
+from ..log import logger
 
 
 class Timer(object):

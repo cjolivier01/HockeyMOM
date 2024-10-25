@@ -16,11 +16,11 @@ from torchvision.transforms import functional as F
 
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
+from hmlib.log import logger
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
-from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.transforms import HmPerspectiveRotation  # TODO: pipeline this
 from hmlib.ui.show import show_image

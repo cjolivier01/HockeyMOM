@@ -14,10 +14,10 @@ import numpy as np
 import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.log import logger
 
 # from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, async_to, cuda_stream_scope
