@@ -49,6 +49,9 @@ def print_rgba_planes(image_tensor):
             print(" ".join(row_values))
 
 
+_TRANSPARENT_PIXEL: int = 255
+
+
 def _create_text_images(
     font_path: str, font_size: int, font_color: Tuple[int, int, int], device=torch.device
 ) -> Dict[str, torch.Tensor]:
@@ -77,7 +80,11 @@ def _create_text_images(
         char_width = font.getlength(text=char)
 
         # Create an image with transparent background
-        image = Image.new("RGBA", (int(char_width + 10), font_size + 10), (255, 255, 255, 0))
+        image = Image.new(
+            "RGBA",
+            (int(char_width + 10), font_size + 10),
+            (_TRANSPARENT_PIXEL, _TRANSPARENT_PIXEL, _TRANSPARENT_PIXEL, 0),
+        )
         draw = ImageDraw.Draw(image)
 
         # Draw the text
@@ -86,12 +93,14 @@ def _create_text_images(
         numpy_image = np.array(image)
 
         # get rid of aliasing and make a solid color
-        alpha_channel = numpy_image[:, :, 3]
-        numpy_image[alpha_channel != 0] = [font_color[0], font_color[1], font_color[2], 255]
+        # alpha_channel = numpy_image[:, :, 3]
+        # numpy_image[alpha_channel != 0] = [font_color[0], font_color[1], font_color[2], 255]
 
         max_height = max(max_height, numpy_image.shape[0])
 
         # print_rgba_planes(numpy_image)
+
+        # show_image("char", numpy_image, wait=True)
 
         # Convert the PIL image to a PyTorch tensor
         tensor = (
@@ -135,7 +144,7 @@ def alpha_blend(base_img: torch.Tensor, letter_img: torch.Tensor, start_x: int, 
 
     # Foreground and background blending
     blended_region = letter_img[0:3] * alpha + region[0:3] * inv_alpha
-    base_img[:, start_y:end_y, start_x:end_x] = blended_region
+    base_img[:, start_y:end_y, start_x:end_x] = blended_region.clamp(0, 255)
 
     return base_img
 
