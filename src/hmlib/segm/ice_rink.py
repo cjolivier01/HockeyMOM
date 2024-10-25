@@ -508,3 +508,90 @@ if __name__ == "__main__":
         force=True,
     )
     print(f"centroid={results['centroid']}")
+
+
+from typing import Optional, Tuple
+
+import torch
+
+
+def distances_to_mask_edges(
+    mask: torch.Tensor, x: int, y: int
+) -> Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+    """
+    Calculate distances from point (x, y) to the edges of a bitmask.
+
+    Parameters:
+    - mask (torch.Tensor): A 2D binary tensor of shape (H, W).
+    - x (int): The x-coordinate (column index) of the point.
+    - y (int): The y-coordinate (row index) of the point.
+
+    Returns:
+    - Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+      (top_distance, bottom_distance, left_distance, right_distance)
+      If the point lies outside the bitmask, returns None.
+      Individual distances can also be None if there is no edge in that direction.
+    """
+    # Ensure x and y are integers
+    x = int(x)
+    y = int(y)
+
+    H, W = mask.shape
+
+    # Check if x and y are within bounds
+    if not (0 <= x < W and 0 <= y < H):
+        return None
+
+    # Check if the point lies within the bitmask
+    if mask[y, x].item() == 0:
+        return None
+
+    # Vertical distances (along column x)
+    column: torch.Tensor = mask[:, x]
+
+    # Indices where the mask is 1 in the column
+    ones_in_column: torch.Tensor = torch.nonzero(column).squeeze()
+
+    # Positions above and below y
+    positions_above: torch.Tensor = ones_in_column[ones_in_column < y]
+    positions_below: torch.Tensor = ones_in_column[ones_in_column > y]
+
+    # Distance to the top edge
+    if positions_above.numel() == 0:
+        top_distance: Optional[int] = None
+    else:
+        top_edge: int = positions_above.max().item()
+        top_distance = y - top_edge
+
+    # Distance to the bottom edge
+    if positions_below.numel() == 0:
+        bottom_distance: Optional[int] = None
+    else:
+        bottom_edge: int = positions_below.min().item()
+        bottom_distance = bottom_edge - y
+
+    # Horizontal distances (along row y)
+    row: torch.Tensor = mask[y, :]
+
+    # Indices where the mask is 1 in the row
+    ones_in_row: torch.Tensor = torch.nonzero(row).squeeze()
+
+    # Positions left and right of x
+    positions_left: torch.Tensor = ones_in_row[ones_in_row < x]
+    positions_right: torch.Tensor = ones_in_row[ones_in_row > x]
+
+    # Distance to the left edge
+    if positions_left.numel() == 0:
+        left_distance: Optional[int] = None
+    else:
+        left_edge: int = positions_left.max().item()
+        left_distance = x - left_edge
+
+    # Distance to the right edge
+    if positions_right.numel() == 0:
+        right_distance: Optional[int] = None
+    else:
+        right_edge: int = positions_right.min().item()
+        right_distance = right_edge - x
+
+    return top_distance, bottom_distance, left_distance, right_distance

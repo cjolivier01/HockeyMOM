@@ -130,8 +130,8 @@ def run_mmtrack(
                         detection_image = make_channels_first(detection_image)
                         if isinstance(detection_image, StreamTensor):
                             detection_image.verbose = True
-                            detection_image = detection_image.get()
-                            # detection_image = detection_image.wait()
+                            # detection_image = detection_image.get()
+                            detection_image = detection_image.wait()
 
                         if detection_image.device != device:
                             detection_image, _ = copy_gpu_to_gpu_async(
@@ -202,15 +202,6 @@ def run_mmtrack(
                             else:
                                 vis_frame = None
 
-                            # detections = det_bboxes[frame_index]
-                            # tracking_items = track_bboxes[frame_index]
-
-                            # track_ids = tracking_items[:, 0].astype(np.int64)
-                            # bboxes = tracking_items[:, 1:5]
-                            # scores = tracking_items[:, -1]
-                            # video_data_samples = video_data_samples_list[frame_index]
-                            # pred_track_instances = video_data_samples.pred_track_instances
-                            # TOD: Are we pruning by label/class?
                             track_ids = pred_track_instances.instances_id
                             bboxes = pred_track_instances.bboxes
                             scores = pred_track_instances.scores
@@ -223,7 +214,6 @@ def run_mmtrack(
                                     scores=scores,
                                 )
 
-                            # online_tlwhs = torch.from_numpy(bboxes)
                             online_tlwhs = bboxes.clone()
                             # make boxes tlwh
                             online_tlwhs[:, 2] = (
@@ -239,8 +229,6 @@ def run_mmtrack(
                             online_tlwhs = torch.from_numpy(bboxes)
                             tracking_results = None
 
-                        # online_ids = torch.from_numpy(track_ids)
-                        # online_scores = torch.from_numpy(scores)
                         online_ids = track_ids.clone()
                         online_scores = scores.clone()
 

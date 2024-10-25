@@ -615,66 +615,6 @@ class VideoOutput:
             online_im = imgproc_data.pop("img")
             current_box = imgproc_data.pop("camera_box")
 
-            # online_im = slow_to_tensor(online_im)
-            # online_im = to_float_image(
-            #     online_im,
-            #     non_blocking=True,
-            #     dtype=self._float_type(),
-            # )
-            # rotated_images = []
-            # current_boxes = []
-            # for img, bbox in zip(online_im, current_box):
-            #     rotation_point = [int(i) for i in center(bbox)]
-            #     width_center = src_image_width / 2
-            #     if rotation_point[0] < width_center:
-            #         mult = -1
-            #     else:
-            #         mult = 1
-
-            #     gaussian = 1 - self._get_gaussian(
-            #         src_image_width
-            #     ).get_gaussian_y_from_image_x_position(rotation_point[0], wide=True)
-
-            #     fixed_edge_rotation_angle = self._args.fixed_edge_rotation_angle
-            #     if isinstance(fixed_edge_rotation_angle, (list, tuple)):
-            #         assert len(fixed_edge_rotation_angle) == 2
-            #         if rotation_point[0] < src_image_width // 2:
-            #             fixed_edge_rotation_angle = int(self._args.fixed_edge_rotation_angle[0])
-            #         else:
-            #             fixed_edge_rotation_angle = int(self._args.fixed_edge_rotation_angle[1])
-
-            #     angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
-            #     angle *= mult
-
-            #     # BEGIN PERFORMANCE HACK
-            #     #
-            #     # Chop off edges of image that won't be visible after a final crop
-            #     # before we rotate in order to reduce the computation necessary
-            #     # for the rotation (as well as other subsequent operations)
-            #     #
-            #     if self._args.crop_output_image:
-            #         pre_size = image_width(img), image_height(img)
-            #         img, bbox = self.crop_working_image_width(image=img, current_box=bbox)
-            #         post_size = image_width(img), image_height(img)
-            #         if pre_size != post_size:
-            #             imgproc_data["rotation_crop"] = {"from": pre_size, "to": post_size}
-            #         src_image_width = post_size[0]
-            #         src_image_height = post_size[1]
-            #         rotation_point = center(bbox)
-            #     #
-            #     # END PERFORMANCE HACK
-            #     #
-
-            #     img = rotate_image(
-            #         img=img,
-            #         angle=angle,
-            #         rotation_point=rotation_point,
-            #     )
-            #     rotated_images.append(img)
-            #     current_boxes.append(bbox)
-            # online_im = torch.stack(rotated_images)
-            # current_box = torch.stack(current_boxes)
-
         src_image_width = image_width(online_im)
         src_image_height = image_height(online_im)
 

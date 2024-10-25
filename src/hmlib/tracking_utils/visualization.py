@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import torch
 
+import hmlib.vis.pt_text as ptt
 import hmlib.vis.pt_visualization as ptv
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_width
@@ -309,7 +310,7 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
 
 def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
     if isinstance(img, torch.Tensor):
-        img = ptv.draw_text(
+        img = ptt.draw_text(
             image=img,
             x=int(org[0]),
             y=int(org[1]),
