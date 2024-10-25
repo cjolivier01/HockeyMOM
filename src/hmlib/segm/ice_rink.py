@@ -5,6 +5,7 @@ Ice Rink segmentation stuff
 import argparse
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -483,6 +484,106 @@ def confgure_ice_rink_mask(
     return load_rink_combined_mask(game_id=game_id)
 
 
+@dataclass
+class MaskEdgeDistances:
+    """
+    Precomputed edge distances for a binary mask.
+    """
+
+    top_edges: torch.Tensor  # Shape: (W,)
+    bottom_edges: torch.Tensor  # Shape: (W,)
+    left_edges: torch.Tensor  # Shape: (H,)
+    right_edges: torch.Tensor  # Shape: (H,)
+    mask: torch.Tensor  # Original mask for reference
+
+    @classmethod
+    def from_mask(cls, mask: torch.Tensor) -> "MaskEdgeDistances":
+        """
+        Precompute the edge positions for each row and column.
+
+        Parameters:
+        - mask (torch.Tensor): A 2D binary tensor of shape (H, W).
+
+        Returns:
+        - MaskEdgeDistances: An instance with precomputed edges.
+        """
+        # Ensure mask is binary
+        assert mask.dim() == 2, "Mask must be a 2D tensor"
+        H, W = mask.shape
+
+        # Precompute top and bottom edges for each column (x)
+        top_edges = torch.full((W,), -1, dtype=torch.long)  # Initialize with -1
+        bottom_edges = torch.full((W,), -1, dtype=torch.long)
+
+        for x in range(W):
+            column_indices = torch.nonzero(mask[:, x]).squeeze()
+            if column_indices.numel() > 0:
+                top_edges[x] = column_indices.min().item()
+                bottom_edges[x] = column_indices.max().item()
+
+        # Precompute left and right edges for each row (y)
+        left_edges = torch.full((H,), -1, dtype=torch.long)
+        right_edges = torch.full((H,), -1, dtype=torch.long)
+
+        for y in range(H):
+            row_indices = torch.nonzero(mask[y, :]).squeeze()
+            if row_indices.numel() > 0:
+                left_edges[y] = row_indices.min().item()
+                right_edges[y] = row_indices.max().item()
+
+        return cls(
+            top_edges=top_edges,
+            bottom_edges=bottom_edges,
+            left_edges=left_edges,
+            right_edges=right_edges,
+            mask=mask,
+        )
+
+    def distances_to_edges(
+        self, x: int, y: int
+    ) -> Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+        """
+        Calculate distances from point (x, y) to the precomputed edges.
+
+        Parameters:
+        - x (int): The x-coordinate (column index) of the point.
+        - y (int): The y-coordinate (row index) of the point.
+
+        Returns:
+        - Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+          (top_distance, bottom_distance, left_distance, right_distance)
+          If the point lies outside the bitmask, returns None.
+          Individual distances can also be None if there is no edge in that direction.
+        """
+        H, W = self.mask.shape
+
+        # Check if x and y are within bounds
+        if not (0 <= x < W and 0 <= y < H):
+            return None
+
+        # Check if the point lies within the bitmask
+        if self.mask[y, x].item() == 0:
+            return None
+
+        # Get top and bottom edges for column x
+        top_edge = self.top_edges[x].item()
+        bottom_edge = self.bottom_edges[x].item()
+
+        # Compute vertical distances
+        top_distance: Optional[int] = y - top_edge if top_edge != -1 else None
+        bottom_distance: Optional[int] = bottom_edge - y if bottom_edge != -1 else None
+
+        # Get left and right edges for row y
+        left_edge = self.left_edges[y].item()
+        right_edge = self.right_edges[y].item()
+
+        # Compute horizontal distances
+        left_distance: Optional[int] = x - left_edge if left_edge != -1 else None
+        right_distance: Optional[int] = right_edge - x if right_edge != -1 else None
+
+        return top_distance, bottom_distance, left_distance, right_distance
+
+
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
@@ -497,7 +598,7 @@ if __name__ == "__main__":
         else torch.device("cpu")
     )
 
-    args.game_id = "pdp"
+    args.game_id = "ev-blackstars-ps"
 
     assert args.game_id
 
@@ -507,91 +608,10 @@ if __name__ == "__main__":
         show=False,
         force=True,
     )
-    print(f"centroid={results['centroid']}")
-
-
-from typing import Optional, Tuple
-
-import torch
-
-
-def distances_to_mask_edges(
-    mask: torch.Tensor, x: int, y: int
-) -> Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
-    """
-    Calculate distances from point (x, y) to the edges of a bitmask.
-
-    Parameters:
-    - mask (torch.Tensor): A 2D binary tensor of shape (H, W).
-    - x (int): The x-coordinate (column index) of the point.
-    - y (int): The y-coordinate (row index) of the point.
-
-    Returns:
-    - Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
-      (top_distance, bottom_distance, left_distance, right_distance)
-      If the point lies outside the bitmask, returns None.
-      Individual distances can also be None if there is no edge in that direction.
-    """
-    # Ensure x and y are integers
-    x = int(x)
-    y = int(y)
-
-    H, W = mask.shape
-
-    # Check if x and y are within bounds
-    if not (0 <= x < W and 0 <= y < H):
-        return None
-
-    # Check if the point lies within the bitmask
-    if mask[y, x].item() == 0:
-        return None
-
-    # Vertical distances (along column x)
-    column: torch.Tensor = mask[:, x]
-
-    # Indices where the mask is 1 in the column
-    ones_in_column: torch.Tensor = torch.nonzero(column).squeeze()
-
-    # Positions above and below y
-    positions_above: torch.Tensor = ones_in_column[ones_in_column < y]
-    positions_below: torch.Tensor = ones_in_column[ones_in_column > y]
-
-    # Distance to the top edge
-    if positions_above.numel() == 0:
-        top_distance: Optional[int] = None
-    else:
-        top_edge: int = positions_above.max().item()
-        top_distance = y - top_edge
-
-    # Distance to the bottom edge
-    if positions_below.numel() == 0:
-        bottom_distance: Optional[int] = None
-    else:
-        bottom_edge: int = positions_below.min().item()
-        bottom_distance = bottom_edge - y
-
-    # Horizontal distances (along row y)
-    row: torch.Tensor = mask[y, :]
-
-    # Indices where the mask is 1 in the row
-    ones_in_row: torch.Tensor = torch.nonzero(row).squeeze()
-
-    # Positions left and right of x
-    positions_left: torch.Tensor = ones_in_row[ones_in_row < x]
-    positions_right: torch.Tensor = ones_in_row[ones_in_row > x]
-
-    # Distance to the left edge
-    if positions_left.numel() == 0:
-        left_distance: Optional[int] = None
-    else:
-        left_edge: int = positions_left.max().item()
-        left_distance = x - left_edge
-
-    # Distance to the right edge
-    if positions_right.numel() == 0:
-        right_distance: Optional[int] = None
-    else:
-        right_edge: int = positions_right.min().item()
-        right_distance = right_edge - x
-
-    return top_distance, bottom_distance, left_distance, right_distance
+    mask = results["combined_mask"]
+    centroid = [int(i) for i in results["centroid"]]
+    checker = MaskEdgeDistances.from_mask(mask)
+    cent_dist = checker.distances_to_edges(x=centroid[0], y=centroid[1])
+    print(
+        f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
+    )
