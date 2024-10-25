@@ -1,7 +1,4 @@
 _base_ = [
-    # "../datasets/crowdhuman.py",
-    # "./hm_detector50.py",
-    # "./hm_yolox_l_640x640_ch.py",
     "./hm_crowdhuman.py",
 ]
 

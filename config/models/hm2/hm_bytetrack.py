@@ -4,8 +4,8 @@ _base_ = ["../../../openmm/mmdetection/configs/yolox/yolox_s_8xb8-300e_coco.py"]
 dataset_type = "MOTChallengeDataset"
 data_root = "data/MOT17/"
 
-img_scale = (1440, 800)  # width, height
-# img_scale = (1312, 480)
+# img_scale = (1440, 800)  # width, height
+img_scale = (1312, 480)
 batch_size = 4
 
 detector = _base_.model

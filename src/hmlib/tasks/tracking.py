@@ -149,12 +149,9 @@ def run_mmtrack(
 
                         # forward the model
                         detect_timer.tic()
-                        for i in range(1):
-                            with torch.no_grad():
-                                with autocast() if fp16 else nullcontext():
-                                    tracking_results = model(
-                                        return_loss=False, rescale=True, **data
-                                    )
+                        with torch.no_grad():
+                            with autocast() if fp16 else nullcontext():
+                                tracking_results = model(return_loss=False, rescale=True, **data)
                         detect_timer.toc()
                         assert len(tracking_results) == 1
                         track_sample_data: TrackDataSample = tracking_results[0]
