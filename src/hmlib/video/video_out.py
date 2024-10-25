@@ -499,6 +499,7 @@ class VideoOutput:
                                 # ultimate encoding
                                 self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
                     if self.has_args() and self._args.show_image:
+                        online_im = slow_to_tensor(online_im)
                         for i, frame_id in enumerate(results["frame_ids"]):
                             if int(frame_id) % show_image_interval == 0:
                                 if cuda_stream is not None:
