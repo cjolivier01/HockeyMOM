@@ -5,13 +5,14 @@
 
 #START_FRAME=0
 
-BATCH_SIZE=1
+# BATCH_SIZE=1
 
 #WRAPPER_CMD="nsys profile --show-outputs=true --wait=primary --trace=cuda,nvtx,cublas,cudnn,openacc --python-sampling=true --python-backtrace=cuda"
 #WRAPPER_CMD="nsys profile"
 #WRAPPER_CMD="echo"
 
 #STITCHING_ARGS="--save-stitched"
+SAVE_DATA_ARGS="--save-tracking-data --save-camera-data"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -23,11 +24,7 @@ OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd)/build:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
-  --save-tracking-data \
-  --save-camera-data \
+  ${SAVE_DATA_ARGS} \
   --stitch-auto-adjust-exposure \
-  -expn="hm_run" \
-  -b=${BATCH_SIZE} \
-  --gpus=0,1 \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@

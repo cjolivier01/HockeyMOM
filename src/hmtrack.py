@@ -1,4 +1,5 @@
 import argparse
+import copy
 import logging
 import os
 import traceback
@@ -308,13 +309,6 @@ def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
 
     torch.multiprocessing.set_sharing_strategy("file_system")
-
-
-# def set_deterministic(seed: int = 42):
-#     torch.manual_seed(seed)
-#     torch.cuda.manual_seed_all(seed)
-#     torch.backends.cudnn.deterministic = True
-#     torch.backends.cudnn.benchmark = False
 
 
 def to_32bit_mul(val):
@@ -658,10 +652,11 @@ def main(args, num_gpu):
                     args.max_frames = time_to_frame(time_str=args.max_time, fps=left_vid.fps)
 
                 pto_project_file, lfo, rfo = configure_video_stitching(
-                    dir_name,
-                    str(game_videos["left"][0]),
-                    str(game_videos["right"][0]),
-                    project_file_name,
+                    dir_name=dir_name,
+                    video_left=str(game_videos["left"][0]),
+                    video_right=str(game_videos["right"][0]),
+                    max_control_points=args.max_control_points,
+                    project_file_name=project_file_name,
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                 )
@@ -692,10 +687,6 @@ def main(args, num_gpu):
                     ),
                     max_frames=args.max_frames,
                     max_input_queue_size=args.cache_size,
-                    num_workers=1,
-                    blend_thread_count=1,
-                    remap_thread_count=1,
-                    fork_workers=False,
                     image_roi=None,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
@@ -705,6 +696,8 @@ def main(args, num_gpu):
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
                     auto_adjust_exposure=args.stitch_auto_adjust_exposure,
+                    python_blender=args.python_blender,
+                    minimize_blend=not args.no_minimize_blend,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -773,10 +766,9 @@ def main(args, num_gpu):
                     if os.path.exists(vid_path):
                         extra_dataloader = MOTLoadVideoWithOrig(
                             path=vid_path,
-                            # game_id=dir_name,
                             img_size=None,
                             start_frame_number=args.start_frame,
-                            batch_size=1,
+                            batch_size=args.batch_size,
                             stream_tensors=tracker == "mmtrack",
                             dtype=torch.float if not args.fp16 else torch.half,
                             device=gpus["encoder"],
@@ -814,6 +806,60 @@ def main(args, num_gpu):
 
         if not args.audio_only:
             if not args.no_play_tracking:
+
+                #
+                # Video output pipeline
+                #
+                video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
+                if video_out_pipeline:
+                    video_out_pipeline = copy.deepcopy(video_out_pipeline)
+                    fixed_edge_rotation_angle = get_nested_value(
+                        game_config, "rink.camera.fixed_edge_rotation_angle", None
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmPerspectiveRotation",
+                        dict(
+                            fixed_edge_rotation_angle=fixed_edge_rotation_angle,
+                            fixed_edge_rotation=(
+                                fixed_edge_rotation_angle is not None
+                                and fixed_edge_rotation_angle != 0
+                            ),
+                            pre_clip=cam_args.crop_output_image,
+                            dtype=torch.float,
+                        ),
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmConfigureScoreboard",
+                        dict(
+                            game_id=args.game_id,
+                        ),
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmCropToVideoFrame",
+                        dict(
+                            crop_image=cam_args.crop_output_image,
+                        ),
+                    )
+
+                    # perspective_rotation = get_pipeline_item(
+                    #     video_out_pipeline, "HmPerspectiveRotation"
+                    # )
+                    # if perspective_rotation is not None:
+                    #     fixed_edge_rotation_angle = get_nested_value(
+                    #         game_config, "rink.camera.fixed_edge_rotation_angle", None
+                    #     )
+                    #     perspective_rotation["fixed_edge_rotation"] = (
+                    #         fixed_edge_rotation_angle is not None and fixed_edge_rotation_angle != 0
+                    #     )
+                    #     perspective_rotation["fixed_edge_rotation_angle"] = (
+                    #         fixed_edge_rotation_angle
+                    #     )
+                    #     perspective_rotation["pre_clip"] = True
+                    #     perspective_rotation["dtype"] = torch.float
+
                 postprocessor = CamTrackHead(
                     opt=args,
                     args=cam_args,
@@ -824,9 +870,14 @@ def main(args, num_gpu):
                     original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
                     device=gpus["camera"],
                     video_out_device=gpus["encoder"],
+                    video_out_cache_size=args.cache_size,
                     data_type="mot",
                     camera_name=get_nested_value(game_config, "camera.name"),
+                    video_out_pipeline=video_out_pipeline,
                     async_post_processing=True,
+                    # async_post_processing=False,
+                    # async_video_out=False,
+                    async_video_out=True,
                 )
                 postprocessor._args.skip_final_video_save = args.skip_final_video_save
             else:
@@ -868,7 +919,8 @@ def main(args, num_gpu):
         raise
     finally:
         try:
-            postprocessor.stop()
+            if postprocessor is not None:
+                postprocessor.stop()
             if dataloader is not None and hasattr(dataloader, "close"):
                 dataloader.close()
             if tracking_data is not None:

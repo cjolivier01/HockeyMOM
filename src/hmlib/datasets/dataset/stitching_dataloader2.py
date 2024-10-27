@@ -15,12 +15,15 @@ import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
-
-# from hmlib.stitching.blender2 import SmartBlender
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    copy_gpu_to_gpu_async,
+    cuda_stream_scope,
+)
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -48,8 +51,11 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):
         return tensor
     if isinstance(tensor, StreamTensor):
-        return tensor.wait(torch.cuda.current_stream(tensor.device))
-        # return tensor.get()
+        # faster to do a get than a wait, but a coupel fps
+        # return tensor.wait(torch.cuda.current_stream(tensor.device))
+        # return tensor.wait()
+        tensor.verbose = True
+        return tensor.get()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
     else:
@@ -146,13 +152,10 @@ class StitchDataset:
         output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
-        remap_thread_count: int = 10,
-        blend_thread_count: int = 10,
         batch_size: int = 1,
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
-        fork_workers: bool = False,
         image_roi: List[int] = None,
         encoder_device: torch.device = torch.device("cpu"),
         blend_mode: str = "laplacian",
@@ -164,6 +167,7 @@ class StitchDataset:
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
+        python_blender: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -180,8 +184,6 @@ class StitchDataset:
         self._videos = videos
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
-        self._remap_thread_count = remap_thread_count
-        self._blend_thread_count = blend_thread_count
         self._blend_mode = blend_mode
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
@@ -192,6 +194,8 @@ class StitchDataset:
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
         self._xy_pos_1, self._xy_pos_2 = None, None
+        self._python_blender = python_blender
+        self._minimize_blend = minimize_blend
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -210,7 +214,6 @@ class StitchDataset:
         self._auto_configure = auto_configure
         self._num_workers = num_workers
         self._stitching_workers = {}
-        self._fork_workers = fork_workers
         self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
@@ -255,6 +258,10 @@ class StitchDataset:
     def rfo(self):
         assert self._video_right_offset_frame is not None
         return self._video_right_offset_frame
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -449,7 +456,7 @@ class StitchDataset:
                 def _prepare_image(img: torch.Tensor):
                     img = make_channels_first(img)
                     if img.device != self._remapping_device:
-                        img = async_to(img, device=self._remapping_device)
+                        img = copy_gpu_to_gpu_async(img, device=self._remapping_device)
                     if img.dtype != self._dtype:
                         img = img.to(self._dtype, non_blocking=True)
                     return img
@@ -587,6 +594,8 @@ class StitchDataset:
                     ),
                     device=self._remapping_device,
                     dtype=self._dtype,
+                    python_blender=self._python_blender,
+                    minimize_blend=self._minimize_blend,
                 )
             else:
                 from hmlib.stitching.blender import create_stitcher
@@ -669,7 +678,6 @@ class StitchDataset:
                         remapping_device=self._remapping_device,
                     )
                 )
-                # self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()
         return self
 
@@ -770,7 +778,7 @@ class StitchDataset:
         return stitched_frame
 
     def __len__(self):
-        return self._total_number_of_frames
+        return self._total_number_of_frames // self._batch_size
 
 
 def is_none(val):

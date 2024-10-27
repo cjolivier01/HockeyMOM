@@ -104,7 +104,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.height_t = None
         self._image_channel_adjustment = image_channel_adjustment
         self._scale_color_tensor = None
-        self._count = torch.tensor([0], dtype=torch.int32)
+        self._count = torch.tensor([0], dtype=torch.int64)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
         if self._next_frame_id == 0:
             # frame number is 1-based
@@ -200,6 +200,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     @property
     def batch_size(self):
+        if self._embedded_data_loader is not None:
+            return self._embedded_data_loader.batch_size * self._batch_size
         return self._batch_size
 
     @property
@@ -298,7 +300,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _get_next_batch(self):
         current_count = self._count.item()
-        if current_count == len(self) or (self._max_frames and current_count >= self._max_frames):
+        if current_count >= len(self) * self._batch_size or (
+            self._max_frames and current_count >= self._max_frames
+        ):
             raise StopIteration
 
         cuda_stream = self._cuda_stream
@@ -536,8 +540,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return
 
     def __len__(self):
+        if self._embedded_data_loader is not None:
+            return len(self._embedded_data_loader)
         if self.vn is None:
             info = BasicVideoInfo(",".join(self._path_list))
             self.vn = info.frame_count
             self.fps = info.fps
-        return self.vn  # number of frames
+        return self.vn // self._batch_size  # number of frames

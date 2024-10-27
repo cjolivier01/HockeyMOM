@@ -21,6 +21,7 @@ struct RemapperConfig {
   at::Tensor row_map;
   at::ScalarType dtype{at::ScalarType::Byte};
   bool add_alpha_channel{false};
+  std::uint8_t pad_value{0};
   std::string interpolation;
   std::size_t batch_size{1};
   std::string device{"cpu"};
@@ -35,6 +36,7 @@ class ImageRemapper {
       at::Tensor row_map,
       at::ScalarType dtype,
       bool add_alpha_channel,
+      std::size_t pad_value,
       std::optional<std::string> interpolation);
   void init(std::size_t batch_size);
   void to(at::Device device);
@@ -51,6 +53,7 @@ class ImageRemapper {
   std::size_t dest_height_;
   std::size_t working_width_{0};
   std::size_t working_height_{0};
+  std::size_t pad_value_{0};
   at::Tensor col_map_;
   at::Tensor row_map_;
   at::Tensor mask_;

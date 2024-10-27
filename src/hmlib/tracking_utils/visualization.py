@@ -28,6 +28,7 @@ def get_color(idx):
 
 def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
+    assert image.ndim <= 3
     if isinstance(image, StreamTensor):
         image = image.get()
     if isinstance(image, torch.Tensor):
@@ -104,29 +105,40 @@ def plot_alpha_rectangle(
 
     # TODO: Do just a small portion, like how the watermark is done
 
-    img = to_cv2(img)
-
-    if img.dtype == np.float:
+    if isinstance(img, np.ndarray):
+        if img.dtype == np.float:
+            color = [float(i) for i in color]
         color = [float(i) for i in color]
 
-    mask = np.copy(img)
+        mask = np.copy(img)
 
-    cv2.rectangle(
-        mask,
-        intbox[0:2],
-        intbox[2:4],
-        color=normalize_color(img, color),
-        thickness=cv2.FILLED,
-    )
+        cv2.rectangle(
+            mask,
+            intbox[0:2],
+            intbox[2:4],
+            color=normalize_color(img, color),
+            thickness=cv2.FILLED,
+        )
 
-    alpha = float(opacity_percent) / 100
-    # Blend the mask with the original imagealpha =
-    rectangled_image = cv2.addWeighted(mask, alpha, img, 1 - alpha, 0)
+        alpha = float(opacity_percent) / 100
+        # Blend the mask with the original imagealpha =
+        rectangled_image = cv2.addWeighted(mask, alpha, img, 1 - alpha, 0)
+    else:
+        # PyTorch
+        if torch.is_floating_point(img):
+            color = [float(i) for i in color]
+        rectangled_image = plot_torch_rectangle(
+            img,
+            tlbr=intbox,
+            color=color,
+            thickness=thickness,
+            alpha=(255 * opacity_percent / 100),
+            filled=True,
+        )
 
     if label:
         text_thickness = 2
         rectangled_image = my_put_text(
-            # cv2.putText(
             rectangled_image,
             label,
             (intbox[0], intbox[1] + 30),
@@ -144,11 +156,19 @@ def plot_torch_rectangle(
     color: Tuple[int, int, int],
     thickness: int = 1,
     alpha: int = 255,
+    filled: bool = False,
 ):
     assert isinstance(image, torch.Tensor)
-    return ptv.draw_box(
-        image=image.unsqueeze(0), tlbr=tlbr, color=color, thickness=thickness, alpha=alpha
-    ).squeeze(0)
+    sq = image.ndim == 3
+    if sq:
+        image = image.unsqueeze(0)
+    assert image.ndim == 4
+    image = ptv.draw_box(
+        image=image, tlbr=tlbr, color=color, thickness=thickness, alpha=alpha, filled=filled
+    )
+    if sq:
+        image = image.squeeze(0)
+    return image
 
 
 def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
@@ -166,17 +186,15 @@ def draw_dashed_rectangle(img, box, color, thickness, dash_length: int = 10):
     x1, y1 = int(box[0]), int(box[1])
     x2, y2 = int(box[2]), int(box[3])
 
-    img = to_cv2(img)
-
     # Draw top and bottom sides
     for x in range(x1, x2, dash_length * 2):
-        cv2.line(img, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
-        cv2.line(img, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
+        my_draw_line(img, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
+        my_draw_line(img, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
 
     # Draw left and right sides
     for y in range(y1, y2, dash_length * 2):
-        cv2.line(img, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
-        cv2.line(img, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
+        my_draw_line(img, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
+        my_draw_line(img, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
     return img
 
 
@@ -191,8 +209,7 @@ def plot_line(
     color: Tuple[int, int, int],
     thickness: int,
 ) -> np.ndarray:
-    img = to_cv2(img)
-    cv2.line(
+    my_draw_line(
         img,
         _to_int(src_point),
         _to_int(dest_point),
@@ -333,11 +350,18 @@ def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
     return img
 
 
+def unsqueeze(t: Union[torch.Tensor, np.ndarray], dim: int) -> Union[torch.Tensor, np.ndarray]:
+    if isinstance(t, torch.Tensor):
+        return t.unsqueeze(dim)
+    return np.expand_dims(t, axis=dim)
+
+
 def plot_frame_number(image, frame_id):
     text_scale = max(2, image_width(image) / 800.0)
     text_thickness = 2
     text_offset = int(8 * text_scale)
-    assert image.ndim == 4
+    if image.ndim == 3:
+        image = unsqueeze(image, 0)
     result_images = []
     frame_id = int(frame_id)
     for i in range(image.shape[0]):
@@ -660,8 +684,6 @@ def draw_arrows(img, bbox, horizontal=True, vertical=True):
 
 
 def draw_centered_lines(image, bbox, thickness=2, color=(0, 255, 0)):
-    image = to_cv2(image)
-
     intbox = [int(i) for i in bbox]
     x, y = intbox[:2]
     w = intbox[2] - intbox[0]
@@ -680,21 +702,52 @@ def draw_centered_lines(image, bbox, thickness=2, color=(0, 255, 0)):
 
     # Draw lines centered on each side
     # Line on top side
-    cv2.line(image, (start_x_w, y), (end_x_w, y), color, thickness)
+    my_draw_line(image, (start_x_w, y), (end_x_w, y), color, thickness)
     # Line on bottom side
-    cv2.line(image, (start_x_w, y + h), (end_x_w, y + h), color, thickness)
+    my_draw_line(image, (start_x_w, y + h), (end_x_w, y + h), color, thickness)
 
     # Line on left side
-    cv2.line(image, (x, start_y_h), (x, end_y_h), color, thickness)
+    my_draw_line(image, (x, start_y_h), (x, end_y_h), color, thickness)
     # Line on right side
-    cv2.line(image, (x + w, start_y_h), (x + w, end_y_h), color, thickness)
+    my_draw_line(image, (x + w, start_y_h), (x + w, end_y_h), color, thickness)
 
     return image
 
 
-def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):
-    image = to_cv2(image)
+def my_draw_line(
+    image: Union[torch.Tensor, np.ndarray],
+    pt1: Tuple[int, int],
+    pt2: Tuple[int, int],
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> Union[torch.Tensor, np.ndarray]:
+    if isinstance(image, np.ndarray):
+        image = to_cv2(image)
+        cv2.line(image, pt1, pt2, color, thickness)
+        return image
+    is_horiz = pt1[1] == pt2[1]
+    is_vert = pt1[0] == pt2[0]
+    if not is_horiz and not is_vert:
+        image = to_cv2(image)
+        cv2.line(image, pt1, pt2, color, thickness)
+        return image
+    if is_horiz:
+        start_x = min(pt1[0], pt2[0])
+        stop_x = max(pt1[0], pt2[0])
+        start_y = pt1[1]
+        length = stop_x - start_x
+        return ptv.draw_horizontal_line(
+            image, start_x, start_y, length, color=color, thickness=thickness
+        )
+    else:
+        start_y = min(pt1[1], pt2[1])
+        stop_y = max(pt1[1], pt2[1])
+        start_x = pt1[0]
+        length = stop_y - start_y
+        return ptv.draw_vertical_line(image, start_x, start_y, length, color, thickness)
 
+
+def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):
     intbox = [int(i) for i in bbox]
     x, y = intbox[:2]
     w = intbox[2] - intbox[0]
@@ -706,20 +759,20 @@ def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):
 
     # Define points for the corners - each corner will be represented as two lines
     # Top-left corner
-    cv2.line(image, (x, y), (x + corner_length_w, y), color, thickness)
-    cv2.line(image, (x, y), (x, y + corner_length_h), color, thickness)
+    my_draw_line(image, (x, y), (x + corner_length_w, y), color, thickness)
+    my_draw_line(image, (x, y), (x, y + corner_length_h), color, thickness)
 
     # Top-right corner
-    cv2.line(image, (x + w, y), (x + w - corner_length_w, y), color, thickness)
-    cv2.line(image, (x + w, y), (x + w, y + corner_length_h), color, thickness)
+    my_draw_line(image, (x + w, y), (x + w - corner_length_w, y), color, thickness)
+    my_draw_line(image, (x + w, y), (x + w, y + corner_length_h), color, thickness)
 
     # Bottom-left corner
-    cv2.line(image, (x, y + h), (x + corner_length_w, y + h), color, thickness)
-    cv2.line(image, (x, y + h), (x, y + h - corner_length_h), color, thickness)
+    my_draw_line(image, (x, y + h), (x + corner_length_w, y + h), color, thickness)
+    my_draw_line(image, (x, y + h), (x, y + h - corner_length_h), color, thickness)
 
     # Bottom-right corner
-    cv2.line(image, (x + w, y + h), (x + w - corner_length_w, y + h), color, thickness)
-    cv2.line(image, (x + w, y + h), (x + w, y + h - corner_length_h), color, thickness)
+    my_draw_line(image, (x + w, y + h), (x + w - corner_length_w, y + h), color, thickness)
+    my_draw_line(image, (x + w, y + h), (x + w, y + h - corner_length_h), color, thickness)
 
     return image
 

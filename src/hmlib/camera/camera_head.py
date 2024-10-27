@@ -56,11 +56,14 @@ class CamTrackHead:
         output_video_path: Optional[str],
         camera_name: str,
         original_clip_box: torch.Tensor,
+        video_out_pipeline: Dict[str, Any],
         save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
         async_post_processing: bool = False,
         video_out_device: str = None,
+        video_out_cache_size: int = 2,
+        async_video_out: bool = False,
     ):
         self._opt = opt
         self._args = args
@@ -68,7 +71,9 @@ class CamTrackHead:
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
+        self._video_out_pipeline = video_out_pipeline
         self._async_post_processing = async_post_processing
+        self._async_video_out = async_video_out
         self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
@@ -79,6 +84,7 @@ class CamTrackHead:
         self._video_out_device = video_out_device
         if self._video_out_device is None:
             self._video_out_device = self._device
+        self._video_out_cache_size = video_out_cache_size
         self._counter = 0
 
     @property
@@ -99,14 +105,6 @@ class CamTrackHead:
 
     def process_tracking(
         self,
-        # tracking_results,
-        # frame_id,
-        # online_tlwhs,
-        # online_ids,
-        # detections,
-        # info_imgs,
-        # original_img,
-        # online_scores,
         results: Dict[str, Any],
     ):
         self._counter += 1
@@ -114,13 +112,6 @@ class CamTrackHead:
             logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return results
-        # if letterbox_img is not None:
-        #     letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
-        # original_img = to_rgb_non_planar(original_img)
-        # if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
-        #     online_tlwhs = torch.stack(
-        #         [_pt_tensor(t, device=self._device) for t in online_tlwhs]
-        #     ).to(self._device)
         if not self.is_initialized():
             video_data_sample = results["data_samples"].video_data_samples[0]
             metainfo = video_data_sample.metainfo
@@ -133,18 +124,6 @@ class CamTrackHead:
                 img_width=original_shape[1],
                 device=self._device,
             )
-        # assert isinstance(online_ids, torch.Tensor) or (
-        #     isinstance(online_ids, list) and len(online_ids) == 0
-        # )
-        # send_data: Dict[str, Any] = {
-        #     "online_tlwhs": online_tlwhs,
-        #     "online_ids": online_ids,
-        #     "detections": detections,
-        #     "info_imgs": info_imgs,
-        #     "original_img": original_img,
-        #     "tracking_results": tracking_results,
-        # }
-        # data.update(send_data)
         results = self._postprocessor.send(results)
         return results
 
@@ -172,6 +151,9 @@ class CamTrackHead:
                 args=self._args,
                 async_post_processing=self._async_post_processing,
                 video_out_device=self._video_out_device,
+                video_out_cache_size=self._video_out_cache_size,
+                async_video_out=self._async_video_out,
+                video_out_pipeline=self._video_out_pipeline,
             )
             self._postprocessor.eval()
             if self._async_post_processing:

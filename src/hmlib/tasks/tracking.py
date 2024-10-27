@@ -22,13 +22,6 @@ from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 
 from .multi_pose import multi_pose_task
 
-# def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
-#     tlwhs = tlbrs.clone()
-#     # make boxes tlwh
-#     tlwhs[:, 2] = tlwhs[:, 2] - tlwhs[:, 0]  # width = x2 - x1
-#     tlwhs[:, 3] = tlwhs[:, 3] - tlwhs[:, 1]  # height = y2 - y1
-#     return tlwhs
-
 
 def run_mmtrack(
     model,
@@ -59,7 +52,7 @@ def run_mmtrack(
             total_batches_in_video = len(dataloader)
             total_frames_in_video = batch_size * total_batches_in_video
             number_of_batches_processed = 0
-            total_duration_str = convert_seconds_to_hms(len(dataloader) / dataloader.fps)
+            total_duration_str = convert_seconds_to_hms(total_frames_in_video / dataloader.fps)
             nr_tracks = 0
 
             if model is not None:
@@ -220,21 +213,12 @@ def run_mmtrack(
                             del data_to_send["img"]
 
                         if postprocessor is not None:
-                            if isinstance(origin_imgs, StreamTensor):
-                                origin_imgs = origin_imgs.get()
+                            # if isinstance(origin_imgs, StreamTensor):
+                            #     origin_imgs.verbose = True
+                            #     origin_imgs = origin_imgs.get()
                             # tracking_results, detections, online_tlwhs = (
-                            results = postprocessor.process_tracking(
-                                # tracking_results=tracking_results,
-                                # frame_id=frame_id,
-                                # online_tlwhs=online_tlwhs,
-                                # online_ids=online_ids,
-                                # online_scores=online_scores,
-                                # detections=video_data_samples.pred_instances.bboxes,
-                                # info_imgs=info_imgs,
-                                # letterbox_img=None,
-                                # original_img=origin_imgs,
-                                results=data_to_send
-                            )
+                            results = postprocessor.process_tracking(results=data_to_send)
+                            results = None
                     else:
                         for frame_index, frame_id in enumerate(info_imgs[2]):
 

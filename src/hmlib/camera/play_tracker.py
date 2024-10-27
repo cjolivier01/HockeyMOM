@@ -322,23 +322,24 @@ class PlayTracker(torch.nn.Module):
         current_fast_box_list: List[torch.Tensor] = []
         online_images: List[torch.Tensor] = []
 
+        # Make the original images into a list so that we can release the batched one
+        original_images_list: List[torch.Tensor] = []
+        for i in range(original_images.shape[0]):
+            original_images_list.append(original_images[i])
+        del original_images
+
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
-            frame_ids = torch.tensor([video_data_sample.frame_id], dtype=torch.int64)
+            frame_id = torch.tensor([video_data_sample.frame_id], dtype=torch.int64)
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
             online_ids = video_data_sample.pred_track_instances.instances_id
-            # detections = batch_tlbrs_to_tlwhs(video_data_sample.pred_instances.bboxes)
-            # online_tlwhs = results["online_tlwhs"]
-            # online_ids = results["online_ids"]
-            # detections = results["detections"]
-            # info_imgs = results["info_imgs"]
-
-            # online_tlwhs = online_tlwhs.cpu()
-            # online_ids = online_ids.cpu()
+            if True:
+                # goes a few fps faster when async if this is on CPU
+                frame_id = frame_id.cpu()
+                online_tlwhs = online_tlwhs.cpu()
+                online_ids = online_ids.cpu()
 
             self.process_jerseys_info(data=results)
 
-            # frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
-            frame_id = frame_ids[self._frame_counter % len(frame_ids)]
             self._frame_counter += 1
 
             largest_bbox = None
@@ -348,10 +349,9 @@ class PlayTracker(torch.nn.Module):
                 online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
                 online_ids = online_ids[mask]
 
-            online_im = original_images[frame_index]
-            # if online_im.ndim == 4:
-            #     assert online_im.shape[0] == 1
-            #     online_im = online_im.squeeze(0)
+            online_im = original_images_list[frame_index]
+            # deref the original one to free the cuda memory
+            original_images_list[frame_index] = None
 
             self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
@@ -486,6 +486,13 @@ class PlayTracker(torch.nn.Module):
             fast_roi_bounding_box = self._current_roi(current_box)
             current_box = self._current_roi_aspect(fast_roi_bounding_box)
 
+            if self._args.plot_speed:
+                vis.plot_frame_id_and_speeds(
+                    online_im,
+                    frame_id,
+                    *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
+                )
+
             if self._args.plot_moving_boxes:
                 online_im = self._current_roi_aspect.draw(
                     img=online_im,
@@ -501,40 +508,13 @@ class PlayTracker(torch.nn.Module):
                     thickness=2,
                 )
 
-            if self._args.plot_camera_tracking:
-                online_im = vis.plot_rectangle(
-                    online_im,
-                    current_box,
-                    color=(128, 0, 128),
-                    thickness=2,
-                    label="U:2&3",
-                )
-
-            if self._args.plot_speed:
-                vis.plot_frame_id_and_speeds(
-                    online_im,
-                    frame_id,
-                    *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
-                )
-
-            # results["frame_id"] = frame_id
-            # results["img"] = online_im
-            # video_data_sample.set_metainfo({"img": online_im})
-            # video_data_sample.set_metainfo({"frame_id": frame_id})
-            # video_data_sample.set_metainfo(
-            #     {"current_fast_box": self._current_roi.bounding_box().clone().cpu()}
-            # )
-            # video_data_sample.set_metainfo(
-            #     {"current_box": self._current_roi_aspect.bounding_box().clone().cpu()}
-            # )
-            # results["current_fast_box"] = self._current_roi.bounding_box().clone()
-            # results["current_box"] = self._current_roi_aspect.bounding_box().clone()
-
             frame_ids_list.append(frame_id)
             current_box_list.append(self._current_roi_aspect.bounding_box().clone().cpu())
             current_fast_box_list.append(self._current_roi.bounding_box().clone().cpu())
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im).to(device=image_device, non_blocking=True)
+                if online_im.ndim == 4 and online_im.shape[0] == 1:
+                    online_im = online_im.squeeze(0)
             assert online_im.device == image_device
             online_images.append(make_channels_last(online_im))
 

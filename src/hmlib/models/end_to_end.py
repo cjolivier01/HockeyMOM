@@ -121,6 +121,7 @@ class HmEndToEnd(ByteTrack):
                     "labels": det_labels,
                     "scores": det_scores,
                     "prune_list": ["det_bboxes", "labels", "scores"],
+                    "ori_shape": det_data_sample.metainfo["ori_shape"],
                 }
                 data.update(**kwargs)
                 data = self.post_detection_composed_pipeline(data)

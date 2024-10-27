@@ -11,14 +11,13 @@ import numpy as np
 import PIL
 import torch
 import torchvision as tv
+from mmcv.transforms import Compose
 from PIL import Image
 from torchvision.transforms import functional as F
 
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.log import logger
-from hmlib.scoreboard.scoreboard import Scoreboard
-from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
@@ -140,9 +139,9 @@ class VideoOutput:
         output_frame_width: int,
         output_frame_height: int,
         fps: float,
+        video_out_pipeline: Dict[str, Any],
         fourcc: str = "auto",
         save_frame_dir: str = None,
-        use_fork: bool = False,
         start: bool = True,
         max_queue_backlog: int = 1,
         watermark_image_path: str = None,
@@ -155,9 +154,11 @@ class VideoOutput:
         original_clip_box: torch.Tensor = None,
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
+        async_output: bool = False,
     ):
         self._args = args
         self._allow_scaling = False
+        self._async_output = async_output
         if simple_save:
             pre_area = output_frame_width * output_frame_height
             output_frame_width, output_frame_height = clamp_max_video_dimensions(
@@ -188,23 +189,29 @@ class VideoOutput:
         self._output_frame_width_int = int(self._output_frame_width)
         self._output_frame_height_int = int(self._output_frame_height)
         self._original_clip_box = original_clip_box
-        self._use_fork = use_fork
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
-        self._imgproc_queue = create_queue(mp=use_fork)
+        self._imgproc_queue = create_queue(mp=False)
         assert isinstance(self._imgproc_queue, SidebandQueue)
         self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._scoreboard = None
+        self._cuda_stream = torch.cuda.Stream(self._device)
+        self._default_cuda_stream = torch.cuda.current_stream(self._device)
+
+        self._video_frame_config = {
+            "output_frame_width": int(self._output_frame_width_int),
+            "output_frame_height": int(self._output_frame_height_int),
+            "output_aspect_ratio": self._output_aspect_ratio,
+        }
 
         self._end_zones = None
         if args is not None and args.end_zones:
             lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
             if lines:
-                # Adjust for clipb ox, if any
+                # Adjust for clip box, if any
                 if original_clip_box is not None:
                     orig_lines = lines
                     lines: Dict[str, List[Tuple[int, int]]] = {}
@@ -218,11 +225,6 @@ class VideoOutput:
                     output_width=self._output_frame_width_int,
                     output_height=self._output_frame_height_int,
                 )
-
-        self._scoreboard = None
-        self._scoreboard_points = None
-        if hasattr(args, "game_id"):
-            self._scoreboard_points = configure_scoreboard(game_id=args.game_id)
 
         if fourcc == "auto":
             if self._device.type == "cuda":
@@ -283,26 +285,17 @@ class VideoOutput:
         else:
             self.watermark = None
 
-        if (
-            not self._simple_save
-            and self.has_args()
-            and self._args.fixed_edge_rotation
-            and self._args.fixed_edge_rotation_angle
-        ):
-            self._perspective_rotation = HmPerspectiveRotation(
-                fixed_edge_rotation=self._args.fixed_edge_rotation,
-                fixed_edge_rotation_angle=self._args.fixed_edge_rotation_angle,
-                pre_clip=self._args.crop_output_image,
-                dtype=self._float_type(),
-            )
-        else:
-            self._perspective_rotation = None
+        self._video_out_pipeline = video_out_pipeline
+        if self._video_out_pipeline is not None:
+            self._video_out_pipeline = Compose(self._video_out_pipeline)
 
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
 
         if self.has_args() and self._args.show_image:
-            self._shower = Shower(label="Video Out", show_scaled=self._args.show_scaled)
+            self._shower = Shower(
+                label="Video Out", show_scaled=self._args.show_scaled, max_size=self._cache_size
+            )
         else:
             self._shower = None
 
@@ -310,21 +303,16 @@ class VideoOutput:
             self.start()
 
     def set_progress_bar(self, progress_bar: ProgressBar):
-        # TODO: hook any callbacks here?
+        # Should we hook any callbacks here for adding displayed fields?
         self._progress_bar = progress_bar
 
     def start(self):
-        if self._use_fork:
-            self._child_pid = os.fork()
-            if not self._child_pid:
-                self.final_image_processing()
-        else:
-            assert self._imgproc_thread is None and "Video output thread was already started"
-            self._imgproc_thread = Thread(
-                target=self._final_image_processing_wrapper,
-                name="VideoOutput",
-            )
-            self._imgproc_thread.start()
+        assert self._imgproc_thread is None and "Video output thread was already started"
+        self._imgproc_thread = Thread(
+            target=self._final_image_processing_wrapper,
+            name="VideoOutput",
+        )
+        self._imgproc_thread.start()
 
     def stop(self):
         self._imgproc_queue.put(None)
@@ -335,25 +323,38 @@ class VideoOutput:
     def is_cuda_encoder(self):
         return "nvenc" in self._fourcc
 
-    def append(self, img_proc_data: Dict[str, Any]):
-        with TimeTracker(
-            "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
-        ):
-            counter = 0
-            while self._imgproc_queue.qsize() > self._max_queue_backlog:
-                counter += 1
-                if (
-                    not self.has_args()
-                    or (
-                        not self._args.show_image
-                        and (not hasattr(self._args, "debug") or not self._args.debug)
-                    )
-                ) and counter % 10 == 0:
-                    logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
-                time.sleep(0.001)
-            self._imgproc_queue.put(img_proc_data)
+    def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._async_output:
+            with cuda_stream_scope(self._cuda_stream):
+                results = self.forward(results)
+                assert results["img"].device == self._device
+                results = self.save_image(
+                    results,
+                    cuda_stream=self._cuda_stream,
+                    default_cuda_stream=self._default_cuda_stream,
+                )
+            return results
+        else:
+            with TimeTracker(
+                "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
+            ):
+                counter = 0
+                assert self._max_queue_backlog > 0
+                while self._imgproc_queue.qsize() >= self._max_queue_backlog:
+                    counter += 1
+                    if (
+                        not self.has_args()
+                        or (
+                            not self._args.show_image
+                            and (not hasattr(self._args, "debug") or not self._args.debug)
+                        )
+                    ) and counter % 10 == 0:
+                        logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
+                    time.sleep(0.001)
+                self._imgproc_queue.put(results)
 
     def _final_image_processing_wrapper(self):
+        self._default_cuda_stream = torch.cuda.current_stream(self._device)
         try:
             self._final_image_processing_worker()
         except Exception as ex:
@@ -397,22 +398,6 @@ class VideoOutput:
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
-            if self._scoreboard_points:
-                # Check for valid scoreboard points
-                if torch.sum(torch.tensor(self._scoreboard_points, dtype=torch.int64)) != 0:
-                    self._scoreboard = Scoreboard(
-                        src_pts=self._scoreboard_points,
-                        dest_width=get_nested_value(
-                            self._args.game_config, "rink.scoreboard.projected_width"
-                        ),
-                        dest_height=get_nested_value(
-                            self._args.game_config, "rink.scoreboard.projected_height"
-                        ),
-                        clip_box=self._original_clip_box,
-                        dtype=torch.float,
-                        device=self._device,
-                    )
-
     def _final_image_processing_worker(self):
         logger.info("VideoOutput thread started.")
 
@@ -420,7 +405,6 @@ class VideoOutput:
         self.create_output_videos()
 
         # plot_interias = False
-        show_image_interval = 1
         timer = Timer()
         # The timer that reocrds the overall throughput
         final_all_timer = None
@@ -452,73 +436,13 @@ class VideoOutput:
 
                     timer.tic()
 
+                    batch_size = results["img"].size(0)
+
                     results = self.forward(results)
+                    results = self.save_image(
+                        results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
+                    )
 
-                    online_im = results.pop("img")
-                    image_w = image_width(online_im)
-                    image_h = image_height(online_im)
-                    assert online_im.ndim == 4  # Should have a batch dimension
-                    batch_size = online_im.size(0)
-
-                    if self._allow_scaling and int(self._output_frame_width) != image_w:
-                        online_im = resize_image(
-                            img=online_im,
-                            new_width=self._output_frame_width,
-                            new_height=self._output_frame_height,
-                        )
-                        image_w = image_width(online_im)
-                        image_h = image_height(online_im)
-
-                    # Output (and maybe show) the final image
-                    online_im = make_channels_last(online_im)
-                    assert int(self._output_frame_width) == image_w
-                    assert int(self._output_frame_height) == image_h
-                    if not self._skip_final_save:
-                        if self.VIDEO_DEFAULT in self._output_videos:
-                            if not isinstance(online_im, StreamTensor):
-                                online_im = StreamCheckpoint(tensor=online_im)
-                            with cuda_stream_scope(default_cuda_stream):
-                                # IMPORTANT:
-                                # The encode is going to use the default stream,
-                                # so call write() under that stream so that any actions
-                                # taken while pushing occur on the same stream as the
-                                # ultimate encoding
-                                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
-
-                        if self.VIDEO_END_ZONES in self._output_videos:
-                            ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
-                            if ez_img is None:
-                                ez_img = online_im
-                            if not isinstance(ez_img, StreamTensor):
-                                ez_img = StreamCheckpoint(tensor=ez_img)
-                            with cuda_stream_scope(default_cuda_stream):
-                                # IMPORTANT:
-                                # The encode is going to use the default stream,
-                                # so call write() under that stream so that any actions
-                                # taken while pushing occur on the same stream as the
-                                # ultimate encoding
-                                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
-                    if self.has_args() and self._args.show_image:
-                        online_im = slow_to_tensor(online_im)
-                        for i, frame_id in enumerate(results["frame_ids"]):
-                            if int(frame_id) % show_image_interval == 0:
-                                if cuda_stream is not None:
-                                    cuda_stream.synchronize()
-                                show_img = online_im[i]
-                                # show_img = ez_img
-                                self._shower.show(show_img)
-
-                    # Save frames as individual frames
-                    if self._save_frame_dir:
-                        # frame_id should start with 1
-                        assert results["frame_ids"][0] != 0
-                        cv2.imwrite(
-                            os.path.join(
-                                self._save_frame_dir,
-                                "frame_{:06d}.png".format(int(results["frame_id"]) - 1),
-                            ),
-                            online_im,
-                        )
                     timer.toc()
 
                     if self._print_interval and batch_count % self._print_interval == 0:
@@ -551,6 +475,77 @@ class VideoOutput:
             except:
                 traceback.print_exc()
 
+    def save_image(
+        self,
+        results: Dict[str, Any],
+        cuda_stream: torch.cuda.Stream,
+        default_cuda_stream: torch.cuda.Stream,
+    ) -> Dict[str, Any]:
+        online_im = results.pop("img")
+        image_w = image_width(online_im)
+        image_h = image_height(online_im)
+        assert online_im.ndim == 4  # Should have a batch dimension
+
+        if self._allow_scaling and int(self._output_frame_width) != image_w:
+            assert False
+            online_im = resize_image(
+                img=online_im,
+                new_width=self._output_frame_width,
+                new_height=self._output_frame_height,
+            )
+            image_w = image_width(online_im)
+            image_h = image_height(online_im)
+
+        # Output (and maybe show) the final image
+        online_im = make_channels_last(online_im)
+        assert int(self._output_frame_width) == image_w
+        assert int(self._output_frame_height) == image_h
+        if not self._skip_final_save:
+            if self.VIDEO_DEFAULT in self._output_videos:
+                if not isinstance(online_im, StreamTensor):
+                    online_im = StreamCheckpoint(tensor=online_im)
+                with cuda_stream_scope(default_cuda_stream):
+                    # IMPORTANT:
+                    # The encode is going to use the default stream,
+                    # so call write() under that stream so that any actions
+                    # taken while pushing occur on the same stream as the
+                    # ultimate encoding
+                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+
+            if self.VIDEO_END_ZONES in self._output_videos:
+                ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
+                if ez_img is None:
+                    ez_img = online_im
+                if not isinstance(ez_img, StreamTensor):
+                    ez_img = StreamCheckpoint(tensor=ez_img)
+                with cuda_stream_scope(default_cuda_stream):
+                    # IMPORTANT:
+                    # The encode is going to use the default stream,
+                    # so call write() under that stream so that any actions
+                    # taken while pushing occur on the same stream as the
+                    # ultimate encoding
+                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+        if self.has_args() and self._args.show_image:
+            online_im = slow_to_tensor(online_im)
+            for show_img in online_im:
+                if cuda_stream is not None:
+                    cuda_stream.synchronize()
+                # show_img = ez_img
+                self._shower.show(show_img)
+
+        # Save frames as individual frames
+        if self._save_frame_dir:
+            # frame_id should start with 1
+            assert results["frame_ids"][0] != 0
+            cv2.imwrite(
+                os.path.join(
+                    self._save_frame_dir,
+                    "frame_{:06d}.png".format(int(results["frame_id"]) - 1),
+                ),
+                online_im,
+            )
+        return results
+
     def forward(self, results) -> Dict[str, Any]:
         track_data_sample = results.pop("data_samples")
         online_images = results.pop("img")
@@ -561,9 +556,7 @@ class VideoOutput:
 
         # for frame_index, frame_id in enumerate(frame_ids):
         if True:
-            # online_im = online_images[frame_index]
             online_im = online_images
-            # current_box = current_boxes[frame_index]
 
             # We clone, since it gets modified sometimes wrt rotation optimizations
             if current_boxes is None:
@@ -576,14 +569,11 @@ class VideoOutput:
 
             if isinstance(online_im, StreamTensor):
                 online_im._verbose = True
-                # online_im = online_im.get()
-                online_im = online_im.wait(torch.cuda.current_stream())
+                online_im = online_im.get()
+                # online_im = online_im.wait(torch.cuda.current_stream())
 
             # if self._end_zones is not None:
             #     online_im = self._end_zones.draw(online_im)
-
-            # if frame_id.ndim == 0:
-            #     frame_id = frame_id.unsqueeze(0)
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
@@ -603,119 +593,55 @@ class VideoOutput:
                 if str(online_im.device) != str(self._device):
                     online_im = online_im.to(self._device, non_blocking=True)
 
-            #
-            # Extract the scoreboard before we do any cropping or rotation
-            #
-            scoreboard_img = None
-            if self._scoreboard is not None:
-                # online_im = slow_to_tensor(online_im)
-                scoreboard_img = make_channels_last(self._scoreboard.forward(online_images))
-
-            #
-            # Perspective rotation
-            #
-            if self._perspective_rotation is not None:
-                results["img"] = online_im
-                results["camera_box"] = current_boxes
-                results = self._perspective_rotation(results=results)
-                # online_im may come back as a list of images, since the post-rotation clip
-                # optimization may generate differently-sized images based on the size
-                # of the current_box
-                online_im = results.pop("img")
-                current_boxes = results.pop("camera_box")
-
-            src_image_width = image_width(online_im[0])
-            src_image_height = image_height(online_im[0])
-
-            #
-            # Crop to output video frame image
-            #
-            if not self._simple_save and self.has_args() and self._args.crop_output_image:
-                cropped_images = []
-                for img, bbox in zip(online_im, current_boxes):
-                    img = slow_to_tensor(img)
-                    img = to_float_image(img, non_blocking=True, dtype=self._float_type())
-                    intbox = [int(i) for i in bbox]
-                    # print(intbox)
-                    x1 = intbox[0]
-                    y1 = intbox[1]
-                    y2 = intbox[3]
-                    x2 = int(x1 + int(float(y2 - y1) * self._output_aspect_ratio))
-                    assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-                    if y1 >= src_image_height or y2 >= src_image_height:
-                        logger.info(
-                            f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}"
-                        )
-                        y1 = min(y1, src_image_height)
-                        y2 = min(y2, src_image_height)
-                    if x1 >= src_image_width or x2 >= src_image_width:
-                        logger.info(
-                            f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}"
-                        )
-                        x1 = min(x1, src_image_width)
-                        x2 = min(x2, src_image_width)
-
-                    img = crop_image(img, x1, y1, x2, y2)
-                    if image_height(img) != int(self._output_frame_height) or image_width(
-                        img
-                    ) != int(self._output_frame_width):
-                        img = resize_image(
-                            img=img,
-                            new_width=self._output_frame_width,
-                            new_height=self._output_frame_height,
-                        )
-                    assert image_height(img) == self._output_frame_height_int
-                    assert image_width(img) == self._output_frame_width_int
-                    cropped_images.append(img)
-                online_im = torch.stack(cropped_images)
-
             if not self._simple_save:
                 #
                 # BEGIN END-ZONE
                 #
                 if self._end_zones is not None:
+                    # EZ needs an image only for matching the lighting
+                    results["img"] = online_im
                     results = self._end_zones(results)
+                    online_im = results.pop("img")
+            #
+            # END END-ZONE
+            #
+
+            #
+            # Video-out pipeline
+            #
+            if self._video_out_pipeline is not None:
+                results["img"] = online_im
+                results["camera_box"] = current_boxes
+                results["video_frame_cfg"] = self._video_frame_config
+                results = self._video_out_pipeline(results)
+                online_im = results.pop("img")
+                current_boxes = results.pop("camera_box")
+
+            if not self._simple_save:
+                if self._end_zones is not None:
                     ez_image = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
                     if ez_image is not None:
-                        # Apply the final overlays to the end-zone image
-                        results = self._end_zones.put_ez_image(
+                        self._end_zones.put_ez_image(
                             data=results,
-                            img=self.draw_final_overlays(
-                                img=ez_image, frame_ids=frame_ids, scoreboard_img=scoreboard_img
-                            ),
+                            img=self.draw_final_overlays(img=ez_image, frame_ids=frame_ids),
                         )
-                #
-                # END END-ZONE
-                #
-                online_im = self.draw_final_overlays(
-                    img=online_im, frame_ids=frame_ids, scoreboard_img=scoreboard_img
-                )
+                online_im = self.draw_final_overlays(img=online_im, frame_ids=frame_ids)
 
             results["img"] = online_im
         return results
 
-    def draw_final_overlays(
-        self, img: torch.Tensor, frame_ids: torch.Tensor, scoreboard_img: Optional[torch.Tensor]
-    ) -> torch.Tensor:
+    def draw_final_overlays(self, img: torch.Tensor, frame_ids: torch.Tensor) -> torch.Tensor:
         # Just make sure we're channels-last
-        online_im = make_channels_last(img)
-
-        #
-        # Scoreboard
-        #
-        if scoreboard_img is not None:
-            if torch.is_floating_point(online_im) and not torch.is_floating_point(scoreboard_img):
-                scoreboard_img = scoreboard_img.to(torch.float, non_blocking=True)
-            online_im[:, : self._scoreboard.height, : self._scoreboard.width, :] = scoreboard_img
+        img = make_channels_last(img)
 
         #
         # Watermark
         #
         if self.has_args() and self._args.use_watermark:
-            y = int(image_height(online_im) - self.watermark_height)
-            x = int(image_width(online_im) - self.watermark_width - self.watermark_width / 10)
-            online_im = paste_watermark_at_position(
-                online_im,
+            y = int(image_height(img) - self.watermark_height)
+            x = int(image_width(img) - self.watermark_width - self.watermark_width / 10)
+            img = paste_watermark_at_position(
+                img,
                 watermark_rgb_channels=self.watermark_rgb_channels,
                 watermark_mask=self.watermark_mask,
                 x=x,
@@ -726,18 +652,21 @@ class VideoOutput:
         # Frame Number
         #
         if self.has_args() and self._args.plot_frame_number:
+            assert len(frame_ids) == len(img)
             for i, frame_id in enumerate(frame_ids):
-                online_im[i] = vis.plot_frame_number(
-                    online_im[i],
-                    frame_id=frame_id,
+                img[i] = make_channels_last(
+                    vis.plot_frame_number(
+                        img[i],
+                        frame_id=frame_id,
+                    )
                 )
 
-        online_im = to_uint8_image(online_im, non_blocking=True)
+        img = to_uint8_image(img, non_blocking=True)
 
         if self._image_color_scaler is not None:
-            online_im = self._image_color_scaler.maybe_scale_image_colors(image=online_im)
+            img = self._image_color_scaler.maybe_scale_image_colors(image=img)
 
-        return online_im
+        return img
 
 
 def get_open_files_count():

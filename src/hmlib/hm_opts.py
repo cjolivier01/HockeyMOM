@@ -238,6 +238,22 @@ class hm_opts(object):
             help="Auto-adjust exposure when stitching",
         )
         parser.add_argument(
+            "--no-minimize-blend",
+            action="store_true",
+            help="Don't minimize blending to the overlapped portions",
+        )
+        parser.add_argument(
+            "--python-blender",
+            action="store_true",
+            help="Use the pythonb lending code (should be identical to C++, but may have performance differences)",
+        )
+        parser.add_argument(
+            "--max-control-points",
+            type=int,
+            default=240,
+            help="Maximum number of control points used to calculate the homography matrices",
+        )
+        parser.add_argument(
             "--track-ids",
             type=str,
             default=None,

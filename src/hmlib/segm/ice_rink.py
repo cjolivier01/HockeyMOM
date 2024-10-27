@@ -1,5 +1,5 @@
 """
-Ice Rink segmentation stuff
+Ice Rink segmentation stuff, basically find the actual ice sheet in the image
 """
 
 import argparse
@@ -28,7 +28,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.log import logger
+from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
@@ -446,14 +446,25 @@ def get_device_to_use_for_rink(
 
 def confgure_ice_rink_mask(
     game_id: str,
+    expected_shape: torch.Size,
     device: Optional[torch.device] = None,
     force: bool = False,
     show: bool = False,
 ) -> Optional[torch.Tensor]:
     if not force:
-        combined_mask = load_rink_combined_mask(game_id=game_id)
-        if combined_mask is not None:
-            return combined_mask
+        combined_mask_profile = load_rink_combined_mask(game_id=game_id)
+        if combined_mask_profile:
+            combined_mask = combined_mask_profile["combined_mask"]
+            mask_w = image_width(combined_mask)
+            mask_h = image_height(combined_mask)
+            assert len(expected_shape) == 2  # (H, W)
+            if mask_w == expected_shape[1] and mask_h == expected_shape[0]:
+                return combined_mask_profile
+            else:
+                logging.warning(
+                    f"Expected rink mask of size w={expected_shape[1]}, h={expected_shape[0]} does not match actual"
+                    f"rink mask size of w={mask_w}, h={mask_h}, so mask must be reconstructed"
+                )
 
     model_config_file, model_checkpoint = get_model_config(
         game_id=game_id, model_name="ice_rink_segm"
@@ -467,7 +478,8 @@ def confgure_ice_rink_mask(
         raise AttributeError(f"Could not find stitched frame image: {image_file}")
 
     image_frame = _get_first_frame(image_file)
-
+    assert image_height(image_frame) == expected_shape[0]
+    assert image_width(image_frame) == expected_shape[1]
     rink_results = find_ice_rink_masks(
         image=image_frame,
         config_file=model_config_file,

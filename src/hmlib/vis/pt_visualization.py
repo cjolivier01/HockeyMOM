@@ -90,12 +90,15 @@ def draw_horizontal_line(
     Draw a horizontal line on the image at specified location using PyTorch.
     """
     # Ensure the square doesn't go out of the image boundaries
-    assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
 
     if alpha == 0:
         # Nothing to do
         return image
+
+    sq = image.ndim == 3
+    if sq:
+        image = image.unsqueeze(0)
 
     falpha = float(alpha) / 255.0
 
@@ -129,13 +132,16 @@ def draw_horizontal_line(
     else:
         # Set the pixel values to the specified color  TODO: do all channels a once
         image[:, :, start_y : start_y + thickness, start_x : start_x + length] = (
-            image[:, :, :, :, start_y : start_y + thickness, start_x : start_x + length]
-            * (1 - alpha)
+            image[:, :, start_y : start_y + thickness, start_x : start_x + length] * (1 - alpha)
             + color_tensor * falpha
         )
 
     if was_channels_last:
         image = make_channels_last(image)
+
+    if sq:
+        image = image.squeeze(0)
+
     return image
 
 
@@ -153,12 +159,15 @@ def draw_vertical_line(
     """
     # Ensure the square doesn't go out of the image boundaries
     # assert length > 1
-    assert image.ndim == 4
     assert alpha >= 0 and alpha <= 255
 
     if alpha == 0:
         # Nothing to do
         return image
+
+    sq = image.ndim == 3
+    if sq:
+        image = image.unsqueeze(0)
 
     falpha = float(alpha) / 255.0
 
@@ -192,12 +201,16 @@ def draw_vertical_line(
     else:
         # Set the pixel values to the specified color  TODO: do all channels a once
         image[:, :, start_y : start_y + length, start_x : start_x + thickness] = (
-            image[:, :, start_y : start_y + length, start_x : start_x + thickness] * (1 - alpha)
+            image[:, :, start_y : start_y + length, start_x : start_x + thickness] * (1 - falpha)
             + color_tensor * falpha
         )
 
     if was_channels_last:
         image = make_channels_last(image)
+
+    if sq:
+        image = image.squeeze(0)
+
     return image
 
 
@@ -211,11 +224,51 @@ def draw_box(
     color: Union[Tuple[int, int, int], torch.Tensor],
     thickness: int = 1,
     alpha: int = 255,
+    filled: bool = False,
 ) -> torch.Tensor:
     W = int(width(tlbr))
     H = int(height(tlbr))
     assert len(tlbr) == 4
     int_box = [int(i) for i in tlbr]
+
+    if filled:
+        intbox = [int(i) for i in tlbr]
+        h = intbox[3] - intbox[1]
+        w = intbox[2] - intbox[0]
+        start_x = intbox[0]
+        start_y = intbox[1]
+        use_dtype = image.dtype
+        image = make_channels_first(image)
+
+        if alpha == 255:
+            if not isinstance(color, torch.Tensor):
+                # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
+                color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(
+                    1, -1, 1, 1
+                )
+            else:
+                color_tensor = color
+
+            image[:, :, start_y : start_y + h, start_x : start_x + w] = color
+        else:
+            if not torch.is_floating_point(image):
+                image = image.to(torch.float, non_blocking=True)
+
+            if not isinstance(color, torch.Tensor):
+                # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
+                color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(
+                    1, -1, 1, 1
+                )
+            else:
+                color_tensor = color
+
+            falpha = alpha / 255
+            # Set the pixel values to the specified color  TODO: do all channels a once
+            image[:, :, start_y : start_y + h, start_x : start_x + w] = (
+                image[:, :, start_y : start_y + h, start_x : start_x + w] * (1 - falpha)
+                + color_tensor * falpha
+            )
+        return image
 
     # left side
     image = draw_vertical_line(

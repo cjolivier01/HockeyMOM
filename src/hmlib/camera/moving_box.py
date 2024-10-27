@@ -129,9 +129,6 @@ class ResizingBox(BasicBox):
                 )
 
             inscribed = move_box_to_center(scaled_following_box.clone(), center(my_bbox))
-            # logger.info(
-            #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
-            # )
             img = vis.draw_dashed_rectangle(
                 img,
                 box=inscribed,
@@ -457,6 +454,7 @@ class MovingBox(ResizingBox):
             my_center = [int(i) for i in center_tensor]
             my_width = width(self.bounding_box())
             my_height = height(self.bounding_box())
+            img = vis.to_cv2(img)
             cv2.circle(
                 img,
                 my_center,

@@ -49,6 +49,7 @@ def convert_seconds_to_hms(total_seconds):
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
+    max_control_points: int,
     lfo: int = None,
     rfo: int = None,
     game_id: str = None,
@@ -71,6 +72,8 @@ def stitch_videos(
     stitch_frame_time: Optional[str] = None,
     force: Optional[bool] = False,
     auto_adjust_exposure: Optional[bool] = False,
+    minimize_blend: bool = True,
+    python_blender: bool = True,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -95,6 +98,7 @@ def stitch_videos(
         left_frame_offset=lfo,
         right_frame_offset=rfo,
         base_frame_offset=stitch_frame_number,
+        max_control_points=max_control_points,
         force=force,
     )
 
@@ -117,10 +121,7 @@ def stitch_videos(
         max_frames=max_frames,
         batch_size=batch_size,
         num_workers=1,
-        remap_thread_count=1,
-        blend_thread_count=1,
         max_input_queue_size=cache_size,
-        fork_workers=False,
         image_roi=(
             get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
         ),
@@ -131,6 +132,8 @@ def stitch_videos(
         remap_on_async_stream=remap_on_async_stream,
         dtype=dtype,
         auto_adjust_exposure=auto_adjust_exposure,
+        minimize_blend=minimize_blend,
+        python_blender=python_blender,
     )
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -253,6 +256,9 @@ def main(args):
             dtype=torch.half if args.fp16 else torch.float,
             force=args.force,
             auto_adjust_exposure=args.stitch_auto_adjust_exposure,
+            minimize_blend=not args.no_minimize_blend,
+            python_blender=args.python_blender,
+            max_control_points=args.max_control_points,
         )
 
 

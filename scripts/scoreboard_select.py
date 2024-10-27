@@ -5,6 +5,4 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    args.game_id = "lviw2"
-
-    configure_scoreboard(args.game_id)
+    configure_scoreboard(args.game_id, force=True)

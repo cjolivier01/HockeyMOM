@@ -87,7 +87,8 @@ def extract_frames(
 
 def build_stitching_project(
     project_file_path: str,
-    image_files=List[str],
+    image_files: List[str],
+    max_control_points: int,
     skip_if_exists: bool = True,
     test_blend: bool = True,
     fov: int = 108,
@@ -129,6 +130,7 @@ def build_stitching_project(
                 project_file_path=hm_project,
                 image0=left_image_file,
                 image1=right_image_file,
+                max_control_points=max_control_points,
                 force=True,
                 use_hugin=False,
             )
@@ -223,6 +225,7 @@ def configure_video_stitching(
     dir_name: str,
     video_left: str,
     video_right: str,
+    max_control_points: int,
     project_file_name: str = "hm_project.pto",
     left_frame_offset: int = None,
     right_frame_offset: int = None,
@@ -261,6 +264,7 @@ def configure_video_stitching(
         build_stitching_project(
             project_file_path=pto_project_file,
             image_files=[left_image_file, right_image_file],
+            max_control_points=max_control_points,
             force=force,
             skip_if_exists=not force,
         )

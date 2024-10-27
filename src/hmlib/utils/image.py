@@ -566,7 +566,10 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     if pad_height == 0 and pad_height == 0:
         return tensor
     padding = [0, pad_width, 0, pad_height]
-    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
+    if pad_value is None:
+        padded_tensor = TF.pad(tensor, padding, "replicate")
+    else:
+        padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
     return padded_tensor
 
 

@@ -54,8 +54,8 @@ class HmPerspectiveRotation:
     def __call__(self, results):
         if not self._fixed_edge_rotation or self._fixed_edge_rotation_angle == 0:
             return results
-        online_im = results[self._image_label]
-        current_box = results[self._bbox_label]
+        online_im = results.pop(self._image_label)
+        current_box = results.pop(self._bbox_label)
         online_im = _slow_to_tensor(online_im)
         online_im = to_float_image(
             online_im,
@@ -113,6 +113,7 @@ class HmPerspectiveRotation:
             )
             rotated_images.append(img)
             current_boxes.append(bbox)
+        del online_im
         # online_im = torch.stack(rotated_images)
         current_box = torch.stack(current_boxes)
         # results[self._image_label] = online_im
