@@ -14,6 +14,7 @@ fi
 
 docker run --gpus all --privileged --user=$(id -u):$(id -g) -it \
   --memory 32g \
+  -p 22298:22298 \
   -v ${HOME}:${HOME} \
   -v ${HOME}/.ssh:${HOME}/.ssh \
   -v /etc/passwd:/etc/passwd:ro \
