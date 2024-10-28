@@ -214,6 +214,92 @@ def draw_vertical_line(
     return image
 
 
+import torch
+
+
+def draw_line(
+    image: torch.Tensor,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+):
+    """
+    Draws a line on the image tensor from (x1, y1) to (x2, y2) with the given color and thickness.
+
+    Parameters:
+    - image: torch.Tensor of shape (C, H, W) on the GPU.
+    - x1, y1, x2, y2: Coordinates of the line endpoints.
+    - color: torch.Tensor of shape (C,) representing the RGB color.
+    - thickness: Line thickness in pixels.
+    """
+
+    if y1 == y2:
+        # Horizontal
+        start_x = min(x1, x2)
+        stop_x = max(x1, x2)
+        start_y = y1
+        length = stop_x - start_x
+        return draw_horizontal_line(
+            image,
+            start_x,
+            start_y,
+            length,
+            color=color,
+            thickness=thickness,
+        )
+    elif x1 == x2:
+        # Vertical
+        start_y = min(y1, y2)
+        stop_y = max(y1, y2)
+        start_x = x1
+        length = stop_y - start_y
+        return draw_vertical_line(
+            image,
+            start_x,
+            start_y,
+            length,
+            color=color,
+            thickness=thickness,
+        )
+
+    C, H, W = image.shape
+    device = image.device
+
+    # Convert coordinates to tensors on the same device as the image
+    x1 = torch.tensor(x1, dtype=torch.float32, device=device)
+    y1 = torch.tensor(y1, dtype=torch.float32, device=device)
+    x2 = torch.tensor(x2, dtype=torch.float32, device=device)
+    y2 = torch.tensor(y2, dtype=torch.float32, device=device)
+
+    # Generate coordinate grid
+    ys, xs = torch.meshgrid(
+        torch.arange(H, device=device), torch.arange(W, device=device), indexing="ij"
+    )
+
+    # Compute line coefficients A, B, and C for the line equation Ax + By + C = 0
+    A = y2 - y1
+    B = x1 - x2
+    C = x2 * y1 - x1 * y2
+
+    # Compute the distance from each pixel to the line
+    denominator = torch.sqrt(A**2 + B**2) + 1e-8  # Avoid division by zero
+    distance = torch.abs(A * xs + B * ys + C) / denominator
+
+    # Create a mask where the distance is less than half the thickness
+    mask = distance <= (thickness / 2.0)
+
+    # Apply the mask to the image
+    mask = mask.unsqueeze(0).expand(C, -1, -1)  # Expand mask to (C, H, W)
+    color = color.view(C, 1, 1)  # Reshape color to (C, 1, 1)
+    image = image.clone()  # Clone the image to avoid in-place modifications
+    image = torch.where(mask, color, image)
+
+    return image
+
+
 def draw_box(
     image: torch.Tensor,
     tlbr: Union[
@@ -310,4 +396,65 @@ def draw_box(
         thickness=thickness,
         alpha=alpha,
     )
+    return image
+
+
+def draw_circle(
+    image: torch.Tensor,
+    center_x: float,
+    center_y: float,
+    radius: float,
+    color: torch.Tensor,
+    thickness: int = 1,
+) -> torch.Tensor:
+    """
+    Draws a circle on the image tensor with the given center, radius, color, and thickness.
+
+    Parameters:
+    - image: Tensor of shape (C, H, W) on the GPU.
+    - center_x: float, x-coordinate of the circle center.
+    - center_y: float, y-coordinate of the circle center.
+    - radius: float, radius of the circle.
+    - color: Tensor of shape (C,) representing the RGB color.
+    - thickness: int, circle line thickness in pixels. If thickness is negative, the circle is filled.
+
+    Returns:
+    - Tensor: The image tensor with the circle drawn on it.
+    """
+    C, H, W = image.shape
+    device = image.device
+
+    # Convert coordinates and radius to tensors on the same device as the image
+    center_x_tensor: torch.Tensor = torch.tensor(center_x, dtype=torch.float32, device=device)
+    center_y_tensor: torch.Tensor = torch.tensor(center_y, dtype=torch.float32, device=device)
+    radius_tensor: torch.Tensor = torch.tensor(radius, dtype=torch.float32, device=device)
+
+    # Generate coordinate grid
+    ys: torch.Tensor
+    xs: torch.Tensor
+    ys, xs = torch.meshgrid(
+        torch.arange(H, device=device, dtype=torch.float32),
+        torch.arange(W, device=device, dtype=torch.float32),
+        indexing="ij",
+    )
+
+    # Compute the squared distance from each pixel to the circle center
+    distance_sq: torch.Tensor = (xs - center_x_tensor) ** 2 + (ys - center_y_tensor) ** 2
+    radius_sq: torch.Tensor = radius_tensor**2
+
+    if thickness < 0:
+        # Filled circle
+        mask: torch.Tensor = distance_sq <= radius_sq
+    else:
+        # Ring (circle with thickness)
+        inner_radius_sq: torch.Tensor = (radius_tensor - thickness).clamp(min=0) ** 2
+        outer_radius_sq: torch.Tensor = radius_sq
+        mask = (distance_sq >= inner_radius_sq) & (distance_sq <= outer_radius_sq)
+
+    # Apply the mask to the image
+    mask = mask.unsqueeze(0).expand(C, -1, -1)  # Expand mask to (C, H, W)
+    color = color.view(C, 1, 1)  # Reshape color to (C, 1, 1)
+    image = image.clone()  # Clone the image to avoid in-place modifications
+    image = torch.where(mask, color, image)
+
     return image
