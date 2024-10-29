@@ -123,9 +123,7 @@ def draw_horizontal_line(
     if start_x + length > W:
         length = W - start_x
         if length < 0:  # it's all off the screen?
-            assert False  # just check
             return image
-        # raise ValueError("Line goes out of image boundaries.")
 
     if alpha == 255:
         image[:, :, start_y : start_y + thickness, start_x : start_x + length] = color_tensor
@@ -192,9 +190,7 @@ def draw_vertical_line(
     if start_y + length > H:
         length = H - start_y
         if length < 0:  # it's all off the screen?
-            assert False  # just check
             return image
-        # raise ValueError("Line goes out of image boundaries.")
 
     if alpha == 255:
         image[:, :, start_y : start_y + length, start_x : start_x + thickness] = color_tensor
