@@ -40,6 +40,33 @@ def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(image)
 
 
+def plot_circle(
+    image: Union[torch.Tensor, np.ndarray],
+    center: Tuple[int, int],
+    radius: int,
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+) -> Union[torch.Tensor, np.ndarray]:
+    if isinstance(image, np.ndarray):
+        image = to_cv2(image)
+        cv2.circle(
+            image,
+            center=[int(i) for i in center],
+            radius=int(radius),
+            color=color,
+            thickness=thickness,
+        )
+        return image
+    return ptv.draw_circle(
+        image=image,
+        center_x=center[0],
+        center_y=center[1],
+        radius=int(radius),
+        color=color,
+        thickness=thickness,
+    )
+
+
 def plot_rectangle(
     img,
     box: List[int],
@@ -233,24 +260,6 @@ def plot_point(
         [x, y],
         radius=int((thickness + 1) // 2),
         color=normalize_color(img, color),
-        thickness=thickness,
-    )
-    return img
-
-
-def plot_circle(
-    img: torch.Tensor | np.ndarray,
-    center: torch.Tensor,
-    radius: int,
-    color: Tuple[int, int, int],
-    thickness: int,
-) -> np.ndarray:
-    img = to_cv2(img)
-    cv2.circle(
-        img,
-        [int(i) for i in center],
-        radius=radius,
-        color=color,
         thickness=thickness,
     )
     return img

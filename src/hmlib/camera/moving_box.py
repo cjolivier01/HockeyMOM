@@ -454,15 +454,14 @@ class MovingBox(ResizingBox):
             my_center = [int(i) for i in center_tensor]
             my_width = width(self.bounding_box())
             my_height = height(self.bounding_box())
-            img = vis.to_cv2(img)
-            cv2.circle(
+            img = vis.plot_circle(
                 img,
                 my_center,
                 radius=int(sticky),
                 color=(255, 0, 0),
                 thickness=3,
             )
-            cv2.circle(
+            img = vis.plot_circle(
                 img,
                 my_center,
                 radius=int(unsticky),
@@ -476,14 +475,14 @@ class MovingBox(ResizingBox):
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
                 co = [int(i) for i in following_bbox_center]
-                cv2.circle(
+                vis.plot_circle(
                     img,
                     my_center,
                     radius=5,
                     color=(255, 255, 0),
                     thickness=cv2.FILLED,
                 )
-                cv2.circle(
+                vis.plot_circle(
                     img,
                     co,
                     radius=5,
