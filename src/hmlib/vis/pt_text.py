@@ -74,6 +74,8 @@ def _create_text_images(
     char_tensors: Dict[str, torch.Tensor] = {}
 
     max_height = 0
+    border_size: int = 1
+    dbl_border_size: int = int(2 * border_size)
 
     # Create an image for each character
     for char in characters:
@@ -82,13 +84,13 @@ def _create_text_images(
         # Create an image with transparent background
         image = Image.new(
             "RGBA",
-            (int(char_width + 10), font_size + 10),
+            (int(char_width + dbl_border_size), font_size + dbl_border_size),
             (_TRANSPARENT_PIXEL, _TRANSPARENT_PIXEL, _TRANSPARENT_PIXEL, 0),
         )
         draw = ImageDraw.Draw(image)
 
         # Draw the text
-        draw.text((5, 5), char, font=font, fill=font_color)
+        draw.text((border_size, border_size), char, font=font, fill=font_color)
 
         numpy_image = np.array(image)
 
