@@ -265,37 +265,58 @@ def draw_line(
             thickness=thickness,
         )
 
+    assert image.ndim == 3
+    image = make_channels_first(image)
+
+    # Get image dimensions
     C, H, W = image.shape
     device = image.device
 
-    # Convert coordinates to tensors on the same device as the image
-    x1 = torch.tensor(x1, dtype=torch.float32, device=device)
-    y1 = torch.tensor(y1, dtype=torch.float32, device=device)
-    x2 = torch.tensor(x2, dtype=torch.float32, device=device)
-    y2 = torch.tensor(y2, dtype=torch.float32, device=device)
+    # Compute the bounding box around the line with thickness
+    x_min = int(max(0, min(x1, x2) - thickness))
+    x_max = int(min(W - 1, max(x1, x2) + thickness)) + 1
+    y_min = int(max(0, min(y1, y2) - thickness))
+    y_max = int(min(H - 1, max(y1, y2) + thickness)) + 1
 
-    # Generate coordinate grid
+    # Create coordinate grid within the bounding box
     ys, xs = torch.meshgrid(
-        torch.arange(H, device=device), torch.arange(W, device=device), indexing="ij"
+        torch.arange(y_min, y_max, device=device, dtype=torch.float32),
+        torch.arange(x_min, x_max, device=device, dtype=torch.float32),
+        indexing="ij",
     )
 
     # Compute line coefficients A, B, and C for the line equation Ax + By + C = 0
     A = y2 - y1
     B = x1 - x2
-    C = x2 * y1 - x1 * y2
+    CL = x2 * y1 - x1 * y2
+
+    if not isinstance(A, torch.Tensor):
+        A = torch.tensor(A, dtype=image.dtype, device=image.device)
 
     # Compute the distance from each pixel to the line
     denominator = torch.sqrt(A**2 + B**2) + 1e-8  # Avoid division by zero
-    distance = torch.abs(A * xs + B * ys + C) / denominator
+    distance = torch.abs(A * xs + B * ys + CL) / denominator
 
-    # Create a mask where the distance is less than half the thickness
+    # Create a mask where the distance is less than or equal to half the thickness
     mask = distance <= (thickness / 2.0)
 
-    # Apply the mask to the image
-    mask = mask.unsqueeze(0).expand(C, -1, -1)  # Expand mask to (C, H, W)
+    # Apply the mask to the image region
+    mask = mask.unsqueeze(0).expand(C, -1, -1)  # Expand mask to (C, H', W')
+
+    if not isinstance(color, torch.Tensor):
+        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
+        color = torch.tensor(color, dtype=image.dtype, device=image.device)
+
     color = color.view(C, 1, 1)  # Reshape color to (C, 1, 1)
-    image = image.clone()  # Clone the image to avoid in-place modifications
-    image = torch.where(mask, color, image)
+
+    # Slice the image to the bounding box
+    image_region = image[:, y_min:y_max, x_min:x_max]
+
+    # Clone the image to avoid in-place modifications
+    image = image.clone()
+
+    # Modify the region in the image
+    image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, image_region)
 
     return image
 

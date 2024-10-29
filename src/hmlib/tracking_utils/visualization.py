@@ -737,9 +737,19 @@ def my_draw_line(
     is_horiz = pt1[1] == pt2[1]
     is_vert = pt1[0] == pt2[0]
     if not is_horiz and not is_vert:
-        image = to_cv2(image)
-        cv2.line(image, pt1, pt2, color, thickness)
+        # image = to_cv2(image)
+        # cv2.line(image, pt1, pt2, color, thickness)
+        image = ptv.draw_line(
+            image=image,
+            x1=pt1[0],
+            y1=pt1[1],
+            x2=pt2[0],
+            y2=pt2[1],
+            color=color,
+            thickness=thickness,
+        )
         return image
+    # TODO: everything use draw_line
     if is_horiz:
         start_x = min(pt1[0], pt2[0])
         stop_x = max(pt1[0], pt2[0])
