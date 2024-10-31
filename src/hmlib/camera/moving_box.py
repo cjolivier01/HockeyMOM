@@ -643,7 +643,6 @@ class MovingBox(ResizingBox):
             changed_direction = s1 * s2
 
             # Reduce velocity on axes that changed direction
-            # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
             velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
             sticky, unsticky = self._get_sticky_translation_sizes()
@@ -660,9 +659,6 @@ class MovingBox(ResizingBox):
 
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
-                # self._current_speed_x = self._zero.clone()
-                # self._current_speed_x /= 2
-
                 self._current_speed_x = torch.where(
                     torch.abs(self._current_speed_x) < self._max_speed_x / 6,
                     0,
@@ -672,9 +668,6 @@ class MovingBox(ResizingBox):
                 if self._stop_on_dir_change:
                     total_diff[0] = self._zero.clone()
             if different_directions(total_diff[1], self._current_speed_y):
-                # self._current_speed_y = self._zero.clone()
-                # self._current_speed_y /= 2
-
                 self._current_speed_y = torch.where(
                     torch.abs(self._current_speed_y) < self._max_speed_y / 6,
                     0,
@@ -706,7 +699,6 @@ class MovingBox(ResizingBox):
         return self.next_position()
 
     def next_position(self):
-        # if arena_box is None:
         arena_box = self._arena_box
 
         # BEGIN Sticky Translation
