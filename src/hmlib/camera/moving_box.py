@@ -326,6 +326,7 @@ class MovingBox(ResizingBox):
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
         device: Optional[str] = None,
+        clamp_scaled_input_box: bool = True,  # EXPERIMENTAL
     ):
         super().__init__(
             bbox=bbox,
@@ -349,6 +350,7 @@ class MovingBox(ResizingBox):
         self._sticky_translation_gaussian_mult = sticky_translation_gaussian_mult
         self._sticky_size_ratio_to_frame_width = sticky_size_ratio_to_frame_width
         self._unsticky_translation_size_ratio = unsticky_translation_size_ratio
+        self._clamp_scaled_input_box = clamp_scaled_input_box
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -694,6 +696,11 @@ class MovingBox(ResizingBox):
             dest_box = scale_box(
                 dest_box, scale_width=self._scale_width, scale_height=self._scale_height
             )
+            if self._clamp_scaled_input_box:
+                # Clamp it to the image, since any translation back into the frame will
+                # end up including parts that we don't want
+                dest_box = clamp_box(box=dest_box, clamp_box=self._arena_box)
+
         self.set_destination(dest_box=dest_box)
         return self.next_position()
 
