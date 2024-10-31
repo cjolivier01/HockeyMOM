@@ -23,10 +23,10 @@ number_classifier = dict(
 video_out_pipeline = [
     dict(type="HmConfigureScoreboard"),
     dict(type="HmCaptureScoreboard"),
-    # dict(
-    #     type="HmPerspectiveRotation",
-    #     pre_clip=True,
-    # ),
+    dict(
+        type="HmPerspectiveRotation",
+        pre_clip=True,
+    ),
     dict(type="HmCropToVideoFrame"),
     dict(type="HmRenderScoreboard", image_labels=["img", "end_zone_img"]),
 ]
