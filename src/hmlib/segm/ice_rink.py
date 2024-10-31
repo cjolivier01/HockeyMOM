@@ -473,7 +473,8 @@ def confgure_ice_rink_mask(
 
     assert model_config_file
     assert model_checkpoint
-
+    # TODO: Should prioritize passed-in image over s.png and then make
+    # sure everything is the expected size within the config
     image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
     if not image_file.exists():
         if image is None:
