@@ -700,6 +700,7 @@ class MovingBox(ResizingBox):
                 # Clamp it to the image, since any translation back into the frame will
                 # end up including parts that we don't want
                 dest_box = clamp_box(box=dest_box, clamp_box=self._arena_box)
+                # pass
 
         self.set_destination(dest_box=dest_box)
         return self.next_position()
