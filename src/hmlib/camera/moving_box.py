@@ -53,19 +53,27 @@ class BasicBox(torch.nn.Module):
         return self._bbox.clone()
 
 
+def _as_scalar_float_tensor(
+    val: Union[torch.Tensor, int, float], device: torch.device
+) -> torch.Tensor:
+    if isinstance(val, torch.Tensor):
+        return val
+    return torch.tensor(float(val), dtype=torch.float, device=device)
+
+
 class ResizingBox(BasicBox):
     # TODO: move resizing stuff here
     def __init__(
         self,
         bbox: torch.Tensor,
-        max_speed_w: torch.Tensor,
-        max_speed_h: torch.Tensor,
-        max_accel_w: torch.Tensor,
-        max_accel_h: torch.Tensor,
-        min_width: torch.Tensor,
-        min_height: torch.Tensor,
-        max_width: torch.Tensor,
-        max_height: torch.Tensor,
+        max_speed_w: Union[torch.Tensor, int, float],
+        max_speed_h: Union[torch.Tensor, int, float],
+        max_accel_w: Union[torch.Tensor, int, float],
+        max_accel_h: Union[torch.Tensor, int, float],
+        min_width: Union[torch.Tensor, int, float],
+        min_height: Union[torch.Tensor, int, float],
+        max_width: Union[torch.Tensor, int, float],
+        max_height: Union[torch.Tensor, int, float],
         stop_on_dir_change: bool,
         sticky_sizing: bool = False,
         device: str = None,
@@ -80,10 +88,10 @@ class ResizingBox(BasicBox):
         self._max_accel_w = max_accel_w
         self._max_accel_h = max_accel_h
 
-        self._min_width = min_width
-        self._min_height = min_height
-        self._max_width = max_width
-        self._max_height = max_height
+        self._min_width = _as_scalar_float_tensor(min_width, device=device)
+        self._min_height = _as_scalar_float_tensor(min_height, device=device)
+        self._max_width = _as_scalar_float_tensor(max_width, device=device)
+        self._max_height = _as_scalar_float_tensor(max_height, device=device)
         self._size_constrained = False
 
         #
