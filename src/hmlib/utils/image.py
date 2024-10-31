@@ -492,7 +492,8 @@ def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
 def crop_image(img, left, top, right, bottom):
     if isinstance(img, PIL.Image.Image):
         return img.crop((left, top, right, bottom))
-    return img[top : bottom + 1, left : right + 1, 0:3]
+    assert img.ndim == 3 and img.shape[-1] in [3, 4]
+    return img[top:bottom, left:right, :]
 
 
 def get_best_resize_mode(
