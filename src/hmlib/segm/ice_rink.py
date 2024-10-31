@@ -484,6 +484,8 @@ def confgure_ice_rink_mask(
         if device is not None and image_frame.device != device:
             if isinstance(image_frame, StreamTensor):
                 image_frame = image_frame.get()
+                assert image_frame.ndim == 4
+                image_frame = image_frame[0]
                 # Just synchronize everyone since this only happens once
                 torch.cuda.synchronize()
             image_frame = image_frame.to(device)
