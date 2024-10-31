@@ -45,6 +45,7 @@ class IceRinkSegmBoundaries(SegmBoundaries):
                 game_id=self._game_id,
                 device=self._device,
                 expected_shape=image_shape,
+                image=data["original_images"],
             )
             self.set_rink_mask_and_centroid(
                 rink_mask=self._rink_profile["combined_mask"],

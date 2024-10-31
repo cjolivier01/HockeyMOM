@@ -62,6 +62,7 @@ def run_mmtrack(
             get_timer = Timer()
             detect_timer = None
             last_frame_id = None
+            max_tracking_id = 0
 
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
@@ -93,6 +94,7 @@ def run_mmtrack(
                             remaining_frames_to_process / processing_fps
                         )
                         table_map["Track count"] = str(nr_tracks)
+                        table_map["Track IDs"] = str(int(max_tracking_id))
 
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
@@ -155,6 +157,7 @@ def run_mmtrack(
                             with autocast() if fp16 else nullcontext():
                                 data["img"] = detection_image
                                 tracking_results = model(return_loss=False, rescale=True, **data)
+
                         detect_timer.toc()
                         del data["img"]
                         del detection_image
@@ -163,7 +166,12 @@ def run_mmtrack(
                         nr_tracks = int(
                             track_data_sample.video_data_samples[0].metainfo["nr_tracks"]
                         )
-                        #
+                        tracking_ids = track_data_sample.video_data_samples[
+                            -1
+                        ].pred_track_instances.instances_id
+                        if len(tracking_ids):
+                            max_tracking_id = torch.max(tracking_ids)
+
                     if True:
                         # video_data_samples = track_data_sample.video_data_samples[frame_index]
                         # pred_track_instances = getattr(

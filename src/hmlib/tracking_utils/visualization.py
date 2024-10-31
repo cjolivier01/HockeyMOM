@@ -341,7 +341,7 @@ def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
             x=int(org[0]),
             y=int(org[1]),
             text=text,
-            font_size=fontScale,
+            font_size=fontScale * 2,
             color=color,
             position_is_text_bottom=True,
         )

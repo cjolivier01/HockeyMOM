@@ -32,7 +32,7 @@ from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
-from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
@@ -450,6 +450,7 @@ def confgure_ice_rink_mask(
     device: Optional[torch.device] = None,
     force: bool = False,
     show: bool = False,
+    image: torch.Tensor = None,
 ) -> Optional[torch.Tensor]:
     if not force:
         combined_mask_profile = load_rink_combined_mask(game_id=game_id)
@@ -475,9 +476,19 @@ def confgure_ice_rink_mask(
 
     image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
     if not image_file.exists():
-        raise AttributeError(f"Could not find stitched frame image: {image_file}")
-
-    image_frame = _get_first_frame(image_file)
+        if image is None:
+            raise AttributeError(f"Could not find stitched frame image: {image_file}")
+        assert image_width(image) == expected_shape[-1]
+        assert image_height(image) == expected_shape[-2]
+        image_frame = image
+        if device is not None and image_frame.device != device:
+            if isinstance(image_frame, StreamTensor):
+                image_frame = image_frame.get()
+                # Just synchronize everyone since this only happens once
+                torch.cuda.synchronize()
+            image_frame = image_frame.to(device)
+    else:
+        image_frame = _get_first_frame(image_file)
     assert image_height(image_frame) == expected_shape[0]
     assert image_width(image_frame) == expected_shape[1]
     rink_results = find_ice_rink_masks(

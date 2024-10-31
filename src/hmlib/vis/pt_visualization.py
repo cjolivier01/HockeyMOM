@@ -287,7 +287,7 @@ def draw_line(
     CL = x2 * y1 - x1 * y2
 
     if not isinstance(A, torch.Tensor):
-        A = torch.tensor(A, dtype=image.dtype, device=image.device)
+        A = torch.tensor(A, dtype=torch.float, device=image.device)
 
     # Compute the distance from each pixel to the line
     denominator = torch.sqrt(A**2 + B**2) + 1e-8  # Avoid division by zero
