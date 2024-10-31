@@ -377,6 +377,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
                 # Maybe get back the clipped image as the "original"
                 if "clipped_image" in data_item:
+                    assert False and "No longer supported"
                     clipped_image = data_item["clipped_image"]
                     if isinstance(clipped_image, list):
                         assert len(clipped_image) == 1

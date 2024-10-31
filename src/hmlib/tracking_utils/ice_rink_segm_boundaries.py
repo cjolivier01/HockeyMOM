@@ -20,6 +20,7 @@ class IceRinkSegmConfig:
         device: torch.device = torch.device("cpu"),
         shape_label: str = "ori_shape",
         image_label: str = "original_images",
+        clip: bool = False,
         **kwargs,
     ):
         self._game_id = game_id
@@ -27,6 +28,9 @@ class IceRinkSegmConfig:
         self._device = device
         self._shape_label: str = shape_label
         self._image_label = image_label
+        self._clip = clip
+        self._clip_box = None
+        self._clipped_shape = None
 
     def maybe_init_rink_segmentation(self, data: Dict[str, Any]):
         if self._rink_profile is None:
@@ -43,6 +47,12 @@ class IceRinkSegmConfig:
                 expected_shape=image_shape,
                 image=image[0],
             )
+            if self._clip:
+                bbox = rink_profile["combined_bbox"]
+                self._clip_box = [int(i) for i in bbox]
+                self._clipped_shape = torch.Size(
+                    (self._clip_box[3] - self._clip_box[1], self._clip_box[2] - self._clip_box[0])
+                )
             self._rink_profile = [rink_profile for _ in range(batch_size)]
         return data
 
@@ -53,6 +63,18 @@ class IceRinkSegmConfig:
         if "rink_profile" not in data:
             data = self.maybe_init_rink_segmentation(data)
             data["rink_profile"] = self._rink_profile
+        if self._clipped_shape and self._image_label:
+            img = data[self._image_label]
+            # we expect channels last
+            img = img[
+                :, self._clip_box[1] : self._clip_box[3], self._clip_box[0] : self._clip_box[2], :
+            ]
+            bs = len(img)
+            data[self._image_label] = img
+            data["clipped_image"] = img
+            data[self._shape_label] = [self._clipped_shape for _ in range(bs)]
+            if "img_shape" in data:
+                data["img_shape"] = [self._clipped_shape for _ in range(bs)]
         return data
 
 
