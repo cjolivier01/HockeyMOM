@@ -395,7 +395,7 @@ def configure_boundaries(
                     game_id=game_id,
                     original_clip_box=original_clip_box,
                     draw=plot_tracking,
-                    gpu_allocator=gpu_allocator,
+                    # gpu_allocator=gpu_allocator,
                 ),
             )
 
@@ -573,6 +573,15 @@ def main(args, num_gpu):
                 cfg = model.cfg.copy()
                 pipeline = cfg.inference_pipeline
                 pipeline[0].type = "HmLoadImageFromWebcam"
+
+                update_pipeline_item(
+                    pipeline,
+                    "IceRinkSegmConfig",
+                    dict(
+                        game_id=args.game_id,
+                    ),
+                )
+
                 data_pipeline = Compose(pipeline)
 
             #

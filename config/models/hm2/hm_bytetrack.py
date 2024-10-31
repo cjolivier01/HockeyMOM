@@ -95,6 +95,8 @@ inference_pipeline = [
     dict(type="HmCrop", keys=["img"], save_clipped_images=True),
     # Make sure this is a PyTorch tensor
     dict(type="HmImageToTensor", keys=["img"]),
+    # Find ice rink segmentation
+    dict(type="IceRinkSegmConfig", image_label="img"),
     # Do the resize
     dict(type="HmResize", img_scale=img_scale, keep_ratio=True),
     # Make it a letterbox of the correct aspect ratio and padding
@@ -105,7 +107,7 @@ inference_pipeline = [
     ),
     # Not sure exactly what this does.  Puts stuff in particular dicrt entries, maybe?
     # dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
-    dict(type="mmdet.PackTrackInputs", meta_keys=("img_metas")),
+    dict(type="mmdet.PackTrackInputs", meta_keys=("img_metas", "rink_profile")),
     # dict(
     #     type="MultiScaleFlipAug",
     #     # img_scale=img_scale,

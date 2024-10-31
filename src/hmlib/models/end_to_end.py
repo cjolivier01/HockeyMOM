@@ -116,12 +116,13 @@ class HmEndToEnd(ByteTrack):
             det_scores = det_data_sample.pred_instances.scores
             if self.post_detection_composed_pipeline is not None:
                 # We may prune the detections to relevent items
-                data = {
+                data: Dict[str, Any] = {
                     "det_bboxes": det_bboxes,
                     "labels": det_labels,
                     "scores": det_scores,
                     "prune_list": ["det_bboxes", "labels", "scores"],
                     "ori_shape": det_data_sample.metainfo["ori_shape"],
+                    "data_samples": data_samples,
                 }
                 data.update(**kwargs)
                 data = self.post_detection_composed_pipeline(data)
