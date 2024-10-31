@@ -266,6 +266,9 @@ class CamTrackPostProcessor:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.width
 
+        self.final_frame_width = int(self.final_frame_width + 0.5)
+        self.final_frame_height = int(self.final_frame_height + 0.5)
+
         if self._args.save_camera_data and self._save_dir:
             self._camera_tracking_data = CameraTrackingData(
                 output_file=os.path.join(self._save_dir, "camera.csv")

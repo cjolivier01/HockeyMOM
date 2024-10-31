@@ -324,8 +324,6 @@ class StreamTensor(StreamTensorBase):
             self._tensor = tensor
 
     def call_with_checkpoint(self, fn, *args, **kwargs):
-        if self.stream is None:
-            pass
         assert self._owns_stream
         if torch.cuda.current_stream(self.device) == self.stream:
             self._set_ref(fn(self.ref(), *args, **kwargs))

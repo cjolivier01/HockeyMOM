@@ -178,7 +178,12 @@ class Scoreboard(torch.nn.Module):
             self._bbox_src[1] : self._bbox_src[3],
             self._bbox_src[0] : self._bbox_src[2],
         ]
-        src_image = resize_image(img=src_image, new_width=self._dest_w, new_height=self._dest_h)
+        src_image = resize_image(
+            img=src_image,
+            new_width=self._dest_w,
+            new_height=self._dest_h,
+            mode=TF.InterpolationMode.NEAREST,
+        )
         # cv2.imshow("src_image", make_visible_image(src_image[0]))
         # cv2.waitKey(0)
 

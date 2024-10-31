@@ -8,7 +8,7 @@
 from __future__ import absolute_import, division, print_function
 
 import random
-from typing import List, Union
+from typing import Dict, List, Set, Union
 
 import cv2
 import numpy as np
@@ -495,45 +495,104 @@ def crop_image(img, left, top, right, bottom):
     return img[top : bottom + 1, left : right + 1, 0:3]
 
 
+def get_best_resize_mode(
+    w1: int, h1: int, w2: int, h2: int, interpolate: bool = False, verbose: bool = True
+) -> Union[int, str]:
+    if w1 > w2:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h1 > h2 or abs(h2 - h1) < 1.1
+        if h1 == h2 and abs(w2 - w1) < 1.1:
+            if verbose:
+                # Maybe you have a one-off match error somewhere
+                # causing an expensive resize?
+                print(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+        # Downsampling
+        # return F.InterpolationMode.BOX
+        return "area"
+    elif w2 > w1:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h2 > h1 or abs(h2 - h1) < 1.1
+        if h1 == h2 and abs(w2 - w1) == 1.1:
+            if verbose:
+                # Maybe you have a one-off match error somewhere
+                # causing an expensive resize?
+                print(f"PERF WARNING: lmost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+        # Upsampling
+        return "bilinear"
+    elif w1 == w2:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h1 == h2
+        return None
+    assert False and "Should not get here"
+    return "bilinear"
+
+
+_CONVERT_MODE: Dict[int, str] = {
+    F.InterpolationMode.NEAREST: "nearest",
+    F.InterpolationMode.BILINEAR: "bilinear",
+    F.InterpolationMode.BICUBIC: "bicubic",
+}
+_CORNER_ALIGNABLE_MODES: Set[str] = {"linear", "bilinear", "bicubic", "trilinear"}
+
+
+def _allow_align_corners(mode: str, align_corners: Union[bool, None]) -> Union[bool, None]:
+    if mode not in _CORNER_ALIGNABLE_MODES:
+        return None
+    return align_corners
+
+
+def resize_mode_to_str_mode(mode: Union[str, int]) -> str:
+    if isinstance(mode, str):
+        return mode
+    return _CONVERT_MODE[mode]
+
+
 def resize_image(
     img,
     new_width: int,
     new_height: int,
-    mode=PIL.Image.BILINEAR,
+    mode: str = None,
+    antialias: bool = True,
+    float_dtype: torch.dtype = torch.float,
 ):
     w = int(new_width)
     h = int(new_height)
     if isinstance(img, torch.Tensor):
-        if img.dim() == 4:
-            # Probably doesn't work
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(0, 3, 2, 1)
-            assert img.shape[1] == 3 or img.shape[1] == 4
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=mode,
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(0, 3, 2, 1)
-        else:
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(2, 1, 0)
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=mode,
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(2, 1, 0)
+        was_channels_last = is_channels_last(img)
+        if was_channels_last:
+            img = make_channels_first(img)
+        if mode is None:
+            # We know it's channels-first by now, so last two size items are H, W
+            mode = get_best_resize_mode(w1=img.shape[-1], h1=img.shape[-2], w2=w, h2=h)
+        if mode is not None:
+            if True:
+                # use interpolate, change to float if necessary
+                if not torch.is_floating_point(img):
+                    img = img.to(dtype=float_dtype, non_blocking=True)
+                mode = resize_mode_to_str_mode(mode)
+                # TF.interpolate wants a batch dimension
+                was_batched = img.ndim == 4
+                if not was_batched:
+                    img = img.unsqueeze(0)
+                img = TF.interpolate(
+                    img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
+                )
+                if not was_batched:
+                    img = img.squeeze(0)
+                # Assert that it reshaped as we expected
+                assert img.shape[-2] == h and img.shape[-1] == w
+            else:
+                img = F.resize(
+                    img=img,
+                    size=(h, w),
+                    interpolation=mode,
+                    antialias=antialias,
+                )
+        if was_channels_last:
+            img = make_channels_last(img)
         return img
     elif isinstance(img, PIL.Image.Image):
         return img.resize((w, h))

@@ -121,7 +121,6 @@ class PlayTracker(torch.nn.Module):
         self._device = device
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
-        self._timer = Timer()
         self._cluster_man: Optional[ClusterMan] = None
         self._original_clip_box = original_clip_box
         self._breakaway_detection = BreakawayDetection(args.game_config)
@@ -155,8 +154,8 @@ class PlayTracker(torch.nn.Module):
         play_width = width(self._play_box)
         play_height = height(self._play_box)
 
-        assert width(self._play_box) == self._hockey_mom._video_frame.width
-        assert height(self._play_box) == self._hockey_mom._video_frame.height
+        assert play_width == self._hockey_mom._video_frame.width
+        assert play_height == self._hockey_mom._video_frame.height
 
         # speed_scale = 1.0
         speed_scale = self._hockey_mom.fps_speed_scale
@@ -297,9 +296,8 @@ class PlayTracker(torch.nn.Module):
                     )
                     self._tracking_id_jersey[tracking_id] = (number, score)
 
+    # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
-        self._timer.tic()
-
         track_data_sample = results["data_samples"]
 
         original_images = results.pop("original_images")

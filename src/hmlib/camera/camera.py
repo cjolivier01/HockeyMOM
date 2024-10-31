@@ -36,7 +36,8 @@ class VideoFrame(object):
         self._image_width = _as_scalar(image_width)
         self._image_height = _as_scalar(image_height)
         self._bbox = torch.tensor(
-            (0, 0, self._image_width - 1, self._image_height - 1),
+            # (0, 0, self._image_width - 1, self._image_height - 1),
+            (0, 0, self._image_width, self._image_height),
             dtype=torch.float,
             device=self._image_width.device,
         )

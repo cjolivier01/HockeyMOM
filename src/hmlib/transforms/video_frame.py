@@ -71,17 +71,17 @@ class HmCropToVideoFrame:
                 x2 = min(x2, src_image_width)
 
             img = crop_image(img, x1, y1, x2, y2)
-            if (
-                image_height(img) != video_frame_cfg["output_frame_height"]
-                or image_width(img) != video_frame_cfg["output_frame_width"]
-            ):
+            video_frame_width = int(video_frame_cfg["output_frame_width"])
+            video_frame_height = int(video_frame_cfg["output_frame_height"])
+            if image_height(img) != video_frame_height or image_width(img) != video_frame_width:
                 img = resize_image(
                     img=img,
-                    new_width=video_frame_cfg["output_frame_width"],
-                    new_height=video_frame_cfg["output_frame_height"],
+                    new_width=video_frame_width,
+                    new_height=video_frame_height,
                 )
-            assert image_height(img) == video_frame_cfg["output_frame_height"]
-            assert image_width(img) == video_frame_cfg["output_frame_width"]
+            # By here, our image size should be exactly the video frame output size
+            assert image_height(img) == video_frame_height
+            assert image_width(img) == video_frame_width
             cropped_images.append(img)
         results["img"] = torch.stack(cropped_images)
 
