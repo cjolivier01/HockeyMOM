@@ -1319,18 +1319,24 @@ class HmTopDownGetBboxCenterScale:
             results["scale"] *= self.padding
         else:
             bbox = results["bbox"]
-            image_size = results["ann_info"]["image_size"]
-            aspect_ratio = image_size[0] / image_size[1]
+            centers = []
+            scales = []
+            for video_data_sample in results["data_samples"].video_data_samples:
+                image_size = video_data_sample.metainfo["ori_shape"]
+                aspect_ratio = image_size[0] / image_size[1]
 
-            center, scale = bbox_xywh2cs(
-                bbox,
-                aspect_ratio=aspect_ratio,
-                padding=self.padding,
-                pixel_std=self.pixel_std,
-            )
+                center, scale = bbox_xywh2cs(
+                    bbox,
+                    aspect_ratio=aspect_ratio,
+                    padding=self.padding,
+                    pixel_std=self.pixel_std,
+                )
 
-            results["center"] = center
-            results["scale"] = scale
+                centers.append(center)
+                scales.append(scale)
+
+        results["centers"] = centers
+        results["scales"] = scales
         return results
 
 

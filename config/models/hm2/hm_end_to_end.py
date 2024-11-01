@@ -11,6 +11,10 @@ post_detection_pipeline = [
     # dict(type="HmTopDownAffine"),
 ]
 
+post_tracking_pipeline = [
+    dict(type="HmNumberClassifier"),
+]
+
 number_classifier = dict(
     type="HmNumberClassifier",
     enabled=True,
