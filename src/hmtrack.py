@@ -461,9 +461,6 @@ def main(args, num_gpu):
             cam_args.fixed_edge_rotation = False
             cam_args.apply_fixed_edge_scaling = False
 
-        if args.no_rink_rotation:
-            cam_args.fixed_edge_rotation = False
-
         cam_args.plot_individual_player_tracking = args.plot_tracking
         if cam_args.plot_individual_player_tracking:
             cam_args.plot_boundaries = True
@@ -831,8 +828,10 @@ def main(args, num_gpu):
                 video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
-                    fixed_edge_rotation_angle = get_nested_value(
-                        game_config, "rink.camera.fixed_edge_rotation_angle", None
+                    fixed_edge_rotation_angle = (
+                        get_nested_value(game_config, "rink.camera.fixed_edge_rotation_angle", None)
+                        if not args.no_rink_rotation
+                        else 0
                     )
                     update_pipeline_item(
                         video_out_pipeline,
@@ -861,23 +860,6 @@ def main(args, num_gpu):
                             crop_image=cam_args.crop_output_image,
                         ),
                     )
-
-                    # perspective_rotation = get_pipeline_item(
-                    #     video_out_pipeline, "HmPerspectiveRotation"
-                    # )
-                    # if perspective_rotation is not None:
-                    #     fixed_edge_rotation_angle = get_nested_value(
-                    #         game_config, "rink.camera.fixed_edge_rotation_angle", None
-                    #     )
-                    #     perspective_rotation["fixed_edge_rotation"] = (
-                    #         fixed_edge_rotation_angle is not None and fixed_edge_rotation_angle != 0
-                    #     )
-                    #     perspective_rotation["fixed_edge_rotation_angle"] = (
-                    #         fixed_edge_rotation_angle
-                    #     )
-                    #     perspective_rotation["pre_clip"] = True
-                    #     perspective_rotation["dtype"] = torch.float
-
                 postprocessor = CamTrackHead(
                     opt=args,
                     args=cam_args,
