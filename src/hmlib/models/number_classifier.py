@@ -1,425 +1,163 @@
-# import glob
-# import os
-# from typing import Any, Dict, List, Optional, Set
+import glob
+import os
+from typing import Any, Dict, List, Optional, Set
 
-# # import torch.jit
-# import numpy as np
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
-# from mmengine.infer.infer import BaseInferencer
-# from mmengine.model import BaseModule
-# from torchvision.transforms.functional import normalize
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from mmocr.apis.inferencers import MMOCRInferencer
+from torchvision.transforms.functional import normalize
 
-# from hmlib.builder import NECKS
-# from hmlib.stitching.laplacian_blend import show_image
-# from hmlib.tracking_utils.utils import xyxy2xywh
-# from hmlib.utils.gpu import StreamTensor
-# from hmlib.utils.image import (
-#     image_height,
-#     image_width,
-#     make_channels_first,
-#     make_channels_last,
-# )
+from hmlib.builder import PIPELINES as TRANSFORMS
 
-# # from xmodels.SVHNClassifier.model import SVHNClassifier as SVHNClassifier
+from hmlib.tracking_utils.utils import xyxy2xywh
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 
 
-# TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
-# SHARES_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
-
-# class SVHNClassifier(BaseModule):
-#     CHECKPOINT_FILENAME_PATTERN = "model-{}.pth"
-
-#     __constants__ = [
-#         "_hidden1",
-#         "_hidden2",
-#         "_hidden3",
-#         "_hidden4",
-#         "_hidden5",
-#         "_hidden6",
-#         "_hidden7",
-#         "_hidden8",
-#         "_hidden9",
-#         "_hidden10",
-#         "_features",
-#         "_classifier",
-#         "_digit_length",
-#         "_digit1",
-#         "_digit2",
-#         "_digit3",
-#         "_digit4",
-#         "_digit5",
-#     ]
-
-#     def __init__(self, *args, **kwargs):
-#         super(SVHNClassifier, self).__init__(*args, **kwargs)
-
-#         self._hidden1 = nn.Sequential(
-#             nn.Conv2d(in_channels=3, out_channels=48, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=48),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=2, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden2 = nn.Sequential(
-#             nn.Conv2d(in_channels=48, out_channels=64, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=64),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=1, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden3 = nn.Sequential(
-#             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=128),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=2, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden4 = nn.Sequential(
-#             nn.Conv2d(in_channels=128, out_channels=160, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=160),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=1, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden5 = nn.Sequential(
-#             nn.Conv2d(in_channels=160, out_channels=192, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=192),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=2, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden6 = nn.Sequential(
-#             nn.Conv2d(in_channels=192, out_channels=192, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=192),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=1, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden7 = nn.Sequential(
-#             nn.Conv2d(in_channels=192, out_channels=192, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=192),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=2, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden8 = nn.Sequential(
-#             nn.Conv2d(in_channels=192, out_channels=192, kernel_size=5, padding=2),
-#             nn.BatchNorm2d(num_features=192),
-#             nn.ReLU(),
-#             nn.MaxPool2d(kernel_size=2, stride=1, padding=1),
-#             nn.Dropout(0.2),
-#         )
-#         self._hidden9 = nn.Sequential(nn.Linear(192 * 7 * 7, 3072), nn.ReLU())
-#         self._hidden10 = nn.Sequential(nn.Linear(3072, 3072), nn.ReLU())
-
-#         self._digit_length = nn.Sequential(nn.Linear(3072, 7))
-#         self._digit1 = nn.Sequential(nn.Linear(3072, 11))
-#         self._digit2 = nn.Sequential(nn.Linear(3072, 11))
-#         self._digit3 = nn.Sequential(nn.Linear(3072, 11))
-#         self._digit4 = nn.Sequential(nn.Linear(3072, 11))
-#         self._digit5 = nn.Sequential(nn.Linear(3072, 11))
-
-#     # @torch.jit.script_method
-#     def forward(self, x):
-#         x = self._hidden1(x)
-#         x = self._hidden2(x)
-#         x = self._hidden3(x)
-#         x = self._hidden4(x)
-#         x = self._hidden5(x)
-#         x = self._hidden6(x)
-#         x = self._hidden7(x)
-#         x = self._hidden8(x)
-#         x = x.view(x.size(0), 192 * 7 * 7)
-#         x = self._hidden9(x)
-#         x = self._hidden10(x)
-
-#         length_logits = self._digit_length(x)
-#         digit1_logits = self._digit1(x)
-#         digit2_logits = self._digit2(x)
-#         digit3_logits = self._digit3(x)
-#         digit4_logits = self._digit4(x)
-#         digit5_logits = self._digit5(x)
-
-#         return (
-#             length_logits,
-#             digit1_logits,
-#             digit2_logits,
-#             digit3_logits,
-#             digit4_logits,
-#             digit5_logits,
-#         )
-
-#     def store(self, path_to_dir, step, maximum=5):
-#         path_to_models = glob.glob(
-#             os.path.join(path_to_dir, SVHNClassifier.CHECKPOINT_FILENAME_PATTERN.format("*"))
-#         )
-#         if len(path_to_models) == maximum:
-#             min_step = min(
-#                 [int(path_to_model.split("/")[-1][6:-4]) for path_to_model in path_to_models]
-#             )
-#             path_to_min_step_model = os.path.join(
-#                 path_to_dir, SVHNClassifier.CHECKPOINT_FILENAME_PATTERN.format(min_step)
-#             )
-#             os.remove(path_to_min_step_model)
-
-#         path_to_checkpoint_file = os.path.join(
-#             path_to_dir, SVHNClassifier.CHECKPOINT_FILENAME_PATTERN.format(step)
-#         )
-#         torch.save(self.state_dict(), path_to_checkpoint_file)
-#         return path_to_checkpoint_file
-
-#     def restore(self, path_to_checkpoint_file):
-#         self.load_state_dict(torch.load(path_to_checkpoint_file))
-#         step = int(path_to_checkpoint_file.split("/")[-1][6:-4])
-#         return step
+TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
+SHARES_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
 
 
-# @NECKS.register_module()
-# class HmNumberClassifier(SVHNClassifier):
+@TRANSFORMS.register_module()
+class HmNumberClassifier:
 
-#     def __init__(
-#         self,
-#         *args,
-#         roster: Set[int] = set([*TV_10_1_ROSTER, *SHARES_12_1_ROSTER]),
-#         init_cfg: Optional[dict] = None,
-#         category: int = 0,
-#         enabled: bool = True,
-#         **kwargs,
-#     ):
-#         super().__init__(*args, init_cfg=init_cfg, **kwargs)
-#         self._roster = roster
-#         self._category = category
-#         self._enabled = enabled
-#         self._mean = [0.5, 0.5, 0.5]
-#         self._std = [0.5, 0.5, 0.5]
+    def __init__(
+        self,
+        *args,
+        roster: Set[int] = set([*TV_10_1_ROSTER, *SHARES_12_1_ROSTER]),
+        init_cfg: Optional[dict] = None,
+        category: int = 0,
+        enabled: bool = True,
+        **kwargs,
+    ):
+        super().__init__(*args, init_cfg=init_cfg, **kwargs)
+        self._roster = roster
+        self._category = category
+        self._enabled = enabled
+        self._mean = [0.5, 0.5, 0.5]
+        self._std = [0.5, 0.5, 0.5]
 
-#     # @auto_fp16(apply_to=("img",))
-#     def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
-#         if not self._enabled:
-#             return data
-#         tracking_data = data["category_bboxes"][self._category]
-#         if not tracking_data.shape[0]:
-#             return data
-#         bboxes = tracking_data[:, 1:5].astype(np.int)
-#         tracking_ids = tracking_data[:, 0].astype(np.int64)
-#         tlwhs = xyxy2xywh(bboxes)
-#         img = data["img"]
-#         if isinstance(img, StreamTensor):
-#             img = img.get()
-#             # img = img.wait()
-#             data["img"] = img
-#         assert len(img) == 1
-#         batch_numbers: List[torch.Tensor] = []
-#         jersey_results: Dict[int, int] = {}
-#         for image_item in make_channels_first(img):
-#             assert image_item.ndim == 3
-#             subimages = extract_and_resize_jerseys(
-#                 image=image_item, bboxes=tlwhs, out_width=54, out_height=54
-#             )
-#             if subimages is not None:
-#                 subimages = make_channels_first(subimages)
-#                 subimages = normalize(subimages, mean=self._mean, std=self._std)
-#                 results = super().forward(subimages)
-#                 indexed_jersey_results = process_results(results, tracking_ids, subimages=subimages)
-#                 if indexed_jersey_results:
-#                     for index, num_and_score in indexed_jersey_results.items():
-#                         num = num_and_score[0]
-#                         if self._roster and num not in self._roster:
-#                             continue
-#                         score = num_and_score[1]
-#                         tid = int(tracking_ids[index])
-#                         jersey_results[tid] = num_and_score
-#                         # print(
-#                         #     f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
-#                         # )
-#                         # show_image("SUBIMAGE", subimages[index], wait=True)
-#                     pass
-#         # batch_numbers.append(jersey_results)
-#         data["jersey_results"] = jersey_results
-#         # results["batch_numbers"] = batch_numbers
-#         return data
+    # @auto_fp16(apply_to=("img",))
+    def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
+        if not self._enabled:
+            return data
+        tracking_data = data["category_bboxes"][self._category]
+        if not tracking_data.shape[0]:
+            return data
+        bboxes = tracking_data[:, 1:5].astype(np.int)
+        tracking_ids = tracking_data[:, 0].astype(np.int64)
+        tlwhs = xyxy2xywh(bboxes)
+        img = data["img"]
+        if isinstance(img, StreamTensor):
+            img = img.get()
+            # img = img.wait()
+            data["img"] = img
+        assert len(img) == 1
+        batch_numbers: List[torch.Tensor] = []
+        jersey_results: Dict[int, int] = {}
+        for image_item in make_channels_first(img):
+            assert image_item.ndim == 3
+            subimages = extract_and_resize_jerseys(
+                image=image_item, bboxes=tlwhs, out_width=54, out_height=54
+            )
+            if subimages is not None:
+                subimages = make_channels_first(subimages)
+                subimages = normalize(subimages, mean=self._mean, std=self._std)
+                results = super().forward(subimages)
+                indexed_jersey_results = process_results(results, tracking_ids, subimages=subimages)
+                if indexed_jersey_results:
+                    for index, num_and_score in indexed_jersey_results.items():
+                        num = num_and_score[0]
+                        if self._roster and num not in self._roster:
+                            continue
+                        score = num_and_score[1]
+                        tid = int(tracking_ids[index])
+                        jersey_results[tid] = num_and_score
+                        # print(
+                        #     f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
+                        # )
+                        # show_image("SUBIMAGE", subimages[index], wait=True)
+                    pass
+        # batch_numbers.append(jersey_results)
+        data["jersey_results"] = jersey_results
+        # results["batch_numbers"] = batch_numbers
+        return data
 
-#     def simple_test(self, data, **kwargs):
-#         assert False  # huh?
-#         return data
-
-
-# def process_results(
-#     number_results: np.ndarray,
-#     tracking_ids: np.ndarray,
-#     # min_score=15,
-#     # min_score=25,
-#     # min_score=20,
-#     # min_score=10,
-#     min_score=50,  # always riught but few matches
-#     largest_number=99,
-#     subimages: Optional[torch.Tensor] = None,
-# ) -> Dict[int, int]:
-#     (
-#         batch_length_logits,
-#         batch_digit1_logits,
-#         batch_digit2_logits,
-#         batch_digit3_logits,
-#         batch_digit4_logits,
-#         batch_digit5_logits,
-#     ) = number_results
-
-#     jersey_results: Dict[int, int] = {}
-#     for batch_index in range(len(batch_length_logits)):
-#         length_logits = batch_length_logits[batch_index].unsqueeze(0)
-#         digit1_logits = batch_digit1_logits[batch_index].unsqueeze(0)
-#         digit2_logits = batch_digit2_logits[batch_index].unsqueeze(0)
-#         digit3_logits = batch_digit3_logits[batch_index].unsqueeze(0)
-#         digit4_logits = batch_digit4_logits[batch_index].unsqueeze(0)
-#         digit5_logits = batch_digit5_logits[batch_index].unsqueeze(0)
-
-#         length_value, length_prediction = length_logits.max(1)
-#         digit1_value, digit1_prediction = digit1_logits.max(1)
-#         digit2_value, digit2_prediction = digit2_logits.max(1)
-#         digit3_value, digit3_prediction = digit3_logits.max(1)
-#         digit4_value, digit4_prediction = digit4_logits.max(1)
-#         digit5_value, digit5_prediction = digit5_logits.max(1)
-
-#         scores = torch.cat(
-#             [
-#                 length_value,
-#                 digit1_value,
-#                 digit2_value,
-#                 digit3_value,
-#                 digit4_value,
-#                 digit5_value,
-#             ],
-#             dim=0,
-#         )
-#         # scores = scores[: int(length_prediction + 1)]
-#         this_min_score = torch.min(scores)
-
-#         # bad = False
-#         # for x in range(length_prediction + 1):
-#         #     if scores[x] < min_score:
-#         #         bad = True
-#         # if bad:
-#         #     continue
-#         if this_min_score < min_score:
-#             continue
-
-#         this_score = this_min_score
-#         # this_score = torch.mean(scores[1:])
-
-#         # print("length:", length_prediction.item(), "value:", length_value.item())
-#         # print(
-#         #     "digits:",
-#         #     digit1_prediction.item(),
-#         #     digit2_prediction.item(),
-#         #     digit3_prediction.item(),
-#         #     digit4_prediction.item(),
-#         #     digit5_prediction.item(),
-#         # )
-#         # print(
-#         #     "values:",
-#         #     digit1_value.item(),
-#         #     digit2_value.item(),
-#         #     digit3_value.item(),
-#         #     digit4_value.item(),
-#         #     digit5_value.item(),
-#         # )
-#         all_digits = [
-#             digit1_prediction.item(),
-#             digit2_prediction.item(),
-#             digit3_prediction.item(),
-#             digit4_prediction.item(),
-#             digit5_prediction.item(),
-#         ]
-#         running = 0
-#         for i in range(length_prediction.item()):
-#             running *= 10
-#             running += all_digits[i]
-
-#         # tid = int(tracking_ids[batch_index])
-#         # if tid == 1 and running == 90:
-#         #     if subimages is not None:
-#         #         show_image("img", subimages[batch_index], wait=True)
-
-#         if running <= largest_number:
-#             # print(f"Final prediction: {running}")
-#             jersey_results[batch_index] = (running, float(this_score))
-#             # show_image(
-#             #     str(int(tracking_ids[batch_index])) + ": " + str(running),
-#             #     subimages[batch_index],
-#             #     wait=False,
-#             # )
-#         else:
-#             # print(f"Bad number: {running}")
-#             pass
-#     # if jersey_results:
-#     #     print(f"Found {len(jersey_results)} good numbers")
-#     return jersey_results
+    def simple_test(self, data, **kwargs):
+        assert False  # huh?
+        return data
 
 
-# def extract_and_resize_jerseys(
-#     image,
-#     bboxes,
-#     out_width,
-#     out_height,
-#     down_from_box_top_ratio: float = 0.2,
-#     number_height_from_box_size_ratio: float = 0.25,
-#     # number_height_from_box_size_ratio: float = 0.2,
-# ):
-#     """
-#     Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
+def extract_and_resize_jerseys(
+    image,
+    bboxes,
+    out_width,
+    out_height,
+    down_from_box_top_ratio: float = 0.2,
+    number_height_from_box_size_ratio: float = 0.25,
+    # number_height_from_box_size_ratio: float = 0.2,
+):
+    """
+    Extract and resize sub-images containing likely jersey number areas from given bounding boxes.
 
-#     Args:
-#     - image (torch.Tensor): The image tensor (C, H, W).
-#     - bboxes (torch.Tensor): Tensor of bounding boxes (N, 4) where each box is (x, y, width, height).
-#     - out_width (int): The desired output width of the cropped images.
-#     - out_height (int): The desired output height of the cropped images.
+    Args:
+    - image (torch.Tensor): The image tensor (C, H, W).
+    - bboxes (torch.Tensor): Tensor of bounding boxes (N, 4) where each box is (x, y, width, height).
+    - out_width (int): The desired output width of the cropped images.
+    - out_height (int): The desired output height of the cropped images.
 
-#     Returns:
-#     - torch.Tensor: A batch of cropped and resized images (N, C, out_height, out_width).
-#     """
-#     crops = []
-#     image = make_channels_first(image)
-#     iw, ih = image_width(image), image_height(image)
-#     for bbox in bboxes:
-#         x, y, width, height = bbox
+    Returns:
+    - torch.Tensor: A batch of cropped and resized images (N, C, out_height, out_width).
+    """
+    crops = []
+    image = make_channels_first(image)
+    iw, ih = image_width(image), image_height(image)
+    for bbox in bboxes:
+        x, y, width, height = bbox
 
-#         # Calculate new coordinates for the jersey number area
-#         new_y = int(y + down_from_box_top_ratio * height)
-#         new_height = int(number_height_from_box_size_ratio * height)
-#         # new_y = y
-#         # new_height = int(height)
+        # Calculate new coordinates for the jersey number area
+        new_y = int(y + down_from_box_top_ratio * height)
+        new_height = int(number_height_from_box_size_ratio * height)
+        # new_y = y
+        # new_height = int(height)
 
-#         new_width = width
-#         # new_width = int(width * 0.5)
-#         # new_width = min(width, new_height)
-#         # new_x = int(x + new_width / 2)
-#         new_x = int(x + (width - new_width) / 2)
+        new_width = width
+        # new_width = int(width * 0.5)
+        # new_width = min(width, new_height)
+        # new_x = int(x + new_width / 2)
+        new_x = int(x + (width - new_width) / 2)
 
-#         # Ensure the new box does not exceed image dimensions
-#         new_y = max(new_y, 0)
-#         new_height = min(new_height, ih - new_y)
+        # Ensure the new box does not exceed image dimensions
+        new_y = max(new_y, 0)
+        new_height = min(new_height, ih - new_y)
 
-#         # Crop the image
-#         cropped = image[:, new_y : new_y + new_height, new_x : new_x + int(new_width)]
-#         # cropped = image[:, y : y + height, x : x + width]
+        # Crop the image
+        cropped = image[:, new_y : new_y + new_height, new_x : new_x + int(new_width)]
+        # cropped = image[:, y : y + height, x : x + width]
 
-#         # show_image("crop", cropped, wait=False)
-#         # show_image("crop", cropped, wait=True)
+        # show_image("crop", cropped, wait=False)
+        # show_image("crop", cropped, wait=True)
 
-#         # Resize the cropped image
-#         resized = F.interpolate(
-#             cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
-#         ).squeeze(0)
-#         # show_image("number?", resized, wait=True)
-#         # outimg = make_channels_last(resized).cpu().numpy()
-#         # did = cv2.imwrite("test-19.png", outimg)
-#         crops.append(resized)
+        # Resize the cropped image
+        resized = F.interpolate(
+            cropped.unsqueeze(0), size=(out_height, out_width), mode="bilinear", align_corners=False
+        ).squeeze(0)
+        # show_image("number?", resized, wait=True)
+        # outimg = make_channels_last(resized).cpu().numpy()
+        # did = cv2.imwrite("test-19.png", outimg)
+        crops.append(resized)
 
-#     batch_crops = torch.stack(crops, dim=0)
+    batch_crops = torch.stack(crops, dim=0)
 
-#     return batch_crops
+    return batch_crops
+
 
 # Example usage:
 # Assuming 'image_tensor' is a CxHxW tensor and 'bounding_boxes' is a Nx4 tensor
@@ -439,24 +177,34 @@
 # ]
 
 
-# def get_inferencer() -> BaseInferencer:
-#     from mmocr.apis.inferencers import MMOCRInferencer
+def get_inferencer() -> MMOCRInferencer:
+    from mmocr.apis.inferencers import MMOCRInferencer
 
-#     inferencer = MMOCRInferencer(
-#         det="openmm/mmocr/configs/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015.py",
-#         det_weights="https://download.openmmlab.com/mmocr/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015_20220829_230108-f289bd20.pth",
-#         rec="openmm/mmocr/configs/textrecog/abinet/abinet-vision_20e_st-an_mj.py",
-#         rec_weights="https://download.openmmlab.com/mmocr/textrecog/abinet/abinet-vision_20e_st-an_mj/abinet-vision_20e_st-an_mj_20220915_152445-85cfb03d.pth",
-#         kie="openmm/mmocr/configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py",
-#         kie_weights="https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth",
-#     )
-#     return inferencer
+    config = {
+        "det": "FCENet",
+        "det_weights": None,
+        "rec": "/home/colivier/src/hm/openmm/mmocr/configs/textrecog/svtr/svtr-small_20e_st_mj.py",
+        "rec_weights": "https://download.openmmlab.com/mmocr/textrecog/svtr/svtr-small_20e_st_mj/svtr-small_20e_st_mj-35d800d6.pth",
+        "kie": None,
+        "kie_weights": None,
+        "device": "cuda",
+    }
+
+    # inferencer = MMOCRInferencer(
+    #     det="openmm/mmocr/configs/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015.py",
+    #     det_weights="https://download.openmmlab.com/mmocr/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015_20220829_230108-f289bd20.pth",
+    #     rec="openmm/mmocr/configs/textrecog/abinet/abinet-vision_20e_st-an_mj.py",
+    #     rec_weights="https://download.openmmlab.com/mmocr/textrecog/abinet/abinet-vision_20e_st-an_mj/abinet-vision_20e_st-an_mj_20220915_152445-85cfb03d.pth",
+    #     kie="openmm/mmocr/configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py",
+    #     kie_weights="https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth",
+    # )
+    # return inferencer
 
 
-# def main():
-#     inferencer = get_inferencer()
+def main():
+    inferencer = get_inferencer()
 
 
-# if __name__ == "__main__":
-#     # main()
-#     print("Done.")
+if __name__ == "__main__":
+    # main()
+    print("Done.")
