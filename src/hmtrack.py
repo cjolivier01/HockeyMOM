@@ -83,6 +83,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Don't start with a tracking box of the entire input frame. Immediately track to player detections.",
     )
     parser.add_argument(
+        "--no-rink-rotation",
+        default=False,
+        action="store_true",
+        help="Don't do rink rotation.",
+    )
+    parser.add_argument(
         "--no-play-tracking",
         default=False,
         action="store_true",
@@ -454,6 +460,9 @@ def main(args, num_gpu):
             cam_args.crop_output_image = False
             cam_args.fixed_edge_rotation = False
             cam_args.apply_fixed_edge_scaling = False
+
+        if args.no_rink_rotation:
+            cam_args.fixed_edge_rotation = False
 
         cam_args.plot_individual_player_tracking = args.plot_tracking
         if cam_args.plot_individual_player_tracking:
