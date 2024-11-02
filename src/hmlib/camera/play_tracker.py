@@ -297,9 +297,6 @@ class PlayTracker(torch.nn.Module):
                     continue
                 prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
                 self._tracking_id_jersey.pop(prev_tracking_id)
-            if prev_tracking_id is not None:
-                if prev_tracking_id in self._tracking_id_jersey:
-                    self._tracking_id_jersey.pop(prev_tracking_id)
             # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
             self._jersey_number_to_tracking_id[number] = tracking_id
