@@ -76,6 +76,14 @@ class HmNumberClassifier:
         }
         return MMOCRInferencer(**config)
 
+    @staticmethod
+    def _get_number_strings(strings: List[str]) -> List[str]:
+        new_list: List[str] = []
+        for s in strings:
+            if s.isdigit():
+                new_list.append(s)
+        return new_list
+
     # @auto_fp16(apply_to=("img",))
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:  # typing: none
         if not self._enabled or self._inferencer is None:
@@ -113,7 +121,7 @@ class HmNumberClassifier:
             )
             predictions = ocr_results["predictions"]
             for pred in predictions:
-                rec_texts = pred["rec_texts"]
+                rec_texts = self._get_number_strings(pred["rec_texts"])
                 if rec_texts:
                     logger.info(rec_texts)
             for vis in ocr_results["visualization"]:
