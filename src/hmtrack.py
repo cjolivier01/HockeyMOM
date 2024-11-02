@@ -221,6 +221,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--detect-jersey-numbers", action="store_true", help="Detect jersey numbers"
+    )
+    parser.add_argument(
         "--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers"
     )
     parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
