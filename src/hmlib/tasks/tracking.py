@@ -162,9 +162,9 @@ def run_mmtrack(
                         detect_timer.toc()
                         # del data["img"]
                         # del detection_image
-                        tracking_results = data["data_samples"]
-                        assert len(tracking_results) == 1
-                        track_data_sample: TrackDataSample = tracking_results[0]
+                        track_data_sample = data["data_samples"]
+                        # assert len(tracking_results) == 1
+                        # track_data_sample: TrackDataSample = tracking_results[0]
                         nr_tracks = int(
                             track_data_sample.video_data_samples[0].metainfo["nr_tracks"]
                         )
