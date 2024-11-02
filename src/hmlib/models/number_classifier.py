@@ -12,6 +12,7 @@ from rich.progress import track
 from torchvision.transforms.functional import normalize
 
 from hmlib.bbox.tiling import (
+    clamp_boxes_to_image,
     get_non_overlapping_bbox_indices,
     get_original_bbox_index_from_tiled_image,
     pack_bounding_boxes_as_tiles,
@@ -75,27 +76,6 @@ class HmNumberClassifier:
         }
         return MMOCRInferencer(**config)
 
-    def predict_text(self, image: torch.Tensor, return_vis: bool = True) -> Dict[str, Any]:
-        batch_size = 1 if image.ndim == 3 else image.shape[0]
-        ori_inputs = self._inferencer._inputs_to_list(image)
-        # chunked_inputs = self._inferencer._get_chunk_data(ori_inputs, batch_size)
-        results = {"predictions": [], "visualization": []}
-        # for ori_input in track(chunked_inputs, description="Inference"):
-        for ori_input in ori_inputs:
-            preds = self._inferencer.forward(
-                # ori_input,
-                image,
-                det_batch_size=batch_size,
-                rec_batch_size=batch_size,
-                kie_batch_size=batch_size,
-            )
-            visualization = self._inferencer.visualize(ori_input, preds, img_out_dir=None)
-            batch_res = self._inferencer.postprocess(preds, visualization, pred_out_dir=None)
-            results["predictions"].extend(batch_res["predictions"])
-            if return_vis and batch_res["visualization"] is not None:
-                results["visualization"].extend(batch_res["visualization"])
-        return results
-
     # @auto_fp16(apply_to=("img",))
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:  # typing: none
         if not self._enabled or self._inferencer is None:
@@ -111,9 +91,11 @@ class HmNumberClassifier:
         jersey_results: Dict[int, int] = {}
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)
+        w, h = int(image_width(img)), int(image_height(img))
         for image_item, data_sample in zip(img, track_data_sample):
             assert image_item.ndim == 3
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
+            bboxes_xyxy = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
             tracking_ids = data_sample.pred_track_instances.instances_id
             non_obvelapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy)
             non_obvelapping_bboxes_xyxy = bboxes_xyxy[non_obvelapping_bbox_indices]
@@ -129,10 +111,11 @@ class HmNumberClassifier:
                 out_dir=None,
                 progress_bar=False,
             )
-            rec_texts = ocr_results["predictions"]["rec_texts"]
-            if rec_texts:
-                print(rec_texts)
-            # _ocr_results = self.predict_text(use_img, return_vis=True)
+            predictions = ocr_results["predictions"]
+            for pred in predictions:
+                rec_texts = pred["rec_texts"]
+                if rec_texts:
+                    logger.info(rec_texts)
             for vis in ocr_results["visualization"]:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
