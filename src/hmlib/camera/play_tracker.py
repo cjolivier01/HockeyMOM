@@ -288,8 +288,15 @@ class PlayTracker(torch.nn.Module):
             prev_tracking_id = self._jersey_number_to_tracking_id.get(number)
             if prev_tracking_id is not None:
                 if tracking_id != prev_tracking_id:
-                    del self._jersey_number_to_tracking_id[number]
+                    prev_number = self._tracking_id_jersey[prev_tracking_id]
+                    del self._jersey_number_to_tracking_id[prev_number]
                     del self._tracking_id_jersey[prev_tracking_id]
+                else:
+                    prev_number = self._tracking_id_jersey[prev_tracking_id]
+                    if prev_number != number and prev_number < 10 and number >= 10:
+                        # Overwrite
+                        self._jersey_number_to_tracking_id[number] = tracking_id
+                        self._tracking_id_jersey[tracking_id] = number
             else:
                 self._jersey_number_to_tracking_id[number] = tracking_id
                 self._tracking_id_jersey[tracking_id] = number
