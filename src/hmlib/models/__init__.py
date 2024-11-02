@@ -1,5 +1,5 @@
-# from .number_classifier import HmNumberClassifier
+from .number_classifier import HmNumberClassifier
 
 __all__ = [
-    #     "HmNumberClassifier",
+    "HmNumberClassifier",
 ]
