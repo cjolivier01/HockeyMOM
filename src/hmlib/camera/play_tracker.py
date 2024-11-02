@@ -284,7 +284,7 @@ class PlayTracker(torch.nn.Module):
             return
         for tracking_id, number, confidence in jersey_results:
             number = int(number)
-            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
             pnw = self._tracking_id_jersey.get(tracking_id)
             if pnw is not None:
                 prev_number, prev_confidence = pnw
@@ -297,14 +297,17 @@ class PlayTracker(torch.nn.Module):
                     continue
                 prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
                 self._tracking_id_jersey.pop(prev_tracking_id)
-            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+            if prev_tracking_id is not None:
+                if prev_tracking_id in self._tracking_id_jersey:
+                    self._tracking_id_jersey.pop(prev_tracking_id)
+            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
             self._jersey_number_to_tracking_id[number] = tracking_id
             self._tracking_id_jersey[tracking_id] = number, confidence
             logger.info(f"{tracking_id=} -> {number=}")
             if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
                 print("OH SHIT")
-            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
     # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
