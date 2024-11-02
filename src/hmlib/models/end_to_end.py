@@ -19,7 +19,8 @@ class HmEndToEnd(ByteTrack):
         self,
         *args,
         neck: Optional[Callable] = None,
-        post_detection_pipeline: List[Any] = None,
+        post_detection_pipeline: List[Dict[str, Any]] = None,
+        post_tracking_pipeline: List[Dict[str, Any]] = None,
         enabled: bool = True,
         num_classes_override: Optional[int] = None,
         dataset_meta: Dict[str, Any] = None,
@@ -36,6 +37,8 @@ class HmEndToEnd(ByteTrack):
         self._enabled = enabled
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
+        self.post_tracking_pipeline = post_tracking_pipeline
+        self.post_tracking_composed_pipeline = None
         self.neck = None
         self._num_classes_override = num_classes_override
         self.dataset_meta = dataset_meta
@@ -51,6 +54,8 @@ class HmEndToEnd(ByteTrack):
     def forward(self, img, return_loss=True, **kwargs):
         if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
             self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
+        if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
+            self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
         results = super().forward(img, return_loss=return_loss, **kwargs)
         # if self.post_detection_composed_pipeline is not None:
         #     results = self.post_detection_composed_pipeline(results)
@@ -150,5 +155,12 @@ class HmEndToEnd(ByteTrack):
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)
             det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})
+
+        if track and self.post_tracking_composed_pipeline is not None:
+            data: Dict[str, Any] = {
+                "data_samples": track_data_sample,
+            }
+            data = self.post_tracking_composed_pipeline(data)
+            track_data_sample = data["data_samples"]
 
         return [track_data_sample]

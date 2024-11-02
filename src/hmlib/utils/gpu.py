@@ -80,8 +80,8 @@ class GpuAllocator:
         self._is_single_lowmem_gpu: Union[bool, None] = None
 
         self._all_gpu_info = get_gpu_capabilities()
-        for i in range(len(self._all_gpu_info)):
-            print(f"GPU {i}: {self._all_gpu_info[i]['name']}")
+        for i, gpu_info in enumerate(self._all_gpu_info):
+            print(f"GPU {i}: {gpu_info['name']}")
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         return self._all_gpu_info[index]
@@ -488,7 +488,7 @@ class StreamTensorToDtype(StreamTensor):
 
 def get_gpu_capabilities():
     if not torch.cuda.is_available():
-        return None
+        return []
     num_gpus = torch.cuda.device_count()
     gpu_info = []
     for i in range(num_gpus):
