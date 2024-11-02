@@ -12,6 +12,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from mmcv.transforms import Compose
 from mmdet.apis import init_track_model
+from mmengine.config import Config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import hmlib.tracking_utils.ice_rink_segm_boundaries
@@ -558,12 +559,23 @@ def main(args, num_gpu):
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
 
         args.config = args.exp_file
+
         if not using_precalculated_tracking:
             if args.tracking or args.multi_pose:
 
+                model_config = Config.fromfile(args.config)
+
+                update_pipeline_item(
+                    model_config.model.post_tracking_pipeline,
+                    "HmNumberClassifier",
+                    dict(
+                        enabled=args.detect_jersey_numbers,
+                    ),
+                )
+
                 # build the model from a config file and a checkpoint file
                 model = init_track_model(
-                    args.config,
+                    model_config,
                     args.checkpoint,
                     args.detector,
                     args.reid,

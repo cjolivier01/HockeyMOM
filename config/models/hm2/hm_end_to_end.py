@@ -12,7 +12,7 @@ post_detection_pipeline = [
 ]
 
 post_tracking_pipeline = [
-    dict(type="HmNumberClassifier", image_label="original_images"),
+    dict(type="HmNumberClassifier", image_label="original_images", enabled=False),
 ]
 
 number_classifier = dict(

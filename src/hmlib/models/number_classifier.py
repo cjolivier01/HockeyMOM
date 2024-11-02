@@ -1,6 +1,7 @@
 import glob
 import math
 import os
+import warnings
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
@@ -58,6 +59,17 @@ class HmNumberClassifier:
         self._timer = Timer()
         self._timer_interval = 50
         self._timer_count = 0
+        if enabled:
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                message="invalid value encountered in double_scalars",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                message="Mean of empty slice.",
+            )
 
     def __call__(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         return self.forward(data, **kwargs)
