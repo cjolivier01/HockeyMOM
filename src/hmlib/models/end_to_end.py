@@ -1,14 +1,10 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import mmcv
-import mmengine
-import numpy as np
 import torch
 from mmcv.transforms import Compose
 from mmdet.models.mot.bytetrack import ByteTrack
 from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
-from mmdet.structures.bbox import bbox2result
 from mmengine.structures import InstanceData
 
 
