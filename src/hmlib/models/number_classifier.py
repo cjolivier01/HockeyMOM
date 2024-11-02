@@ -16,6 +16,7 @@ from hmlib.bbox.tiling import (
     pack_bounding_boxes_as_tiles,
 )
 from hmlib.builder import PIPELINES as TRANSFORMS
+from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
@@ -51,6 +52,9 @@ class HmNumberClassifier:
         self._mean = [0.5, 0.5, 0.5]
         self._std = [0.5, 0.5, 0.5]
         self._inferencer = self.create_inferencer()
+        self._timer = Timer()
+        self._timer_interval = 50
+        self._timer_count = 0
 
     def __call__(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         return self.forward(data, **kwargs)
@@ -72,6 +76,7 @@ class HmNumberClassifier:
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:  # typing: none
         if not self._enabled or self._inferencer is None:
             return data
+        self._timer.tic()
         img = data[self._image_label]
         if isinstance(img, StreamTensor):
             img.verbose = True
@@ -117,6 +122,12 @@ class HmNumberClassifier:
         # batch_numbers.append(jersey_results)
         data["jersey_results"] = jersey_results
         # results["batch_numbers"] = batch_numbers
+        self._timer.toc()
+        self._timer_count += 1
+        if self._timer_count % self._timer_interval:
+            logging.info(f"timer stuff")
+            self._timer = Timer()
+            self._timer_count = 0
         return data
 
     def simple_test(self, data, **kwargs):
