@@ -2,7 +2,7 @@ import glob
 import math
 import os
 import warnings
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -70,6 +70,16 @@ class HmNumberClassifier:
                 category=RuntimeWarning,
                 message="Mean of empty slice.",
             )
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="Support for mismatched key_padding_mask",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="Use same attn_mask",
+            )
 
     def __call__(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         return self.forward(data, **kwargs)
@@ -79,9 +89,9 @@ class HmNumberClassifier:
         config = {
             "det": "FCENet",
             "det_weights": None,
-            "rec": "openmm/mmocr/configs/textrecog/svtr/svtr-small_20e_st_mj.py",
-            "rec_weights": "https://download.openmmlab.com/mmocr/textrecog/svtr/svtr-small_20e_st_mj/svtr-small_20e_st_mj-35d800d6.pth",
-            # "rec": "ABINet",
+            # "rec": "openmm/mmocr/configs/textrecog/svtr/svtr-small_20e_st_mj.py",
+            # "rec_weights": "https://download.openmmlab.com/mmocr/textrecog/svtr/svtr-small_20e_st_mj/svtr-small_20e_st_mj-35d800d6.pth",
+            "rec": "ABINet",
             "kie": None,
             "kie_weights": None,
             "device": "cuda",
@@ -108,7 +118,7 @@ class HmNumberClassifier:
             # img = img.wait()
             data[self._image_label] = img
         batch_numbers: List[torch.Tensor] = []
-        jersey_results: Dict[int, int] = {}
+        jersey_results: List[Dict[int, int]] = []
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)
         w, h = int(image_width(img)), int(image_height(img))
@@ -117,8 +127,9 @@ class HmNumberClassifier:
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
             bboxes_xyxy = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
             tracking_ids = data_sample.pred_track_instances.instances_id
-            non_obvelapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy)
-            non_obvelapping_bboxes_xyxy = bboxes_xyxy[non_obvelapping_bbox_indices]
+            non_overlapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy)
+            non_obvelapping_bboxes_xyxy = bboxes_xyxy[non_overlapping_bbox_indices]
+            tracking_ids = tracking_ids[non_overlapping_bbox_indices]
             if not len(non_obvelapping_bboxes_xyxy):
                 continue
             packed_image, index_map = pack_bounding_boxes_as_tiles(
@@ -139,29 +150,17 @@ class HmNumberClassifier:
             for vis in ocr_results["visualization"]:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
-            # show_image("packed_image", packed_image, wait=False)
-            # subimages = extract_and_resize_jerseys(
-            #     image=image_item, bboxes=tlwhs, out_width=54, out_height=54
-            # )
-            # if subimages is not None:
-            #     subimages = make_channels_first(subimages)
-            #     subimages = normalize(subimages, mean=self._mean, std=self._std)
-            #     results = super().forward(subimages)
-            #     indexed_jersey_results = process_results(results, tracking_ids, subimages=subimages)
-            #     if indexed_jersey_results:
-            #         for index, num_and_score in indexed_jersey_results.items():
-            #             num = num_and_score[0]
-            #             if self._roster and num not in self._roster:
-            #                 continue
-            #             score = num_and_score[1]
-            #             tid = int(tracking_ids[index])
-            #             jersey_results[tid] = num_and_score
-            #             # print(
-            #             #     f"READ NUMBER: {num}, INDEX NUMBER={index}, TRACKING ID: {tid}, MIN SCORE: {score}"
-            #             # )
-            #             # show_image("SUBIMAGE", subimages[index], wait=True)
-            #         pass
-        # batch_numbers.append(jersey_results)
+            text_and_centers = self.process_results(ocr_results)
+            for text, x, y in text_and_centers:
+                if text == "98":
+                    pass
+                batch_index = get_original_bbox_index_from_tiled_image(index_map, y=y, x=x)
+                # print(f"{batch_index=}")
+                if batch_index >= 0:
+                    tracking_id = tracking_ids[batch_index]
+                    jersey_results.append((int(tracking_id), text))
+            if jersey_results:
+                print(f"{jersey_results=}")
 
         data["jersey_results"] = jersey_results
         # results["batch_numbers"] = batch_numbers
@@ -173,9 +172,46 @@ class HmNumberClassifier:
             self._timer_count = 0
         return data
 
-    def simple_test(self, data, **kwargs):
-        assert False  # huh?
-        return data
+    def process_results(
+        self, ocr_results: Dict[str, Any], det_thresh: float = 0.03, rec_thresh: float = 0.3
+    ) -> Dict[str, Any]:
+        predictions = ocr_results["predictions"]
+        assert len(predictions) == 1
+        predictions = predictions[0]
+        rec_texts = predictions["rec_texts"]
+        rec_scores = predictions["rec_scores"]
+        det_scores = predictions["det_scores"]
+        det_polygons = predictions["det_polygons"]
+        nr_items = len(rec_texts)
+        centers: List[Tuple[str, float, float]] = []
+        for index in range(nr_items):
+            rec_text = rec_texts[index]
+            if not rec_text or not rec_text.isdigit():
+                continue
+            if not det_scores[index] >= det_thresh:
+                continue
+            if not rec_scores[index] >= rec_thresh:
+                continue
+            number = int(rec_text)
+            if number >= 100:
+                continue
+            print(f"Good number: {rec_text}")
+            center = get_polygon_center(det_polygons[index])
+            centers.append((rec_text, int(center[0]), int(center[1])))
+        return centers
+
+
+def get_polygon_center(polygon: List[float]) -> Tuple[float, float]:
+    l = len(polygon)
+    assert l % 2 == 0
+    sum_x = 0.0
+    sum_y = 0.0
+    for i in range(0, l // 2, 2):
+        x = polygon[i]
+        y = polygon[i + 1]
+        sum_x += x
+        sum_y += y
+    return (sum_x // (l // 2), sum_y // (l // 2))
 
 
 # def extract_and_resize_jerseys(

@@ -278,23 +278,22 @@ class PlayTracker(torch.nn.Module):
         return boxes_map, torch.stack(boxes_list)
 
     def process_jerseys_info(self, data: Dict[str, Any]) -> None:
-        return None
-
-        jersey_results = data["tracking_results"].get("jersey_results")
+        jersey_results = data.get("jersey_results")
         if not jersey_results:
             return
-        for tracking_id, (number, score) in jersey_results.items():
-            jersey_info = self._tracking_id_jersey.get(tracking_id)
-            if jersey_info is None:
-                self._tracking_id_jersey[tracking_id] = (number, score)
-            else:
-                prev_number, prev_score = jersey_info
-                # if number != prev_number:
-                if number != prev_number and score > prev_score:
-                    print(
-                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
-                    )
-                    self._tracking_id_jersey[tracking_id] = (number, score)
+        for tracking_id, number in jersey_results:
+            # jersey_info = self._tracking_id_jersey.get(tracking_id)
+            self._tracking_id_jersey[tracking_id] = number
+            # if jersey_info is None:
+            #     self._tracking_id_jersey[tracking_id] = number
+            # else:
+            #     prev_number, prev_score = jersey_info
+            #     # if number != prev_number:
+            #     if number != prev_number and score > prev_score:
+            #         print(
+            #             f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
+            #         )
+            #         self._tracking_id_jersey[tracking_id] = (number, score)
 
     # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
