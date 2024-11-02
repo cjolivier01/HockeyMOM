@@ -119,7 +119,10 @@ class HmEndToEnd(ByteTrack):
             det_bboxes = det_data_sample.pred_instances.bboxes
             det_labels = det_data_sample.pred_instances.labels
             det_scores = det_data_sample.pred_instances.scores
-            if self.post_detection_composed_pipeline is not None:
+
+            if self.post_detection_composed_pipeline is not None or (
+                track and self.post_tracking_composed_pipeline is not None
+            ):
                 # We may prune the detections to relevent items
                 data: Dict[str, Any] = {
                     "det_bboxes": det_bboxes,
@@ -130,6 +133,8 @@ class HmEndToEnd(ByteTrack):
                     "data_samples": data_samples,
                 }
                 data.update(**kwargs)
+
+            if self.post_detection_composed_pipeline is not None:
                 data = self.post_detection_composed_pipeline(data)
                 det_bboxes = data["det_bboxes"]
                 det_labels = data["labels"]

@@ -35,30 +35,36 @@ class HmNumberClassifier:
         init_cfg: Optional[dict] = None,
         category: int = 0,
         enabled: bool = True,
+        image_label: str = "img",
         **kwargs,
     ):
         # super().__init__(*args, init_cfg=init_cfg, **kwargs)
         self._roster = roster
         self._category = category
         self._enabled = enabled
+        self._image_label = image_label
         self._mean = [0.5, 0.5, 0.5]
         self._std = [0.5, 0.5, 0.5]
 
+    def __call__(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        return self.forward(data, **kwargs)
+
     # @auto_fp16(apply_to=("img",))
-    def forward(self, data: Dict[str, Any], **kwargs):  # typing: none
+    def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:  # typing: none
         if not self._enabled:
             return data
-        tracking_data = data["category_bboxes"][self._category]
-        if not tracking_data.shape[0]:
-            return data
-        bboxes = tracking_data[:, 1:5].astype(np.int)
-        tracking_ids = tracking_data[:, 0].astype(np.int64)
-        tlwhs = xyxy2xywh(bboxes)
-        img = data["img"]
+        # tracking_data = data["category_bboxes"][self._category]
+        # if not tracking_data.shape[0]:
+        #     return data
+        # bboxes = tracking_data[:, 1:5].astype(np.int)
+        # tracking_ids = tracking_data[:, 0].astype(np.int64)
+        # tlwhs = xyxy2xywh(bboxes)
+        img = data[self._image_label]
         if isinstance(img, StreamTensor):
+            img.verbose = True
             img = img.get()
             # img = img.wait()
-            data["img"] = img
+            data[self._image_label] = img
         assert len(img) == 1
         batch_numbers: List[torch.Tensor] = []
         jersey_results: Dict[int, int] = {}
