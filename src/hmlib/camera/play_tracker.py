@@ -305,8 +305,8 @@ class PlayTracker(torch.nn.Module):
             self._jersey_number_to_tracking_id[number] = tracking_id
             self._tracking_id_jersey[tracking_id] = number, confidence
             logger.info(f"{tracking_id=} -> {number=}")
-            if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
-                print("OH SHIT")
+            # if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
+            #     print("OH SHIT")
             # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
     # @torch.jit.script
