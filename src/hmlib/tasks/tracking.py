@@ -156,11 +156,13 @@ def run_mmtrack(
                         with torch.no_grad():
                             with autocast() if fp16 else nullcontext():
                                 data["img"] = detection_image
-                                tracking_results = model(return_loss=False, rescale=True, **data)
+                                detection_image = None
+                                data = model(return_loss=False, rescale=True, **data)
 
                         detect_timer.toc()
-                        del data["img"]
-                        del detection_image
+                        # del data["img"]
+                        # del detection_image
+                        tracking_results = data["data_samples"]
                         assert len(tracking_results) == 1
                         track_data_sample: TrackDataSample = tracking_results[0]
                         nr_tracks = int(

@@ -162,10 +162,6 @@ class HmEndToEnd(ByteTrack):
             det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})
 
         if track and self.post_tracking_composed_pipeline is not None:
-            data: Dict[str, Any] = {
-                "data_samples": track_data_sample,
-            }
             data = self.post_tracking_composed_pipeline(data)
-            track_data_sample = data["data_samples"]
 
-        return [track_data_sample]
+        return data

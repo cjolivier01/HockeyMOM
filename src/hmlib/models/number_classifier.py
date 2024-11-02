@@ -59,6 +59,9 @@ class HmNumberClassifier:
         # bboxes = tracking_data[:, 1:5].astype(np.int)
         # tracking_ids = tracking_data[:, 0].astype(np.int64)
         # tlwhs = xyxy2xywh(bboxes)
+
+        return data
+
         img = data[self._image_label]
         if isinstance(img, StreamTensor):
             img.verbose = True
