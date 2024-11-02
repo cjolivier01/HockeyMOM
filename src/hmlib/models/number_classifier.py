@@ -135,7 +135,7 @@ class HmNumberClassifier:
             if not len(non_obvelapping_bboxes_xyxy):
                 continue
             packed_image, index_map = pack_bounding_boxes_as_tiles(
-                source_image=image_item, bounding_boxes=bboxes_xyxy.to(torch.int64)
+                source_image=image_item, bounding_boxes=non_obvelapping_bboxes_xyxy.to(torch.int64)
             )
             use_img = make_channels_last(packed_image).contiguous().cpu().numpy()
             ocr_results = self._inferencer(
