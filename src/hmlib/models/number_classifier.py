@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmocr.apis.inferencers import MMOCRInferencer
+from rich.progress import track
 from torchvision.transforms.functional import normalize
 
 from hmlib.bbox.tiling import (
@@ -16,6 +17,7 @@ from hmlib.bbox.tiling import (
     pack_bounding_boxes_as_tiles,
 )
 from hmlib.builder import PIPELINES as TRANSFORMS
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
@@ -66,11 +68,33 @@ class HmNumberClassifier:
             "det_weights": None,
             "rec": "openmm/mmocr/configs/textrecog/svtr/svtr-small_20e_st_mj.py",
             "rec_weights": "https://download.openmmlab.com/mmocr/textrecog/svtr/svtr-small_20e_st_mj/svtr-small_20e_st_mj-35d800d6.pth",
+            # "rec": "ABINet",
             "kie": None,
             "kie_weights": None,
             "device": "cuda",
         }
         return MMOCRInferencer(**config)
+
+    def predict_text(self, image: torch.Tensor, return_vis: bool = True) -> Dict[str, Any]:
+        batch_size = 1 if image.ndim == 3 else image.shape[0]
+        ori_inputs = self._inferencer._inputs_to_list(image)
+        # chunked_inputs = self._inferencer._get_chunk_data(ori_inputs, batch_size)
+        results = {"predictions": [], "visualization": []}
+        # for ori_input in track(chunked_inputs, description="Inference"):
+        for ori_input in ori_inputs:
+            preds = self._inferencer.forward(
+                # ori_input,
+                image,
+                det_batch_size=batch_size,
+                rec_batch_size=batch_size,
+                kie_batch_size=batch_size,
+            )
+            visualization = self._inferencer.visualize(ori_input, preds, img_out_dir=None)
+            batch_res = self._inferencer.postprocess(preds, visualization, pred_out_dir=None)
+            results["predictions"].extend(batch_res["predictions"])
+            if return_vis and batch_res["visualization"] is not None:
+                results["visualization"].extend(batch_res["visualization"])
+        return results
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:  # typing: none
@@ -86,7 +110,8 @@ class HmNumberClassifier:
         batch_numbers: List[torch.Tensor] = []
         jersey_results: Dict[int, int] = {}
         track_data_sample = data["data_samples"]
-        for image_item, data_sample in zip(make_channels_first(img), track_data_sample):
+        img = make_channels_first(img)
+        for image_item, data_sample in zip(img, track_data_sample):
             assert image_item.ndim == 3
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
             tracking_ids = data_sample.pred_track_instances.instances_id
@@ -97,6 +122,20 @@ class HmNumberClassifier:
             packed_image, index_map = pack_bounding_boxes_as_tiles(
                 source_image=image_item, bounding_boxes=bboxes_xyxy.to(torch.int64)
             )
+            use_img = make_channels_last(packed_image).contiguous().cpu().numpy()
+            ocr_results = self._inferencer(
+                inputs=use_img,
+                return_vis=False,
+                out_dir=None,
+                progress_bar=False,
+            )
+            rec_texts = ocr_results["predictions"]["rec_texts"]
+            if rec_texts:
+                print(rec_texts)
+            # _ocr_results = self.predict_text(use_img, return_vis=True)
+            for vis in ocr_results["visualization"]:
+                if vis is not None:
+                    show_image("packed_image", vis, wait=False)
             # show_image("packed_image", packed_image, wait=False)
             # subimages = extract_and_resize_jerseys(
             #     image=image_item, bboxes=tlwhs, out_width=54, out_height=54
@@ -120,12 +159,13 @@ class HmNumberClassifier:
             #             # show_image("SUBIMAGE", subimages[index], wait=True)
             #         pass
         # batch_numbers.append(jersey_results)
+
         data["jersey_results"] = jersey_results
         # results["batch_numbers"] = batch_numbers
         self._timer.toc()
         self._timer_count += 1
         if self._timer_count % self._timer_interval:
-            logging.info(f"timer stuff")
+            # logger.info(f"timer stuff")
             self._timer = Timer()
             self._timer_count = 0
         return data
