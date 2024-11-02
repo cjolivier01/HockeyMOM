@@ -283,6 +283,7 @@ class PlayTracker(torch.nn.Module):
         if not jersey_results:
             return
         for tracking_id, number in jersey_results:
+            number = int(number)
             # jersey_info = self._tracking_id_jersey.get(tracking_id)
             print(f"{tracking_id=} -> {number=}")
             prev_tracking_id = self._jersey_number_to_tracking_id.get(number)
