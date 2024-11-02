@@ -145,11 +145,11 @@ class HmNumberClassifier:
                 out_dir=None,
                 progress_bar=False,
             )
-            predictions = ocr_results["predictions"]
-            for pred in predictions:
-                rec_texts = self._get_number_strings(pred["rec_texts"])
-                if rec_texts:
-                    logger.info(rec_texts)
+            # predictions = ocr_results["predictions"]
+            # for pred in predictions:
+            #     rec_texts = self._get_number_strings(pred["rec_texts"])
+            #     if rec_texts:
+            #         logger.info(rec_texts)
             for vis in ocr_results["visualization"]:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
@@ -165,8 +165,8 @@ class HmNumberClassifier:
                     jersey_results.append((int(tracking_id), text, w))
                 else:
                     print("WTF")
-            if jersey_results:
-                print(f"{jersey_results=}")
+            # if jersey_results:
+            #     print(f"{jersey_results=}")
 
         data["jersey_results"] = jersey_results
         # results["batch_numbers"] = batch_numbers
@@ -201,7 +201,7 @@ class HmNumberClassifier:
             number = int(rec_text)
             if number >= 100:
                 continue
-            print(f"Good number: {rec_text}")
+            # print(f"Good number: {rec_text}")
             bbox = poly2bbox(det_polygons[index])
             # Need # width relative to entire box width
             box_width = width(bbox)

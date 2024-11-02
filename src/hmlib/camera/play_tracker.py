@@ -284,7 +284,6 @@ class PlayTracker(torch.nn.Module):
             return
         for tracking_id, number, confidence in jersey_results:
             number = int(number)
-            # jersey_info = self._tracking_id_jersey.get(tracking_id)
             assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
             pnw = self._tracking_id_jersey.get(tracking_id)
             if pnw is not None:
@@ -302,7 +301,9 @@ class PlayTracker(torch.nn.Module):
 
             self._jersey_number_to_tracking_id[number] = tracking_id
             self._tracking_id_jersey[tracking_id] = number, confidence
-            print(f"{tracking_id=} -> {number=}")
+            logger.info(f"{tracking_id=} -> {number=}")
+            if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
+                print("OH SHIT")
             assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
     # @torch.jit.script

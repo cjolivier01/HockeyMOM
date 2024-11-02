@@ -530,6 +530,7 @@ def main(args, num_gpu):
             is_stitching=is_stitching(args.input_video),
             is_multipose=args.multi_pose,
             is_detecting=not using_precalculated_tracking,
+            stitch_with_fastest=not args.detect_jersey_numbers,
         )
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
@@ -654,10 +655,10 @@ def main(args, num_gpu):
                     vl = input_video_files[0]
                     vr = input_video_files[1]
                     dir_name = os.path.dirname(vl)
-                    file_name, file_extension = os.path.splitext(os.path.basename(vl))
-                    video_left = file_name + file_extension
-                    file_name, file_extension = os.path.splitext(os.path.basename(vr))
-                    video_right = file_name + file_extension
+                    # file_name, file_extension = os.path.splitext(os.path.basename(vl))
+                    # video_left = file_name + file_extension
+                    # file_name, file_extension = os.path.splitext(os.path.basename(vr))
+                    # video_right = file_name + file_extension
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
                     game_videos = configure_game_videos(game_id=args.game_id)
