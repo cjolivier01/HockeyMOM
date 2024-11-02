@@ -37,7 +37,7 @@ class HmNumberClassifier:
         enabled: bool = True,
         **kwargs,
     ):
-        super().__init__(*args, init_cfg=init_cfg, **kwargs)
+        # super().__init__(*args, init_cfg=init_cfg, **kwargs)
         self._roster = roster
         self._category = category
         self._enabled = enabled
