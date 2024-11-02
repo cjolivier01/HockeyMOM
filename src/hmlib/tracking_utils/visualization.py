@@ -404,7 +404,7 @@ def plot_jersey_numbers(
         x1, y1, w, h = tlwh
         obj_id = int(obj_ids[i])
         if obj_id in player_number_map:
-            player_number = player_number_map[obj_id]
+            player_number = player_number_map[obj_id][0]
             xc = int(x1 + w // 2)
             yc = y1
             image = my_put_text(

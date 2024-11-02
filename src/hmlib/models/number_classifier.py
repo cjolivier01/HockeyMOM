@@ -24,7 +24,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
-from hmlib.utils.box_functions import center
+from hmlib.utils.box_functions import center, width
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     image_height,
@@ -33,7 +33,8 @@ from hmlib.utils.image import (
     make_channels_last,
 )
 
-TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
+# TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
+TV_10_1_ROSTER: Set[int] = {}
 SHARES_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
 
 
@@ -153,15 +154,15 @@ class HmNumberClassifier:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
             text_and_centers = self.process_results(ocr_results)
-            for text, x, y in text_and_centers:
-                # if text == "98":
-                #     show_image("packed_image", packed_image, wait=False)
+            for text, x, y, w in text_and_centers:
+                # if self._roster and int(text) not in self._roster:
+                #     continue
                 # show_image("packed_image", packed_image, wait=False)
                 batch_index = get_original_bbox_index_from_tiled_image(index_map, y=y, x=x)
                 # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
-                    jersey_results.append((int(tracking_id), text))
+                    jersey_results.append((int(tracking_id), text, w))
                 else:
                     print("WTF")
             if jersey_results:
@@ -178,7 +179,7 @@ class HmNumberClassifier:
         return data
 
     def process_results(
-        self, ocr_results: Dict[str, Any], det_thresh: float = 0.03, rec_thresh: float = 0.3
+        self, ocr_results: Dict[str, Any], det_thresh: float = 0.5, rec_thresh: float = 0.8
     ) -> Dict[str, Any]:
         predictions = ocr_results["predictions"]
         assert len(predictions) == 1
@@ -202,8 +203,10 @@ class HmNumberClassifier:
                 continue
             print(f"Good number: {rec_text}")
             bbox = poly2bbox(det_polygons[index])
+            # Need # width relative to entire box width
+            box_width = width(bbox)
             cc = center(bbox)
-            centers.append((rec_text, int(cc[0]), int(cc[1])))
+            centers.append((rec_text, int(cc[0]), int(cc[1]), int(box_width)))
         return centers
 
 

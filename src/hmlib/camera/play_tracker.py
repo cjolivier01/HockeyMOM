@@ -282,35 +282,28 @@ class PlayTracker(torch.nn.Module):
         jersey_results = data.get("jersey_results")
         if not jersey_results:
             return
-        for tracking_id, number in jersey_results:
+        for tracking_id, number, confidence in jersey_results:
             number = int(number)
             # jersey_info = self._tracking_id_jersey.get(tracking_id)
-            print(f"{tracking_id=} -> {number=}")
-            prev_tracking_id = self._jersey_number_to_tracking_id.get(number)
-            if prev_tracking_id is not None:
-                if tracking_id != prev_tracking_id:
-                    prev_number = self._tracking_id_jersey[prev_tracking_id]
-                    del self._jersey_number_to_tracking_id[prev_number]
-                    del self._tracking_id_jersey[prev_tracking_id]
-                else:
-                    prev_number = int(self._tracking_id_jersey[prev_tracking_id])
-                    if prev_number != number and prev_number < 10 and number >= 10:
-                        # Overwrite
-                        self._jersey_number_to_tracking_id[number] = tracking_id
-                        self._tracking_id_jersey[tracking_id] = number
+            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+            pnw = self._tracking_id_jersey.get(tracking_id)
+            if pnw is not None:
+                prev_number, prev_confidence = pnw
             else:
-                self._jersey_number_to_tracking_id[number] = tracking_id
-                self._tracking_id_jersey[tracking_id] = number
-            # if jersey_info is None:
-            #     self._tracking_id_jersey[tracking_id] = number
-            # else:
-            #     prev_number, prev_score = jersey_info
-            #     # if number != prev_number:
-            #     if number != prev_number and score > prev_score:
-            #         print(
-            #             f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
-            #         )
-            #         self._tracking_id_jersey[tracking_id] = (number, score)
+                prev_number, prev_confidence = None, None
+            if prev_number == number:
+                continue
+            if prev_number is not None:
+                if confidence < prev_confidence:
+                    continue
+                prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
+                self._tracking_id_jersey.pop(prev_tracking_id)
+            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+
+            self._jersey_number_to_tracking_id[number] = tracking_id
+            self._tracking_id_jersey[tracking_id] = number, confidence
+            print(f"{tracking_id=} -> {number=}")
+            assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
 
     # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
