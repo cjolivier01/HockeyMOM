@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmocr.apis.inferencers import MMOCRInferencer
+from mmocr.utils import poly2bbox
 from rich.progress import track
 from torchvision.transforms.functional import normalize
 
@@ -23,6 +24,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
+from hmlib.utils.box_functions import center
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     image_height,
@@ -152,13 +154,16 @@ class HmNumberClassifier:
                     show_image("packed_image", vis, wait=False)
             text_and_centers = self.process_results(ocr_results)
             for text, x, y in text_and_centers:
-                if text == "98":
-                    pass
+                # if text == "98":
+                #     show_image("packed_image", packed_image, wait=False)
+                # show_image("packed_image", packed_image, wait=False)
                 batch_index = get_original_bbox_index_from_tiled_image(index_map, y=y, x=x)
                 # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
                     jersey_results.append((int(tracking_id), text))
+                else:
+                    print("WTF")
             if jersey_results:
                 print(f"{jersey_results=}")
 
@@ -196,19 +201,21 @@ class HmNumberClassifier:
             if number >= 100:
                 continue
             print(f"Good number: {rec_text}")
-            center = get_polygon_center(det_polygons[index])
-            centers.append((rec_text, int(center[0]), int(center[1])))
+            bbox = poly2bbox(det_polygons[index])
+            cc = center(bbox)
+            centers.append((rec_text, int(cc[0]), int(cc[1])))
         return centers
 
 
 def get_polygon_center(polygon: List[float]) -> Tuple[float, float]:
+    pred_bboxes = [poly2bbox(poly) for poly in pred_polygons]
     l = len(polygon)
     assert l % 2 == 0
     sum_x = 0.0
     sum_y = 0.0
     for i in range(0, l // 2, 2):
-        x = polygon[i]
-        y = polygon[i + 1]
+        x = polygon[i + 1]
+        y = polygon[i]
         sum_x += x
         sum_y += y
     return (sum_x // (l // 2), sum_y // (l // 2))

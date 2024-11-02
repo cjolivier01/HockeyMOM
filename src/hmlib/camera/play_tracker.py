@@ -126,7 +126,8 @@ class PlayTracker(torch.nn.Module):
         self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
 
-        self._tracking_id_jersey: Dict[int, Tuple[int, float]] = {}
+        self._tracking_id_jersey: Dict[int, int] = {}
+        self._jersey_number_to_tracking_id: Dict[int, int] = {}
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -283,7 +284,15 @@ class PlayTracker(torch.nn.Module):
             return
         for tracking_id, number in jersey_results:
             # jersey_info = self._tracking_id_jersey.get(tracking_id)
-            self._tracking_id_jersey[tracking_id] = number
+            print(f"{tracking_id=} -> {number=}")
+            prev_tracking_id = self._jersey_number_to_tracking_id.get(number)
+            if prev_tracking_id is not None:
+                if tracking_id != prev_tracking_id:
+                    del self._jersey_number_to_tracking_id[number]
+                    del self._tracking_id_jersey[prev_tracking_id]
+            else:
+                self._jersey_number_to_tracking_id[number] = tracking_id
+                self._tracking_id_jersey[tracking_id] = number
             # if jersey_info is None:
             #     self._tracking_id_jersey[tracking_id] = number
             # else:

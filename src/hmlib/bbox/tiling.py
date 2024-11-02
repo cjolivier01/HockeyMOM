@@ -22,9 +22,9 @@ def pack_bounding_boxes_as_tiles(
     N, _ = bounding_boxes.shape
 
     # Sort bounding boxes by height (descending) for better packing
-    heights = bounding_boxes[:, 3] - bounding_boxes[:, 1]
-    _, sorted_indices = torch.sort(heights, descending=True)
-    bounding_boxes = bounding_boxes[sorted_indices]
+    # heights = bounding_boxes[:, 3] - bounding_boxes[:, 1]
+    # _, sorted_indices = torch.sort(heights, descending=True)
+    # bounding_boxes = bounding_boxes[sorted_indices]
 
     # Resize bounding boxes if height exceeds 256 pixels while maintaining the aspect ratio
     max_height_allowed = 256
@@ -63,8 +63,8 @@ def pack_bounding_boxes_as_tiles(
     max_total_width = torch.sum(widths).item()
     target_width = min(target_width, max_total_width)
 
-    packed_image = torch.zeros(
-        (3, target_height, target_width), dtype=torch.float
+    packed_image = (
+        torch.zeros((3, target_height, target_width), dtype=torch.float) + 128
     )  # Assume 3 channels for RGB
     index_map = -torch.ones(
         (target_height, target_width), dtype=torch.long
@@ -100,7 +100,8 @@ def pack_bounding_boxes_as_tiles(
         # Place the cropped region in the packed image
         packed_image[:, current_y : current_y + h, current_x : current_x + w] = cropped_region
         # Update the index map to indicate which bounding box this region came from
-        index_map[current_y : current_y + h, current_x : current_x + w] = sorted_indices[idx]
+        # index_map[current_y : current_y + h, current_x : current_x + w] = sorted_indices[idx]
+        index_map[current_y : current_y + h, current_x : current_x + w] = idx
 
         # Update current position and max row height
         current_x += w
