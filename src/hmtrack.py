@@ -320,7 +320,7 @@ def configure_model(config: dict, args: argparse.Namespace):
 
 
 def find_stitched_file(dir_name: str, game_id: str):
-    exts = ["mkv", "avi", "mp4"]
+    exts = ["mp4", "mkv", "avi"]
     basenames = [
         "stitched_output",
         "stitched_output-with-audio",
