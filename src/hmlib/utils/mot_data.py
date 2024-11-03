@@ -94,7 +94,7 @@ class MOTTrackingData(TrackingDataBase):
                     "Confidence",
                     "Class",
                     "Visibility",
-                    # "JerseyInfo",
+                    "JerseyInfo",
                 ],
             )
             print("Data loaded successfully.")
@@ -123,6 +123,8 @@ class MOTTrackingData(TrackingDataBase):
         tlwh = self._make_array(tlwh)
         scores = self._make_array(scores)
         all_track_jersey_info: AllTrackJerseyInfo = AllTrackJerseyInfo(items=jersey_info)
+        if all_track_jersey_info.items:
+            pass
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
