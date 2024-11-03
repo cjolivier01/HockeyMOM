@@ -2,6 +2,7 @@ import glob
 import math
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -36,6 +37,13 @@ from hmlib.utils.image import (
 # TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
 TV_10_1_ROSTER: Set[int] = {}
 SHARES_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
+
+
+@dataclass
+class TrackJerseyInfo:
+    tracking_id: int = -1
+    number: int = -1
+    score: float = 0.0
 
 
 @TRANSFORMS.register_module()
@@ -121,7 +129,7 @@ class HmNumberClassifier:
             # img = img.wait()
             data[self._image_label] = img
         batch_numbers: List[torch.Tensor] = []
-        jersey_results: List[Dict[int, int]] = []
+        jersey_results: List[TrackJerseyInfo] = []
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)
         w, h = int(image_width(img)), int(image_height(img))
@@ -162,7 +170,9 @@ class HmNumberClassifier:
                 # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
-                    jersey_results.append((int(tracking_id), text, w))
+                    jersey_results.append(
+                        TrackJerseyInfo(tracking_id=int(tracking_id), number=int(text), score=w)
+                    )
                 else:
                     print("WTF")
             # if jersey_results:

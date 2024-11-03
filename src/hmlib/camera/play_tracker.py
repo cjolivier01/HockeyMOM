@@ -1,6 +1,8 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
@@ -12,7 +14,9 @@ from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
+from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
+from hmlib.models.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.timer import Timer
@@ -126,8 +130,7 @@ class PlayTracker(torch.nn.Module):
         self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
 
-        self._tracking_id_jersey: Dict[int, int] = {}
-        self._jersey_number_to_tracking_id: Dict[int, int] = {}
+        self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -278,30 +281,42 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         return boxes_map, torch.stack(boxes_list)
 
-    def process_jerseys_info(self, data: Dict[str, Any]) -> None:
+    def process_jerseys_info(self, frame_id: int, data: Dict[str, Any]) -> None:
         jersey_results = data.get("jersey_results")
         if not jersey_results:
             return
-        for tracking_id, number, confidence in jersey_results:
-            number = int(number)
-            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
-            pnw = self._tracking_id_jersey.get(tracking_id)
-            if pnw is not None:
-                prev_number, prev_confidence = pnw
-            else:
-                prev_number, prev_confidence = None, None
-            if prev_number == number:
-                continue
-            if prev_number is not None:
-                if confidence < prev_confidence:
-                    continue
-                prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
-                self._tracking_id_jersey.pop(prev_tracking_id)
-            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+        for current_info in jersey_results:
+            self._jersey_tracker.observe_tracking_id_number_info(
+                frame_id=frame_id, info=current_info
+            )
 
-            self._jersey_number_to_tracking_id[number] = tracking_id
-            self._tracking_id_jersey[tracking_id] = number, confidence
-            logger.info(f"{tracking_id=} -> {number=}")
+            # Second basic case, it's the same as last time
+
+            # tracking_id, current_number, confidence
+            # If everything is the same, just move on
+            # prev_tracking_id = self._jersey_number_to_tracking_id.get(current_info.number)
+            # if prev_tracking_id is not None and prev_tracking_id == current_tracking_id:
+            #     # Nothing changed
+            #     continue
+
+            # # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+            # pnw = self._tracking_id_jersey.get(tracking_id)
+            # if pnw is not None:
+            #     prev_number, prev_confidence = pnw
+            # else:
+            #     prev_number, prev_confidence = None, None
+            # if prev_number == number:
+            #     continue
+            # if prev_number is not None:
+            #     if confidence < prev_confidence:
+            #         continue
+            #     prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
+            #     self._tracking_id_jersey.pop(prev_tracking_id)
+            # # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
+
+            # self._jersey_number_to_tracking_id[number] = tracking_id
+            # self._tracking_id_jersey[tracking_id] = number, confidence
+            # logger.info(f"{tracking_id=} -> {number=}")
             # if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
             #     print("OH SHIT")
             # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
@@ -337,7 +352,8 @@ class PlayTracker(torch.nn.Module):
         del original_images
 
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
-            frame_id = torch.tensor([video_data_sample.frame_id], dtype=torch.int64)
+            scalar_frame_id = video_data_sample.frame_id
+            frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
             online_ids = video_data_sample.pred_track_instances.instances_id
             if True:
@@ -346,7 +362,7 @@ class PlayTracker(torch.nn.Module):
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
 
-            self.process_jerseys_info(data=results)
+            self.process_jerseys_info(frame_id=scalar_frame_id, data=results)
 
             self._frame_counter += 1
 
@@ -427,13 +443,7 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            if self._args.plot_jersey_numbers:
-                online_im = vis.plot_jersey_numbers(
-                    online_im,
-                    online_tlwhs,
-                    online_ids,
-                    player_number_map=self._tracking_id_jersey,
-                )
+            online_im = self._jersey_tracker.draw(online_im)
 
             if self._args.plot_cluster_tracking:
                 cluster_box_colors = {
