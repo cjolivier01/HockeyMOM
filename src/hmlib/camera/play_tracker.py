@@ -280,8 +280,11 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         return boxes_map, torch.stack(boxes_list)
 
-    def process_jerseys_info(self, frame_id: int, data: Dict[str, Any]) -> None:
+    def process_jerseys_info(self, frame_index: int, frame_id: int, data: Dict[str, Any]) -> None:
         jersey_results = data.get("jersey_results")
+        if not jersey_results:
+            return
+        jersey_results = jersey_results[frame_index]
         if not jersey_results:
             return
         for current_info in jersey_results:
@@ -361,7 +364,9 @@ class PlayTracker(torch.nn.Module):
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
 
-            self.process_jerseys_info(frame_id=scalar_frame_id, data=results)
+            self.process_jerseys_info(
+                frame_index=frame_index, frame_id=scalar_frame_id, data=results
+            )
 
             self._frame_counter += 1
 

@@ -129,11 +129,12 @@ class HmNumberClassifier:
             # img = img.wait()
             data[self._image_label] = img
         batch_numbers: List[torch.Tensor] = []
-        jersey_results: List[TrackJerseyInfo] = []
+        all_jersey_results: List[List[TrackJerseyInfo]] = []
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)
         w, h = int(image_width(img)), int(image_height(img))
         for image_item, data_sample in zip(img, track_data_sample):
+            jersey_results: List[TrackJerseyInfo] = []
             assert image_item.ndim == 3
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
             bboxes_xyxy_clamped = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
@@ -142,6 +143,7 @@ class HmNumberClassifier:
             non_obvelapping_bboxes_xyxy = bboxes_xyxy_clamped[non_overlapping_bbox_indices]
             tracking_ids = tracking_ids[non_overlapping_bbox_indices]
             if not len(non_obvelapping_bboxes_xyxy):
+                all_jersey_results.append(jersey_results)
                 continue
             packed_image, index_map = pack_bounding_boxes_as_tiles(
                 source_image=image_item, bounding_boxes=non_obvelapping_bboxes_xyxy.to(torch.int64)
@@ -177,15 +179,16 @@ class HmNumberClassifier:
                         TrackJerseyInfo(
                             tracking_id=int(tracking_id),
                             number=int(text),
-                            score=score * (w / bbox_width),
+                            score=float(score * (w / bbox_width)),
                         )
                     )
                 else:
                     print("WTF")
             # if jersey_results:
             #     print(f"{jersey_results=}")
+            all_jersey_results.append(jersey_results)
 
-        data["jersey_results"] = jersey_results
+        data["jersey_results"] = all_jersey_results
         # results["batch_numbers"] = batch_numbers
         self._timer.toc()
         self._timer_count += 1

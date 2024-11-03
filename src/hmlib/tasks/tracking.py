@@ -175,7 +175,10 @@ def run_mmtrack(
                             max_tracking_id = torch.max(tracking_ids)
 
                     if True:
-                        for video_data_sample in track_data_sample.video_data_samples:
+                        jersey_results = data.get("jersey_results")
+                        for frame_index, video_data_sample in enumerate(
+                            track_data_sample.video_data_samples
+                        ):
                             pred_track_instances = getattr(
                                 video_data_sample, "pred_track_instances", None
                             )
@@ -191,6 +194,11 @@ def run_mmtrack(
                                         tracking_ids=pred_track_instances.instances_id,
                                         tlbr=pred_track_instances.bboxes,
                                         scores=pred_track_instances.scores,
+                                        jersey_info=(
+                                            jersey_results[frame_index]
+                                            if jersey_results is not None
+                                            else None
+                                        ),
                                     )
                             else:
                                 # track_ids, scores, bboxes = (
