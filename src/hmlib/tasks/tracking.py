@@ -175,46 +175,30 @@ def run_mmtrack(
                             max_tracking_id = torch.max(tracking_ids)
 
                     if True:
-                        # video_data_samples = track_data_sample.video_data_samples[frame_index]
-                        # pred_track_instances = getattr(
-                        #     video_data_samples, "pred_track_instances", None
-                        # )
-                        # if pred_track_instances is None:
-                        #     # we arent tracking anything (probably a performance test)
-                        #     cuda_stream.synchronize()
-                        #     continue
-
-                        if not using_precalculated_tracking:
-                            # track_ids = pred_track_instances.instances_id
-                            # bboxes = pred_track_instances.bboxes
-                            # scores = pred_track_instances.scores
-
-                            # if tracking_data is not None:
-                            #     tracking_data.add_frame_records(
-                            #         frame_id=frame_id,
-                            #         tracking_ids=track_ids,
-                            #         tlbr=bboxes,
-                            #         scores=scores,
-                            #     )
-
-                            # online_tlwhs = bboxes.clone()
-                            # # make boxes tlwh
-                            # online_tlwhs[:, 2] = (
-                            #     online_tlwhs[:, 2] - online_tlwhs[:, 0]
-                            # )  # width = x2 - x1
-                            # online_tlwhs[:, 3] = (
-                            #     online_tlwhs[:, 3] - online_tlwhs[:, 1]
-                            # )  # height = y2 - y1
-                            pass
-                        else:
-                            track_ids, scores, bboxes = tracking_data.get_tracking_info_by_frame(
-                                frame_id
+                        for video_data_sample in track_data_sample.video_data_samples:
+                            pred_track_instances = getattr(
+                                video_data_sample, "pred_track_instances", None
                             )
-                            online_tlwhs = torch.from_numpy(bboxes)
-                            tracking_results = None
+                            if pred_track_instances is None:
+                                # we arent tracking anything (probably a performance test)
+                                cuda_stream.synchronize()
+                                continue
 
-                        # online_ids = track_ids.clone()
-                        # online_scores = scores.clone()
+                            if not using_precalculated_tracking:
+                                if tracking_data is not None:
+                                    tracking_data.add_frame_records(
+                                        frame_id=frame_id,
+                                        tracking_ids=pred_track_instances.instances_id,
+                                        tlbr=pred_track_instances.bboxes,
+                                        scores=pred_track_instances.scores,
+                                    )
+                            else:
+                                # track_ids, scores, bboxes = (
+                                #     tracking_data.get_tracking_info_by_frame(frame_id)
+                                # )
+                                # online_tlwhs = torch.from_numpy(bboxes)
+                                # tracking_results = None
+                                assert False
 
                         # Clean data to send of the batched images
                         data_to_send = data.copy()
