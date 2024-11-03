@@ -134,33 +134,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         nargs=argparse.REMAINDER,
     )
-    #
-    # GPUs/Devices
-    #
-    # parser.add_argument(
-    #     "--detection-gpu",
-    #     help="GPU used for detections",
-    #     type=int,
-    #     default=None,
-    # )
-    # parser.add_argument(
-    #     "--decoder-gpu",
-    #     help="GPU used for video decoding",
-    #     type=int,
-    #     default=None,
-    # )
-    # parser.add_argument(
-    #     "--encoder-gpu",
-    #     help="GPU used for video encoding",
-    #     type=int,
-    #     default=None,
-    # )
-    # parser.add_argument(
-    #     "--cam-tracking-gpu",
-    #     help="GPU used for camera tracking trunk (default us CPU)",
-    #     type=int,
-    #     default=None,
-    # )
     # cam args
     parser.add_argument(
         "--adjust-exposure",
@@ -655,10 +628,6 @@ def main(args, num_gpu):
                     vl = input_video_files[0]
                     vr = input_video_files[1]
                     dir_name = os.path.dirname(vl)
-                    # file_name, file_extension = os.path.splitext(os.path.basename(vl))
-                    # video_left = file_name + file_extension
-                    # file_name, file_extension = os.path.splitext(os.path.basename(vr))
-                    # video_right = file_name + file_extension
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
                     game_videos = configure_game_videos(game_id=args.game_id)
