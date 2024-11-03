@@ -193,6 +193,8 @@ def calculate_control_points(
             features="superpoint",
             # depth_confidence=0.95,
             depth_confidence=-1,
+            width_confidence=-1,
+            filter_threshold=0.2,
         )
         .eval()
         .to(device)
