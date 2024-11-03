@@ -45,7 +45,7 @@ class TrackingIdNumberInfo:
     current_number: int = -1
     max_score: float = 0.0
     # frame_id -> TrackJerseyInfo
-    ocurrences: OrderedDict[int, TrackJerseyInfo] = None
+    occurrences: OrderedDict[int, TrackJerseyInfo] = None
     # number -> # occurrences of the number
     number_occurrences: OrderedDict[int, int] = None
 
@@ -91,7 +91,42 @@ class JerseyTracker:
                 tracking_id=current_tracking_id,
                 current_number=info.number,
                 max_score=info.score,
-                ocurrences={frame_id: info},
+                occurrences={frame_id: info},
                 number_occurrences={info.number: 1},
             )
             return
+        # Next base case, everything is the same
+        if prev_info.current_number == info.number:
+            prev_info.number_occurrences[prev_info.current_number] += 1
+            # print(f"Recurrence: ID: {current_tracking_id} -> # {prev_info.current_number}")
+            return
+
+        # Something changed
+        logger.info(
+            f"Conflict: ID: {current_tracking_id} # {prev_info.current_number} -> # {info.number}"
+        )
+        # Record the occurence count
+        if info.number not in prev_info.number_occurrences:
+            prev_info.occurrences[frame_id] = info
+            prev_info.number_occurrences[info.number] = 1
+        else:
+            prev_info.number_occurrences[info.number] += 1
+
+        # Decide whether to override
+        if info.score > prev_info.max_score:
+            # Higher score, so maybe replace the number
+            prev_info.occurrences[frame_id] = info
+            # If higher occurrence count
+            if (
+                prev_info.number_occurrences[info.number]
+                >= prev_info.number_occurrences[prev_info.current_number]
+            ):
+                logger.info(
+                    f"Reassigning ID {current_tracking_id} from # {prev_info.current_number} "
+                    f"to # {info.number} (score {prev_info.max_score} -> {info.score})"
+                )
+                prev_info.current_number = info.number
+                prev_info.max_score = info.score
+        else:
+            # Lower score, but we need to record it anyway
+            pass

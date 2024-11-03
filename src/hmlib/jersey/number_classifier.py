@@ -136,10 +136,10 @@ class HmNumberClassifier:
         for image_item, data_sample in zip(img, track_data_sample):
             assert image_item.ndim == 3
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
-            bboxes_xyxy = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
+            bboxes_xyxy_clamped = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
             tracking_ids = data_sample.pred_track_instances.instances_id
-            non_overlapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy)
-            non_obvelapping_bboxes_xyxy = bboxes_xyxy[non_overlapping_bbox_indices]
+            non_overlapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy_clamped)
+            non_obvelapping_bboxes_xyxy = bboxes_xyxy_clamped[non_overlapping_bbox_indices]
             tracking_ids = tracking_ids[non_overlapping_bbox_indices]
             if not len(non_obvelapping_bboxes_xyxy):
                 continue
@@ -162,16 +162,23 @@ class HmNumberClassifier:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
             text_and_centers = self.process_results(ocr_results)
-            for text, x, y, w in text_and_centers:
+            for text, x, y, w, score in text_and_centers:
                 # if self._roster and int(text) not in self._roster:
                 #     continue
                 # show_image("packed_image", packed_image, wait=False)
                 batch_index = get_original_bbox_index_from_tiled_image(index_map, y=y, x=x)
+                bbox_width = width(bboxes_xyxy[batch_index])
                 # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
+                    # We make the score:
+                    # (% width of the bounding box that was the text) * (the recognition confidence score)
                     jersey_results.append(
-                        TrackJerseyInfo(tracking_id=int(tracking_id), number=int(text), score=w)
+                        TrackJerseyInfo(
+                            tracking_id=int(tracking_id),
+                            number=int(text),
+                            score=score * (w / bbox_width),
+                        )
                     )
                 else:
                     print("WTF")
@@ -216,7 +223,9 @@ class HmNumberClassifier:
             # Need # width relative to entire box width
             box_width = width(bbox)
             cc = center(bbox)
-            centers.append((rec_text, int(cc[0]), int(cc[1]), int(box_width)))
+            centers.append(
+                (rec_text, int(cc[0]), int(cc[1]), int(box_width), float(rec_scores[index]))
+            )
         return centers
 
 
