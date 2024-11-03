@@ -391,34 +391,6 @@ def plot_frame_number(image, frame_id):
     return image
 
 
-# 3def plot_jersey_numbers(
-#     image,
-#     tlwhs,
-#     obj_ids,
-#     player_number_map,
-# ):
-#     if not player_number_map:
-#         return image
-#     text_scale = max(2, image.shape[1] / 2500.0)
-#     for i, tlwh in enumerate(tlwhs):
-#         x1, y1, w, h = tlwh
-#         obj_id = int(obj_ids[i])
-#         if obj_id in player_number_map:
-#             player_number = player_number_map[obj_id][0]
-#             xc = int(x1 + w // 2)
-#             yc = y1
-#             image = my_put_text(
-#                 image,
-#                 str(player_number),
-#                 (xc, yc),
-#                 cv2.FONT_HERSHEY_PLAIN,
-#                 text_scale,
-#                 (200, 0, 0),
-#                 thickness=3,
-#             )
-#     return image
-
-
 def plot_tracking(
     image,
     tlwhs,

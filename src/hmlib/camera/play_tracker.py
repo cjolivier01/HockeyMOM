@@ -16,7 +16,6 @@ from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
-from hmlib.models.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.timer import Timer
@@ -443,7 +442,9 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            online_im = self._jersey_tracker.draw(online_im)
+            online_im = self._jersey_tracker.draw(
+                image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs
+            )
 
             if self._args.plot_cluster_tracking:
                 cluster_box_colors = {

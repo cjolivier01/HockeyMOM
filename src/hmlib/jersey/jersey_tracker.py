@@ -16,7 +16,6 @@ from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
 from hmlib.log import logger
-from hmlib.models.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.timer import Timer
@@ -36,6 +35,8 @@ from hmlib.utils.box_functions import (
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
+
+from .number_classifier import TrackJerseyInfo
 
 
 @dataclass
