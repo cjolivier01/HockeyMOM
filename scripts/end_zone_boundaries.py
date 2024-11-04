@@ -10,9 +10,9 @@ from PIL import Image, ImageTk
 
 from hmlib.camera.end_zones import load_lines_from_config
 from hmlib.config import (
-    get_game_config,
+    get_game_config_private,
     get_nested_value,
-    save_game_config,
+    save_private_config,
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
