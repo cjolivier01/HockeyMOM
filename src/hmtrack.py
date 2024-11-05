@@ -213,6 +213,18 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="plot moving camera tracking boxes",
     )
     parser.add_argument(
+        "--async-post-processing",
+        type=int,
+        default=1,
+        help="Async post-processing",
+    )
+    parser.add_argument(
+        "--async-video-out",
+        type=int,
+        default=1,
+        help="Async video output",
+    )
+    parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
@@ -859,10 +871,8 @@ def main(args, num_gpu):
                     data_type="mot",
                     camera_name=get_nested_value(game_config, "camera.name"),
                     video_out_pipeline=video_out_pipeline,
-                    async_post_processing=True,
-                    # async_post_processing=False,
-                    # async_video_out=False,
-                    async_video_out=True,
+                    async_post_processing=args.async_post_processing,
+                    async_video_out=args.async_video_out,
                 )
                 postprocessor._args.skip_final_video_save = args.skip_final_video_save
             else:
