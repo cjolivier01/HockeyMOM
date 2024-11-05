@@ -1,7 +1,6 @@
 import numbers
-import time
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import mmcv
@@ -10,27 +9,17 @@ import numpy as np
 import torch
 from mmcv.transforms import LoadImageFromFile
 from mmengine.registry import TRANSFORMS
-
-# from mmpose.core.post_processing import (
-#     affine_transform,
-#     get_affine_transform,
-#     get_warp_matrix,
-#     warp_affine_joints,
-# )
-from mmpose.structures.bbox.transforms import bbox_cs2xywh, bbox_xywh2cs
+from mmpose.structures.bbox.transforms import bbox_xywh2cs
 from torchvision.transforms import functional as F
 
-# from hmlib.builder import TRANSFORMS
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.utils.image import (
     image_height,
     image_width,
     is_channels_first,
-    is_channels_last,
     make_channels_first,
     make_channels_last,
-    resize_image,
 )
 
 from .cv2_to_torch import warp_affine_pytorch
