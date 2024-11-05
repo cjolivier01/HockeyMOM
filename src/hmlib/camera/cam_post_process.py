@@ -5,7 +5,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import torch
 
@@ -13,6 +13,7 @@ from hmlib.builder import HM
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
+from hmlib.ui import Shower
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.utils.box_functions import aspect_ratio
 from hmlib.utils.camera_data import CameraTrackingData
@@ -244,6 +245,7 @@ class CamTrackPostProcessor:
         self._queue_timer = Timer()
         self._send_to_timer_post_process = Timer()
         self._exception = None
+        self._shower: Union[None, Shower] = None
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
             play_box=hockey_mom._video_frame.bounding_box(),
@@ -310,6 +312,8 @@ class CamTrackPostProcessor:
                 ],
             )
             self._video_output_campp.start()
+        elif self._args.show_image:
+            self._shower = Shower("CamTrackPostProcessor", self._args.show_scaled, max_size=1)
 
     def eval(self):
         self._play_tracker.eval()
@@ -366,6 +370,8 @@ class CamTrackPostProcessor:
                         )
                 if self._video_output_campp is not None:
                     self._video_output_campp.append(results)
+                elif self._shower is not None and "img" in results:
+                    self._shower.show(results["img"])
                 return results
         except Exception as ex:
             print(ex)
