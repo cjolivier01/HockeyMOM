@@ -1,18 +1,9 @@
-from typing import Dict, List, Set, Tuple
+from typing import List, Set
 
-import cv2
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 
 from hmlib.log import logger
-from hmlib.utils.box_functions import (
-    center,
-    clamp_box,
-    height,
-    tlwh_to_tlbr_single,
-    width,
-)
+from hmlib.utils.box_functions import tlwh_to_tlbr_single
 
 # nosec B101
 
@@ -151,7 +142,6 @@ class HockeyMOM:
         device: torch.device,
         camera_name: str,
         max_history: int = 26,
-        speed_history: int = 26,
     ):
         self._device = device
         self._video_frame = VideoFrame(

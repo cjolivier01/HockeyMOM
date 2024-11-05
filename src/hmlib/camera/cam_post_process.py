@@ -371,7 +371,7 @@ class CamTrackPostProcessor:
                 if self._video_output_campp is not None:
                     self._video_output_campp.append(results)
                 elif self._shower is not None and "img" in results:
-                    self._shower.show(results["img"])
+                    self._shower.show(results["img"].cpu())
                 return results
         except Exception as ex:
             print(ex)
