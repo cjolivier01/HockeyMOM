@@ -210,8 +210,45 @@ def calc_center(player_tracking_item: TrackingDataFrame) -> float:
     )
 
 
+def panoramic_distance(image_width, x1, x2, rink_width=200):
+    """
+    Calculate the real-world distance between two points on a 180-degree panoramic image.
+
+    Args:
+    image_width (int): The width of the panoramic image in pixels.
+    x1, x2 (int): The x-coordinates of the two points on the image.
+    rink_width (float): The width of the hockey rink in feet.
+
+    Returns:
+    float: The distance between the two points in feet on the hockey rink.
+    """
+    # Center of the image (0 degrees)
+    center_x = image_width / 2
+
+    # Normalize the x-coordinates to a range of [-1, 1]
+    normalized_x1 = (x1 - center_x) / center_x
+    normalized_x2 = (x2 - center_x) / center_x
+
+    # Convert normalized coordinates to angles in radians
+    angle1_rad = math.pi * normalized_x1 / 2  # -pi/2 to pi/2
+    angle2_rad = math.pi * normalized_x2 / 2  # -pi/2 to pi/2
+
+    # Calculate positions on the rink using the radius (half the width) and the angles
+    radius = rink_width / 2
+    position1 = radius * math.cos(angle1_rad)
+    position2 = radius * math.cos(angle2_rad)
+
+    # Calculate the real-world distance (arc length) between the two points on the circle
+    angle_diff = abs(angle1_rad - angle2_rad)
+    distance = radius * angle_diff  # Arc length = radius * angle in radians
+
+    return distance
+
+
 def analyze_data(
-    player_tracking_data: TrackingDataFrame, camera_tracking_data: CameraTrackingDataFrame
+    player_tracking_data: TrackingDataFrame,
+    camera_tracking_data: CameraTrackingDataFrame,
+    uncropped_width: int = 8803,
 ) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
@@ -276,10 +313,14 @@ def analyze_data(
                 assert prev_frame_id != frame_id
                 # FIXME: batch size issue when saving frame data (hence the 2)
                 if prev_frame_id == frame_id - 1 or prev_frame_id == frame_id - 2:
-                    velocity = math.sqrt(
-                        abs(new_center[0] - prev_center[0]) ** 2
-                        + abs(new_center[1] - prev_center[1]) ** 2
+                    pandist_x = panoramic_distance(
+                        image_width=uncropped_width, x1=new_center[0], x2=prev_center[0]
                     )
+                    velocity = pandist_x
+                    # velocity = math.sqrt(
+                    #     abs(new_center[0] - prev_center[0]) ** 2
+                    #     + abs(new_center[1] - prev_center[1]) ** 2
+                    # )
                     if frame_id not in frame_track_velocity:
                         frame_track_velocity[frame_id] = {}
                     frame_track_velocity[frame_id][row_tracking_id] = velocity
@@ -317,7 +358,8 @@ def analyze_data(
 
     low_velocity_ranges = find_low_velocity_ranges(
         data=frame_track_velocity,
-        min_velocity=10.0,
+        min_velocity=0.3,
+        # min_velocity=10.0,
         min_frames=15,
         min_slow_track_ratio=0.6,
     )
