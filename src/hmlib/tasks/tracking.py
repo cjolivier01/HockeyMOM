@@ -14,10 +14,10 @@ import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
-from hmlib.utils.mot_data import MOTTrackingData
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 
 from .multi_pose import multi_pose_task
@@ -32,7 +32,7 @@ def run_mmtrack(
     dataloader,
     postprocessor,
     progress_bar: Optional[ProgressBar] = None,
-    tracking_data: MOTTrackingData = None,
+    tracking_dataframe: TrackingDataFrame = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -100,7 +100,7 @@ def run_mmtrack(
                 progress_bar.add_table_callback(_table_callback)
 
             using_precalculated_tracking = (
-                tracking_data is not None and tracking_data.has_input_data()
+                tracking_dataframe is not None and tracking_dataframe.has_input_data()
             )
             for cur_iter, dataset_results in enumerate(dataloader_iterator):
                 origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
@@ -188,8 +188,8 @@ def run_mmtrack(
                                 continue
 
                             if not using_precalculated_tracking:
-                                if tracking_data is not None:
-                                    tracking_data.add_frame_records(
+                                if tracking_dataframe is not None:
+                                    tracking_dataframe.add_frame_records(
                                         frame_id=frame_id,
                                         tracking_ids=pred_track_instances.instances_id,
                                         tlbr=pred_track_instances.bboxes,
@@ -202,7 +202,7 @@ def run_mmtrack(
                                     )
                             else:
                                 # track_ids, scores, bboxes = (
-                                #     tracking_data.get_tracking_info_by_frame(frame_id)
+                                #     tracking_dataframe.get_tracking_info_by_frame(frame_id)
                                 # )
                                 # online_tlwhs = torch.from_numpy(bboxes)
                                 # tracking_results = None
@@ -264,8 +264,8 @@ def run_mmtrack(
                                 bboxes = pred_track_instances.bboxes
                                 scores = pred_track_instances.scores
 
-                                if tracking_data is not None:
-                                    tracking_data.add_frame_records(
+                                if tracking_dataframe is not None:
+                                    tracking_dataframe.add_frame_records(
                                         frame_id=frame_id,
                                         tracking_ids=track_ids,
                                         tlbr=bboxes,
@@ -282,7 +282,7 @@ def run_mmtrack(
                                 )  # height = y2 - y1
                             else:
                                 track_ids, scores, bboxes = (
-                                    tracking_data.get_tracking_info_by_frame(frame_id)
+                                    tracking_dataframe.get_tracking_info_by_frame(frame_id)
                                 )
                                 online_tlwhs = torch.from_numpy(bboxes)
                                 tracking_results = None

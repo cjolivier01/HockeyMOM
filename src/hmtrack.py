@@ -39,7 +39,7 @@ from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
-from hmlib.utils.mot_data import MOTTrackingData
+from from hmlib.utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -397,7 +397,7 @@ def configure_boundaries(
 
 def main(args, num_gpu):
     dataloader = None
-    tracking_data = None
+    tracking_dataframe = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -492,7 +492,7 @@ def main(args, num_gpu):
             os.makedirs(results_folder, exist_ok=True)
 
         if args.save_tracking_data or args.input_tracking_data:
-            tracking_data = MOTTrackingData(
+            tracking_dataframe = TrackingDataFrame(
                 input_file=args.input_tracking_data,
                 output_file=(
                     os.path.join(results_folder, "results.csv")
@@ -502,7 +502,7 @@ def main(args, num_gpu):
                 write_interval=100,
             )
 
-        using_precalculated_tracking = tracking_data is not None and tracking_data.has_input_data()
+        using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -729,7 +729,7 @@ def main(args, num_gpu):
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
-                    original_image_only=tracking_data is not None,
+                    original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
@@ -762,7 +762,7 @@ def main(args, num_gpu):
                     ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
-                    original_image_only=tracking_data is not None,
+                    original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
@@ -890,7 +890,7 @@ def main(args, num_gpu):
                 pose_dataset_info=pose_dataset_info,
                 config=vars(args),
                 device=main_device,
-                tracking_data=tracking_data,
+                tracking_dataframe=tracking_dataframe,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
@@ -918,8 +918,8 @@ def main(args, num_gpu):
                 postprocessor.stop()
             if dataloader is not None and hasattr(dataloader, "close"):
                 dataloader.close()
-            if tracking_data is not None:
-                tracking_data.flush()
+            if tracking_dataframe is not None:
+                tracking_dataframe.flush()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
 
