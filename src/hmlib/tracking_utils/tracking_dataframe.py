@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import List, Optional, Union
+from typing import Iterable, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -105,6 +105,9 @@ class TrackingDataFrame(TrackingDataBase):
             return t.to("cpu").numpy()
         return t
 
+    def __iter__(self) -> Iterable:
+        return self.data.itertuples(index=True, name="TrackingDataFrame")
+
     def add_frame_records(
         self,
         frame_id: int,
@@ -147,7 +150,7 @@ class TrackingDataFrame(TrackingDataBase):
             self.first_write = False
             self.counter = 0  # Reset the counter after writing
 
-    def get_data_by_frame(self, frame_number):
+    def get_data_by_frame(self, frame_number: int):
         """Get all tracking data for a specific frame."""
         if not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
