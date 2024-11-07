@@ -6,6 +6,7 @@ def find_low_velocity_ranges(
     min_velocity: float = 3.0,
     min_frames: int = 30,
     min_slow_track_ratio: float = 0.8,
+    frame_step: int = 1,
 ) -> List[Tuple[int, int]]:
     """
     Identifies ranges of frame_ids where at least 80% of tracking IDs have a velocity of less than 3
@@ -36,7 +37,7 @@ def find_low_velocity_ranges(
         current = start
 
         for frame in low_velocity_frames[1:]:
-            if frame == current + 1:
+            if frame == current + 1 or frame == current + 2:
                 current = frame
             else:
                 if current - start + 1 >= min_frames:

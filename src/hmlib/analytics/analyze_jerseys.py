@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
 
+from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
 SHARKS_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
@@ -268,24 +269,6 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
 
             track_id_to_last_frame_id[row_tracking_id] = frame_id, new_center
 
-            # this_row_tracking_id = tracking_item.
-            # # Get velocity if this track was around in the previous frame
-            # prev_frame_stuff = track_id_to_last_frame_id.get(tracking_id)
-            # new_center = calc_center(tracking_item)
-            # if prev_frame_stuff is not None:
-            #     # was here previous frame
-            #     prev_frame_id, prev_center = prev_frame_stuff
-            #     if prev_frame_id == frame_id - 1:
-            #         pass
-            # # This is how we'd compute velocity, based on the previous frame if this track id was there
-            # assert (
-            #     tracking_id not in track_id_to_last_frame_id
-            #     or track_id_to_last_frame_id[tracking_id] != frame_id
-            # )
-            # track_id_to_last_frame_id[tracking_id] = frame_id, new_center
-
-            # Make sure frame_id is increasing (for velocity calculation)
-            # assert frame_id == last_frame_id or frame_id == last_frame_id + 1
             if frame_id != last_frame_id:
                 assert frame_id >= last_frame_id
                 last_frame_id = frame_id
@@ -314,6 +297,15 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
         traceback.print_exc()
     print(f"Unique player numbers seen: {len(seen_numbers)}")
     print(f"Tracks seen with numbers: {len(tracking_id_numbers)}")
+
+    low_velocity_ranges = find_low_velocity_ranges(
+        data=frame_track_velocity,
+        min_velocity=10.0,
+        min_frames=15,
+        min_slow_track_ratio=0.5,
+    )
+    print(f"{low_velocity_ranges=}")
+
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
     massaged_data: Dict[Union[float, int], Any] = {}
