@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Set, Tuple, Union
 import numpy as np
 
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
+from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
 SHARKS_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
@@ -199,17 +200,19 @@ def auto_dict(the_dict: Dict[Any, Any], keys: List[Any], final_type: type = dict
     return current_dict
 
 
-def calc_center(tracking_item: TrackingDataFrame) -> float:
+def calc_center(player_tracking_item: TrackingDataFrame) -> float:
     return np.array(
         [
-            tracking_item.BBox_X + tracking_item.BBox_W / 2,
-            tracking_item.BBox_Y + tracking_item.BBox_Y / 2,
+            player_tracking_item.BBox_X + player_tracking_item.BBox_W / 2,
+            player_tracking_item.BBox_Y + player_tracking_item.BBox_Y / 2,
         ],
         dtype="float",
     )
 
 
-def analyze_data(tracking_data: TrackingDataFrame) -> None:
+def analyze_data(
+    player_tracking_data: TrackingDataFrame, camera_tracking_data: CameraTrackingDataFrame
+) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
     tracking_id_numbers: OrderedDict[int, Set[int]] = OrderedDict()
@@ -223,36 +226,50 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     # frame_id -> tracking_id -> velocity
     frame_track_velocity: Dict[int, Dict[int, float]] = {}
-    tracking_iter = iter(tracking_data)
+    player_tracking_iter = iter(player_tracking_data)
+    camera_tracking_iter = iter(camera_tracking_data)
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
     seen_numbers: Set[int] = set()
     item_count: int = 0
     min_score: float = 0.7
+
+    camera_tracking_item = next(camera_tracking_iter)
+
     try:
         last_frame_id = 0
         while True:
             # Items are frame_id, tracking_id, ...
             # Axis 0 is frame_id
-            tracking_item = next(tracking_iter)
+            player_tracking_item = next(player_tracking_iter)
+
+            # Catch up the camera frame to the player frame
+            while int(camera_tracking_item.Frame) < int(player_tracking_item.Frame):
+                camera_tracking_item = next(camera_tracking_iter)
+
+            # In case skipping player frames, skip up to proper camera frame
+
             item_count += 1
-            if not tracking_item.JerseyInfo or tracking_item.JerseyInfo in empty_json_set:
+            if (
+                not player_tracking_item.JerseyInfo
+                or player_tracking_item.JerseyInfo in empty_json_set
+            ):
                 continue
-            jersey_info = json.loads(tracking_item.JerseyInfo)
+            jersey_info = json.loads(player_tracking_item.JerseyInfo)
             if "items" not in jersey_info:
                 # quick skip recurrences of this string
-                empty_json_set.add(tracking_item.JerseyInfo)
+                empty_json_set.add(player_tracking_item.JerseyInfo)
                 continue
             jersey_items = jersey_info["items"]
             if not jersey_items:
                 # quick skip recurrences of this string
-                empty_json_set.add(tracking_item.JerseyInfo)
+                empty_json_set.add(player_tracking_item.JerseyInfo)
                 continue
             # print(f"items: {jersey_items}")
-            frame_id = int(tracking_item.Frame)
+            frame_id = int(player_tracking_item.Frame)
 
-            row_tracking_id = int(tracking_item.ID)
-            new_center = calc_center(tracking_item)
+            row_tracking_id = int(player_tracking_item.ID)
+            new_center = calc_center(player_tracking_item)
             prev_frame_stuff = track_id_to_last_frame_id.get(row_tracking_id)
             if prev_frame_stuff is not None:
                 prev_frame_id, prev_center = prev_frame_stuff

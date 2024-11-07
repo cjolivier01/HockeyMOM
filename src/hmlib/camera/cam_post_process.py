@@ -11,7 +11,7 @@ import torch
 
 from hmlib.bbox.box_functions import aspect_ratio
 from hmlib.builder import HM
-from hmlib.camera.camera_dataframe import CameraTrackingData
+from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
@@ -272,7 +272,7 @@ class CamTrackPostProcessor:
         self.final_frame_height = int(self.final_frame_height + 0.5)
 
         if self._args.save_camera_data and self._save_dir:
-            self._camera_tracking_data = CameraTrackingData(
+            self._camera_tracking_data = CameraTrackingDataFrame(
                 output_file=os.path.join(self._save_dir, "camera.csv")
             )
 

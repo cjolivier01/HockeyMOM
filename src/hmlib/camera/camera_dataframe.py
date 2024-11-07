@@ -9,7 +9,7 @@ from hmlib.tracking_utils.tracking_dataframe import (
 )
 
 
-class CameraTrackingData(TrackingDataBase):
+class CameraTrackingDataFrame(TrackingDataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
