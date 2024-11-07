@@ -203,6 +203,10 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     tracking_id_frame_and_numbers: OrderedDict[int, Dict[int, int]] = OrderedDict()
     # frame_id -> tracking_id
     frame_to_tracking_ids: OrderedDict[Union[int, float], Set[int]] = OrderedDict()
+    # track_id -> last seen frame_id
+    track_id_to_last_frame_id: OrderedDict[int, int] = OrderedDict()
+    # frame_id -> tracking_id -> velocity (may need to consider bbox size relative to entire width when computing velocity)
+    track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     tracking_iter = iter(tracking_data)
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
@@ -242,6 +246,8 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
                 if number not in seen_numbers:
                     seen_numbers.add(number)
                     # print(f"First sighting of number {number} at frame {frame_id}")
+                # This is how we'd compute velocity, based on the previous frame if this track id was there
+                track_id_to_last_frame_id[tracking_id] = frame_id
     except StopIteration:
         print(f"Finished reading {item_count} items")
     except Exception:
@@ -274,5 +280,3 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
             frame_to_tracking_ids[frame_id].add(tracking_id)
         pass
     return
-
-
