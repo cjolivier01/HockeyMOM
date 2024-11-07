@@ -16,7 +16,7 @@ def format_duration_to_hhmmss(seconds: float, decimals: int = 4) -> str:
     remaining_seconds = seconds % 60
 
     # Determine the format string for seconds based on the specified decimal places
-    seconds_format = f"{{:06.{decimals}f}}"
+    seconds_format = f"{{:02.{decimals}f}}"
 
     # Format the duration to HH:MM:SS.ssss
     formatted_duration = f"{hours:02}:{minutes:02}:{seconds_format.format(remaining_seconds)}"
