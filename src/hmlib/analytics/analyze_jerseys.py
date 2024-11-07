@@ -1,9 +1,12 @@
 import argparse
 import json
+import math
 import os
 import traceback
 from collections import Counter, OrderedDict
 from typing import Any, Dict, List, Set, Tuple, Union
+
+import numpy as np
 
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
@@ -195,6 +198,16 @@ def auto_dict(the_dict: Dict[Any, Any], keys: List[Any], final_type: type = dict
     return current_dict
 
 
+def calc_center(tracking_item: TrackingDataFrame) -> float:
+    return np.array(
+        [
+            tracking_item.BBox_X + tracking_item.BBox_W / 2,
+            tracking_item.BBox_Y + tracking_item.BBox_Y / 2,
+        ],
+        dtype="float",
+    )
+
+
 def analyze_data(tracking_data: TrackingDataFrame) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
@@ -203,8 +216,8 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     tracking_id_frame_and_numbers: OrderedDict[int, Dict[int, int]] = OrderedDict()
     # frame_id -> tracking_id
     frame_to_tracking_ids: OrderedDict[Union[int, float], Set[int]] = OrderedDict()
-    # track_id -> last seen frame_id
-    track_id_to_last_frame_id: OrderedDict[int, int] = OrderedDict()
+    # track_id -> (last seen frame_id, last center point)
+    track_id_to_last_frame_id: OrderedDict[int, Tuple[int, Tuple[float, float]]] = OrderedDict()
     # frame_id -> tracking_id -> velocity (may need to consider bbox size relative to entire width when computing velocity)
     track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     tracking_iter = iter(tracking_data)
@@ -214,11 +227,12 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     item_count: int = 0
     min_score: float = 0.7
     try:
+        last_frame_id = 0
         while True:
+            # Items are frame_id, tracking_id, ...
+            # Axis 0 is frame_id
             tracking_item = next(tracking_iter)
             item_count += 1
-            # if item_count == 1374504:
-            #     pass
             if not tracking_item.JerseyInfo or tracking_item.JerseyInfo in empty_json_set:
                 continue
             jersey_info = json.loads(tracking_item.JerseyInfo)
@@ -233,10 +247,53 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
                 continue
             # print(f"items: {jersey_items}")
             frame_id = int(tracking_item.Frame)
+
+            row_tracking_id = int(tracking_item.ID)
+            new_center = calc_center(tracking_item)
+            prev_frame_stuff = track_id_to_last_frame_id.get(row_tracking_id)
+            if prev_frame_stuff is not None:
+                prev_frame_id, prev_center = prev_frame_stuff
+                assert prev_frame_id != frame_id
+                # FIXME: batch size issue when saving frame data (hence the 2)
+                if prev_frame_id == frame_id - 1 or prev_frame_id == frame_id - 2:
+                    velocity = math.sqrt(
+                        abs(new_center[0] - prev_center[0]) ** 2
+                        + abs(new_center[1] - prev_center[1]) ** 2
+                    )
+                    print(f"{velocity=}")
+
+            track_id_to_last_frame_id[row_tracking_id] = frame_id, new_center
+
+            # this_row_tracking_id = tracking_item.
+            # # Get velocity if this track was around in the previous frame
+            # prev_frame_stuff = track_id_to_last_frame_id.get(tracking_id)
+            # new_center = calc_center(tracking_item)
+            # if prev_frame_stuff is not None:
+            #     # was here previous frame
+            #     prev_frame_id, prev_center = prev_frame_stuff
+            #     if prev_frame_id == frame_id - 1:
+            #         pass
+            # # This is how we'd compute velocity, based on the previous frame if this track id was there
+            # assert (
+            #     tracking_id not in track_id_to_last_frame_id
+            #     or track_id_to_last_frame_id[tracking_id] != frame_id
+            # )
+            # track_id_to_last_frame_id[tracking_id] = frame_id, new_center
+
+            # Make sure frame_id is increasing (for velocity calculation)
+            # assert frame_id == last_frame_id or frame_id == last_frame_id + 1
+            if frame_id != last_frame_id:
+                assert frame_id >= last_frame_id
+                last_frame_id = frame_id
+
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
+
             for j_item in jersey_items:
                 tracking_id = j_item["tracking_id"]
+                if tracking_id != row_tracking_id:
+                    # We'll deal with it when we get to that tracking id for this frame
+                    continue
                 frame_to_tracking_ids[frame_id].add(tracking_id)
                 number = int(j_item["number"])
                 score = j_item["score"]
@@ -246,8 +303,7 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
                 if number not in seen_numbers:
                     seen_numbers.add(number)
                     # print(f"First sighting of number {number} at frame {frame_id}")
-                # This is how we'd compute velocity, based on the previous frame if this track id was there
-                track_id_to_last_frame_id[tracking_id] = frame_id
+
     except StopIteration:
         print(f"Finished reading {item_count} items")
     except Exception:

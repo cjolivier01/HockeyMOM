@@ -1,4 +1,5 @@
 import os
+import traceback
 from typing import Any, Dict
 
 from hmlib.analytics.analyze_jerseys import analyze_data
@@ -18,6 +19,8 @@ if __name__ == "__main__":
 
     if not args.game_id:
         args.game_id = "ev-stockton-1"
-
-    tracking_data = load_data(game_id=args.game_id)
-    analyze_data(tracking_data)
+    try:
+        tracking_data = load_data(game_id=args.game_id)
+        analyze_data(tracking_data)
+    except Exception:
+        traceback.print_exc()
