@@ -74,7 +74,7 @@ class TrackingDataBase:
         self.write_data()
 
 
-class MOTTrackingData(TrackingDataBase):
+class TrackingDataFrame(TrackingDataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

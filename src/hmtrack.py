@@ -37,9 +37,9 @@ from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
-from from hmlib.utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo

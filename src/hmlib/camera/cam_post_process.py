@@ -11,7 +11,7 @@ import torch
 
 from hmlib.bbox.box_functions import aspect_ratio
 from hmlib.builder import HM
-from hmlib.camera.camera_data import CameraTrackingData
+from hmlib.camera.camera_dataframe import CameraTrackingData
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
