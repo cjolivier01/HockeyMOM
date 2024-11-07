@@ -11,6 +11,7 @@ import numpy as np
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.utils.time import format_duration_to_hhmmss
 
 SHARKS_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
 
@@ -249,6 +250,7 @@ def analyze_data(
     player_tracking_data: TrackingDataFrame,
     camera_tracking_data: CameraTrackingDataFrame,
     uncropped_width: int,
+    fps: float = 29.97,
 ) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
@@ -364,6 +366,12 @@ def analyze_data(
         min_slow_track_ratio=0.6,
     )
     print(f"{low_velocity_ranges=}")
+    for start_frame, stop_frame in low_velocity_ranges:
+        start_s = start_frame / fps
+        duration_s = (stop_frame - start_frame) / fps
+        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
+        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
+        # low_velocity_times = []
 
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
