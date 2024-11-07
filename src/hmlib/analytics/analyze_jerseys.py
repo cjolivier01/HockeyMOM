@@ -248,7 +248,7 @@ def panoramic_distance(image_width, x1, x2, rink_width=200):
 def analyze_data(
     player_tracking_data: TrackingDataFrame,
     camera_tracking_data: CameraTrackingDataFrame,
-    uncropped_width: int = 8803,
+    uncropped_width: int,
 ) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
