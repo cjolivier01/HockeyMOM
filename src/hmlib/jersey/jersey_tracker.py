@@ -1,40 +1,17 @@
 from __future__ import absolute_import, division, print_function
 
-import argparse
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict
 
 import cv2
 import numpy as np
 import torch
 
 import hmlib.tracking_utils.visualization as vis
-from hmlib.bbox.box_functions import (
-    center,
-    center_batch,
-    clamp_box,
-    get_enclosing_box,
-    height,
-    make_box_at_center,
-    remove_largest_bbox,
-    scale_box,
-    tlwh_centers,
-    tlwh_to_tlbr_single,
-    width,
-)
 from hmlib.builder import HM, PIPELINES
-from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.clusters import ClusterMan
-from hmlib.camera.moving_box import MovingBox
-from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import make_channels_last
-from hmlib.utils.progress_bar import ProgressBar
 
 from .number_classifier import TrackJerseyInfo
 
