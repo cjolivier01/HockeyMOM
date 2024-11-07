@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 import traceback
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from typing import Any, Dict, List, Set, Tuple
 
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
@@ -30,10 +30,91 @@ def remove_one_digit_numbers(numbers: List[int]) -> List[int]:
     two_digit_str: List[str] = [str(num) for num in two_digit]
 
     # Filter out one-digit numbers that appear in any two-digit number
-    filtered_one_digit: List[int] = [num for num in one_digit if not any(str(num) in tds for tds in two_digit_str)]
+    filtered_one_digit: List[int] = [
+        num for num in one_digit if not any(str(num) in tds for tds in two_digit_str)
+    ]
 
     # Combine the lists to form the final result
     return filtered_one_digit + two_digit
+
+
+def remove_low_frequency_numbers(numbers: List[int], min_freq: float = 0.1) -> List[int]:
+    """
+    Removes numbers from the list that appear less than 10% of the time
+    relative to the most frequently-appearing number.
+
+    Args:
+    numbers (List[int]): A list of integers, possibly with duplicates.
+
+    Returns:
+    List[int]: A list of integers where each number appears at least 10%
+               of the times of the most frequently appearing number.
+    """
+    # Count the frequency of each number in the list
+    frequency: Counter = Counter(numbers)
+
+    # Find the maximum frequency
+    max_freq: int = max(frequency.values())
+
+    # Calculate 10% of the maximum frequency
+    threshold: float = max_freq * min_freq
+
+    # Filter out numbers where the frequency is less than the threshold
+    filtered_numbers: List[int] = [
+        number for number, count in frequency.items() if count >= threshold
+    ]
+
+    return filtered_numbers
+
+
+def reorder_jerseys_with_frames(
+    jersey_numbers: List[int], frame_jersey_map: Dict[int, int]
+) -> Tuple[List[int], Dict[int, List[int]]]:
+    """
+    Reorders a list of jersey numbers based on the first occurrence of each jersey number by
+    increasing frame_id in the provided dictionary and returns a list of frames for each number.
+
+    Args:
+    jersey_numbers (List[int]): List of jersey numbers to reorder.
+    frame_jersey_map (Dict[int, int]): Dictionary with frame_id as keys and jersey_number as values.
+
+    Returns:
+    Tuple[List[int], Dict[int, List[int]]]: A tuple containing the reordered list of jersey numbers
+                                           and a dictionary mapping each jersey number to a list of frames.
+    """
+    # Mapping from jersey numbers to their earliest frame_id
+    earliest_frames: Dict[int, int] = {}
+    # Mapping from jersey numbers to all their frame_ids
+    frames_per_jersey: Dict[int, List[int]] = {}
+
+    for frame_id, jersey_number in frame_jersey_map.items():
+        if jersey_number in earliest_frames:
+            earliest_frames[jersey_number] = min(earliest_frames[jersey_number], frame_id)
+        else:
+            earliest_frames[jersey_number] = frame_id
+
+        if jersey_number in frames_per_jersey:
+            frames_per_jersey[jersey_number].append(frame_id)
+        else:
+            frames_per_jersey[jersey_number] = [frame_id]
+
+    # Sort the jersey numbers by the earliest frame_id
+    sorted_jerseys: List[Tuple[int, int]] = sorted(
+        ((jersey, frame) for jersey, frame in earliest_frames.items()), key=lambda x: x[1]
+    )
+
+    # Extract the sorted jersey numbers
+    sorted_jerseys_only: List[int] = [jersey for jersey, frame in sorted_jerseys]
+
+    # Filter the original jersey numbers to match the new order, maintaining the original frequency and order
+    jersey_order: Dict[int, int] = {jersey: idx for idx, jersey in enumerate(sorted_jerseys_only)}
+    final_sorted_jerseys: List[int] = sorted(
+        (j for j in jersey_numbers if j in jersey_order), key=lambda x: jersey_order[x]
+    )
+
+    return final_sorted_jerseys, {
+        jersey: sorted(frames) for jersey, frames in frames_per_jersey.items()
+    }
 
 
 def analyze_track(
@@ -68,7 +149,26 @@ def analyze_track(
             print(f"Trimmed number list {numbers_on_roster} down to {num}")
             track_numbers[tracking_id] = num
             return
-    #print(f"Still confused: {trim_digit_list}")
+    all_seen_occurrences: List[int] = [n for n in frame_and_numbers.values()]
+    high_freq_numbers = list(set(remove_low_frequency_numbers(all_seen_occurrences)))
+    if len(high_freq_numbers) == 1:
+        num = high_freq_numbers[0]
+        print(f"High freq number for track {tracking_id} is {num}")
+        track_numbers[tracking_id] = num
+        return
+    #
+    # If we get here, the track probably got split and all numbers are valid (hopefully)
+    #
+    occuring_numbers, jersey_frames = reorder_jerseys_with_frames(
+        high_freq_numbers, frame_and_numbers
+    )
+    for i, num in enumerate(occuring_numbers):
+        if i == 0:
+            tid = tracking_id
+        else:
+            tid = tracking_id + i / 10
+        track_numbers[tid] = num
+        print(f"tracking id: {tid} is number {num}")
     return
 
 
