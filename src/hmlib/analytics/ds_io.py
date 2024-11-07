@@ -18,7 +18,7 @@ def load_data(game_id: str) -> Dict[str, Any]:
 def analyze_data(tracking_data: TrackingDataFrame) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     tracking_iter = iter(tracking_data)
-    # jsons trings that we can ignore
+    # json strings that we can ignore
     empty_json_set: Set[str] = set()
     item_count: int = 0
     while True:
