@@ -7,7 +7,7 @@ from typing import Tuple, Union
 import numpy as np
 import torch
 
-from hmlib.utils.box_functions import height, width
+from hmlib.bbox.box_functions import height, width
 
 from ..utils.image import (
     image_height,

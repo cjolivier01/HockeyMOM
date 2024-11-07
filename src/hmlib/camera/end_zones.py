@@ -4,11 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 
+from hmlib.bbox.box_functions import center
 from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ui.show import show_image
-from hmlib.utils.box_functions import center
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.letterbox import py_letterbox
 

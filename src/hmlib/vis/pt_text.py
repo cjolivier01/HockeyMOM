@@ -10,8 +10,8 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
+from hmlib.bbox.box_functions import height, width
 from hmlib.ui import show_image
-from hmlib.utils.box_functions import height, width
 
 from ..utils.image import (
     image_height,

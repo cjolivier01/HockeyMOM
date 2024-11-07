@@ -15,6 +15,7 @@ from mmcv.transforms import Compose
 from PIL import Image
 from torchvision.transforms import functional as F
 
+from hmlib.bbox.box_functions import center, height, width
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.log import logger
@@ -24,7 +25,6 @@ from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.transforms import HmPerspectiveRotation  # TODO: pipeline this
 from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
-from hmlib.utils.box_functions import center, height, width
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.gpu import (
     StreamCheckpoint,

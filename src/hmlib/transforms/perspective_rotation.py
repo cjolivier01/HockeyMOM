@@ -4,7 +4,7 @@ from typing import Tuple, Union
 import torch
 from mmengine.registry import TRANSFORMS
 
-from hmlib.utils.box_functions import center, height, width
+from hmlib.bbox.box_functions import center, height, width
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image

@@ -2,8 +2,8 @@ from typing import List, Set
 
 import torch
 
+from hmlib.bbox.box_functions import tlwh_to_tlbr_single
 from hmlib.log import logger
-from hmlib.utils.box_functions import tlwh_to_tlbr_single
 
 # nosec B101
 

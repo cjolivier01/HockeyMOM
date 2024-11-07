@@ -14,6 +14,7 @@ from mmocr.utils import poly2bbox
 from rich.progress import track
 from torchvision.transforms.functional import normalize
 
+from hmlib.bbox.box_functions import center, width
 from hmlib.bbox.tiling import (
     clamp_boxes_to_image,
     get_non_overlapping_bbox_indices,
@@ -25,7 +26,6 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
-from hmlib.utils.box_functions import center, width
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     image_height,

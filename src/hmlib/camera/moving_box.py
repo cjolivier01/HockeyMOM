@@ -4,10 +4,7 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.builder import HM
-from hmlib.log import logger
-from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.box_functions import (
+from hmlib.bbox.box_functions import (
     aspect_ratio,
     center,
     check_for_box_overshoot,
@@ -19,6 +16,9 @@ from hmlib.utils.box_functions import (
     shift_box_to_edge,
     width,
 )
+from hmlib.builder import HM
+from hmlib.log import logger
+from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 
 
