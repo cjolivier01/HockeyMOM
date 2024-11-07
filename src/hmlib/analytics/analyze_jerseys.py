@@ -220,6 +220,8 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     track_id_to_last_frame_id: OrderedDict[int, Tuple[int, Tuple[float, float]]] = OrderedDict()
     # frame_id -> tracking_id -> velocity (may need to consider bbox size relative to entire width when computing velocity)
     track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
+    # frame_id -> tracking_id -> velocity
+    frame_track_velocity: Dict[int, Dict[int, float]] = {}
     tracking_iter = iter(tracking_data)
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
@@ -260,7 +262,9 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
                         abs(new_center[0] - prev_center[0]) ** 2
                         + abs(new_center[1] - prev_center[1]) ** 2
                     )
-                    print(f"{velocity=}")
+                    if frame_id not in frame_track_velocity:
+                        frame_track_velocity[frame_id] = {}
+                    frame_track_velocity[frame_id][row_tracking_id] = velocity
 
             track_id_to_last_frame_id[row_tracking_id] = frame_id, new_center
 
