@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .mot_data import TrackingDataBase, convert_tlbr_to_tlwh
+from ..utils.mot_data import TrackingDataBase, convert_tlbr_to_tlwh
 
 
 class CameraTrackingData(TrackingDataBase):

@@ -11,12 +11,12 @@ import torch
 
 from hmlib.bbox.box_functions import aspect_ratio
 from hmlib.builder import HM
+from hmlib.camera.camera_data import CameraTrackingData
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.ui import Shower
-from hmlib.utils.camera_data import CameraTrackingData
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_out import VideoOutput
