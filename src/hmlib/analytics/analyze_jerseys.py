@@ -302,7 +302,7 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
         data=frame_track_velocity,
         min_velocity=10.0,
         min_frames=15,
-        min_slow_track_ratio=0.7,
+        min_slow_track_ratio=0.6,
     )
     print(f"{low_velocity_ranges=}")
 
