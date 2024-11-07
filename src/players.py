@@ -1,11 +1,7 @@
-import argparse
-import json
 import os
-import traceback
-from collections import OrderedDict
-from typing import Any, Dict, Set
+from typing import Any, Dict
 
-from hmlib.analytics.ds_io import analyze_data
+from hmlib.analytics.analyze_jerseys import analyze_data
 from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
