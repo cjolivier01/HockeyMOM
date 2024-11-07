@@ -1,6 +1,6 @@
 import threading
 import time
-from tkinter import Tk, Label, Entry, Button
+from tkinter import Button, Entry, Label, Tk
 
 # Shared variables
 shared_data = {
@@ -41,16 +41,18 @@ def gui_thread():
 
     window.mainloop()
 
-# Create and start the GUI thread
-thread = threading.Thread(target=gui_thread)
-thread.daemon = True  # Daemonize thread
-thread.start()
+if __name__ == "__main__":
+    # Create and start the GUI thread
+    thread = threading.Thread(target=gui_thread)
+    thread.daemon = True  # Daemonize thread
+    thread.start()
 
-# Main loop
-try:
-    while True:
-        print(f"lr: {shared_data['lr']}, conf: {shared_data['conf']}, foob: {shared_data['foob']}")
-        time.sleep(3)
-except KeyboardInterrupt:
-    print("Program terminated by user")
-
+    # Main loop
+    try:
+        while True:
+            print(
+                f"lr: {shared_data['lr']}, conf: {shared_data['conf']}, foob: {shared_data['foob']}"
+            )
+            time.sleep(3)
+    except KeyboardInterrupt:
+        print("Program terminated by user")
