@@ -3,7 +3,7 @@ import json
 import os
 import traceback
 from collections import Counter, OrderedDict
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple, Union
 
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
@@ -128,19 +128,19 @@ def analyze_track(
     if len(numbers) == 1:
         track_numbers[tracking_id] = numbers[0]
         # print(f"Track {tracking_id} has single number: {numbers[0]}")
-        return
+        return None
     numbers_on_roster: Set[int] = set()
     for num in numbers:
         if num in roster:
             numbers_on_roster.add(num)
     if not numbers_on_roster:
         # No roster numbers were seen (should we guess here?)
-        return
+        return None
     if len(numbers_on_roster) == 1:
         num = next(iter(numbers_on_roster))
         track_numbers[tracking_id] = num
         print(f"Single roster number from track {tracking_id}: {num}")
-        return
+        return None
     # Check for just picking up one of the two numbers
     trim_digit_list = remove_one_digit_numbers(numbers_on_roster)
     if len(trim_digit_list) != len(numbers_on_roster):
@@ -148,28 +148,34 @@ def analyze_track(
             num = trim_digit_list[0]
             print(f"Trimmed number list {numbers_on_roster} down to {num}")
             track_numbers[tracking_id] = num
-            return
+            return None
     all_seen_occurrences: List[int] = [n for n in frame_and_numbers.values()]
     high_freq_numbers = list(set(remove_low_frequency_numbers(all_seen_occurrences)))
     if len(high_freq_numbers) == 1:
         num = high_freq_numbers[0]
         print(f"High freq number for track {tracking_id} is {num}")
         track_numbers[tracking_id] = num
-        return
+        return None
     #
     # If we get here, the track probably got split and all numbers are valid (hopefully)
     #
     occuring_numbers, jersey_frames = reorder_jerseys_with_frames(
         high_freq_numbers, frame_and_numbers
     )
+    #
+    new_data: OrderedDict[Union[int, float], Dict[str, Any]] = {}
     for i, num in enumerate(occuring_numbers):
         if i == 0:
             tid = tracking_id
         else:
             tid = tracking_id + i / 10
+        # If this fires, need to make the increment smaller because we went into the next tracking id
+        assert int(tid) == tracking_id
+        frames_seen = jersey_frames[num]
         track_numbers[tid] = num
+        new_data[tid] = {"jersey_number": num, "frames": frames_seen}
         print(f"tracking id: {tid} is number {num}")
-    return
+    return new_data
 
 
 def auto_dict(the_dict: Dict[Any, Any], keys: List[Any], final_type: type = dict) -> Dict[Any, Any]:
@@ -193,7 +199,8 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     tracking_id_numbers: OrderedDict[int, Set[int]] = OrderedDict()
     # tracking_id -> frame_id -> number
     tracking_id_frame_and_numbers: OrderedDict[int, Dict[int, int]] = OrderedDict()
-
+    # frame_id -> tracking_id
+    frame_to_tracking_ids: OrderedDict[Union[int, float], Set[int]] = OrderedDict()
     tracking_iter = iter(tracking_data)
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
@@ -220,8 +227,11 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
                 continue
             # print(f"items: {jersey_items}")
             frame_id = int(tracking_item.Frame)
+            if frame_id not in frame_to_tracking_ids:
+                frame_to_tracking_ids[frame_id] = set()
             for j_item in jersey_items:
                 tracking_id = j_item["tracking_id"]
+                frame_to_tracking_ids[frame_id].add(tracking_id)
                 number = int(j_item["number"])
                 score = j_item["score"]
                 auto_dict(tracking_id_numbers, tracking_id, set).add(number)
@@ -238,13 +248,27 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
     print(f"Tracks seen with numbers: {len(tracking_id_numbers)}")
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
+    massaged_data: Dict[Union[float, int], Any] = {}
     assert len(tracking_id_numbers) == len(tracking_id_frame_and_numbers)
     for tracking_id in tracking_id_numbers.keys():
-        analyze_track(
+        new_data = analyze_track(
             tracking_id,
             tracking_id_numbers[tracking_id],
             tracking_id_frame_and_numbers[tracking_id],
             roster=SHARKS_12_1_ROSTER,
             track_numbers=track_numbers,
         )
+        if new_data:
+            massaged_data.update(new_data)
+    for tracking_id, jersey_info in massaged_data.items():
+        num = jersey_info["jersey_number"]
+        tracking_id_numbers[tracking_id] = num
+        tracking_id_frame_and_numbers[tracking_id] = OrderedDict()
+        for frame_id in jersey_info["frames"]:
+            # This won't be updated correctly for other cases inside analyze_track
+            tracking_id_frame_and_numbers[tracking_id][frame_id] = num
+            if frame_id not in frame_to_tracking_ids:
+                frame_to_tracking_ids[frame_id] = set()
+            frame_to_tracking_ids[frame_id].add(tracking_id)
+        pass
     return
