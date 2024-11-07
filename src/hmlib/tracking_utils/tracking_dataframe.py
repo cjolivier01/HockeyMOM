@@ -44,8 +44,12 @@ class TrackingDataBase:
         self.first_write = True
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
+        self.data = None
         if input_file:
             self.read_data()
+
+    def __iter__(self) -> Iterable:
+        return self.data.itertuples(index=True, name="TrackingDataFrame")
 
     def has_input_data(self):
         return self.input_file is not None
@@ -104,9 +108,6 @@ class TrackingDataFrame(TrackingDataBase):
         if isinstance(t, torch.Tensor):
             return t.to("cpu").numpy()
         return t
-
-    def __iter__(self) -> Iterable:
-        return self.data.itertuples(index=True, name="TrackingDataFrame")
 
     def add_frame_records(
         self,

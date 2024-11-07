@@ -143,21 +143,21 @@ def analyze_track(
     if len(numbers_on_roster) == 1:
         num = next(iter(numbers_on_roster))
         track_numbers[tracking_id] = num
-        print(f"Single roster number from track {tracking_id}: {num}")
+        # print(f"Single roster number from track {tracking_id}: {num}")
         return None
     # Check for just picking up one of the two numbers
     trim_digit_list = remove_one_digit_numbers(numbers_on_roster)
     if len(trim_digit_list) != len(numbers_on_roster):
         if len(trim_digit_list) == 1:
             num = trim_digit_list[0]
-            print(f"Trimmed number list {numbers_on_roster} down to {num}")
+            # print(f"Trimmed number list {numbers_on_roster} down to {num}")
             track_numbers[tracking_id] = num
             return None
     all_seen_occurrences: List[int] = [n for n in frame_and_numbers.values()]
     high_freq_numbers = list(set(remove_low_frequency_numbers(all_seen_occurrences)))
     if len(high_freq_numbers) == 1:
         num = high_freq_numbers[0]
-        print(f"High freq number for track {tracking_id} is {num}")
+        # print(f"High freq number for track {tracking_id} is {num}")
         track_numbers[tracking_id] = num
         return None
     assert high_freq_numbers
@@ -180,7 +180,7 @@ def analyze_track(
         frames_seen = jersey_frames[num]
         track_numbers[tid] = num
         new_data[tid] = {"jersey_number": num, "frames": frames_seen}
-        print(f"tracking id: {tid} is number {num}")
+        # print(f"tracking id: {tid} is number {num}")
     return new_data
 
 
@@ -302,7 +302,7 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
         data=frame_track_velocity,
         min_velocity=10.0,
         min_frames=15,
-        min_slow_track_ratio=0.5,
+        min_slow_track_ratio=0.7,
     )
     print(f"{low_velocity_ranges=}")
 
