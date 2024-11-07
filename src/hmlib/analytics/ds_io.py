@@ -274,3 +274,5 @@ def analyze_data(tracking_data: TrackingDataFrame) -> None:
             frame_to_tracking_ids[frame_id].add(tracking_id)
         pass
     return
+
+
