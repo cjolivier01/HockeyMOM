@@ -156,6 +156,8 @@ def analyze_track(
         print(f"High freq number for track {tracking_id} is {num}")
         track_numbers[tracking_id] = num
         return None
+    assert high_freq_numbers
+
     #
     # If we get here, the track probably got split and all numbers are valid (hopefully)
     #
