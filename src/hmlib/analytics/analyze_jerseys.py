@@ -318,7 +318,10 @@ def analyze_data(
                     pandist_x = panoramic_distance(
                         image_width=uncropped_width, x1=new_center[0], x2=prev_center[0]
                     )
-                    velocity = pandist_x
+                    pandist_y = panoramic_distance(
+                        image_width=uncropped_width, x1=new_center[1], x2=prev_center[1]
+                    )
+                    velocity = math.sqrt(pandist_x**2 + pandist_y**2)
                     # velocity = math.sqrt(
                     #     abs(new_center[0] - prev_center[0]) ** 2
                     #     + abs(new_center[1] - prev_center[1]) ** 2
