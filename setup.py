@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from distutils.version import LooseVersion
+from typing import Tuple
 
 import torch
 from setuptools import Extension, find_packages, setup
@@ -24,6 +25,49 @@ def run_submodule_setup(submodule_subdir: str):
         subprocess.run(subprocess_command)
     finally:
         os.chdir(current_dir)
+
+
+def run_setup_in_directory(directory: str) -> Tuple[int, str, str]:
+    """
+    Runs setup.py in the specified directory with the same arguments that were
+    passed to the current script.
+
+    Args:
+        directory (str): The path to the directory containing setup.py.
+
+    Returns:
+        Tuple[str, str]: The stdout and stderr output from the setup.py execution.
+    """
+    # Build the path to setup.py in the target directory
+    cwd = os.getcwd()
+    os.chdir(directory)
+    try:
+        setup_path = "./setup.py"
+
+        command = None
+        # Ensure setup.py exists in the specified directory
+        if not os.path.isfile(setup_path):
+            if os.path.exists("pyproject.toml"):
+                command = ["pip", "install", "."]
+            else:
+                raise FileNotFoundError(f"setup.py not found in directory: {directory}")
+
+        # Construct the command to run setup.py with the same arguments as this script
+        if not command:
+            command = [sys.executable, setup_path] + sys.argv[
+                1:
+            ]  # sys.argv[0] is the script name itself
+
+        # Run the setup.py with the arguments
+        result = subprocess.run(command, capture_output=False, text=True)
+
+        # Output results
+        if result.returncode != 0:
+            print("setup.py failed with the following error:")
+        # Return the stdout and stderr output for further processing
+        return result.returncode, result.stdout, result.stderr
+    finally:
+        os.chdir(cwd)
 
 
 class CMakeExtension(Extension):
@@ -155,9 +199,21 @@ if __name__ == "__main__":
     # parser.add_argument('--conda', action="store_true", help='Build using a conda environment')
     # _ARGS = parser.parse_args()
 
-    # run_submodule_setup('DCNv2')
-    # run_submodule_setup('external/fast_pytorch_kmeans')
-
+    submodule_dirs = [
+        "external/fast_pytorch_kmeans",
+        "xmodels/LightGlue",
+    ]
+    for submodule in submodule_dirs:
+        print("***************************************")
+        print(f"* SETUP: {submodule} *")
+        print("***************************************")
+        retcode, stdout, stderr = run_setup_in_directory(submodule)
+        if retcode != 0:
+            print(stdout)
+            print(stderr)
+            sys.exit(retcode)
+    print("---------------------------------------")
+    print("---------------------------------------")
     setup(
         name="hockeymom",
         version="0.5.0",
