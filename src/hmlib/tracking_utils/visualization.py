@@ -480,36 +480,20 @@ def plot_tracking(
     return im
 
 
-# def plot_camera(image, obj_ids: List[int], hockey_mom: HockeyMOM):
-#     original_bounding_box = hockey_mom.get_current_bounding_box(obj_ids=obj_ids)
-#     print(original_bounding_box)
-#     cv2.rectangle(
-#         image,
-#         original_bounding_box[0:2],
-#         original_bounding_box[2:4],
-#         color=(0, 0, 0),
-#         thickness=6,
-#     )
-#     x1 = int(original_bounding_box[0])
-#     y1 = int(original_bounding_box[1])
-#     w = int(original_bounding_box[2])
-#     h = int(original_bounding_box[3])
-#     cv2.circle(
-#         image, (int(x1 + 0.5 * w), int(y1 + h)), 2, color=(255, 255, 0), thickness=20
-#     )
-#     return image
-
-
-def plot_trajectory(image, tlwhs, track_ids):
-    assert len(tlwhs) == len(track_ids)
-    for one_tlwhs, track_id in zip(tlwhs, track_ids):
-        color = get_color(int(track_id))
-        for tlwh in one_tlwhs:
-            x1 = int(tlwh[0])
-            y1 = int(tlwh[1])
-            w = int(tlwh[2])
-            h = int(tlwh[3])
-            cv2.circle(image, (int(x1 + 0.5 * w), int(y1 + h)), 2, color, thickness=2)
+def plot_trajectory(image, track_id, tlwhs):
+    color = get_color(int(track_id))
+    for tlwh in tlwhs:
+        x1 = int(tlwh[0])
+        y1 = int(tlwh[1])
+        w = int(tlwh[2])
+        h = int(tlwh[3])
+        image = plot_circle(
+            image=image,
+            center=(int(x1 + 0.5 * w), int(y1 + h)),
+            radius=2,
+            color=color,
+            thickness=2,
+        )
 
     return image
 

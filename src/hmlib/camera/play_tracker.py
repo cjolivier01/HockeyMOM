@@ -292,37 +292,6 @@ class PlayTracker(torch.nn.Module):
                 frame_id=frame_id, info=current_info
             )
 
-            # Second basic case, it's the same as last time
-
-            # tracking_id, current_number, confidence
-            # If everything is the same, just move on
-            # prev_tracking_id = self._jersey_number_to_tracking_id.get(current_info.number)
-            # if prev_tracking_id is not None and prev_tracking_id == current_tracking_id:
-            #     # Nothing changed
-            #     continue
-
-            # # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
-            # pnw = self._tracking_id_jersey.get(tracking_id)
-            # if pnw is not None:
-            #     prev_number, prev_confidence = pnw
-            # else:
-            #     prev_number, prev_confidence = None, None
-            # if prev_number == number:
-            #     continue
-            # if prev_number is not None:
-            #     if confidence < prev_confidence:
-            #         continue
-            #     prev_tracking_id = self._jersey_number_to_tracking_id.pop(prev_number)
-            #     self._tracking_id_jersey.pop(prev_tracking_id)
-            # # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
-
-            # self._jersey_number_to_tracking_id[number] = tracking_id
-            # self._tracking_id_jersey[tracking_id] = number, confidence
-            # logger.info(f"{tracking_id=} -> {number=}")
-            # if len(self._jersey_number_to_tracking_id) != len(self._tracking_id_jersey):
-            #     print("OH SHIT")
-            # assert len(self._jersey_number_to_tracking_id) == len(self._tracking_id_jersey)
-
     # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
         track_data_sample = results["data_samples"]
@@ -382,6 +351,13 @@ class PlayTracker(torch.nn.Module):
             original_images_list[frame_index] = None
 
             self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
+
+            # Maybe draw trjectories...
+            if self._args.plot_trajectories:
+                for tid in online_ids:
+                    hist = self._hockey_mom.get_history(tid)
+                    if hist is not None:
+                        online_img = histr.draw(online_im)
 
             #
             # BEGIN Clusters and Cluster Boxes
