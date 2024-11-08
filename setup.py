@@ -100,15 +100,10 @@ class CMakeBuild(BuildExtension):
             "-DPYTHON_EXECUTABLE=" + sys.executable,
         ]
 
-        # Torch_DIR = "/home/colivier/src/pytorch/torch/share/cmake/Torch/"
         Torch_DIR = os.path.dirname(torch.__file__)
         os.environ["Torch_DIR"] = Torch_DIR
-        # os.environ["CUDNN_LIBRARY_PATH"] = "/usr/local/cudnn/lib"
-        # os.environ["CUDNN_LIB_DIR"] = "/usr/local/cudnn/lib"
-        # os.environ["CUDNN_INCLUDE_PATH"] = "/usr/local/cudnn/include"
 
         default_build_type = "Release"
-        # default_build_type = "ReleaseWithDebugInfo"
         if int(os.environ.get("DEBUG", "0")) > 0:
             default_build_type = "Debug"
         elif int(os.environ.get("PROFILE", "0")) > 0:
@@ -136,16 +131,6 @@ class CMakeBuild(BuildExtension):
             cmake_args += [f"-DCUDNN_LIBRARY={cudnn_base_path}/lib/libcudnn.so"]
             cmake_args += [f"-DCUDNN_LIBRARY_PATH={cudnn_base_path}/lib/libcudnn.so"]
 
-        #        cmake_args += ["-DCMAKE_C_COMPILER=clang"]
-        #        cmake_args += ["-DCMAKE_CXX_COMPILER=clang++"]
-
-        # cmake_args += ["-DHM_BUILD_ASAN=1"]
-
-        # cmake_args += ["-DCMAKE_PREFIX_PATH="]
-        # cmake_args += ["-DCMAKE_FIND_DEBUG_MODE=ON"]
-        # cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
-
-        # if ARGS.conda:
         cmake_args += [f"-DCMAKE_PREFIX_PATH={os.path.join(os.getcwd(), 'cmake')}"]
 
         if platform.system() == "Windows":
@@ -171,14 +156,6 @@ class CMakeBuild(BuildExtension):
         cmake_targets = [
             "--target",
             os.path.basename(ext.name),
-            # "--target",
-            # "nona",
-            # "--target",
-            # "pto_gen",
-            # "--target",
-            # "cpfind",
-            # "--target",
-            # "autooptimiser",
         ]
         print(" ".join(["cmake"] + ["--build", "."] + cmake_targets + build_args))
         subprocess.check_call(
@@ -188,26 +165,23 @@ class CMakeBuild(BuildExtension):
 
 
 if __name__ == "__main__":
-    # _ = _ARGS
-    # parser = argparse.ArgumentParser(description='HockeyMOM Setup Script.')
-    # parser.add_argument('--conda', action="store_true", help='Build using a conda environment')
-    # _ARGS = parser.parse_args()
+    if False:
+        submodule_dirs = [
+            "external/fast_pytorch_kmeans",
+            "xmodels/LightGlue",
+        ]
+        for submodule in submodule_dirs:
+            print("***************************************")
+            print(f"* SETUP: {submodule} *")
+            print("***************************************")
+            retcode, stdout, stderr = run_setup_in_directory(submodule)
+            if retcode != 0:
+                print(stdout)
+                print(stderr)
+                sys.exit(retcode)
+        print("---------------------------------------")
+        print("---------------------------------------")
 
-    submodule_dirs = [
-        "external/fast_pytorch_kmeans",
-        "xmodels/LightGlue",
-    ]
-    for submodule in submodule_dirs:
-        print("***************************************")
-        print(f"* SETUP: {submodule} *")
-        print("***************************************")
-        retcode, stdout, stderr = run_setup_in_directory(submodule)
-        if retcode != 0:
-            print(stdout)
-            print(stderr)
-            sys.exit(retcode)
-    print("---------------------------------------")
-    print("---------------------------------------")
     setup(
         name="hockeymom",
         version="0.5.0",
@@ -215,10 +189,7 @@ if __name__ == "__main__":
         author_email="cjolivier01@gmail.com",
         description="HockeyMOM project",
         long_description=open("README.rst").read(),
-        ext_modules=[
-            # CppExtension("hockeymom/_hockeymom")
-            CMakeExtension("hockeymom/_hockeymom")
-        ],
+        ext_modules=[CMakeExtension("hockeymom/_hockeymom")],
         packages=find_packages(),
         cmdclass=dict(build_ext=CMakeBuild),
         url="https://github.com/cjolivier01/hockeymom2",
