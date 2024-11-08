@@ -400,5 +400,5 @@ RUN sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid
 EXPOSE 22298
 
 # Start the SSH daemon
-CMD ["/usr/sbin/sshd", "-d", "-D"]
+CMD ["/usr/sbin/sshd", "-d", "-p", "22298"]
 # CMD ["/bin/bash"]
