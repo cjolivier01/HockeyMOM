@@ -47,7 +47,7 @@ def run_setup_in_directory(directory: str) -> Tuple[int, str, str]:
         command = None
         # Ensure setup.py exists in the specified directory
         if not os.path.isfile(setup_path):
-            if os.path.exists("pyproject.toml"):
+            if os.path.exists("pyproject.toml") or os.path.exists("requirements.txt"):
                 command = ["pip", "install", "."]
             else:
                 raise FileNotFoundError(f"setup.py not found in directory: {directory}")
@@ -86,9 +86,7 @@ class CMakeBuild(BuildExtension):
                 + ", ".join(e.name for e in self.extensions)
             )
 
-        cmake_version = LooseVersion(
-            re.search(r"version\s*([\d.]+)", out.decode()).group(1)
-        )
+        cmake_version = LooseVersion(re.search(r"version\s*([\d.]+)", out.decode()).group(1))
         if cmake_version < LooseVersion("3.5.0"):
             raise RuntimeError("CMake >= 3.5.0 is required")
 
@@ -152,9 +150,7 @@ class CMakeBuild(BuildExtension):
 
         if platform.system() == "Windows":
             cmake_args += [
-                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{}={}".format(
-                    build_type.upper(), extdir
-                )
+                "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{}={}".format(build_type.upper(), extdir)
             ]
             if sys.maxsize > 2**32:
                 cmake_args += ["-A", "x64"]
@@ -171,9 +167,7 @@ class CMakeBuild(BuildExtension):
             os.makedirs(self.build_temp)
         print(" ".join(["cmake", ext.sourcedir] + cmake_args))
         print(env)
-        subprocess.check_call(
-            ["cmake", ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env
-        )
+        subprocess.check_call(["cmake", ext.sourcedir] + cmake_args, cwd=self.build_temp, env=env)
         cmake_targets = [
             "--target",
             os.path.basename(ext.name),
