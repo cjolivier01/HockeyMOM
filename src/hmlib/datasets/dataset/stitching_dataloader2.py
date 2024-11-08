@@ -149,7 +149,7 @@ class StitchDataset:
         self,
         videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        output_stitched_video_file: str = None,
+        # output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
         batch_size: int = 1,
@@ -157,7 +157,7 @@ class StitchDataset:
         auto_configure: bool = True,
         num_workers: int = 1,
         image_roi: List[int] = None,
-        encoder_device: torch.device = torch.device("cpu"),
+        # encoder_device: torch.device = torch.device("cpu"),
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
@@ -177,8 +177,8 @@ class StitchDataset:
         self._remapping_device = as_torch_device(remapping_device)
         self._decoder_device = decoder_device
         self._remap_on_async_stream = remap_on_async_stream
-        self._encoder_device = as_torch_device(encoder_device)
-        self._output_stitched_video_file = output_stitched_video_file
+        # self._encoder_device = as_torch_device(encoder_device)
+        # self._output_stitched_video_file = output_stitched_video_file
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
@@ -522,57 +522,52 @@ class StitchDataset:
             self._coordinator_thread.join()
             self._coordinator_thread = None
 
-    def _send_frame_to_video_out(
-        self, frame_id: int, stitched_frame: Union[StreamTensor, torch.Tensor]
-    ) -> Union[StreamTensor, torch.Tensor]:
-        if not self._output_stitched_video_file:
-            return stitched_frame
-        if self._video_output is None:
-            args = argparse.Namespace()
-            args.fixed_edge_rotation = False
-            args.crop_output_image = False
-            args.use_watermark = False
-            args.show_image = False
-            args.plot_frame_number = False
-            args.end_zones = False
-            self._video_output_size = torch.tensor(
-                [image_width(stitched_frame), image_height(stitched_frame)],
-                dtype=torch.int32,
-            )
-            self._video_output_box = torch.tensor(
-                (0, 0, self._video_output_size[0], self._video_output_size[1]),
-                dtype=self._dtype,
-            )
-            # Not doing anything fancy, so don't waste time copy to and from the GPU
-            self._video_output = VideoOutput(
-                args=args,
-                output_video_path=self._output_stitched_video_file,
-                output_frame_width=self._video_output_size[0],
-                output_frame_height=self._video_output_size[1],
-                fps=self.fps,
-                device=self._encoder_device,
-                # fourcc=(
-                #     "hevc_nvenc"
-                #     if str(self._encoder_device).startswith("cuda")
-                #     else "XVID"
-                # ),
-                name="STITCH-OUT",
-                simple_save=True,
-            )
-        # assert False and "What's up with the / 255.0 down there?"
-        if not self._video_output.is_cuda_encoder():
-            stitched_frame = to_tensor(stitched_frame)
-        image_proc_data = {
-            "frame_id": torch.tensor(frame_id, dtype=torch.int64),
-            # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            # img=to_tensor(stitched_frame),
-            "img": stitched_frame,
-            # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            "current_box": self._video_output_box.detach().clone(),
-        }
-        # torch.cuda.synchronize()
-        self._video_output.append(image_proc_data)
-        return stitched_frame
+    # def _send_frame_to_video_out(
+    #     self, frame_id: int, stitched_frame: Union[StreamTensor, torch.Tensor]
+    # ) -> Union[StreamTensor, torch.Tensor]:
+    #     if not self._output_stitched_video_file:
+    #         return stitched_frame
+    #     if self._video_output is None:
+    #         args = argparse.Namespace()
+    #         args.fixed_edge_rotation = False
+    #         args.crop_output_image = False
+    #         args.use_watermark = False
+    #         args.show_image = False
+    #         args.plot_frame_number = False
+    #         args.end_zones = False
+    #         self._video_output_size = torch.tensor(
+    #             [image_width(stitched_frame), image_height(stitched_frame)],
+    #             dtype=torch.int32,
+    #         )
+    #         self._video_output_box = torch.tensor(
+    #             (0, 0, self._video_output_size[0], self._video_output_size[1]),
+    #             dtype=self._dtype,
+    #         )
+    #         # Not doing anything fancy, so don't waste time copy to and from the GPU
+    #         self._video_output = VideoOutput(
+    #             args=args,
+    #             output_video_path=self._output_stitched_video_file,
+    #             output_frame_width=self._video_output_size[0],
+    #             output_frame_height=self._video_output_size[1],
+    #             fps=self.fps,
+    #             device=self._encoder_device,
+    #             name="STITCH-OUT",
+    #             simple_save=True,
+    #         )
+    #     # assert False and "What's up with the / 255.0 down there?"
+    #     if not self._video_output.is_cuda_encoder():
+    #         stitched_frame = to_tensor(stitched_frame)
+    #     image_proc_data = {
+    #         "frame_id": torch.tensor(frame_id, dtype=torch.int64),
+    #         # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+    #         # img=to_tensor(stitched_frame),
+    #         "img": stitched_frame,
+    #         # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
+    #         "current_box": self._video_output_box.detach().clone(),
+    #     }
+    #     # torch.cuda.synchronize()
+    #     self._video_output.append(image_proc_data)
+    #     return stitched_frame
 
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
@@ -757,10 +752,10 @@ class StitchDataset:
                 self._on_first_stitched_image_callback(stitched_frame[0])
 
         assert stitched_frame.ndim == 4
-        stitched_frame = self._send_frame_to_video_out(
-            frame_id=frame_id,
-            stitched_frame=stitched_frame,
-        )
+        # stitched_frame = self._send_frame_to_video_out(
+        #     frame_id=frame_id,
+        #     stitched_frame=stitched_frame,
+        # )
         # maybe nested batches can be some multiple of, so can remove this check if necessary
         assert self._batch_size == stitched_frame.shape[0]
         self._current_frame += stitched_frame.shape[0]
