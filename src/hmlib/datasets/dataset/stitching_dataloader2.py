@@ -41,6 +41,7 @@ def _get_dir_name(path):
         return path
     return Path(path).parent
 
+
 _USE_NEW_STITCHER: bool = True
 
 from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
