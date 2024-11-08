@@ -322,10 +322,6 @@ def analyze_data(
                         image_width=uncropped_width, x1=new_center[1], x2=prev_center[1]
                     )
                     velocity = math.sqrt(pandist_x**2 + pandist_y**2)
-                    # velocity = math.sqrt(
-                    #     abs(new_center[0] - prev_center[0]) ** 2
-                    #     + abs(new_center[1] - prev_center[1]) ** 2
-                    # )
                     if frame_id not in frame_track_velocity:
                         frame_track_velocity[frame_id] = {}
                     frame_track_velocity[frame_id][row_tracking_id] = velocity
@@ -363,9 +359,11 @@ def analyze_data(
 
     low_velocity_ranges = find_low_velocity_ranges(
         data=frame_track_velocity,
-        min_velocity=0.3,
+        min_velocity=0.5,
+        # min_velocity=0.3,
         # min_velocity=10.0,
-        min_frames=15,
+        # min_frames=15,
+        min_frames=20,
         min_slow_track_ratio=0.6,
     )
     print(f"{low_velocity_ranges=}")
