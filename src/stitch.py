@@ -231,6 +231,8 @@ def main(args):
     game_videos = configure_game_videos(game_id=args.game_id, force=args.force)
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
+    remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
+    encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
@@ -250,9 +252,9 @@ def main(args):
             remap_on_async_stream=False,
             ignore_clip_box=True,
             cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
-            remapping_device=torch.device("cuda", gpu_allocator.allocate_fast()),
-            encoder_device=torch.device("cuda", gpu_allocator.allocate_modern()),
-            decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
+            remapping_device=remapping_device,
+            decoder_device=remapping_device,
+            encoder_device=encoder_device,
             dtype=torch.half if args.fp16 else torch.float,
             force=args.force,
             auto_adjust_exposure=args.stitch_auto_adjust_exposure,
