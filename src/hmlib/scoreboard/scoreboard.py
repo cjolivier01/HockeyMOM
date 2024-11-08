@@ -56,6 +56,10 @@ def order_points_clockwise(points: torch.Tensor) -> torch.Tensor:
     return ordered_points
 
 
+def _maybe_ratio(config_value: Union[int, float, str], reference_value: Union[int]) -> int:
+    pass
+
+
 class Scoreboard(torch.nn.Module):
 
     def __init__(

@@ -42,8 +42,10 @@ rink:
     # 4-sided polygon that maps out the scoreboard in the perspective view
     # Should be tlbr form, with values: [x, y]
     perspective_polygon: null
-    projected_height: 500
-    projected_width: 500
+    projected_height: "%20"
+    projected_width: "%10"
+    # projected_height: 500
+    # projected_width: 500
   end_zones:
     #
     # End zone start/stop thresholds (lines of the form (x1, y1), (x2, y2))

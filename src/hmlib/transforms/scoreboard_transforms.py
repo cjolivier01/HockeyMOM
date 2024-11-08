@@ -79,10 +79,20 @@ class HmCaptureScoreboard:
             return results
         img = results["img"]
         if self._scoreboard is None:
+            dest_width = scoreboard.pop("dest_width")
+            if isinstance(dest_width, str) and dest_width.startswith("%"):
+                ratio = float(dest_width[1:]) / 100
+                dw = results["ori_shape"][-1]
+                dest_width = dw * ratio
+            dest_height = scoreboard.pop("dest_height")
+            if isinstance(dest_height, str) and dest_height.startswith("%"):
+                ratio = float(dest_height[1:]) / 100
+                dh = results["ori_shape"][-2]
+                dest_height = dh * ratio
             self._scoreboard = Scoreboard(
                 src_pts=scoreboard["scoreboard_points"],
-                dest_width=int(scoreboard.pop("dest_width")),
-                dest_height=int(scoreboard.pop("dest_height")),
+                dest_width=int(dest_width),
+                dest_height=int(dest_height),
                 dtype=torch.float,
                 device=img.device,
             )
