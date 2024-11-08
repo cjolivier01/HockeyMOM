@@ -245,7 +245,8 @@ RUN conda run -n ubuntu \
     pycocotools \
     sympy \
     numba \
-    pyquaternion
+    pyquaternion \
+    typing_extensions
 
 # Again, force the proper numpy version
 RUN conda run -n ubuntu \
