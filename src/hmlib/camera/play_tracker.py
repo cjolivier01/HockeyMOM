@@ -357,7 +357,7 @@ class PlayTracker(torch.nn.Module):
                 for tid in online_ids:
                     hist = self._hockey_mom.get_history(tid)
                     if hist is not None:
-                        online_img = histr.draw(online_im)
+                        online_img = hist.draw(online_im)
 
             #
             # BEGIN Clusters and Cluster Boxes
