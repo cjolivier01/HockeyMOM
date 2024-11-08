@@ -482,7 +482,7 @@ def plot_tracking(
 
 def plot_trajectory(image, track_id, tlwhs):
     color = get_color(int(track_id))
-    thickness = 3
+    thickness = 2
     for tlwh in tlwhs:
         x1 = int(tlwh[0])
         y1 = int(tlwh[1])
