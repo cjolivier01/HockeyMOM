@@ -80,9 +80,9 @@ class Scoreboard(torch.nn.Module):
         # Check for all zeros
         if torch.sum(src_pts.to(torch.int64)) == 0:
             assert False
-        # self._src_pts = order_points_clockwise(src_pts)
         self._src_pts = src_pts.clone().to(device)
 
+        # Doesn't work as intended
         # self._src_pts = order_points_clockwise(src_pts)
 
         if clip_box is not None:
