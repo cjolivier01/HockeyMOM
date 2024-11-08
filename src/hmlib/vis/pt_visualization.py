@@ -1,5 +1,5 @@
 """
-PyTorch drawing functions
+PyTorch geometric shape drawing functions
 """
 
 from typing import Tuple, Union

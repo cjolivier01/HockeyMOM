@@ -594,7 +594,7 @@ class PlayTracker(torch.nn.Module):
             if speed_adjust_box is not None:
                 roi_center = center(speed_adjust_box.bounding_box())
                 if self._args.plot_individual_player_tracking:
-                    vis.plot_line(
+                    online_im = vis.plot_line(
                         online_im,
                         edge_center,
                         roi_center,
