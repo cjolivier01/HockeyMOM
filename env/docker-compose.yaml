@@ -2,7 +2,7 @@
 
 services:
   hmbase:
-    image: hmbase
+    image: hmdev
     ports:
       - "${PORT_ON_HOST:-22298}:22298"
     volumes:
