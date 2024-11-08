@@ -1,1 +1,0 @@
-PYTHONPATH="./build:./models/mixsort:./models/mixsort/MixViT:./src:./external/MOTChallengeEvalKit"
