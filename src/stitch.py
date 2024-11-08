@@ -117,7 +117,6 @@ def stitch_videos(
         pto_project_file=pto_project_file,
         videos=stitch_videos,
         start_frame_number=start_frame_number,
-        # output_stitched_video_file=output_stitched_video_file,
         max_frames=max_frames,
         batch_size=batch_size,
         num_workers=1,
@@ -125,7 +124,6 @@ def stitch_videos(
         image_roi=(
             get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
         ),
-        # encoder_device=encoder_device,
         decoder_device=decoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
