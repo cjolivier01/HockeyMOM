@@ -138,21 +138,21 @@ game:
 #
 model:
   end_to_end:
-    # config: config/models/hm/hm_end_to_end.py
-    # checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth
-    
-    # mmv2 checkpoitn with "detector." prefix
     config: config/models/hm2/hm_end_to_end.py
     checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
+    checkpoint_local: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
+    # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)
+    checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
 
   pose:
     config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py
     checkpoint: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
+    checkpoint_remote: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
+    checkpoiint_local: pretrained/mmpose/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
 
   ice_rink_segm:
-    # config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py
-    # checkpoint: pretrained/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/ice_rink_iter_19500.pth
     config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco.py
+    checkpoint_local: pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth
     checkpoint: pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth
 
   svnh_classifier:
