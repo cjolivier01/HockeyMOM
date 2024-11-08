@@ -12,7 +12,7 @@ RUN apt-get install -y wget ssh openssh-server
 # Update package list and install essential build tools
 RUN apt-get update && apt-get install -y \
   build-essential \
-  git \
+  git git-lfs \
   yasm \
   pkg-config \
   wget \
