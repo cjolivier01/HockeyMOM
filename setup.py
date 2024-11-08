@@ -165,7 +165,7 @@ class CMakeBuild(BuildExtension):
 
 
 if __name__ == "__main__":
-    if False:
+    if True:
         submodule_dirs = [
             "external/fast_pytorch_kmeans",
             "xmodels/LightGlue",
