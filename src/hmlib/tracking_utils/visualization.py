@@ -482,17 +482,19 @@ def plot_tracking(
 
 def plot_trajectory(image, track_id, tlwhs):
     color = get_color(int(track_id))
+    thickness = 3
     for tlwh in tlwhs:
         x1 = int(tlwh[0])
         y1 = int(tlwh[1])
         w = int(tlwh[2])
         h = int(tlwh[3])
-        image = plot_circle(
-            image=image,
-            center=(int(x1 + 0.5 * w), int(y1 + h)),
-            radius=2,
+        cx = int(x1 + 0.5 * w)
+        cy = int(y1 + h)
+        image = plot_rectangle(
+            img=image,
+            box=[cx - thickness, cy - thickness, cx + thickness, cy + thickness],
             color=color,
-            thickness=2,
+            thickness=thickness,
         )
 
     return image

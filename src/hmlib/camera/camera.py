@@ -65,7 +65,7 @@ class TlwhHistory(object):
 
     def draw(self, image: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
         tracking_id = self.id_
-        positions = torch.stack(self._image_position_history[index])
+        positions = torch.stack(self._image_position_history)
         return plot_trajectory(image, tracking_id, positions)
 
     def append(self, image_position: torch.Tensor):
