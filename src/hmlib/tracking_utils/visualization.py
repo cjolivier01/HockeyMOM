@@ -488,6 +488,7 @@ def plot_trajectory(image, track_id, tlwhs):
         y1 = int(tlwh[1])
         w = int(tlwh[2])
         h = int(tlwh[3])
+        # Trailing off of one foot...
         cx = int(x1 + 0.5 * w)
         cy = int(y1 + h)
         image = plot_rectangle(
