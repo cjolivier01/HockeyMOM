@@ -131,7 +131,7 @@ RUN rm Mambaforge-Linux-x86_64.sh
 ENV PATH /opt/$USERNAME/dconda/bin:$PATH
 
 # # Create a Python environment called 'ubuntu'
-RUN mamba create -n ubuntu python=3.11 -y
+RUN mamba create -n ubuntu python=3.12 -y
 
 # # Activate the environment automatically on login
 RUN echo "source /opt/$USERNAME/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
