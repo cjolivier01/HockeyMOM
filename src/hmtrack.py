@@ -697,9 +697,6 @@ def main(args, num_gpu):
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
                     start_frame_number=args.start_frame,
-                    output_stitched_video_file=(
-                        output_stitched_video_file if args.save_stitched else None
-                    ),
                     max_frames=args.max_frames,
                     max_input_queue_size=args.cache_size,
                     image_roi=None,
