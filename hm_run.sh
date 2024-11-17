@@ -12,7 +12,7 @@
 #WRAPPER_CMD="echo"
 
 #STITCHING_ARGS="--save-stitched"
-SAVE_DATA_ARGS="--save-tracking-data --save-camera-data"
+#SAVE_DATA_ARGS="--save-tracking-data --save-camera-data"
 
 echo "Experiment name: ${EXP_NAME}"
 
