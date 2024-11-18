@@ -243,7 +243,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             hw_accel = None
             if self._codec.endswith("_nvenc"):
                 hw_accel = str(self._device)
-            # Cut down the bitrate
+            # Cut down the bit_rate
             self._codec_config.bit_rate //= 4
             self._video_out.add_video_stream(
                 frame_rate=self._stream_fps,
@@ -542,7 +542,7 @@ class VideoStreamReader:
 
     @property
     def bit_rate(self):
-        return self._video_info.bitrate
+        return self._video_info.bit_rate
 
     @property
     def frame_count(self):
@@ -683,6 +683,7 @@ class VideoStreamReader:
 
 
 class VideoStreamWriterCV2(VideoStreamWriterInterface):
+
     def __init__(
         self,
         filename: str,
@@ -691,9 +692,11 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         height: int,
         device: torch.device,
         codec: Optional[str],
+        bit_rate: Optional[int] = None,
         batch_size: Optional[int] = 1,
     ):
         fourcc = cv2.VideoWriter_fourcc(*codec)
+        self._bit_rate = bit_rate
         self._output_video = cv2.VideoWriter(
             filename=filename,
             fourcc=fourcc,
@@ -716,11 +719,13 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     @classmethod
     def calculate_desired_bitrate(self, width: int, height: int):
         # 4K @ 55M
-        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
-        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
-        logger.info(
-            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
-        )
+        desired_bit_rate = self._bit_rate
+        if not desired_bit_rate:
+            desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
+            desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
+            logger.info(
+                f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
+            )
         return desired_bit_rate
 
     def open(self):
@@ -754,6 +759,7 @@ def create_output_video_stream(
     height: int,
     codec: Optional[str],
     device: torch.device,
+    bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
 ) -> VideoStreamWriterInterface:
     if "_nvenc" in codec or filename.startswith("rtmp://"):
@@ -763,6 +769,7 @@ def create_output_video_stream(
             height=int(height),
             width=int(width),
             codec="hevc_nvenc",
+            bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
         )
@@ -774,6 +781,7 @@ def create_output_video_stream(
             height=int(height),
             width=int(width),
             codec=codec,
+            bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
         )

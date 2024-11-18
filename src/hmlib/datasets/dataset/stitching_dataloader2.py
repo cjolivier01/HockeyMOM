@@ -246,6 +246,10 @@ class StitchDataset:
             self.close()
 
     @property
+    def bit_rate(self) -> int:
+        return max(self._video_left_info.bit_rate, self._video_right_info.bit_rate)
+
+    @property
     def lfo(self):
         assert self._video_left_offset_frame is not None
         return self._video_left_offset_frame
@@ -345,7 +349,7 @@ class StitchDataset:
     def _load_video_props(self):
         info = BasicVideoInfo(",".join(self._videos["left"]["files"]))
         self._fps = info.fps
-        self._bitrate = info.bitrate
+        self._bitrate = info.bit_rate
 
     @property
     def fps(self):
@@ -354,7 +358,7 @@ class StitchDataset:
         return self._fps
 
     @property
-    def bitrate(self):
+    def bit_rate(self):
         if self._bitrate is None:
             self._load_video_props()
         return self._bitrate

@@ -416,6 +416,8 @@ def main(args, num_gpu):
 
         game_config = args.game_config
 
+        dataloader = MultiDatasetWrapper(forgive_missing_attributes=["fps"])
+
         tracker = get_nested_value(game_config, "model.tracker.type")
         if args.output_fps is None:
             args.output_fps = get_nested_value(game_config, "camera.output-fps")
@@ -630,7 +632,6 @@ def main(args, num_gpu):
             else:
                 pose_dataset_info = DatasetInfo(pose_dataset_info)
 
-        dataloader = MultiDatasetWrapper()
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -676,11 +677,11 @@ def main(args, num_gpu):
                     right_frame_offset=args.rfo,
                 )
                 # Create the stitcher data loader
-                output_stitched_video_file = (
-                    os.path.join(".", f"stitched_output-{args.game_id}.mkv")
-                    if args.save_stitched
-                    else None
-                )
+                # output_stitched_video_file = (
+                #     os.path.join(".", f"stitched_output-{args.game_id}.mkv")
+                #     if args.save_stitched
+                #     else None
+                # )
 
                 stitch_videos = {
                     "left": {
@@ -817,6 +818,12 @@ def main(args, num_gpu):
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
 
         if not args.audio_only:
+
+            if not args.output_video_bit_rate:
+                # ugh, duplicate BS here, cam_args needs to go
+                args.output_video_bit_rate = dataloader.get_max_attribute("bit_rate")
+                cam_args.output_video_bit_rate = args.output_video_bit_rate
+
             if not args.no_play_tracking:
 
                 #
@@ -857,6 +864,7 @@ def main(args, num_gpu):
                             crop_image=cam_args.crop_output_image,
                         ),
                     )
+                # TODO: get rid of one of these args things, merging them below
                 postprocessor = CamTrackHead(
                     opt=args,
                     args=cam_args,

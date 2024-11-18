@@ -279,6 +279,12 @@ class hm_opts(object):
             default=20,
             help="How many iterations between log progress printing",
         )
+        parser.add_argument(
+            "----output-video-bit-rate",
+            type=int,
+            default=None,
+            help="Output video bit-rate",
+        )
 
         return parser
 

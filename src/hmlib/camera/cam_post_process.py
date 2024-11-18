@@ -284,6 +284,7 @@ class CamTrackPostProcessor:
                 output_video_path=self.output_video_path,
                 fps=self._fps,
                 start=False,
+                bit_rate=self._args.output_video_bit_rate,
                 output_frame_width=self.final_frame_width,
                 output_frame_height=self.final_frame_height,
                 save_frame_dir=self._save_frame_dir,

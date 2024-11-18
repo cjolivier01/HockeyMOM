@@ -141,6 +141,7 @@ class VideoOutput:
         fps: float,
         video_out_pipeline: Dict[str, Any],
         fourcc: str = "auto",
+        bit_rate: int = int(55e6),
         save_frame_dir: str = None,
         start: bool = True,
         max_queue_backlog: int = 1,
@@ -206,7 +207,7 @@ class VideoOutput:
             "output_frame_height": int(self._output_frame_height_int),
             "output_aspect_ratio": self._output_aspect_ratio,
         }
-
+        self._bit_rate = bit_rate
         self._end_zones = None
         if args is not None and args.end_zones:
             lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
@@ -381,6 +382,7 @@ class VideoOutput:
                     height=int(self._output_frame_height),
                     width=int(self._output_frame_width),
                     codec=self._fourcc,
+                    bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
                 )
@@ -393,6 +395,7 @@ class VideoOutput:
                     height=int(self._output_frame_height),
                     width=int(self._output_frame_width),
                     codec=self._fourcc,
+                    bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
                 )

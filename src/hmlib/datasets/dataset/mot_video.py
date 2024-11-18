@@ -132,6 +132,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._next_counter = 0
         self._frame_read_count = 0
         self.fps = None
+        self._video_info = None
         self._seek_lock = Lock()
 
         if self._image_channel_adjustment:
@@ -154,10 +155,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 )
             self.vw = self.cap.width
             self.vh = self.cap.height
-
-            info = BasicVideoInfo(",".join(self._path_list))
-            self.vn = info.frame_count
-            self.fps = info.fps
+            self._video_info = BasicVideoInfo(",".join(self._path_list))
+            self.vn = self._video_info.frame_count
+            self.fps = self._video_info.fps
 
             if not self.vn:
                 raise RuntimeError(
@@ -193,6 +193,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._close_video()
         self._open_video()
         return True
+
+    @property
+    def bit_rate(self) -> int:
+        if self._embedded_data_loader is not None:
+            return self._embedded_data_loader.bit_rate
+        return self._video_info.bit_rate
 
     @property
     def dataset(self):

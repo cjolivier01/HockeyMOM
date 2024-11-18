@@ -40,14 +40,15 @@ class BasicVideoInfo:
             self.fps = firstone.fps
             self.width = firstone.width
             self.height = firstone.height
-            self.bitrate = firstone.bitrate
+            self.bit_rate = firstone.bit_rate
             self.codec = firstone.codec
-            # accumulate
+            # accumulate/max
             self.duration = firstone.duration
             self.frame_count = firstone.frame_count
             for v in self._multiple[1:]:
                 self.duration += v.duration
                 self.frame_count += v.frame_count
+                self.bit_rate = max(self.bit_rate, v.bit_rate)
         else:
             video_file = str(video_file)
             if use_ffprobe:
@@ -69,7 +70,7 @@ class BasicVideoInfo:
                 sz = self._ffstream.frameSize()
                 self.width = sz[0]
                 self.height = sz[1]
-                self.bitrate = self._ffstream.bitrate()
+                self.bit_rate = self._ffstream.bitrate()
                 self.codec = self._ffstream.codecTag()
                 # self.fourcc = fourcc_to_int(self._ffstream.codecTag())
             else:
@@ -81,7 +82,7 @@ class BasicVideoInfo:
                 self.duration = self.frame_count / self.fps
                 self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                self.bitrate = cap.get(cv2.CAP_PROP_BITRATE)
+                self.bit_rate = cap.get(cv2.CAP_PROP_BITRATE)
                 self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
                 self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
                 cap.release()
