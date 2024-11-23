@@ -28,11 +28,13 @@ def tlwh_centers(tlwhs: torch.Tensor):
 
 
 def width(box: torch.Tensor):
-    return box[2] - box[0] + 1.0
+    # return box[2] - box[0] + 1.0
+    return box[2] - box[0]
 
 
 def height(box: torch.Tensor):
-    return box[3] - box[1] + 1.0
+    # return box[3] - box[1] + 1.0
+    return box[3] - box[1]
 
 
 def center(box: torch.Tensor):
@@ -59,18 +61,24 @@ def clamp_box(box, clamp_box):
 
 
 def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Tensor):
+    # Avoid BS caused by integer rouding
+    assert torch.is_floating_point(center_point)
+    half_w = w / 2.0
+    half_h = h / 2.0
     box = torch.tensor(
         [
-            center_point[0] - (w / 2.0) + 0.5,
-            center_point[1] - (h / 2.0) + 0.5,
-            center_point[0] + (w / 2.0) - 0.5,
-            center_point[1] + (h / 2.0) - 0.5,
+            center_point[0] - half_w,
+            center_point[1] - half_h,
+            center_point[0] + half_w,
+            center_point[1] + half_h,
         ],
         dtype=torch.float,
         device=center_point.device,
     )
-    # assert np.isclose(width(box), w)
-    # assert np.isclose(height(box), h)
+    if not torch.isclose(width(box), w) or not torch.isclose(height(box), h):
+        print("not close")
+    # assert torch.isclose(width(box), w)
+    # assert torch.isclose(height(box), h)
     return box
 
 
@@ -174,7 +182,7 @@ def shift_box_to_edge(box, bounding_box):
         box[0] += -box[0]
         was_shifted_x = True
     elif box[2] >= xw:
-        offset = box[2] - (xw - 1)
+        offset = box[2] - xw
         box[0] -= offset
         box[2] -= offset
         was_shifted_x = True
@@ -184,7 +192,7 @@ def shift_box_to_edge(box, bounding_box):
         box[1] += -box[1]
         was_shifted_y = True
     elif box[3] >= xh:
-        offset = box[3] - (xh - 1)
+        offset = box[3] - xh
         box[1] -= offset
         box[3] -= offset
         was_shifted_y = True

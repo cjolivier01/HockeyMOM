@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from hmlib.utils.box_functions import scale_bbox_with_constraints
+from hmlib.bbox.box_functions import scale_bbox_with_constraints
 
 GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -59,6 +59,7 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                 return yaml_content
             except yaml.YAMLError as exc:
                 print(exc)
+                raise
     return {} if not merge_into_config else merge_into_config
 
 

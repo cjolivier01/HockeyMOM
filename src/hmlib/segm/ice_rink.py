@@ -1,9 +1,11 @@
 """
-Ice Rink segmentation stuff
+Ice Rink segmentation stuff, basically find the actual ice sheet in the image
 """
+
 import argparse
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -13,8 +15,9 @@ import numpy as np
 import torch
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
-from mmdet.core.mask.structures import bitmap_to_polygon
 from mmdet.models.detectors.base import BaseDetector
+from mmdet.structures import DetDataSample
+from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
@@ -25,10 +28,11 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
-from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
@@ -124,6 +128,37 @@ def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     return torch.from_numpy(frame).unsqueeze(0)
 
 
+def find_extreme_points(
+    mask: torch.Tensor,
+) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
+    """
+    Find the extreme points in a binary mask where the bit is set.
+
+    Args:
+    - mask (torch.Tensor): A 2D tensor representing the binary mask.
+
+    Returns:
+    - Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
+      Returns the coordinates (y, x) of the smallest x, largest x, smallest y, and largest y that have the bit set.
+    """
+    # Get the indices where the bit is set (value is 1)
+    y_indices, x_indices = torch.where(mask == 1)
+
+    # Find minimum and maximum x and y
+    min_x = torch.min(x_indices)
+    max_x = torch.max(x_indices)
+    min_y = torch.min(y_indices)
+    max_y = torch.max(y_indices)
+
+    # Get the corresponding y and x positions
+    min_x_pos = (y_indices[x_indices == min_x][0].item(), min_x.item())
+    max_x_pos = (y_indices[x_indices == max_x][0].item(), max_x.item())
+    min_y_pos = (min_y.item(), x_indices[y_indices == min_y][0].item())
+    max_y_pos = (max_y.item(), x_indices[y_indices == max_y][0].item())
+
+    return min_x_pos, max_x_pos, min_y_pos, max_y_pos
+
+
 def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
     if isinstance(bboxes, np.ndarray):
         bboxes = torch.from_numpy(bboxes)
@@ -151,7 +186,7 @@ def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
 
 
 def result_to_polygons(
-    inference_result: np.ndarray,
+    inference_result: DetDataSample,
     category_id: int = 1,
     score_thr: float = 0,
     show: bool = False,
@@ -159,23 +194,10 @@ def result_to_polygons(
     """
     Theoretically, could return more than one polygon, especially if there's an obstruction
     """
-    if isinstance(inference_result, tuple):
-        bbox_result, segm_result = inference_result
-        if isinstance(segm_result, tuple):
-            segm_result = segm_result[0]  # ms rcnn
-    else:
-        bbox_result, segm_result = inference_result, None
-    bboxes = np.vstack(bbox_result)
-    labels = [np.full(bbox.shape[0], i, dtype=np.int32) for i, bbox in enumerate(bbox_result)]
-    labels = np.concatenate(labels)
-
-    segms = None
-    if segm_result is not None and len(labels) > 0:  # non empty
-        segms = mmcv.concat_list(segm_result)
-        if isinstance(segms[0], torch.Tensor):
-            segms = torch.stack(segms, dim=0).detach().cpu().numpy()
-        else:
-            segms = np.stack(segms, axis=0)
+    bboxes = inference_result.pred_instances.bboxes
+    labels = inference_result.pred_instances.labels
+    segms = inference_result.pred_instances.masks
+    scores = inference_result.pred_instances.scores
 
     category_mask = labels == category_id
     bboxes = bboxes[category_mask, :]
@@ -184,8 +206,8 @@ def result_to_polygons(
         segms = segms[category_mask, ...]
 
     if score_thr > 0:
-        assert bboxes is not None and bboxes.shape[1] == 5
-        scores = bboxes[:, -1]
+        # assert bboxes is not None and bboxes.shape[1] == 5
+        # scores = bboxes[:, -1]
         inds = scores > score_thr
         bboxes = bboxes[inds, :]
         labels = labels[inds]
@@ -201,10 +223,10 @@ def result_to_polygons(
     combined_bbox = enclosing_bbox(bboxes)
 
     for _, mask in enumerate(masks):
-        contours, _ = bitmap_to_polygon(mask)
+        contours, _ = bitmap_to_polygon(mask.cpu().numpy())
         # split_points_by_x_trend_efficient(contours)
         contours_list += contours
-        mask = mask.astype(bool)
+        mask = mask.to(torch.bool)
         if combined_mask is None:
             combined_mask = mask
         else:
@@ -212,18 +234,18 @@ def result_to_polygons(
         mask_list.append(mask)
 
         if show:
-            mask_image = mask.astype(np.uint8) * 255
+            mask_image = mask.to(np.uint8) * 255
             # cv2.namedWindow("Ice-rink", 0)
             # mmcv.imshow(mask_image, "Ice-rink Mask", wait_time=90)
             do_show_image("Ice-rink", mask_image)
 
     results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]] = {}
     results["contours"] = contours_list
-    results["masks"] = mask_list
-    results["combined_mask"] = combined_mask
-    results["centroid"] = calculate_centroid(contours_list)
-    results["bboxes"] = bboxes
-    results["combined_bbox"] = combined_bbox
+    results["masks"] = [m.cpu() for m in mask_list]
+    results["combined_mask"] = combined_mask.cpu()
+    results["centroid"] = calculate_centroid(contours_list).cpu()
+    results["bboxes"] = bboxes.cpu()
+    results["combined_bbox"] = combined_bbox.cpu()
 
     return results
 
@@ -244,7 +266,7 @@ def detect_ice_rink_mask(
             image = image.squeeze(0)
         image = image.cpu().numpy()
     image = make_channels_last(image)
-    result = inference_detector(model, image)
+    result: DetDataSample = inference_detector(model, image)
 
     if show:
         show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
@@ -286,7 +308,7 @@ def find_ice_rink_masks(
         image = [image]
 
     if device.type == "cpu":
-        print("Looking for the ice at the rink, this may take awhile...")
+        logger.info("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
     results: List[
         Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
@@ -297,7 +319,7 @@ def find_ice_rink_masks(
         )
 
     if device.type == "cpu":
-        print("Found the ice at the rink, continuing...")
+        logger.info("Found the ice at the rink, continuing...")
 
     if not was_list:
         assert len(results) == 1
@@ -424,26 +446,54 @@ def get_device_to_use_for_rink(
 
 def confgure_ice_rink_mask(
     game_id: str,
+    expected_shape: torch.Size,
     device: Optional[torch.device] = None,
     force: bool = False,
     show: bool = False,
+    image: torch.Tensor = None,
 ) -> Optional[torch.Tensor]:
     if not force:
-        combined_mask = load_rink_combined_mask(game_id=game_id)
-        if combined_mask is not None:
-            return combined_mask
+        combined_mask_profile = load_rink_combined_mask(game_id=game_id)
+        if combined_mask_profile:
+            combined_mask = combined_mask_profile["combined_mask"]
+            mask_w = image_width(combined_mask)
+            mask_h = image_height(combined_mask)
+            assert len(expected_shape) == 2  # (H, W)
+            if mask_w == expected_shape[1] and mask_h == expected_shape[0]:
+                return combined_mask_profile
+            else:
+                logging.warning(
+                    f"Expected rink mask of size w={expected_shape[1]}, h={expected_shape[0]} does not match actual"
+                    f"rink mask size of w={mask_w}, h={mask_h}, so mask must be reconstructed"
+                )
 
-    model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+    model_config_file, model_checkpoint = get_model_config(
+        game_id=game_id, model_name="ice_rink_segm"
+    )
 
     assert model_config_file
     assert model_checkpoint
-
+    # TODO: Should prioritize passed-in image over s.png and then make
+    # sure everything is the expected size within the config
     image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
     if not image_file.exists():
-        raise AttributeError(f"Could not find stitched frame image: {image_file}")
-
-    image_frame = _get_first_frame(image_file)
-
+        if image is None:
+            raise AttributeError(f"Could not find stitched frame image: {image_file}")
+        assert image_width(image) == expected_shape[-1]
+        assert image_height(image) == expected_shape[-2]
+        image_frame = image
+        if device is not None and image_frame.device != device:
+            if isinstance(image_frame, StreamTensor):
+                image_frame = image_frame.get()
+                assert image_frame.ndim == 4
+                image_frame = image_frame[0]
+                # Just synchronize everyone since this only happens once
+                torch.cuda.synchronize()
+            image_frame = image_frame.to(device)
+    else:
+        image_frame = _get_first_frame(image_file)
+    assert image_height(image_frame) == expected_shape[0]
+    assert image_width(image_frame) == expected_shape[1]
     rink_results = find_ice_rink_masks(
         image=image_frame,
         config_file=model_config_file,
@@ -461,6 +511,106 @@ def confgure_ice_rink_mask(
     return load_rink_combined_mask(game_id=game_id)
 
 
+@dataclass
+class MaskEdgeDistances:
+    """
+    Precomputed edge distances for a binary mask.
+    """
+
+    top_edges: torch.Tensor  # Shape: (W,)
+    bottom_edges: torch.Tensor  # Shape: (W,)
+    left_edges: torch.Tensor  # Shape: (H,)
+    right_edges: torch.Tensor  # Shape: (H,)
+    mask: torch.Tensor  # Original mask for reference
+
+    @classmethod
+    def from_mask(cls, mask: torch.Tensor) -> "MaskEdgeDistances":
+        """
+        Precompute the edge positions for each row and column.
+
+        Parameters:
+        - mask (torch.Tensor): A 2D binary tensor of shape (H, W).
+
+        Returns:
+        - MaskEdgeDistances: An instance with precomputed edges.
+        """
+        # Ensure mask is binary
+        assert mask.dim() == 2, "Mask must be a 2D tensor"
+        H, W = mask.shape
+
+        # Precompute top and bottom edges for each column (x)
+        top_edges = torch.full((W,), -1, dtype=torch.long)  # Initialize with -1
+        bottom_edges = torch.full((W,), -1, dtype=torch.long)
+
+        for x in range(W):
+            column_indices = torch.nonzero(mask[:, x]).squeeze()
+            if column_indices.numel() > 0:
+                top_edges[x] = column_indices.min().item()
+                bottom_edges[x] = column_indices.max().item()
+
+        # Precompute left and right edges for each row (y)
+        left_edges = torch.full((H,), -1, dtype=torch.long)
+        right_edges = torch.full((H,), -1, dtype=torch.long)
+
+        for y in range(H):
+            row_indices = torch.nonzero(mask[y, :]).squeeze()
+            if row_indices.numel() > 0:
+                left_edges[y] = row_indices.min().item()
+                right_edges[y] = row_indices.max().item()
+
+        return cls(
+            top_edges=top_edges,
+            bottom_edges=bottom_edges,
+            left_edges=left_edges,
+            right_edges=right_edges,
+            mask=mask,
+        )
+
+    def distances_to_edges(
+        self, x: int, y: int
+    ) -> Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+        """
+        Calculate distances from point (x, y) to the precomputed edges.
+
+        Parameters:
+        - x (int): The x-coordinate (column index) of the point.
+        - y (int): The y-coordinate (row index) of the point.
+
+        Returns:
+        - Optional[Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]]:
+          (top_distance, bottom_distance, left_distance, right_distance)
+          If the point lies outside the bitmask, returns None.
+          Individual distances can also be None if there is no edge in that direction.
+        """
+        H, W = self.mask.shape
+
+        # Check if x and y are within bounds
+        if not (0 <= x < W and 0 <= y < H):
+            return None
+
+        # Check if the point lies within the bitmask
+        if self.mask[y, x].item() == 0:
+            return None
+
+        # Get top and bottom edges for column x
+        top_edge = self.top_edges[x].item()
+        bottom_edge = self.bottom_edges[x].item()
+
+        # Compute vertical distances
+        top_distance: Optional[int] = y - top_edge if top_edge != -1 else None
+        bottom_distance: Optional[int] = bottom_edge - y if bottom_edge != -1 else None
+
+        # Get left and right edges for row y
+        left_edge = self.left_edges[y].item()
+        right_edge = self.right_edges[y].item()
+
+        # Compute horizontal distances
+        left_distance: Optional[int] = x - left_edge if left_edge != -1 else None
+        right_distance: Optional[int] = right_edge - x if right_edge != -1 else None
+
+        return top_distance, bottom_distance, left_distance, right_distance
+
+
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
@@ -475,6 +625,8 @@ if __name__ == "__main__":
         else torch.device("cpu")
     )
 
+    args.game_id = "ev-blackstars-ps"
+
     assert args.game_id
 
     results = confgure_ice_rink_mask(
@@ -483,4 +635,10 @@ if __name__ == "__main__":
         show=False,
         force=True,
     )
-    print(f"centroid={results['centroid']}")
+    mask = results["combined_mask"]
+    centroid = [int(i) for i in results["centroid"]]
+    checker = MaskEdgeDistances.from_mask(mask)
+    cent_dist = checker.distances_to_edges(x=centroid[0], y=centroid[1])
+    logger.info(
+        f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
+    )

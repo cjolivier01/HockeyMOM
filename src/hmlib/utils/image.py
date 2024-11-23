@@ -8,13 +8,14 @@
 from __future__ import absolute_import, division, print_function
 
 import random
-from typing import List, Union
+from typing import Dict, List, Set, Union
 
 import cv2
 import numpy as np
 import PIL
 import torch
 import torch.nn.functional as TF
+import torchvision as tv
 from torchvision.transforms import functional as F
 
 from hmlib.utils.gpu import StreamTensor
@@ -30,15 +31,6 @@ def transform_preds(coords, center, scale, output_size):
     for p in range(coords.shape[0]):
         target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
     return target_coords
-
-
-# def pt_transform_preds(coords, center, scale, output_size):
-#     target_coords = torch.zeros_like(coords)
-#     zero = torch.tensor(0, dtype=torch.float, device=target_coords.device)
-#     trans = pt_get_affine_transform(center, scale, zero, output_size, inv=1)
-#     for p in range(coords.shape[0]):
-#         target_coords[p, 0:2] = pt_affine_transform(coords[p, 0:2], trans)
-#     return target_coords
 
 
 def pt_transform_preds(coords, center, scale, output_size, trans):
@@ -99,9 +91,7 @@ def pt_cv2_get_affine_transform(src, dst):
         Source and destination points, shape (3, 2)
     """
     ones = torch.ones(3, dtype=torch.float, device=src.device)
-    src_h = torch.cat(
-        [src, ones.unsqueeze(1)], dim=1
-    )  # Convert to homogeneous coordinates
+    src_h = torch.cat([src, ones.unsqueeze(1)], dim=1)  # Convert to homogeneous coordinates
     dst_h = dst
 
     # Solve the system of linear equations
@@ -124,9 +114,7 @@ def pt_get_affine_transform(
     dst_h = output_size[1]
 
     rot_rad = rot * np.pi / 180
-    src_dir = pt_get_dir(
-        torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad
-    )
+    src_dir = pt_get_dir(torch.tensor([0.0, src_w * -0.5], device=src_w.device), rot_rad)
     dst_dir = torch.tensor([0, dst_w * -0.5], dtype=torch.float, device=dst_w.device)
 
     src = torch.zeros((3, 2), dtype=torch.float, device=center.device)
@@ -135,8 +123,7 @@ def pt_get_affine_transform(
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
     dst[1, :] = (
-        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device)
-        + dst_dir
+        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device) + dst_dir
     )
 
     src[2:, :] = pt_get_3rd_point(src[0, :], src[1, :])
@@ -179,9 +166,7 @@ def get_3rd_point(a, b):
 
 def pt_get_3rd_point(a, b):
     direct = a - b
-    return b + torch.tensor(
-        [-direct[1], direct[0]], dtype=torch.float, device=direct.device
-    )
+    return b + torch.tensor([-direct[1], direct[0]], dtype=torch.float, device=direct.device)
 
 
 def get_dir(src_point, rot_rad):
@@ -259,9 +244,7 @@ def draw_umich_gaussian(heatmap, center, radius, k=1):
     top, bottom = min(y, radius), min(height - y, radius + 1)
 
     masked_heatmap = heatmap[y - top : y + bottom, x - left : x + right]
-    masked_gaussian = gaussian[
-        radius - top : radius + bottom, radius - left : radius + right
-    ]
+    masked_gaussian = gaussian[radius - top : radius + bottom, radius - left : radius + right]
     if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
         np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
     return heatmap
@@ -287,9 +270,7 @@ def draw_dense_reg(regmap, heatmap, center, value, radius, is_offset=False):
 
     masked_heatmap = heatmap[y - top : y + bottom, x - left : x + right]
     masked_regmap = regmap[:, y - top : y + bottom, x - left : x + right]
-    masked_gaussian = gaussian[
-        radius - top : radius + bottom, radius - left : radius + right
-    ]
+    masked_gaussian = gaussian[radius - top : radius + bottom, radius - left : radius + right]
     masked_reg = reg[:, radius - top : radius + bottom, radius - left : radius + right]
     if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
         idx = (masked_gaussian >= masked_heatmap).reshape(
@@ -364,70 +345,6 @@ def color_aug(data_rng, image, eig_val, eig_vec):
     for f in functions:
         f(data_rng, image, gs, gs_mean, 0.4)
     lighting_(data_rng, image, 0.1, eig_val, eig_vec)
-
-
-class ImageHorizontalGaussianDistribution:
-    def __init__(self, image_width: int):
-        self.setup_gaussian(length=image_width)
-
-    def get_gaussian_y_from_image_x_position(
-        self, image_x_position: int, wide: bool = False
-    ):
-        if not wide:
-            return self.gaussian_y[int(image_x_position)]
-        return self.gaussian_wide[int(image_x_position)]
-
-    def setup_gaussian(self, length: torch.Tensor):
-        # Thinner gaussian
-        if isinstance(length, torch.Tensor):
-            length = int(length.trunc().item())
-        else:
-            length = int(length)
-        std_dev = float(length) / 8.0
-        mean = 1.0
-        x = np.linspace(-length / 2, length / 2, length + 1)
-        self.gaussian_y = (
-            (1 / (std_dev * np.sqrt(2 * np.pi)))
-            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
-            * 1000
-        )
-
-        # Whiten the data
-        min = np.min(self.gaussian_y)
-        max = np.max(self.gaussian_y)
-        self.gaussian_y = self.gaussian_y - min
-        self.gaussian_y = self.gaussian_y / (max - min)
-
-        # Wide gaussian
-        std_dev = float(length)
-        self.gaussian_wide = (
-            (1 / (std_dev * np.sqrt(2 * np.pi)))
-            * np.exp(-((x - mean) ** 2) / (2 * std_dev**2))
-            * 1000
-        )
-
-        # Whiten the data
-        min = np.min(self.gaussian_wide)
-        max = np.max(self.gaussian_wide)
-        self.gaussian_wide = self.gaussian_wide - min
-        self.gaussian_wide = self.gaussian_wide / (max - min)
-
-        # Flip upside down
-        self.gaussian_wide = np.ones_like(self.gaussian_wide) - self.gaussian_wide
-
-        if False:
-            # Plot the Gaussian curve
-            # plt.plot(x, self.gaussian_y)
-            plt.plot(x, np.ones_like(self.gaussian_wide) - self.gaussian_wide)
-            plt.title("Gaussian Curve")
-            plt.xlabel("X")
-            plt.ylabel("Y")
-            # Show the plot
-            plt.show()
-            print("Plotted")
-            import time
-
-            time.sleep(1000)
 
 
 class ImageColorScaler:
@@ -575,48 +492,108 @@ def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
 def crop_image(img, left, top, right, bottom):
     if isinstance(img, PIL.Image.Image):
         return img.crop((left, top, right, bottom))
-    return img[top : bottom + 1, left : right + 1, 0:3]
+    assert img.ndim == 3 and img.shape[-1] in [3, 4]
+    return img[top:bottom, left:right, :]
+
+
+def get_best_resize_mode(
+    w1: int, h1: int, w2: int, h2: int, interpolate: bool = False, verbose: bool = True
+) -> Union[int, str]:
+    if w1 > w2:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h1 > h2 or abs(h2 - h1) < 1.1
+        if h1 == h2 and abs(w2 - w1) < 1.1:
+            if verbose:
+                # Maybe you have a one-off match error somewhere
+                # causing an expensive resize?
+                print(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+        # Downsampling
+        # return F.InterpolationMode.BOX
+        return "area"
+    elif w2 > w1:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h2 > h1 or abs(h2 - h1) < 1.1
+        if h1 == h2 and abs(w2 - w1) == 1.1:
+            if verbose:
+                # Maybe you have a one-off match error somewhere
+                # causing an expensive resize?
+                print(f"PERF WARNING: lmost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+        # Upsampling
+        return "bilinear"
+    elif w1 == w2:
+        # Just a sanity check assumign we aren't
+        # purposely trying to distort
+        assert h1 == h2
+        return None
+    assert False and "Should not get here"
+    return "bilinear"
+
+
+_CONVERT_MODE: Dict[int, str] = {
+    F.InterpolationMode.NEAREST: "nearest",
+    F.InterpolationMode.BILINEAR: "bilinear",
+    F.InterpolationMode.BICUBIC: "bicubic",
+}
+_CORNER_ALIGNABLE_MODES: Set[str] = {"linear", "bilinear", "bicubic", "trilinear"}
+
+
+def _allow_align_corners(mode: str, align_corners: Union[bool, None]) -> Union[bool, None]:
+    if mode not in _CORNER_ALIGNABLE_MODES:
+        return None
+    return align_corners
+
+
+def resize_mode_to_str_mode(mode: Union[str, int]) -> str:
+    if isinstance(mode, str):
+        return mode
+    return _CONVERT_MODE[mode]
 
 
 def resize_image(
     img,
     new_width: int,
     new_height: int,
-    mode=PIL.Image.BILINEAR,
+    mode: str = None,
+    antialias: bool = True,
+    float_dtype: torch.dtype = torch.float,
 ):
     w = int(new_width)
     h = int(new_height)
     if isinstance(img, torch.Tensor):
-        if img.dim() == 4:
-            # Probably doesn't work
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(0, 3, 2, 1)
-            assert img.shape[1] == 3 or img.shape[1] == 4
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=mode,
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(0, 3, 2, 1)
-        else:
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(2, 1, 0)
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=mode,
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(2, 1, 0)
+        was_channels_last = is_channels_last(img)
+        if was_channels_last:
+            img = make_channels_first(img)
+        if mode is None:
+            # We know it's channels-first by now, so last two size items are H, W
+            mode = get_best_resize_mode(w1=img.shape[-1], h1=img.shape[-2], w2=w, h2=h)
+        if mode is not None:
+            if True:
+                # use interpolate, change to float if necessary
+                if not torch.is_floating_point(img):
+                    img = img.to(dtype=float_dtype, non_blocking=True)
+                mode = resize_mode_to_str_mode(mode)
+                # TF.interpolate wants a batch dimension
+                was_batched = img.ndim == 4
+                if not was_batched:
+                    img = img.unsqueeze(0)
+                img = TF.interpolate(
+                    img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
+                )
+                if not was_batched:
+                    img = img.squeeze(0)
+                # Assert that it reshaped as we expected
+                assert img.shape[-2] == h and img.shape[-1] == w
+            else:
+                img = F.resize(
+                    img=img,
+                    size=(h, w),
+                    interpolation=mode,
+                    antialias=antialias,
+                )
+        if was_channels_last:
+            img = make_channels_last(img)
         return img
     elif isinstance(img, PIL.Image.Image):
         return img.resize((w, h))
@@ -649,7 +626,10 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     if pad_height == 0 and pad_height == 0:
         return tensor
     padding = [0, pad_width, 0, pad_height]
-    padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
+    if pad_value is None:
+        padded_tensor = TF.pad(tensor, padding, "replicate")
+    else:
+        padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
     return padded_tensor
 
 
@@ -709,22 +689,91 @@ def get_complete_monitor_width():
     return width
 
 
-# class ChannelsFirst:
-#     def __init__(self, img: Union[torch.Tensor, np.ndarray]):
-#         self._img = img
+def to_float_image(
+    tensor: torch.Tensor,
+    apply_scale: bool = False,
+    non_blocking: bool = False,
+    dtype: torch.dtype = torch.float,
+):
+    assert not apply_scale
+    if tensor.dtype == torch.uint8:
+        if apply_scale:
+            assert False
+            return tensor.to(dtype, non_blocking=non_blocking) / 255.0
+        else:
+            return tensor.to(dtype, non_blocking=non_blocking)
+    else:
+        assert torch.is_floating_point(tensor)
+    return tensor
 
-#     def __enter__(self) -> Union[torch.Tensor, np.ndarray]:
-#         img = self._img
-#         self._img = None
-#         self._was_channels_first = is_channels_first(img)
-#         if not self._was_channels_first:
-#             img = make_channels_first(img)
-#         return img, self
 
-#     def restore(self, img: Union[torch.Tensor, np.ndarray]):
-#         if not self._was_channels_first:
-#             img = make_channels_last(img)
-#         return img
+def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False):
+    assert not apply_scale
+    if isinstance(tensor, np.ndarray):
+        assert tensor.dtype == np.uint8
+        return tensor
+    if tensor.dtype != torch.uint8:
+        if apply_scale:
+            assert False
+            assert torch.is_floating_point(tensor)
+            return (
+                # note, no scale applied here (I removed before adding assert)
+                tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=non_blocking)
+            )
+        else:
+            # There has got to be a more elegant way to do this with reflection
+            def _clamp(t, *args, **kwargs):
+                return t.clamp(*args, **kwargs).to(torch.uint8, non_blocking=non_blocking)
 
-#     def __exit__(self, *args, **kwargs):
-#         return None
+            if isinstance(tensor, StreamTensor):
+                assert False
+                return tensor.call_with_checkpoint(_clamp, min=0, max=255.0)
+            else:
+                return _clamp(tensor, min=0, max=255.0)
+    return tensor
+
+
+def rotate_image(img, angle: float, rotation_point: List[int]):
+    rotation_point = [int(i) for i in rotation_point]
+    if isinstance(img, torch.Tensor):
+        if img.dim() == 4:
+            # H, W, C -> C, W, H
+            img = img.permute(0, 3, 2, 1)
+            angle = -angle
+            if current_dtype == torch.half:
+                img = img.to(torch.float32, non_blocking=True)
+            img = F.rotate(
+                img=img,
+                angle=angle,
+                center=(rotation_point[1], rotation_point[0]),
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                expand=False,
+                fill=None,
+            )
+            # W, H, C -> C, H, W
+            img = img.permute(0, 3, 2, 1)
+        else:
+            # H, W, C -> C, W, H
+            img = img.permute(2, 1, 0)
+            angle = -angle
+            current_dtype = img.dtype
+            if current_dtype == torch.half:
+                img = img.to(torch.float32, non_blocking=True)
+            img = F.rotate(
+                img=img,
+                angle=angle,
+                center=(rotation_point[1], rotation_point[0]),
+                interpolation=tv.transforms.InterpolationMode.BILINEAR,
+                expand=False,
+                fill=None,
+            )
+            # W, H, C -> C, H, W
+            img = img.permute(2, 1, 0)
+    elif isinstance(img, PIL.Image.Image):
+        img = img.rotate(
+            angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
+        )
+    else:
+        rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
+        img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))
+    return img

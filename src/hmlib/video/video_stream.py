@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -7,7 +7,7 @@ import torchaudio
 import torchvision
 from typeguard import typechecked
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, resize_image
@@ -35,8 +35,7 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 1280
-
+MAX_VIDEO_WIDTH = 7680  # 8K is 7680 x 4320
 
 class VideoStreamWriterInterface:
     # TODO: Add the interface stubs
@@ -57,6 +56,22 @@ def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
     return w, h, False
 
 
+def clamp_max_video_dimensions(
+    width: torch.Tensor, height: torch.Tensor, max_width: Union[int, torch.Tensor] = MAX_VIDEO_WIDTH
+) -> Tuple[int, int]:
+    if width.ndim == 0:
+        wh = torch.tensor([width, height])
+    else:
+        wh = torch.cat([width, height])
+    wh_f = wh.to(torch.float)
+    new_width = torch.ones_like(wh[0]) * max_width
+    new_height = new_width.to(torch.float) / (wh_f[0] / wh_f[1])
+    result_wh = torch.where(
+        wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)])
+    )
+    return result_wh[0], result_wh[1]
+
+
 def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_WIDTH):
     assert tensor.ndim == 4 and (tensor.shape[-1] == 3 or tensor.shape[-1] == 4)
     h = tensor.shape[1]
@@ -65,7 +80,6 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     if resized:
         return resize_image(tensor, new_height=h, new_width=w)
     return tensor
-
 
 def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float):
     """
@@ -229,7 +243,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             hw_accel = None
             if self._codec.endswith("_nvenc"):
                 hw_accel = str(self._device)
-            # Cut down the bitrate
+            # Cut down the bit_rate
             self._codec_config.bit_rate //= 4
             self._video_out.add_video_stream(
                 frame_rate=self._stream_fps,
@@ -528,7 +542,7 @@ class VideoStreamReader:
 
     @property
     def bit_rate(self):
-        return self._video_info.bitrate
+        return self._video_info.bit_rate
 
     @property
     def frame_count(self):
@@ -669,6 +683,7 @@ class VideoStreamReader:
 
 
 class VideoStreamWriterCV2(VideoStreamWriterInterface):
+
     def __init__(
         self,
         filename: str,
@@ -677,9 +692,11 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         height: int,
         device: torch.device,
         codec: Optional[str],
+        bit_rate: Optional[int] = None,
         batch_size: Optional[int] = 1,
     ):
         fourcc = cv2.VideoWriter_fourcc(*codec)
+        self._bit_rate = bit_rate
         self._output_video = cv2.VideoWriter(
             filename=filename,
             fourcc=fourcc,
@@ -702,11 +719,13 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     @classmethod
     def calculate_desired_bitrate(self, width: int, height: int):
         # 4K @ 55M
-        desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
-        desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
-        logger.info(
-            f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
-        )
+        desired_bit_rate = self._bit_rate
+        if not desired_bit_rate:
+            desired_bit_rate_per_pixel = 55e6 / (3840 * 2160)
+            desired_bit_rate = int(desired_bit_rate_per_pixel * width * height)
+            logger.info(
+                f"Desired bit rate for output video ({int(width)} x {int(height)}): {desired_bit_rate//1000} kb/s"
+            )
         return desired_bit_rate
 
     def open(self):
@@ -740,6 +759,7 @@ def create_output_video_stream(
     height: int,
     codec: Optional[str],
     device: torch.device,
+    bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
 ) -> VideoStreamWriterInterface:
     if "_nvenc" in codec or filename.startswith("rtmp://"):
@@ -749,6 +769,7 @@ def create_output_video_stream(
             height=int(height),
             width=int(width),
             codec="hevc_nvenc",
+            bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
         )
@@ -760,6 +781,7 @@ def create_output_video_stream(
             height=int(height),
             width=int(width),
             codec=codec,
+            bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
         )

@@ -53,6 +53,7 @@ ImageStitcher::ImageStitcher(
         remap_info.row_map,
         dtype_,
         remap_info.add_alpha_channel,
+        remap_info.pad_value,
         interpolation));
     (*remappers_.rbegin())->init(batch_size);
   }

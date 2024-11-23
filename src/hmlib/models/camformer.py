@@ -57,22 +57,6 @@ class RinkFeatureExtractor(nn.Module):
         return x
 
 
-import math
-
-import torch
-import torch.nn as nn
-
-
-class PositionalEncoding(nn.Module):
-    # Same as before
-    ...
-
-
-class RinkFeatureExtractor(nn.Module):
-    # Same as before
-    ...
-
-
 class CameraPredictor(nn.Module):
     """
     Multi-transformer model that predicts camera focus point and bounding box size.

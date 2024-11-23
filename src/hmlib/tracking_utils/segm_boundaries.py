@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 
-import hmlib.utils.pt_visualization as ptv
+import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensor
@@ -76,6 +76,7 @@ class SegmBoundaries:
             img[:, :, self._rink_mask] = (
                 img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
             )
+            img[:, :, self._rink_mask] = 0
         if self._centroid is not None:
             # box_side_size = 50 // 2
             # ptv.draw_box(
@@ -215,6 +216,9 @@ class SegmBoundaries:
         elif bbox_tensors.shape[1] == 5:
             # Detection tlbr + score
             bboxes = bbox_tensors[:, :4]
+        elif bbox_tensors.shape[1] == 4:
+            # Detection tlbr only
+            bboxes = bbox_tensors
         else:
             assert False
         keep_indexes = self.prune_items_index(batch_item_bboxes=bboxes)

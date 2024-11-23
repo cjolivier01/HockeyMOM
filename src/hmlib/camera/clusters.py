@@ -1,7 +1,7 @@
 from typing import Dict, List, Tuple
-from fast_pytorch_kmeans import KMeans
 
 import torch
+from fast_pytorch_kmeans import KMeans
 
 
 class ClusterSnapshot:

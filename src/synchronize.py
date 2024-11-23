@@ -4,8 +4,8 @@ Experiments in stitching
 import argparse
 import os
 
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.stitching.configure_stitching import configure_video_stitching
+from hmlib.video.ffmpeg import BasicVideoInfo
 
 ROOT_DIR = os.getcwd()
 

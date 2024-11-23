@@ -116,6 +116,7 @@ def configure_control_points(
     project_file_path: str,
     image0: str,
     image1: str,
+    max_control_points: int,
     force: bool = False,
     output_directory: Optional[str] = None,
     use_hugin: bool = False,
@@ -139,7 +140,10 @@ def configure_control_points(
     if not control_points:
         start = time.time()
         control_points = calculate_control_points(
-            output_directory=output_directory, image0=image0, image1=image1
+            output_directory=output_directory,
+            image0=image0,
+            image1=image1,
+            max_control_points=max_control_points,
         )
         print(f"Calculated control points in {time.time() - start} seconds")
 

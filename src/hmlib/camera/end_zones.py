@@ -4,10 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 
+from hmlib.bbox.box_functions import center
 from hmlib.config import get_nested_value
+from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
-from hmlib.utils.box_functions import center
+from hmlib.ui.show import show_image
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.letterbox import py_letterbox
 
@@ -24,7 +25,7 @@ class EndZones(torch.nn.Module):
         output_width: int,
         output_height: int,
         output_dtype: torch.dtype = torch.uint8,
-        box_key: str = "current_fast_box",
+        box_key: str = "current_fast_box_list",
         image_key: str = "end_zone_img",
         *args,
         **kwargs,
@@ -83,13 +84,16 @@ class EndZones(torch.nn.Module):
             data[self._image_key] = img
         return data
 
-    def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def forward(self, data: Dict[str, Any], show: bool = False) -> Dict[str, Any]:
         dataset_data = data["dataset_results"]
         if "far_left" not in dataset_data and "far_right" not in dataset_data:
             return data
-        bbox = data.get(self._box_key)
-        if bbox is None:
+        bboxes = data.get(self._box_key)
+        if bboxes is None:
             return data
+        replacement_images: List[torch.Tensor] = []
+        # We look at the average of the boxes
+        bbox = torch.mean(bboxes, dim=0)
         cc = center(bbox)
         pano_size_height = data["pano_size_wh"][1]
         # See if we're out of the current left or right zone
@@ -135,6 +139,8 @@ class EndZones(torch.nn.Module):
                 width=self._output_width,
                 color=0,
             )
+            if show:
+                show_image("ez", replacement_image, wait=False)
             if side_name not in self._exposure_ratio:
                 # We calc for the exact corresponding frame on the first frame
                 img = data["img"]

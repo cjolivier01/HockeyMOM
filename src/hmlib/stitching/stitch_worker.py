@@ -2,32 +2,28 @@
 Experiments in stitching
 """
 
-import os
-import cv2
-import threading
-import torch
-import numpy as np
-import time
-from typing import Tuple
 import multiprocessing
+import os
+import threading
+import time
+from typing import List, Tuple
 
-from typing import List
+import cv2
+import numpy as np
+import torch
 
-from hockeymom import core
-
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
-
-from hmlib.stitching.remapper import create_remapper_config
+from hmlib.log import logger
 from hmlib.stitching.blender import create_blender_config, create_stitcher
+from hmlib.stitching.remapper import create_remapper_config
+from hmlib.tracking_utils.timer import Timer
 from hmlib.ui.show import show_image
-
 from hmlib.utils.image import (
-    make_channels_last,
-    make_channels_first,
     image_height,
     image_width,
+    make_channels_first,
+    make_channels_last,
 )
+from hockeymom import core
 
 # Some arbitrarily huge number of frames
 _LARGE_NUMBER_OF_FRAMES = 1e128

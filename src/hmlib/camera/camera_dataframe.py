@@ -3,10 +3,13 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .mot_data import TrackingDataBase, convert_tlbr_to_tlwh
+from hmlib.tracking_utils.tracking_dataframe import (
+    TrackingDataBase,
+    convert_tlbr_to_tlwh,
+)
 
 
-class CameraTrackingData(TrackingDataBase):
+class CameraTrackingDataFrame(TrackingDataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

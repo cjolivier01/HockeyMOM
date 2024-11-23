@@ -1,9 +1,39 @@
-from typing import List, Optional
+import json
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Iterable, List, Optional, Union
 
 import numpy as np
 import pandas as pd
+import torch
 
-from hmlib.tracking_utils.log import logger
+from hmlib.jersey.number_classifier import TrackJerseyInfo
+from hmlib.log import logger
+
+
+@dataclass
+class AllTrackJerseyInfo:
+    items: List[TrackJerseyInfo] = None
+
+
+# Convert dataclass to JSON
+def dataclass_to_json(dataclass_instance):
+    if dataclass_instance is None:
+        return ""
+    if not is_dataclass(dataclass_instance):
+        raise ValueError("Provided input is not a dataclass instance")
+    dataclass_dict = asdict(dataclass_instance)
+    json_str = json.dumps(dataclass_dict)
+    return json_str
+
+
+# Convert JSON to dataclass
+def json_to_dataclass(json_str, cls):
+    if not hasattr(cls, "__dataclass_fields__"):
+        raise ValueError("Provided class is not a dataclass")
+    if not json_str:
+        return None
+    data = json.loads(json_str)
+    return cls(**data)
 
 
 class TrackingDataBase:
@@ -14,8 +44,12 @@ class TrackingDataBase:
         self.first_write = True
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
+        self.data = None
         if input_file:
             self.read_data()
+
+    def __iter__(self) -> Iterable:
+        return self.data.itertuples(index=True, name="TrackingDataFrame")
 
     def has_input_data(self):
         return self.input_file is not None
@@ -44,7 +78,7 @@ class TrackingDataBase:
         self.write_data()
 
 
-class MOTTrackingData(TrackingDataBase):
+class TrackingDataFrame(TrackingDataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -64,15 +98,23 @@ class MOTTrackingData(TrackingDataBase):
                     "Confidence",
                     "Class",
                     "Visibility",
+                    "JerseyInfo",
                 ],
             )
             print("Data loaded successfully.")
+
+    @staticmethod
+    def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+        if isinstance(t, torch.Tensor):
+            return t.to("cpu").numpy()
+        return t
 
     def add_frame_records(
         self,
         frame_id: int,
         tracking_ids: np.ndarray,
         scores: np.ndarray,
+        jersey_info: List[TrackJerseyInfo] = None,
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
     ):
@@ -81,6 +123,13 @@ class MOTTrackingData(TrackingDataBase):
             tlwh = convert_tlbr_to_tlwh(tlbr)
 
         frame_id = int(frame_id)
+        tracking_ids = self._make_array(tracking_ids)
+        tlwh = self._make_array(tlwh)
+        scores = self._make_array(scores)
+        all_track_jersey_info: AllTrackJerseyInfo = AllTrackJerseyInfo(items=jersey_info)
+        # jersey_json_array = ["{}" for _ in range(len(tracking_ids))]
+        # if all_track_jersey_info.items:
+        #     pass
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
@@ -92,6 +141,7 @@ class MOTTrackingData(TrackingDataBase):
                 "Confidence": scores,
                 "Class": [-1 for _ in range(len(tracking_ids))],
                 "Visibility": [-1 for _ in range(len(tracking_ids))],
+                "JerseyInfo": dataclass_to_json(all_track_jersey_info),
             }
         )
         self._dataframe_list.append(new_record)
@@ -102,7 +152,7 @@ class MOTTrackingData(TrackingDataBase):
             self.first_write = False
             self.counter = 0  # Reset the counter after writing
 
-    def get_data_by_frame(self, frame_number):
+    def get_data_by_frame(self, frame_number: int):
         """Get all tracking data for a specific frame."""
         if not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
@@ -119,11 +169,11 @@ class MOTTrackingData(TrackingDataBase):
         tracking_ids = frame_data["ID"].to_numpy()
         scores = frame_data["Confidence"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
+        all_track_jersey_info = json_to_dataclass(frame_data["JerseyInfo"], AllTrackJerseyInfo)
+        return tracking_ids, scores, tlwh, all_track_jersey_info
 
-        return tracking_ids, scores, tlwh
 
-
-def convert_tlbr_to_tlwh(tlbr: np.ndarray):
+def convert_tlbr_to_tlwh(tlbr: Union[np.ndarray, torch.Tensor]):
     """
     Convert bounding boxes from TLBR format to TLWH format.
 
@@ -146,4 +196,6 @@ def convert_tlbr_to_tlwh(tlbr: np.ndarray):
     h = tlbr[:, 3] - tlbr[:, 1]
 
     # Stack the results into a new tensor and return
-    return np.stack([x, y, w, h], axis=1)
+    if isinstance(tlbr, np.ndarray):
+        return np.stack([x, y, w, h], axis=1)
+    return torch.stack([x, y, w, h], dim=1)

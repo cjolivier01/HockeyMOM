@@ -38,6 +38,7 @@ struct RemapImageInfo {
   at::Tensor col_map;
   at::Tensor row_map;
   bool add_alpha_channel{false};
+  std::size_t pad_value{0};
 };
 
 struct StitchImageInfo {

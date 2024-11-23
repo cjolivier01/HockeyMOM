@@ -16,8 +16,7 @@ import os
 from typing import List, Tuple
 
 import yaml
-
-from hmlib.ffmpeg import BasicVideoInfo
+from video.ffmpeg import BasicVideoInfo
 
 
 def create_intermission(image_file: str, duration: int = 5, fps: float = 29.97) -> str:

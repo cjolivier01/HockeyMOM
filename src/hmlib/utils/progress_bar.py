@@ -6,7 +6,7 @@ import shutil
 import sys
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Callable, Iterator, List, Optional
 
 progress_out = sys.stderr
 logging_out = sys.stdout

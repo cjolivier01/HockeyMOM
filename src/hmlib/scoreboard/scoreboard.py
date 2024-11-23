@@ -56,6 +56,10 @@ def order_points_clockwise(points: torch.Tensor) -> torch.Tensor:
     return ordered_points
 
 
+def _maybe_ratio(config_value: Union[int, float, str], reference_value: Union[int]) -> int:
+    pass
+
+
 class Scoreboard(torch.nn.Module):
 
     def __init__(
@@ -76,9 +80,9 @@ class Scoreboard(torch.nn.Module):
         # Check for all zeros
         if torch.sum(src_pts.to(torch.int64)) == 0:
             assert False
-        # self._src_pts = order_points_clockwise(src_pts)
-        self._src_pts = src_pts.clone()
+        self._src_pts = src_pts.clone().to(device)
 
+        # Doesn't work as intended
         # self._src_pts = order_points_clockwise(src_pts)
 
         if clip_box is not None:
@@ -155,9 +159,7 @@ class Scoreboard(torch.nn.Module):
         )
         # print(src_pts)
         # print(dst_pts)
-        perspective_coeffs = _get_perspective_coeffs(
-            startpoints=self._src_pts, endpoints=dst_pts
-        )
+        perspective_coeffs = _get_perspective_coeffs(startpoints=self._src_pts, endpoints=dst_pts)
 
         ow = self._dest_w
         oh = self._dest_h
@@ -181,14 +183,15 @@ class Scoreboard(torch.nn.Module):
             self._bbox_src[0] : self._bbox_src[2],
         ]
         src_image = resize_image(
-            img=src_image, new_width=self._dest_w, new_height=self._dest_h
+            img=src_image,
+            new_width=self._dest_w,
+            new_height=self._dest_h,
+            mode=TF.InterpolationMode.NEAREST,
         )
         # cv2.imshow("src_image", make_visible_image(src_image[0]))
         # cv2.waitKey(0)
 
-        warped_image = _apply_grid_transform(
-            src_image, self._grid, mode="bilinear", fill=None
-        )
+        warped_image = _apply_grid_transform(src_image, self._grid, mode="bilinear", fill=None)
 
         # cv2.imshow("src_image", make_visible_image(warped_image[0]))
         # cv2.waitKey(0)
@@ -239,7 +242,7 @@ def _get_perspective_coeffs(
     Returns:
         octuple (a, b, c, d, e, f, g, h) for transforming each pixel.
     """
-    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float)
+    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float, device=startpoints.device)
 
     for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
         a_matrix[2 * i, :] = torch.tensor(
@@ -281,9 +284,7 @@ def _perspective_grid(
     base_grid = torch.empty(1, oh, ow, 3, dtype=dtype, device=device)
     x_grid = torch.linspace(d, ow * 1.0 + d - 1.0, steps=ow, device=device)
     base_grid[..., 0].copy_(x_grid)
-    y_grid = torch.linspace(d, oh * 1.0 + d - 1.0, steps=oh, device=device).unsqueeze_(
-        -1
-    )
+    y_grid = torch.linspace(d, oh * 1.0 + d - 1.0, steps=oh, device=device).unsqueeze_(-1)
     base_grid[..., 1].copy_(y_grid)
     base_grid[..., 2].fill_(1)
 
@@ -387,15 +388,6 @@ def main():
     image = Image.open(image_path)
     image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
 
-    # # This function will be called later to perform the perspective warp
-    # def outer_warp_perspective(image_tensor, src_points, dst_points, dsize):
-    #     # Calculate the perspective transform matrix
-    #     M = find_perspective_transform(src_points, dst_points)
-
-    #     # Apply perspective warp
-    #     warped_image = warp_perspective(image_tensor, M, dsize)
-    #     return warped_image
-
     # Prepare for interactive point selection
     fig, ax = plt.subplots()
     original_image = np.array(np.ascontiguousarray(image))
@@ -442,50 +434,18 @@ def main():
 
         src_height = original_image.shape[0]
         src_width = original_image.shape[1]
-        # ar = src_width/src_height
-
-        # width, height = image.size
         width = 200
         height = 100
-        # width = src_width
-        # height = src_height
 
-        # to_pil = ToPILImage()
-        # to_tensor = transforms.ToTensor()
-
-        # src_pts = dst_pts
-        # ww=width
-        # hh=height/2
-        # src_pts = np.array(
-        #     [[0, 0], [ww - 1, 0], [ww - 1, hh - 1], [0, hh - 1]],
-        #     dtype=np.float32,
-        # )
         src_pts = torch.tensor(selected_points, dtype=torch.float)
 
         if True:
             bbox_src = int_bbox(get_bbox(selected_points))
-            # bbox_dest = int_bbox(get_bbox(dst_pts))
+            original_image = make_channels_first(torch.from_numpy(original_image).unsqueeze(0))
 
-            # to_tensor = transforms.ToTensor()
-            # image = to_tensor(image)
-            original_image = make_channels_first(
-                torch.from_numpy(original_image).unsqueeze(0)
-            )
-
-            src_image = original_image[
-                :, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]
-            ]
+            src_image = original_image[:, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]]
             src_pts[:, 0] -= bbox_src[0]
             src_pts[:, 1] -= bbox_src[1]
-
-            # width = image_width(src_image) * 3
-            # height = image_height(src_image) * 2
-
-            # width = image_width(src_image)
-            # height = image_height(src_image)
-
-            # width = image_width(src_image) / 2
-            # height = image_height(src_image) / 3
 
             src_width = image_width(src_image)
             src_height = image_height(src_image)
@@ -499,60 +459,26 @@ def main():
                     target_height=toth,
                     pad_value=0,
                 )
-                # width = totw
-                # height = toth
                 dest_w = totw
                 dest_h = toth
             else:
                 dest_w = src_width
                 dest_h = src_height
 
-            # pil_image = to_pil(src_image.squeeze(0))
-        else:
-            # pil_image = to_pil(original_image)
-            pass
-
-        # src_pts[:,2] -= bbox_src[0]
-        # src_pts[:,3] -= bbox_src[1]
-        # show_image(src_image)
-        # bbox_dest = get_bbox(dst_pts)
-
-        # print(M)
-        # Calculate the perspective transform matrix and apply the warp
-        # M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-        # warped_image = cv2.warpPerspective(np.array(image), M, (width, height))
-        # warped_image = warp_perspective_pytorch(np.array(image), M, (width, height))
-
         dst_pts = np.array(
             [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
             dtype=np.float32,
         )
 
-        perspective_coeffs = _get_perspective_coeffs(
-            startpoints=src_pts, endpoints=dst_pts
-        )
+        perspective_coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
 
-        # Compute the perspective transform matrix
-        # transform_matrix = find_perspective_transform(src_pts, dst_pts)
-
-        # # Apply the transformation
-        # warped_image = apply_perspective(src_image.squeeze(0).to(torch.float) / 255.0, transform_matrix, width, height)
-        # warped_image = torch.clamp(warped_image * 255, min=0, max=255).to(torch.uint8)
-
-        # warped_image = torchvision.transforms.functional.perspective(
-        #     src_image, startpoints=src_pts, endpoints=dst_pts
-        # )
-
-        # ow, oh = src_image.shape[-1], img.shape[-2]
         ow = dest_w
         oh = dest_h
         dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float
         grid = _perspective_grid(
             perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device
         )
-        warped_image = _apply_grid_transform(
-            src_image, grid, mode="bilinear", fill=None
-        )
+        warped_image = _apply_grid_transform(src_image, grid, mode="bilinear", fill=None)
 
         warped_image = warped_image[:, :, :height, :width]
 
@@ -572,13 +498,8 @@ def main():
         wi_min = np.min(warped_image)
         wi_max = np.max(warped_image)
 
-        # cv2.imshow("online_im", original_image)
         original_image *= 1
-        # cv2.imshow("online_im", warped_image)
-        # cv2.waitKey(0)
-        # plt.imshow(pil_image)
         plt.imshow(warped_image)
-        # plt.imshow(cv2.cvtColor(warped_image, cv2.COLOR_BGR2RGB))  # Convert BGR to RGB for displaying correctly
         plt.title("Warped Image")
         plt.show()
 
@@ -589,78 +510,26 @@ def main():
         proceed_with_warp_cv2()
 
 
-# def sort_points_tl_tr_br_bl(points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-#     # Calculate the centroid of the points
-#     centroid = (
-#         sum(x for x, _ in points) / len(points),
-#         sum(y for _, y in points) / len(points),
-#     )
-
-#     # Function to calculate angle from centroid
-#     def angle_from_centroid(point):
-#         return math.atan2(point[1] - centroid[1], point[0] - centroid[0])
-
-#     # Sort points by angle from centroid
-#     sorted_points = sorted(points, key=angle_from_centroid)
-
-#     # To ensure the sorting starts from top-left, find the point with the smallest angle
-#     # and make it the starting point
-#     top_left_index = sorted_points.index(
-#         min(sorted_points, key=lambda point: (angle_from_centroid(point), -point[1]))
-#     )
-#     sorted_points = sorted_points[top_left_index:] + sorted_points[:top_left_index]
-
-#     return sorted_points
-
-
 def sb_main(game_id: str):
 
-    image_path = (
-        f"{os.environ['HOME']}/Videos/{game_id}/s.png"  # Specify the path to your image
-    )
+    image_path = f"{os.environ['HOME']}/Videos/{game_id}/s.png"  # Specify the path to your image
     image = cv2.imread(image_path)
     image_tensor = make_channels_first(torch.from_numpy(image).unsqueeze(0))
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
-    selected_points = get_nested_value(
-        game_config, "rink.scoreboard.perspective_polygon"
-    )
+    selected_points = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
 
     if selected_points:
         for pt in selected_points:
             print(pt)
-        # colors = [(255, 0, 0), (0, 255, 255), (0, 0, 255), (255, 255, 255)]
-        # for i in range(len(selected_points)):
-        #     if i == len(selected_points) - 1:
-        #         image = vis.plot_line(
-        #             image,
-        #             selected_points[-1],
-        #             selected_points[0],
-        #             color=colors[i],
-        #             thickness=i * 2 + 1,
-        #         )
-        #     else:
-        #         image = vis.plot_line(
-        #             image,
-        #             selected_points[i],
-        #             selected_points[i + 1],
-        #             color=colors[i],
-        #             thickness=i * 2 + 2,
-        #         )
-        # cv2.imshow("points", image)
-        # cv2.waitKey(0)
 
         scoreboard = Scoreboard(
             src_pts=selected_points,
             dest_width=700,
             dest_height=300,
-            dtype=(
-                image_tensor.dtype
-                if torch.is_floating_point(image_tensor)
-                else torch.float
-            ),
+            dtype=(image_tensor.dtype if torch.is_floating_point(image_tensor) else torch.float),
         )
 
         warped_image = scoreboard.forward(image_tensor.to(torch.float) / 255)

@@ -70,6 +70,7 @@ ImageRemapper::ImageRemapper(
     at::Tensor row_map,
     at::ScalarType dtype,
     bool add_alpha_channel,
+    std::size_t pad_value,
     std::optional<std::string> interpolation)
     : src_width_(src_width),
       src_height_(src_height),
@@ -79,6 +80,7 @@ ImageRemapper::ImageRemapper(
       row_map_(row_map),
       dtype_(dtype),
       add_alpha_channel_(add_alpha_channel),
+      pad_value_(pad_value),
       interpolation_(interpolation ? *interpolation : "") {
   working_width_ = src_width_;
   working_height_ = src_height_;
@@ -201,7 +203,7 @@ at::Tensor ImageRemapper::forward(at::Tensor source_tensor) const {
     }
   }
   destination_tensor.index_put_(
-      {torch::indexing::Slice(), torch::indexing::Slice(), mask_}, (uint8_t)0);
+      {torch::indexing::Slice(), torch::indexing::Slice(), mask_}, (std::uint8_t)pad_value_);
   // Add alpha channel if necessary
   if (add_alpha_channel_) {
     destination_tensor =

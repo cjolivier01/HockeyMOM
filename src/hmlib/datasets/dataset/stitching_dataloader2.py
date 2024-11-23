@@ -14,14 +14,16 @@ import numpy as np
 import torch
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.ffmpeg import BasicVideoInfo
-
-# from hmlib.stitching.blender2 import SmartBlender
+from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.tracking_utils.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, async_to, cuda_stream_scope
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    copy_gpu_to_gpu_async,
+    cuda_stream_scope,
+)
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -30,7 +32,7 @@ from hmlib.utils.image import (
     make_visible_image,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_out import VideoOutput  # optional_with,
+from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import core
 
 
@@ -38,6 +40,7 @@ def _get_dir_name(path):
     if os.path.isdir(str(path)):
         return path
     return Path(path).parent
+
 
 _USE_NEW_STITCHER: bool = True
 
@@ -48,8 +51,11 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):
         return tensor
     if isinstance(tensor, StreamTensor):
-        return tensor.wait(torch.cuda.current_stream(tensor.device))
-        # return tensor.get()
+        # faster to do a get than a wait, but a coupel fps
+        # return tensor.wait(torch.cuda.current_stream(tensor.device))
+        # return tensor.wait()
+        tensor.verbose = True
+        return tensor.get()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
     else:
@@ -143,18 +149,13 @@ class StitchDataset:
         self,
         videos: Dict[str, List[Path]],
         pto_project_file: str = None,
-        output_stitched_video_file: str = None,
         start_frame_number: int = 0,
         max_input_queue_size: int = 2,
-        remap_thread_count: int = 10,
-        blend_thread_count: int = 10,
         batch_size: int = 1,
         max_frames: int = None,
         auto_configure: bool = True,
         num_workers: int = 1,
-        fork_workers: bool = False,
         image_roi: List[int] = None,
-        encoder_device: torch.device = torch.device("cpu"),
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
@@ -164,6 +165,7 @@ class StitchDataset:
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
+        python_blender: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -173,15 +175,11 @@ class StitchDataset:
         self._remapping_device = as_torch_device(remapping_device)
         self._decoder_device = decoder_device
         self._remap_on_async_stream = remap_on_async_stream
-        self._encoder_device = as_torch_device(encoder_device)
-        self._output_stitched_video_file = output_stitched_video_file
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
-        self._remap_thread_count = remap_thread_count
-        self._blend_thread_count = blend_thread_count
         self._blend_mode = blend_mode
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
@@ -192,6 +190,8 @@ class StitchDataset:
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
         self._xy_pos_1, self._xy_pos_2 = None, None
+        self._python_blender = python_blender
+        self._minimize_blend = minimize_blend
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -210,7 +210,6 @@ class StitchDataset:
         self._auto_configure = auto_configure
         self._num_workers = num_workers
         self._stitching_workers = {}
-        self._fork_workers = fork_workers
         self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
@@ -247,6 +246,10 @@ class StitchDataset:
             self.close()
 
     @property
+    def bit_rate(self) -> int:
+        return max(self._video_left_info.bit_rate, self._video_right_info.bit_rate)
+
+    @property
     def lfo(self):
         assert self._video_left_offset_frame is not None
         return self._video_left_offset_frame
@@ -255,6 +258,10 @@ class StitchDataset:
     def rfo(self):
         assert self._video_right_offset_frame is not None
         return self._video_right_offset_frame
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -342,7 +349,7 @@ class StitchDataset:
     def _load_video_props(self):
         info = BasicVideoInfo(",".join(self._videos["left"]["files"]))
         self._fps = info.fps
-        self._bitrate = info.bitrate
+        self._bitrate = info.bit_rate
 
     @property
     def fps(self):
@@ -351,7 +358,7 @@ class StitchDataset:
         return self._fps
 
     @property
-    def bitrate(self):
+    def bit_rate(self):
         if self._bitrate is None:
             self._load_video_props()
         return self._bitrate
@@ -449,7 +456,7 @@ class StitchDataset:
                 def _prepare_image(img: torch.Tensor):
                     img = make_channels_first(img)
                     if img.device != self._remapping_device:
-                        img = async_to(img, device=self._remapping_device)
+                        img = copy_gpu_to_gpu_async(img, device=self._remapping_device)
                     if img.dtype != self._dtype:
                         img = img.to(self._dtype, non_blocking=True)
                     return img
@@ -515,58 +522,6 @@ class StitchDataset:
             self._coordinator_thread.join()
             self._coordinator_thread = None
 
-    def _send_frame_to_video_out(
-        self, frame_id: int, stitched_frame: Union[StreamTensor, torch.Tensor]
-    ) -> Union[StreamTensor, torch.Tensor]:
-        if not self._output_stitched_video_file:
-            return stitched_frame
-        if self._video_output is None:
-            args = argparse.Namespace()
-            args.fixed_edge_rotation = False
-            args.crop_output_image = False
-            args.use_watermark = False
-            args.show_image = False
-            args.plot_frame_number = False
-            args.end_zones = False
-            self._video_output_size = torch.tensor(
-                [image_width(stitched_frame), image_height(stitched_frame)],
-                dtype=torch.int32,
-            )
-            self._video_output_box = torch.tensor(
-                (0, 0, self._video_output_size[0], self._video_output_size[1]),
-                dtype=self._dtype,
-            )
-            # Not doing anything fancy, so don't waste time copy to and from the GPU
-            self._video_output = VideoOutput(
-                args=args,
-                output_video_path=self._output_stitched_video_file,
-                output_frame_width=self._video_output_size[0],
-                output_frame_height=self._video_output_size[1],
-                fps=self.fps,
-                device=self._encoder_device,
-                # fourcc=(
-                #     "hevc_nvenc"
-                #     if str(self._encoder_device).startswith("cuda")
-                #     else "XVID"
-                # ),
-                name="STITCH-OUT",
-                simple_save=True,
-            )
-        # assert False and "What's up with the / 255.0 down there?"
-        if not self._video_output.is_cuda_encoder():
-            stitched_frame = to_tensor(stitched_frame)
-        image_proc_data = {
-            "frame_id": torch.tensor(frame_id, dtype=torch.int64),
-            # img=torch.clamp(to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            # img=to_tensor(stitched_frame),
-            "img": stitched_frame,
-            # img=to_tensor(stitched_frame) / 255.0, min=0.0, max=255.0),
-            "current_box": self._video_output_box.detach().clone(),
-        }
-        # torch.cuda.synchronize()
-        self._video_output.append(image_proc_data)
-        return stitched_frame
-
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
             #
@@ -587,6 +542,8 @@ class StitchDataset:
                     ),
                     device=self._remapping_device,
                     dtype=self._dtype,
+                    python_blender=self._python_blender,
+                    minimize_blend=self._minimize_blend,
                 )
             else:
                 from hmlib.stitching.blender import create_stitcher
@@ -669,7 +626,6 @@ class StitchDataset:
                         remapping_device=self._remapping_device,
                     )
                 )
-                # self._stitching_workers[worker_number].start(fork=self._fork_workers)
             self._start_coordinator_thread()
         return self
 
@@ -749,10 +705,6 @@ class StitchDataset:
                 self._on_first_stitched_image_callback(stitched_frame[0])
 
         assert stitched_frame.ndim == 4
-        stitched_frame = self._send_frame_to_video_out(
-            frame_id=frame_id,
-            stitched_frame=stitched_frame,
-        )
         # maybe nested batches can be some multiple of, so can remove this check if necessary
         assert self._batch_size == stitched_frame.shape[0]
         self._current_frame += stitched_frame.shape[0]
@@ -770,7 +722,7 @@ class StitchDataset:
         return stitched_frame
 
     def __len__(self):
-        return self._total_number_of_frames
+        return self._total_number_of_frames // self._batch_size
 
 
 def is_none(val):

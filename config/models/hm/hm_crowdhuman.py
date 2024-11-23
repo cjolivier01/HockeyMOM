@@ -41,7 +41,7 @@ inference_pipeline = [
     dict(
         type="MultiScaleFlipAug",
         img_scale=yolox_img_scale,
-        flip=False,
+        allow_flip=False,
         transforms=[
             dict(type="HmImageToTensor", keys=["img"]),
             dict(type="HmResize", keep_ratio=True),
@@ -52,7 +52,7 @@ inference_pipeline = [
                 pad_val=image_pad_value,
                 size_divisor=32,
             ),
-            dict(type="VideoCollect", keys=["img", "clipped_image"]),
+            dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
         ],
     ),
 ]

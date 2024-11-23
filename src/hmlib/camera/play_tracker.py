@@ -1,22 +1,15 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
 
-from hmlib.builder import HM, PIPELINES
-from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.clusters import ClusterMan
-from hmlib.camera.moving_box import MovingBox
-from hmlib.config import get_nested_value
-from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.box_functions import (
+from hmlib.bbox.box_functions import (
     center,
     center_batch,
     clamp_box,
@@ -29,7 +22,27 @@ from hmlib.utils.box_functions import (
     tlwh_to_tlbr_single,
     width,
 )
+from hmlib.builder import HM, PIPELINES
+from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.clusters import ClusterMan
+from hmlib.camera.moving_box import MovingBox
+from hmlib.config import get_nested_value
+from hmlib.jersey.jersey_tracker import JerseyTracker
+from hmlib.log import logger
+from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.boundaries import BoundaryLines
+from hmlib.tracking_utils.timer import Timer
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
+
+
+def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
+    tlwhs = tlbrs.clone()
+    # make boxes tlwh
+    tlwhs[:, 2] = tlwhs[:, 2] - tlwhs[:, 0]  # width = x2 - x1
+    tlwhs[:, 3] = tlwhs[:, 3] - tlwhs[:, 1]  # height = y2 - y1
+    return tlwhs
 
 
 def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
@@ -111,13 +124,12 @@ class PlayTracker(torch.nn.Module):
         self._device = device
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
-        self._timer = Timer()
         self._cluster_man: Optional[ClusterMan] = None
         self._original_clip_box = original_clip_box
         self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
 
-        self._tracking_id_jersey: Dict[int, Tuple[int, float]] = {}
+        self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -145,8 +157,8 @@ class PlayTracker(torch.nn.Module):
         play_width = width(self._play_box)
         play_height = height(self._play_box)
 
-        assert width(self._play_box) == self._hockey_mom._video_frame.width
-        assert height(self._play_box) == self._hockey_mom._video_frame.height
+        assert play_width == self._hockey_mom._video_frame.width
+        assert play_height == self._hockey_mom._video_frame.height
 
         # speed_scale = 1.0
         speed_scale = self._hockey_mom.fps_speed_scale
@@ -220,7 +232,7 @@ class PlayTracker(torch.nn.Module):
         frame_box = self.get_arena_box()
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
-        assert width(box) <= fw and height(box) <= fh
+        # assert width(box) <= fw and height(box) <= fh
         scale_w, scale_h = self._current_roi.get_size_scale()
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
@@ -244,6 +256,7 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
     ):
         if self._cluster_man is None:
+            # self._cluster_man = ClusterMan(sizes=cluster_counts, device=online_tlwhs.device)
             self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
 
         self._cluster_man.calculate_all_clusters(
@@ -267,218 +280,250 @@ class PlayTracker(torch.nn.Module):
             return {}, None
         return boxes_map, torch.stack(boxes_list)
 
-    def process_jerseys_info(self, data: Dict[str, Any]) -> None:
-        jersey_results = data["tracking_results"].get("jersey_results")
+    def process_jerseys_info(self, frame_index: int, frame_id: int, data: Dict[str, Any]) -> None:
+        jersey_results = data.get("jersey_results")
         if not jersey_results:
             return
-        for tracking_id, (number, score) in jersey_results.items():
-            jersey_info = self._tracking_id_jersey.get(tracking_id)
-            if jersey_info is None:
-                self._tracking_id_jersey[tracking_id] = (number, score)
-            else:
-                prev_number, prev_score = jersey_info
-                # if number != prev_number:
-                if number != prev_number and score > prev_score:
-                    print(
-                        f"Tracking ID change! trackig id {tracking_id} is changing from number {prev_number} to {number}"
-                    )
-                    self._tracking_id_jersey[tracking_id] = (number, score)
-
-    def forward(self, online_targets_and_img):
-        self._timer.tic()
-
-        online_tlwhs = online_targets_and_img["online_tlwhs"]
-        online_ids = online_targets_and_img["online_ids"]
-        detections = online_targets_and_img["detections"]
-        info_imgs = online_targets_and_img["info_imgs"]
-        original_img = online_targets_and_img.pop("original_img")
-
-        self.process_jerseys_info(data=online_targets_and_img)
-
-        frame_ids = info_imgs[self._INFO_IMGS_FRAME_ID_INDEX]
-        frame_id = frame_ids[self._frame_counter % len(frame_ids)]
-        self._frame_counter += 1
-
-        largest_bbox = None
-
-        if self._args.cam_ignore_largest and len(online_tlwhs):
-            # Don't remove unless we have at least 4 online items being tracked
-            online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
-            online_ids = online_ids[mask]
-
-        online_im = original_img
-        if online_im.ndim == 4:
-            assert online_im.shape[0] == 1
-            online_im = online_im.squeeze(0)
-
-        self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
-
-        #
-        # BEGIN Clusters and Cluster Boxes
-        #
-        cluster_counts = [3, 2]
-        cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
-            online_tlwhs, online_ids, cluster_counts=cluster_counts
-        )
-
-        if cluster_boxes_map:
-            cluster_enclosing_box = get_enclosing_box(cluster_boxes)
-        elif self._previous_cluster_union_box is not None:
-            cluster_enclosing_box = self._previous_cluster_union_box.clone()
-        else:
-            cluster_enclosing_box = self.get_arena_box()
-
-        current_box = cluster_enclosing_box
-
-        if self._args.plot_boundaries and self._boundaries is not None:
-            online_im = self._boundaries.draw(online_im)
-
-        if self._args.plot_all_detections is not None:
-            if not isinstance(detections, dict):
-                for detection in detections:
-                    if detection[4] >= self._args.plot_all_detections:
-                        online_im = vis.plot_rectangle(
-                            img=online_im,
-                            box=detection[:4],
-                            color=(64, 64, 64),
-                            thickness=1,
-                        )
-                        if detection[4] < 0.7:
-                            cv2.putText(
-                                online_im,
-                                format(float(detection[4]), ".2f"),
-                                (
-                                    int(detection[0] + width(detection[:4] / 2)),
-                                    int(detection[1]),
-                                ),
-                                cv2.FONT_HERSHEY_PLAIN,
-                                1,
-                                (255, 255, 255),
-                                thickness=1,
-                            )
-
-        if self._args.plot_individual_player_tracking:
-            online_im = vis.plot_tracking(
-                online_im,
-                online_tlwhs,
-                online_ids,
-                frame_id=frame_id,
-                speeds=[],
-                line_thickness=2,
-            )
-            # logger.info(f"Tracking {len(online_ids)} players...")
-            if largest_bbox is not None:
-                online_im = vis.plot_rectangle(
-                    online_im,
-                    [int(i) for i in tlwh_to_tlbr_single(largest_bbox)],
-                    color=(0, 0, 0),
-                    thickness=1,
-                    label=f"IGNORED",
-                )
-
-        if self._args.plot_jersey_numbers:
-            online_im = vis.plot_jersey_numbers(
-                online_im,
-                online_tlwhs,
-                online_ids,
-                player_number_map=self._tracking_id_jersey,
+        jersey_results = jersey_results[frame_index]
+        if not jersey_results:
+            return
+        for current_info in jersey_results:
+            self._jersey_tracker.observe_tracking_id_number_info(
+                frame_id=frame_id, info=current_info
             )
 
-        if self._args.plot_cluster_tracking:
-            cluster_box_colors = {
-                cluster_counts[0]: (128, 0, 0),  # dark red
-                cluster_counts[1]: (0, 0, 128),  # dark blue
-            }
-            assert len(cluster_counts) == len(cluster_box_colors)
-            for cc in cluster_counts:
-                if cc in cluster_boxes_map:
-                    online_im = vis.plot_rectangle(
-                        online_im,
-                        cluster_boxes_map[cc],
-                        color=cluster_box_colors[cc],
-                        thickness=1,
-                        label=f"cluster_box_{cc}",
-                    )
+    # @torch.jit.script
+    def forward(self, results: Dict[str, Any]):
+        track_data_sample = results["data_samples"]
+
+        original_images = results.pop("original_images")
+
+        if isinstance(original_images, StreamTensor):
+            original_images.verbose = True
+            original_images = original_images.get()
+
+        # Figure out what device this image should be on
+        image_device = self._device
+        if image_device.type != "cuda" and original_images.device.type == "cuda":
+            # prefer the image's cuda device
+            image_device = original_images.device
+
+        if original_images.device != image_device:
+            original_images = original_images.to(device=image_device, non_blocking=True)
+
+        frame_ids_list: List[torch.Tensor] = []
+        current_box_list: List[torch.Tensor] = []
+        current_fast_box_list: List[torch.Tensor] = []
+        online_images: List[torch.Tensor] = []
+
+        # Make the original images into a list so that we can release the batched one
+        original_images_list: List[torch.Tensor] = []
+        for i in range(original_images.shape[0]):
+            original_images_list.append(original_images[i])
+        del original_images
+
+        for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
+            scalar_frame_id = video_data_sample.frame_id
+            frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
+            online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
+            online_ids = video_data_sample.pred_track_instances.instances_id
+            if True:
+                # goes a few fps faster when async if this is on CPU
+                frame_id = frame_id.cpu()
+                online_tlwhs = online_tlwhs.cpu()
+                online_ids = online_ids.cpu()
+
+            self.process_jerseys_info(
+                frame_index=frame_index, frame_id=scalar_frame_id, data=results
+            )
+
+            self._frame_counter += 1
+
+            largest_bbox = None
+
+            if self._args.cam_ignore_largest and len(online_tlwhs):
+                # Don't remove unless we have at least 4 online items being tracked
+                online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
+                online_ids = online_ids[mask]
+
+            online_im = original_images_list[frame_index]
+            # deref the original one to free the cuda memory
+            original_images_list[frame_index] = None
+
+            self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
+
+            # Maybe draw trjectories...
+            if self._args.plot_trajectories:
+                for tid in online_ids:
+                    hist = self._hockey_mom.get_history(tid)
+                    if hist is not None:
+                        online_img = hist.draw(online_im)
+
+            #
+            # BEGIN Clusters and Cluster Boxes
+            #
+            cluster_counts = [3, 2]
+            cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
+                online_tlwhs, online_ids, cluster_counts=cluster_counts
+            )
 
             if cluster_boxes_map:
-                if len(cluster_boxes_map) == 1 and 0 in cluster_boxes_map:
-                    color = (255, 0, 0)
-                else:
-                    color = (64, 64, 64)  # dark gray
-                # The union of the two cluster boxes
-                online_im = vis.plot_alpha_rectangle(
+                cluster_enclosing_box = get_enclosing_box(cluster_boxes)
+            elif self._previous_cluster_union_box is not None:
+                cluster_enclosing_box = self._previous_cluster_union_box.clone()
+            else:
+                cluster_enclosing_box = self.get_arena_box()
+
+            current_box = cluster_enclosing_box
+
+            if self._args.plot_boundaries and self._boundaries is not None:
+                online_im = self._boundaries.draw(online_im)
+
+            if self._args.plot_all_detections is not None:
+                detections = batch_tlbrs_to_tlwhs(video_data_sample.pred_instances.bboxes)
+                if not isinstance(detections, dict):
+                    for detection in detections:
+                        if detection[4] >= self._args.plot_all_detections:
+                            online_im = vis.plot_rectangle(
+                                img=online_im,
+                                box=detection[:4],
+                                color=(64, 64, 64),
+                                thickness=1,
+                            )
+                            if detection[4] < 0.7:
+                                cv2.putText(
+                                    online_im,
+                                    format(float(detection[4]), ".2f"),
+                                    (
+                                        int(detection[0] + width(detection[:4] / 2)),
+                                        int(detection[1]),
+                                    ),
+                                    cv2.FONT_HERSHEY_PLAIN,
+                                    1,
+                                    (255, 255, 255),
+                                    thickness=1,
+                                )
+
+            if self._args.plot_individual_player_tracking:
+                online_im = vis.plot_tracking(
                     online_im,
-                    cluster_enclosing_box,
-                    color=color,
-                    label="union_clusters",
-                    opacity_percent=25,
+                    online_tlwhs,
+                    online_ids,
+                    frame_id=frame_id,
+                    speeds=[],
+                    line_thickness=2,
                 )
-        #
-        # END Clusters and Cluster Boxes
-        #
+                # logger.info(f"Tracking {len(online_ids)} players...")
+                if largest_bbox is not None:
+                    online_im = vis.plot_rectangle(
+                        online_im,
+                        [int(i) for i in tlwh_to_tlbr_single(largest_bbox)],
+                        color=(0, 0, 0),
+                        thickness=1,
+                        label="IGNORED",
+                    )
 
-        current_box, online_im = self.calculate_breakaway(
-            current_box=current_box,
-            online_im=online_im,
-            speed_adjust_box=self._current_roi,
-            average_current_box=True,
-        )
-
-        #
-        # Backup the last calculated box
-        #
-        self._previous_cluster_union_box = current_box.clone()
-
-        # Some players may be off-screen, so their box may go over an edge
-        # current_box = self._hockey_mom.clamp(current_box)
-        current_box = clamp_box(current_box, self._play_box)
-
-        # Maybe set initial box sizes if we aren't starting with a wide frame
-        if self._frame_counter == 1 and self._args.no_wide_start:
-            self.set_initial_tracking_box(current_box)
-
-        #
-        # Apply the new calculated play
-        #
-        fast_roi_bounding_box = self._current_roi(current_box)
-        current_box = self._current_roi_aspect(fast_roi_bounding_box)
-
-        if self._args.plot_moving_boxes:
-            online_im = self._current_roi_aspect.draw(
-                img=online_im,
-                draw_thresholds=True,
-                following_box=self._current_roi,
-            )
-            online_im = self._current_roi.draw(img=online_im)
-            online_im = vis.plot_line(
-                online_im,
-                center(fast_roi_bounding_box),
-                center(current_box),
-                color=(255, 255, 255),
-                thickness=2,
+            online_im = self._jersey_tracker.draw(
+                image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs
             )
 
-        if self._args.plot_camera_tracking:
-            online_im = vis.plot_rectangle(
-                online_im,
-                current_box,
-                color=(128, 0, 128),
-                thickness=2,
-                label="U:2&3",
+            if self._args.plot_cluster_tracking:
+                cluster_box_colors = {
+                    cluster_counts[0]: (128, 0, 0),  # dark red
+                    cluster_counts[1]: (0, 0, 128),  # dark blue
+                }
+                assert len(cluster_counts) == len(cluster_box_colors)
+                for cc in cluster_counts:
+                    if cc in cluster_boxes_map:
+                        online_im = vis.plot_rectangle(
+                            online_im,
+                            cluster_boxes_map[cc],
+                            color=cluster_box_colors[cc],
+                            thickness=1,
+                            label=f"cluster_box_{cc}",
+                        )
+
+                if cluster_boxes_map:
+                    if len(cluster_boxes_map) == 1 and 0 in cluster_boxes_map:
+                        color = (255, 0, 0)
+                    else:
+                        color = (64, 64, 64)  # dark gray
+                    # The union of the two cluster boxes
+                    online_im = vis.plot_alpha_rectangle(
+                        online_im,
+                        cluster_enclosing_box,
+                        color=color,
+                        label="union_clusters",
+                        opacity_percent=25,
+                    )
+            #
+            # END Clusters and Cluster Boxes
+            #
+
+            current_box, online_im = self.calculate_breakaway(
+                current_box=current_box,
+                online_im=online_im,
+                speed_adjust_box=self._current_roi,
+                average_current_box=True,
             )
 
-        if self._args.plot_speed:
-            vis.plot_frame_id_and_speeds(
-                online_im,
-                frame_id,
-                *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
-            )
-        online_targets_and_img["frame_id"] = frame_id
-        online_targets_and_img["img"] = online_im
-        online_targets_and_img["current_fast_box"] = self._current_roi.bounding_box().clone()
-        online_targets_and_img["current_box"] = self._current_roi_aspect.bounding_box().clone()
+            #
+            # Backup the last calculated box
+            #
+            self._previous_cluster_union_box = current_box.clone()
 
-        return online_targets_and_img
+            # Some players may be off-screen, so their box may go over an edge
+            # current_box = self._hockey_mom.clamp(current_box)
+            current_box = clamp_box(current_box, self._play_box)
+
+            # Maybe set initial box sizes if we aren't starting with a wide frame
+            if self._frame_counter == 1 and self._args.no_wide_start:
+                self.set_initial_tracking_box(current_box)
+
+            #
+            # Apply the new calculated play
+            #
+            fast_roi_bounding_box = self._current_roi(current_box)
+            current_box = self._current_roi_aspect(fast_roi_bounding_box)
+
+            if self._args.plot_speed:
+                vis.plot_frame_id_and_speeds(
+                    online_im,
+                    frame_id,
+                    *self._hockey_mom.get_velocity_and_acceleratrion_xy(),
+                )
+
+            if self._args.plot_moving_boxes:
+                online_im = self._current_roi_aspect.draw(
+                    img=online_im,
+                    draw_thresholds=True,
+                    following_box=self._current_roi,
+                )
+                online_im = self._current_roi.draw(img=online_im)
+                online_im = vis.plot_line(
+                    online_im,
+                    center(fast_roi_bounding_box),
+                    center(current_box),
+                    color=(255, 255, 255),
+                    thickness=2,
+                )
+
+            frame_ids_list.append(frame_id)
+            current_box_list.append(self._current_roi_aspect.bounding_box().clone().cpu())
+            current_fast_box_list.append(self._current_roi.bounding_box().clone().cpu())
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im).to(device=image_device, non_blocking=True)
+                if online_im.ndim == 4 and online_im.shape[0] == 1:
+                    online_im = online_im.squeeze(0)
+            assert online_im.device == image_device
+            online_images.append(make_channels_last(online_im))
+
+        results["frame_ids"] = torch.stack(frame_ids_list)
+        results["current_box"] = torch.stack(current_box_list)
+        results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        results["img"] = torch.stack(online_images)
+
+        return results
 
     def calculate_breakaway(
         self,
@@ -525,7 +570,7 @@ class PlayTracker(torch.nn.Module):
             if speed_adjust_box is not None:
                 roi_center = center(speed_adjust_box.bounding_box())
                 if self._args.plot_individual_player_tracking:
-                    vis.plot_line(
+                    online_im = vis.plot_line(
                         online_im,
                         edge_center,
                         roi_center,
@@ -539,7 +584,7 @@ class PlayTracker(torch.nn.Module):
                 )
                 if should_adjust_speed.item():
                     speed_adjust_box.adjust_speed(
-                        accel_x=group_x_velocity
+                        accel_x=group_x_velocity.cpu()
                         * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,

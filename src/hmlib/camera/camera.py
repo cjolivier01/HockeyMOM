@@ -1,18 +1,11 @@
-from typing import Dict, List, Set, Tuple
+from typing import List, Set, Union
 
-import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from hmlib.tracking_utils.log import logger
-from hmlib.utils.box_functions import (
-    center,
-    clamp_box,
-    height,
-    tlwh_to_tlbr_single,
-    width,
-)
+from hmlib.bbox.box_functions import tlwh_to_tlbr_single
+from hmlib.log import logger
+from hmlib.tracking_utils.visualization import plot_trajectory
 
 # nosec B101
 
@@ -36,7 +29,8 @@ class VideoFrame(object):
         self._image_width = _as_scalar(image_width)
         self._image_height = _as_scalar(image_height)
         self._bbox = torch.tensor(
-            (0, 0, self._image_width - 1, self._image_height - 1),
+            # (0, 0, self._image_width - 1, self._image_height - 1),
+            (0, 0, self._image_width, self._image_height),
             dtype=torch.float,
             device=self._image_width.device,
         )
@@ -68,6 +62,11 @@ class TlwhHistory(object):
     @property
     def id(self):
         return self.id_
+
+    def draw(self, image: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
+        tracking_id = self.id_
+        positions = torch.stack(self._image_position_history)
+        return plot_trajectory(image, tracking_id, positions)
 
     def append(self, image_position: torch.Tensor):
         current_historty_length = len(self._image_position_history)
@@ -138,7 +137,9 @@ CAMERA_TYPE_MAX_SPEEDS = {
 
 
 class HockeyMOM:
-
+    """
+    The Observer (The Mom)
+    """
     # Frames per second that normal speeds are calculated for
     BASE_FPS: float = 29.97
 
@@ -150,26 +151,18 @@ class HockeyMOM:
         device: torch.device,
         camera_name: str,
         max_history: int = 26,
-        speed_history: int = 26,
     ):
         self._device = device
         self._video_frame = VideoFrame(
             image_width=self._to_scalar_float(image_width),
             image_height=self._to_scalar_float(image_height),
         )
-        self._online_tlwhs_history: List[torch.Tensor] = list()
         self._max_history = max_history
         self._online_ids: Set[int] = set()
         self._id_to_tlwhs_history_map = dict()
         self._fps_speed_scale: float = fps / HockeyMOM.BASE_FPS
 
-        self._kmeans_objects = dict()
-        self._cluster_counts = dict()
-        self._cluster_label_ids = dict()
-        self._largest_cluster_label = dict()
         self._online_image_center_points = []
-
-        self._epsilon = self._to_scalar_float(0.00001)
 
         self._camera_box_max_speed_x = self._to_scalar_float(
             max(image_width / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
@@ -190,8 +183,10 @@ class HockeyMOM:
     def _to_scalar_float(self, scalar_float):
         return torch.tensor(scalar_float, dtype=torch.float, device=self._device)
 
+    def get_history(self, tracking_id: int) -> Union[TlwhHistory, None]:
+        return self._id_to_tlwhs_history_map.get(int(tracking_id))
+
     def append_online_objects(self, online_ids, online_tlws):
-        # assert isinstance(online_tlwh_map, dict)
         if len(online_ids) == 0:
             return
         assert isinstance(online_ids, torch.Tensor)
@@ -209,7 +204,9 @@ class HockeyMOM:
         prev_dict = self._id_to_tlwhs_history_map
         self._id_to_tlwhs_history_map = dict()
         for id, image_pos in zip(self._online_ids, self._online_tlws):
-            hist = prev_dict.get(id.item(), TlwhHistory(id=id.item()))
+            hist = prev_dict.get(
+                id.item(), TlwhHistory(id=id.item(), max_history_length=self._max_history)
+            )
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id.item()] = hist
 

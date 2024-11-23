@@ -31,10 +31,12 @@ from hmlib.utils.image import (
     image_width,
     make_channels_first,
     make_channels_last,
+    resize_image,
+    rotate_image,
 )
 from hmlib.utils.iterators import CachedIterator
-from hmlib.video_out import VideoOutput, resize_image, rotate_image
-from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
+from hmlib.video.video_out import VideoOutput
+from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 

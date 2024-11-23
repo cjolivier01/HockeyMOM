@@ -1,8 +1,9 @@
 import os
 from typing import Dict
+
 import numpy as np
 
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 
 
 def write_results(filename, results_dict: Dict, data_type: str):

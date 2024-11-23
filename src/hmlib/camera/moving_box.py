@@ -4,10 +4,7 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.builder import HM
-from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.log import logger
-from hmlib.utils.box_functions import (
+from hmlib.bbox.box_functions import (
     aspect_ratio,
     center,
     check_for_box_overshoot,
@@ -19,7 +16,10 @@ from hmlib.utils.box_functions import (
     shift_box_to_edge,
     width,
 )
-from hmlib.utils.image import ImageHorizontalGaussianDistribution
+from hmlib.builder import HM
+from hmlib.log import logger
+from hmlib.tracking_utils import visualization as vis
+from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 
 
 class BasicBox(torch.nn.Module):
@@ -53,19 +53,27 @@ class BasicBox(torch.nn.Module):
         return self._bbox.clone()
 
 
+def _as_scalar_float_tensor(
+    val: Union[torch.Tensor, int, float], device: torch.device
+) -> torch.Tensor:
+    if isinstance(val, torch.Tensor):
+        return val
+    return torch.tensor(float(val), dtype=torch.float, device=device)
+
+
 class ResizingBox(BasicBox):
     # TODO: move resizing stuff here
     def __init__(
         self,
         bbox: torch.Tensor,
-        max_speed_w: torch.Tensor,
-        max_speed_h: torch.Tensor,
-        max_accel_w: torch.Tensor,
-        max_accel_h: torch.Tensor,
-        min_width: torch.Tensor,
-        min_height: torch.Tensor,
-        max_width: torch.Tensor,
-        max_height: torch.Tensor,
+        max_speed_w: Union[torch.Tensor, int, float],
+        max_speed_h: Union[torch.Tensor, int, float],
+        max_accel_w: Union[torch.Tensor, int, float],
+        max_accel_h: Union[torch.Tensor, int, float],
+        min_width: Union[torch.Tensor, int, float],
+        min_height: Union[torch.Tensor, int, float],
+        max_width: Union[torch.Tensor, int, float],
+        max_height: Union[torch.Tensor, int, float],
         stop_on_dir_change: bool,
         sticky_sizing: bool = False,
         device: str = None,
@@ -80,10 +88,10 @@ class ResizingBox(BasicBox):
         self._max_accel_w = max_accel_w
         self._max_accel_h = max_accel_h
 
-        self._min_width = min_width
-        self._min_height = min_height
-        self._max_width = max_width
-        self._max_height = max_height
+        self._min_width = _as_scalar_float_tensor(min_width, device=device)
+        self._min_height = _as_scalar_float_tensor(min_height, device=device)
+        self._max_width = _as_scalar_float_tensor(max_width, device=device)
+        self._max_height = _as_scalar_float_tensor(max_height, device=device)
         self._size_constrained = False
 
         #
@@ -129,9 +137,6 @@ class ResizingBox(BasicBox):
                 )
 
             inscribed = move_box_to_center(scaled_following_box.clone(), center(my_bbox))
-            # logger.info(
-            #     f"inscribed: {width(scaled_following_box)} x {height(scaled_following_box)}"
-            # )
             img = vis.draw_dashed_rectangle(
                 img,
                 box=inscribed,
@@ -329,6 +334,7 @@ class MovingBox(ResizingBox):
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
         thickness: int = 2,
         device: Optional[str] = None,
+        clamp_scaled_input_box: bool = True,  # EXPERIMENTAL
     ):
         super().__init__(
             bbox=bbox,
@@ -352,6 +358,7 @@ class MovingBox(ResizingBox):
         self._sticky_translation_gaussian_mult = sticky_translation_gaussian_mult
         self._sticky_size_ratio_to_frame_width = sticky_size_ratio_to_frame_width
         self._unsticky_translation_size_ratio = unsticky_translation_size_ratio
+        self._clamp_scaled_input_box = clamp_scaled_input_box
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -384,7 +391,7 @@ class MovingBox(ResizingBox):
 
         if self._arena_box is not None:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
-                width(self._arena_box)
+                width(self._arena_box), invert=True
             )
         else:
             self._horizontal_image_gaussian_distribution = None
@@ -457,14 +464,14 @@ class MovingBox(ResizingBox):
             my_center = [int(i) for i in center_tensor]
             my_width = width(self.bounding_box())
             my_height = height(self.bounding_box())
-            cv2.circle(
+            img = vis.plot_circle(
                 img,
                 my_center,
                 radius=int(sticky),
                 color=(255, 0, 0),
                 thickness=3,
             )
-            cv2.circle(
+            img = vis.plot_circle(
                 img,
                 my_center,
                 radius=int(unsticky),
@@ -478,14 +485,14 @@ class MovingBox(ResizingBox):
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
                 co = [int(i) for i in following_bbox_center]
-                cv2.circle(
+                vis.plot_circle(
                     img,
                     my_center,
                     radius=5,
                     color=(255, 255, 0),
                     thickness=cv2.FILLED,
                 )
-                cv2.circle(
+                vis.plot_circle(
                     img,
                     co,
                     radius=5,
@@ -644,7 +651,6 @@ class MovingBox(ResizingBox):
             changed_direction = s1 * s2
 
             # Reduce velocity on axes that changed direction
-            # velocity = torch.where(changed_direction < 0, velocity / 6, velocity)
             velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
             sticky, unsticky = self._get_sticky_translation_sizes()
@@ -661,9 +667,6 @@ class MovingBox(ResizingBox):
 
         if not self.is_nonstop():
             if different_directions(total_diff[0], self._current_speed_x):
-                # self._current_speed_x = self._zero.clone()
-                # self._current_speed_x /= 2
-
                 self._current_speed_x = torch.where(
                     torch.abs(self._current_speed_x) < self._max_speed_x / 6,
                     0,
@@ -673,9 +676,6 @@ class MovingBox(ResizingBox):
                 if self._stop_on_dir_change:
                     total_diff[0] = self._zero.clone()
             if different_directions(total_diff[1], self._current_speed_y):
-                # self._current_speed_y = self._zero.clone()
-                # self._current_speed_y /= 2
-
                 self._current_speed_y = torch.where(
                     torch.abs(self._current_speed_y) < self._max_speed_y / 6,
                     0,
@@ -697,11 +697,16 @@ class MovingBox(ResizingBox):
             dest_box = scale_box(
                 dest_box, scale_width=self._scale_width, scale_height=self._scale_height
             )
+            if self._clamp_scaled_input_box:
+                # Clamp it to the image, since any translation back into the frame will
+                # end up including parts that we don't want
+                dest_box = clamp_box(box=dest_box, clamp_box=self._arena_box)
+                # pass
+
         self.set_destination(dest_box=dest_box)
         return self.next_position()
 
     def next_position(self):
-        # if arena_box is None:
         arena_box = self._arena_box
 
         # BEGIN Sticky Translation

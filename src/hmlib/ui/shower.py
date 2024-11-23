@@ -16,7 +16,7 @@ class Shower:
     def __init__(self, label: str, show_scaled: Optional[float] = None, max_size: int = 4):
         self._label = label
         self._show_scaled = show_scaled
-        self._max_size = max_size
+        self._max_size: int = max(max_size, 1)
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
@@ -51,7 +51,7 @@ class Shower:
 
     def show(self, img: Union[torch.Tensor, np.ndarray]):
         if self._thread is not None:
-            while self._q.qsize() > self._max_size:
+            while self._q.qsize() >= self._max_size:
                 # print("Too many items in Shower queue...")
                 time.sleep(0.01)
             self._q.put(img)

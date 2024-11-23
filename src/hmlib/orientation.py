@@ -24,7 +24,7 @@ from hmlib.utils.video import load_first_video_frame
 
 # GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
 # number
-GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.MP4$"
+GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.(MP4|mp4)$"
 LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.mp4$"
 RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.mp4$"
 LEFT_FILE_PATTERN: str = r"left.mp4"
@@ -236,10 +236,10 @@ def get_game_videos_analysis(
     for key, value in videos_dict.items():
         mask = value["rink_profile"]["combined_mask"]
 
-        sum_map: Dict[str, float] = get_orientation_dict(torch.from_numpy(mask))
+        sum_map: Dict[str, float] = get_orientation_dict(mask)
         video_ssm[key] = sum_map
 
-        orientation = get_orientation(torch.from_numpy(mask))
+        orientation = get_orientation(mask)
         if isinstance(key, str):
             if key.startswith("left"):
                 assert orientation == "left"

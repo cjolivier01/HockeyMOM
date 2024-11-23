@@ -20,7 +20,7 @@ from hmlib.utils.image import (
     make_visible_image,
     pad_tensor_to_size_batched,
 )
-from hmlib.video_stream import VideoStreamReader
+from hmlib.video.video_stream import VideoStreamReader
 
 ROOT_DIR = os.getcwd()
 
@@ -105,9 +105,11 @@ class ImageRemapper:
         add_alpha_channel: bool = False,
         fake_remapping: bool = False,
         use_cpp_remap_op: bool = False,
+        debug: bool = False,
     ):
         assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
+        self._debug = debug
         self._dir_name = dir_name
         self._basename = basename
         self._interpolation = interpolation

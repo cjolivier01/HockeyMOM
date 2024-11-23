@@ -10,9 +10,9 @@ from PIL import Image, ImageTk
 
 from hmlib.camera.end_zones import load_lines_from_config
 from hmlib.config import (
-    get_game_config,
+    get_game_config_private,
     get_nested_value,
-    save_game_config,
+    save_private_config,
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
@@ -122,14 +122,14 @@ class ImageEditor:
         for label, points in self.lines.items():
             print(f"{label}: {points}")
         if len(self.lines):
-            game_config = get_game_config(game_id=args.game_id)
+            game_config = get_game_config_private(game_id=args.game_id)
             for label, line in self.lines.items():
                 if not line:
                     line = None
                 set_nested_value(
                     game_config, f"rink.end_zones.{label}", [list(line[0]), list(line[1])]
                 )
-            save_game_config(game_id=self._game_id, data=game_config)
+            save_private_config(game_id=self._game_id, data=game_config)
 
         self.quit()
 
@@ -151,9 +151,11 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
+    args.game_id = "ev-blackstars-ps"
+
     assert args.game_id
 
-    game_config = get_game_config(game_id=args.game_id)
+    game_config = get_game_config_private(game_id=args.game_id)
 
     lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(config=game_config)
 

@@ -1,33 +1,25 @@
 import numbers
-import time
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import mmcv
+import mmengine
 import numpy as np
 import torch
-from mmpose.core.bbox import bbox_xywh2cs, bbox_xywh2xyxy, bbox_xyxy2xywh
-from mmpose.core.bbox.transforms import bbox_cs2xywh
-from mmpose.core.post_processing import (
-    affine_transform,
-    get_affine_transform,
-    get_warp_matrix,
-    warp_affine_joints,
-)
+from mmcv.transforms import LoadImageFromFile
+from mmengine.registry import TRANSFORMS
+from mmpose.structures.bbox.transforms import bbox_xywh2cs
 from torchvision.transforms import functional as F
 
-from hmlib.builder import PIPELINES, POSE_PIPELINES
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
 from hmlib.utils.image import (
     image_height,
     image_width,
     is_channels_first,
-    is_channels_last,
     make_channels_first,
     make_channels_last,
-    resize_image,
 )
 
 from .cv2_to_torch import warp_affine_pytorch
@@ -153,9 +145,7 @@ def hm_imrescale(
         assert img.ndim == 4 and img.shape[-1] in (3, 4)
         h, w = img.shape[1:3]
     new_size, scale_factor = mmcv.rescale_size((w, h), scale, return_scale=True)
-    rescaled_img = hm_imresize(
-        img, new_size, interpolation=interpolation, backend=backend
-    )
+    rescaled_img = hm_imresize(img, new_size, interpolation=interpolation, backend=backend)
     if return_scale:
         return rescaled_img, scale_factor
     else:
@@ -243,9 +233,7 @@ def hm_imresize(
                 # C, W, H -> H, W, C
                 resized_img = resized_img.permute(2, 1, 0)
     else:
-        resized_img = cv2.resize(
-            img, size, dst=out, interpolation=cv2_interp_codes[interpolation]
-        )
+        resized_img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
     if not return_scale:
         return resized_img
     else:
@@ -372,9 +360,7 @@ def hm_impad(
     if isinstance(pad_val, tuple):
         assert len(pad_val) == img.shape[-1]
     elif not isinstance(pad_val, numbers.Number):
-        raise TypeError(
-            "pad_val must be a int or a tuple. " f"But received {type(pad_val)}"
-        )
+        raise TypeError("pad_val must be a int or a tuple. " f"But received {type(pad_val)}")
 
     # check padding
     if isinstance(padding, tuple) and len(padding) in [2, 4]:
@@ -384,8 +370,7 @@ def hm_impad(
         padding = (padding, padding, padding, padding)
     else:
         raise ValueError(
-            "Padding must be a int or a 2, or 4 element tuple."
-            f"But received {padding}"
+            "Padding must be a int or a 2, or 4 element tuple." f"But received {padding}"
         )
 
     # check padding mode
@@ -453,7 +438,7 @@ def hm_impad_to_multiple(
     return hm_impad(img, shape=(pad_h, pad_w), pad_val=pad_val)
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmImageToTensor:
     """Convert image to :obj:`torch.Tensor` by given keys.
 
@@ -495,7 +480,7 @@ class HmImageToTensor:
         return self.__class__.__name__ + f"(keys={self.keys})"
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmPad:
     """Pad the image & masks & segmentation map.
 
@@ -553,9 +538,7 @@ class HmPad:
             if self.size is not None:
                 padded_img = hm_impad(results[key], shape=self.size, pad_val=pad_val)
             elif self.size_divisor is not None:
-                padded_img = hm_impad_to_multiple(
-                    results[key], self.size_divisor, pad_val=pad_val
-                )
+                padded_img = hm_impad_to_multiple(results[key], self.size_divisor, pad_val=pad_val)
             results[key] = padded_img
         results["pad_shape"] = [image_height(padded_img), image_width(padded_img)]
         results["pad_fixed_size"] = self.size
@@ -573,9 +556,7 @@ class HmPad:
         ``results['pad_shape']``."""
         pad_val = self.pad_val.get("seg", 255)
         for key in results.get("seg_fields", []):
-            results[key] = hm_impad(
-                results[key], shape=results["pad_shape"][:2], pad_val=pad_val
-            )
+            results[key] = hm_impad(results[key], shape=results["pad_shape"][:2], pad_val=pad_val)
 
     def __call__(self, results):
         """Call function to pad images, masks, semantic segmentation maps.
@@ -600,7 +581,7 @@ class HmPad:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmResize:
     """Resize images & bbox & mask.
 
@@ -664,7 +645,7 @@ class HmResize:
                 self.img_scale = img_scale
             else:
                 self.img_scale = [img_scale]
-            assert mmcv.is_list_of(self.img_scale, tuple)
+            assert mmengine.is_list_of(self.img_scale, tuple)
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
@@ -695,7 +676,7 @@ class HmResize:
                 ``scale_idx`` is the selected index in the given candidates.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple)
+        assert mmengine.is_list_of(img_scales, tuple)
         scale_idx = np.random.randint(len(img_scales))
         img_scale = img_scales[scale_idx]
         return img_scale, scale_idx
@@ -715,7 +696,7 @@ class HmResize:
                 to be consistent with :func:`random_select`.
         """
 
-        assert mmcv.is_list_of(img_scales, tuple) and len(img_scales) == 2
+        assert mmengine.is_list_of(img_scales, tuple) and len(img_scales) == 2
         img_scale_long = [max(s) for s in img_scales]
         img_scale_short = [min(s) for s in img_scales]
         long_edge = np.random.randint(min(img_scale_long), max(img_scale_long) + 1)
@@ -769,9 +750,7 @@ class HmResize:
         """
 
         if self.ratio_range is not None:
-            scale, scale_idx = self.random_sample_ratio(
-                self.img_scale[0], self.ratio_range
-            )
+            scale, scale_idx = self.random_sample_ratio(self.img_scale[0], self.ratio_range)
         elif len(self.img_scale) == 1:
             scale, scale_idx = self.img_scale[0], 0
         elif self.multiscale_mode == "range":
@@ -811,15 +790,14 @@ class HmResize:
                     backend=self.backend,
                 )
             results[key] = img
-
-            scale_factor = np.array(
-                [w_scale, h_scale, w_scale, h_scale], dtype=np.float32
-            )
-            results["img_shape"] = [image_height(img), image_width(img), 3]
+            batch_size = img.shape[0]
+            scale_factor = np.array([w_scale, h_scale], dtype=np.float32)
+            iw, ih = image_width(img), image_height(img)
+            results["img_shape"] = [(ih, iw) for _ in range(batch_size)]
             # in case that there is no padding
-            results["pad_shape"] = results["img_shape"]
-            results["scale_factor"] = scale_factor
-            results["keep_ratio"] = self.keep_ratio
+            results["pad_shape"] = results["img_shape"].copy()
+            results["scale_factor"] = [scale_factor for _ in range(batch_size)]
+            results["keep_ratio"] = [self.keep_ratio for _ in range(batch_size)]
 
     def _resize_bboxes(self, results):
         """Resize bounding boxes with ``results['scale_factor']``."""
@@ -877,16 +855,12 @@ class HmResize:
                 img_shape = results["img"].shape[:2]
                 scale_factor = results["scale_factor"]
                 assert isinstance(scale_factor, float)
-                results["scale"] = tuple(
-                    [int(x * scale_factor) for x in img_shape][::-1]
-                )
+                results["scale"] = tuple([int(x * scale_factor) for x in img_shape][::-1])
             else:
                 self._random_scale(results)
         else:
             if not self.override:
-                assert (
-                    "scale_factor" not in results
-                ), "scale and scale_factor cannot be both set."
+                assert "scale_factor" not in results, "scale and scale_factor cannot be both set."
             else:
                 results.pop("scale")
                 if "scale_factor" in results:
@@ -909,7 +883,7 @@ class HmResize:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmCrop:
     def __init__(
         self,
@@ -970,8 +944,9 @@ class HmCrop:
                     img = make_channels_last(img)
                 results[key] = img
                 if key == "img":
-                    results["img_shape"] = torch.tensor(img.shape, dtype=torch.int64)
-                    results["ori_shape"] = results["img_shape"].clone()
+                    # TODO: shape probably needs to be 2 elements only
+                    results["img_shape"] = [torch.tensor(img.shape, dtype=torch.int64)]
+                    results["ori_shape"] = [results["img_shape"][0].clone()]
                 if self.save_clipped_images:
                     if "clipped_image" not in results:
                         results["clipped_image"] = dict()
@@ -984,7 +959,7 @@ class HmCrop:
         return repr_str
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class CloneImage:
     def __init__(
         self,
@@ -993,9 +968,7 @@ class CloneImage:
     ):
         self.source_key = source_key
         self.dest_key = dest_key
-        assert (self.source_key and self.dest_key) or (
-            not self.source_key and not self.dest_key
-        )
+        assert (self.source_key and self.dest_key) or (not self.source_key and not self.dest_key)
 
     def __call__(self, results):
         if self.source_key:
@@ -1010,206 +983,206 @@ class CloneImage:
         return repr_str
 
 
-@POSE_PIPELINES.register_module()
-class HmTopDownAffine:
-    """Affine transform the image to make input.
+# @POSE_PIPELINES.register_module()
+# class HmTopDownAffine:
+#     """Affine transform the image to make input.
 
-    Required key:'img', 'joints_3d', 'joints_3d_visible', 'ann_info','scale',
-    'rotation' and 'center'.
+#     Required key:'img', 'joints_3d', 'joints_3d_visible', 'ann_info','scale',
+#     'rotation' and 'center'.
 
-    Modified key:'img', 'joints_3d', and 'joints_3d_visible'.
+#     Modified key:'img', 'joints_3d', and 'joints_3d_visible'.
 
-    Args:
-        use_udp (bool): To use unbiased data processing.
-            Paper ref: Huang et al. The Devil is in the Details: Delving into
-            Unbiased Data Processing for Human Pose Estimation (CVPR 2020).
-    """
+#     Args:
+#         use_udp (bool): To use unbiased data processing.
+#             Paper ref: Huang et al. The Devil is in the Details: Delving into
+#             Unbiased Data Processing for Human Pose Estimation (CVPR 2020).
+#     """
 
-    def __init__(self, use_udp=False):
-        self.use_udp = use_udp
+#     def __init__(self, use_udp=False):
+#         self.use_udp = use_udp
 
-    def __call__(self, results):
-        image_size = results["ann_info"]["image_size"]
+#     def __call__(self, results):
+#         image_size = results["ann_info"]["image_size"]
 
-        img = results["img"]
-        joints_3d = results["joints_3d"]
-        joints_3d_visible = results["joints_3d_visible"]
-        c = results["center"]
-        s = results["scale"]
-        r = results["rotation"]
+#         img = results["img"]
+#         joints_3d = results["joints_3d"]
+#         joints_3d_visible = results["joints_3d_visible"]
+#         c = results["center"]
+#         s = results["scale"]
+#         r = results["rotation"]
 
-        if self.use_udp:
-            trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
-            if not isinstance(img, list):
-                img = cv2.warpAffine(
-                    img,
-                    trans,
-                    (int(image_size[0]), int(image_size[1])),
-                    flags=cv2.INTER_LINEAR,
-                )
-            else:
-                img = [
-                    cv2.warpAffine(
-                        i,
-                        trans,
-                        (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR,
-                    )
-                    for i in img
-                ]
+#         if self.use_udp:
+#             trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
+#             if not isinstance(img, list):
+#                 img = cv2.warpAffine(
+#                     img,
+#                     trans,
+#                     (int(image_size[0]), int(image_size[1])),
+#                     flags=cv2.INTER_LINEAR,
+#                 )
+#             else:
+#                 img = [
+#                     cv2.warpAffine(
+#                         i,
+#                         trans,
+#                         (int(image_size[0]), int(image_size[1])),
+#                         flags=cv2.INTER_LINEAR,
+#                     )
+#                     for i in img
+#                 ]
 
-            joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
-        else:
-            trans = get_affine_transform(c, s, r, image_size)
-            if not isinstance(img, list):
-                if isinstance(img, torch.Tensor):
-                    if False:
-                        device = img.device
-                        img = img.clamp(0, 255) / 255.0
-                        img = cv2.warpAffine(
-                            img.cpu().numpy(),
-                            trans,
-                            (int(image_size[0]), int(image_size[1])),
-                            flags=cv2.INTER_LINEAR,
-                        )
-                        show_image("warped", img, wait=False)
-                        img = torch.from_numpy(img).to(device, non_blocking=True)
-                    else:
-                        ih = image_height(img)
-                        iw = image_width(img)
-                        if r == 0:
-                            output_w = image_size[0]
-                            output_h = image_size[1]
-                            half_h = float(output_h) / 2
-                            half_w = float(output_w) / 2
-                            cx = c[0]
-                            cy = c[1]
-                            # scale_x = 4
-                            # scale_y = 4
+#             joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
+#         else:
+#             trans = get_affine_transform(c, s, r, image_size)
+#             if not isinstance(img, list):
+#                 if isinstance(img, torch.Tensor):
+#                     if False:
+#                         device = img.device
+#                         img = img.clamp(0, 255) / 255.0
+#                         img = cv2.warpAffine(
+#                             img.cpu().numpy(),
+#                             trans,
+#                             (int(image_size[0]), int(image_size[1])),
+#                             flags=cv2.INTER_LINEAR,
+#                         )
+#                         show_image("warped", img, wait=False)
+#                         img = torch.from_numpy(img).to(device, non_blocking=True)
+#                     else:
+#                         ih = image_height(img)
+#                         iw = image_width(img)
+#                         if r == 0:
+#                             output_w = image_size[0]
+#                             output_h = image_size[1]
+#                             half_h = float(output_h) / 2
+#                             half_w = float(output_w) / 2
+#                             cx = c[0]
+#                             cy = c[1]
+#                             # scale_x = 4
+#                             # scale_y = 4
 
-                            scale_x = s[1]
-                            scale_y = s[0]
+#                             scale_x = s[1]
+#                             scale_y = s[0]
 
-                            tlwh = torch.from_numpy(
-                                bbox_cs2xywh(c, s, padding=1.25)
-                            ).to(torch.int64)
+#                             tlwh = torch.from_numpy(
+#                                 bbox_cs2xywh(c, s, padding=1.25)
+#                             ).to(torch.int64)
 
-                            # tlwh = torch.from_numpy(results["bbox"][:4]).to(torch.int64)
-                            tlbr = torch.tensor(
-                                [
-                                    tlwh[0],
-                                    tlwh[1],
-                                    tlwh[0] + tlwh[2],
-                                    tlwh[1] + tlwh[3],
-                                ],
-                                dtype=torch.int64,
-                            )
+#                             # tlwh = torch.from_numpy(results["bbox"][:4]).to(torch.int64)
+#                             tlbr = torch.tensor(
+#                                 [
+#                                     tlwh[0],
+#                                     tlwh[1],
+#                                     tlwh[0] + tlwh[2],
+#                                     tlwh[1] + tlwh[3],
+#                                 ],
+#                                 dtype=torch.int64,
+#                             )
 
-                            # tlbr = torch.tensor(
-                            #     [
-                            #         int(cx - half_w / scale_x),
-                            #         int(cy - half_h / scale_y),
-                            #         int(cx + half_w / scale_x),
-                            #         int(cy + half_h / scale_y),
-                            #     ],
-                            #     dtype=torch.int64,
-                            # )
-                            img = extract_subimage(img=img, bbox=tlbr)
-                            img = resize_image(
-                                img, new_width=output_w, new_height=output_h
-                            )
-                        else:
-                            assert False
-                            # Does not seem to work
-                            # c = c.copy()
-                            # c[0] -= float(ih) / 2
-                            # c[0] /= ih
-                            # c[1] -= float(iw) / 2
-                            # c[1] /= iw
-                            # trans = get_affine_transform(c, s, r, image_size)
-                            trans = torch.from_numpy(trans).to(
-                                img.device, non_blocking=True
-                            )
-                            img = make_channels_first(img)
-                            if not torch.is_floating_point(img):
-                                img = img.to(torch.float, non_blocking=True)
-                            # show_image("warped", img, wait=False)
-                            img = warp_affine_pytorch(
-                                img,
-                                trans,
-                                # (int(image_size[1]), int(image_size[0])),
-                                (int(image_size[0]), int(image_size[1])),
-                            )
-                        # img = resize_image(img, new_width=288, new_height=384)
-                        if img.ndim == 4:
-                            assert img.shape[0] == 1
-                            img = img.squeeze(0)
-                        # show_image("warped", img, wait=False)
-                        # time.sleep(0.25)
-                else:
-                    img = cv2.warpAffine(
-                        img,
-                        trans,
-                        (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR,
-                    )
-            else:
-                img = [
-                    cv2.warpAffine(
-                        i,
-                        trans,
-                        (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR,
-                    )
-                    for i in img
-                ]
-            for i in range(results["ann_info"]["num_joints"]):
-                if joints_3d_visible[i, 0] > 0.0:
-                    joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
+#                             # tlbr = torch.tensor(
+#                             #     [
+#                             #         int(cx - half_w / scale_x),
+#                             #         int(cy - half_h / scale_y),
+#                             #         int(cx + half_w / scale_x),
+#                             #         int(cy + half_h / scale_y),
+#                             #     ],
+#                             #     dtype=torch.int64,
+#                             # )
+#                             img = extract_subimage(img=img, bbox=tlbr)
+#                             img = resize_image(
+#                                 img, new_width=output_w, new_height=output_h
+#                             )
+#                         else:
+#                             assert False
+#                             # Does not seem to work
+#                             # c = c.copy()
+#                             # c[0] -= float(ih) / 2
+#                             # c[0] /= ih
+#                             # c[1] -= float(iw) / 2
+#                             # c[1] /= iw
+#                             # trans = get_affine_transform(c, s, r, image_size)
+#                             trans = torch.from_numpy(trans).to(
+#                                 img.device, non_blocking=True
+#                             )
+#                             img = make_channels_first(img)
+#                             if not torch.is_floating_point(img):
+#                                 img = img.to(torch.float, non_blocking=True)
+#                             # show_image("warped", img, wait=False)
+#                             img = warp_affine_pytorch(
+#                                 img,
+#                                 trans,
+#                                 # (int(image_size[1]), int(image_size[0])),
+#                                 (int(image_size[0]), int(image_size[1])),
+#                             )
+#                         # img = resize_image(img, new_width=288, new_height=384)
+#                         if img.ndim == 4:
+#                             assert img.shape[0] == 1
+#                             img = img.squeeze(0)
+#                         # show_image("warped", img, wait=False)
+#                         # time.sleep(0.25)
+#                 else:
+#                     img = cv2.warpAffine(
+#                         img,
+#                         trans,
+#                         (int(image_size[0]), int(image_size[1])),
+#                         flags=cv2.INTER_LINEAR,
+#                     )
+#             else:
+#                 img = [
+#                     cv2.warpAffine(
+#                         i,
+#                         trans,
+#                         (int(image_size[0]), int(image_size[1])),
+#                         flags=cv2.INTER_LINEAR,
+#                     )
+#                     for i in img
+#                 ]
+#             for i in range(results["ann_info"]["num_joints"]):
+#                 if joints_3d_visible[i, 0] > 0.0:
+#                     joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
 
-        results["img"] = img
-        results["joints_3d"] = joints_3d
-        results["joints_3d_visible"] = joints_3d_visible
+#         results["img"] = img
+#         results["joints_3d"] = joints_3d
+#         results["joints_3d_visible"] = joints_3d_visible
 
-        return results
-
-
-@POSE_PIPELINES.register_module()
-class HmToTensor:
-    """Transform image to Tensor.
-
-    Required key: 'img'. Modifies key: 'img'.
-
-    Args:
-        results (dict): contain all information about training.
-    """
-
-    def __init__(self, device="cpu"):
-        self.device = device
-
-    def _to_tensor(self, x):
-        if isinstance(x, torch.Tensor):
-            if not torch.is_floating_point(x):
-                x = x.to(torch.float32, non_blocking=True)
-            return make_channels_first(x / 255.0)
-        else:
-            return (
-                torch.from_numpy(x.astype("float32"))
-                .permute(2, 0, 1)
-                .to(self.device)
-                .div_(255.0)
-            )
-
-    def __call__(self, results):
-        if isinstance(results["img"], (list, tuple)):
-            results["img"] = [self._to_tensor(img) for img in results["img"]]
-        else:
-            results["img"] = self._to_tensor(results["img"])
-
-        return results
+#         return results
 
 
-@PIPELINES.register_module()
+# @POSE_PIPELINES.register_module()
+# class HmToTensor:
+#     """Transform image to Tensor.
+
+#     Required key: 'img'. Modifies key: 'img'.
+
+#     Args:
+#         results (dict): contain all information about training.
+#     """
+
+#     def __init__(self, device="cpu"):
+#         self.device = device
+
+#     def _to_tensor(self, x):
+#         if isinstance(x, torch.Tensor):
+#             if not torch.is_floating_point(x):
+#                 x = x.to(torch.float32, non_blocking=True)
+#             return make_channels_first(x / 255.0)
+#         else:
+#             return (
+#                 torch.from_numpy(x.astype("float32"))
+#                 .permute(2, 0, 1)
+#                 .to(self.device)
+#                 .div_(255.0)
+#             )
+
+#     def __call__(self, results):
+#         if isinstance(results["img"], (list, tuple)):
+#             results["img"] = [self._to_tensor(img) for img in results["img"]]
+#         else:
+#             results["img"] = self._to_tensor(results["img"])
+
+#         return results
+
+
+@TRANSFORMS.register_module()
 class HmTopDownAffine:
     """Affine transform the image to make input.
 
@@ -1292,7 +1265,7 @@ class HmTopDownAffine:
         return results
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmExtractBoundingBoxes:
     def __init__(self, source_name: str = "det_bboxes"):
         self.source_name = source_name
@@ -1302,7 +1275,7 @@ class HmExtractBoundingBoxes:
         return results
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class HmTopDownGetBboxCenterScale:
     """Convert bbox from [x, y, w, h] to center and scale.
 
@@ -1335,16 +1308,65 @@ class HmTopDownGetBboxCenterScale:
             results["scale"] *= self.padding
         else:
             bbox = results["bbox"]
-            image_size = results["ann_info"]["image_size"]
-            aspect_ratio = image_size[0] / image_size[1]
+            centers = []
+            scales = []
+            for video_data_sample in results["data_samples"].video_data_samples:
+                image_size = video_data_sample.metainfo["ori_shape"]
+                aspect_ratio = image_size[0] / image_size[1]
 
-            center, scale = bbox_xywh2cs(
-                bbox,
-                aspect_ratio=aspect_ratio,
-                padding=self.padding,
-                pixel_std=self.pixel_std,
-            )
+                center, scale = bbox_xywh2cs(
+                    bbox,
+                    aspect_ratio=aspect_ratio,
+                    padding=self.padding,
+                    pixel_std=self.pixel_std,
+                )
 
-            results["center"] = center
-            results["scale"] = scale
+                centers.append(center)
+                scales.append(scale)
+
+        results["centers"] = centers
+        results["scales"] = scales
+        return results
+
+
+def _to_float(t: Union[np.ndarray, torch.Tensor]):
+    if isinstance(t, torch.Tensor):
+        if not torch.is_floating_point(t):
+            return t.to(torch.float, non_blocking=True)
+        return t
+    return t.astype(np.float32)
+
+
+@TRANSFORMS.register_module()
+class HmLoadImageFromWebcam(LoadImageFromFile):
+    """Load an image from webcam.
+
+    Similar with :obj:`LoadImageFromFile`, but the image read from webcam is in
+    ``results['img']``.
+    """
+
+    def __call__(self, results):
+        """Call functions to add image meta information.
+
+        Args:
+            results (dict): Result dict with Webcam read image in
+                ``results['img']``.
+
+        Returns:
+            dict: The dict contains loaded image and meta information.
+        """
+
+        img = results["img"]
+        if self.to_float32:
+            img = _to_float(img)
+        assert img.ndim == 4
+        img = make_channels_last(img)
+        batch_size = img.size(0)
+        shape = img.shape[1:3]
+        results["img"] = img
+        results["filename"] = [None for _ in range(batch_size)]
+        results["ori_filename"] = [None for _ in range(batch_size)]
+        results["img_shape"] = [shape for _ in range(batch_size)]
+        results["ori_shape"] = [shape for _ in range(batch_size)]
+        results["img_fields"] = ["img"]
         return results

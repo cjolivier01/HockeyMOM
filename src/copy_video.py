@@ -13,7 +13,6 @@ import torch
 
 from hmlib.config import get_game_dir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import hm_opts
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.laplacian_blend import show_image
@@ -23,8 +22,9 @@ from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.utils import calc_combined_fps
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_stream import VideoStreamWriter
 from hmlib.video_out import VideoOutput
-from hmlib.video_stream import VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
 

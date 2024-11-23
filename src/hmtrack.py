@@ -1,4 +1,5 @@
 import argparse
+import copy
 import logging
 import os
 import traceback
@@ -9,9 +10,9 @@ from typing import List, Tuple
 
 import torch
 import torch.backends.cudnn as cudnn
-from mmcv.utils import get_logger as mmcv_get_logger
-from mmdet.datasets.pipelines import Compose
-from mmtrack.apis import init_model
+from mmcv.transforms import Compose
+from mmdet.apis import init_track_model
+from mmengine.config import Config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import hmlib.tracking_utils.ice_rink_segm_boundaries
@@ -29,23 +30,20 @@ from hmlib.config import (
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.hm_transforms import update_data_pipeline
+from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
-
-# from hmlib.segm.ice_rink import confgure_ice_rink_mask
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
-from hmlib.tracking_utils.log import logger
-from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
-from hmlib.utils.mot_data import MOTTrackingData
-from hmlib.utils.pipeline import get_model_item, get_pipeline_item, update_pipeline_item
+from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hmlib.video_stream import time_to_frame
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_stream import time_to_frame
 
 ROOT_DIR = os.getcwd()
 
@@ -86,6 +84,18 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Don't start with a tracking box of the entire input frame. Immediately track to player detections.",
     )
     parser.add_argument(
+        "--no-rink-rotation",
+        default=False,
+        action="store_true",
+        help="Don't do rink rotation.",
+    )
+    parser.add_argument(
+        "--no-play-tracking",
+        default=False,
+        action="store_true",
+        help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
+    )
+    parser.add_argument(
         "--infer",
         default=False,
         action="store_true",
@@ -123,33 +133,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Modify config options using the command-line",
         default=None,
         nargs=argparse.REMAINDER,
-    )
-    #
-    # GPUs/Devices
-    #
-    parser.add_argument(
-        "--detection-gpu",
-        help="GPU used for detections",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--decoder-gpu",
-        help="GPU used for video decoding",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--encoder-gpu",
-        help="GPU used for video encoding",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--cam-tracking-gpu",
-        help="GPU used for camera tracking trunk (default us CPU)",
-        type=int,
-        default=None,
     )
     # cam args
     parser.add_argument(
@@ -212,6 +195,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
     parser.add_argument(
+        "--plot-trajectories", action="store_true", help="plot individual track trajectories"
+    )
+    parser.add_argument(
+        "--detect-jersey-numbers", action="store_true", help="Detect jersey numbers"
+    )
+    parser.add_argument(
         "--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers"
     )
     parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
@@ -225,6 +214,18 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--plot-moving-boxes",
         action="store_true",
         help="plot moving camera tracking boxes",
+    )
+    parser.add_argument(
+        "--async-post-processing",
+        type=int,
+        default=1,
+        help="Async post-processing",
+    )
+    parser.add_argument(
+        "--async-video-out",
+        type=int,
+        default=1,
+        help="Async video output",
     )
     parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
@@ -283,6 +284,8 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="The output video file name",
     )
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
+    parser.add_argument("--detector", help="det checkpoint file")
+    parser.add_argument("--reid", help="reid checkpoint file")
 
     # Pose args
     parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
@@ -304,13 +307,6 @@ def set_torch_multiprocessing_use_filesystem():
     import torch.multiprocessing
 
     torch.multiprocessing.set_sharing_strategy("file_system")
-
-
-def set_deterministic(seed: int = 42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
 
 def to_32bit_mul(val):
@@ -339,7 +335,7 @@ def configure_model(config: dict, args: argparse.Namespace):
 
 
 def find_stitched_file(dir_name: str, game_id: str):
-    exts = ["mkv", "avi", "mp4"]
+    exts = ["mp4", "mkv", "avi"]
     basenames = [
         "stitched_output",
         "stitched_output-with-audio",
@@ -397,14 +393,14 @@ def configure_boundaries(
                     game_id=game_id,
                     original_clip_box=original_clip_box,
                     draw=plot_tracking,
-                    gpu_allocator=gpu_allocator,
+                    # gpu_allocator=gpu_allocator,
                 ),
             )
 
 
 def main(args, num_gpu):
     dataloader = None
-    tracking_data = None
+    tracking_dataframe = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -419,6 +415,8 @@ def main(args, num_gpu):
         rank = args.local_rank
 
         game_config = args.game_config
+
+        dataloader = MultiDatasetWrapper(forgive_missing_attributes=["fps"])
 
         tracker = get_nested_value(game_config, "model.tracker.type")
         if args.output_fps is None:
@@ -499,7 +497,7 @@ def main(args, num_gpu):
             os.makedirs(results_folder, exist_ok=True)
 
         if args.save_tracking_data or args.input_tracking_data:
-            tracking_data = MOTTrackingData(
+            tracking_dataframe = TrackingDataFrame(
                 input_file=args.input_tracking_data,
                 output_file=(
                     os.path.join(results_folder, "results.csv")
@@ -509,7 +507,7 @@ def main(args, num_gpu):
                 write_interval=100,
             )
 
-        using_precalculated_tracking = tracking_data is not None and tracking_data.has_input_data()
+        using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -522,13 +520,16 @@ def main(args, num_gpu):
             is_stitching=is_stitching(args.input_video),
             is_multipose=args.multi_pose,
             is_detecting=not using_precalculated_tracking,
+            stitch_with_fastest=not args.detect_jersey_numbers,
         )
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
             args.stitch_cache_size = 0
-            args.batch_size = 1
+            # args.batch_size = 1
 
+        # This would be way too slow on CPU
+        assert torch.cuda.is_available()
         main_device = torch.device("cuda")
         for name in ["detection", "stitching", "encoder"]:
             if name in gpus:
@@ -548,69 +549,89 @@ def main(args, num_gpu):
         if not args.checkpoint:
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
 
-        if tracker == "mmtrack":
-            args.config = args.exp_file
-            if not using_precalculated_tracking:
-                if args.tracking or args.multi_pose:
-                    model = init_model(
-                        args.config,
-                        args.checkpoint,
-                        device=main_device,
-                    )
+        args.config = args.exp_file
 
-                    # Maybe apply a clip box in the data pipeline
-                    orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
-                    if orig_clip_box:
-                        hm_crop = get_pipeline_item(model.cfg.data.inference.pipeline, "HmCrop")
-                        if hm_crop is not None:
-                            hm_crop["rectangle"] = orig_clip_box
+        if not using_precalculated_tracking:
+            if args.tracking or args.multi_pose:
 
-                    if args.checkpoint:
-                        load_checkpoint_to_model(model, args.checkpoint)
-                    cfg = model.cfg.copy()
-                    pipeline = cfg.data.inference.pipeline
-                    pipeline[0].type = "LoadImageFromWebcam"
-                    data_pipeline = Compose(pipeline)
+                model_config = Config.fromfile(args.config)
 
-                #
-                # post-detection pipeline updates
-                #
-                configure_boundaries(
-                    game_id=args.game_id,
-                    model=model,
-                    top_border_lines=cam_args.top_border_lines,
-                    bottom_border_lines=cam_args.bottom_border_lines,
-                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                    gpu_allocator=gpu_allocator,
-                    plot_tracking=args.plot_tracking,
+                update_pipeline_item(
+                    model_config.model.post_tracking_pipeline,
+                    "HmNumberClassifier",
+                    dict(
+                        enabled=args.detect_jersey_numbers,
+                    ),
                 )
-            if args.multi_pose:
-                from mmpose.apis import init_pose_model
-                from mmpose.datasets import DatasetInfo
 
-                if not args.pose_config:
-                    args.pose_config = get_nested_value(game_config, "model.pose.config")
-                if not args.pose_checkpoint:
-                    args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
-
-                pose_model = init_pose_model(
-                    args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+                # build the model from a config file and a checkpoint file
+                model = init_track_model(
+                    model_config,
+                    args.checkpoint,
+                    args.detector,
+                    args.reid,
+                    device=main_device,
                 )
-                pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
-                pose_dataset = pose_model.cfg.data["test"]["type"]
-                pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
-                if pose_dataset_info is None:
-                    warnings.warn(
-                        "Please set `dataset_info` in the config."
-                        "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
-                        DeprecationWarning,
-                    )
-                else:
-                    pose_dataset_info = DatasetInfo(pose_dataset_info)
-        else:
-            assert False and "No longer supported"
 
-        dataloader = MultiDatasetWrapper()
+                # Maybe apply a clip box in the data pipeline
+                orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
+                if orig_clip_box:
+                    hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
+                    if hm_crop is not None:
+                        hm_crop["rectangle"] = orig_clip_box
+
+                if args.checkpoint:
+                    load_checkpoint_to_model(model, args.checkpoint)
+                cfg = model.cfg.copy()
+                pipeline = cfg.inference_pipeline
+                pipeline[0].type = "HmLoadImageFromWebcam"
+
+                update_pipeline_item(
+                    pipeline,
+                    "IceRinkSegmConfig",
+                    dict(
+                        game_id=args.game_id,
+                    ),
+                )
+
+                data_pipeline = Compose(pipeline)
+
+            #
+            # post-detection pipeline updates
+            #
+            configure_boundaries(
+                game_id=args.game_id,
+                model=model,
+                top_border_lines=cam_args.top_border_lines,
+                bottom_border_lines=cam_args.bottom_border_lines,
+                original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+                gpu_allocator=gpu_allocator,
+                plot_tracking=args.plot_tracking,
+            )
+        if args.multi_pose:
+            from mmpose.apis import init_pose_model
+            from mmpose.datasets import DatasetInfo
+
+            if not args.pose_config:
+                args.pose_config = get_nested_value(game_config, "model.pose.config")
+            if not args.pose_checkpoint:
+                args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
+
+            pose_model = init_pose_model(
+                args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+            )
+            pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
+            pose_dataset = pose_model.cfg.data["test"]["type"]
+            pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
+            if pose_dataset_info is None:
+                warnings.warn(
+                    "Please set `dataset_info` in the config."
+                    "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
+                    DeprecationWarning,
+                )
+            else:
+                pose_dataset_info = DatasetInfo(pose_dataset_info)
+
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -623,21 +644,11 @@ def main(args, num_gpu):
                     vl = input_video_files[0]
                     vr = input_video_files[1]
                     dir_name = os.path.dirname(vl)
-                    file_name, file_extension = os.path.splitext(os.path.basename(vl))
-                    video_left = file_name + file_extension
-                    file_name, file_extension = os.path.splitext(os.path.basename(vr))
-                    video_right = file_name + file_extension
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
                     game_videos = configure_game_videos(game_id=args.game_id)
                     dir_name = args.input_video
                     assert dir_name
-                    # video_left = "left.mp4"
-                    # video_right = "right.mp4"
-                    # vl = os.path.join(dir_name, video_left)
-                    # vr = os.path.join(dir_name, video_right)
-                    # vl =
-                    # input_video_files = [vl, vr]
                     input_video_files = game_videos
 
                 left_vid = BasicVideoInfo(",".join(game_videos["left"]))
@@ -657,19 +668,20 @@ def main(args, num_gpu):
                     args.max_frames = time_to_frame(time_str=args.max_time, fps=left_vid.fps)
 
                 pto_project_file, lfo, rfo = configure_video_stitching(
-                    dir_name,
-                    str(game_videos["left"][0]),
-                    str(game_videos["right"][0]),
-                    project_file_name,
+                    dir_name=dir_name,
+                    video_left=str(game_videos["left"][0]),
+                    video_right=str(game_videos["right"][0]),
+                    max_control_points=args.max_control_points,
+                    project_file_name=project_file_name,
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                 )
                 # Create the stitcher data loader
-                output_stitched_video_file = (
-                    os.path.join(".", f"stitched_output-{args.game_id}.mkv")
-                    if args.save_stitched
-                    else None
-                )
+                # output_stitched_video_file = (
+                #     os.path.join(".", f"stitched_output-{args.game_id}.mkv")
+                #     if args.save_stitched
+                #     else None
+                # )
 
                 stitch_videos = {
                     "left": {
@@ -686,15 +698,8 @@ def main(args, num_gpu):
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
                     start_frame_number=args.start_frame,
-                    output_stitched_video_file=(
-                        output_stitched_video_file if args.save_stitched else None
-                    ),
                     max_frames=args.max_frames,
                     max_input_queue_size=args.cache_size,
-                    num_workers=1,
-                    blend_thread_count=1,
-                    remap_thread_count=1,
-                    fork_workers=False,
                     image_roi=None,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
@@ -704,6 +709,8 @@ def main(args, num_gpu):
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
                     auto_adjust_exposure=args.stitch_auto_adjust_exposure,
+                    python_blender=args.python_blender,
+                    minimize_blend=not args.no_minimize_blend,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -723,7 +730,7 @@ def main(args, num_gpu):
                     stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
-                    original_image_only=tracking_data is not None,
+                    original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
@@ -756,7 +763,7 @@ def main(args, num_gpu):
                     ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
-                    original_image_only=tracking_data is not None,
+                    original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
@@ -772,10 +779,9 @@ def main(args, num_gpu):
                     if os.path.exists(vid_path):
                         extra_dataloader = MOTLoadVideoWithOrig(
                             path=vid_path,
-                            # game_id=dir_name,
                             img_size=None,
                             start_frame_number=args.start_frame,
-                            batch_size=1,
+                            batch_size=args.batch_size,
                             stream_tensors=tracker == "mmtrack",
                             dtype=torch.float if not args.fp16 else torch.half,
                             device=gpus["encoder"],
@@ -811,99 +817,93 @@ def main(args, num_gpu):
             save_dir = results_folder
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
 
-        # TODO: can this be part of the openmm pipeline?
-        postprocessor = CamTrackHead(
-            opt=args,
-            args=cam_args,
-            fps=dataloader.fps if args.output_fps is None else args.output_fps,
-            save_dir=save_dir,
-            output_video_path=output_video_path,
-            save_frame_dir=args.save_frame_dir,
-            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-            device=gpus["camera"],
-            video_out_device=gpus["encoder"],
-            data_type="mot",
-            camera_name=get_nested_value(game_config, "camera.name"),
-            async_post_processing=True,
-            # async_post_processing=False,
-        )
-        postprocessor._args.skip_final_video_save = args.skip_final_video_save
+        if not args.audio_only:
 
-        if not isinstance(exp, FakeExp):
-            trt_file = None
-            decoder = None
-            if model is not None:
-                model = model.to(main_device)
-                model.eval()
+            if not args.output_video_bit_rate:
+                # ugh, duplicate BS here, cam_args needs to go
+                args.output_video_bit_rate = dataloader.get_max_attribute("bit_rate")
+                cam_args.output_video_bit_rate = args.output_video_bit_rate
 
-                if not args.speed and not args.trt:
-                    if args.load_model is None:
-                        ckpt_file = os.path.join(file_name, "best_ckpt.pth.tar")
-                    else:
-                        ckpt_file = args.load_model
-                    logger.info("loading checkpoint")
-                    loc = "cuda:{}".format(rank)
-                    ckpt = torch.load(ckpt_file, map_location=loc)
-                    # load the model state dict
-                    if "model" in ckpt:
-                        model.load_state_dict(ckpt["model"])
-                    # torch.jit.load()
-                    logger.info("loaded checkpoint done.")
+            if not args.no_play_tracking:
 
-                if is_distributed:
-                    model = DDP(model, device_ids=[rank])
-
-                if args.trt:
-                    assert (
-                        not args.fuse and not is_distributed and args.batch_size == 1
-                    ), "TensorRT model is not support model fusing and distributed inferencing!"
-                    trt_file = os.path.join(file_name, "model_trt.pth")
-                    assert os.path.exists(
-                        trt_file
-                    ), "TensorRT model is not found!\n Run tools/trt.py first!"
-                    model.head.decode_in_inference = False
-                    decoder = model.head.decode_outputs
+                #
+                # Video output pipeline
+                #
+                video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
+                if video_out_pipeline:
+                    video_out_pipeline = copy.deepcopy(video_out_pipeline)
+                    fixed_edge_rotation_angle = (
+                        get_nested_value(game_config, "rink.camera.fixed_edge_rotation_angle", None)
+                        if not args.no_rink_rotation
+                        else 0
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmPerspectiveRotation",
+                        dict(
+                            fixed_edge_rotation_angle=fixed_edge_rotation_angle,
+                            fixed_edge_rotation=(
+                                fixed_edge_rotation_angle is not None
+                                and fixed_edge_rotation_angle != 0
+                            ),
+                            pre_clip=cam_args.crop_output_image,
+                            dtype=torch.float,
+                        ),
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmConfigureScoreboard",
+                        dict(
+                            game_id=args.game_id,
+                        ),
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmCropToVideoFrame",
+                        dict(
+                            crop_image=cam_args.crop_output_image,
+                        ),
+                    )
+                # TODO: get rid of one of these args things, merging them below
+                postprocessor = CamTrackHead(
+                    opt=args,
+                    args=cam_args,
+                    fps=dataloader.fps if args.output_fps is None else args.output_fps,
+                    save_dir=save_dir,
+                    output_video_path=output_video_path,
+                    save_frame_dir=args.save_frame_dir,
+                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+                    device=gpus["camera"],
+                    video_out_device=gpus["encoder"],
+                    video_out_cache_size=args.cache_size,
+                    data_type="mot",
+                    camera_name=get_nested_value(game_config, "camera.name"),
+                    video_out_pipeline=video_out_pipeline,
+                    async_post_processing=args.async_post_processing,
+                    async_video_out=args.async_video_out,
+                )
+                postprocessor._args.skip_final_video_save = args.skip_final_video_save
             else:
-                args.device = f"cuda:{rank}"
+                postprocessor = None
 
-            eval_functions = {
-                "mmtrack": {"function": run_mmtrack},
-            }
-
-            # start evaluate
-            args.device = main_device
-
-            *_, summary = eval_functions[tracker]["function"](
-                model=model,
-                config=args.game_config,
-                fp16=args.fp16,
-                distributed=is_distributed,
-                half=args.fp16,
-                trt_file=trt_file,
-                decoder=decoder,
-                test_size=exp.test_size,
-                result_folder=results_folder,
-                device=main_device,
-            )
-        else:
             other_kwargs = {
                 "dataloader": dataloader,
                 "postprocessor": postprocessor,
             }
-            if not args.audio_only:
-                run_mmtrack(
-                    model=model,
-                    pose_model=pose_model,
-                    pose_dataset_type=pose_dataset,
-                    pose_dataset_info=pose_dataset_info,
-                    config=vars(args),
-                    device=main_device,
-                    tracking_data=tracking_data,
-                    fp16=args.fp16,
-                    input_cache_size=args.cache_size,
-                    progress_bar=progress_bar,
-                    **other_kwargs,
-                )
+
+            run_mmtrack(
+                model=model,
+                pose_model=pose_model,
+                pose_dataset_type=pose_dataset,
+                pose_dataset_info=pose_dataset_info,
+                config=vars(args),
+                device=main_device,
+                tracking_dataframe=tracking_dataframe,
+                fp16=args.fp16,
+                input_cache_size=args.cache_size,
+                progress_bar=progress_bar,
+                **other_kwargs,
+            )
 
         #
         # Now add the audio
@@ -922,11 +922,12 @@ def main(args, num_gpu):
         raise
     finally:
         try:
-            postprocessor.stop()
+            if postprocessor is not None:
+                postprocessor.stop()
             if dataloader is not None and hasattr(dataloader, "close"):
                 dataloader.close()
-            if tracking_data is not None:
-                tracking_data.flush()
+            if tracking_dataframe is not None:
+                tracking_dataframe.flush()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
 
@@ -938,9 +939,8 @@ def tensor_to_image(tensor: torch.Tensor):  ##
 
 
 def setup_logging():
-    mmcv_logger = mmcv_get_logger("mmcv")
-    mmcv_logger.setLevel(logging.WARN)
-    logger.info("Logger initialized")
+    mm_logger = get_root_logger(level=logging.INFO)
+    mm_logger.setLevel(logging.INFO)
 
 
 if __name__ == "__main__":

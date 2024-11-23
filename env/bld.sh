@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#!/bin/bash
+
+SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
+
+source ${SCRIPT_DIR}/tools.sh
+
+DOCKER_OPTS=""
+
+DOCKER_TAG=$(get_tag)
+if [ ! -z "${DOCKER_TAG}" ]; then
+  DOCKER_OPTS="-t ${DOCKER_TAG}"
+  echo "DOCKER_TAG=${DOCKER_TAG}"
+fi
+
+docker build --memory 45G  --build-arg USERNAME=$(whoami) --build-arg UID=$(id -u) --build-arg GID=$(id -g)  ${DOCKER_OPTS} $@ .

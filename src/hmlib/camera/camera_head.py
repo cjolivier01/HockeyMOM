@@ -8,7 +8,7 @@ import torch
 from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
-from hmlib.tracking_utils.log import logger
+from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
 
 
@@ -56,11 +56,14 @@ class CamTrackHead:
         output_video_path: Optional[str],
         camera_name: str,
         original_clip_box: torch.Tensor,
+        video_out_pipeline: Dict[str, Any],
         save_frame_dir: str = None,
         data_type: str = "mot",
         postprocess: bool = True,
         async_post_processing: bool = False,
         video_out_device: str = None,
+        video_out_cache_size: int = 2,
+        async_video_out: bool = False,
     ):
         self._opt = opt
         self._args = args
@@ -68,7 +71,9 @@ class CamTrackHead:
         self._data_type = data_type
         self._postprocess = postprocess
         self._postprocessor = None
+        self._video_out_pipeline = video_out_pipeline
         self._async_post_processing = async_post_processing
+        self._async_video_out = async_video_out
         self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
@@ -79,6 +84,7 @@ class CamTrackHead:
         self._video_out_device = video_out_device
         if self._video_out_device is None:
             self._video_out_device = self._device
+        self._video_out_cache_size = video_out_cache_size
         self._counter = 0
 
     @property
@@ -88,72 +94,44 @@ class CamTrackHead:
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         return outputs, output_results
 
-    def _maybe_init(
-        self,
-        frame_id,
-        letterbox_img,
-        original_img,
-    ):
+    def _maybe_init(self, frame_id, img_width: int, img_height: int, device: torch.device):
         if self._postprocessor is None:
             self.on_first_image(
-                frame_id,
-                letterbox_img,
-                original_img,
-                device=self._device,
+                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device
             )
+
+    def is_initialized(self) -> bool:
+        return not self._hockey_mom is None
 
     def process_tracking(
         self,
-        tracking_results,
-        frame_id,
-        online_tlwhs,
-        online_ids,
-        detections,
-        info_imgs,
-        letterbox_img,
-        original_img,
-        online_scores,
-        data: Dict[str, Any],
+        results: Dict[str, Any],
     ):
         self._counter += 1
         if self._counter % 100 == 0:
             logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
-            return detections, online_tlwhs
-        if letterbox_img is not None:
-            letterbox_img = to_rgb_non_planar(letterbox_img).cpu()
-        original_img = to_rgb_non_planar(original_img)
-        if isinstance(online_tlwhs, list) and len(online_tlwhs) != 0:
-            online_tlwhs = torch.stack(
-                [_pt_tensor(t, device=self._device) for t in online_tlwhs]
-            ).to(self._device)
-        self._maybe_init(
-            frame_id,
-            letterbox_img,
-            original_img,
-        )
-        assert isinstance(online_ids, torch.Tensor) or (
-            isinstance(online_ids, list) and len(online_ids) == 0
-        )
-        send_data: Dict[str, Any] = {
-            "online_tlwhs": online_tlwhs,
-            "online_ids": online_ids,
-            "detections": detections,
-            "info_imgs": info_imgs,
-            "original_img": original_img,
-            "tracking_results": tracking_results,
-        }
-        data.update(send_data)
-        data = self._postprocessor.send(data)
-        if not self._async_post_processing:
-            tracking_results.update(data)
-        return tracking_results, detections, online_tlwhs
+            return results
+        if not self.is_initialized():
+            video_data_sample = results["data_samples"].video_data_samples[0]
+            metainfo = video_data_sample.metainfo
+            original_shape = metainfo["ori_shape"]
+            # torch.Size will be (H, W)
+            assert isinstance(original_shape, torch.Size)
+            self._maybe_init(
+                frame_id=video_data_sample.frame_id,
+                img_height=original_shape[0],
+                img_width=original_shape[1],
+                device=self._device,
+            )
+        results = self._postprocessor.send(results)
+        return results
 
-    def on_first_image(self, frame_id, letterbox_img, original_img, device):
+    def on_first_image(self, frame_id, img_width: int, img_height: int, device: torch.device):
         if self._hockey_mom is None:
             self._hockey_mom = HockeyMOM(
-                image_width=image_width(original_img),
-                image_height=image_height(original_img),
+                image_width=img_width,
+                image_height=img_height,
                 fps=self._fps,
                 device=device,
                 camera_name=self._camera_name,
@@ -173,6 +151,9 @@ class CamTrackHead:
                 args=self._args,
                 async_post_processing=self._async_post_processing,
                 video_out_device=self._video_out_device,
+                video_out_cache_size=self._video_out_cache_size,
+                async_video_out=self._async_video_out,
+                video_out_pipeline=self._video_out_pipeline,
             )
             self._postprocessor.eval()
             if self._async_post_processing:

@@ -15,7 +15,6 @@ import numpy as np
 import torch
 
 import hockeymom.core as core
-from hmlib.ffmpeg import BasicVideoInfo
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend
@@ -25,9 +24,10 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_first
-from hmlib.utils.pt_visualization import draw_box
-from hmlib.video_out import VideoOutput
-from hmlib.video_stream import VideoStreamReader, VideoStreamWriter
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_out import VideoOutput
+from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
+from hmlib.vis.pt_visualization import draw_box
 
 ROOT_DIR = os.getcwd()
 
@@ -507,7 +507,7 @@ def get_canvas_info(
     )
 
 
-class SmartBlender:
+class SmartRemapperBlender:
 
     def __init__(
         self,
@@ -594,6 +594,7 @@ class SmartBlender:
             )
             self._blender.to(self._device)
         else:
+            # this appears to leave shadows atm
             self._blender = PtImageBlender(
                 images_info=[
                     BlendImageInfo(
@@ -741,9 +742,8 @@ class ImageStitcher(torch.nn.Module):
         blender_config: core.BlenderConfig,
         dtype: torch.dtype,
         channels: int = 3,
-        blend_levels: int = 6,
         minimize_blend: bool = True,
-        overlap_pad: int = 120,
+        overlap_pad: int = None,
         use_python_blender: bool = False,
         draw: bool = False,
         **kwargs,
@@ -755,12 +755,16 @@ class ImageStitcher(torch.nn.Module):
         self._dtype = dtype
         self._device = device
 
+        if overlap_pad is None:
+            overlap_pad = calculate_required_blend_overlap(blender_config.levels)
+
         self._remapper_1 = ImageRemapper(
             remap_info=remap_image_info[0],
             channels=channels,
             interpolation=self._blender_config.interpolation,
             add_alpha_channel=False,
             use_cpp_remap_op=False,
+            debug=False,
         )
         self._remapper_1.init(batch_size=batch_size)
 
@@ -770,14 +774,15 @@ class ImageStitcher(torch.nn.Module):
             interpolation=self._blender_config.interpolation,
             add_alpha_channel=False,
             use_cpp_remap_op=False,
+            debug=False,
         )
         self._remapper_2.init(batch_size=batch_size)
 
-        self._smart_blender = SmartBlender(
+        self._smart_remapper_blender = SmartRemapperBlender(
             remapper_1=self._remapper_1,
             remapper_2=self._remapper_2,
             minimize_blend=minimize_blend,
-            blend_levels=blend_levels,
+            blend_levels=blender_config.levels,
             overlap_pad=overlap_pad,
             draw=draw,
             use_python_blender=use_python_blender,
@@ -804,7 +809,7 @@ class ImageStitcher(torch.nn.Module):
             device=self._device, non_blocking=True
         )
 
-        return self._smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
+        return self._smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
 
 
 def get_mapping(dir_name: str, basename: str):
@@ -823,6 +828,34 @@ def get_mapping(dir_name: str, basename: str):
     return xpos, ypos, col_map, row_map
 
 
+def calculate_required_blend_overlap(blend_levels: int) -> int:
+    """
+    Calculate how much overlap we need for the given width of a
+    remapped image (after remapping) and the number of levels
+    that we intend to blend.
+    The idea is that a pixel in the smallest pyramid image should
+    be the padding amount when it is scaled up to the original image
+
+    i.e.
+
+       XXXXXXXX
+    1: XXXXXXXX
+       XXXXXXXX
+
+       XXXX
+    2: XXXX
+       XXXX
+
+    3: XX
+       XX
+
+    One pixel X in the third (2x2) imge represents 4 pixels in the original image
+
+    Then, maybe we adjust it a little...
+    """
+    return 2**blend_levels * 2
+
+
 def create_stitcher(
     dir_name: str,
     batch_size: int,
@@ -830,6 +863,8 @@ def create_stitcher(
     dtype: torch.dtype,
     left_image_size_wh: Tuple[int, int],
     right_image_size_wh: Tuple[int, int],
+    python_blender: bool = True,
+    minimize_blend: bool = True,
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "nona",
@@ -872,6 +907,8 @@ def create_stitcher(
         remap_image_info=[remap_info_1, remap_info_2],
         blender_config=blender_config,
         dtype=dtype,
+        use_python_blender=python_blender,
+        minimize_blend=minimize_blend,
     )
     if device is not None:
         stitcher = stitcher.to(device=device)
@@ -977,7 +1014,7 @@ def blend_video(
 
     # seam_tensor, xor_mask_tensor = make_seam_and_xor_masks(dir_name=dir_name)
 
-    # smart_blender = SmartBlender(
+    # smart_remapper_blender = SmartRemapperBlender(
     #     remapper_1=remapper_1,
     #     remapper_2=remapper_2,
     #     minimize_blend=minimize_blend,
@@ -1006,7 +1043,7 @@ def blend_video(
             #     device=device, non_blocking=True
             # )
 
-            # blended = smart_blender.forward(remapped_tensor_1, remapped_tensor_2)
+            # blended = smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
             # show_image("blended", blended, wait=False)
 
             blended = stitcher.forward(source_tensor_1, source_tensor_2)

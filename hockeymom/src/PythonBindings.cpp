@@ -461,6 +461,7 @@ PYBIND11_MODULE(_hockeymom, m) {
               at::Tensor,
               at::ScalarType,
               bool,
+              std::size_t,
               std::optional<std::string>>(),
           py::arg("src_width"),
           py::arg("src_height"),
@@ -468,6 +469,7 @@ PYBIND11_MODULE(_hockeymom, m) {
           py::arg("row_map"),
           py::arg("dtype"),
           py::arg("add_alpha_channel"),
+          py::arg("pad_value"),
           py::arg("interpolation"),
           py::call_guard<py::gil_scoped_release>())
       .def(

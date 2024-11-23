@@ -164,6 +164,7 @@ std::shared_ptr<ops::ImageRemapper> StitchingDataLoader::get_remapper(
                 config.row_map,
                 dtype_,
                 config.add_alpha_channel,
+                config.pad_value,
                 config.interpolation);
         remapper->init(config.batch_size);
         remapper->to(config.device);

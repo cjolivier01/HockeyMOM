@@ -78,7 +78,7 @@ def load_checkpoint_to_model(
     not_found_count = 0
     for name, value in converted_state_dict.items():
         if name in converted_base_dict:
-            print(f"found: {name}")
+            # print(f"found: {name}")
             new_state_dict[name] = value
             found_count += 1
         else:
