@@ -74,7 +74,7 @@ SET(BUILD_EXAMPLES OFF)
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules")
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/opencv_contrib/modules")
 # MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
-SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv_contrib/modules/")
+# SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv_contrib/modules/")
 
 # include_directories(${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv/include/opencv2)
 # Detect compiler version (does not seem to work)
@@ -190,8 +190,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # And the external dir next
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external)
 
-# Include hugin sources as include dirs
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+  # Include hugin sources as include dirs
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
+endif()
 
 find_package(OpenGL REQUIRED
   PATHS /home/colivier/.conda/envs/ubuntu-gpu
