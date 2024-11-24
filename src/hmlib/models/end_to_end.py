@@ -7,6 +7,21 @@ from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
+from hockeymom.core import (
+    HmByteTrackConfig,
+    HmByteTracker,
+    HmTracker,
+    HmTrackerPredictionMode,
+)
+
+
+def _use_cpp_tracker(dflt: bool = False) -> bool:
+    s = os.environ.get("HM_USE_CPP_TRACKER")
+    if not s:
+        return False
+        # return True
+    return int(s) != 0
+
 
 @MODELS.register_module()
 class HmEndToEnd(ByteTrack):
@@ -17,9 +32,14 @@ class HmEndToEnd(ByteTrack):
         neck: Optional[Callable] = None,
         post_detection_pipeline: List[Dict[str, Any]] = None,
         post_tracking_pipeline: List[Dict[str, Any]] = None,
+        pose_model: str = None,
+        pose_weights: str = None,
         enabled: bool = True,
         num_classes_override: Optional[int] = None,
         dataset_meta: Dict[str, Any] = None,
+        # cpp_bytetrack: bool = _use_cpp_tracker(),
+        cpp_bytetrack: bool = True,
+        # cpp_bytetrack: bool = False,
         **kwargs,
     ):
         # BaseModel tries to build it from the mmengine
@@ -31,6 +51,7 @@ class HmEndToEnd(ByteTrack):
 
         super().__init__(*args, **kwargs)
         self._enabled = enabled
+        self._cpp_bytetrack = cpp_bytetrack
         self.post_detection_pipeline = post_detection_pipeline
         self.post_detection_composed_pipeline = None
         self.post_tracking_pipeline = post_tracking_pipeline
@@ -38,6 +59,25 @@ class HmEndToEnd(ByteTrack):
         self.neck = None
         self._num_classes_override = num_classes_override
         self.dataset_meta = dataset_meta
+        self._pose_model = pose_model
+        self._pose_weights = pose_weights
+
+        config = HmByteTrackConfig()
+        config.init_track_thr = 0.7
+        # config.obj_score_thrs_low=0.05,
+        # config.obj_score_thrs_low = 0.1
+        config.obj_score_thrs_low = 0.3
+        # config.obj_score_thrs_high=0.6,
+        config.obj_score_thrs_high = 0.5
+        config.match_iou_thrs_high = 0.1
+        config.match_iou_thrs_low = 0.5
+        config.match_iou_thrs_tentative = 0.3
+        config.track_buffer_size = 60
+        config.return_user_ids = False
+        # config.prediction_mode = HmTrackerPredictionMode.BoundingBox
+        # config.prediction_mode = HmTrackerPredictionMode.BoxCenter
+
+        self._hm_byte_tracker = HmTracker(config)
 
         if neck is not None:
             assert False
@@ -90,28 +130,38 @@ class HmEndToEnd(ByteTrack):
             track_data_sample = data_samples
         video_len = len(track_data_sample)
 
-        detect_all = True
-        if detect_all:
-            assert inputs.ndim == 5
-            # only one video, but can be multiple frames
-            assert inputs.shape[0] == 1
-            det_inputs = inputs.squeeze(0)
-            if True:
-                # makes a difference?
-                det_inputs = det_inputs.contiguous()
+        assert inputs.ndim == 5
+        # only one video, but can be multiple frames
+        assert inputs.shape[0] == 1
+        det_inputs = inputs.squeeze(0)
+        del inputs
 
+        # Maybe use pre-saved detection results
+        dataset_results = kwargs.get("dataset_results")
+        if dataset_results:
+            detection_dataframe = dataset_results.get("detection_dataframe")
+            if detection_dataframe:
+                # TODO: support multi-batch
+                assert len(track_data_sample) == 1
+                video_data_sample = track_data_sample.video_data_samples[0]
+                assert not hasattr(video_data_sample, "pred_instances")
+                video_data_sample.pred_instances = InstanceData(
+                    scores=torch.from_numpy(detection_dataframe["scores"]),
+                    labels=torch.from_numpy(detection_dataframe["labels"]),
+                    bboxes=torch.from_numpy(detection_dataframe["bboxes"]),
+                )
+                all_det_results = track_data_sample
+        elif True:
+            # makes a difference?
+            det_inputs = det_inputs.contiguous()
+
+        if any(not hasattr(vds, "pred_instances") for vds in track_data_sample.video_data_samples):
             all_det_results = self.detector.predict(det_inputs, track_data_sample)
+        del det_inputs
 
         for frame_index in range(video_len):
-            if detect_all:
-                det_data_sample = all_det_results[frame_index]
-                img_data_sample = track_data_sample[frame_index]
-            else:
-                img_data_sample = track_data_sample[frame_index]
-                single_img = inputs[:, frame_index].contiguous()
-                det_results = self.detector.predict(single_img, [img_data_sample])
-                assert len(det_results) == 1, "Batch inference is not supported."
-                det_data_sample = det_results[0]
+            det_data_sample = all_det_results[frame_index]
+            img_data_sample = track_data_sample[frame_index]
             det_bboxes = det_data_sample.pred_instances.bboxes
             det_labels = det_data_sample.pred_instances.labels
             det_scores = det_data_sample.pred_instances.scores
@@ -150,8 +200,28 @@ class HmEndToEnd(ByteTrack):
 
             # track = False
 
-            if track:
-                pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
+            if track and not hasattr(img_data_sample, "pred_track_instances"):
+                if self._cpp_bytetrack:
+                    results = self._hm_byte_tracker.track(
+                        data=dict(
+                            frame_id=frame_id,
+                            bboxes=det_data_sample.pred_instances.bboxes,
+                            labels=det_data_sample.pred_instances.labels,
+                            scores=det_data_sample.pred_instances.scores,
+                        )
+                    )
+                    if "user_ids" in results:
+                        ids = results["user_ids"]
+                    else:
+                        ids = results["ids"]
+                    pred_track_instances = InstanceData(
+                        instances_id=ids.cpu(),
+                        bboxes=results["bboxes"].cpu(),
+                        scores=results["scores"].cpu(),
+                        labels=results["labels"].cpu(),
+                    )
+                else:
+                    pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
                 img_data_sample.pred_track_instances = pred_track_instances
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)

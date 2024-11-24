@@ -11,6 +11,7 @@ from ._hockeymom import (
     ImageRemapper,
     ImageStitcher,
     RemapImageInfo,
+    RemapperConfig,
     StitchImageInfo,
 )
 
@@ -21,6 +22,7 @@ __all__ = [
     "BlenderConfig",
     "ImageStitcher",
     "RemapImageInfo",
+    "RemapperConfig",
     "HmTracker",
     "HmByteTracker",
     "HmByteTrackConfig",

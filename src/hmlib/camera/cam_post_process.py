@@ -38,7 +38,7 @@ MAX_CROPPED_WIDTH = 7680
 #
 # Some experimental and debugging parameters that aid in development
 #
-class DefaultArguments(core.HMPostprocessConfig):
+class DefaultArguments:
     def __init__(
         self,
         game_config: Dict,
@@ -56,7 +56,7 @@ class DefaultArguments(core.HMPostprocessConfig):
         self._output_video_path = output_video_path
 
         # Display the image every frame (slow)
-        self.show_image = self.show_image or basic_debugging
+        self.show_image = basic_debugging
 
         # Draw individual player boxes, tracking ids, speed and history trails
         self.plot_individual_player_tracking = False or basic_debugging

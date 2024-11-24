@@ -85,23 +85,23 @@ PYBIND11_MODULE(_hockeymom, m) {
   //     .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>,
   //     std::string>());
 
-  // py::class_<hm::ops::RemapperConfig,
-  // std::shared_ptr<hm::ops::RemapperConfig>>(
-  //     m, "RemapperConfig")
-  //     .def(py::init<>())
-  //     .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
-  //     .def_readwrite("src_height", &hm::ops::RemapperConfig::src_height)
-  //     .def_readwrite("x_pos", &hm::ops::RemapperConfig::x_pos)
-  //     .def_readwrite("y_pos", &hm::ops::RemapperConfig::y_pos)
-  //     .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
-  //     .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
-  //     .def_readwrite("dtype", &hm::ops::RemapperConfig::dtype)
-  //     .def_readwrite(
-  //         "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
-  //     .def_readwrite("interpolation",
-  //     &hm::ops::RemapperConfig::interpolation) .def_readwrite("batch_size",
-  //     &hm::ops::RemapperConfig::batch_size) .def_readwrite("device",
-  //     &hm::ops::RemapperConfig::device);
+  py::class_<hm::ops::RemapperConfig,
+  std::shared_ptr<hm::ops::RemapperConfig>>(
+      m, "RemapperConfig")
+      .def(py::init<>())
+      .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
+      .def_readwrite("src_height", &hm::ops::RemapperConfig::src_height)
+      .def_readwrite("x_pos", &hm::ops::RemapperConfig::x_pos)
+      .def_readwrite("y_pos", &hm::ops::RemapperConfig::y_pos)
+      .def_readwrite("col_map", &hm::ops::RemapperConfig::col_map)
+      .def_readwrite("row_map", &hm::ops::RemapperConfig::row_map)
+      .def_readwrite("dtype", &hm::ops::RemapperConfig::dtype)
+      .def_readwrite(
+          "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
+      .def_readwrite("interpolation",
+      &hm::ops::RemapperConfig::interpolation) .def_readwrite("batch_size",
+      &hm::ops::RemapperConfig::batch_size) .def_readwrite("device",
+      &hm::ops::RemapperConfig::device);
 
   py::class_<hm::BlenderConfig, std::shared_ptr<hm::BlenderConfig>>(
       m, "BlenderConfig")
