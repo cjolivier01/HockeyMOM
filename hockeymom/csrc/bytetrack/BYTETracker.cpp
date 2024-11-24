@@ -561,9 +561,9 @@ void BYTETracker::activate_track(int64_t id) {
     ++f_iter;
     int64_t last_frame_id = f_iter->item<int64_t>();
     int64_t lost_frame_count = frame_id - last_frame_id - 1;
-    std::cout << "Re-acquired track " << id << " after being lost for "
-              << lost_frame_count << " frame(s), for a total of "
-              << reacquired_count_ << " reacquisitions." << std::endl;
+    // std::cout << "Re-acquired track " << id << " after being lost for "
+    //           << lost_frame_count << " frame(s), for a total of "
+    //           << reacquired_count_ << " reacquisitions." << std::endl;
     lost_tracks_.erase(lost_iter);
     assert(track.state == STrack::State::Lost);
     track.state = STrack::State::Tracking;
