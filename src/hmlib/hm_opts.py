@@ -324,6 +324,8 @@ class hm_opts(object):
         if opt.serial:
             opt.async_post_processing = 0
             opt.async_video_out = 0
+            opt.cache_size = 0
+            opt.stitch_cache_size = 0
 
         if getattr(opt, "tracker", "") == "centertrack":
             if hasattr(opt, "test_size") and (hasattr(opt, "input_w") and hasattr(opt, "input_h")):
