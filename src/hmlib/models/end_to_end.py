@@ -202,6 +202,9 @@ class HmEndToEnd(ByteTrack):
 
             if track and not hasattr(img_data_sample, "pred_track_instances"):
                 if self._cpp_bytetrack:
+                    ll1: int = len(det_data_sample.pred_instances.bboxes)
+                    assert len(det_data_sample.pred_instances.labels) == ll1
+                    assert len(det_data_sample.pred_instances.scores) == ll1
                     results = self._hm_byte_tracker.track(
                         data=dict(
                             frame_id=frame_id,
@@ -214,6 +217,10 @@ class HmEndToEnd(ByteTrack):
                         ids = results["user_ids"]
                     else:
                         ids = results["ids"]
+                    ll2: int = len(ids)
+                    assert len(results["bboxes"]) == ll2
+                    assert len(results["scores"]) == ll2
+                    assert len(results["labels"]) == ll2
                     pred_track_instances = InstanceData(
                         instances_id=ids.cpu(),
                         bboxes=results["bboxes"].cpu(),
