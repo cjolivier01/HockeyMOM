@@ -216,18 +216,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="plot moving camera tracking boxes",
     )
     parser.add_argument(
-        "--async-post-processing",
-        type=int,
-        default=1,
-        help="Async post-processing",
-    )
-    parser.add_argument(
-        "--async-video-out",
-        type=int,
-        default=1,
-        help="Async video output",
-    )
-    parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")

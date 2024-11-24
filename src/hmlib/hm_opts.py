@@ -56,7 +56,12 @@ class hm_opts(object):
             type=str,
             help="Game ID",
         )
-
+        parser.add_argument(
+            "--serial",
+            default=0,
+            type=int,
+            help="Serial execution of entire pipeline",
+        )
         # stitching
         parser.add_argument(
             "--cache-size",
@@ -125,6 +130,18 @@ class hm_opts(object):
         #     type=str,
         #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         # )
+        parser.add_argument(
+            "--async-post-processing",
+            type=int,
+            default=1,
+            help="Async post-processing",
+        )
+        parser.add_argument(
+            "--async-video-out",
+            type=int,
+            default=1,
+            help="Async video output",
+        )
         parser.add_argument(
             "-o",
             "--output",
@@ -304,6 +321,10 @@ class hm_opts(object):
     @staticmethod
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
+        if opt.serial:
+            opt.async_post_processing = 0
+            opt.async_video_out = 0
+
         if getattr(opt, "tracker", "") == "centertrack":
             if hasattr(opt, "test_size") and (hasattr(opt, "input_w") and hasattr(opt, "input_h")):
                 from lib.opts import opts
