@@ -75,6 +75,9 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
   }
   std::unordered_map<std::string, at::Tensor> results =
       Super::track(std::move(data));
+  // for (const auto& itm : results) {
+  //   std::cout << itm.first << std::endl;
+  // }
   if (hm_config_.remove_tentative || hm_config_.return_user_ids) {
     std::size_t inactive_count = 0;
     const at::Tensor& ids = results.at(kIds);
@@ -88,16 +91,23 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
         vector_to_tensor(all_active_ids, ids.device());
     at::Tensor all_active_mask = at::isin(ids, all_active_ids_tensor);
 
+    // std::cout << "all_active_mask: " << all_active_mask.device() << std::endl;
+
     const std::size_t id_count = ids.numel();
     for (auto& item : results) {
       at::Tensor& tensor = item.second;
-      if (!tensor.ndimension() || tensor.numel() == 1) {
+      if (tensor.dim() == 0) {
         // Ignore scalars
         std::cout << "Ignoring scalar: key = " << item.first
                   << ", value: " << to_string(tensor) << std::endl;
+        // _PT(tensor);
+        continue;
+      } else if (item.first == kFrameId) {
         continue;
       }
       assert(tensor.size(0) == id_count);
+      // std::cout << item.first << " -> " << tensor.device()
+      //           << std::endl;
       tensor = bool_mask_select(tensor, all_active_mask);
     }
     if (hm_config_.return_user_ids) {

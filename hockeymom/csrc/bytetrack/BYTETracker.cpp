@@ -500,26 +500,28 @@ std::unordered_map<std::string, at::Tensor> BYTETracker::track(
         //           << " frames." << std::endl;
         assert(track.state == STrack::State::Tracking);
         track.state = STrack::State::Lost;
-        // if (not_lost_id == 3) {
-        //   std::cout << "frames: "
-        //             << scalar_tensor_list_to_vector<int64_t>(track.frame_ids)
-        //             << std::endl;
-        //   usleep(0);
-        // }
         lost_tracks_.emplace(not_lost_id);
       }
     }
-    //_PT(first_match_det_ids);
   }
-  // _PT(ids);
+
+  ids = _unscalar(std::move(ids));
+  scores = _unscalar(std::move(scores));
+  labels = _unscalar(std::move(labels));
+  bboxes = _unscalar(std::move(bboxes));
+
+  assert(ids.ndimension() > 0);
+  assert(scores.ndimension() > 0);
+  assert(labels.ndimension() > 0);
+  assert(bboxes.ndimension() > 0);
 
   track_update(ids.cpu(), bboxes.cpu(), labels.cpu(), scores.cpu(), {frame_id});
 
   // TODO: Return Tuple[bboxes, labels, scores, ids]
   ++track_pass_;
-  data[kIds] = _unscalar(std::move(ids));
-  data[kScores] = _unscalar(std::move(scores));
-  data[kLabels] = _unscalar(std::move(labels));
+  data[kIds] = std::move(ids);
+  data[kScores] = std::move(scores);
+  data[kLabels] = std::move(labels);
   data[kBBoxes] = std::move(bboxes);
   return std::move(data);
 }
@@ -535,12 +537,6 @@ void BYTETracker::track_update(
     frame_id_tensor = frame_id_tensor.repeat(ids.size(0));
     assert(frame_id_tensor.size(0) == ids.size(0));
   }
-  std::cout << "track_pass_ =" << track_pass_ << std::endl;
-  if (track_pass_ >= 14) {
-    usleep(0);
-  }
-  _PT(ids);
-  _PT(bboxes);
   assert(ids.numel() == bboxes.size(0));
   assert(ids.numel() == labels.numel());
   assert(ids.numel() == scores.numel());
@@ -565,9 +561,6 @@ void BYTETracker::activate_track(int64_t id) {
     ++f_iter;
     int64_t last_frame_id = f_iter->item<int64_t>();
     int64_t lost_frame_count = frame_id - last_frame_id - 1;
-    // if (id == 3) {
-    //   usleep(0);
-    // }
     std::cout << "Re-acquired track " << id << " after being lost for "
               << lost_frame_count << " frame(s), for a total of "
               << reacquired_count_ << " reacquisitions." << std::endl;
@@ -578,9 +571,6 @@ void BYTETracker::activate_track(int64_t id) {
   } else {
     assert(track.state != STrack::State::Lost);
   }
-  // if (id == 10) {
-  //   usleep(0);
-  // }
   track.state = STrack::State::Tracking;
 }
 
