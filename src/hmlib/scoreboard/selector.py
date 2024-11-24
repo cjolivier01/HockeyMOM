@@ -32,7 +32,7 @@ class ScoreboardSelector:
             if isinstance(image, Image.Image):
                 self.image = image
             else:
-                self.image: Image.Image = Image(image)
+                self.image: Image.Image = Image.Image(image)
         except Exception as e:
             raise AssertionError(f"Error opening image file: {e}")
 
@@ -56,6 +56,7 @@ class ScoreboardSelector:
 
         self.canvas.bind("<Button-1>", self.on_click)
         self.root.bind("<Delete>", self.on_key_press)
+        self.root.bind("<Key>", self.on_key_press)
 
         button_frame: tk.Frame = tk.Frame(self.root)
         button_frame.pack(side=tk.BOTTOM, fill=tk.X)
@@ -155,6 +156,18 @@ class ScoreboardSelector:
     def on_key_press(self, event: tk.Event) -> None:
         if event.keysym == "Delete":
             self.reset_selection()
+        else:
+            # Print out the ASCII code of the key pressed
+            ascii_code = ord(event.char) if event.char else None
+            if ascii_code is not None:
+                if ascii_code == 27:
+                    # ESC
+                    self.process_none()
+                elif ascii_code == 13:
+                    # ENTER
+                    self.process_ok()
+                else:
+                    print(f"Key pressed: {event.char}, ASCII code: {ascii_code}")
 
     def order_points(self, pts: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
         # Sort the points based on their y-coordinate
