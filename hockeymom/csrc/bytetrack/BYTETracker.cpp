@@ -9,7 +9,17 @@
 namespace hm {
 namespace tracker {
 
-namespace {} // namespace
+namespace {
+
+at::Tensor _unscalar(at::Tensor&& t) {
+  if (t.ndimension() == 0 && t.numel() == 1) {
+    // convert scalar into shape [1]
+    return t.unsqueeze(0);
+  }
+  return std::move(t);
+}
+
+} // namespace
 
 BYTETracker::BYTETracker(ByteTrackConfig config)
     : BaseTracker(
@@ -507,10 +517,10 @@ std::unordered_map<std::string, at::Tensor> BYTETracker::track(
 
   // TODO: Return Tuple[bboxes, labels, scores, ids]
   ++track_pass_;
+  data[kIds] = _unscalar(std::move(ids));
+  data[kScores] = _unscalar(std::move(scores));
+  data[kLabels] = _unscalar(std::move(labels));
   data[kBBoxes] = std::move(bboxes);
-  data[kIds] = std::move(ids);
-  data[kScores] = std::move(scores);
-  data[kLabels] = std::move(labels);
   return std::move(data);
 }
 
@@ -525,6 +535,15 @@ void BYTETracker::track_update(
     frame_id_tensor = frame_id_tensor.repeat(ids.size(0));
     assert(frame_id_tensor.size(0) == ids.size(0));
   }
+  std::cout << "track_pass_ =" << track_pass_ << std::endl;
+  if (track_pass_ >= 14) {
+    usleep(0);
+  }
+  _PT(ids);
+  _PT(bboxes);
+  assert(ids.numel() == bboxes.size(0));
+  assert(ids.numel() == labels.numel());
+  assert(ids.numel() == scores.numel());
   std::unordered_map<std::string, const at::Tensor*> kwargs{
       {kIds, &ids},
       {kFrameIds, &frame_id_tensor},
@@ -549,9 +568,9 @@ void BYTETracker::activate_track(int64_t id) {
     // if (id == 3) {
     //   usleep(0);
     // }
-    // std::cout << "Re-acquired track " << id << " after being lost for "
-    //           << lost_frame_count << " frame(s), for a total of "
-    //           << reacquired_count_ << " reacquisitions." << std::endl;
+    std::cout << "Re-acquired track " << id << " after being lost for "
+              << lost_frame_count << " frame(s), for a total of "
+              << reacquired_count_ << " reacquisitions." << std::endl;
     lost_tracks_.erase(lost_iter);
     assert(track.state == STrack::State::Lost);
     track.state = STrack::State::Tracking;

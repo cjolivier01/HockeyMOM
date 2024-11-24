@@ -93,6 +93,8 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
       at::Tensor& tensor = item.second;
       if (!tensor.ndimension() || tensor.numel() == 1) {
         // Ignore scalars
+        std::cout << "Ignoring scalar: key = " << item.first
+                  << ", value: " << to_string(tensor) << std::endl;
         continue;
       }
       assert(tensor.size(0) == id_count);
