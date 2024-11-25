@@ -134,6 +134,7 @@ class HmNumberClassifier:
         img = make_channels_first(img)
         w, h = int(image_width(img)), int(image_height(img))
         for image_item, data_sample in zip(img, track_data_sample):
+            jersey_tracking_ids: Set[int] = set()
             jersey_results: List[TrackJerseyInfo] = []
             assert image_item.ndim == 3
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
@@ -173,6 +174,9 @@ class HmNumberClassifier:
                 # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
+                    if tracking_id in jersey_tracking_ids:
+                        print(f"DUPLICATE TRACKING ID FOR FRAME")
+                    jersey_tracking_ids.add(tracking_id)
                     # We make the score:
                     # (% width of the bounding box that was the text) * (the recognition confidence score)
                     jersey_results.append(

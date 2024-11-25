@@ -63,7 +63,7 @@ class TrackingDataFrame(HmDataFrameBase):
                 # assert j_t_id not in jersey_dict
                 if j_t_id in jersey_dict:
                     # why does this happen?
-                    print(f"Ignoriung duplicate jersey tracking id {jersey_dict}")
+                    print(f"Ignoring duplicate jersey tracking id {jersey_dict}")
                 jersey_dict[j_t_id] = dataclass_to_json(j_info)
 
         def _jersey_item(id: int) -> str:

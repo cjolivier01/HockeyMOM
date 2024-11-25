@@ -63,22 +63,25 @@ class HmEndToEnd(ByteTrack):
         self._pose_model = pose_model
         self._pose_weights = pose_weights
 
-        config = HmByteTrackConfig()
-        config.init_track_thr = 0.7
-        # config.obj_score_thrs_low=0.05,
-        # config.obj_score_thrs_low = 0.1
-        config.obj_score_thrs_low = 0.3
-        # config.obj_score_thrs_high=0.6,
-        config.obj_score_thrs_high = 0.5
-        config.match_iou_thrs_high = 0.1
-        config.match_iou_thrs_low = 0.5
-        config.match_iou_thrs_tentative = 0.3
-        config.track_buffer_size = 60
-        config.return_user_ids = True
-        config.return_track_age = False
-        config.prediction_mode = HmTrackerPredictionMode.BoundingBox
+        if self._cpp_bytetrack:
+            config = HmByteTrackConfig()
+            config.init_track_thr = 0.7
+            # config.obj_score_thrs_low=0.05,
+            # config.obj_score_thrs_low = 0.1
+            config.obj_score_thrs_low = 0.3
+            # config.obj_score_thrs_high=0.6,
+            config.obj_score_thrs_high = 0.5
+            config.match_iou_thrs_high = 0.1
+            config.match_iou_thrs_low = 0.5
+            config.match_iou_thrs_tentative = 0.3
+            config.track_buffer_size = 60
+            config.return_user_ids = True
+            config.return_track_age = False
+            config.prediction_mode = HmTrackerPredictionMode.BoundingBox
 
-        self._hm_byte_tracker = HmTracker(config)
+            self._hm_byte_tracker = HmTracker(config)
+        else:
+            self._hm_byte_tracker = None
 
         if neck is not None:
             assert False
@@ -209,7 +212,7 @@ class HmEndToEnd(ByteTrack):
             det_data_sample.set_metainfo({"frame_id": frame_id.item()})
 
             # track = False
-
+            active_track_count: int = 0
             if track and not hasattr(img_data_sample, "pred_track_instances"):
                 tracking_dataframe = self.get_dataframe(dataset_results, "tracking_dataframe")
                 if tracking_dataframe:
@@ -254,10 +257,13 @@ class HmEndToEnd(ByteTrack):
                     )
                 else:
                     pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
+                active_track_count: int = max(
+                    active_track_count, len(pred_track_instances.instances_id)
+                )
                 img_data_sample.pred_track_instances = pred_track_instances
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)
-            det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})
+            det_data_sample.set_metainfo({"nr_tracks": active_track_count})
 
         if all_frame_jersey_info and any(j for j in all_frame_jersey_info):
             data["jersey_results"] = all_frame_jersey_info
