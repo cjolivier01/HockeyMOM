@@ -1,3 +1,6 @@
+from typing import Union
+
+import numpy as np
 import torch
 
 
@@ -93,8 +96,8 @@ def move_box_to_center(box: torch.Tensor, center_point: torch.Tensor):
 
 def scale_box(
     box: torch.Tensor,
-    scale_width: torch.Tensor | float,
-    scale_height: torch.Tensor | float,
+    scale_width: Union[torch.Tensor, float],
+    scale_height: Union[torch.Tensor, float],
 ) -> torch.Tensor:
     center_point = center(box)
     w = width(box) * scale_width
@@ -236,9 +239,7 @@ def check_for_box_overshoot(
         torch.logical_and(any_on_edge[1], movement_directions[1] < epsilon),
         torch.logical_and(any_on_edge[3], movement_directions[1] > -epsilon),
     )
-    return torch.tensor(
-        [x_on_edge, y_on_edge], dtype=x_on_edge.dtype, device=x_on_edge.device
-    )
+    return torch.tensor([x_on_edge, y_on_edge], dtype=x_on_edge.dtype, device=x_on_edge.device)
 
 
 def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
@@ -264,9 +265,7 @@ def remove_largest_bbox(batch_bboxes: torch.Tensor, min_boxes: int):
     largest_bbox_idx = torch.argmax(areas)
 
     # Remove the largest bbox
-    mask = torch.ones(
-        batch_bboxes.shape[0], dtype=torch.bool, device=batch_bboxes.device
-    )
+    mask = torch.ones(batch_bboxes.shape[0], dtype=torch.bool, device=batch_bboxes.device)
     mask[largest_bbox_idx] = False
     return batch_bboxes[mask], mask, batch_bboxes[largest_bbox_idx]
 
@@ -399,3 +398,31 @@ def scale_bbox_with_constraints(bbox, ratio_x, ratio_y, min_x, max_x, min_y, max
             new_y2 = max_y
 
     return (new_x1, new_y1, new_x2, new_y2)
+
+
+def convert_tlbr_to_tlwh(tlbr: Union[np.ndarray, torch.Tensor]):
+    """
+    Convert bounding boxes from TLBR format to TLWH format.
+
+    Parameters:
+    - tlbr (Tensor): A tensor containing bounding boxes in TLBR format (x1, y1, x2, y2).
+
+    Returns:
+    - Tensor: Bounding boxes in TLWH format (x, y, w, h).
+    """
+    # Ensure tlbr tensor is of the shape [N, 4] where N is the number of boxes
+    if tlbr.ndim != 2 or tlbr.shape[1] != 4:
+        raise ValueError("Input tensor must be of shape [N, 4]")
+
+    # Top-left corner remains the same
+    x = tlbr[:, 0]
+    y = tlbr[:, 1]
+
+    # Width and height are calculated as differences
+    w = tlbr[:, 2] - tlbr[:, 0]
+    h = tlbr[:, 3] - tlbr[:, 1]
+
+    # Stack the results into a new tensor and return
+    if isinstance(tlbr, np.ndarray):
+        return np.stack([x, y, w, h], axis=1)
+    return torch.stack([x, y, w, h], dim=1)

@@ -64,6 +64,23 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
             yield r
 
 
+def record_stream_event(
+    tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
+) -> torch.cuda.Event:
+    """
+    Centralized event record maker
+    """
+    assert tensor is not None
+    if tensor.device.type != "cuda":
+        return None
+    if stream is None:
+        stream = torch.cuda.current_stream(tensor.device)
+    assert stream is not None
+    event = torch.cuda.Event(stream)
+    event.record(stream)
+    return event
+
+
 class GpuAllocator:
     def __init__(self, gpus: str | List[int]):
         if gpus is None:

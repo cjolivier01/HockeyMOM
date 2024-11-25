@@ -66,7 +66,7 @@ class HmNumberClassifier:
         self._image_label = image_label
         self._mean = [0.5, 0.5, 0.5]
         self._std = [0.5, 0.5, 0.5]
-        self._inferencer = self.create_inferencer()
+        self._inferencer = self.create_inferencer() if enabled else None
         self._timer = Timer()
         self._timer_interval = 50
         self._timer_count = 0
@@ -124,11 +124,11 @@ class HmNumberClassifier:
         self._timer.tic()
         img = data[self._image_label]
         if isinstance(img, StreamTensor):
-            img.verbose = True
+            img._verbose = True
             img = img.get()
             # img = img.wait()
             data[self._image_label] = img
-        batch_numbers: List[torch.Tensor] = []
+        # batch_numbers: List[torch.Tensor] = []
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)

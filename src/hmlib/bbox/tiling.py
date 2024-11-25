@@ -1,4 +1,6 @@
 # Tiling stuff
+from typing import Tuple
+
 import torch
 import torch.nn.functional as F
 
@@ -11,7 +13,7 @@ def _to_float(tensor: torch.Tensor) -> torch.Tensor:
 
 def pack_bounding_boxes_as_tiles(
     source_image: torch.Tensor, bounding_boxes: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # Assume bounding_boxes is of shape (N, 4), where:
     # N: number of bounding boxes
     # 4: coordinates of the bounding box in (x1, y1, x2, y2) format
@@ -112,7 +114,7 @@ def pack_bounding_boxes_as_tiles(
 
 def _pack_bounding_boxes_as_tiles(
     source_image: torch.Tensor, bounding_boxes: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # Assume bounding_boxes is of shape (N, 4), where:
     # N: number of bounding boxes
     # 4: coordinates of the bounding box in (x1, y1, x2, y2) format
