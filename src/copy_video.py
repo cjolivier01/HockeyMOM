@@ -15,16 +15,16 @@ from hmlib.config import get_game_dir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.hm_opts import hm_opts
 from hmlib.orientation import configure_game_videos
-from hmlib.stitching.laplacian_blend import show_image
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.ui import show_image
+from hmlib.utils.gpu import GpuAllocator, StreamTensor, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamWriter
-from hmlib.video_out import VideoOutput
 
 ROOT_DIR = os.getcwd()
 
@@ -101,10 +101,6 @@ def gpu_index(want: int = 1):
     return min(torch.cuda.device_count() - 1, want)
 
 
-def stream_context(stream: Optional[torch.cuda.Stream]):
-    return torch.cuda.stream(stream) if stream is not None else nullcontext()
-
-
 def get_frame_split_points(total_number_of_frames: int, num_splits: int) -> List[int]:
     each = int(total_number_of_frames // num_splits)
     split_frames: List[int] = []
@@ -128,6 +124,8 @@ def copy_video(
     use_video_out: bool = False,
     num_splits: int = 1,
 ):
+    if isinstance(video_file, list):
+        video_file = ",".join(video_file)
     video_info = BasicVideoInfo(video_file)
 
     dataloader = MOTLoadVideoWithOrig(
@@ -150,7 +148,9 @@ def copy_video(
     # main_stream = torch.cuda.Stream(device=device)
 
     def _open_output_video(path: str) -> Union[VideoStreamWriter, VideoOutput]:
-        with stream_context(main_stream) if main_stream is not None else nullcontext():
+        with cuda_stream_scope(main_stream):
+            if not path:
+                return None
             if not use_video_out:
                 video_out = VideoStreamWriter(
                     filename=path,
@@ -179,6 +179,8 @@ def copy_video(
             return video_out
 
     def _output_file_name(split_number: int) -> str:
+        if not output_video:
+            return None
         return (
             output_video
             if num_splits <= 1
@@ -186,13 +188,15 @@ def copy_video(
         )
 
     video_out = _open_output_video(_output_file_name(split_number))
+    if video_out is None:
+        print(f"No saving the output video.")
 
     v_iter = CachedIterator(
         iterator=iter(dataloader),
         cache_size=queue_size,
     )
 
-    with stream_context(main_stream) if main_stream is not None else nullcontext():
+    with cuda_stream_scope(main_stream):
         io_timer = Timer()
         get_timer = Timer()
         batch_count = 0
@@ -222,35 +226,40 @@ def copy_video(
                 if show:
                     show_image("copying frame", img=source_tensor, wait=False)
 
-                if not use_video_out:
-                    if processed_frame_count >= next_split_frame:
-                        if split_number >= len(split_frames):
-                            next_split_frame = float("inf")
-                        else:
-                            next_split_frame = split_frames[split_number]
-                        split_number += 1
-                        torch.cuda.synchronize()
-                        time.sleep(2)
-                        video_out.close()
-                        video_out = _open_output_video(_output_file_name(split_number))
+                if video_out is not None:
+                    if not use_video_out:
+                        if processed_frame_count >= next_split_frame:
+                            if split_number >= len(split_frames):
+                                next_split_frame = float("inf")
+                            else:
+                                next_split_frame = split_frames[split_number]
+                            split_number += 1
+                            torch.cuda.synchronize()
+                            time.sleep(2)
+                            video_out.close()
+                            video_out = _open_output_video(_output_file_name(split_number))
 
-                    if torch.is_floating_point(source_tensor):
-                        source_tensor = source_tensor.clamp(0, 255).to(
-                            torch.uint8, non_blocking=True
+                        if torch.is_floating_point(source_tensor):
+                            source_tensor = source_tensor.clamp(0, 255).to(
+                                torch.uint8, non_blocking=True
+                            )
+                        torch.cuda.synchronize()
+                        video_out.append(source_tensor)
+                    else:
+                        video_out.append(
+                            {
+                                "frame_id": frame_ids,
+                                "img": source_tensor,
+                                "current_box": torch.tensor(
+                                    [0, 0, image_width(source_tensor), image_height(source_tensor)],
+                                    dtype=torch.float,
+                                ),
+                            }
                         )
-                    torch.cuda.synchronize()
-                    video_out.append(source_tensor)
                 else:
-                    video_out.append(
-                        {
-                            "frame_id": frame_ids,
-                            "img": source_tensor,
-                            "current_box": torch.tensor(
-                                [0, 0, image_width(source_tensor), image_height(source_tensor)],
-                                dtype=torch.float,
-                            ),
-                        }
-                    )
+                    # Synchronize the stream so that we report realistic frame rates
+                    if source_tensor.device.type == "cuda":
+                        torch.cuda.current_stream(source_tensor.device).synchronize()
 
                 batch_count += 1
                 processed_frame_count += batch_size
@@ -292,7 +301,7 @@ def main(args):
     video_gpu = torch.device("cuda", gpu_allocator.allocate_modern())
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
 
-    args.game_id = "test"
+    # args.game_id = "test"
 
     # Default is left.mp4
     # video_files = os.path.join(args.video_dir, "left.mp4")

@@ -20,6 +20,7 @@ class MultiDatasetWrapper(Dataset):
         assert name
         self._forgive_missing_attributes.add(name)
 
+    # TODO: instead of max, pass in a simple lambda like: lambda x, y: max(x, y)
     def get_max_attribute(self, name: str, forgiving: bool = True) -> Union[Any, None]:
         val: Any = None
         for _, ds_item in self._datasets.items():

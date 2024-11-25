@@ -20,7 +20,8 @@ from hmlib.stitching.control_points import calculate_control_points
 from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
 from hmlib.utils.audio import load_audio_as_tensor
 from hmlib.utils.path import add_suffix_to_filename
-from hmlib.video.ffmpeg import BasicVideoInfo, extract_frame_image
+from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
 

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import torch
 
+from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_visible_image
@@ -13,10 +14,25 @@ from hmlib.utils.image import make_visible_image
 
 class Shower:
 
-    def __init__(self, label: str, show_scaled: Optional[float] = None, max_size: int = 4):
+    def __init__(
+        self,
+        label: str,
+        show_scaled: Optional[float] = None,
+        max_size: int = 4,
+        fps: Union[float, None] = None,
+        cache_on_cpu: bool = False,
+        logger=None,
+    ):
         self._label = label
         self._show_scaled = show_scaled
         self._max_size: int = max(max_size, 1)
+        self._fps = fps
+        self._cache_on_cpu = cache_on_cpu
+        if self._fps is not None:
+            self._label += " (" + str(self._fps) + " fps)"
+        # TODO: use th
+        self._next_frame_time = None
+        self._logger = logger if logger is not None else get_root_logger()
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
@@ -43,15 +59,53 @@ class Shower:
             self._thread = None
 
     def _worker(self):
+        last_frame = None
+        next_frame_time = time.time()
+        frame_interval = 1.0 / self._fps if self._fps is not None else None
         while True:
-            img = self._q.get()
-            if img is None:
-                break
-            self._do_show(img=img)
+            if self._fps is None:
+                img = self._q.get()
+                if img is None:
+                    break
+                self._do_show(img=img)
+            else:
+                current_time = time.time()
+                sleep_duration = next_frame_time - current_time
 
-    def show(self, img: Union[torch.Tensor, np.ndarray]):
+                if sleep_duration > 0:
+                    time.sleep(sleep_duration)
+
+                # Update the next frame time
+                next_frame_time += frame_interval
+
+                # Determine which frame to show
+                frame_to_show = last_frame
+
+                while self._q.qsize() != 0:
+                    potential_frame = self._q.get()
+                    if time.time() >= next_frame_time - frame_interval:
+                        frame_to_show = potential_frame
+
+                # If we have a frame to show, display it
+                if frame_to_show is not None:
+                    self._do_show(frame_to_show)
+                    last_frame = frame_to_show
+
+    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensor]):
         if self._thread is not None:
+            counter: int = 0
             while self._q.qsize() >= self._max_size:
                 # print("Too many items in Shower queue...")
                 time.sleep(0.01)
-            self._q.put(img)
+                counter += 1
+                if counter % 20 == 0:
+                    self._logger.info("Too many items in Shower queue...")
+            if self._cache_on_cpu and not isinstance(img, np.ndarray):
+                img = img.cpu()
+            if self._fps is None or img.ndim == 3:
+                self._q.put(img)
+            else:
+                assert img.ndim == 4
+                for s_img in img:
+                    assert False  # stream issues here sometimes if it cant be strided maybe?
+                    self._q.put(s_img)

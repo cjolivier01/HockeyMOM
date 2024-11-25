@@ -485,21 +485,21 @@ class MovingBox(ResizingBox):
                 # Line from center of this box to the center of the box that it is following,
                 # with little circle nubs at each end.
                 co = [int(i) for i in following_bbox_center]
-                vis.plot_circle(
+                img = vis.plot_circle(
                     img,
                     my_center,
                     radius=5,
                     color=(255, 255, 0),
                     thickness=cv2.FILLED,
                 )
-                vis.plot_circle(
+                img = vis.plot_circle(
                     img,
                     co,
                     radius=5,
                     color=(0, 255, 128),
                     thickness=cv2.FILLED,
                 )
-                img = vis.plot_line(img, my_center, co, color=(255, 255, 0), thickness=1)
+                img = vis.plot_line(img, my_center, co, color=(255, 255, 0), thickness=10)
                 # X
                 img = vis.plot_line(
                     img,

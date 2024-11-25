@@ -25,6 +25,7 @@ from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.transforms import HmPerspectiveRotation  # TODO: pipeline this
 from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
+from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.gpu import (
     StreamCheckpoint,
@@ -46,6 +47,7 @@ from hmlib.utils.image import (
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
+from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.vis.pt_text import draw_text
 
 from .video_stream import (
@@ -155,12 +157,21 @@ class VideoOutput:
         original_clip_box: torch.Tensor = None,
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
+        clip_to_max_dimensions: bool = True,
         async_output: bool = False,
+        visualization_config: Dict[str, Any] = None,
+        no_cuda_streams: bool = False,
     ):
         self._args = args
         self._allow_scaling = False
         self._async_output = async_output
-        if simple_save:
+        self._clip_to_max_dimensions = clip_to_max_dimensions
+        self._visualization_config = visualization_config
+        self._no_cuda_streams = no_cuda_streams
+
+        output_frame_width = to_tensor_scalar(output_frame_width, device=device)
+        output_frame_height = to_tensor_scalar(output_frame_height, device=device)
+        if simple_save and self._clip_to_max_dimensions:
             pre_area = output_frame_width * output_frame_height
             output_frame_width, output_frame_height = clamp_max_video_dimensions(
                 output_frame_width, output_frame_height
@@ -300,6 +311,8 @@ class VideoOutput:
         else:
             self._shower = None
 
+        self._mean_tracker: Optional[MeanTracker] = None
+
         if start:
             self.start()
 
@@ -320,6 +333,9 @@ class VideoOutput:
         if self._imgproc_thread is not None:
             self._imgproc_thread.join()
             self._imgproc_thread = None
+        if self._shower is not None:
+            self._shower.close()
+            self._shower = None
 
     def is_cuda_encoder(self):
         return "nvenc" in self._fourcc

@@ -13,7 +13,7 @@ def show_image(
     label: str,
     img: Union[str, torch.Tensor],
     wait: bool = True,
-    enable_resizing: Union[bool, None] = None,
+    enable_resizing: Union[bool, float, None] = None,
 ):
     if isinstance(img, str):
         img = cv2.imread(img)

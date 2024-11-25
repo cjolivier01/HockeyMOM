@@ -76,8 +76,8 @@ def record_stream_event(
     if stream is None:
         stream = torch.cuda.current_stream(tensor.device)
     assert stream is not None
-    event = torch.cuda.Event(stream)
-    event.record(stream)
+    event = torch.cuda.Event()
+    stream.record_event(event)
     return event
 
 
@@ -226,7 +226,7 @@ class StreamTensor(StreamTensorBase):
         assert self._stream is not None
         assert torch.cuda.current_stream(self.ref().device) == self._stream
         assert self._event is not None
-        self._event = torch.cuda.Event()
+        self._event = record_stream_event(self.ref(), stream=self._stream)
         self._event.record()
 
     def _clear_stream(self):
@@ -341,17 +341,16 @@ class StreamTensor(StreamTensorBase):
             self._tensor = tensor
 
     def call_with_checkpoint(self, fn, *args, **kwargs):
+        assert False  # probably doesn't work
         assert self._owns_stream
-        if torch.cuda.current_stream(self.device) == self.stream:
+        if torch.cuda.current_stream(self.device) == self._stream:
             self._set_ref(fn(self.ref(), *args, **kwargs))
-            self._event = torch.cuda.Event()
-            self._event.record()
+            self._event = record_stream_event(self.ref(), stream=self._stream)
         else:
-            assert self.stream is not None
-            with torch.cuda.stream(self.stream):
+            assert self._stream is not None
+            with torch.cuda.stream(self._stream):
                 self._set_ref(fn(self.ref(), *args, **kwargs))
-                self._event = torch.cuda.Event()
-                self._event.record()
+                self._event = record_stream_event(self.ref(), stream=self._stream)
         return self
 
     def __truediv__(self, other):
@@ -359,8 +358,7 @@ class StreamTensor(StreamTensorBase):
         assert self.owns_stream
         with torch.cuda.stream(self._stream):
             self._set_ref(self.ref() / other)
-            self._event = torch.cuda.Event()
-            self._event.record()
+            self._event = record_stream_event(self.ref(), stream=self._stream)
 
     def permute(self, *args, **kwargs):
         self._set_ref(self.ref().permute(*args, **kwargs))
@@ -434,16 +432,7 @@ class StreamCheckpoint(StreamTensor):
             verbose=verbose,
             print_thresh=print_thresh,
         )
-        if self._stream is not None:
-            with torch.cuda.stream(self._stream):
-                self._event = torch.cuda.Event()
-                self._event.record()
-        else:
-            # We can;t own it if we don't have it
-            assert not self._owns_stream
-            if tensor.device.type == "cuda":
-                self._event = torch.cuda.Event()
-                self._event.record()
+        self._event = record_stream_event(tensor, self._stream)
 
 
 class StreamTensorToDevice(StreamTensor):

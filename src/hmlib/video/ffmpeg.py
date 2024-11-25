@@ -142,26 +142,26 @@ def copy_audio(original_video: str, soundless_video: str, final_audio_video: str
     os.system(cmd_str)
 
 
-def extract_frame_image(source_video: str, frame_number: float, dest_image: str):
-    print(f"Extracting frame {frame_number} from {source_video}...")
-    if frame_number:
-        info = BasicVideoInfo(source_video)
-        ss = frame_number / info.fps
-        cmd_str = f"ffmpeg -y -ss {ss} -i {source_video} -vframes 1 {dest_image}"
-    else:
-        cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
-    print(cmd_str)
-    os.system(cmd_str)
+# def extract_frame_image(source_video: str, frame_number: float, dest_image: str):
+#     print(f"Extracting frame {frame_number} from {source_video}...")
+#     if frame_number:
+#         info = BasicVideoInfo(source_video)
+#         ss = frame_number / info.fps
+#         cmd_str = f"ffmpeg -y -ss {ss} -i {source_video} -vframes 1 {dest_image}"
+#     else:
+#         cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
+#     print(cmd_str)
+#     os.system(cmd_str)
 
 
-def extract_time_image(source_video: str, frame_time: str, dest_image: str):
-    print(f"Extracting frame at time: {frame_time} from {source_video}...")
-    if frame_time:
-        cmd_str = f"ffmpeg -y -ss {frame_time} -i {source_video} -vframes 1 {dest_image}"
-    else:
-        cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
-    print(cmd_str)
-    os.system(cmd_str)
+# def extract_time_image(source_video: str, frame_time: str, dest_image: str):
+#     print(f"Extracting frame at time: {frame_time} from {source_video}...")
+#     if frame_time:
+#         cmd_str = f"ffmpeg -y -ss {frame_time} -i {source_video} -vframes 1 {dest_image}"
+#     else:
+#         cmd_str = f"ffmpeg -y -i {source_video} -vframes 1 {dest_image}"
+#     print(cmd_str)
+#     os.system(cmd_str)
 
 
 def subprocess_encode_ffmpeg(

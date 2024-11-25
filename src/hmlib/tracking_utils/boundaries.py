@@ -34,7 +34,9 @@ def adjust_tlbr_for_clip_box(tlbr_points: torch.Tensor, clip_box: torch.Tensor) 
 
 @PIPELINES.register_module()
 class BoundaryLines:
-
+    """
+    Obsolete manual boundary detection exclusion management
+    """
     def __init__(
         self,
         upper_border_lines: Optional[torch.Tensor] = None,

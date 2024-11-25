@@ -57,6 +57,9 @@ def plot_circle(
             thickness=thickness,
         )
         return image
+    if thickness < 0:
+        # This is probably cv2.FILLED
+        thickness = int(radius)
     return ptv.draw_circle(
         image=image,
         center_x=center[0],
@@ -75,6 +78,7 @@ def plot_rectangle(
     label: Union[str, None] = None,
     text_scale: int = 1,
 ):
+    assert thickness > 0
     intbox = [int(i) for i in box]
     if isinstance(img, torch.Tensor):
         img = plot_torch_rectangle(
@@ -540,6 +544,10 @@ def plot_detections(image, tlbrs, scores=None, color=(255, 0, 0), ids=None):
     return im
 
 
+def plot_text(*args, **kwargs):
+    return my_put_text(*args, **kwargs)
+
+
 def draw_arrows(img, bbox, horizontal=True, vertical=True):
     """
     Draw arrows on the bounding box edges.
@@ -693,36 +701,16 @@ def my_draw_line(
         image = to_cv2(image)
         cv2.line(image, pt1, pt2, color, thickness)
         return image
-    is_horiz = pt1[1] == pt2[1]
-    is_vert = pt1[0] == pt2[0]
-    if not is_horiz and not is_vert:
-        # image = to_cv2(image)
-        # cv2.line(image, pt1, pt2, color, thickness)
-        image = ptv.draw_line(
-            image=image,
-            x1=pt1[0],
-            y1=pt1[1],
-            x2=pt2[0],
-            y2=pt2[1],
-            color=color,
-            thickness=thickness,
-        )
-        return image
-    # TODO: everything use draw_line
-    if is_horiz:
-        start_x = min(pt1[0], pt2[0])
-        stop_x = max(pt1[0], pt2[0])
-        start_y = pt1[1]
-        length = stop_x - start_x
-        return ptv.draw_horizontal_line(
-            image, start_x, start_y, length, color=color, thickness=thickness
-        )
-    else:
-        start_y = min(pt1[1], pt2[1])
-        stop_y = max(pt1[1], pt2[1])
-        start_x = pt1[0]
-        length = stop_y - start_y
-        return ptv.draw_vertical_line(image, start_x, start_y, length, color, thickness)
+
+    return ptv.draw_line(
+        image=image,
+        x1=pt1[0],
+        y1=pt1[1],
+        x2=pt2[0],
+        y2=pt2[1],
+        color=color,
+        thickness=thickness,
+    )
 
 
 def draw_corner_boxes(image, bbox, thickness=2, color=(0, 255, 0)):

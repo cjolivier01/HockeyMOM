@@ -256,7 +256,6 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
     ):
         if self._cluster_man is None:
-            # self._cluster_man = ClusterMan(sizes=cluster_counts, device=online_tlwhs.device)
             self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
 
         self._cluster_man.calculate_all_clusters(
@@ -380,22 +379,24 @@ class PlayTracker(torch.nn.Module):
                 online_im = self._boundaries.draw(online_im)
 
             if self._args.plot_all_detections is not None:
-                detections = batch_tlbrs_to_tlwhs(video_data_sample.pred_instances.bboxes)
+                detections = video_data_sample.pred_instances.bboxes
                 if not isinstance(detections, dict):
-                    for detection in detections:
-                        if detection[4] >= self._args.plot_all_detections:
+                    for detection, score in zip(
+                        detections, video_data_sample.pred_instances.scores
+                    ):
+                        if score >= self._args.plot_all_detections:
                             online_im = vis.plot_rectangle(
                                 img=online_im,
-                                box=detection[:4],
+                                box=detection,
                                 color=(64, 64, 64),
                                 thickness=1,
                             )
-                            if detection[4] < 0.7:
-                                cv2.putText(
+                            if score < 0.7:
+                                online_im = vis.plot_text(
                                     online_im,
-                                    format(float(detection[4]), ".2f"),
+                                    format(float(score), ".2f"),
                                     (
-                                        int(detection[0] + width(detection[:4] / 2)),
+                                        int(detection[0] + width(detection) / 2),
                                         int(detection[1]),
                                     ),
                                     cv2.FONT_HERSHEY_PLAIN,

@@ -416,7 +416,7 @@ def make_channels_first(img: torch.Tensor):
     return img
 
 
-def make_channels_last(img: torch.Tensor | StreamTensor) -> torch.Tensor | StreamTensor:
+def make_channels_last(img: Union[torch.Tensor, StreamTensor]) -> Union[torch.Tensor, StreamTensor]:
     if len(img.shape) == 4:
         if img.shape[1] in [1, 3, 4]:
             return _permute(img, 0, 2, 3, 1)
@@ -427,7 +427,7 @@ def make_channels_last(img: torch.Tensor | StreamTensor) -> torch.Tensor | Strea
     return img
 
 
-def is_channels_first(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
+def is_channels_first(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
     if len(img.shape) == 4:
         return img.shape[1] in [1, 3, 4]
     else:
@@ -435,11 +435,11 @@ def is_channels_first(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
         return img.shape[0] in [1, 3, 4]
 
 
-def is_channels_last(img: torch.Tensor | StreamTensor | np.ndarray) -> bool:
+def is_channels_last(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
     return img.shape[-1] in [1, 3, 4]
 
 
-def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+def image_width(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
     if img.ndim == 2:
         return img.shape[1]
     if isinstance(img, (torch.Tensor, StreamTensor)):
@@ -464,7 +464,7 @@ def image_width(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
     return img.shape[1]
 
 
-def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+def image_height(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
     if img.ndim == 2:
         return img.shape[0]
     if isinstance(img, (torch.Tensor, StreamTensor)):
@@ -650,7 +650,7 @@ def make_showable_type(
                 img = img.to(torch.float32)
             if scale_elements and scale_elements != 1:
                 img = img * scale_elements
-            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
+            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8, non_blocking=False)
         img = np.ascontiguousarray(img.cpu().numpy())
     return img
 

@@ -787,3 +787,48 @@ def create_output_video_stream(
         )
         output_video.open()
     return output_video
+
+
+def extract_frame_image(
+    source_video: str,
+    frame_number: float,
+    dest_image: str,
+    stream_type: str = "cv2",
+    # stream_type: str = "torchaudio",
+) -> Union[torch.Tensor, np.ndarray]:
+    print(f"Extracting frame {frame_number} from {source_video}...")
+    reader = VideoStreamReader(
+        filename=source_video,
+        type=stream_type,
+        device=torch.device("cuda", 0) if stream_type == "torchaudio" else None,
+    )
+    try:
+        if frame_number:
+            reader.seek(frame_number=frame_number)
+        iterator = iter(reader)
+        image = next(iterator)
+    finally:
+        reader.close()
+    image = make_channels_last(image)
+    if dest_image:
+        img = image
+        if isinstance(image, torch.Tensor):
+            img = img.cpu().numpy()
+        assert img.ndim == 4 and img.shape[0] == 1
+        img = np.squeeze(img, axis=0)
+        cv2.imwrite(dest_image, img)
+    return image
+
+
+if __name__ == "__main__":
+
+    reader = VideoStreamReader(
+        filename="/olivier-pool/Videos/ev-bs-short/GX010005.MP4",
+        type="torchaudio",
+        device=torch.device("cuda", 0),
+    )
+    iterator = iter(reader)
+    image = next(iterator)
+    show_image("image", image, wait=True)
+
+    print("Done")

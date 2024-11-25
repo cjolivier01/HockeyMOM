@@ -45,7 +45,9 @@ def get_open_files_count():
 
 @HM.register_module()
 class CamTrackHead:
-
+    # TODO: Get rid of this class entirely, since it's just a
+    # bounce to the postprocessor and al the init crap
+    # can be a function or somthing in the postprocessor file?
     def __init__(
         self,
         opt,
@@ -64,8 +66,10 @@ class CamTrackHead:
         video_out_device: str = None,
         video_out_cache_size: int = 2,
         async_video_out: bool = False,
+        no_cuda_streams: bool = False,
     ):
         self._opt = opt
+        self._no_cuda_streams = no_cuda_streams
         self._args = args
         self._camera_name = camera_name
         self._data_type = data_type
@@ -154,6 +158,7 @@ class CamTrackHead:
                 video_out_cache_size=self._video_out_cache_size,
                 async_video_out=self._async_video_out,
                 video_out_pipeline=self._video_out_pipeline,
+                no_cuda_streams=self._no_cuda_streams,
             )
             self._postprocessor.eval()
             if self._async_post_processing:

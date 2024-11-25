@@ -213,8 +213,10 @@ class CamTrackPostProcessor:
         async_video_out: bool = False,
         no_frame_postprocessing: bool = False,
         progress_bar: ProgressBar | None = None,
+        no_cuda_streams: bool = False,
     ):
         self._args = args
+        self._no_cuda_streams = no_cuda_streams
         self._no_frame_postprocessing = no_frame_postprocessing
         self._start_frame_id = start_frame_id
         self._hockey_mom = hockey_mom
@@ -273,7 +275,8 @@ class CamTrackPostProcessor:
 
         if self._args.save_camera_data and self._save_dir:
             self._camera_tracking_data = CameraTrackingDataFrame(
-                output_file=os.path.join(self._save_dir, "camera.csv")
+                output_file=os.path.join(self._save_dir, "camera.csv"),
+                input_batch_size=self._args.batch_size,
             )
 
         if not self._no_frame_postprocessing and self.output_video_path:
@@ -311,6 +314,7 @@ class CamTrackPostProcessor:
                 image_channel_adjustment=self._args.game_config["rink"]["camera"][
                     "image_channel_adjustment"
                 ],
+                no_cuda_streams=self._no_cuda_streams,
             )
             self._video_output_campp.start()
         elif self._args.show_image:
@@ -335,7 +339,8 @@ class CamTrackPostProcessor:
             self._queue.put(None)
             self._thread.join()
             self._thread = None
-        self._video_output_campp.stop()
+        if self._video_output_campp is not None:
+            self._video_output_campp.stop()
 
     def send(
         self,
@@ -409,6 +414,8 @@ class CamTrackPostProcessor:
                     )
             if self._video_output_campp is not None:
                 self._video_output_campp.append(results)
+            elif self._shower is not None and "img" in results:
+                self._shower.show(results["img"])
 
     def get_arena_box(self):
         return self._hockey_mom._video_frame.bounding_box()
