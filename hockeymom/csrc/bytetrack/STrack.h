@@ -54,7 +54,7 @@ struct STrack {
 
   at::Tensor age() const {
     if (frame_ids.empty()) {
-      return 0;
+      return at::Tensor();
     }
     return *frame_ids.rbegin() - *frame_ids.begin() + 1;
   }
