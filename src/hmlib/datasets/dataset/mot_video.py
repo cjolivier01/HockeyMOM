@@ -12,12 +12,7 @@ from torch.utils.data import Dataset
 from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    allocate_stream,
-    cuda_stream_scope,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -228,7 +223,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             # Create the CUDA stream outside of the main loop
             if self._cuda_stream is None and self._device.type == "cuda":
-                self._cuda_stream = allocate_stream(self._device)
+                self._cuda_stream = torch.cuda.Stream(self._device)
 
             while True:
                 cmd = self._to_worker_queue.get()

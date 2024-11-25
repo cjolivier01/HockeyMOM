@@ -13,7 +13,7 @@ _CUDA_STREAMS: Dict[int, LinkedList] = {}
 _CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
 
 
-def _get_stream_llist(device: torch.device) -> LinkedList | None:
+def _get_stream_llist(device: torch.device) -> Union[LinkedList, None]:
     assert isinstance(device, torch.device)
     if device.type != "cuda":
         return None
@@ -25,31 +25,31 @@ def _get_stream_llist(device: torch.device) -> LinkedList | None:
     return llist
 
 
-def allocate_stream(device: torch.device) -> torch.cuda.Stream | None:
-    llist = _get_stream_llist(device)
-    if llist is None:
-        return None
-    try:
-        stream = llist.pop_back()
-        assert stream in _CUDA_STREAMS_SET
-        _CUDA_STREAMS_SET.remove(stream)
-        return stream
-    except IndexError:
-        return torch.cuda.Stream(device)
+# def allocate_stream(device: torch.device) -> torch.cuda.Stream | None:
+#     llist = _get_stream_llist(device)
+#     if llist is None:
+#         return None
+#     try:
+#         stream = llist.pop_back()
+#         assert stream in _CUDA_STREAMS_SET
+#         _CUDA_STREAMS_SET.remove(stream)
+#         return stream
+#     except IndexError:
+#         return torch.cuda.Stream(device)
 
 
-def free_stream(stream: torch.cuda.Stream) -> None:
-    # if stream is None:
-    #     return
-    # llist = _get_stream_llist(device=stream.device)
-    # if llist is None:
-    #     return
-    # if stream in _CUDA_STREAMS_SET:
-    #     print("OOPS! uoisdhfwiofhuiwehuof")
-    # assert stream not in _CUDA_STREAMS_SET
-    # _CUDA_STREAMS_SET.add(stream)
-    # llist.push_front(stream)
-    pass
+# def free_stream(stream: torch.cuda.Stream) -> None:
+#     # if stream is None:
+#     #     return
+#     # llist = _get_stream_llist(device=stream.device)
+#     # if llist is None:
+#     #     return
+#     # if stream in _CUDA_STREAMS_SET:
+#     #     print("OOPS! uoisdhfwiofhuiwehuof")
+#     # assert stream not in _CUDA_STREAMS_SET
+#     # _CUDA_STREAMS_SET.add(stream)
+#     # llist.push_front(stream)
+#     pass
 
 
 @contextmanager
@@ -257,6 +257,9 @@ class StreamTensor(StreamTensorBase):
         # self._tensor = None
         return t
 
+    def cpu(self) -> torch.Tensor:
+        return self.get().cpu()
+
     def get(self) -> torch.Tensor:
         assert self._tensor is not None
         if self._stream is not None:
@@ -341,7 +344,7 @@ class StreamTensor(StreamTensorBase):
             self._tensor = tensor
 
     def call_with_checkpoint(self, fn, *args, **kwargs):
-        assert False  # probably doesn't work
+        assert False
         assert self._owns_stream
         if torch.cuda.current_stream(self.device) == self._stream:
             self._set_ref(fn(self.ref(), *args, **kwargs))
@@ -443,6 +446,7 @@ class StreamTensorToDevice(StreamTensor):
         stream: Union[None, torch.cuda.Stream] = None,
         verbose: bool = True,
     ):
+        assert False
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
         super(StreamTensorToDevice, self).__init__(tensor=tensor, verbose=verbose)
@@ -467,6 +471,7 @@ class StreamTensorToDtype(StreamTensor):
         contiguous: bool = False,
         scale_down_factor: float = None,
     ):
+        assert False
         if isinstance(tensor, np.ndarray):
             tensor = torch.from_numpy(tensor)
         super(StreamTensorToDtype, self).__init__(tensor=tensor)
