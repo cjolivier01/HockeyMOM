@@ -121,20 +121,20 @@ USER root
 RUN mkdir -p /opt/$USERNAME
 RUN chown $USERNAME /opt/$USERNAME
 
-USER $USERNAME
-WORKDIR /home/$USERNAME
-RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh
-RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /opt/$USERNAME/dconda
-RUN rm Mambaforge-Linux-x86_64.sh
+# USER $USERNAME
+# WORKDIR /home/$USERNAME
+# RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh
+# RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /opt/$USERNAME/dconda
+# RUN rm Mambaforge-Linux-x86_64.sh
 
 # Set the environment path
-ENV PATH /opt/$USERNAME/dconda/bin:$PATH
+# ENV PATH /opt/$USERNAME/dconda/bin:$PATH
 
 # # Create a Python environment called 'ubuntu'
-RUN mamba create -n ubuntu python=3.12 -y
+# RUN mamba create -n ubuntu python=3.12 -y
 
 # # Activate the environment automatically on login
-RUN echo "source /opt/$USERNAME/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
+# RUN echo "source /opt/$USERNAME/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
 RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 
 ####################################################################
@@ -144,6 +144,7 @@ RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
 #
 #
 ####################################################################
+USER $USERNAME
 RUN mkdir src
 WORKDIR /home/$USERNAME/src
 
@@ -154,6 +155,8 @@ WORKDIR /home/$USERNAME/src
 ####################################################################
 USER root
 RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
+WORKDIR /home/$USERNAME/src
+RUN rm -rf nv-codec-headers
 
 USER $USERNAME
 RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg && cd ffmpeg && git checkout n5.1.4
@@ -202,18 +205,19 @@ RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code
 USER root
 RUN make -j $(nproc) install
 
-USER $USERNAME
-WORKDIR /home/$USERNAME/src
+# USER $USERNAME
+# WORKDIR /home/$USERNAME/src
 
 ####################################################################
 #
 # PIP Dependencies
 #
 ####################################################################
-RUN conda init
+# RUN conda init
 
-RUN conda run -n ubuntu \
-  pip install \
+USER root
+RUN apt-get install -y python3-pip
+RUN pip install \
     cython \
     numpy==1.23.5 \
     screeninfo \
@@ -248,18 +252,17 @@ RUN conda run -n ubuntu \
     pyquaternion \
     typing_extensions
 
-# Again, force the proper numpy version
-RUN conda run -n ubuntu \
-  pip install numpy==1.23.5
+# # Again, force the proper numpy version
+RUN pip install numpy==1.23.5
 
 
-####################################################################
-#
-# Build Vigra (dependency of Hugin tools)
-# We need to build it because it has a patch in one of the headers
-# that fixes a compile problem with Hugin.
-#
-####################################################################
+# ####################################################################
+# #
+# # Build Vigra (dependency of Hugin tools)
+# # We need to build it because it has a patch in one of the headers
+# # that fixes a compile problem with Hugin.
+# #
+# ####################################################################
 WORKDIR /home/$USERNAME/src
 RUN git clone https://github.com/cjolivier01/vigra && \
    cd vigra && \
@@ -269,24 +272,36 @@ RUN git clone https://github.com/cjolivier01/vigra && \
    && ../cfig \
    && make -j $(nproc)
 
-USER root
+USER $USERNAME
 WORKDIR /home/$USERNAME/src/vigra/build
+USER root
 RUN make install
 WORKDIR /home/$USERNAME/src
 RUN rm -rf vigra
-USER $USERNAME
 
-####################################################################
-#
-# Build PyTorch
-#
-####################################################################
+# ####################################################################
+# #
+# # Make Wheels Dirs
+# #
+# ####################################################################
+USER root
+RUN mkdir /wheels
+
+
+# ####################################################################
+# #
+# # Build PyTorch
+# #
+# ####################################################################
+USER $USERNAME
 WORKDIR /home/$USERNAME/src
 RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
 
 WORKDIR /home/$USERNAME/src/pytorch
-RUN conda run -n ubuntu pip install -r requirements.txt
+USER root
+RUN pip install -r requirements.txt
 
+USER $USERNAME
 RUN \
   MAX_JOBS=12 \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
@@ -295,16 +310,18 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN  conda run -n ubuntu pip install dist/*.whl
+USER root
+RUN pip install dist/*.whl
+RUN cp dis/*.whl /wheels/
 
-####################################################################
-#
-# Build TorchVision
-#
-####################################################################
+# ####################################################################
+# #
+# # Build TorchVision
+# #
+# ####################################################################
+USER $USERNAME
 WORKDIR /home/$USERNAME/src
 RUN git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
 WORKDIR /home/$USERNAME/src/vision
@@ -316,16 +333,18 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN conda run -n ubuntu pip install dist/*.whl
+USER root
+RUN pip install dist/*.whl
+RUN cp dis/*.whl /wheels/
 
 ####################################################################
 #
 # Build TorchAudio
 #
 ####################################################################
+USER $USERNAME
 WORKDIR /home/$USERNAME/src
 RUN git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
 WORKDIR /home/$USERNAME/src/audio
@@ -337,16 +356,17 @@ RUN \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  conda run -n ubuntu \
   python3 setup.py bdist_wheel
 
-RUN conda run -n ubuntu pip install dist/*.whl
+USER root
+RUN pip install dist/*.whl
+RUN cp dis/*.whl /wheels/
 
-####################################################################
-#
-# Build and install Hugin
-#
-####################################################################
+# ####################################################################
+# #
+# # Build and install Hugin
+# #
+# ####################################################################
 
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
@@ -370,8 +390,9 @@ RUN rm -rf src/*
 #
 # Some environment stuff
 #
-RUN echo "export HMBASE_CONDA_PATH=/opt/$USERNAME/dconda/bin" >> /etc/profile
-RUN echo "export HMBASE_CONDA_ENV=ubuntu"  >> /etc/profile
+USER $USERNAME
+# RUN echo "export HMBASE_CONDA_PATH=/opt/$USERNAME/dconda/bin" >> /etc/profile
+# RUN echo "export HMBASE_CONDA_ENV=ubuntu"  >> /etc/profile
 
 
 ####################################################################
