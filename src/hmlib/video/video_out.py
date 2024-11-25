@@ -57,14 +57,17 @@ from .video_stream import (
 )
 
 
-def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
+def slow_to_tensor(
+    tensor: Union[torch.Tensor, StreamTensor], stream_wait: bool = True
+) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
     """
     if isinstance(tensor, StreamTensor):
         tensor._verbose = True
-        # return tensor.get()
-        return tensor.wait()
+        if stream_wait:
+            return tensor.wait()
+        return tensor.get()
     return tensor
 
 
