@@ -52,6 +52,13 @@ struct STrack {
     return momentums.at(key);
   }
 
+  at::Tensor age() const {
+    if (frame_ids.empty()) {
+      return 0;
+    }
+    return *frame_ids.rbegin() - *frame_ids.begin() + 1;
+  }
+
   State state{State::Unknown};
   std::list<at::Tensor> ids;
   std::list<at::Tensor> bboxes;

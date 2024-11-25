@@ -27,6 +27,7 @@ struct HmTrackerConfig {
   std::size_t num_tentative_low_confidence = 6;
   bool remove_tentative{true};
   bool return_user_ids{false};
+  bool return_track_age{false};
 };
 
 struct HmByteTrackConfig : public ByteTrackConfig, public HmTrackerConfig {};

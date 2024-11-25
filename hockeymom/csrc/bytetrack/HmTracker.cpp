@@ -75,9 +75,7 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
   }
   std::unordered_map<std::string, at::Tensor> results =
       Super::track(std::move(data));
-  // for (const auto& itm : results) {
-  //   std::cout << itm.first << std::endl;
-  // }
+  bool did_ages = false;
   if (hm_config_.remove_tentative || hm_config_.return_user_ids) {
     std::size_t inactive_count = 0;
     const at::Tensor& ids = results.at(kIds);
@@ -91,7 +89,8 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
         vector_to_tensor(all_active_ids, ids.device());
     at::Tensor all_active_mask = at::isin(ids, all_active_ids_tensor);
 
-    // std::cout << "all_active_mask: " << all_active_mask.device() << std::endl;
+    // std::cout << "all_active_mask: " << all_active_mask.device() <<
+    // std::endl;
 
     const std::size_t id_count = ids.numel();
     for (auto& item : results) {
@@ -114,12 +113,20 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
       at::Tensor& ids = results.at(kIds);
       std::vector<int64_t> all_ids = tensor_to_int64_vector(ids.cpu());
       std::vector<int64_t> return_user_ids;
+      std::vector<at::Tensor> return_ages;
       return_user_ids.reserve(all_ids.size());
+      return_ages.reserve(all_ids.size());
       for (int64_t id : all_ids) {
         return_user_ids.emplace_back(activated_id_mapping_.at(id));
+        if (hm_config_.return_track_age) {
+          return_ages.emplace_back(tracks_.at(id).age());
+        }
       }
       results.emplace(
           "user_ids", vector_to_tensor(return_user_ids, ids.device()));
+      if (hm_config_.return_track_age && !return_ages.empty()) {
+        results.emplace("track_ages", at::cat(return_ages, /*dim=*/0));
+      }
     }
   }
   return results;
