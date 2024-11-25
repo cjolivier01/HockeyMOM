@@ -89,9 +89,6 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
         vector_to_tensor(all_active_ids, ids.device());
     at::Tensor all_active_mask = at::isin(ids, all_active_ids_tensor);
 
-    // std::cout << "all_active_mask: " << all_active_mask.device() <<
-    // std::endl;
-
     const std::size_t id_count = ids.numel();
     for (auto& item : results) {
       at::Tensor& tensor = item.second;
