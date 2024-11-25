@@ -590,7 +590,6 @@ class VideoOutput:
         # for frame_index, frame_id in enumerate(frame_ids):
         if True:
             # online_im = online_images
-
             # We clone, since it gets modified sometimes wrt rotation optimizations
             if current_boxes is None:
                 assert self._simple_save

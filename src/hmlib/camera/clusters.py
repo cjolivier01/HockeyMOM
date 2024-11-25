@@ -1,16 +1,18 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from fast_pytorch_kmeans import KMeans
 
 
 class ClusterSnapshot:
+
     def __init__(
         self,
         num_clusters: int,
         device: str,
-        centroids: torch.Tensor = None,
-        minibatch: int = None,
+        centroids: Optional[torch.Tensor] = None,
+        minibatch: Optional[int] = None,
+        init_method: Optional[str] = None,
     ):
         self._device = device
         self._num_clusters = num_clusters
@@ -19,6 +21,7 @@ class ClusterSnapshot:
             n_clusters=num_clusters,
             mode="euclidean",
             minibatch=minibatch,
+            init_method=init_method,
         )
         self.reset()
 
@@ -70,12 +73,17 @@ class ClusterSnapshot:
 
 
 class ClusterMan:
-    def __init__(self, sizes: List[int], device="cpu"):
+
+    def __init__(self, sizes: List[int], device="cpu", init_method: Optional[str] = None):
         self._sizes = sizes
         self._device = device
         self.cluster_snapshots = dict()
         for i in sizes:
-            self.cluster_snapshots[i] = ClusterSnapshot(num_clusters=i, device=device)
+            self.cluster_snapshots[i] = ClusterSnapshot(
+                num_clusters=i,
+                device=device,
+                init_method="random" if not init_method else init_method,
+            )
 
     @property
     def cluster_counts(self):
@@ -92,7 +100,7 @@ class ClusterMan:
                 # No items are currently being tracked
                 # This should always be the case when 'ids' is of type 'list'
                 # Allowin it to fall-through in order to catch as an error if it is not empty.
-              return
+                return
         if ids.device != self._device:
             ids = ids.to(self._device)
         for cluster_snapshot in self.cluster_snapshots.values():

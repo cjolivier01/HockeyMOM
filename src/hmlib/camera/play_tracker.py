@@ -298,7 +298,7 @@ class PlayTracker(torch.nn.Module):
         original_images = results.pop("original_images")
 
         if isinstance(original_images, StreamTensor):
-            original_images.verbose = True
+            original_images._verbose = True
             original_images = original_images.get()
 
         # Figure out what device this image should be on
