@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import random
 import time
+from typing import Union
 
 import cv2
 import numpy as np
@@ -74,7 +75,7 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 
-def xyxy2xywh(bboxes: torch.Tensor | np.ndarray) -> torch.Tensor | np.ndarray:
+def xyxy2xywh(bboxes: Union[torch.Tensor, np.ndarray]) -> Union[torch.Tensor, np.ndarray]:
     """
     Converts bounding boxes from [x1, y1, x2, y2] to [x, y, w, h] format.
 

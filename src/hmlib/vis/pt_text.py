@@ -184,7 +184,15 @@ def draw_text(
     for char in text:
         if char in char_images:
             letter_img = char_images[char]
-            image = alpha_blend(image, letter_img, x, y)
+            base_w = image.shape[-1]
+            base_h = image.shape[-2]
+            letter_w = letter_img.shape[-1]
+            letter_h = letter_img.shape[-1]
+            if x + letter_w > base_w or y + letter_h > base_h:
+                # Going off the edge of the image
+                break
+            if x >= 0:
+                image = alpha_blend(image, letter_img, x, y)
             x += letter_img.shape[2]  # Move x to the right for the next character
     if ndims == 4:
         image = image.unsqueeze(0)

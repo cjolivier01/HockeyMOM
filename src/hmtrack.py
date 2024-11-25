@@ -27,6 +27,7 @@ from hmlib.config import (
     set_nested_value,
     update_config,
 )
+from hmlib.datasets.dataframe import DataFrameDataset
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
@@ -37,6 +38,7 @@ from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
+from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
@@ -256,6 +258,17 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Save tracking data to results.csv",
     )
     parser.add_argument(
+        "--input-detection-data",
+        type=str,
+        default=None,
+        help="Input detection data file and use instead of AI calling tracker",
+    )
+    parser.add_argument(
+        "--save-detection-data",
+        action="store_true",
+        help="Save detection data to results.csv",
+    )
+    parser.add_argument(
         "--save-camera-data",
         action="store_true",
         help="Save tracking data to camera.csv",
@@ -389,6 +402,7 @@ def configure_boundaries(
 def main(args, num_gpu):
     dataloader = None
     tracking_dataframe = None
+    detection_dataframe = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -400,13 +414,10 @@ def main(args, num_gpu):
         # set environment variables for distributed training
         cudnn.benchmark = True
 
-        rank = args.local_rank
-
         game_config = args.game_config
 
         dataloader = MultiDatasetWrapper(forgive_missing_attributes=["fps"])
 
-        tracker = get_nested_value(game_config, "model.tracker.type")
         if args.output_fps is None:
             args.output_fps = get_nested_value(game_config, "camera.output-fps")
 
@@ -437,6 +448,9 @@ def main(args, num_gpu):
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
+        cam_args.cam_ignore_largest = get_nested_value(
+            game_config, "rink.tracking.cam_ignore_largest", True
+        )
 
         if args.cvat_output:
             cam_args.crop_output_image = False
@@ -463,39 +477,57 @@ def main(args, num_gpu):
                     else:
                         args.input_video = game_video_dir
 
-        # TODO: get rid of this, set in cfg (detector.input_size, etc)
-        exp = None
-        if exp is None:
-            exp = FakeExp()
-            test_size = getattr(args, "test_size", None)
-            if not test_size:
-                test_size = (1088, 608)
-            elif isinstance(test_size, str):
-                tokens = test_size.split("x")
-                if len(tokens) == 1:
-                    tokens = args.test_size.split("X")
-                assert len(tokens) == 2
-                test_size = (
-                    to_32bit_mul(int(tokens[0])),
-                    to_32bit_mul(int(tokens[1])),
-                )
-            exp.test_size = test_size
-            args.test_size = test_size
-            results_folder = os.path.join(".", "output_workdirs", args.game_id)
-            os.makedirs(results_folder, exist_ok=True)
+        results_folder = os.path.join(".", "output_workdirs", args.game_id)
+        os.makedirs(results_folder, exist_ok=True)
 
         if args.save_tracking_data or args.input_tracking_data:
+            if args.input_tracking_data:
+                args.input_tracking_data = args.input_tracking_data.replace(
+                    "${GAME_DIR}", get_game_dir(args.game_id)
+                )
             tracking_dataframe = TrackingDataFrame(
                 input_file=args.input_tracking_data,
                 output_file=(
-                    os.path.join(results_folder, "results.csv")
+                    os.path.join(results_folder, "tracking.csv")
                     if args.input_tracking_data is None
                     else None
                 ),
+                input_batch_size=args.batch_size,
                 write_interval=100,
             )
+            if args.input_tracking_data:
+                dataloader.append_dataset(
+                    name="tracking_dataframe",
+                    dataset=DataFrameDataset(dataframe=tracking_dataframe),
+                )
 
-        using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
+        if args.save_detection_data or args.input_detection_data:
+            if args.input_detection_data:
+                args.input_detection_data = args.input_detection_data.replace(
+                    "${GAME_DIR}", get_game_dir(args.game_id)
+                )
+            detection_dataframe = DetectionDataFrame(
+                input_file=args.input_detection_data,
+                output_file=(
+                    os.path.join(results_folder, "detections.csv")
+                    if args.input_detection_data is None
+                    else None
+                ),
+                input_batch_size=args.batch_size,
+                write_interval=100,
+            )
+            if args.input_detection_data:
+                dataloader.append_dataset(
+                    name="detection_dataframe",
+                    dataset=DataFrameDataset(dataframe=detection_dataframe),
+                )
+
+        using_precalculated_tracking = (
+            tracking_dataframe is not None and tracking_dataframe.has_input_data()
+        )
+        using_precalculated_detections = (
+            detection_dataframe is not None and detection_dataframe.has_input_data()
+        )
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -507,7 +539,7 @@ def main(args, num_gpu):
             allowed_gpus=args.gpus,
             is_stitching=is_stitching(args.input_video),
             is_multipose=args.multi_pose,
-            is_detecting=not using_precalculated_tracking,
+            is_detecting=not using_precalculated_tracking and not using_precalculated_detections,
             stitch_with_fastest=not args.detect_jersey_numbers,
         )
         if is_single_lowmem_gpu:
@@ -525,11 +557,6 @@ def main(args, num_gpu):
                 torch.cuda.set_device(main_device)
                 break
 
-        # Set up for pose
-        pose_model = None
-        pose_dataset = None
-        pose_dataset_info = None
-
         data_pipeline = None
 
         if not args.exp_file:
@@ -539,10 +566,11 @@ def main(args, num_gpu):
 
         args.config = args.exp_file
 
-        if not using_precalculated_tracking:
-            if args.tracking or args.multi_pose:
+        model_config = Config.fromfile(args.config)
+        assert model_config is not None
 
-                model_config = Config.fromfile(args.config)
+        if True:  # not using_precalculated_tracking:
+            if args.tracking or args.multi_pose:
 
                 update_pipeline_item(
                     model_config.model.post_tracking_pipeline,
@@ -553,12 +581,19 @@ def main(args, num_gpu):
                 )
 
                 # build the model from a config file and a checkpoint file
+                if not using_precalculated_detections and not using_precalculated_tracking:
+                    model_checkpoint = args.checkpoint
+                    model_device = main_device
+                else:
+                    model_checkpoint = None
+                    model_device = "cpu"
+
                 model = init_track_model(
                     model_config,
-                    args.checkpoint,
+                    model_checkpoint,
                     args.detector,
                     args.reid,
-                    device=main_device,
+                    device=model_device,
                 )
 
                 # Maybe apply a clip box in the data pipeline
@@ -568,8 +603,6 @@ def main(args, num_gpu):
                     if hm_crop is not None:
                         hm_crop["rectangle"] = orig_clip_box
 
-                if args.checkpoint:
-                    load_checkpoint_to_model(model, args.checkpoint)
                 cfg = model.cfg.copy()
                 pipeline = cfg.inference_pipeline
                 pipeline[0].type = "HmLoadImageFromWebcam"
@@ -596,29 +629,18 @@ def main(args, num_gpu):
                 gpu_allocator=gpu_allocator,
                 plot_tracking=args.plot_tracking,
             )
+        pose_inferencer = None
         if args.multi_pose:
-            from mmpose.apis import init_pose_model
-            from mmpose.datasets import DatasetInfo
+            from mmpose.apis.inferencers import MMPoseInferencer
 
             if not args.pose_config:
                 args.pose_config = get_nested_value(game_config, "model.pose.config")
             if not args.pose_checkpoint:
-                args.pose_config = get_nested_value(game_config, "model.pose.checkpoint")
+                args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
 
-            pose_model = init_pose_model(
-                args.pose_config, args.pose_checkpoint, device=gpus["multipose"]
+            pose_inferencer = MMPoseInferencer(
+                pose2d=args.pose_config, pose2d_weights=args.pose_checkpoint, show_progress=False
             )
-            pose_model.cfg.test_pipeline = update_data_pipeline(pose_model.cfg.test_pipeline)
-            pose_dataset = pose_model.cfg.data["test"]["type"]
-            pose_dataset_info = pose_model.cfg.data["test"].get("dataset_info", None)
-            if pose_dataset_info is None:
-                warnings.warn(
-                    "Please set `dataset_info` in the config."
-                    "Check https://github.com/open-mmlab/mmpose/pull/663 for details.",
-                    DeprecationWarning,
-                )
-            else:
-                pose_dataset_info = DatasetInfo(pose_dataset_info)
 
         postprocessor = None
         if args.input_video:
@@ -699,13 +721,13 @@ def main(args, num_gpu):
                     auto_adjust_exposure=args.stitch_auto_adjust_exposure,
                     python_blender=args.python_blender,
                     minimize_blend=not args.no_minimize_blend,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(
                     path=None,
                     game_id=dir_name,
-                    img_size=exp.test_size,
                     start_frame_number=args.start_frame,
                     batch_size=1,
                     embedded_data_loader=stitched_dataset,
@@ -715,11 +737,11 @@ def main(args, num_gpu):
                         else args.stitch_cache_size
                     ),
                     data_pipeline=data_pipeline,
-                    stream_tensors=tracker == "mmtrack",
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
                     original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
                 dataloader.append_dataset("pano", mot_dataloader)
             else:
@@ -741,7 +763,6 @@ def main(args, num_gpu):
                     args.max_frames = time_to_frame(time_str=args.max_time, fps=vid_info.fps)
                 pano_dataloader = MOTLoadVideoWithOrig(
                     path=input_video_files[0],
-                    img_size=exp.test_size,
                     start_frame_number=args.start_frame,
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
@@ -753,6 +774,7 @@ def main(args, num_gpu):
                     dtype=torch.float if not args.fp16 else torch.half,
                     original_image_only=tracking_dataframe is not None,
                     adjust_exposure=args.adjust_exposure,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
 
@@ -767,13 +789,12 @@ def main(args, num_gpu):
                     if os.path.exists(vid_path):
                         extra_dataloader = MOTLoadVideoWithOrig(
                             path=vid_path,
-                            img_size=None,
                             start_frame_number=args.start_frame,
                             batch_size=args.batch_size,
-                            stream_tensors=tracker == "mmtrack",
                             dtype=torch.float if not args.fp16 else torch.half,
                             device=gpus["encoder"],
                             original_image_only=True,
+                            no_cuda_streams=args.no_cuda_streams,
                         )
                         dataloader.append_dataset(vid_name, extra_dataloader)
                         ez_count += 1
@@ -817,7 +838,9 @@ def main(args, num_gpu):
                 #
                 # Video output pipeline
                 #
-                video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
+                video_out_pipeline = (
+                    getattr(model.cfg, "video_out_pipeline") if model is not None else model_config
+                )
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
                     fixed_edge_rotation_angle = (
@@ -857,7 +880,7 @@ def main(args, num_gpu):
                     opt=args,
                     args=cam_args,
                     fps=dataloader.fps if args.output_fps is None else args.output_fps,
-                    save_dir=save_dir,
+                    save_dir=results_folder,
                     output_video_path=output_video_path,
                     save_frame_dir=args.save_frame_dir,
                     original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
@@ -869,6 +892,7 @@ def main(args, num_gpu):
                     video_out_pipeline=video_out_pipeline,
                     async_post_processing=args.async_post_processing,
                     async_video_out=args.async_video_out,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
                 postprocessor._args.skip_final_video_save = args.skip_final_video_save
             else:
@@ -881,15 +905,17 @@ def main(args, num_gpu):
 
             run_mmtrack(
                 model=model,
-                pose_model=pose_model,
-                pose_dataset_type=pose_dataset,
-                pose_dataset_info=pose_dataset_info,
+                pose_inferencer=pose_inferencer,
+                # pose_dataset_type=pose_dataset,
+                # pose_dataset_info=pose_dataset_info,
                 config=vars(args),
                 device=main_device,
                 tracking_dataframe=tracking_dataframe,
+                detection_dataframe=detection_dataframe,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
+                no_cuda_streams=args.no_cuda_streams,
                 **other_kwargs,
             )
 

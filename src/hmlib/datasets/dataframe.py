@@ -1,0 +1,188 @@
+import json
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any, Dict, Iterable, List, Optional, Type, Union
+
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import Dataset
+
+from hmlib.builder import PIPELINES as TRANSFORMS
+from hmlib.jersey.number_classifier import TrackJerseyInfo
+from hmlib.log import logger
+
+# class ILocator:
+#     def __init__(self, dataframe: pd.DataFrame) -> None:
+#         self._dataframe = dataframe
+
+#     def __getitem__(self, *args) -> Any:
+#         return self._dataframe.iloc[*args]
+
+
+class HmDataFrameBase:
+
+    def __init__(
+        self,
+        fields: List[str],
+        input_batch_size: Union[int, None] = None,
+        input_file=None,
+        output_file=None,
+        write_interval: int = 250,
+    ):
+        self._fields = fields
+        self.input_file = input_file
+        self._input_batch_size: Union[int, None] = input_batch_size
+        self.output_file = output_file
+        self.write_interval = write_interval
+        self.first_write = True
+        self._dataframe_list: List[pd.DataFrame] = []
+        self.counter = 0  # Counter to track number of records since the last write
+        self.data: Optional[pd.DataFrame] = None
+        self._ilocator: ILocator = None
+        if input_file:
+            self.read_data()
+
+    def read_data(self) -> None:
+        """Read data from a CSV file."""
+        if self.input_file:
+            self.data = pd.read_csv(
+                self.input_file,
+                header=None,
+                names=self._fields,
+            )
+
+    @property
+    def batch_size(self) -> int:
+        assert self._input_batch_size is not None
+        return self._input_batch_size
+
+    def __iter__(self) -> Iterable:
+        return self.data.itertuples(index=True, name="TrackingDataFrame")
+
+    def __len__(self) -> int:
+        assert self.data is not None
+        return len(self.data)
+
+    @property
+    def fields(self) -> List[str]:
+        return self._fields
+
+    # @property
+    # def iloc(self) -> ILocator:
+    #     if self._ilocator is None:
+    #         self._ilocator = ILocator(self.data)
+    #     return self._ilocator
+
+    @staticmethod
+    def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+        if isinstance(t, torch.Tensor):
+            return t.to("cpu").numpy()
+        return t
+
+    def has_input_data(self):
+        return self.input_file is not None
+
+    def write_data(self, output_path=None, header=False):
+        if not output_path:
+            output_path = self.output_file
+        else:
+            self.output_file = output_path
+
+        """Write MOT tracking data to a CSV file incrementally."""
+        if self.output_file:
+            if self._dataframe_list:
+                data = pd.concat(self._dataframe_list, ignore_index=True)
+                mode = "a" if not self.first_write else "w"
+                data.to_csv(output_path, mode=mode, header=header, index=False)
+                self._dataframe_list = []
+                logger.info(f"Data saved successfully to {output_path}.")
+            else:
+                logger.info("No data available to save.")
+
+    def flush(self):
+        self.write_data()
+
+    def close(self):
+        self.flush()
+
+
+# Convert dataclass to JSON
+def dataclass_to_json(dataclass_instance):
+    if dataclass_instance is None:
+        return ""
+    if not is_dataclass(dataclass_instance):
+        raise ValueError("Provided input is not a dataclass instance")
+    dataclass_dict = asdict(dataclass_instance)
+    json_str = json.dumps(dataclass_dict)
+    return json_str
+
+
+# Convert JSON to dataclass
+def json_to_dataclass(json_str, cls):
+    if not hasattr(cls, "__dataclass_fields__"):
+        raise ValueError("Provided class is not a dataclass")
+    if not json_str:
+        return None
+    data = json.loads(json_str)
+    return cls(**data)
+
+
+class DataFrameDataset(Dataset):
+
+    def __init__(self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None):
+        """
+        Args:
+            dataframe (pd.DataFrame): a pandas DataFrame containing the data.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        self.dataframe = dataframe
+        self.transform = transform
+
+    @property
+    def batch_size(self) -> int:
+        assert isinstance(self.dataframe, HmDataFrameBase)
+        return self.dataframe.batch_size
+
+    def __len__(self):
+        return len(self.dataframe)
+
+    def __getitem__(self, idx: int) -> Any:
+        if isinstance(self.dataframe, HmDataFrameBase):
+            result = self.dataframe[idx]
+            if self.transform is not None:
+                result = self.transform(result)
+            return result
+        sample = self.dataframe.iloc[idx]
+        if self.transform:
+            sample = self.transform(sample)
+        # Assuming the last column is the target variable
+        iloc = sample.iloc
+        return dict(features=iloc[:-1].values, target=iloc[-1])
+
+    def __iter__(self) -> Iterable:
+        return DataFrameDatasetIterator(dataset=self)
+
+
+class DataFrameDatasetIterator:
+    def __init__(self, dataset: DataFrameDataset) -> None:
+        self._dataset = dataset
+        self.position: int = 0
+        self.length = len(dataset)
+
+    def __next__(self) -> Any:
+        if self.position >= self.length:
+            raise StopIteration()
+        pos: int = self.position
+        self.position += 1
+        return self._dataset[pos]
+
+
+# @TRANSFORMS.register_module()
+# class DataFrameReader:
+#     def __init__(self, dataset_key, key: str, data_type: Type) -> None
+#         self._key = key
+#         self._data_type = data_type
+
+#     def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
+#         return data

@@ -8,16 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
-import PIL
 import torch
-import torchvision as tv
 from mmcv.transforms import Compose
-from PIL import Image
 from torchvision.transforms import functional as F
 
-from hmlib.bbox.box_functions import center, height, width
+from hmlib.bbox.box_functions import scale_box
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
-from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
@@ -35,20 +31,17 @@ from hmlib.utils.gpu import (
 )
 from hmlib.utils.image import (
     ImageColorScaler,
-    crop_image,
     image_height,
     image_width,
     make_channels_last,
     make_visible_image,
     resize_image,
-    to_float_image,
     to_uint8_image,
 )
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
-from hmlib.vis.pt_text import draw_text
 
 from .video_stream import (
     VideoStreamWriterInterface,
@@ -57,9 +50,14 @@ from .video_stream import (
 )
 
 
-def slow_to_tensor(
-    tensor: Union[torch.Tensor, StreamTensor], stream_wait: bool = True
-) -> torch.Tensor:
+def get_and_pop(map: Dict[str, Any], key: str) -> Any:
+    result = map.get(key, None)
+    if result is not None:
+        del map[key]
+    return result
+
+
+def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
     """
@@ -442,6 +440,10 @@ class VideoOutput:
             default_cuda_stream = torch.cuda.current_stream(self._device)
             cuda_stream = torch.cuda.Stream(self._device)
 
+        mean_track_mode = None
+        if mean_track_mode and self._mean_tracker is None:
+            self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
+
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
@@ -509,7 +511,7 @@ class VideoOutput:
         assert online_im.ndim == 4  # Should have a batch dimension
 
         if self._allow_scaling and int(self._output_frame_width) != image_w:
-            assert False
+            # assert False
             online_im = resize_image(
                 img=online_im,
                 new_width=self._output_frame_width,
@@ -522,6 +524,13 @@ class VideoOutput:
         online_im = make_channels_last(online_im)
         assert int(self._output_frame_width) == image_w
         assert int(self._output_frame_height) == image_h
+
+        if self._mean_tracker is not None:
+            img = online_im
+            if not torch.is_floating_point(img):
+                img = img.to(torch.float, non_blocking=False)
+            self._mean_tracker(img)
+
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
                 if not isinstance(online_im, StreamTensor):
@@ -569,23 +578,28 @@ class VideoOutput:
         return results
 
     def forward(self, results) -> Dict[str, Any]:
-        track_data_sample = results.pop("data_samples")
-        online_images = results.pop("img")
-        frame_ids = results["frame_ids"]
-        current_boxes = results.pop("current_box")
 
-        results["pano_size_wh"] = [image_width(online_images), image_height(online_images)]
+        visualization_config = self._visualization_config
+
+        online_im = results.pop("img")
+        frame_ids = results.get("frame_ids")
+        current_boxes = get_and_pop(results, "current_box")
+
+        results["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
 
         # for frame_index, frame_id in enumerate(frame_ids):
         if True:
-            online_im = online_images
+            # online_im = online_images
 
             # We clone, since it gets modified sometimes wrt rotation optimizations
             if current_boxes is None:
-                assert False  # how does this happen?
-                current_box = torch.tensor(
+                assert self._simple_save
+                assert online_im.ndim == 4
+                batch_size: int = online_im.size(0)
+                whole_box = torch.tensor(
                     [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
                 )
+                current_boxes = whole_box.repeat(batch_size, 1)
             else:
                 current_boxes = current_boxes.clone()
 

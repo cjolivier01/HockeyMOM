@@ -1,33 +1,26 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
+import torch
 
-from hmlib.tracking_utils.tracking_dataframe import (
-    TrackingDataBase,
-    convert_tlbr_to_tlwh,
-)
+from hmlib.datasets.dataframe import HmDataFrameBase
+from hmlib.tracking_utils.tracking_dataframe import convert_tlbr_to_tlwh
 
 
-class CameraTrackingDataFrame(TrackingDataBase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class CameraTrackingDataFrame(HmDataFrameBase):
 
-    def read_data(self):
-        """Read MOT tracking data from a CSV file."""
-        if self.input_file:
-            self.data = pd.read_csv(
-                self.input_file,
-                header=None,
-                names=[
-                    "Frame",
-                    "BBox_X",
-                    "BBox_Y",
-                    "BBox_W",
-                    "BBox_H",
-                ],
-            )
-            print("Data loaded successfully.")
+    def __init__(self, *args, input_batch_size: int, **kwargs):
+        fields: List[str] = (
+            [
+                "Frame",
+                "BBox_X",
+                "BBox_Y",
+                "BBox_W",
+                "BBox_H",
+            ],
+        )
+        super().__init__(*args, fields=fields, input_batch_size=input_batch_size, **kwargs)
 
     def add_frame_records(
         self,
@@ -38,7 +31,7 @@ class CameraTrackingDataFrame(TrackingDataBase):
         if tlwh is None:
             assert tlbr is not None
             tlwh = convert_tlbr_to_tlwh(tlbr)
-
+        tlwh = self._make_array(tlwh)
         frame_id = int(frame_id)
         new_record = pd.DataFrame(
             {
@@ -66,13 +59,12 @@ class CameraTrackingDataFrame(TrackingDataBase):
             return None
 
     # Function to extract tracking info by frame
-    def get_tracking_info_by_frame(self, frame_id: int):
+    def get_data_dict_by_frame(self, frame_id: int) -> Dict[str, Any]:
+        assert self.batch_size == 1
         frame_id = int(frame_id)
+        assert frame_id  # First frame is 1
         # Filter the DataFrame for the specified frame
         frame_data = self.data[self.data["Frame"] == frame_id]
         # Extract columns as NumPy arrays
-        tracking_ids = frame_data["ID"].to_numpy()
-        scores = frame_data["Confidence"].to_numpy()
-        tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
-
-        return tracking_ids, scores, tlwh
+        bboxes = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
+        return dict(frame_id=frame_id, scores=scores, labels=labels, bboxes=bboxes)

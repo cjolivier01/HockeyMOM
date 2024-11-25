@@ -14,18 +14,21 @@ import torch
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
-from hmlib.log import logger
+from hmlib.log import get_root_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.video.video_out import VideoOutput
 
 ROOT_DIR = os.getcwd()
 
+logger = get_root_logger()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
@@ -34,6 +37,11 @@ def make_parser():
     )
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
+    parser.add_argument(
+        "--multi-gpu",
+        action="store_true",
+        help="Use multiple GPUs (probably slower, but if memory issues)",
+    )
     return parser
 
 
@@ -64,7 +72,6 @@ def stitch_videos(
     decoder_device: Optional[torch.device] = None,
     remapping_device: torch.device = torch.device("cuda", 0),
     encoder_device: torch.device = torch.device("cpu"),
-    remap_on_async_stream: bool = True,
     ignore_clip_box: bool = True,
     cache_size: int = 4,
     dtype: torch.dtype = torch.float,
@@ -73,7 +80,8 @@ def stitch_videos(
     force: Optional[bool] = False,
     auto_adjust_exposure: Optional[bool] = False,
     minimize_blend: bool = True,
-    python_blender: bool = True,
+    python_blender: bool = False,
+    async_output: bool = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -127,7 +135,6 @@ def stitch_videos(
         decoder_device=decoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
-        remap_on_async_stream=remap_on_async_stream,
         dtype=dtype,
         auto_adjust_exposure=auto_adjust_exposure,
         minimize_blend=minimize_blend,
@@ -175,6 +182,30 @@ def stitch_videos(
         )
         data_loader_iter = progress_bar
 
+    video_out = None
+
+    def _maybe_save_frame(frame: torch.Tensor) -> None:
+        nonlocal video_out
+        if output_stitched_video_file and video_out is None:
+            video_out = VideoOutput(
+                args=None,
+                output_video_path=output_stitched_video_file,
+                output_frame_width=image_width(frame),
+                output_frame_height=image_height(frame),
+                fps=data_loader.fps,
+                video_out_pipeline=None,
+                max_queue_backlog=cache_size,
+                device=encoder_device,
+                simple_save=True,
+                skip_final_save=False,
+                original_clip_box=None,
+                progress_bar=progress_bar,
+                cache_size=cache_size,
+                async_output=async_output,
+            )
+        if video_out is not None:
+            video_out.append(dict(img=frame))
+
     try:
         start = None
 
@@ -185,6 +216,11 @@ def stitch_videos(
             ):
                 stitched_image._verbose = False
                 stitched_image = stitched_image.get()
+
+            _maybe_save_frame(frame=stitched_image)
+
+            if shower is not None:
+                shower.show(stitched_image)
 
             if i > 1:
                 dataset_timer.toc()
@@ -204,12 +240,11 @@ def stitch_videos(
 
             frame_count += batch_size
 
-            if shower is not None:
-                shower.show(stitched_image)
-
             if i == 1:
                 start = time.time()
             dataset_timer.tic()
+
+            del stitched_image
 
         if start is not None:
             duration = time.time() - start
@@ -222,6 +257,8 @@ def stitch_videos(
         data_loader.close()
         if shower is not None:
             shower.close()
+        if video_out is not None:
+            video_out.stop()
     return lfo, rfo
 
 
@@ -230,7 +267,13 @@ def main(args):
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
-    encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
+    if args.multi_gpu:
+        encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
+        decoder_device = (
+            torch.device(args.decoder_device) if args.decoder_device else remapping_device
+        )
+    else:
+        encoder_device, decoder_device = remapping_device, remapping_device
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
@@ -247,11 +290,10 @@ def main(args):
             max_frames=args.max_frames,
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,
-            remap_on_async_stream=False,
             ignore_clip_box=True,
             cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
             remapping_device=remapping_device,
-            decoder_device=remapping_device,
+            decoder_device=decoder_device,
             encoder_device=encoder_device,
             dtype=torch.half if args.fp16 else torch.float,
             force=args.force,

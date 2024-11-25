@@ -74,8 +74,7 @@ class HmEndToEnd(ByteTrack):
         config.match_iou_thrs_tentative = 0.3
         config.track_buffer_size = 60
         config.return_user_ids = False
-        # config.prediction_mode = HmTrackerPredictionMode.BoundingBox
-        # config.prediction_mode = HmTrackerPredictionMode.BoxCenter
+        config.prediction_mode = HmTrackerPredictionMode.BoundingBox
 
         self._hm_byte_tracker = HmTracker(config)
 

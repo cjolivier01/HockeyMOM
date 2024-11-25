@@ -1,11 +1,9 @@
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
-from mmcv.ops import RoIPool
-from mmdet.structures import DetDataSample, TrackDataSample
 
 # from mmcv.parallel import collate, scatter
 from torch.cuda.amp import autocast
@@ -13,9 +11,11 @@ from torch.cuda.amp import autocast
 import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
 from hmlib.log import logger
+from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async
+from hmlib.utils import MeanTracker
+from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
@@ -25,21 +25,28 @@ from .multi_pose import multi_pose_task
 
 def run_mmtrack(
     model,
-    pose_model,
-    pose_dataset_type,
-    pose_dataset_info,
+    pose_inferencer,
     config: Dict[str, Any],
     dataloader,
     postprocessor,
     progress_bar: Optional[ProgressBar] = None,
     tracking_dataframe: TrackingDataFrame = None,
+    detection_dataframe: DetectionDataFrame = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
+    no_cuda_streams: bool = False,
+    track_mean_mode: Optional[str] = None,
 ):
+    mean_tracker: Optional[MeanTracker] = None
     try:
-        cuda_stream = torch.cuda.Stream(device)
-        with torch.cuda.stream(cuda_stream):
+        if track_mean_mode:
+            mean_tracker = MeanTracker(
+                file_path="pre_detect.txt",
+                mode=track_mean_mode,
+            )
+        cuda_stream = torch.cuda.Stream(device) if not no_cuda_streams else None
+        with cuda_stream_scope(cuda_stream):
             dataloader_iterator = CachedIterator(
                 iterator=iter(dataloader), cache_size=input_cache_size
             )
@@ -102,8 +109,18 @@ def run_mmtrack(
             using_precalculated_tracking = (
                 tracking_dataframe is not None and tracking_dataframe.has_input_data()
             )
+            using_precalculated_detection = (
+                detection_dataframe is not None and detection_dataframe.has_input_data()
+            )
+            # batch_counter = 0
             for cur_iter, dataset_results in enumerate(dataloader_iterator):
                 origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
+                # if True or batch_counter % 2 == 0:
+                #     # tmp_img = data["img"]
+                #     show_image("img", data["img"], wait=False)
+                #     # show_image("origin_imgs", origin_imgs, wait=False, enable_resizing=0.2)
+                # batch_counter += 1
+
                 with torch.no_grad():
                     frame_id = info_imgs[2][0]
 
@@ -133,13 +150,12 @@ def run_mmtrack(
                         if isinstance(detection_image, StreamTensor):
                             detection_image.verbose = True
                             # detection_image = detection_image.get()
-                            detection_image = detection_image.wait()
+                            detection_image = detection_image.wait(cuda_stream)
 
                         if detection_image.device != device:
                             detection_image, _ = copy_gpu_to_gpu_async(
                                 tensor=detection_image, dest_device=device
                             )
-                            # detection_image = detection_image.to(device, non_blocking=True)
 
                         # Make batch size of 1, but some T number of frames (prev batch size)
                         detection_image = detection_image.unsqueeze(0)
@@ -150,6 +166,9 @@ def run_mmtrack(
 
                         if dataset_results:
                             data["dataset_results"] = dataset_results
+
+                        if mean_tracker is not None:
+                            detection_image = mean_tracker.forward(detection_image)
 
                         # forward the model
                         detect_timer.tic()
@@ -194,11 +213,20 @@ def run_mmtrack(
                                         tracking_ids=pred_track_instances.instances_id,
                                         tlbr=pred_track_instances.bboxes,
                                         scores=pred_track_instances.scores,
+                                        labels=pred_track_instances.labels,
                                         jersey_info=(
                                             jersey_results[frame_index]
                                             if jersey_results is not None
                                             else None
                                         ),
+                                    )
+                            if not using_precalculated_detection:
+                                if detection_dataframe is not None:
+                                    detection_dataframe.add_frame_records(
+                                        frame_id=frame_id,
+                                        scores=video_data_sample.pred_instances.scores,
+                                        labels=video_data_sample.pred_instances.labels,
+                                        bboxes=video_data_sample.pred_instances.bboxes,
                                     )
                             else:
                                 # track_ids, scores, bboxes = (
@@ -206,13 +234,23 @@ def run_mmtrack(
                                 # )
                                 # online_tlwhs = torch.from_numpy(bboxes)
                                 # tracking_results = None
-                                assert False
+                                # assert False
+                                pass
 
                         # Clean data to send of the batched images
                         data_to_send = data.copy()
                         del data["original_images"]
                         if "img" in data_to_send:
                             del data_to_send["img"]
+
+                        if not using_precalculated_tracking:
+                            if pose_inferencer is not None:
+                                pose_results = multi_pose_task(
+                                    pose_inferencer=pose_inferencer,
+                                    cur_frame=data_to_send["original_images"],
+                                    show=config["plot_pose"],
+                                )
+                                data_to_send["pose_results"] = pose_results
 
                         if postprocessor is not None:
                             # if isinstance(origin_imgs, StreamTensor):
@@ -221,6 +259,7 @@ def run_mmtrack(
                             # tracking_results, detections, online_tlwhs = (
                             results = postprocessor.process_tracking(results=data_to_send)
                             results = None
+
                     else:
                         for frame_index, frame_id in enumerate(info_imgs[2]):
 
@@ -234,7 +273,7 @@ def run_mmtrack(
                                 continue
 
                             if not using_precalculated_tracking:
-                                if pose_model is not None:
+                                if pose_inferencer is not None:
                                     (
                                         tracking_results,
                                         pose_results,
@@ -242,10 +281,10 @@ def run_mmtrack(
                                         vis_frame,
                                     ) = multi_pose_task(
                                         config=config,
-                                        pose_model=pose_model,
+                                        pose_inferencer=pose_inferencer,
                                         cur_frame=make_channels_last(origin_imgs).wait().squeeze(0),
-                                        dataset=pose_dataset_type,
-                                        dataset_info=pose_dataset_info,
+                                        # dataset=pose_dataset_type,
+                                        # dataset_info=pose_dataset_info,
                                         tracking_results=tracking_results,
                                         smooth=config["smooth"],
                                         show=config["plot_pose"],
@@ -372,6 +411,15 @@ def run_mmtrack(
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")
+    except Exception as ex:
+        raise
+    finally:
+        if tracking_dataframe is not None:
+            tracking_dataframe.close()
+        if detection_dataframe is not None:
+            detection_dataframe.close()
+        if mean_tracker is not None:
+            mean_tracker.close()
 
 
 def process_mmtracking_results(mmtracking_results):

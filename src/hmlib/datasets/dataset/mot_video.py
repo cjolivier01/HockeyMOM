@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.log import logger
+from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import (
@@ -46,7 +46,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     def __init__(
         self,
         path: Union[str, List[str]],
-        img_size,
         game_id: str = None,
         video_id: int = 1,
         preproc=None,
@@ -60,28 +59,34 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adjustment: Tuple[float, float, float] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
-        # device_for_img: torch.device = None,
         device_for_original_image: torch.device = None,
-        stream_tensors: bool = False,
         log_messages: bool = False,
         dtype: torch.dtype = None,
         data_pipeline: Callable = None,
         frame_step: int = 1,
         result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
+        no_cuda_streams: bool = False,
     ):
-        assert not isinstance(img_size, str)
         if isinstance(path, list):
             self._path_list = path
-        else:
+        elif path:
             self._path_list = [path]
+        else:
+            self._path_list = None
+
+        if original_image_only and device_for_original_image is None:
+            device_for_original_image = device
+
         self._current_path_index = 0
         self._game_id = game_id
+        self._no_cuda_streams = no_cuda_streams
         self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
         self._preproc = preproc
+        self._logger = get_root_logger()
         self._dtype = dtype
         self._frame_step = frame_step
         self._data_pipeline = data_pipeline
@@ -91,13 +96,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.calculated_clip_box = None
         self._result_as_dict = result_as_dict
         self._adjust_exposure = adjust_exposure
-        # self._device_for_img = device_for_img
-        if img_size is None:
-            self.process_height = None
-            self.process_width = None
-        else:
-            self.process_height = img_size[0]
-            self.process_width = img_size[1]
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
         self.width_t = None
@@ -127,38 +125,41 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._scale_inscribed_to_original = None
         self._embedded_data_loader = embedded_data_loader
         self._embedded_data_loader_iter = None
-        self._stream_tensors = stream_tensors
         self._cuda_stream = None
+        self._decoder_type = None
         self._next_counter = 0
         self._frame_read_count = 0
-        self.fps = None
         self._video_info = None
         self._seek_lock = Lock()
 
         if self._image_channel_adjustment:
             assert len(self._image_channel_adjustment) == 3
+        self.load_video_info()
 
-        self._open_video()
-        self._close_video()
+    def load_video_info(self) -> None:
+        if not self._path_list:
+            return
+        if self._video_info is not None:
+            return
+        assert self._embedded_data_loader is None
+        self._video_info = BasicVideoInfo(",".join(self._path_list))
 
     def _open_video(self):
+        self.load_video_info()
         if self._embedded_data_loader is None:
-            type = "cv2"
+            self._decoder_type = "cv2"
             if self._decoder_device is not None and self._decoder_device.type == "cuda":
-                type = "torchaudio"
-            with cuda_stream_scope(self._cuda_stream):
-                self.cap = VideoStreamReader(
-                    filename=str(self._path_list[self._current_path_index]),
-                    type=type,
-                    batch_size=self._batch_size,
-                    device=self._decoder_device,
-                )
+                self._decoder_type = "torchaudio"
+            self.cap = VideoStreamReader(
+                filename=str(self._path_list[self._current_path_index]),
+                type=self._decoder_type,
+                batch_size=self._batch_size,
+                device=self._decoder_device,
+            )
             self.vw = self.cap.width
             self.vh = self.cap.height
-            self._video_info = BasicVideoInfo(",".join(self._path_list))
+            assert self._video_info.width == self.vw and self._video_info.height == self.cap.height
             self.vn = self._video_info.frame_count
-            self.fps = self._video_info.fps
-
             if not self.vn:
                 raise RuntimeError(
                     f"Video {str(self._path_list[self._current_path_index])} either does not exist or has no usable video content"
@@ -174,7 +175,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._vid_iter = iter(self.cap)
         else:
             self.vn = len(self._embedded_data_loader)
-            self.fps = self._embedded_data_loader.fps
         if self.vn is not None and self._log_messages:
             print("Lenth of the video: {:d} frames".format(self.vn))
 
@@ -186,6 +186,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._embedded_data_loader.close()
 
     def goto_next_video(self) -> bool:
+        if not self._path_list:
+            return False
         if self._current_path_index + 1 >= len(self._path_list):
             return False
         assert self._embedded_data_loader is None
@@ -193,6 +195,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._close_video()
         self._open_video()
         return True
+
+    @property
+    def fps(self) -> float:
+        if self._embedded_data_loader is not None:
+            return self._embedded_data_loader.fps
+        return self._video_info.fps
 
     @property
     def bit_rate(self) -> int:
@@ -261,9 +269,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._to_worker_queue.put("stop")
         self._thread.join()
         self._thread = None
-        print(
-            f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {str(self._path_list[self._current_path_index])}"
-        )
+        if self._path_list is not None:
+            print(
+                f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {str(self._path_list[self._current_path_index])}"
+            )
 
     def __iter__(self):
         self._timer = Timer()
@@ -479,7 +488,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     imgs_info=imgs_info,
                     ids=ids,
                 )
-            return original_img0, None, None, imgs_info, ids
+            return dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids)
         else:
             if cuda_stream is not None:
                 img = StreamCheckpoint(
@@ -550,7 +559,5 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._embedded_data_loader is not None:
             return len(self._embedded_data_loader)
         if self.vn is None:
-            info = BasicVideoInfo(",".join(self._path_list))
-            self.vn = info.frame_count
-            self.fps = info.fps
+            self.vn = self._video_info.frame_count
         return self.vn // self._batch_size  # number of frames

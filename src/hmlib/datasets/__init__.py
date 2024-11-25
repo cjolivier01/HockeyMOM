@@ -1,2 +1,1 @@
-def get_yolox_datadir():
-    return "data/"
+from .dataframe import HmDataFrameBase

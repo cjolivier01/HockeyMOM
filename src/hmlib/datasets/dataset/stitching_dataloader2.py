@@ -5,6 +5,7 @@ Experiments in stitching
 import argparse
 import os
 import threading
+import time
 import traceback
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
@@ -17,6 +18,8 @@ from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import Shower, show_image
+from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import (
     StreamCheckpoint,
@@ -159,22 +162,22 @@ class StitchDataset:
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
-        remap_on_async_stream: bool = False,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
         python_blender: bool = False,
+        no_cuda_streams: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
+        self._no_cuda_streams = no_cuda_streams
         self._dtype = dtype
         self._verbose = verbose
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
         self._decoder_device = decoder_device
-        self._remap_on_async_stream = remap_on_async_stream
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
@@ -240,6 +243,9 @@ class StitchDataset:
         )
         self._stitcher = None
         self._video_output = None
+        # In case you're debugging...
+        self._shower: Optional[Shower] = None
+        self._mean_tracker: Optional[MeanTracker] = None
 
     def __delete__(self):
         if hasattr(self, "close"):
@@ -276,7 +282,9 @@ class StitchDataset:
         remapping_device: torch.device,
         dataset_name: str = "crowdhuman",
     ):
-
+        #
+        # Handle when one of the cameras is 60 fps and the other is 30 (oops)
+        #
         frame_step_1 = 1
         frame_step_2 = 1
 
@@ -298,31 +306,29 @@ class StitchDataset:
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._videos["left"]["files"],
-                img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_left_offset_frame,
                 original_image_only=True,
-                stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=self._decoder_device,
+                decoder_device=self._decoder_device if self._decoder_device else remapping_device,
                 frame_step=frame_step_1,
+                no_cuda_streams=self._no_cuda_streams,
             )
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._videos["right"]["files"],
-                img_size=None,
                 max_frames=max_frames,
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_right_offset_frame,
                 original_image_only=True,
-                stream_tensors=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=self._decoder_device,
+                decoder_device=self._decoder_device if self._decoder_device else remapping_device,
                 frame_step=frame_step_2,
+                no_cuda_streams=self._no_cuda_streams,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(
@@ -371,6 +377,8 @@ class StitchDataset:
         if self._video_output is not None:
             self._video_output.stop()
             self._video_output = None
+        if self._mean_tracker is not None:
+            self._mean_tracker.close()
 
     def _adjust_exposures(self, images: List[torch.Tensor]) -> List[torch.Tensor]:
         # We assume 0 is left, 1 is right, so we chop right 1/4 of
@@ -386,8 +394,6 @@ class StitchDataset:
             for i, img in enumerate(images):
                 img = make_channels_first(img)
                 w = int(image_width(img))
-                # slice_w = int(w // 4)
-                # slice_w = int(w // 2)
                 slice_w = w
                 if i == 0:
                     # Left image
@@ -420,7 +426,6 @@ class StitchDataset:
                 self._exposure_adjustment.append(exposure_ratio)
             exposure_diff = abs(1.0 - max_exposure_ratio)
             exposure_diff_half = exposure_diff / 2
-            # self._exposure_adjustment.clear()
             for i, e_ratio in enumerate(self._exposure_adjustment):
                 if e_ratio is None:
                     self._exposure_adjustment[i] = 1 - exposure_diff_half
@@ -442,16 +447,14 @@ class StitchDataset:
             self._prepare_next_frame_timer.tic()
 
             stitching_worker = self._stitching_workers[self._current_worker]
-            images = next(stitching_worker)
+            image_data_1, image_data_2 = next(stitching_worker)
 
-            imgs_1 = images[0][0]
-            ids_1 = images[0][-1]
+            imgs_1 = image_data_1["img"]
+            ids_1 = image_data_1["frame_ids"]
 
-            imgs_2 = images[1][0]
+            imgs_2 = image_data_2["img"]
 
             with torch.no_grad():
-                assert isinstance(images, list)
-                assert len(images) == 2
 
                 def _prepare_image(img: torch.Tensor):
                     img = make_channels_first(img)
@@ -558,7 +561,6 @@ class StitchDataset:
                     ),
                     device=self._remapping_device,
                     dtype=self._dtype,
-                    remap_on_async_stream=self._remap_on_async_stream,
                 )
                 self._stitcher.to(self._remapping_device)
 

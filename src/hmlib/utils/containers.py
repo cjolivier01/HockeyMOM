@@ -93,16 +93,20 @@ class SidebandQueue:
         self._q = queue.Queue()
         self._counter = 1
         self._map: Dict[int, Any] = {}
+        self._lock = Lock()
 
     def put(self, obj: Any):
-        ctr = self._counter
-        self._counter += 1
-        self._map[ctr] = obj
-        self._q.put(ctr)
+        with self._lock:
+            ctr = self._counter
+            self._counter += 1
+            assert ctr not in self._map
+            self._map[ctr] = obj
+            self._q.put(ctr)
 
     def get(self) -> Any:
         ctr = self._q.get()
-        return self._map.pop(ctr)
+        with self._lock:
+            return self._map.pop(ctr)
 
     def qsize(self):
         return len(self._map)
