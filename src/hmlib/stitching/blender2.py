@@ -98,13 +98,11 @@ class PtImageBlender:
         xor_mask: torch.Tensor,
         laplacian_blend: False,
         max_levels: int = 6,
-        cuda_stream: torch.cuda.Stream = None,
         dtype: torch.dtype = torch.float,
     ):
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
-        self._cuda_stream = cuda_stream
         self._dtype = dtype
         self.max_levels = max_levels
         if laplacian_blend:
@@ -133,22 +131,11 @@ class PtImageBlender:
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    def synchronize(self):
-        if self._cuda_stream is not None:
-            self._cuda_stream.synchronize()
-
     def forward(
         self,
         image_1: torch.Tensor,
         image_2: torch.Tensor,
-        synchronize: bool = False,
     ):
-        if self._cuda_stream is not None:
-            with torch.cuda.stream(self._cuda_stream):
-                results = self._forward(image_1, image_2)
-                if synchronize:
-                    self.synchronize()
-                return results
         return self._forward(image_1, image_2)
 
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
@@ -187,13 +174,13 @@ class PtImageBlender:
         y2 = self._images_info[1].ypos
 
         assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-        if y1 < y2:
+        if y1 <= y2:
             y2 -= y1
             y1 = 0
         elif y2 < y1:
             y1 -= y2
             y2 = 0
-        if x1 < x2:
+        if x1 <= x2:
             x2 -= x1
             x1 = 0
         elif x2 < x1:
@@ -908,6 +895,7 @@ def create_stitcher(
         blender_config=blender_config,
         dtype=dtype,
         use_python_blender=python_blender,
+        # use_python_blender=True,
         minimize_blend=minimize_blend,
     )
     if device is not None:
@@ -920,8 +908,6 @@ def blend_video(
     video_file_1: str,
     video_file_2: str,
     dir_name: str,
-    basename_1: str,
-    basename_2: str,
     device: torch.device,
     dtype: torch.dtype,
     interpolation: str = None,
@@ -988,47 +974,6 @@ def blend_video(
     source_tensor_1 = make_channels_first(next(v1_iter))
     source_tensor_2 = make_channels_first(next(v2_iter))
 
-    # remapper_1 = ImageRemapper(
-    #     dir_name=dir_name,
-    #     basename=basename_1,
-    #     source_hw=source_tensor_1.shape[-2:],
-    #     channels=source_tensor_1.shape[1],
-    #     interpolation=interpolation,
-    #     add_alpha_channel=False,
-    #     use_cpp_remap_op=False,
-    # )
-    # remapper_1.init(batch_size=batch_size)
-    # remapper_1.to(device=device)
-
-    # remapper_2 = ImageRemapper(
-    #     dir_name=dir_name,
-    #     basename=basename_2,
-    #     source_hw=source_tensor_2.shape[-2:],
-    #     channels=source_tensor_2.shape[1],
-    #     interpolation=interpolation,
-    #     add_alpha_channel=False,
-    #     use_cpp_remap_op=False,
-    # )
-    # remapper_2.init(batch_size=batch_size)
-    # remapper_2.to(device=device)
-
-    # seam_tensor, xor_mask_tensor = make_seam_and_xor_masks(dir_name=dir_name)
-
-    # smart_remapper_blender = SmartRemapperBlender(
-    #     remapper_1=remapper_1,
-    #     remapper_2=remapper_2,
-    #     minimize_blend=minimize_blend,
-    #     blend_levels=6,
-    #     overlap_pad=overlap_pad,
-    #     draw=draw,
-    #     use_python_blender=python_blend,
-    #     dtype=dtype,
-    #     blend_mode=blend_mode,
-    #     seam_tensor=seam_tensor,
-    #     xor_mask_tensor=xor_mask_tensor,
-    #     device=device,
-    # )
-
     video_out = None
 
     timer = Timer()
@@ -1036,16 +981,6 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            # remapped_tensor_1 = remapper_1.forward(source_image=source_tensor_1).to(
-            #     device=device, non_blocking=True
-            # )
-            # remapped_tensor_2 = remapper_2.forward(source_image=source_tensor_2).to(
-            #     device=device, non_blocking=True
-            # )
-
-            # blended = smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
-            # show_image("blended", blended, wait=False)
-
             blended = stitcher.forward(source_tensor_1, source_tensor_2)
 
             if output_video:
@@ -1139,11 +1074,9 @@ def main(args):
     with torch.no_grad():
         blend_video(
             opts,
-            video_file_1="left.mp4",
-            video_file_2="right.mp4",
+            video_file_1="GX010087.mp4",
+            video_file_2="GX010003.mp4",
             dir_name=args.video_dir,
-            basename_1="mapping_0000",
-            basename_2="mapping_0001",
             lfo=args.lfo,
             rfo=args.rfo,
             python_blend=args.python,
