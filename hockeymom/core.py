@@ -10,6 +10,7 @@ from ._hockeymom import (
     ImageRemapper,
     ImageStitcher,
     RemapImageInfo,
+    RemapperConfig,
     StitchImageInfo,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "HmTracker",
     "HmByteTracker",
     "HmByteTrackConfig",
+    "RemapperConfig",
     "HmTrackerPredictionMode",
     "StitchImageInfo",
     "EnBlender",
