@@ -312,7 +312,7 @@ class StitchDataset:
                 original_image_only=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=self._decoder_device if self._decoder_device else remapping_device,
+                decoder_device=self._decoder_device,
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
             )
@@ -326,7 +326,7 @@ class StitchDataset:
                 original_image_only=True,
                 dtype=self._dtype,
                 device=remapping_device,
-                decoder_device=self._decoder_device if self._decoder_device else remapping_device,
+                decoder_device=self._decoder_device,
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
             )
