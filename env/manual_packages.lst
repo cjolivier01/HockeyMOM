@@ -40,7 +40,6 @@ libgstreamer-plugins-bad1.0-dev
 libgstreamer-plugins-good1.0-dev
 libgtk2.0-dev
 libhdf5-dev
-libhsa-runtime-dev
 libjpeg-turbo8-dev
 liblapack-dev
 liblcms2-dev
@@ -61,8 +60,6 @@ libpthread-stubs0-dev
 libsdl2-dev
 libsqlite3-dev
 libssl-dev
-libstdc++-11-dev
-libstdc++-12-dev
 libsuperlu-dist-dev
 libtiff-dev
 libtool
