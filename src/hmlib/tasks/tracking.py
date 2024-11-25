@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+from mmengine.structures import InstanceData
 
 # from mmcv.parallel import collate, scatter
 from torch.cuda.amp import autocast
@@ -134,7 +135,7 @@ def run_mmtrack(
 
                     batch_size = origin_imgs.shape[0]
 
-                    if not using_precalculated_tracking:
+                    if True or not using_precalculated_tracking:
                         if detect_timer is None:
                             detect_timer = Timer()
 
@@ -192,6 +193,22 @@ def run_mmtrack(
                         ].pred_track_instances.instances_id
                         if len(tracking_ids):
                             max_tracking_id = torch.max(tracking_ids)
+                    else:
+                        assert False
+                        # track_data_sample = data["data_samples"]
+                        # We will be adding "pred_track_instances"
+                        # assert not hasattr(track_data_sample, "pred_track_instances")
+
+                        # df_tracking_data = tracking_dataframe[frame_id]
+                        # track_data_sample.pred_track_instances = InstanceData(
+                        #     instances_id=df_tracking_data["tracking_ids"],
+                        #     bboxes=df_tracking_data["bboxes"],
+                        #     scores=df_tracking_data["scores"],
+                        #     labels=df_tracking_data["labels"],
+                        # )
+
+                        # if "original_images" not in data:
+                        #     data["original_images"] = origin_imgs
 
                     if True:
                         jersey_results = data.get("jersey_results")
@@ -228,14 +245,6 @@ def run_mmtrack(
                                         labels=video_data_sample.pred_instances.labels,
                                         bboxes=video_data_sample.pred_instances.bboxes,
                                     )
-                            else:
-                                # track_ids, scores, bboxes = (
-                                #     tracking_dataframe.get_tracking_info_by_frame(frame_id)
-                                # )
-                                # online_tlwhs = torch.from_numpy(bboxes)
-                                # tracking_results = None
-                                # assert False
-                                pass
 
                         # Clean data to send of the batched images
                         data_to_send = data.copy()

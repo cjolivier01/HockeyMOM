@@ -7,6 +7,7 @@ from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
+from hmlib.datasets.dataframe import HmDataFrameBase
 from hockeymom.core import (
     HmByteTrackConfig,
     HmByteTracker,
@@ -73,7 +74,8 @@ class HmEndToEnd(ByteTrack):
         config.match_iou_thrs_low = 0.5
         config.match_iou_thrs_tentative = 0.3
         config.track_buffer_size = 60
-        config.return_user_ids = False
+        config.return_user_ids = True
+        config.return_track_age = False
         config.prediction_mode = HmTrackerPredictionMode.BoundingBox
 
         self._hm_byte_tracker = HmTracker(config)
@@ -103,6 +105,14 @@ class HmEndToEnd(ByteTrack):
         **kwargs: Dict[str, Any],
     ):
         return self.simple_test(inputs=inputs, data_samples=data_samples, **kwargs)
+
+    @staticmethod
+    def get_dataframe(
+        dataset_results: Union[Dict[str, Any], None], name: str
+    ) -> Optional[HmDataFrameBase]:
+        if not dataset_results:
+            return None
+        return dataset_results.get(name)
 
     def simple_test(
         self,
@@ -135,21 +145,21 @@ class HmEndToEnd(ByteTrack):
         det_inputs = inputs.squeeze(0)
         del inputs
 
+        tracking_dataframe = None
         # Maybe use pre-saved detection results
         dataset_results = kwargs.get("dataset_results")
-        if dataset_results:
-            detection_dataframe = dataset_results.get("detection_dataframe")
-            if detection_dataframe:
-                # TODO: support multi-batch
-                assert len(track_data_sample) == 1
-                video_data_sample = track_data_sample.video_data_samples[0]
-                assert not hasattr(video_data_sample, "pred_instances")
-                video_data_sample.pred_instances = InstanceData(
-                    scores=torch.from_numpy(detection_dataframe["scores"]),
-                    labels=torch.from_numpy(detection_dataframe["labels"]),
-                    bboxes=torch.from_numpy(detection_dataframe["bboxes"]),
-                )
-                all_det_results = track_data_sample
+        detection_dataframe = self.get_dataframe(dataset_results, "detection_dataframe")
+        if detection_dataframe:
+            # TODO: support multi-batch
+            assert len(track_data_sample) == 1
+            video_data_sample = track_data_sample.video_data_samples[0]
+            assert not hasattr(video_data_sample, "pred_instances")
+            video_data_sample.pred_instances = InstanceData(
+                scores=torch.from_numpy(detection_dataframe["scores"]),
+                labels=torch.from_numpy(detection_dataframe["labels"]),
+                bboxes=torch.from_numpy(detection_dataframe["bboxes"]),
+            )
+            all_det_results = track_data_sample
         elif True:
             # makes a difference?
             det_inputs = det_inputs.contiguous()
@@ -200,6 +210,15 @@ class HmEndToEnd(ByteTrack):
             # track = False
 
             if track and not hasattr(img_data_sample, "pred_track_instances"):
+                tracking_dataframe = self.get_dataframe(dataset_results, "tracking_dataframe")
+                if tracking_dataframe:
+                    pred_track_instances = InstanceData(
+                        instances_id=torch.from_numpy(tracking_dataframe["tracking_ids"]),
+                        scores=torch.from_numpy(tracking_dataframe["scores"]),
+                        labels=torch.from_numpy(tracking_dataframe["labels"]),
+                        bboxes=torch.from_numpy(tracking_dataframe["bboxes"]),
+                        jserey_info=tracking_dataframe["jersey_info"],
+                    )
                 if self._cpp_bytetrack:
                     ll1: int = len(det_data_sample.pred_instances.bboxes)
                     assert len(det_data_sample.pred_instances.labels) == ll1

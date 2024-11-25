@@ -1,19 +1,22 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Union, Any
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.jersey.number_classifier import TrackJerseyInfo
-from hmlib.datasets.dataframe import dataclass_to_json, json_to_dataclass, HmDataFrameBase
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh
+from hmlib.datasets.dataframe import (
+    HmDataFrameBase,
+    dataclass_to_json,
+    json_to_dataclass,
+)
+from hmlib.jersey.number_classifier import TrackJerseyInfo
 
-
-@dataclass
-class AllTrackJerseyInfo:
-    items: List[TrackJerseyInfo] = None
+# @dataclass
+# class AllTrackJerseyInfo:
+#     items: List[TrackJerseyInfo] = None
 
 
 class TrackingDataFrame(HmDataFrameBase):
@@ -53,7 +56,19 @@ class TrackingDataFrame(HmDataFrameBase):
         tlwh = self._make_array(tlwh)
         scores = self._make_array(scores)
         labels = self._make_array(labels)
-        all_track_jersey_info: AllTrackJerseyInfo = AllTrackJerseyInfo(items=jersey_info)
+        jersey_dict: Dict[int, TrackJerseyInfo] = {}
+        if jersey_info is not None:
+            for j_info in jersey_info:
+                j_t_id = j_info.tracking_id
+                assert j_t_id not in jersey_dict
+                jersey_dict[j_t_id] = dataclass_to_json(j_info)
+
+        def _jersey_item(id: int) -> str:
+            v = jersey_dict.get(id)
+            if v is None:
+                return "{}"
+            return v
+
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
@@ -65,7 +80,7 @@ class TrackingDataFrame(HmDataFrameBase):
                 "Scores": scores,
                 "Labels": labels,
                 "Visibility": [-1 for _ in range(len(tracking_ids))],
-                "JerseyInfo": dataclass_to_json(all_track_jersey_info),
+                "JerseyInfo": [_jersey_item(t_id) for t_id in tracking_ids],
             }
         )
         self._dataframe_list.append(new_record)
@@ -98,15 +113,15 @@ class TrackingDataFrame(HmDataFrameBase):
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
-        first_jersey_info = None
-        for i, jersey_info in enumerate(frame_data["JerseyInfo"]):
-            if i == 0:
-                first_jersey_info = jersey_info
-            else:
-                assert jersey_info == first_jersey_info
-        all_track_jersey_info = (
-            json_to_dataclass(first_jersey_info, AllTrackJerseyInfo) if first_jersey_info else None
-        )
+        jersey_info = frame_data["JerseyInfo"]
+
+        all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
+        for tid, jersey in zip(tracking_ids, jersey_info):
+            obj = json_to_dataclass(jersey, TrackJerseyInfo)
+            if obj.tracking_id < 0:
+                obj = None
+            all_track_jersey_info.append(obj)
+
         return dict(
             frame_id=frame_id,
             tracking_ids=tracking_ids,
