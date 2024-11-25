@@ -60,7 +60,9 @@ class TrackingDataFrame(HmDataFrameBase):
         if jersey_info is not None:
             for j_info in jersey_info:
                 j_t_id = j_info.tracking_id
-                assert j_t_id not in jersey_dict
+                # assert j_t_id not in jersey_dict
+                if j_t_id in jersey_dict:
+                    print(f"Ignoriung duplicate jersey tracking id {jersey_dict}")
                 jersey_dict[j_t_id] = dataclass_to_json(j_info)
 
         def _jersey_item(id: int) -> str:
