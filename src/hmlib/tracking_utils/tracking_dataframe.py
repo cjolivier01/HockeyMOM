@@ -62,6 +62,7 @@ class TrackingDataFrame(HmDataFrameBase):
                 j_t_id = j_info.tracking_id
                 # assert j_t_id not in jersey_dict
                 if j_t_id in jersey_dict:
+                    # why does this happen?
                     print(f"Ignoriung duplicate jersey tracking id {jersey_dict}")
                 jersey_dict[j_t_id] = dataclass_to_json(j_info)
 
@@ -70,7 +71,6 @@ class TrackingDataFrame(HmDataFrameBase):
             if v is None:
                 return "{}"
             return v
-
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
