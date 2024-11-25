@@ -168,6 +168,7 @@ class HmEndToEnd(ByteTrack):
             all_det_results = self.detector.predict(det_inputs, track_data_sample)
         del det_inputs
 
+        all_frame_jersey_info = []
         for frame_index in range(video_len):
             det_data_sample = all_det_results[frame_index]
             img_data_sample = track_data_sample[frame_index]
@@ -217,8 +218,14 @@ class HmEndToEnd(ByteTrack):
                         scores=torch.from_numpy(tracking_dataframe["scores"]),
                         labels=torch.from_numpy(tracking_dataframe["labels"]),
                         bboxes=torch.from_numpy(tracking_dataframe["bboxes"]),
-                        jserey_info=tracking_dataframe["jersey_info"],
                     )
+                    frame_jersey_results = []
+                    for tid, jersey_info in zip(
+                        pred_track_instances.instances_id, tracking_dataframe["jersey_info"]
+                    ):
+                        if jersey_info is not None:
+                            frame_jersey_results.append(jersey_info)
+                    all_frame_jersey_info.append(frame_jersey_results)
                 if self._cpp_bytetrack:
                     ll1: int = len(det_data_sample.pred_instances.bboxes)
                     assert len(det_data_sample.pred_instances.labels) == ll1
@@ -251,6 +258,9 @@ class HmEndToEnd(ByteTrack):
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)
             det_data_sample.set_metainfo({"nr_tracks": len(self.tracker)})
+
+        if all_frame_jersey_info and any(j for j in all_frame_jersey_info):
+            data["jersey_results"] = all_frame_jersey_info
 
         if track and self.post_tracking_composed_pipeline is not None:
             data = self.post_tracking_composed_pipeline(data)
