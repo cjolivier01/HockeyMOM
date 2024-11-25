@@ -85,8 +85,7 @@ PYBIND11_MODULE(_hockeymom, m) {
   //     .def(py::init<std::shared_ptr<hm::HMPostprocessConfig>,
   //     std::string>());
 
-  py::class_<hm::ops::RemapperConfig,
-  std::shared_ptr<hm::ops::RemapperConfig>>(
+  py::class_<hm::ops::RemapperConfig, std::shared_ptr<hm::ops::RemapperConfig>>(
       m, "RemapperConfig")
       .def(py::init<>())
       .def_readwrite("src_width", &hm::ops::RemapperConfig::src_width)
@@ -98,10 +97,9 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("dtype", &hm::ops::RemapperConfig::dtype)
       .def_readwrite(
           "add_alpha_channel", &hm::ops::RemapperConfig::add_alpha_channel)
-      .def_readwrite("interpolation",
-      &hm::ops::RemapperConfig::interpolation) .def_readwrite("batch_size",
-      &hm::ops::RemapperConfig::batch_size) .def_readwrite("device",
-      &hm::ops::RemapperConfig::device);
+      .def_readwrite("interpolation", &hm::ops::RemapperConfig::interpolation)
+      .def_readwrite("batch_size", &hm::ops::RemapperConfig::batch_size)
+      .def_readwrite("device", &hm::ops::RemapperConfig::device);
 
   py::class_<hm::BlenderConfig, std::shared_ptr<hm::BlenderConfig>>(
       m, "BlenderConfig")
@@ -386,7 +384,7 @@ PYBIND11_MODULE(_hockeymom, m) {
           py::arg("left_xy_pos"),
           py::arg("right_image"),
           py::arg("right_xy_pos"));
-#endif  // NO_CPP_BLENDING
+#endif // NO_CPP_BLENDING
   // m.def(
   //     "_add_to_stitching_data_loader",
   //     [](std::shared_ptr<hm::StitchingDataLoader> data_loader,
@@ -699,7 +697,9 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite(
           "remove_tentative", &hm::tracker::HmTrackerConfig::remove_tentative)
       .def_readwrite(
-          "return_user_ids", &hm::tracker::HmTrackerConfig::return_user_ids);
+          "return_user_ids", &hm::tracker::HmTrackerConfig::return_user_ids)
+      .def_readwrite(
+          "return_track_age", &hm::tracker::HmTrackerConfig::return_track_age);
 
   py::class_<
       hm::tracker::HmByteTrackConfig,
