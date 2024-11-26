@@ -32,7 +32,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.tracking_utils.timer import Timer
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 
@@ -522,7 +522,9 @@ class PlayTracker(torch.nn.Module):
         results["frame_ids"] = torch.stack(frame_ids_list)
         results["current_box"] = torch.stack(current_box_list)
         results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        # results["img"] = StreamCheckpoint(torch.stack(online_images))
         results["img"] = torch.stack(online_images)
+        torch.cuda.current_stream(results["img"].device).synchronize()
 
         return results
 

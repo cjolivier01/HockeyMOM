@@ -529,9 +529,11 @@ class VideoOutput:
 
         if self._mean_tracker is not None:
             img = online_im
-            if not torch.is_floating_point(img):
-                img = img.to(torch.float, non_blocking=False)
             self._mean_tracker(img)
+
+        # torch.cuda.synchronize()
+        # if cuda_stream is not None:
+        #     cuda_stream.synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
@@ -543,6 +545,7 @@ class VideoOutput:
                     # so call write() under that stream so that any actions
                     # taken while pushing occur on the same stream as the
                     # ultimate encoding
+                    # online_im = online_im.get()
                     self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
             if self.VIDEO_END_ZONES in self._output_videos:
