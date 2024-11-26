@@ -102,7 +102,7 @@ if __name__ == "__main__":
         input_file = os.path.join(game_dir, in_file_basename)
         shell_file = os.path.join(game_dir, "make_player_highlights.sh")
         with open(shell_file, "w") as sf:
-            sf.write("#!/bin/bash")
+            sf.write("#!/bin/bash\n")
             sf.write("set +x\n")
             sf.write("set +e\n")
             sf.write("\n")
