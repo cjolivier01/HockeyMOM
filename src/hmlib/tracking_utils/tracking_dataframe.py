@@ -14,10 +14,6 @@ from hmlib.datasets.dataframe import (
 )
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 
-# @dataclass
-# class AllTrackJerseyInfo:
-#     items: List[TrackJerseyInfo] = None
-
 
 class TrackingDataFrame(HmDataFrameBase):
 

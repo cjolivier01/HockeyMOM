@@ -14,12 +14,14 @@ from hmlib.utils.image import image_height, image_width
 
 def load_player_tracking_data(game_id: str) -> Dict[str, Any]:
     game_dir: str = get_game_dir(game_id=game_id)
-    return TrackingDataFrame(input_file=os.path.join(game_dir, "results.csv"))
+    return TrackingDataFrame(input_file=os.path.join(game_dir, "tracking.csv"), input_batch_size=1)
 
 
 def load_camera_tracking_data(game_id: str) -> Dict[str, Any]:
     game_dir: str = get_game_dir(game_id=game_id)
-    return CameraTrackingDataFrame(input_file=os.path.join(game_dir, "camera.csv"))
+    return CameraTrackingDataFrame(
+        input_file=os.path.join(game_dir, "camera.csv"), input_batch_size=1
+    )
 
 
 def get_uncropped_width_height(game_id: str) -> Tuple[int, int]:
@@ -44,6 +46,11 @@ if __name__ == "__main__":
         uncropped_width = wh[0] if wh else 8803
         player_tracking_data = load_player_tracking_data(game_id=args.game_id)
         camera_tracking_data = load_camera_tracking_data(game_id=args.game_id)
-        analyze_data(player_tracking_data, camera_tracking_data, uncropped_width=uncropped_width)
+        roster = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
+        analyze_data(
+            player_tracking_data,
+            camera_tracking_data,
+            uncropped_width=uncropped_width,
+        )
     except Exception:
         traceback.print_exc()

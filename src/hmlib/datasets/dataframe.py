@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Dict, Iterable, List, Optional, Type, Union
 
@@ -45,6 +46,11 @@ class HmDataFrameBase:
     def read_data(self) -> None:
         """Read data from a CSV file."""
         if self.input_file:
+            if not os.path.exists(self.input_file):
+                logger.error(f"Could not open dataframe file: {self.input_file}")
+                # In case self.data it was set already, None it out
+                self.data = None
+                return
             self.data = pd.read_csv(
                 self.input_file,
                 header=None,
