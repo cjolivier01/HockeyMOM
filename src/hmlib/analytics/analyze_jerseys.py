@@ -368,16 +368,16 @@ def analyze_data(
 
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
-                frame_to_tracking_ids[frame_id].add(tracking_id)
-                if jersey_item is not None:
-                    number = int(jersey_item.number)
-                    score = jersey_item.score
-                    auto_dict(tracking_id_numbers, tracking_id, set).add(number)
-                    # tracking_id_numbers[tracking_id].add(number)
-                    auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
-                    if number not in seen_numbers:
-                        seen_numbers.add(number)
-                        print(f"First sighting of number {number} at frame {frame_id}")
+            frame_to_tracking_ids[frame_id].add(tracking_id)
+            if jersey_item is not None:
+                number = int(jersey_item.number)
+                score = jersey_item.score
+                auto_dict(tracking_id_numbers, tracking_id, set).add(number)
+                # tracking_id_numbers[tracking_id].add(number)
+                auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
+                if number not in seen_numbers:
+                    seen_numbers.add(number)
+                    print(f"First sighting of number {number} at frame {frame_id}")
 
     except StopIteration:
         print(f"Finished reading {item_count} items")
@@ -449,9 +449,23 @@ def analyze_data(
             frame_to_tracking_ids[frame_id].add(tracking_id)
     # print(frame_to_jersey_number)
 
-    number_intervals: List[Set[int]] = _do_assign(
-        merged_faceoff_breaks, fps=fps, frame_to_jersey_number=frame_to_jersey_number
+    tracking_id_intervals: List[Set[int]] = _do_assign(
+        merged_faceoff_breaks, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
     )
+
+    interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
+    for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
+        for tid in interval_tracking_ids:
+            if tid in tracking_id_numbers:
+                number = tracking_id_numbers[tid]
+                if isinstance(number, (list, set)):
+                    for n in number:
+                        interval_jersey_numbers[interval_index].add(n)
+                else:
+                    interval_jersey_numbers[interval_index].add(number)
+
+    print(interval_jersey_numbers)
+
     if 0.0 not in merged_faceoff_breaks:
         merged_faceoff_breaks[0.0] = min(merged_faceoff_breaks.keys()) - 1.0
     for interval_index, number_set in enumerate(number_intervals):
@@ -472,17 +486,17 @@ def analyze_data(
 def _do_assign(
     time_intervals: List[Tuple[float, float]],
     fps: float,
-    frame_to_jersey_number: Dict[int, Set[int]],
+    frame_to_tracking_ids: Dict[int, Set[int]],
 ) -> List[Set[int]]:
     start_frames = [0] + [int(t * fps) for t, _ in time_intervals]
-    assigned_intervals = assign_numbers_to_intervals(start_frames, frame_to_jersey_number)
+    assigned_intervals = assign_numbers_to_intervals(start_frames, frame_to_tracking_ids)
     # print(assigned_intervals)
     return assigned_intervals
 
 
 def assign_numbers_to_intervals(
     frame_starts: List[int],
-    frame_to_jersey_number: Dict[int, Set[int]],
+    frame_to_tracking_ids: Dict[int, Set[int]],
     start_frame_offset_ratio: float = 1.0,  # Only consider detections withing the middle % here
 ) -> List[Set[int]]:
     """
@@ -491,7 +505,7 @@ def assign_numbers_to_intervals(
     """
     # Assure it's sorted
     assert frame_starts == sorted(frame_starts)
-    seen_numbers: List[Set[int]] = [set() for _ in range(len(frame_starts))]
+    seen_tracking_ids: List[Set[int]] = [set() for _ in range(len(frame_starts))]
     for interval_index in range(len(frame_starts)):
 
         start_frame = frame_starts[interval_index]
@@ -504,12 +518,12 @@ def assign_numbers_to_intervals(
         floating_start = start_frame + (1 - start_frame_offset_ratio) * frame_interval
         floating_end = end_frame - (1 - start_frame_offset_ratio) * frame_interval
 
-        for frame_id, j_numbers in frame_to_jersey_number.items():
+        for frame_id, j_numbers in frame_to_tracking_ids.items():
             if frame_id < floating_start or frame_id > floating_end:
                 continue
-            seen_numbers[interval_index] = seen_numbers[interval_index].union(j_numbers)
+            seen_tracking_ids[interval_index] = seen_tracking_ids[interval_index].union(j_numbers)
 
-    return seen_numbers
+    return seen_tracking_ids
 
 
 def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
