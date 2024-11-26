@@ -404,7 +404,7 @@ def analyze_data(
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
     print("Unmerged faceoff breaks:")
     show_frame_intervals(faceoff_breaks, fps=fps)
-    faceoff_breaks = frames_to_seconds(faceoff_breaks)
+    faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
     merged_faceoff_breaks = merge_intervals(faceoff_breaks, 10.0)
     print(f"Faceoffs: {merged_faceoff_breaks}")
     show_time_intervals(merged_faceoff_breaks)
