@@ -117,13 +117,15 @@ if __name__ == "__main__":
                         f.write(f"inpoint {st}\n")
                         if dur == float("inf"):
                             dur = "..."
+                            end_time_hhmmss = "..."
                         else:
                             f.write(f"outpoint {st + dur}\n")
+                            end_time_hhmmss = format_duration_to_hhmmss(st + dur, decimals=0)
                         start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
                         print(
-                            f"\tShift {i}: Starts at {start_time_hhmmss}, shift for {dur} seconds"
+                            f"\tShift {i}: From {start_time_hhmmss} to {end_time_hhmmss}, shift for {dur} seconds"
                         )
-                player_video = f"player_{player}.mp4"
+                player_video = f"player_{player}.mkv"
                 ffmpeg_command = f'ffmpeg -f concat -safe 0 -segment_time_metadata 1 -i {player_file_path}  -b:v 5M -c:v hevc_nvenc -vf "select=concatdec_select" -af "aselect=concatdec_select,aresample=async=1" {player_video}'
                 print(ffmpeg_command)
                 sf.write(f"{ffmpeg_command}\n")

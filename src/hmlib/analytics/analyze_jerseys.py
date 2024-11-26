@@ -403,8 +403,10 @@ def analyze_data(
 
     faceoff_intervals = {
         "min_velocity": 0.3,
-        "min_frames": 30,
-        "min_slow_track_ratio": 0.7,
+        # "min_frames": 30,
+        "min_frames": 20,
+        # "min_slow_track_ratio": 0.7,
+        "min_slow_track_ratio": 0.6,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
     # print("Unmerged faceoff breaks:")
@@ -487,6 +489,7 @@ def assign_numbers_to_intervals(
     frame_starts: List[int],
     frame_to_tracking_ids: Dict[int, Set[int]],
     start_frame_offset_ratio: float = 1.0,  # Only consider detections withing the middle % here
+    stop_frame_offset_ratio: float = 0.9,  # Only consider detections withing the middle % here
 ) -> List[Set[int]]:
     """
     Given a list of frame start points and frame->jersey number detection points,
@@ -505,7 +508,7 @@ def assign_numbers_to_intervals(
         )
         frame_interval = end_frame - start_frame
         floating_start = start_frame + (1 - start_frame_offset_ratio) * frame_interval
-        floating_end = end_frame - (1 - start_frame_offset_ratio) * frame_interval
+        floating_end = end_frame - (1 - stop_frame_offset_ratio) * frame_interval
 
         for frame_id, j_numbers in frame_to_tracking_ids.items():
             if frame_id < floating_start or frame_id > floating_end:
