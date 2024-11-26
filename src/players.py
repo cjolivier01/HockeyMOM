@@ -10,6 +10,7 @@ from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.image import image_height, image_width
+from hmlib.utils.time import format_duration_to_hhmmss
 
 
 def load_player_tracking_data(game_id: str) -> Dict[str, Any]:
@@ -47,10 +48,17 @@ if __name__ == "__main__":
         player_tracking_data = load_player_tracking_data(game_id=args.game_id)
         camera_tracking_data = load_camera_tracking_data(game_id=args.game_id)
         roster = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
-        analyze_data(
+        start_interval_and_jerseys = analyze_data(
             player_tracking_data,
             camera_tracking_data,
             uncropped_width=uncropped_width,
+            roster=roster,
         )
+        for st, jr in start_interval_and_jerseys:
+            start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
+            jersey_numbers = sorted(list(jr))
+            print(
+                f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
+            )
     except Exception:
         traceback.print_exc()

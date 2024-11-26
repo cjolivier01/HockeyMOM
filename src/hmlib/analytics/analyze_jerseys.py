@@ -20,8 +20,6 @@ from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
 
-SHARKS_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
-
 
 def split_by_lg_10(numbers: List[int]) -> Tuple[List[int], List[int]]:
     less_than_10: List[int] = []
@@ -284,6 +282,7 @@ def analyze_data(
     camera_tracking_data: CameraTrackingDataFrame,
     uncropped_width: int,
     fps: float = 29.97,
+    roster: Set[int] = None,
 ) -> None:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
@@ -311,8 +310,8 @@ def analyze_data(
 
     # camera_tracking_item = next(camera_tracking_iter)
 
-    # max_frame_id = 10000
-    max_frame_id = 0
+    max_frame_id = 10000
+    # max_frame_id = 0
 
     try:
         last_frame_id = 0
@@ -371,13 +370,14 @@ def analyze_data(
             frame_to_tracking_ids[frame_id].add(tracking_id)
             if jersey_item is not None:
                 number = int(jersey_item.number)
-                score = jersey_item.score
-                auto_dict(tracking_id_numbers, tracking_id, set).add(number)
-                # tracking_id_numbers[tracking_id].add(number)
-                auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
-                if number not in seen_numbers:
-                    seen_numbers.add(number)
-                    print(f"First sighting of number {number} at frame {frame_id}")
+                if not roster or number in roster:
+                    score = jersey_item.score
+                    auto_dict(tracking_id_numbers, tracking_id, set).add(number)
+                    # tracking_id_numbers[tracking_id].add(number)
+                    auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
+                    if number not in seen_numbers:
+                        seen_numbers.add(number)
+                        print(f"First sighting of number {number} at frame {frame_id}")
 
     except StopIteration:
         print(f"Finished reading {item_count} items")
@@ -423,7 +423,7 @@ def analyze_data(
             tracking_id,
             tracking_id_numbers[tracking_id],
             tracking_id_frame_and_numbers[tracking_id],
-            roster=SHARKS_12_1_ROSTER,
+            roster=roster,
             track_numbers=track_numbers,
         )
         if new_data:
@@ -452,7 +452,7 @@ def analyze_data(
     tracking_id_intervals: List[Set[int]] = _do_assign(
         merged_faceoff_breaks, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
     )
-
+    start_times_s = [0.0] + [intvl[0] for intvl in merged_faceoff_breaks]
     interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
     for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
         for tid in interval_tracking_ids:
@@ -464,23 +464,12 @@ def analyze_data(
                 else:
                     interval_jersey_numbers[interval_index].add(number)
 
-    print(interval_jersey_numbers)
+    # print(interval_jersey_numbers)
 
-    if 0.0 not in merged_faceoff_breaks:
-        merged_faceoff_breaks[0.0] = min(merged_faceoff_breaks.keys()) - 1.0
-    for interval_index, number_set in enumerate(number_intervals):
-        start_s, duration_s = merged_faceoff_breaks[interval_index]
-        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        msg = f"Interval starting: {start_hhmmss}"
-        if interval_index < len(number_intervals) - 1:
-            next_start = merged_faceoff_breaks[interval_index + 1][0] - 1
-            msg += "and ending: " + format_duration_to_hhmmss(next_start, decimals=0)
-        msg += " number: "
-        if not number_set:
-            msg += str(sorted(list(number_set)))
-        print(msg)
-
-    return
+    start_time_jerseys: List[float, Set[int]] = []
+    for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
+        start_time_jerseys.append((start_time, jersey_numbers))
+    return start_time_jerseys
 
 
 def _do_assign(
