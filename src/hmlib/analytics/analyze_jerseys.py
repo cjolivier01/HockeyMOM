@@ -389,8 +389,8 @@ def analyze_data(
 
     # Period separators
     period_breaks = find_low_velocity_ranges(data=frame_track_velocity, **period_intervals)
-    print("Unmerged period breaks:")
-    show_frame_intervals(period_breaks, fps=fps)
+    # print("Unmerged period breaks:")
+    # show_frame_intervals(period_breaks, fps=fps)
     period_breaks = frames_to_seconds(period_breaks, fps=fps)
     merged_period_breaks = merge_intervals(period_breaks, 300)
     print(f"Periods: {merged_period_breaks}")
@@ -402,8 +402,8 @@ def analyze_data(
         "min_slow_track_ratio": 0.7,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
-    print("Unmerged faceoff breaks:")
-    show_frame_intervals(faceoff_breaks, fps=fps)
+    # print("Unmerged faceoff breaks:")
+    # show_frame_intervals(faceoff_breaks, fps=fps)
     faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
     merged_faceoff_breaks = merge_intervals(faceoff_breaks, 10.0)
     print(f"Faceoffs: {merged_faceoff_breaks}")
