@@ -310,8 +310,8 @@ def analyze_data(
 
     # camera_tracking_item = next(camera_tracking_iter)
 
-    max_frame_id = 10000
-    # max_frame_id = 0
+    max_frame_id = 0
+    # max_frame_id = 10000
 
     try:
         last_frame_id = 0
@@ -398,7 +398,7 @@ def analyze_data(
     # show_frame_intervals(period_breaks, fps=fps)
     period_breaks = frames_to_seconds(period_breaks, fps=fps)
     merged_period_breaks = merge_intervals(period_breaks, 300)
-    print(f"Periods: {merged_period_breaks}")
+    # print(f"Periods: {merged_period_breaks}")
     show_time_intervals(merged_period_breaks)
 
     faceoff_intervals = {
@@ -407,11 +407,11 @@ def analyze_data(
         "min_slow_track_ratio": 0.7,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
-    print("Unmerged faceoff breaks:")
+    # print("Unmerged faceoff breaks:")
     show_frame_intervals(faceoff_breaks, fps=fps)
     faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
     merged_faceoff_breaks = merge_intervals(faceoff_breaks, 10.0)
-    print(f"Faceoffs: {merged_faceoff_breaks}")
+    # print(f"Faceoffs: {merged_faceoff_breaks}")
     show_time_intervals(merged_faceoff_breaks)
 
     # Now analyze tracks
