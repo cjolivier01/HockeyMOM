@@ -96,14 +96,30 @@ if __name__ == "__main__":
             print(
                 f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
             )
+
+        in_file_basename = "tracking_output-with-audio.mp4"
+        game_dir = get_game_dir(args.game_id)
+        input_file = os.path.join(game_dir, in_file_basename)
+
         player_intervals = merge_intervals(start_interval_and_jerseys)
         for player, intervals in player_intervals.items():
             print(f"Player: {player}")
-            for i, (st, dur) in enumerate(intervals):
-                if dur == float("inf"):
-                    dur = "..."
-                start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
-                print(f"\tShift {i}: Starts at {start_time_hhmmss}, shift for {dur} seconds")
+            player_file: str = f"player_{player}.txt"
+            player_file_path: str = os.path.join(game_dir, player_file)
+            with open(player_file_path, "w") as f:
+                for i, (st, dur) in enumerate(intervals):
+                    f.write(f"file '{input_file}'\n")
+                    f.write(f"inpoint {st}\n")
+                    if dur == float("inf"):
+                        dur = "..."
+                    else:
+                        f.write(f"outpoint {st + dur}\n")
+                    start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
+                    print(f"\tShift {i}: Starts at {start_time_hhmmss}, shift for {dur} seconds")
+            player_video = f"player_{player}.mp4"
+            print(
+                f'ffmpeg -f concat -safe 0 -segment_time_metadata 1 -i {player_file_path}  -b:v 5M -c:v hevc_nvenc -vf "select=concatdec_select" -af "aselect=concatdec_select,aresample=async=1" {player_video}'
+            )
 
     except Exception:
         traceback.print_exc()
