@@ -399,7 +399,7 @@ def analyze_data(
     period_breaks = frames_to_seconds(period_breaks, fps=fps)
     merged_period_breaks = merge_intervals(period_breaks, 300)
     # print(f"Periods: {merged_period_breaks}")
-    show_time_intervals(merged_period_breaks)
+    show_time_intervals("Period breaks", merged_period_breaks)
 
     faceoff_intervals = {
         "min_velocity": 0.3,
@@ -408,11 +408,11 @@ def analyze_data(
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
     # print("Unmerged faceoff breaks:")
-    show_frame_intervals(faceoff_breaks, fps=fps)
+    # show_frame_intervals(faceoff_breaks, fps=fps)
     faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
-    merged_faceoff_breaks = merge_intervals(faceoff_breaks, 10.0)
+    merged_faceoff_breaks = merge_intervals(faceoff_breaks, 20.0)
     # print(f"Faceoffs: {merged_faceoff_breaks}")
-    show_time_intervals(merged_faceoff_breaks)
+    show_time_intervals("Merged faceoff breaks", merged_faceoff_breaks)
 
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
@@ -523,10 +523,15 @@ def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
         print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
 
 
-def show_time_intervals(intervals: List[Tuple[float, float]]) -> None:
+def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> None:
+    if intervals and label:
+        print("---------------------------------------------")
+        print("- {label}")
+        print("---------------------------------------------")
     for start_s, duration_s in intervals:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
         print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
+    print("---------------------------------------------")
 
 
 def frames_to_seconds(
