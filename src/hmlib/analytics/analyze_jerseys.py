@@ -260,7 +260,8 @@ def merge_intervals(
     intervals.sort()
 
     merged = []
-    current_start, current_end = intervals[0]
+    current_start, first_duration = intervals[0]
+    current_end = current_start + first_duration
 
     for start, duration in intervals:
         if start <= current_end + min_difference:
@@ -310,9 +311,16 @@ def analyze_data(
 
     # camera_tracking_item = next(camera_tracking_iter)
 
+    max_frame_id = 10000
+
     try:
         last_frame_id = 0
         while True:
+
+            if max_frame_id > 0 and last_frame_id > max_frame_id:
+                print(f"Early exit at max frame id {last_frame_id}")
+                break
+
             # Items are frame_id, tracking_id, ...
             # Axis 0 is frame_id
             player_tracking_item = next(player_tracking_iter)
@@ -359,10 +367,6 @@ def analyze_data(
 
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
-                if tracking_id != row_tracking_id:
-                    # We'll deal with it when we get to that tracking id for this frame
-                    assert False  # still a valid use-case?
-                    continue
                 frame_to_tracking_ids[frame_id].add(tracking_id)
                 if jersey_item is not None:
                     number = int(jersey_item.number)
@@ -402,8 +406,8 @@ def analyze_data(
         "min_slow_track_ratio": 0.7,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
-    # print("Unmerged faceoff breaks:")
-    # show_frame_intervals(faceoff_breaks, fps=fps)
+    print("Unmerged faceoff breaks:")
+    show_frame_intervals(faceoff_breaks, fps=fps)
     faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
     merged_faceoff_breaks = merge_intervals(faceoff_breaks, 10.0)
     print(f"Faceoffs: {merged_faceoff_breaks}")
@@ -423,17 +427,27 @@ def analyze_data(
         )
         if new_data:
             massaged_data.update(new_data)
+
+    frame_to_jersey_number: Dict[int, Set[int]] = {}
+
     for tracking_id, jersey_info in massaged_data.items():
         num = jersey_info["jersey_number"]
+        # assert tracking_id not in tracking_id_numbers
         tracking_id_numbers[tracking_id] = num
         tracking_id_frame_and_numbers[tracking_id] = OrderedDict()
         for frame_id in jersey_info["frames"]:
+            if frame_id not in frame_to_jersey_number:
+                frame_to_jersey_number[frame_id] = set()
+            else:
+                pass
+            frame_to_jersey_number[frame_id].add(num)
             # This won't be updated correctly for other cases inside analyze_track
             tracking_id_frame_and_numbers[tracking_id][frame_id] = num
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
             frame_to_tracking_ids[frame_id].add(tracking_id)
         pass
+    print(frame_to_jersey_number)
     return
 
 
