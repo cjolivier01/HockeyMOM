@@ -311,7 +311,8 @@ def analyze_data(
 
     # camera_tracking_item = next(camera_tracking_iter)
 
-    max_frame_id = 10000
+    # max_frame_id = 10000
+    max_frame_id = 0
 
     try:
         last_frame_id = 0
@@ -451,6 +452,8 @@ def analyze_data(
     number_intervals: List[Set[int]] = _do_assign(
         merged_faceoff_breaks, fps=fps, frame_to_jersey_number=frame_to_jersey_number
     )
+    if 0.0 not in merged_faceoff_breaks:
+        merged_faceoff_breaks[0.0] = min(merged_faceoff_breaks.keys()) - 1.0
     for interval_index, number_set in enumerate(number_intervals):
         start_s, duration_s = merged_faceoff_breaks[interval_index]
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
@@ -460,8 +463,6 @@ def analyze_data(
             msg += "and ending: " + format_duration_to_hhmmss(next_start, decimals=0)
         msg += " number: "
         if not number_set:
-            msg += "None"
-        else:
             msg += str(sorted(list(number_set)))
         print(msg)
 
@@ -473,7 +474,7 @@ def _do_assign(
     fps: float,
     frame_to_jersey_number: Dict[int, Set[int]],
 ) -> List[Set[int]]:
-    start_frames = [int(t * fps) for t, _ in time_intervals]
+    start_frames = [0] + [int(t * fps) for t, _ in time_intervals]
     assigned_intervals = assign_numbers_to_intervals(start_frames, frame_to_jersey_number)
     # print(assigned_intervals)
     return assigned_intervals
@@ -482,7 +483,7 @@ def _do_assign(
 def assign_numbers_to_intervals(
     frame_starts: List[int],
     frame_to_jersey_number: Dict[int, Set[int]],
-    start_frame_offset_ratio: float = 0.9,  # Only consider detections withing the middle % here
+    start_frame_offset_ratio: float = 1.0,  # Only consider detections withing the middle % here
 ) -> List[Set[int]]:
     """
     Given a list of frame start points and frame->jersey number detection points,
