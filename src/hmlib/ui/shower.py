@@ -1,15 +1,42 @@
 import threading
 import time
+import tkinter as tk
 from typing import Optional, Union
 
 import cv2
 import numpy as np
 import torch
+from PIL import Image, ImageTk
 
 from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import make_visible_image
+from hmlib.utils.image import make_channels_last, make_visible_image
+
+from .tk import get_tk_root
+
+
+class ImageDisplayer:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Image Viewer")
+
+        # Initially set up with an empty image
+        self.image_label = tk.Label(master, text="No Image")
+        self.image_label.pack()
+
+    def display(self, tensor):
+        # Convert the PyTorch tensor to a PIL Image
+        image = Image.fromarray(make_channels_last(tensor).cpu().numpy().astype("uint8"))
+
+        # Convert the PIL Image to a format Tkinter can use
+        tk_image = ImageTk.PhotoImage(image)
+
+        # Update the label with the new image
+        self.image_label.configure(image=tk_image)
+
+        # Keep a reference, avoid garbage collection
+        self.image_label.image = tk_image
 
 
 class Shower:
@@ -22,6 +49,7 @@ class Shower:
         fps: Union[float, None] = None,
         cache_on_cpu: bool = False,
         logger=None,
+        use_tk: bool = False,
     ):
         self._label = label
         self._show_scaled = show_scaled
@@ -32,12 +60,18 @@ class Shower:
             self._label += " (" + str(self._fps) + " fps)"
         # TODO: use th
         self._next_frame_time = None
+        self._use_tk = use_tk
+        self._tk_displayer = None
         self._logger = logger if logger is not None else get_root_logger()
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
 
     def _do_show(self, img: Union[torch.Tensor, np.ndarray]):
+        if self._use_tk and self._tk_displayer is None:
+            root = get_tk_root()
+            self._tk_displayer = ImageDisplayer(root)
+
         if img.ndim == 3:
             if isinstance(img, torch.Tensor | StreamTensor):
                 img = img.unsqueeze(0)
@@ -46,11 +80,14 @@ class Shower:
         if isinstance(img, StreamTensor):
             img = img.get()
         for s_img in img:
-            cv2.imshow(
-                self._label,
-                make_visible_image(s_img, enable_resizing=self._show_scaled),
-            )
-            cv2.waitKey(1)
+            if self._use_tk:
+                self._tk_displayer.display(s_img)
+            else:
+                cv2.imshow(
+                    self._label,
+                    make_visible_image(s_img, enable_resizing=self._show_scaled),
+                )
+                cv2.waitKey(1)
 
     def close(self):
         if self._thread is not None:
