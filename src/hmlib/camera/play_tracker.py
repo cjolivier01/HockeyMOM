@@ -522,9 +522,12 @@ class PlayTracker(torch.nn.Module):
         results["frame_ids"] = torch.stack(frame_ids_list)
         results["current_box"] = torch.stack(current_box_list)
         results["current_fast_box_list"] = torch.stack(current_fast_box_list)
-        # results["img"] = StreamCheckpoint(torch.stack(online_images))
-        results["img"] = torch.stack(online_images)
-        torch.cuda.current_stream(results["img"].device).synchronize()
+
+        # We want to track if it's slow
+        img = torch.stack(online_images)
+        img = StreamCheckpoint(img)
+        img._verbose = True
+        results["img"] = img
 
         return results
 
