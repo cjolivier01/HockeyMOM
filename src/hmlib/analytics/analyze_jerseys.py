@@ -446,9 +446,69 @@ def analyze_data(
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
             frame_to_tracking_ids[frame_id].add(tracking_id)
-        pass
-    print(frame_to_jersey_number)
+    # print(frame_to_jersey_number)
+
+    number_intervals: List[Set[int]] = _do_assign(
+        merged_faceoff_breaks, fps=fps, frame_to_jersey_number=frame_to_jersey_number
+    )
+    for interval_index, number_set in enumerate(number_intervals):
+        start_s, duration_s = merged_faceoff_breaks[interval_index]
+        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
+        msg = f"Interval starting: {start_hhmmss}"
+        if interval_index < len(number_intervals) - 1:
+            next_start = merged_faceoff_breaks[interval_index + 1][0] - 1
+            msg += "and ending: " + format_duration_to_hhmmss(next_start, decimals=0)
+        msg += " number: "
+        if not number_set:
+            msg += "None"
+        else:
+            msg += str(sorted(list(number_set)))
+        print(msg)
+
     return
+
+
+def _do_assign(
+    time_intervals: List[Tuple[float, float]],
+    fps: float,
+    frame_to_jersey_number: Dict[int, Set[int]],
+) -> List[Set[int]]:
+    start_frames = [int(t * fps) for t, _ in time_intervals]
+    assigned_intervals = assign_numbers_to_intervals(start_frames, frame_to_jersey_number)
+    # print(assigned_intervals)
+    return assigned_intervals
+
+
+def assign_numbers_to_intervals(
+    frame_starts: List[int],
+    frame_to_jersey_number: Dict[int, Set[int]],
+    start_frame_offset_ratio: float = 0.9,  # Only consider detections withing the middle % here
+) -> List[Set[int]]:
+    """
+    Given a list of frame start points and frame->jersey number detection points,
+    return a list of detected numbers during that interval
+    """
+    # Assure it's sorted
+    assert frame_starts == sorted(frame_starts)
+    seen_numbers: List[Set[int]] = [set() for _ in range(len(frame_starts))]
+    for interval_index in range(len(frame_starts)):
+
+        start_frame = frame_starts[interval_index]
+        end_frame = (
+            float("inf")
+            if interval_index == len(frame_starts) - 1
+            else frame_starts[interval_index + 1] - 1
+        )
+        frame_interval = end_frame - start_frame
+        floating_start = start_frame + (1 - start_frame_offset_ratio) * frame_interval
+        floating_end = end_frame - (1 - start_frame_offset_ratio) * frame_interval
+
+        for frame_id, j_numbers in frame_to_jersey_number.items():
+            if frame_id < floating_start or frame_id > floating_end:
+                continue
+            seen_numbers[interval_index] = seen_numbers[interval_index].union(j_numbers)
+
+    return seen_numbers
 
 
 def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
