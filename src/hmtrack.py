@@ -402,7 +402,9 @@ def configure_boundaries(
 def main(args, num_gpu):
     dataloader = None
     tracking_dataframe = None
+    tracking_dataframe_ds = None
     detection_dataframe = None
+    detection_dataframe_ds = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -496,9 +498,10 @@ def main(args, num_gpu):
                 write_interval=100,
             )
             if args.input_tracking_data:
+                tracking_dataframe_ds = DataFrameDataset(dataframe=tracking_dataframe)
                 dataloader.append_dataset(
                     name="tracking_dataframe",
-                    dataset=DataFrameDataset(dataframe=tracking_dataframe),
+                    dataset=tracking_dataframe_ds,
                 )
 
         if args.save_detection_data or args.input_detection_data:
@@ -517,9 +520,10 @@ def main(args, num_gpu):
                 write_interval=100,
             )
             if args.input_detection_data:
+                detection_dataframe_ds = DataFrameDataset(dataframe=detection_dataframe)
                 dataloader.append_dataset(
                     name="detection_dataframe",
-                    dataset=DataFrameDataset(dataframe=detection_dataframe),
+                    dataset=detection_dataframe_ds,
                 )
 
         using_precalculated_tracking = (
@@ -777,6 +781,11 @@ def main(args, num_gpu):
                     no_cuda_streams=args.no_cuda_streams,
                 )
                 dataloader.append_dataset("pano", pano_dataloader)
+
+            if tracking_dataframe_ds is not None:
+                tracking_dataframe_ds.set_seek_base(int(args.start_frame + 0.5))
+            if detection_dataframe_ds is not None:
+                detection_dataframe_ds.set_seek_base(int(args.start_frame + 0.5))
 
             if args.end_zones:
                 # Try far_left and far_right videos if they exist

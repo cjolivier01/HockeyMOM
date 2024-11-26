@@ -135,7 +135,9 @@ def json_to_dataclass(json_str, cls):
 
 class DataFrameDataset(Dataset):
 
-    def __init__(self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None):
+    def __init__(
+        self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0
+    ):
         """
         Args:
             dataframe (pd.DataFrame): a pandas DataFrame containing the data.
@@ -144,6 +146,7 @@ class DataFrameDataset(Dataset):
         """
         self.dataframe = dataframe
         self.transform = transform
+        self._seek_base: int = seek_base
 
     @property
     def batch_size(self) -> int:
@@ -154,6 +157,7 @@ class DataFrameDataset(Dataset):
         return len(self.dataframe)
 
     def __getitem__(self, idx: int) -> Any:
+        idx = idx + self._seek_base
         if isinstance(self.dataframe, HmDataFrameBase):
             result = self.dataframe[idx]
             if self.transform is not None:
@@ -168,6 +172,9 @@ class DataFrameDataset(Dataset):
 
     def __iter__(self) -> Iterable:
         return DataFrameDatasetIterator(dataset=self)
+
+    def set_seek_base(self, pos: int):
+        self._seek_base = pos
 
 
 class DataFrameDatasetIterator:
