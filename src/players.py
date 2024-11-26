@@ -1,6 +1,7 @@
 import os
 import traceback
-from typing import Any, Dict, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Set, Tuple
 
 import cv2
 
@@ -36,6 +37,41 @@ def get_uncropped_width_height(game_id: str) -> Tuple[int, int]:
     return image_width(img), image_height(img)
 
 
+def merge_intervals(
+    intervals: List[Tuple[float, Set[int]]]
+) -> Dict[int, List[Tuple[float, float]]]:
+    # Dictionary to store the merged intervals for each jersey number
+    jersey_times: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
+
+    # Process each interval
+    for i in range(len(intervals)):
+        start, jerseys = intervals[i]
+        end = float("inf") if i == len(intervals) - 1 else intervals[i + 1][0]
+
+        for jersey in jerseys:
+            if not jersey_times[jersey] or jersey_times[jersey][-1][1] < start:
+                # If no interval exists for this jersey, or there's no overlap
+                jersey_times[jersey].append([start, end])
+            else:
+                # Extend the current interval
+                jersey_times[jersey][-1][1] = end
+
+    # Convert list of intervals to (start, duration) format and prepare the result
+    result: Dict[int, List[Tuple[float, float]]] = {}
+    for jersey, times in jersey_times.items():
+        merged: List[Tuple[float, float]] = []
+        for time in times:
+            if merged and merged[-1][1] == time[0]:
+                # Merge with the previous interval
+                merged[-1] = (merged[-1][0], time[1] - merged[-1][0])
+            else:
+                # Append a new interval entry
+                merged.append((time[0], time[1] - time[0]))
+        result[jersey] = merged
+
+    return result
+
+
 if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
@@ -60,5 +96,14 @@ if __name__ == "__main__":
             print(
                 f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
             )
+        player_intervals = merge_intervals(start_interval_and_jerseys)
+        for player, intervals in player_intervals.items():
+            print(f"Player: {player}")
+            for i, (st, dur) in enumerate(intervals):
+                if dur == float("inf"):
+                    dur = "..."
+                start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
+                print(f"\tShift {i}: Starts at {start_time_hhmmss}, shift for {dur} seconds")
+
     except Exception:
         traceback.print_exc()

@@ -311,7 +311,7 @@ def analyze_data(
     # camera_tracking_item = next(camera_tracking_iter)
 
     max_frame_id = 0
-    # max_frame_id = 10000
+    max_frame_id = 10000
 
     try:
         last_frame_id = 0
