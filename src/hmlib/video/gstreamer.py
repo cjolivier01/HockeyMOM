@@ -1,10 +1,12 @@
 import argparse
 import sys
 import traceback
-from typing import Any
+from typing import Any, Optional, Tuple
 
 import cv2
 import gi
+import numpy as np
+import torch
 
 gi.require_version('Gst', '1.0')
 from gi.repository import GLib, GObject, Gst
@@ -21,14 +23,15 @@ class VideoTranscoder:
 
     def setup_pipeline(self) -> Gst.Pipeline:
         pipeline = Gst.parse_launch(
-            f"filesrc location={self.input_file} ! "
-            "h265parse ! "
-            "avdec_h265 ! "  # Software-based decoder for HEVC
-            "videoconvert ! "  # Convert video formats to raw for further processing
-            f"x264enc bitrate={self.bitrate} tune=zerolatency ! "
-            "qtmux ! "
-            f"filesink location={self.output_file}"
-        )        
+            "playbin uri=file:///olivier-pool/Videos/ev-bs-short/GX010085.MP4",
+            # f"filesrc location={self.input_file} ! "
+            # "h265parse ! "
+            # "avdec_h265 ! "  # Software-based decoder for HEVC
+            # "videoconvert ! "  # Convert video formats to raw for further processing
+            # f"x264enc bitrate={self.bitrate} tune=zerolatency ! "
+            # "qtmux ! "
+            # f"filesink location={self.output_file}"
+        )
         return pipeline
 
     def on_message(self, bus: Gst.Bus, message: Gst.Message, loop: GObject.MainLoop) -> bool:
@@ -55,6 +58,69 @@ class VideoTranscoder:
             self.pipeline.set_state(Gst.State.NULL)
 
 
+class GStreamerVideoCapture:
+    def __init__(self, source: str) -> None:
+        Gst.init(None)
+        self.pipeline = None
+        self.source = source
+        self.is_opened = False
+        self.appsink = None
+        self._build_pipeline()
+
+    def _build_pipeline(self) -> None:
+        if isinstance(self.source, int):
+            pipeline_description = (
+                f"v4l2src device=/dev/video{self.source} ! videoconvert ! appsink name=appsink"
+            )
+        elif isinstance(self.source, str):
+            pipeline_description = f"filesrc location={self.source} ! decodebin ! nvvideoconvert ! appsink name=appsink"
+        else:
+            raise ValueError("Invalid source type. Must be int (camera index) or str (file path).")
+
+        self.pipeline = Gst.parse_launch(pipeline_description)
+        self.appsink = self.pipeline.get_by_name("appsink")
+        if self.appsink is None:
+            raise RuntimeError("Failed to create appsink element in the pipeline.")
+        self.is_opened = True
+
+    def isOpened(self) -> bool:
+        return self.is_opened
+
+    def read(self) -> Tuple[bool, Optional[bytes]]:
+        if not self.is_opened:
+            return False, None
+
+        self.pipeline.set_state(Gst.State.PLAYING)
+        sample = self.appsink.emit("pull-sample")
+        if sample is None:
+            return False, None
+
+        buf = sample.get_buffer()
+        result, map_info = buf.map(Gst.MapFlags.READ)
+        if not result:
+            return False, None
+
+        frame_data = map_info.data.tobytes()
+        buf.unmap(map_info)
+        return True, frame_data
+
+    def release(self) -> None:
+        if self.pipeline is not None:
+            self.pipeline.set_state(Gst.State.NULL)
+            self.is_opened = False
+
+    def set(self, prop_id: int, value: float) -> bool:
+        # GStreamer can set some properties, but it's not a direct 1:1 with OpenCV
+        # We would need to handle GStreamer properties explicitly here.
+        # For simplicity, we will return False for now
+        return False
+
+    def get(self, prop_id: int) -> float:
+        # Similar to `set`, GStreamer does not provide direct 1:1 properties with OpenCV
+        # Handle this appropriately by returning default or not implemented values
+        return 0.0
+
+
 def check_opencv_gstreamer_support():
     # Get build information from OpenCV
     build_info = cv2.getBuildInformation()
@@ -77,5 +143,14 @@ def parse_arguments():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    transcoder = VideoTranscoder(args.input_file, args.output_file, args.bitrate)
-    transcoder.run()
+    # transcoder = VideoTranscoder(args.input_file, args.output_file, args.bitrate)
+    # transcoder.run()
+    gst_cap = GStreamerVideoCapture(args.input_file)
+    if gst_cap.isOpened():
+        ret, frame = gst_cap.read()
+        if ret:
+            print(f"Read frame of shape: {frame.shape}")
+        else:
+            print("Failed to read frame")
+
+    gst_cap.release()
