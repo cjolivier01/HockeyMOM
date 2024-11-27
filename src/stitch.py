@@ -93,10 +93,15 @@ def stitch_videos(
     stitch_frame_number = 0
     if start_frame_time and not stitch_frame_time:
         stitch_frame_time = start_frame_time
-    if stitch_frame_time:
+    if stitch_frame_time or start_frame_time:
         seconds = convert_hms_to_seconds(stitch_frame_time)
         if seconds > 0:
             stitch_frame_number = seconds * left_vid.fps
+    if start_frame_time:
+        assert not start_frame_number
+        seconds = convert_hms_to_seconds(start_frame_time)
+        if seconds > 0:
+            start_frame_number = seconds * left_vid.fps
 
     pto_project_file, lfo, rfo = configure_video_stitching(
         dir_name,
