@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Dict, Iterable, List, Optional, Type, Union
 
@@ -45,6 +46,11 @@ class HmDataFrameBase:
     def read_data(self) -> None:
         """Read data from a CSV file."""
         if self.input_file:
+            if not os.path.exists(self.input_file):
+                logger.error(f"Could not open dataframe file: {self.input_file}")
+                # In case self.data it was set already, None it out
+                self.data = None
+                return
             self.data = pd.read_csv(
                 self.input_file,
                 header=None,
@@ -129,7 +135,9 @@ def json_to_dataclass(json_str, cls):
 
 class DataFrameDataset(Dataset):
 
-    def __init__(self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None):
+    def __init__(
+        self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0
+    ):
         """
         Args:
             dataframe (pd.DataFrame): a pandas DataFrame containing the data.
@@ -138,6 +146,7 @@ class DataFrameDataset(Dataset):
         """
         self.dataframe = dataframe
         self.transform = transform
+        self._seek_base: int = seek_base
 
     @property
     def batch_size(self) -> int:
@@ -148,6 +157,7 @@ class DataFrameDataset(Dataset):
         return len(self.dataframe)
 
     def __getitem__(self, idx: int) -> Any:
+        idx = idx + self._seek_base
         if isinstance(self.dataframe, HmDataFrameBase):
             result = self.dataframe[idx]
             if self.transform is not None:
@@ -162,6 +172,9 @@ class DataFrameDataset(Dataset):
 
     def __iter__(self) -> Iterable:
         return DataFrameDatasetIterator(dataset=self)
+
+    def set_seek_base(self, pos: int):
+        self._seek_base = pos
 
 
 class DataFrameDatasetIterator:

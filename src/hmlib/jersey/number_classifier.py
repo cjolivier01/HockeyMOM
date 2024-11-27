@@ -126,9 +126,7 @@ class HmNumberClassifier:
         if isinstance(img, StreamTensor):
             img._verbose = True
             img = img.get()
-            # img = img.wait()
             data[self._image_label] = img
-        # batch_numbers: List[torch.Tensor] = []
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         track_data_sample = data["data_samples"]
         img = make_channels_first(img)
@@ -156,11 +154,6 @@ class HmNumberClassifier:
                 out_dir=None,
                 progress_bar=False,
             )
-            # predictions = ocr_results["predictions"]
-            # for pred in predictions:
-            #     rec_texts = self._get_number_strings(pred["rec_texts"])
-            #     if rec_texts:
-            #         logger.info(rec_texts)
             for vis in ocr_results["visualization"]:
                 if vis is not None:
                     show_image("packed_image", vis, wait=False)
@@ -171,7 +164,6 @@ class HmNumberClassifier:
                 # show_image("packed_image", packed_image, wait=False)
                 batch_index = get_original_bbox_index_from_tiled_image(index_map, y=y, x=x)
                 bbox_width = width(bboxes_xyxy[batch_index])
-                # print(f"{batch_index=}")
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
                     if tracking_id in jersey_tracking_ids:

@@ -3,17 +3,42 @@ import json
 import math
 import os
 import traceback
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
+from numba import jit
 
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
+from hmlib.datasets.dataframe import (
+    DataFrameDataset,
+    HmDataFrameBase,
+    dataclass_to_json,
+    json_to_dataclass,
+)
+from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
 
-SHARKS_12_1_ROSTER: Set[int] = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
+
+@dataclass
+class IntervalJerseys:
+    start_time: float = -1
+    jersey_numbers: Set[int] = None
+
+
+@dataclass
+class TimeInterval:
+    start_time: float = None
+    duration: float = None
+
+
+@dataclass
+class JerseyTimeIntervals:
+    jersey_number: int = None
+    intervals: List[TimeInterval] = None
 
 
 def split_by_lg_10(numbers: List[int]) -> Tuple[List[int], List[int]]:
@@ -246,15 +271,42 @@ def panoramic_distance(image_width, x1, x2, rink_width=200):
     return distance
 
 
+def merge_intervals(
+    intervals: List[Tuple[float, float]], min_difference: float
+) -> List[Tuple[float, float]]:
+    # Sort intervals by start time
+    intervals.sort()
+
+    merged = []
+    current_start, first_duration = intervals[0]
+    current_end = current_start + first_duration
+
+    for start, duration in intervals:
+        if start <= current_end + min_difference:
+            # If the start of the next interval is within min_difference of the current end,
+            # extend the current end to the maximum of the current end or the end of this interval
+            current_end = max(current_end, start + duration)
+        else:
+            # Otherwise, save the current interval and start a new one
+            merged.append((current_start, current_end - current_start))
+            current_start, current_end = start, start + duration
+
+    # Add the last processed interval to the list
+    merged.append((current_start, current_end - current_start))
+
+    return merged
+
+
 def analyze_data(
     player_tracking_data: TrackingDataFrame,
     camera_tracking_data: CameraTrackingDataFrame,
     uncropped_width: int,
     fps: float = 29.97,
-) -> None:
+    roster: Set[int] = None,
+) -> List[IntervalJerseys]:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
-    tracking_id_numbers: OrderedDict[int, Set[int]] = OrderedDict()
+    tracking_id_to_numbers: OrderedDict[int, Set[int]] = OrderedDict()
     # tracking_id -> frame_id -> number
     tracking_id_frame_and_numbers: OrderedDict[int, Dict[int, int]] = OrderedDict()
     # frame_id -> tracking_id
@@ -265,47 +317,48 @@ def analyze_data(
     track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     # frame_id -> tracking_id -> velocity
     frame_track_velocity: Dict[int, Dict[int, float]] = {}
+    # player_tracking_iter = iter(DataFrameDataset(player_tracking_data))
     player_tracking_iter = iter(player_tracking_data)
-    camera_tracking_iter = iter(camera_tracking_data)
+    # camera_tracking_iter = (
+    #     iter(camera_tracking_data) if camera_tracking_data is not None else camera_tracking_data
+    # )
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
     seen_numbers: Set[int] = set()
     item_count: int = 0
     min_score: float = 0.7
 
-    camera_tracking_item = next(camera_tracking_iter)
+    # camera_tracking_item = next(camera_tracking_iter)
+
+    max_frame_id = 0
+    # max_frame_id = 10000
 
     try:
         last_frame_id = 0
         while True:
+
+            if max_frame_id > 0 and last_frame_id > max_frame_id:
+                print(f"Early exit at max frame id {last_frame_id}")
+                break
+
             # Items are frame_id, tracking_id, ...
             # Axis 0 is frame_id
             player_tracking_item = next(player_tracking_iter)
+            frame_id = int(player_tracking_item.Frame)
+            tracking_id = player_tracking_item.ID
 
-            # Catch up the camera frame to the player frame
-            while int(camera_tracking_item.Frame) < int(player_tracking_item.Frame):
-                camera_tracking_item = next(camera_tracking_iter)
-
-            # In case skipping player frames, skip up to proper camera frame
+            if player_tracking_item.JerseyInfo in empty_json_set:
+                jersey_item = None
+            else:
+                jersey_item = json_to_dataclass(player_tracking_item.JerseyInfo, TrackJerseyInfo)
+                if jersey_item.tracking_id < 0:
+                    # Add bad use-case json string for speedy skipping
+                    empty_json_set.add(player_tracking_item.JerseyInfo)
+                    jersey_item = None
+                else:
+                    assert jersey_item.tracking_id == tracking_id
 
             item_count += 1
-            if (
-                not player_tracking_item.JerseyInfo
-                or player_tracking_item.JerseyInfo in empty_json_set
-            ):
-                continue
-            jersey_info = json.loads(player_tracking_item.JerseyInfo)
-            if "items" not in jersey_info:
-                # quick skip recurrences of this string
-                empty_json_set.add(player_tracking_item.JerseyInfo)
-                continue
-            jersey_items = jersey_info["items"]
-            if not jersey_items:
-                # quick skip recurrences of this string
-                empty_json_set.add(player_tracking_item.JerseyInfo)
-                continue
-            # print(f"items: {jersey_items}")
-            frame_id = int(player_tracking_item.Frame)
 
             row_tracking_id = int(player_tracking_item.ID)
             new_center = calc_center(player_tracking_item)
@@ -334,69 +387,258 @@ def analyze_data(
 
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
-
-            for j_item in jersey_items:
-                tracking_id = j_item["tracking_id"]
-                if tracking_id != row_tracking_id:
-                    # We'll deal with it when we get to that tracking id for this frame
-                    continue
-                frame_to_tracking_ids[frame_id].add(tracking_id)
-                number = int(j_item["number"])
-                score = j_item["score"]
-                auto_dict(tracking_id_numbers, tracking_id, set).add(number)
-                # tracking_id_numbers[tracking_id].add(number)
-                auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
-                if number not in seen_numbers:
-                    seen_numbers.add(number)
-                    # print(f"First sighting of number {number} at frame {frame_id}")
+            frame_to_tracking_ids[frame_id].add(tracking_id)
+            if jersey_item is not None:
+                number = int(jersey_item.number)
+                if not roster or number in roster:
+                    score = jersey_item.score
+                    auto_dict(tracking_id_to_numbers, tracking_id, set).add(number)
+                    # tracking_id_to_numbers[tracking_id].add(number)
+                    auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
+                    if number not in seen_numbers:
+                        seen_numbers.add(number)
+                        print(f"First sighting of number {number} at frame {frame_id}")
 
     except StopIteration:
         print(f"Finished reading {item_count} items")
     except Exception:
         traceback.print_exc()
     print(f"Unique player numbers seen: {len(seen_numbers)}")
-    print(f"Tracks seen with numbers: {len(tracking_id_numbers)}")
+    print(f"Tracks seen with numbers: {len(tracking_id_to_numbers)}")
 
-    low_velocity_ranges = find_low_velocity_ranges(
-        data=frame_track_velocity,
-        min_velocity=0.5,
-        # min_velocity=0.3,
-        # min_velocity=10.0,
-        # min_frames=15,
-        min_frames=20,
-        min_slow_track_ratio=0.6,
-    )
-    print(f"{low_velocity_ranges=}")
-    for start_frame, stop_frame in low_velocity_ranges:
-        start_s = start_frame / fps
-        duration_s = (stop_frame - start_frame) / fps
-        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
-        # low_velocity_times = []
+    period_intervals = {
+        "min_velocity": 0.2,
+        "min_frames": 30,
+        "min_slow_track_ratio": 0.9,
+    }
+
+    # Period separators
+    period_breaks = find_low_velocity_ranges(data=frame_track_velocity, **period_intervals)
+    # print("Unmerged period breaks:")
+    # show_frame_intervals(period_breaks, fps=fps)
+    period_breaks = frames_to_seconds(period_breaks, fps=fps)
+    merged_period_breaks = merge_intervals(period_breaks, 300)
+    # print(f"Periods: {merged_period_breaks}")
+    show_time_intervals("Period breaks", merged_period_breaks)
+
+    faceoff_intervals = {
+        "min_velocity": 0.3,
+        # "min_velocity": 0.4,
+        # "min_frames": 30,
+        "min_frames": 20,
+        # "min_slow_track_ratio": 0.7,
+        "min_slow_track_ratio": 0.8,
+    }
+    faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
+    # print("Unmerged faceoff breaks:")
+    # show_frame_intervals(faceoff_breaks, fps=fps)
+    faceoff_breaks = frames_to_seconds(faceoff_breaks, fps=fps)
+    merged_faceoff_breaks = merge_intervals(faceoff_breaks, 20.0)
+    # print(f"Faceoffs: {merged_faceoff_breaks}")
+    show_time_intervals("Merged faceoff breaks", merged_faceoff_breaks)
 
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
     massaged_data: Dict[Union[float, int], Any] = {}
-    assert len(tracking_id_numbers) == len(tracking_id_frame_and_numbers)
-    for tracking_id in tracking_id_numbers.keys():
+    assert len(tracking_id_to_numbers) == len(tracking_id_frame_and_numbers)
+    for tracking_id in tracking_id_to_numbers.keys():
         new_data = analyze_track(
             tracking_id,
-            tracking_id_numbers[tracking_id],
+            tracking_id_to_numbers[tracking_id],
             tracking_id_frame_and_numbers[tracking_id],
-            roster=SHARKS_12_1_ROSTER,
+            roster=roster,
             track_numbers=track_numbers,
         )
         if new_data:
             massaged_data.update(new_data)
+
+    frame_to_jersey_number: Dict[int, Set[int]] = {}
+
     for tracking_id, jersey_info in massaged_data.items():
         num = jersey_info["jersey_number"]
-        tracking_id_numbers[tracking_id] = num
+        # assert tracking_id not in tracking_id_to_numbers
+        tracking_id_to_numbers[tracking_id] = num
         tracking_id_frame_and_numbers[tracking_id] = OrderedDict()
         for frame_id in jersey_info["frames"]:
+            if frame_id not in frame_to_jersey_number:
+                frame_to_jersey_number[frame_id] = set()
+            else:
+                pass
+            frame_to_jersey_number[frame_id].add(num)
             # This won't be updated correctly for other cases inside analyze_track
             tracking_id_frame_and_numbers[tracking_id][frame_id] = num
             if frame_id not in frame_to_tracking_ids:
                 frame_to_tracking_ids[frame_id] = set()
             frame_to_tracking_ids[frame_id].add(tracking_id)
-        pass
-    return
+    # print(frame_to_jersey_number)
+
+    period_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
+        start_time_to_jersey_set=merged_period_breaks,
+        frame_to_tracking_ids=frame_to_tracking_ids,
+        tracking_id_to_numbers=tracking_id_to_numbers,
+        fps=fps,
+    )
+
+    shift_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
+        start_time_to_jersey_set=merged_faceoff_breaks,
+        frame_to_tracking_ids=frame_to_tracking_ids,
+        tracking_id_to_numbers=tracking_id_to_numbers,
+        fps=fps,
+    )
+
+    return period_jerseys, shift_jerseys
+
+
+def calculate_start_time_jerseys(
+    start_time_to_jersey_set: List[Tuple[float, float]],
+    frame_to_tracking_ids: Dict[int, Set[int]],
+    tracking_id_to_numbers: Dict[int, Set[int]],
+    fps: float,
+) -> List[IntervalJerseys]:
+    """
+    Return list of interval start times + jersey seen in that interval
+    """
+    tracking_id_intervals: List[Set[int]] = _do_assign(
+        start_time_to_jersey_set, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
+    )
+    start_times_s = [0.0] + [intvl[0] for intvl in start_time_to_jersey_set]
+    interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
+    for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
+        for tid in interval_tracking_ids:
+            if tid in tracking_id_to_numbers:
+                number = tracking_id_to_numbers[tid]
+                if isinstance(number, (list, set)):
+                    for n in number:
+                        interval_jersey_numbers[interval_index].add(n)
+                else:
+                    interval_jersey_numbers[interval_index].add(number)
+
+    start_time_jerseys: List[IntervalJerseys] = []
+    for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
+        start_time_jerseys.append(
+            IntervalJerseys(start_time=start_time, jersey_numbers=jersey_numbers)
+        )
+    return start_time_jerseys
+
+
+def _do_assign(
+    time_intervals: List[Tuple[float, float]],
+    fps: float,
+    frame_to_tracking_ids: Dict[int, Set[int]],
+) -> List[Set[int]]:
+    start_frames = [0] + [int(t * fps) for t, _ in time_intervals]
+    assigned_intervals = assign_numbers_to_intervals(start_frames, frame_to_tracking_ids)
+    # print(assigned_intervals)
+    return assigned_intervals
+
+
+def assign_numbers_to_intervals(
+    frame_starts: List[int],
+    frame_to_tracking_ids: Dict[int, Set[int]],
+    start_frame_offset_ratio: float = 1.0,  # Only consider detections withing the middle % here
+    stop_frame_offset_ratio: float = 0.9,  # Only consider detections withing the middle % here
+) -> List[Set[int]]:
+    """
+    Given a list of frame start points and frame->jersey number detection points,
+    return a list of detected numbers during that interval
+    """
+    # Assure it's sorted
+    assert frame_starts == sorted(frame_starts)
+    seen_tracking_ids: List[Set[int]] = [set() for _ in range(len(frame_starts))]
+    for interval_index in range(len(frame_starts)):
+
+        start_frame = frame_starts[interval_index]
+        end_frame = (
+            float("inf")
+            if interval_index == len(frame_starts) - 1
+            else frame_starts[interval_index + 1] - 1
+        )
+        frame_interval = end_frame - start_frame
+        floating_start = start_frame + (1 - start_frame_offset_ratio) * frame_interval
+        floating_end = end_frame - (1 - stop_frame_offset_ratio) * frame_interval
+
+        for frame_id, j_numbers in frame_to_tracking_ids.items():
+            if frame_id < floating_start or frame_id > floating_end:
+                continue
+            seen_tracking_ids[interval_index] = seen_tracking_ids[interval_index].union(j_numbers)
+
+    return seen_tracking_ids
+
+
+def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
+    time_ranges: List[Tuple[float, float]] = frames_to_seconds(intervals, fps)
+
+    for start_s, duration_s in time_ranges:
+        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
+        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
+
+
+def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> None:
+    if intervals and label:
+        print("---------------------------------------------")
+        print(f"- {label}")
+        print("---------------------------------------------")
+    for start_s, duration_s in intervals:
+        start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
+        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
+    print("---------------------------------------------")
+
+
+def frames_to_seconds(
+    frame_tuple_list: List[Tuple[int, int]], fps: float
+) -> List[Tuple[float, float]]:
+    results: List[Tuple[int, int]] = []
+    for start_end_frame in frame_tuple_list:
+        start_frame, end_frame = start_end_frame
+        assert end_frame > start_frame
+        frame_count = end_frame - start_frame
+        duration_s = frame_count / fps
+        start_s = start_frame / fps
+        results.append((start_s, duration_s))
+    return results
+
+
+def interval_jerseys_to_merged_jersey_time_intervals(
+    intervals: List[IntervalJerseys],
+) -> List[JerseyTimeIntervals]:
+    # Dictionary to store the merged intervals for each jersey number
+    jersey_times: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
+
+    # Process each interval
+    for i in range(len(intervals)):
+        interval_jerseys = intervals[i]
+        jerseys = intervals[i].jersey_numbers
+        end = float("inf") if i == len(intervals) - 1 else intervals[i + 1].start_time
+
+        for jersey in jerseys:
+            if (
+                not jersey_times[jersey]
+                or jersey_times[jersey][-1][1] < interval_jerseys.start_time
+            ):
+                # If no interval exists for this jersey, or there's no overlap
+                jersey_times[jersey].append([interval_jerseys.start_time, end])
+            else:
+                # Extend the current interval
+                jersey_times[jersey][-1][1] = end
+
+    # Convert list of intervals to (start, duration) format and prepare the result
+    result: Dict[int, List[Tuple[float, float]]] = {}
+    for jersey, times in jersey_times.items():
+        merged: List[Tuple[float, float]] = []
+        for time in times:
+            if merged and merged[-1][1] == time[0]:
+                # Merge with the previous interval
+                merged[-1] = (merged[-1][0], time[1] - merged[-1][0])
+            else:
+                # Append a new interval entry
+                merged.append((time[0], time[1] - time[0]))
+        result[jersey] = merged
+
+    jt_results: List[JerseyTimeIntervals] = []
+    for jn, jinv in result.items():
+        jn_intervals = JerseyTimeIntervals(jersey_number=jn, intervals=[])
+        for intv in jinv:
+            jn_intervals.intervals.append(TimeInterval(start_time=intv[0], duration=intv[1]))
+        jt_results.append(jn_intervals)
+
+    return jt_results
