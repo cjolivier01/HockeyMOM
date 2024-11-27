@@ -213,8 +213,8 @@ class VideoOutput:
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._cuda_stream = torch.cuda.Stream(self._device)
-        self._default_cuda_stream = torch.cuda.current_stream(self._device)
+        self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+        self._default_cuda_stream = None
 
         self._video_frame_config = {
             "output_frame_width": int(self._output_frame_width_int),
@@ -374,7 +374,9 @@ class VideoOutput:
                 self._imgproc_queue.put(results)
 
     def _final_image_processing_wrapper(self):
-        self._default_cuda_stream = torch.cuda.current_stream(self._device)
+        self._default_cuda_stream = (
+            torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+        )
         try:
             self._final_image_processing_worker()
         except Exception as ex:
@@ -619,7 +621,7 @@ class VideoOutput:
                 online_im = torch.from_numpy(online_im)
 
             if online_im.device.type != "cpu" and self._device.type == "cpu":
-                assert False  # ?
+                #  assert False  # ?
                 online_im = online_im.cpu()
 
             if online_im.ndim == 3:

@@ -722,7 +722,6 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     def isOpened(self) -> bool:
         return self._output_video is not None and self._output_video.isOpened()
 
-    @classmethod
     def calculate_desired_bitrate(self, width: int, height: int):
         # 4K @ 55M
         desired_bit_rate = self._bit_rate
@@ -754,6 +753,8 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
             img = np.ascontiguousarray(img)
+        if isinstance(img, np.ndarray) and img.dtype != np.dtype("uint8"):
+            img = img.astype("uint8")
         self._output_video.write(img)
 
 
