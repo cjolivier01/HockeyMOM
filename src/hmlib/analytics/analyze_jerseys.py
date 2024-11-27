@@ -4,6 +4,7 @@ import math
 import os
 import traceback
 from collections import Counter, OrderedDict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
@@ -19,6 +20,12 @@ from hmlib.datasets.dataframe import (
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
+
+
+@dataclass
+class IntervalJerseys:
+    start_time: float = -1
+    jersey_numbers: Set[int] = None
 
 
 def split_by_lg_10(numbers: List[int]) -> Tuple[List[int], List[int]]:
@@ -283,10 +290,10 @@ def analyze_data(
     uncropped_width: int,
     fps: float = 29.97,
     roster: Set[int] = None,
-) -> None:
+) -> List[IntervalJerseys]:
     frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
-    tracking_id_numbers: OrderedDict[int, Set[int]] = OrderedDict()
+    tracking_id_to_numbers: OrderedDict[int, Set[int]] = OrderedDict()
     # tracking_id -> frame_id -> number
     tracking_id_frame_and_numbers: OrderedDict[int, Dict[int, int]] = OrderedDict()
     # frame_id -> tracking_id
@@ -311,7 +318,7 @@ def analyze_data(
     # camera_tracking_item = next(camera_tracking_iter)
 
     max_frame_id = 0
-    # max_frame_id = 10000
+    max_frame_id = 10000
 
     try:
         last_frame_id = 0
@@ -372,8 +379,8 @@ def analyze_data(
                 number = int(jersey_item.number)
                 if not roster or number in roster:
                     score = jersey_item.score
-                    auto_dict(tracking_id_numbers, tracking_id, set).add(number)
-                    # tracking_id_numbers[tracking_id].add(number)
+                    auto_dict(tracking_id_to_numbers, tracking_id, set).add(number)
+                    # tracking_id_to_numbers[tracking_id].add(number)
                     auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
                     if number not in seen_numbers:
                         seen_numbers.add(number)
@@ -384,7 +391,7 @@ def analyze_data(
     except Exception:
         traceback.print_exc()
     print(f"Unique player numbers seen: {len(seen_numbers)}")
-    print(f"Tracks seen with numbers: {len(tracking_id_numbers)}")
+    print(f"Tracks seen with numbers: {len(tracking_id_to_numbers)}")
 
     period_intervals = {
         "min_velocity": 0.2,
@@ -419,11 +426,11 @@ def analyze_data(
     # Now analyze tracks
     track_numbers: Dict[int, int] = {}
     massaged_data: Dict[Union[float, int], Any] = {}
-    assert len(tracking_id_numbers) == len(tracking_id_frame_and_numbers)
-    for tracking_id in tracking_id_numbers.keys():
+    assert len(tracking_id_to_numbers) == len(tracking_id_frame_and_numbers)
+    for tracking_id in tracking_id_to_numbers.keys():
         new_data = analyze_track(
             tracking_id,
-            tracking_id_numbers[tracking_id],
+            tracking_id_to_numbers[tracking_id],
             tracking_id_frame_and_numbers[tracking_id],
             roster=roster,
             track_numbers=track_numbers,
@@ -435,8 +442,8 @@ def analyze_data(
 
     for tracking_id, jersey_info in massaged_data.items():
         num = jersey_info["jersey_number"]
-        # assert tracking_id not in tracking_id_numbers
-        tracking_id_numbers[tracking_id] = num
+        # assert tracking_id not in tracking_id_to_numbers
+        tracking_id_to_numbers[tracking_id] = num
         tracking_id_frame_and_numbers[tracking_id] = OrderedDict()
         for frame_id in jersey_info["frames"]:
             if frame_id not in frame_to_jersey_number:
@@ -451,15 +458,54 @@ def analyze_data(
             frame_to_tracking_ids[frame_id].add(tracking_id)
     # print(frame_to_jersey_number)
 
+    start_time_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
+        start_time_to_jersey_set=merged_faceoff_breaks,
+        frame_to_tracking_ids=frame_to_tracking_ids,
+        tracking_id_to_numbers=tracking_id_to_numbers,
+        fps=fps,
+    )
+
     tracking_id_intervals: List[Set[int]] = _do_assign(
         merged_faceoff_breaks, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
     )
-    start_times_s = [0.0] + [intvl[0] for intvl in merged_faceoff_breaks]
+    # start_times_s = [0.0] + [intvl[0] for intvl in merged_faceoff_breaks]
+    # interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
+    # for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
+    #     for tid in interval_tracking_ids:
+    #         if tid in tracking_id_to_numbers:
+    #             number = tracking_id_to_numbers[tid]
+    #             if isinstance(number, (list, set)):
+    #                 for n in number:
+    #                     interval_jersey_numbers[interval_index].add(n)
+    #             else:
+    #                 interval_jersey_numbers[interval_index].add(number)
+
+    # # print(interval_jersey_numbers)
+
+    # start_time_jerseys: List[float, Set[int]] = []
+    # for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
+    #     start_time_jerseys.append((start_time, jersey_numbers))
+    return start_time_jerseys
+
+
+def calculate_start_time_jerseys(
+    start_time_to_jersey_set: List[Tuple[float, float]],
+    frame_to_tracking_ids: Dict[int, Set[int]],
+    tracking_id_to_numbers: Dict[int, Set[int]],
+    fps: float,
+) -> List[IntervalJerseys]:
+    """
+    Return list of interval start times + jersey seen in that interval
+    """
+    tracking_id_intervals: List[Set[int]] = _do_assign(
+        start_time_to_jersey_set, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
+    )
+    start_times_s = [0.0] + [intvl[0] for intvl in start_time_to_jersey_set]
     interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
     for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
         for tid in interval_tracking_ids:
-            if tid in tracking_id_numbers:
-                number = tracking_id_numbers[tid]
+            if tid in tracking_id_to_numbers:
+                number = tracking_id_to_numbers[tid]
                 if isinstance(number, (list, set)):
                     for n in number:
                         interval_jersey_numbers[interval_index].add(n)
@@ -468,9 +514,11 @@ def analyze_data(
 
     # print(interval_jersey_numbers)
 
-    start_time_jerseys: List[float, Set[int]] = []
+    start_time_jerseys: List[IntervalJerseys] = []
     for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
-        start_time_jerseys.append((start_time, jersey_numbers))
+        start_time_jerseys.append(
+            IntervalJerseys(start_time=start_time, jersey_numbers=jersey_numbers)
+        )
     return start_time_jerseys
 
 

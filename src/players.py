@@ -1,11 +1,12 @@
 import os
 import traceback
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple
 
 import cv2
 
-from hmlib.analytics.analyze_jerseys import analyze_data
+from hmlib.analytics.analyze_jerseys import IntervalJerseys, analyze_data
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
@@ -37,21 +38,37 @@ def get_uncropped_width_height(game_id: str) -> Tuple[int, int]:
     return image_width(img), image_height(img)
 
 
-def merge_intervals(
-    intervals: List[Tuple[float, Set[int]]]
-) -> Dict[int, List[Tuple[float, float]]]:
+@dataclass
+class TimeInterval:
+    start_time: float = None
+    duration: float = None
+
+
+@dataclass
+class JerseyTimeIntervals:
+    jersey_number: int = None
+    intervals: List[TimeInterval] = None
+
+
+def interval_jerseys_to_merged_jersey_time_intervals(
+    intervals: List[IntervalJerseys],
+) -> List[JerseyTimeIntervals]:
     # Dictionary to store the merged intervals for each jersey number
     jersey_times: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
 
     # Process each interval
     for i in range(len(intervals)):
-        start, jerseys = intervals[i]
-        end = float("inf") if i == len(intervals) - 1 else intervals[i + 1][0]
+        interval_jerseys = intervals[i]
+        jerseys = intervals[i].jersey_numbers
+        end = float("inf") if i == len(intervals) - 1 else intervals[i + 1].start_time
 
         for jersey in jerseys:
-            if not jersey_times[jersey] or jersey_times[jersey][-1][1] < start:
+            if (
+                not jersey_times[jersey]
+                or jersey_times[jersey][-1][1] < interval_jerseys.start_time
+            ):
                 # If no interval exists for this jersey, or there's no overlap
-                jersey_times[jersey].append([start, end])
+                jersey_times[jersey].append([interval_jerseys.start_time, end])
             else:
                 # Extend the current interval
                 jersey_times[jersey][-1][1] = end
@@ -69,7 +86,14 @@ def merge_intervals(
                 merged.append((time[0], time[1] - time[0]))
         result[jersey] = merged
 
-    return result
+    jt_results: List[JerseyTimeIntervals] = []
+    for jn, jinv in result.items():
+        jn_intervals = JerseyTimeIntervals(jersey_number=jn, intervals=[])
+        for intv in jinv:
+            jn_intervals.intervals.append(TimeInterval(start_time=intv[0], duration=intv[1]))
+        jt_results.append(jn_intervals)
+
+    return jt_results
 
 
 if __name__ == "__main__":
@@ -90,9 +114,9 @@ if __name__ == "__main__":
             uncropped_width=uncropped_width,
             roster=roster,
         )
-        for st, jr in start_interval_and_jerseys:
-            start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
-            jersey_numbers = sorted(list(jr))
+        for interval_jerseys in start_interval_and_jerseys:
+            start_time_hhmmss = format_duration_to_hhmmss(interval_jerseys.start_time, decimals=0)
+            jersey_numbers = sorted(list(interval_jerseys.jersey_numbers))
             print(
                 f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
             )
@@ -106,13 +130,18 @@ if __name__ == "__main__":
             sf.write("set +x\n")
             sf.write("set +e\n")
             sf.write("\n")
-            player_intervals = merge_intervals(start_interval_and_jerseys)
-            for player, intervals in player_intervals.items():
+            player_intervals = interval_jerseys_to_merged_jersey_time_intervals(
+                start_interval_and_jerseys
+            )
+            for jersey_time_interval in player_intervals:
+                player = jersey_time_interval.jersey_number
                 print(f"Player: {player}")
                 player_file: str = f"player_{player}.txt"
                 player_file_path: str = os.path.join(game_dir, player_file)
                 with open(player_file_path, "w") as f:
-                    for i, (st, dur) in enumerate(intervals):
+                    for i, time_interval in enumerate(jersey_time_interval.intervals):
+                        st = time_interval.start_time
+                        dur = time_interval.duration
                         f.write(f"file '{input_file}'\n")
                         f.write(f"inpoint {st}\n")
                         if dur == float("inf"):
