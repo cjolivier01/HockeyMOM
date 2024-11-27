@@ -3,7 +3,7 @@ import json
 import math
 import os
 import traceback
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple, Union
 
@@ -26,6 +26,18 @@ from hmlib.utils.time import format_duration_to_hhmmss
 class IntervalJerseys:
     start_time: float = -1
     jersey_numbers: Set[int] = None
+
+
+@dataclass
+class TimeInterval:
+    start_time: float = None
+    duration: float = None
+
+
+@dataclass
+class JerseyTimeIntervals:
+    jersey_number: int = None
+    intervals: List[TimeInterval] = None
 
 
 def split_by_lg_10(numbers: List[int]) -> Tuple[List[int], List[int]]:
@@ -318,7 +330,7 @@ def analyze_data(
     # camera_tracking_item = next(camera_tracking_iter)
 
     max_frame_id = 0
-    max_frame_id = 10000
+    # max_frame_id = 10000
 
     try:
         last_frame_id = 0
@@ -597,3 +609,49 @@ def frames_to_seconds(
         start_s = start_frame / fps
         results.append((start_s, duration_s))
     return results
+
+
+def interval_jerseys_to_merged_jersey_time_intervals(
+    intervals: List[IntervalJerseys],
+) -> List[JerseyTimeIntervals]:
+    # Dictionary to store the merged intervals for each jersey number
+    jersey_times: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
+
+    # Process each interval
+    for i in range(len(intervals)):
+        interval_jerseys = intervals[i]
+        jerseys = intervals[i].jersey_numbers
+        end = float("inf") if i == len(intervals) - 1 else intervals[i + 1].start_time
+
+        for jersey in jerseys:
+            if (
+                not jersey_times[jersey]
+                or jersey_times[jersey][-1][1] < interval_jerseys.start_time
+            ):
+                # If no interval exists for this jersey, or there's no overlap
+                jersey_times[jersey].append([interval_jerseys.start_time, end])
+            else:
+                # Extend the current interval
+                jersey_times[jersey][-1][1] = end
+
+    # Convert list of intervals to (start, duration) format and prepare the result
+    result: Dict[int, List[Tuple[float, float]]] = {}
+    for jersey, times in jersey_times.items():
+        merged: List[Tuple[float, float]] = []
+        for time in times:
+            if merged and merged[-1][1] == time[0]:
+                # Merge with the previous interval
+                merged[-1] = (merged[-1][0], time[1] - merged[-1][0])
+            else:
+                # Append a new interval entry
+                merged.append((time[0], time[1] - time[0]))
+        result[jersey] = merged
+
+    jt_results: List[JerseyTimeIntervals] = []
+    for jn, jinv in result.items():
+        jn_intervals = JerseyTimeIntervals(jersey_number=jn, intervals=[])
+        for intv in jinv:
+            jn_intervals.intervals.append(TimeInterval(start_time=intv[0], duration=intv[1]))
+        jt_results.append(jn_intervals)
+
+    return jt_results
