@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Optional, Tuple, Union
 
 import cv2
@@ -9,10 +10,10 @@ from typeguard import typechecked
 
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, resize_image
-
-from .ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
+from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
 #
 # Live stream:
@@ -36,6 +37,7 @@ _FOURCC_TO_CODEC = {
 }
 
 MAX_VIDEO_WIDTH = 7680  # 8K is 7680 x 4320
+
 
 class VideoStreamWriterInterface:
     # TODO: Add the interface stubs
@@ -81,12 +83,15 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
         return resize_image(tensor, new_height=h, new_width=w)
     return tensor
 
-def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float):
+
+def yuv_to_bgr_float(
+    frames: torch.Tensor, dtype: torch.dtype = torch.float, non_blocking: bool = True
+):
     """
     Current HW decode returns only YUV
     """
     if not torch.is_floating_point(frames):
-        frames = frames.to(dtype, non_blocking=True)
+        frames = frames.to(dtype, non_blocking=non_blocking)
     y = frames[..., 0, :, :]
     u = frames[..., 1, :, :]
     v = frames[..., 2, :, :]
@@ -501,6 +506,7 @@ class VideoStreamReader:
     # type: str = "torchvision",
     # type: str = "cv2",
     # type: str = "ffmpeg",
+    # type: str = "gstreamer",
 
     def __init__(
         self,
@@ -823,7 +829,7 @@ def extract_frame_image(
 if __name__ == "__main__":
 
     reader = VideoStreamReader(
-        filename="/olivier-pool/Videos/ev-bs-short/GX010005.MP4",
+        filename=f"{os.environ['HOME']}/Videos/ev-bs-short/GX010005.MP4",
         type="torchaudio",
         device=torch.device("cuda", 0),
     )
