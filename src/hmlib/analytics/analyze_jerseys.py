@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
+from numba import jit
 
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
@@ -421,11 +422,12 @@ def analyze_data(
     show_time_intervals("Period breaks", merged_period_breaks)
 
     faceoff_intervals = {
-        "min_velocity": 0.3,
+        # "min_velocity": 0.3,
+        "min_velocity": 0.4,
         # "min_frames": 30,
         "min_frames": 20,
         # "min_slow_track_ratio": 0.7,
-        "min_slow_track_ratio": 0.6,
+        "min_slow_track_ratio": 0.8,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
     # print("Unmerged faceoff breaks:")
@@ -511,8 +513,6 @@ def calculate_start_time_jerseys(
                 else:
                     interval_jersey_numbers[interval_index].add(number)
 
-    # print(interval_jersey_numbers)
-
     start_time_jerseys: List[IntervalJerseys] = []
     for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
         start_time_jerseys.append(
@@ -576,7 +576,7 @@ def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
 def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> None:
     if intervals and label:
         print("---------------------------------------------")
-        print("- {label}")
+        print(f"- {label}")
         print("---------------------------------------------")
     for start_s, duration_s in intervals:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)

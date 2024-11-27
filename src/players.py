@@ -94,8 +94,9 @@ if __name__ == "__main__":
                 player_file_path: str = os.path.join(game_dir, player_file)
                 with open(player_file_path, "w") as f:
                     for i, time_interval in enumerate(jersey_time_interval.intervals):
-                        st = time_interval.start_time
-                        dur = time_interval.duration
+                        interval_start_adjust = -3.0
+                        st = time_interval.start_time + interval_start_adjust  # Go back 3 seconds
+                        dur = time_interval.duration - interval_start_adjust
                         f.write(f"file '{input_file}'\n")
                         f.write(f"inpoint {st}\n")
                         if dur == float("inf"):
