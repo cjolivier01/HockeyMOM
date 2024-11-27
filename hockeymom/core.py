@@ -15,7 +15,7 @@ from ._hockeymom import (
 )
 
 try:
-    from .hockeymom import EnBlender
+    from ._hockeymom import EnBlender
 except:
     EnBlender = None
 

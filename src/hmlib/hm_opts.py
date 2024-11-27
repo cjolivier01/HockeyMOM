@@ -136,6 +136,12 @@ class hm_opts(object):
             type=str,
             help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         )
+        parser.add_argument(
+            "--encoder-device",
+            default=None,
+            type=str,
+            help="Video stream encode device [cpu, cude, cuda:0, etc.]",
+        )
         # parser.add_argument(
         #     "--encoder",
         #     "--video-stream-encode-method",
