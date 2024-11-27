@@ -470,34 +470,21 @@ def analyze_data(
             frame_to_tracking_ids[frame_id].add(tracking_id)
     # print(frame_to_jersey_number)
 
-    start_time_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
+    period_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
+        start_time_to_jersey_set=merged_period_breaks,
+        frame_to_tracking_ids=frame_to_tracking_ids,
+        tracking_id_to_numbers=tracking_id_to_numbers,
+        fps=fps,
+    )
+
+    shift_jerseys: List[float, Set[int]] = calculate_start_time_jerseys(
         start_time_to_jersey_set=merged_faceoff_breaks,
         frame_to_tracking_ids=frame_to_tracking_ids,
         tracking_id_to_numbers=tracking_id_to_numbers,
         fps=fps,
     )
 
-    tracking_id_intervals: List[Set[int]] = _do_assign(
-        merged_faceoff_breaks, fps=fps, frame_to_tracking_ids=frame_to_tracking_ids
-    )
-    # start_times_s = [0.0] + [intvl[0] for intvl in merged_faceoff_breaks]
-    # interval_jersey_numbers: List[Set[int]] = [set() for _ in range(len(tracking_id_intervals))]
-    # for interval_index, interval_tracking_ids in enumerate(tracking_id_intervals):
-    #     for tid in interval_tracking_ids:
-    #         if tid in tracking_id_to_numbers:
-    #             number = tracking_id_to_numbers[tid]
-    #             if isinstance(number, (list, set)):
-    #                 for n in number:
-    #                     interval_jersey_numbers[interval_index].add(n)
-    #             else:
-    #                 interval_jersey_numbers[interval_index].add(number)
-
-    # # print(interval_jersey_numbers)
-
-    # start_time_jerseys: List[float, Set[int]] = []
-    # for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
-    #     start_time_jerseys.append((start_time, jersey_numbers))
-    return start_time_jerseys
+    return period_jerseys, shift_jerseys
 
 
 def calculate_start_time_jerseys(

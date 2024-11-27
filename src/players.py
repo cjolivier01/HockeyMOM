@@ -54,13 +54,21 @@ if __name__ == "__main__":
         player_tracking_data = load_player_tracking_data(game_id=args.game_id)
         camera_tracking_data = load_camera_tracking_data(game_id=args.game_id)
         roster = {29, 37, 40, 98, 73, 89, 54, 24, 79, 16, 27, 90, 57, 8, 96, 74}
-        start_interval_and_jerseys = analyze_data(
+        period_start_interval_and_jerseys, shift_start_interval_and_jerseys = analyze_data(
             player_tracking_data,
             camera_tracking_data,
             uncropped_width=uncropped_width,
             roster=roster,
         )
-        for interval_jerseys in start_interval_and_jerseys:
+
+        for interval_jerseys in period_start_interval_and_jerseys:
+            start_time_hhmmss = format_duration_to_hhmmss(interval_jerseys.start_time, decimals=0)
+            jersey_numbers = sorted(list(interval_jerseys.jersey_numbers))
+            print(
+                f"Period Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
+            )
+
+        for interval_jerseys in shift_start_interval_and_jerseys:
             start_time_hhmmss = format_duration_to_hhmmss(interval_jerseys.start_time, decimals=0)
             jersey_numbers = sorted(list(interval_jerseys.jersey_numbers))
             print(
@@ -76,10 +84,10 @@ if __name__ == "__main__":
             sf.write("set +x\n")
             sf.write("set +e\n")
             sf.write("\n")
-            player_intervals = interval_jerseys_to_merged_jersey_time_intervals(
-                start_interval_and_jerseys
+            player_shift_intervals = interval_jerseys_to_merged_jersey_time_intervals(
+                shift_start_interval_and_jerseys
             )
-            for jersey_time_interval in player_intervals:
+            for jersey_time_interval in player_shift_intervals:
                 player = jersey_time_interval.jersey_number
                 print(f"Player: {player}")
                 player_file: str = f"player_{player}.txt"
