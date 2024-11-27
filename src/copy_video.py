@@ -129,7 +129,6 @@ def copy_video(
     video_info = BasicVideoInfo(video_file)
 
     dataloader = MOTLoadVideoWithOrig(
-        img_size=None,
         path=video_file,
         original_image_only=True,
         start_frame_number=start_frame_number,
