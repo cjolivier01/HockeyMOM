@@ -1,0 +1,7 @@
+version: '3'
+services:
+  ssh_service:
+    build: .
+    ports:
+      - "2224:2224"
+    restart: always

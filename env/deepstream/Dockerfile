@@ -1,12 +1,93 @@
 FROM nvcr.io/nvidia/deepstream:7.1-triton-multiarch
 
-RUN apt-get install -y sudo nasm gnutls-dev libx264-dev ffmpeg aptitude
+ENV DEBIAN_FRONTEND=noninteractive
+
 
 ARG USERNAME
 ARG UID
 ARG GID
 
 ENV SHELL=/bin/bash
+
+RUN apt-get update
+RUN apt-get install -y \
+  sudo \
+  nasm \
+  gnutls-dev \
+  libx264-dev \
+  x264 \
+  aptitude \
+  libvpx-dev \
+  libffmpeg-nvenc-dev
+# RUN apt-get clean
+
+# why is this necessary?
+RUN apt-get install -y --reinstall libx264-dev libx264-163 x264
+
+####################################################################
+#
+#
+# Build packages
+#
+#
+####################################################################
+
+####################################################################
+#
+# FFMPeg
+#
+####################################################################
+USER root
+# RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
+# WORKDIR /home/$USERNAME/src
+# RUN rm -rf nv-codec-headers
+
+WORKDIR /root
+RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg && cd ffmpeg && git checkout n5.1.4
+
+# Configure FFmpeg with the desired codecs and options
+WORKDIR /root/ffmpeg
+RUN ./configure \
+  --prefix="/usr/local" \
+  --extra-cflags='-I/usr/local/cuda/include' \
+  --extra-ldflags='-L/usr/local/cuda/lib64' \
+  --disable-doc \
+  --enable-decoder=aac \
+  --enable-decoder=h264 \
+  --enable-decoder=h264_cuvid \
+  --enable-decoder=hevc_cuvid \
+  --enable-decoder=av1_cuvid \
+  --enable-decoder=rawvideo \
+  --enable-indev=lavfi \
+  --enable-encoder=libx264 \
+  --enable-encoder=h264_nvenc \
+  --enable-encoder=hevc_nvenc \
+  --enable-encoder=av1_nvenc \
+  --enable-demuxer=mov \
+  --enable-muxer=mp4 \
+  --enable-filter=scale \
+  --enable-filter=testsrc2 \
+  --enable-protocol=file \
+  --enable-protocol=https \
+  --enable-gnutls \
+  --enable-shared \
+  --enable-gpl \
+  --enable-nonfree \
+  --enable-cuda-nvcc \
+  --enable-libx264 \
+  --enable-libnpp \
+  --enable-nvenc \
+  --enable-cuvid \
+  --enable-nvdec \
+  --enable-pic \
+  --enable-rpath \
+  --extra-cflags=-I/usr/local/cuda/include \
+  --extra-ldflags=-L/usr/local/cuda/lib64 \
+  && make -j$(nproc)
+
+RUN make -j $(nproc) install
+RUN rm -rf ffmpeg
+
 
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
@@ -25,8 +106,8 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 
-EXPOSE 22298
+EXPOSE 2224
 
 # Start the SSH daemon
-# CMD ["/usr/sbin/sshd", "-d", "-p", "22298"]
-CMD ["/bin/bash"]
+CMD ["/usr/sbin/sshd", "-d", "-p", "2224"]
+# CMD ["/bin/bash"]

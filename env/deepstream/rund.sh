@@ -2,7 +2,7 @@
 
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
 
-source ${SCRIPT_DIR}/tools.sh
+source ${SCRIPT_DIR}/../tools.sh
 
 DOCKER_OPTS=""
 
@@ -11,6 +11,8 @@ if [ ! -z "${DOCKER_TAG}" ]; then
   DOCKER_OPTS="${DOCKER_TAG}"
   echo "DOCKER_TAG=${DOCKER_TAG}"
 fi
+
+# -v /etc/sudoers:/etc/sudoers:ro
 
 docker run --gpus all --privileged --user=$(id -u):$(id -g) -d \
   --memory 32g \
@@ -21,5 +23,4 @@ docker run --gpus all --privileged --user=$(id -u):$(id -g) -d \
   -v /etc/group:/etc/group:ro \
   -v /etc/shadow:/etc/shadow:ro \
   -v /etc/gshadow:/etc/gshadow:ro \
-  -v /etc/sudoers:/etc/sudoers:ro \
   --workdir=${HOME} $@ ${DOCKER_OPTS}
