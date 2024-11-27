@@ -422,8 +422,8 @@ def analyze_data(
     show_time_intervals("Period breaks", merged_period_breaks)
 
     faceoff_intervals = {
-        # "min_velocity": 0.3,
-        "min_velocity": 0.4,
+        "min_velocity": 0.3,
+        # "min_velocity": 0.4,
         # "min_frames": 30,
         "min_frames": 20,
         # "min_slow_track_ratio": 0.7,
