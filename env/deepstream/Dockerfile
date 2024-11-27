@@ -1,6 +1,6 @@
 FROM nvcr.io/nvidia/deepstream:7.1-triton-multiarch
 
-RUN apt-get install -y sudo
+RUN apt-get install -y sudo nasm gnutls-dev libx264-dev ffmpeg aptitude
 
 ARG USERNAME
 ARG UID
