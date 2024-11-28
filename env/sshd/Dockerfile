@@ -2,7 +2,8 @@
 # Simple sshd container example (for troubleshooting)
 #
 # Use an official Ubuntu image as the base
-FROM ubuntu:latest
+# FROM ubuntu:latest
+FROM nvcr.io/nvidia/deepstream:7.1-triton-multiarch
 
 # Install OpenSSH server
 RUN apt-get update && apt-get install -y openssh-server

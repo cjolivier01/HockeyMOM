@@ -88,11 +88,22 @@ RUN ./configure \
 RUN make -j $(nproc) install
 RUN rm -rf ffmpeg
 
+RUN apt-get install -y openssh-server
 
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
 RUN echo '%sudo   ALL=(ALL:ALL) ALL' >> /etc/sudoers
 RUN echo "$USERNAME ALL=(ALL:ALL) ALL" >> /etc/sudoers
+
+# Create the SSH directory and set up a basic configuration
+RUN mkdir /var/run/sshd
+
+# Set the root password (for demo purposes, use a secure password in production)
+RUN echo 'root:password' | chpasswd
+
+# Allow root login via SSH (for demo purposes)
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
 # RUN cat /etc/sudoers
 # RUN usermod -aG sudo $USERNAME
 
@@ -106,8 +117,9 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 
-EXPOSE 2224
+EXPOSE 22299
 
 # Start the SSH daemon
-CMD ["/usr/sbin/sshd", "-d", "-p", "2224"]
-# CMD ["/bin/bash"]
+USER root
+#CMD ["/usr/sbin/sshd", "-d", "-p", "22299"]
+CMD ["/bin/bash"]
