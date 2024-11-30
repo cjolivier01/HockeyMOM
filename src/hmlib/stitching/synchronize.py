@@ -149,7 +149,8 @@ if __name__ == "__main__":
     # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     opts = hm_opts()
     args = opts.parse()
+    args.game_id = "ev-ducks-bb"
     synchronize_by_audio(
-        file0_path=f"{os.environ['HOME']}/Videos/{args.game_id}/left.mp4",
-        file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/right.mp4",
+        file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/GX010092.MP4",
+        file2_path=f"{os.environ['HOME']}/Videos/{args.game_id}/GX010011.MP4",
     )
