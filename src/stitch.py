@@ -38,6 +38,12 @@ def make_parser():
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
     parser.add_argument(
+        "--single-file",
+        default=0,
+        type=int,
+        help="Only use a single video file from each perspective",
+    )
+    parser.add_argument(
         "--multi-gpu",
         action="store_true",
         help="Use multiple GPUs (probably slower, but if memory issues)",
@@ -268,7 +274,16 @@ def stitch_videos(
 
 
 def main(args):
-    game_videos = configure_game_videos(game_id=args.game_id, force=args.force)
+    game_videos = configure_game_videos(
+        game_id=args.game_id,
+        write_results=not args.single_file,
+        force=args.force,
+    )
+    if args.single_file:
+        if "left" in game_videos and game_videos["left"]:
+            game_videos["left"] = game_videos["left"][:1]
+        if "right" in game_videos and game_videos["right"]:
+            game_videos["right"] = game_videos["right"][:1]
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
