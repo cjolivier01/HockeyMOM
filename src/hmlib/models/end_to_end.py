@@ -66,16 +66,22 @@ class HmEndToEnd(ByteTrack):
         if self._cpp_bytetrack:
             config = HmByteTrackConfig()
             config.init_track_thr = 0.7
+
+            #
+            # Low threshold Needs to be low in case through glass/poles
+            #
             # config.obj_score_thrs_low=0.05,
-            # config.obj_score_thrs_low = 0.1
-            config.obj_score_thrs_low = 0.3
-            # config.obj_score_thrs_high=0.6,
-            config.obj_score_thrs_high = 0.5
+            config.obj_score_thrs_low = 0.1
+            # config.obj_score_thrs_low = 0.3
+            # config.obj_score_thrs_high = 0.6
+            # config.obj_score_thrs_high = 0.5
+            config.obj_score_thrs_high = 0.3
+
             config.match_iou_thrs_high = 0.1
             config.match_iou_thrs_low = 0.5
             config.match_iou_thrs_tentative = 0.3
             config.track_buffer_size = 60
-            config.return_user_ids = True
+            config.return_user_ids = False
             config.return_track_age = False
             config.prediction_mode = HmTrackerPredictionMode.BoundingBox
 
