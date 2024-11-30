@@ -294,8 +294,8 @@ def configure_game_videos(
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
     # Make sure they both have the same chapters
-    assert videos_dict["left"].keys() == videos_dict["right"].keys()
     if write_results:
+        assert videos_dict["left"].keys() == videos_dict["right"].keys()
         set_nested_value(private_config, "game.videos.left", [Path(p).name for p in left_list])
         set_nested_value(private_config, "game.videos.right", [Path(p).name for p in right_list])
         save_private_config(game_id=game_id, data=private_config)
