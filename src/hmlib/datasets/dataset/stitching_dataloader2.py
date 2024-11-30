@@ -384,6 +384,7 @@ class StitchDataset:
         # We assume 0 is left, 1 is right, so we chop right 1/4 of
         # left image and left 1/4 of right image for the exposure comparison
         if self._exposure_adjustment is None:
+            torch.cuda.synchronize()
             self._exposure_adjustment = []
             # self._exposure_adjustment: List[float] = None
             # TODO: would be good to only check the rink segmentation area

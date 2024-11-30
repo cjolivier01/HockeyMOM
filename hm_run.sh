@@ -13,6 +13,7 @@
 
 #STITCHING_ARGS="--save-stitched"
 #SAVE_DATA_ARGS="--save-tracking-data --save-camera-data"
+#EXPOSURE="--stitch-auto-adjust-exposure"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -25,6 +26,6 @@ OMP_NUM_THREADS=16 \
   PYTHONPATH="$(pwd)/build:$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
   ${SAVE_DATA_ARGS} \
-  --stitch-auto-adjust-exposure \
+  ${EXPOSURE} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@
