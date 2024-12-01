@@ -341,6 +341,8 @@ def remap_video(
     remapper.init(batch_size=batch_size)
     remapper.to(device=device)
 
+    remapper = torch.jit.trace(remapper)
+
     timer = Timer()
     frame_count = 0
     while True:
