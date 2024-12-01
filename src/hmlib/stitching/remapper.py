@@ -236,7 +236,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         return super().to(device)
 
     @torch.jit.script_method
-    def forward(self, source_image: torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         assert self._initialized
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
