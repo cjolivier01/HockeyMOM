@@ -104,7 +104,6 @@ class ImageRemapper(torch.jit.ScriptModule):
         remap_info: RemapImageInfoEx = None,
         interpolation: str = None,
         channels: int = 3,
-        add_alpha_channel: bool = False,
         use_cpp_remap_op: bool = False,
         debug: bool = False,
         batch_size: Optional[int] = None,
@@ -118,7 +117,6 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._interpolation = interpolation
         self._source_hw = source_hw
         self._channels = channels
-        self._add_alpha_channel = add_alpha_channel
         self._alpha_channel = None
         self._grid = None
         self._initialized = False
@@ -175,7 +173,6 @@ class ImageRemapper(torch.jit.ScriptModule):
                 col_map=col_map,
                 row_map=row_map,
                 dtype=torch.float32,
-                add_alpha_channel=self._add_alpha_channel,
                 interpolation=self._interpolation,
             )
             self._remap_op.init(batch_size=batch_size)
@@ -229,15 +226,6 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._row_map = row_map.contiguous()
             self._mask = mask.contiguous()
 
-            if self._add_alpha_channel:
-                # Set up the alpha channel
-                self._alpha_channel = torch.empty(
-                    size=(batch_size, 1, self._working_h, self._working_w),
-                    dtype=torch.uint8,
-                )
-                self._alpha_channel.fill_(255)
-                self._alpha_channel[:, :, self._mask] = 0
-
         # Done.
         self._initialized = True
 
@@ -261,8 +249,6 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._mask = self._mask.to(dev)
             if self._grid is not None:
                 self._grid = self._grid.to(dev)
-            if self._add_alpha_channel:
-                self._alpha_channel = self._alpha_channel.to(dev)
 
     @torch.jit.script_method
     def forward(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -272,9 +258,6 @@ class ImageRemapper(torch.jit.ScriptModule):
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
             source_image = torch.from_numpy(source_image)
-
-        # if source_image.device != self.device:
-        #     source_image = source_image.to(self.device)
 
         if self._use_cpp_remap_op:
             assert self._remap_op is not None
@@ -286,8 +269,9 @@ class ImageRemapper(torch.jit.ScriptModule):
         )
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 3:  # Single channel
-            destination_tensor[:] = source_tensor[:, self._row_map, self._col_map]
-        elif len(source_tensor.shape) == 4:  # Multiple channels
+            destination_tensor = source_tensor[:, self._row_map, self._col_map]
+        else:  # Multiple channels
+            assert len(source_tensor.shape) == 4
             if not self._interpolation:
                 destination_tensor = torch.empty_like(source_tensor)
                 destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
@@ -302,10 +286,6 @@ class ImageRemapper(torch.jit.ScriptModule):
                 )
                 destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
         destination_tensor[:, :, self._mask] = 0
-
-        # Add an alpha channel if necessary
-        if self._add_alpha_channel:
-            destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
 
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
@@ -343,7 +323,7 @@ def remap_video(
     frame_count = 0
     while True:
         with torch.no_grad():
-            destination_tensor = remapper(dict(img=source_tensor))
+            destination_tensor = remapper(dict(img=source_tensor))["img"]
             destination_tensor = destination_tensor.detach().contiguous().cpu()
 
         frame_count += 1

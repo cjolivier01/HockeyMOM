@@ -464,7 +464,28 @@ def image_width(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
     return img.shape[1]
 
 
-def image_height(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
+def jittable_image_width(img: torch.Tensor) -> int:
+    if img.ndim == 2:
+        return img.shape[1]
+    assert isinstance(img, torch.Tensor)
+    if img.ndim == 4:
+        if img.shape[-1] in [1, 3, 4]:
+            return img.shape[-2]
+        else:
+            assert img.shape[1] in [1, 3, 4]
+            return img.shape[-1]
+    elif img.ndim == 2:
+        return img.shape[1]
+    else:
+        assert img.ndim == 3
+        if img.shape[-1] in [1, 3, 4]:
+            return img.shape[-2]
+        else:
+            assert img.shape[0] in [1, 3, 4]
+            return img.shape[-1]
+
+
+def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
     if img.ndim == 2:
         return img.shape[0]
     if isinstance(img, (torch.Tensor, StreamTensor)):
@@ -487,6 +508,27 @@ def image_height(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
     if len(img.shape) == 4:
         return img.shape[1]
     return img.shape[0]
+
+
+def jittable_image_height(img: torch.Tensor) -> int:
+    if img.ndim == 2:
+        return img.shape[0]
+    assert isinstance(img, torch.Tensor)
+    if img.ndim == 4:
+        if img.shape[-1] in [1, 3, 4]:
+            return img.shape[-3]
+        else:
+            assert img.shape[1] in [1, 3, 4]
+            return img.shape[-2]
+    elif img.ndim == 2:
+        return img.shape[0]
+    else:
+        assert img.ndim == 3
+        if img.shape[-1] in [1, 3, 4]:
+            return img.shape[-3]
+        else:
+            assert img.shape[0] in [1, 3, 4]
+            return img.shape[-2]
 
 
 def crop_image(img, left, top, right, bottom):
@@ -618,9 +660,11 @@ def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
     return padded_tensor
 
 
-def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
-    pad_height = target_height - image_height(tensor)
-    pad_width = target_width - image_width(tensor)
+def pad_tensor_to_size_batched(
+    tensor: torch.Tensor, target_width: int, target_height: int, pad_value: Union[int, float]
+) -> torch.Tensor:
+    pad_height = target_height - jittable_image_height(tensor)
+    pad_width = target_width - jittable_image_width(tensor)
     pad_height = max(0, pad_height)
     pad_width = max(0, pad_width)
     if pad_height == 0 and pad_height == 0:
@@ -629,7 +673,7 @@ def pad_tensor_to_size_batched(tensor, target_width, target_height, pad_value):
     if pad_value is None:
         padded_tensor = TF.pad(tensor, padding, "replicate")
     else:
-        padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
+        padded_tensor = TF.pad(tensor, padding, "constant", float(pad_value))
     return padded_tensor
 
 
