@@ -164,6 +164,8 @@ class ImageRemapper(torch.jit.ScriptModule):
                 col_map=col_map,
                 row_map=row_map,
                 dtype=torch.float32,
+                add_alpha_channel=False,
+                pad_value=0,
                 interpolation=self._interpolation,
             )
             self._remap_op.init(batch_size=batch_size)
@@ -233,13 +235,14 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device)
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         assert self._initialized
         source_image: torch.Tensor = data["img"]
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
+            assert False
             source_image = torch.from_numpy(source_image)
 
         if self._use_cpp_remap_op:
@@ -300,6 +303,7 @@ def remap_video(
         channels=source_tensor.shape[1],
         interpolation=interpolation,
         batch_size=batch_size,
+        use_cpp_remap_op=False,
     )
     remapper.to(device=device)
 
@@ -341,7 +345,7 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",
-        show=True,
+        show=False,
         device=torch.device("cuda", 0),
     )
 
