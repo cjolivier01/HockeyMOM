@@ -27,6 +27,7 @@ ROOT_DIR = os.getcwd()
 
 logger = get_root_logger()
 
+
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
     return parser
@@ -116,9 +117,6 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._basename = basename
         self._interpolation = interpolation
         self._source_hw = source_hw
-        self._channels = channels
-        self._alpha_channel = None
-        self._grid = None
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
@@ -126,18 +124,11 @@ class ImageRemapper(torch.jit.ScriptModule):
         self.xpos, self.ypos = None, None
         self._dest_w, self._dest_h = None, None
         self._working_w, self._working_h = None, None
-        self._col_map, self._row_map, self._mask = None, None, None
         self._batch_size = batch_size
         if self._remap_info is not None and not self._source_hw:
             self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
         if self._batch_size is not None:
             self.init(batch_size=self._batch_size)
-
-    # @property
-    # def device(self) -> torch.device:
-    #     elif self._remap_op is not None:
-    #         return self._remap_op_device
-    #     return self._mask.device
 
     def init(self, batch_size: int):
         if self._remap_info is not None:
@@ -183,7 +174,6 @@ class ImageRemapper(torch.jit.ScriptModule):
 
             self._working_w = max(src_w, self._dest_w)
             self._working_h = max(src_h, self._dest_h)
-            # print(f"Padding tensors to size w={self._working_w}, h={self._working_h}")
 
             col_map = pad_tensor_to_size_batched(
                 col_map.unsqueeze(0),
@@ -217,14 +207,12 @@ class ImageRemapper(torch.jit.ScriptModule):
 
                 # Create the grid for grid_sample
                 grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
-                self._grid = grid.expand((batch_size, *grid.shape))
+                grid = grid.expand((batch_size, *grid.shape))
+                self.register_buffer("_grid", grid.contiguous())
 
-            # Give the mask a channel dimension if necessary
-            # mask = mask.expand((self._channels, self._working_h, self._working_w))
-
-            self._col_map = col_map.contiguous()
-            self._row_map = row_map.contiguous()
-            self._mask = mask.contiguous()
+            self.register_buffer("_col_map", col_map.contiguous())
+            self.register_buffer("_row_map", row_map.contiguous())
+            self.register_buffer("_mask", mask.contiguous())
 
         # Done.
         self._initialized = True
@@ -243,14 +231,9 @@ class ImageRemapper(torch.jit.ScriptModule):
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
             self._remap_op.to(dev)
-        else:
-            self._col_map = self._col_map.to(dev)
-            self._row_map = self._row_map.to(dev)
-            self._mask = self._mask.to(dev)
-            if self._grid is not None:
-                self._grid = self._grid.to(dev)
+        return super().to(device)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         assert self._initialized
         source_image: torch.Tensor = data["img"]
@@ -308,6 +291,7 @@ def remap_video(
         raise AssertionError(f"Could not open video file: {os.path.join(dir_name, video_file)}")
     video_iter = iter(cap)
     source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
+    source_tensor = source_tensor.to(device)
 
     remapper = ImageRemapper(
         dir_name=dir_name,
@@ -346,6 +330,7 @@ def remap_video(
                 cv2.waitKey(1)
 
         source_tensor = read_frame_batch(video_iter, batch_size=batch_size)
+        source_tensor = source_tensor.to(device, non_blocking=True)
         timer.tic()
 
 
@@ -356,8 +341,8 @@ def main(args):
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",
-        show=False,
-        device=torch.device("cpu"),
+        show=True,
+        device=torch.device("cuda", 0),
     )
 
 
