@@ -495,7 +495,7 @@ def get_canvas_info(
     )
 
 
-class SmartRemapperBlender:
+class SmartRemapperBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -512,6 +512,7 @@ class SmartRemapperBlender:
         xor_mask_tensor: torch.Tensor | None,
         device: torch.device,
     ) -> None:
+        super().__init__()
         self._remapper_1 = remapper_1
         self._remapper_2 = remapper_2
         self._use_python_blender = use_python_blender
@@ -531,9 +532,10 @@ class SmartRemapperBlender:
         self._device = device
         self._overlapping_width = None
         self._empty_image_pixel_value: int = 0
-        self._seam_tensor = self.convert_mask_tensor(seam_tensor)
-        self._xor_mask_tensor = self.convert_mask_tensor(
-            xor_mask_tensor if xor_mask_tensor is not None else None
+        self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
+        self.register_buffer(
+            "_xor_mask_tensor",
+            self.convert_mask_tensor(xor_mask_tensor if xor_mask_tensor is not None else None),
         )
         self._init()
 
@@ -616,9 +618,6 @@ class SmartRemapperBlender:
             - self._overlap_pad : self._remapper_1.width
             + self._overlap_pad,
         ]
-
-    # @property
-    # def blending_width(self, image: int) -> int:
 
     def draw(self, image: torch.Tensor) -> torch.Tensor:
         # left box
@@ -782,20 +781,16 @@ class ImageStitcher(torch.nn.Module):
         )
         self.to(device=self._device)
 
-    def to(self, *args, device: torch.device, non_blocking: bool = False):
+    def to(self, *args, device: torch.device, **kwargs):
         assert isinstance(device, (torch.device, str))
-        super().to(device=device, non_blocking=non_blocking)
         self._remapper_1.to(device=device)
         self._remapper_2.to(device=device)
-        return self
+        self._smart_remapper_blender.to(device=device)
+        return super().to(device, **kwargs)
 
-    def forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
-        remapped_tensor_1 = self._remapper_1.forward(source_image=image_1).to(
-            device=self._device, non_blocking=True
-        )
-        remapped_tensor_2 = self._remapper_2.forward(source_image=image_2).to(
-            device=self._device, non_blocking=True
-        )
+    def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        remapped_tensor_1 = self._remapper_1.forward(source_image=inputs[0])
+        remapped_tensor_2 = self._remapper_2.forward(source_image=inputs[1])
 
         return self._smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
 
@@ -982,7 +977,12 @@ def blend_video(
     frame_id = start_frame_number
     try:
         while True:
-            blended = stitcher.forward(source_tensor_1, source_tensor_2)
+            if isinstance(source_tensor_1, np.ndarray):
+                source_tensor_1 = torch.from_numpy(source_tensor_1).to(device, non_blocking=True)
+            if isinstance(source_tensor_2, np.ndarray):
+                source_tensor_2 = torch.from_numpy(source_tensor_2).to(device, non_blocking=True)
+
+            blended = stitcher.forward(inputs=(source_tensor_1, source_tensor_2))
 
             if output_video:
                 if video_out is None:
@@ -1075,8 +1075,8 @@ def main(args):
     with torch.no_grad():
         blend_video(
             opts,
-            video_file_1="GX010087.mp4",
-            video_file_2="GX010003.mp4",
+            video_file_1="GX010094.MP4",
+            video_file_2="GX010013.MP4",
             dir_name=args.video_dir,
             lfo=args.lfo,
             rfo=args.rfo,

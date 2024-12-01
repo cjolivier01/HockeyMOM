@@ -1032,15 +1032,6 @@ def stitch_video(
                             )
                         )
                         frame_ids = frame_ids + batch_size
-                        # for i in range(len(my_blended)):
-                        #     video_out.append(
-                        #         ImageProcData(
-                        #             frame_id=frame_ids,
-                        #             img=my_blended[i],
-                        #             current_box=None,
-                        #         )
-                        #     )
-                        #     frame_ids += 1
                     del my_blended
 
                 if batch_count:
