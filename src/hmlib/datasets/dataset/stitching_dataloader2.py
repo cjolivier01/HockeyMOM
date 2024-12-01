@@ -395,7 +395,7 @@ class StitchDataset:
             for i, img in enumerate(images):
                 img = make_channels_first(img)
                 w = int(image_width(img))
-                slice_w = w
+                slice_w = w // 6
                 if i == 0:
                     # Left image
                     img = img[:, :, :, w - slice_w :]
