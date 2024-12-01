@@ -475,7 +475,11 @@ def confgure_ice_rink_mask(
     assert model_checkpoint
     # TODO: Should prioritize passed-in image over s.png and then make
     # sure everything is the expected size within the config
-    image_file = Path(get_game_dir(game_id=game_id)) / "s.png"
+    game_dir = get_game_dir(game_id=game_id)
+    if not game_dir:
+        raise AttributeError(f"Could not determine game dir for game_id={game_id}")
+    image_file: Path = Path(game_dir) / "s.png"
+    image_frame: Optional[torch.Tensor] = None
     if not image_file.exists():
         if image is None:
             raise AttributeError(f"Could not find stitched frame image: {image_file}")
