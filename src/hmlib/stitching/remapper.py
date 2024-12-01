@@ -236,9 +236,8 @@ class ImageRemapper(torch.jit.ScriptModule):
         return super().to(device)
 
     @torch.jit.script_method
-    def forward(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, source_image: torch.Tensor]) -> Dict[str, torch.Tensor]:
         assert self._initialized
-        source_image: torch.Tensor = data["img"]
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
@@ -275,8 +274,7 @@ class ImageRemapper(torch.jit.ScriptModule):
 
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
-        data["img"] = destination_tensor
-        return data
+        return destination_tensor
 
 
 def remap_video(
@@ -311,7 +309,7 @@ def remap_video(
     frame_count = 0
     while True:
         with torch.no_grad():
-            destination_tensor = remapper(dict(img=source_tensor))["img"]
+            destination_tensor = remapper(source_tensor)
             destination_tensor = destination_tensor.detach().contiguous().cpu()
 
         frame_count += 1
