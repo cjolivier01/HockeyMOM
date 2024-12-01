@@ -7,6 +7,7 @@ import copy
 import datetime
 import logging
 import os
+import traceback
 from dataclasses import dataclass
 from typing import List, Tuple, Union
 
@@ -1097,5 +1098,8 @@ def main(args):
 
 if __name__ == "__main__":
     args = make_parser().parse_args()
-    main(args)
-    print("Done.")
+    try:
+        main(args)
+        print("Done.")
+    except:
+        traceback.print_exc()

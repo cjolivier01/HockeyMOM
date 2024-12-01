@@ -5,7 +5,7 @@ which is usual;;ly base dupon some homography matrix)
 
 import argparse
 import os
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
+from hmlib.log import get_root_logger
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.image import (
@@ -24,6 +25,7 @@ from hmlib.video.video_stream import VideoStreamReader
 
 ROOT_DIR = os.getcwd()
 
+logger = get_root_logger()
 
 def make_parser():
     parser = argparse.ArgumentParser("Image Remapper")
@@ -91,7 +93,7 @@ class RemapImageInfoEx(core.RemapImageInfo):
         self.ypos: int = ypos
 
 
-class ImageRemapper:
+class ImageRemapper(torch.jit.ScriptModule):
     UNMAPPED_PIXEL_VALUE = 65535
 
     def __init__(
@@ -103,10 +105,11 @@ class ImageRemapper:
         interpolation: str = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
-        fake_remapping: bool = False,
         use_cpp_remap_op: bool = False,
         debug: bool = False,
+        batch_size: Optional[int] = None,
     ):
+        super().__init__()
         assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
         self._debug = debug
@@ -118,7 +121,6 @@ class ImageRemapper:
         self._add_alpha_channel = add_alpha_channel
         self._alpha_channel = None
         self._grid = None
-        self._fake_remapping = fake_remapping
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
@@ -127,16 +129,17 @@ class ImageRemapper:
         self._dest_w, self._dest_h = None, None
         self._working_w, self._working_h = None, None
         self._col_map, self._row_map, self._mask = None, None, None
+        self._batch_size = batch_size
         if self._remap_info is not None and not self._source_hw:
             self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
+        if self._batch_size is not None:
+            self.init(batch_size=self._batch_size)
 
-    @property
-    def device(self):
-        if self._fake_remapping:
-            return "cpu"
-        elif self._remap_op is not None:
-            return self._remap_op_device
-        return self._mask.device
+    # @property
+    # def device(self) -> torch.device:
+    #     elif self._remap_op is not None:
+    #         return self._remap_op_device
+    #     return self._mask.device
 
     def init(self, batch_size: int):
         if self._remap_info is not None:
@@ -161,10 +164,6 @@ class ImageRemapper:
                 raise AssertionError(f"Could not read mapping file: {y_file}")
             col_map = torch.from_numpy(x_map.astype(np.int64))
             row_map = torch.from_numpy(y_map.astype(np.int64))
-
-        if self._fake_remapping:
-            self._initialized = True
-            return
 
         src_w = self._source_hw[1]
         src_h = self._source_hw[0]
@@ -252,8 +251,6 @@ class ImageRemapper:
         return self._dest_h
 
     def to(self, device: torch.device):
-        if self._fake_remapping:
-            return
         dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
@@ -267,17 +264,17 @@ class ImageRemapper:
             if self._add_alpha_channel:
                 self._alpha_channel = self._alpha_channel.to(dev)
 
-    def forward(self, source_image: torch.tensor):
+    @torch.jit.script_method
+    def forward(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         assert self._initialized
+        source_image: torch.Tensor = data["img"]
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
         if not isinstance(source_image, torch.Tensor):
             source_image = torch.from_numpy(source_image)
-        if self._fake_remapping:
-            return source_image.clone()
 
-        if source_image.device != self.device:
-            source_image = source_image.to(self.device)
+        # if source_image.device != self.device:
+        #     source_image = source_image.to(self.device)
 
         if self._use_cpp_remap_op:
             assert self._remap_op is not None
@@ -312,7 +309,8 @@ class ImageRemapper:
 
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
-        return destination_tensor
+        data["img"] = destination_tensor
+        return data
 
 
 def remap_video(
@@ -337,17 +335,16 @@ def remap_video(
         source_hw=source_tensor.shape[-2:],
         channels=source_tensor.shape[1],
         interpolation=interpolation,
+        batch_size=batch_size,
     )
-    remapper.init(batch_size=batch_size)
     remapper.to(device=device)
-
-    remapper = torch.jit.trace(remapper)
 
     timer = Timer()
     frame_count = 0
     while True:
-        destination_tensor = remapper.forward(source_image=source_tensor)
-        destination_tensor = destination_tensor.detach().contiguous().cpu()
+        with torch.no_grad():
+            destination_tensor = remapper(dict(img=source_tensor))
+            destination_tensor = destination_tensor.detach().contiguous().cpu()
 
         frame_count += 1
         if frame_count != 1:
@@ -375,11 +372,11 @@ def remap_video(
 def main(args):
     remap_video(
         args,
-        "left.mp4",
+        "GX010094.MP4",
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",
-        show=True,
+        show=False,
         device=torch.device("cpu"),
     )
 
@@ -388,6 +385,9 @@ if __name__ == "__main__":
     from hmlib.hm_opts import hm_opts
 
     args = hm_opts.parser(make_parser()).parse_args()
+
+    if not args.video_dir:
+        args.video_dir = "/mnt/ripper-data/Videos/ev-stockton-ss"
 
     main(args)
     print("Done.")

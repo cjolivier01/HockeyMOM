@@ -213,7 +213,7 @@ def copy_video(
                 source_tensor, _, _, _, frame_ids = next(v_iter)
                 io_timer.toc()
 
-                torch.cuda.synchronize()
+                # torch.cuda.synchronize()
 
                 get_timer.tic()
                 if isinstance(source_tensor, StreamTensor):
