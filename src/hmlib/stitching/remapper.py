@@ -228,12 +228,12 @@ class ImageRemapper(torch.jit.ScriptModule):
     def height(self):
         return self._dest_h
 
-    def to(self, device: torch.device):
+    def to(self, device: torch.device, **kwargs):
         dev = device
         if self._use_cpp_remap_op:
             self._remap_op_device = dev
             self._remap_op.to(dev)
-        return super().to(device)
+        return super().to(device, **kwargs)
 
     @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:

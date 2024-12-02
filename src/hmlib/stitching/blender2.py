@@ -77,9 +77,11 @@ def make_parser():
 @dataclass
 class BlendImageInfo:
 
-    def __init__(self, xpos: int, ypos: int):
-        self.xpos = xpos
-        self.ypos = ypos
+    def __init__(self, remapped_width: int, remapped_height: int, xpos: int, ypos: int):
+        self.remapped_width: int = remapped_width
+        self.remapped_height: int = remapped_height
+        self.xpos: int = xpos
+        self.ypos: int = ypos
 
 
 @dataclass
@@ -90,7 +92,7 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-class PtImageBlender:
+class PtImageBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -101,20 +103,21 @@ class PtImageBlender:
         max_levels: int = 6,
         dtype: torch.dtype = torch.float,
     ):
+        super().__init__()
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
-        self._dtype = dtype
-        self.max_levels = max_levels
+        self._dtype: torch.dtype = dtype
+        self.max_levels: int = max_levels
         if laplacian_blend:
-            self._laplacian_blend = LaplacianBlend(
+            self._laplacian_blend: bool = LaplacianBlend(
                 max_levels=self.max_levels,
                 channels=3,
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
             )
         else:
-            self._laplacian_blend = None
+            self._laplacian_blend: bool = None
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
         assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
 
@@ -139,6 +142,104 @@ class PtImageBlender:
     ):
         return self._forward(image_1, image_2)
 
+    # def _make_full(img_1, img_2, level):
+    #     ainfo_1 = level_ainfo_1[level]
+    #     ainfo_2 = level_ainfo_2[level]
+
+    #     h1 = ainfo_1[H1]
+    #     w1 = ainfo_1[W1]
+    #     x1 = ainfo_1[X1]
+    #     y1 = ainfo_1[Y1]
+    #     h2 = ainfo_2[H2]
+    #     w2 = ainfo_2[W2]
+    #     x2 = ainfo_2[X2]
+    #     y2 = ainfo_2[Y2]
+
+    #     # If these hit, you may have not passed "-s" to autotoptimiser
+    #     assert x1 == 0 or x2 == 0  # for now this is the case
+    #     assert y1 == 0 or y2 == 0  # for now this is the case
+
+    #     canvas_dims = level_canvas_dims[level]
+
+    #     full_left = torch.nn.functional.pad(
+    #         img_1,
+    #         (
+    #             x1,
+    #             canvas_dims[1] - x1 - w1,
+    #             y1,
+    #             canvas_dims[0] - y1 - h1,
+    #         ),
+    #         mode="constant",
+    #     )
+
+    #     full_right = torch.nn.functional.pad(
+    #         img_2,
+    #         (
+    #             x2,
+    #             canvas_dims[1] - x2 - w2,
+    #             y2,
+    #             canvas_dims[0] - y2 - h2,
+    #         ),
+    #         mode="constant",
+    #     )
+
+    #     return full_left, full_right
+
+    def make_level_info(
+        self,
+        nr_levels: int,
+        image_info_hwxy_1: torch.Tensor,
+        image_info_hwxy_2: torch.Tensor,
+        canvas_width: int,
+        canvas_height: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Tenspor positions
+        HH = 0
+        WW = 1
+        XX = 2
+        YY = 3
+        h1, w1, x1, y1 = image_info_hwxy_1
+        h2, w2, x2, y2 = image_info_hwxy_1
+        if y1 <= y2:
+            y2 -= y1
+            y1 = 0
+        elif y2 < y1:
+            y1 -= y2
+            y2 = 0
+        if x1 <= x2:
+            x2 -= x1
+            x1 = 0
+        elif x2 < x1:
+            x1 -= x2
+            x2 = 0
+
+        ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64, device=image_info_hwxy_1.device)
+        ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64, device=image_info_hwxy_2.device)
+
+        level_ainfo_1: List[torch.Tensor] = [ainfo_1]
+        level_ainfo_2: List[torch.Tensor] = [ainfo_2]
+
+        canvas_dims = torch.tensor(
+            [canvas_height, canvas_width],
+            dtype=torch.int64,
+            device=image_info_hwxy_1.device,
+        )
+        level_canvas_dims: List[torch.Tensor] = [canvas_dims]
+
+        for _ in range(nr_levels):
+            ainfo_1 = ainfo_1 // 2
+            ainfo_2 = ainfo_2 // 2
+            canvas_dims = canvas_dims // 2
+            level_ainfo_1.append(ainfo_1)
+            level_ainfo_2.append(ainfo_2)
+            level_canvas_dims.append(canvas_dims)
+
+        return (
+            torch.stack(level_ainfo_1),
+            torch.stack(level_ainfo_2),
+            torch.stack(level_canvas_dims),
+        )
+
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
@@ -155,15 +256,10 @@ class PtImageBlender:
                 device=self._seam_mask.device,
             )
 
-        H1 = 0
-        W1 = 1
-        X1 = 2
-        Y1 = 3
-
-        H2 = 0
-        W2 = 1
-        X2 = 2
-        Y2 = 3
+        HH = 0
+        WW = 1
+        XX = 2
+        YY = 3
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
@@ -206,18 +302,24 @@ class PtImageBlender:
             level_ainfo_2.append(ainfo_2)
             level_canvas_dims.append(canvas_dims)
 
-        def _make_full(img_1, img_2, level):
+        def _make_full(
+            img_1: torch.Tensor,
+            img_2: torch.Tensor,
+            level: int,
+            # ainfo_1: torch.Tensor,
+            # ainfo_2: torch.Tensor,
+        ):
             ainfo_1 = level_ainfo_1[level]
             ainfo_2 = level_ainfo_2[level]
 
-            h1 = ainfo_1[H1]
-            w1 = ainfo_1[W1]
-            x1 = ainfo_1[X1]
-            y1 = ainfo_1[Y1]
-            h2 = ainfo_2[H2]
-            w2 = ainfo_2[W2]
-            x2 = ainfo_2[X2]
-            y2 = ainfo_2[Y2]
+            h1 = ainfo_1[HH]
+            w1 = ainfo_1[WW]
+            x1 = ainfo_1[XX]
+            y1 = ainfo_1[YY]
+            h2 = ainfo_2[HH]
+            w2 = ainfo_2[WW]
+            x2 = ainfo_2[XX]
+            y2 = ainfo_2[YY]
 
             # If these hit, you may have not passed "-s" to autotoptimiser
             assert x1 == 0 or x2 == 0  # for now this is the case
@@ -588,10 +690,14 @@ class SmartRemapperBlender(torch.nn.Module):
             self._blender = PtImageBlender(
                 images_info=[
                     BlendImageInfo(
+                        remapped_width=0,
+                        remapped_height=0,
                         xpos=self._remapper_1.xpos,
                         ypos=self._remapper_1.ypos,
                     ),
                     BlendImageInfo(
+                        remapped_width=0,
+                        remapped_height=0,
                         xpos=self._remapper_2.xpos,
                         ypos=self._remapper_2.ypos,
                     ),
@@ -783,9 +889,9 @@ class ImageStitcher(torch.nn.Module):
 
     def to(self, *args, device: torch.device, **kwargs):
         assert isinstance(device, (torch.device, str))
-        self._remapper_1.to(device=device)
-        self._remapper_2.to(device=device)
-        self._smart_remapper_blender.to(device=device)
+        # self._remapper_1.to(device=device)
+        # self._remapper_2.to(device=device)
+        # self._smart_remapper_blender.to(device=device)
         return super().to(device, **kwargs)
 
     def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
@@ -934,6 +1040,7 @@ def blend_video(
         batch_size=batch_size,
         left_image_size_wh=(vidinfo_1.width, vidinfo_1.height),
         right_image_size_wh=(vidinfo_2.width, vidinfo_2.height),
+        minimize_blend=minimize_blend,
         device=device,
         dtype=dtype,
     )
