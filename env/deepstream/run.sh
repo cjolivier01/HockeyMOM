@@ -15,6 +15,7 @@ fi
 #   -v /etc/sudoers:/etc/sudoers:ro 
 
 docker run --gpus all --privileged --user=$(id -u):$(id -g) -it \
+  -e DEEPSTREAM_CONTAINER=1 \
   --rm -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY -e CUDA_CACHE_DISABLE=0 \
   --memory 32g \
   -p 22298:22298 \
