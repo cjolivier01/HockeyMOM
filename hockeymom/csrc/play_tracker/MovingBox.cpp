@@ -55,6 +55,8 @@ struct Point {
 
 struct BBox {
   BBox() = default;
+  BBox(float l, float t, float r, float b)
+      : left(l), top(t), right(r), bottom(b) {}
   BBox(const Point& center, const WHDims& dims) {
     auto half_w = dims.width / 2;
     auto half_h = dims.height / 2;
@@ -63,11 +65,6 @@ struct BBox {
     top = center.y - half_h;
     bottom = center.y + half_h;
   }
-
-  float left{0.0};
-  float top{0.0};
-  float right{0.0};
-  float bottom{0.0};
   constexpr float width() const {
     assert(right >= left);
     return right - left;
@@ -82,7 +79,20 @@ struct BBox {
   Point center() const {
     return Point{.x = (right - left) / 2, .y = (bottom - top) / 2};
   }
-  BBox make_scaled(float scale_width, float scale_height) {}
+  BBox make_scaled(float scale_width, float scale_height) const {
+    return BBox(
+        center(),
+        WHDims{
+            .width = width() * scale_width, .height = height() * scale_height});
+  }
+  BBox flate(float dleft, float dtop, float dright, float dbottom) const {
+    return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
+  }
+  // The four bbox values
+  float left{0.0};
+  float top{0.0};
+  float right{0.0};
+  float bottom{0.0};
 };
 
 struct IBasicBox {
@@ -351,7 +361,6 @@ class TranslatingBox : public IBasicBox {
     // differences of the box don't keep us in the un-stuck mode,
     // even though we can't move anymore in that direction
     if (config_.arena_box.has_value()) {
-      
     }
   }
 
