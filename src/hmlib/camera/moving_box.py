@@ -411,7 +411,6 @@ class MovingBox(ResizingBox):
                 hh = aw / self._fixed_aspect_ratio
                 assert hh <= ah
             self._full_aspect_ratio_size = torch.tensor([ww, hh])
-            self._full_aspect_ratio_sqrt_area = torch.sqrt(torch.square(ww) + torch.square(hh))
             # Gaussian clamp to center x of max aspect ratio box
             self._gaussian_x_clamp[0] += ww / 2
             self._gaussian_x_clamp[1] -= ww / 2
@@ -431,7 +430,7 @@ class MovingBox(ResizingBox):
         self,
         img: np.array,
         draw_thresholds: bool = False,
-        following_box: BasicBox = None,
+        following_box: Optional[BasicBox] = None,
     ):
         super().draw(img=img, draw_thresholds=draw_thresholds, following_box=following_box)
         draw_box = self.bounding_box()
@@ -505,7 +504,7 @@ class MovingBox(ResizingBox):
 
         return img
 
-    def get_gaussian_y_about_width_center(self, x):
+    def get_gaussian_y_about_width_center(self, x) -> float:
         if self._horizontal_image_gaussian_distribution is None:
             return 1.0
         else:

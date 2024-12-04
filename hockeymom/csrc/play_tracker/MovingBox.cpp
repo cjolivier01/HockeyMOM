@@ -286,11 +286,17 @@ struct TranslatingBoxConfig {
   float max_accel_x{0.0};
   float max_accel_y{0.0};
   bool stop_on_dir_change{true};
+  std::optional<BBox> arena_box{std::nullopt};
+  std::optional<float> fixed_aspect_ratio{std::nullopt};
 };
 
 struct TranslationState {
   float current_speed_x{0.0};
   float current_speed_y{0.0};
+  bool translation_is_frozen{false};
+  // Nonstop stuff
+  int64_t nonstop_delay{0};
+  int64_t nonstop_delay_counter{0};
 };
 
 struct MovingBoxConfig : public ResizingBoxConfig,
@@ -298,7 +304,12 @@ struct MovingBoxConfig : public ResizingBoxConfig,
 
 class TranslatingBox : public IBasicBox {
  public:
-  TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {}
+  TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {
+    if (config_.arena_box.has_value()) {
+      gasussian_clamp_lr =
+          std::make_pair(config_.arena_box->left, config_.arena_box->right);
+    }
+  }
 
  private:
   void clamp_speed(float scale) {
@@ -347,9 +358,27 @@ class TranslatingBox : public IBasicBox {
     }
   }
 
+  float get_gaussian_y_about_width_center(float x) const {
+    // Different than python
+    if (!config_.arena_box.has_value()) {
+      return 1.0;
+    }
+    x = clamp(x, gasussian_clamp_lr->first, gasussian_clamp_lr->second);
+    const float center_x = config_.arena_box->width() / 2;
+    if (x < center_x) {
+      x = -(center_x - x);
+    } else if (x > center_x) {
+      x = x - center_x;
+    } else {
+      return 1.0;
+    }
+    return 1 - x / center_x;
+  }
+
  private:
   TranslatingBoxConfig config_;
   TranslationState state_;
+  std::optional<std::pair<float, float>> gasussian_clamp_lr{std::nullopt};
 };
 
 class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
@@ -376,12 +405,12 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
     // set_destination_size(dest_box.width(), dest_box.height());
   }
 
-  FloatValue get_zoom_level() {
-    BBox bbox = bounding_box();
-    FloatValue current_w = bbox.width();
-    FloatValue current_h = bbox.height();
-    return std::sqrt(current_w * current_w + current_h * current_h);
-  }
+  // FloatValue get_zoom_level() {
+  //   BBox bbox = bounding_box();
+  //   FloatValue current_w = bbox.width();
+  //   FloatValue current_h = bbox.height();
+  //   return std::sqrt(current_w * current_w + current_h * current_h);
+  // }
 
   BBox next_position() {
     // torch::Tensor dx = current_speed_x_;
