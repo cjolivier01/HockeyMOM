@@ -76,7 +76,7 @@ class ResizingBox(BasicBox):
         max_height: Union[torch.Tensor, int, float],
         stop_on_dir_change: bool,
         sticky_sizing: bool = False,
-        device: str = None,
+        device: Optiona[Union[str, torch.Device]] = None,
     ):
         super(ResizingBox, self).__init__(bbox=bbox, device=device)
         self._stop_on_dir_change = stop_on_dir_change

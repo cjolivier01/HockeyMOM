@@ -18,8 +18,7 @@ class MovingBox {
 
  private:
   MovingBoxConfig config_;
-}
+};
 
 } // namespace play_tracker
 } // namespace hm
-

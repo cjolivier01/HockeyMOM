@@ -3,221 +3,303 @@
 
 #include "hockeymom/csrc/play_tracker/MovingBox.h"
 
-#include <memory>
+#include <cassert>
+#include <cmath>
 #include <iostream>
-#include <vector>
+#include <memory>
 #include <unordered_map>
+#include <vector>
 
-//using namespace cv;
+// using namespace cv;
 using namespace torch;
 
-class BasicBox : public torch::nn::Module {
-public:
-    BasicBox(torch::Tensor bbox, c10::optional<torch::Device> device = c10::nullopt)
-        : device_(device ? *device : bbox.device()), bbox_(bbox.clone()) {
-        zero_float_tensor_ = torch::tensor(0.0, torch::dtype(torch::kFloat).device(device_));
-        zero_int_tensor_ = torch::tensor(0, torch::dtype(torch::kInt64).device(device_));
-        one_float_tensor_ = torch::tensor(1, torch::dtype(torch::kInt64).device(device_));
-    }
+struct BBox {
+  float left{0.0};
+  float top{0.0};
+  float right{0.0};
+  float bottom{0.0};
+  constexpr float width() const {
+    assert(right >= left);
+    return right - left;
+  }
+  constexpr float height() const {
+    assert(bottom >= top);
+    return bottom - top;
+  }
+  BBox clone() const {
+    return *this;
+  }
+};
 
-    void set_bbox(torch::Tensor bbox) {
-        bbox_ = bbox.clone();
-    }
+// using BBox = torch::Tensor;
+// using FloatValue = torch::Tensor;
+using FloatValue = float;
 
-    torch::Tensor bounding_box() const {
-        return bbox_.clone();
-    }
+struct IBasicBox {
+  virtual ~IBasicBox() = default;
 
-    torch::Tensor one() const {
-        return one_float_tensor_.clone();
-    }
+  virtual void set_bbox(const BBox& bbox) = 0;
 
-    torch::Tensor zero() const {
-        return zero_float_tensor_.clone();
-    }
+  virtual BBox bounding_box() const = 0;
 
-    torch::Tensor zero_int() const {
-        return zero_int_tensor_.clone();
-    }
+  virtual void set_destination(const BBox& dest_box) = 0;
 
-protected:
-    torch::Device device_;
-    torch::Tensor bbox_;
-    torch::Tensor zero_float_tensor_, zero_int_tensor_, one_float_tensor_;
+  static constexpr float one() {
+    return 1.0;
+  }
+
+  static constexpr float zero() {
+    return 0.0;
+  }
+
+  static constexpr int64_t zero_int() {
+    return 0;
+  }
+};
+
+class BasicBox : public IBasicBox {
+ public:
+  BasicBox(BBox bbox) : bbox_(bbox.clone()) {}
+
+  void set_bbox(const BBox& bbox) override {
+    bbox_ = bbox.clone();
+  }
+
+  BBox bounding_box() const override {
+    return bbox_.clone();
+  }
+
+ protected:
+  BBox bbox_;
 };
 
 using DrawOptions = std::unordered_map<int, bool>;
 
-class ResizingBox : public BasicBox {
-public:
-    ResizingBox(
-        torch::Tensor bbox,
-        double max_speed_w,
-        double max_speed_h,
-        double max_accel_w,
-        double max_accel_h,
-        double min_width,
-        double min_height,
-        double max_width,
-        double max_height,
-        bool stop_on_dir_change,
-        bool sticky_sizing = false,
-        c10::optional<torch::Device> device = c10::nullopt)
-        : BasicBox(bbox, device),
-          max_speed_w_(max_speed_w),
-          max_speed_h_(max_speed_h),
-          max_accel_w_(max_accel_w),
-          max_accel_h_(max_accel_h),
-          min_width_(min_width),
-          min_height_(min_height),
-          max_width_(max_width),
-          max_height_(max_height),
-          stop_on_dir_change_(stop_on_dir_change),
-          sticky_sizing_(sticky_sizing) {
-    }
+template <typename T>
+inline T clamp(const T& value, const T& min, const T& max) {
+  std::clamp(value, min, max);
+}
 
-    virtual void draw(at::Tensor& img, bool draw_thresholds = true) {
-        // cv::Rect bbox_rect(
-        //     static_cast<int>(bbox_[0].item<double>()),
-        //     static_cast<int>(bbox_[1].item<double>()),
-        //     static_cast<int>(bbox_[2].item<double>() - bbox_[0].item<double>()),
-        //     static_cast<int>(bbox_[3].item<double>() - bbox_[1].item<double>())
-        // );
-        // cv::rectangle(img, bbox_rect, cv::Scalar(0, 255, 0), 2);
-    }
-
-    void set_destination(torch::Tensor dest_box) {
-        set_destination_size(dest_box[2] - dest_box[0], dest_box[3] - dest_box[1]);
-    }
-
-    void set_destination_size(torch::Tensor dest_width, torch::Tensor dest_height) {
-        torch::Tensor current_w = bbox_[2] - bbox_[0];
-        torch::Tensor current_h = bbox_[3] - bbox_[1];
-
-        torch::Tensor dw = dest_width - current_w;
-        torch::Tensor dh = dest_height - current_h;
-
-        adjust_size(dw, dh);
-    }
-
-    void adjust_size(torch::optional<torch::Tensor> accel_w = c10::nullopt, torch::optional<torch::Tensor> accel_h = c10::nullopt, bool use_constraints = true) {
-        if (accel_w.has_value()) {
-            current_speed_w_ += *accel_w;
-        }
-
-        if (accel_h.has_value()) {
-            current_speed_h_ += *accel_h;
-        }
-
-        if (use_constraints) {
-            clamp_resizing();
-        }
-    }
-
-    void clamp_resizing() {
-        current_speed_w_ = torch::clamp(current_speed_w_, -max_speed_w_, max_speed_w_);
-        current_speed_h_ = torch::clamp(current_speed_h_, -max_speed_h_, max_speed_h_);
-    }
-
-private:
-    double max_speed_w_, max_speed_h_;
-    double max_accel_w_, max_accel_h_;
-    double min_width_, min_height_;
-    double max_width_, max_height_;
-    bool stop_on_dir_change_;
-    bool sticky_sizing_;
-    torch::Tensor current_speed_w_ = torch::tensor(0.0);
-    torch::Tensor current_speed_h_ = torch::tensor(0.0);
+struct ResizingBoxConfig {
+  float max_speed_w{0.0};
+  float max_speed_h{0.0};
+  float max_accel_w{0.0};
+  float max_accel_h{0.0};
+  float min_width{0.0};
+  float min_height{0.0};
+  float max_width{0.0};
+  float max_height{0.0};
+  bool stop_on_dir_change{true};
+  bool sticky_sizing{false};
+  //
+  // Sticky sizing thresholds
+  //
+  // Threshold to grow width (ratio of bbox)
+  const float size_ratio_thresh_grow_dw_{0.05};
+  // Threshold to grow height (ratio of bbox)
+  const float size_ratio_thresh_grow_dy_{0.1};
+  // Threshold to shrink width (ratio of bbox)
+  const float size_ratio_thresh_shrink_dw_{0.08};
+  // Threshold to shrink height (ratio of bbox)
+  const float size_ratio_thresh_shrink_dy_{0.1};
 };
 
-class MovingBox : public ResizingBox {
-public:
-    MovingBox(
-        std::string label,
-        torch::Tensor bbox,
-        double max_speed_x,
-        double max_speed_y,
-        double max_accel_x,
-        double max_accel_y,
-        double max_width,
-        double max_height,
-        bool stop_on_dir_change,
-        int min_width = 10,
-        int min_height = 10,
-        c10::optional<torch::Device> device = c10::nullopt)
-        : ResizingBox(bbox, max_speed_x, max_speed_y, max_accel_x, max_accel_y, min_width, min_height, max_width, max_height, stop_on_dir_change, false, device),
-          label_(label) {
+struct ResizingState {
+  bool size_is_frozen{true};
+  float current_speed_w{0.0};
+  float current_speed_h{0.0};
+};
+
+class ResizingBox : public IBasicBox {
+ public:
+  ResizingBox(ResizingBox&&) = delete;
+  ResizingBox(const ResizingBoxConfig& config) : config_(config) {}
+
+  virtual void draw(at::Tensor& img, bool draw_thresholds = true) {
+    // cv::Rect bbox_rect(
+    //     static_cast<int>(bbox_[0].item<float>()),
+    //     static_cast<int>(bbox_[1].item<float>()),
+    //     static_cast<int>(bbox_[2].item<float>() - bbox_[0].item<float>()),
+    //     static_cast<int>(bbox_[3].item<float>() - bbox_[1].item<float>())
+    // );
+    // cv::rectangle(img, bbox_rect, cv::Scalar(0, 255, 0), 2);
+  }
+
+  void set_destination(const BBox& dest_box) override {
+    set_destination_size(dest_box.width(), dest_box.height());
+  }
+
+  constexpr const ResizingBoxConfig& resizing_config() const {
+    return config_;
+  }
+
+ private:
+  void set_destination_size(FloatValue dest_width, FloatValue dest_height) {
+    BBox bbox = bounding_box();
+    auto current_w = bbox.width();
+    auto current_h = bbox.height();
+
+    auto dw = dest_width - current_w;
+    auto dh = dest_height - current_h;
+
+    adjust_size(dw, dh);
+  }
+
+  void adjust_size(
+      std::optional<float> accel_w,
+      std::optional<float> accel_h,
+      bool use_constraints = true) {
+    if (accel_w.has_value()) {
+      state_.current_speed_w += *accel_w;
     }
 
-    void draw(at::Tensor& img, bool draw_thresholds = false) override {
-        ResizingBox::draw(img, draw_thresholds);
-        //putText(img, label_, cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 0, 0), 2);
+    if (accel_h.has_value()) {
+      state_.current_speed_h += *accel_h;
     }
 
-    void set_destination(torch::Tensor dest_box) {
-        set_destination_size(dest_box[2] - dest_box[0], dest_box[3] - dest_box[1]);
+    if (use_constraints) {
+      clamp_resizing();
+    }
+  }
+
+  void clamp_resizing() {
+    state_.current_speed_w = clamp(
+        state_.current_speed_w, -config_.max_speed_w, config_.max_speed_w);
+    state_.current_speed_h = clamp(
+        state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
+  }
+
+  const ResizingBoxConfig config_;
+  ResizingState state_;
+};
+
+struct TranslatingBoxConfig {
+  float max_speed_x{0.0};
+  float max_speed_y{0.0};
+  float max_accel_x{0.0};
+  float max_accel_y{0.0};
+  bool stop_on_dir_change{true};
+};
+
+struct TranslationState {
+  float current_speed_x{0.0};
+  float current_speed_y{0.0};
+};
+
+struct MovingBoxConfig : public ResizingBoxConfig,
+                         public TranslatingBoxConfig {};
+
+class TranslatingBox : public IBasicBox {
+ public:
+  TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {}
+
+ private:
+  void clamp_speed(float scale) {
+    state_.current_speed_x = clamp(
+        state_.current_speed_x,
+        -config_.max_speed_x * scale,
+        config_.max_speed_x * scale);
+    state_.current_speed_y = clamp(
+        state_.current_speed_y,
+        -config_.max_speed_y * scale,
+        config_.max_speed_y * scale);
+  }
+
+  void adjust_speed(
+      torch::optional<FloatValue> accel_x = c10::nullopt,
+      torch::optional<FloatValue> accel_y = c10::nullopt,
+      torch::optional<FloatValue> scale_constraints = c10::nullopt,
+      torch::optional<FloatValue> nonstop_delay = c10::nullopt) {
+    if (accel_x.has_value()) {
+      state_.current_speed_x += *accel_x;
     }
 
-    torch::Tensor get_zoom_level() {
-        torch::Tensor current_w = bbox_[2] - bbox_[0];
-        torch::Tensor current_h = bbox_[3] - bbox_[1];
-        return torch::sqrt(current_w * current_w + current_h * current_h);
+    if (accel_y.has_value()) {
+      state_.current_speed_y += *accel_y;
     }
 
-    void adjust_speed(torch::optional<torch::Tensor> accel_x = c10::nullopt, torch::optional<torch::Tensor> accel_y = c10::nullopt, torch::optional<double> scale_constraints = c10::nullopt, torch::optional<torch::Tensor> nonstop_delay = c10::nullopt) {
-        if (accel_x.has_value()) {
-            current_speed_x_ += *accel_x;
-        }
+    if (scale_constraints.has_value()) {
+      clamp_speed(*scale_constraints);
+    }
+  }
 
-        if (accel_y.has_value()) {
-            current_speed_y_ += *accel_y;
-        }
-
-        if (scale_constraints.has_value()) {
-            clamp_speed(*scale_constraints);
-        }
+  void scale_speed(
+      torch::optional<FloatValue> ratio_x = c10::nullopt,
+      torch::optional<FloatValue> ratio_y = c10::nullopt,
+      bool clamp_to_max = false) {
+    if (ratio_x.has_value()) {
+      state_.current_speed_x *= *ratio_x;
     }
 
-    void scale_speed(torch::optional<torch::Tensor> ratio_x = c10::nullopt, torch::optional<torch::Tensor> ratio_y = c10::nullopt, bool clamp_to_max = false) {
-        if (ratio_x.has_value()) {
-            current_speed_x_ *= *ratio_x;
-        }
-
-        if (ratio_y.has_value()) {
-            current_speed_y_ *= *ratio_y;
-        }
-
-        if (clamp_to_max) {
-            clamp_speed(1.0);
-        }
+    if (ratio_y.has_value()) {
+      state_.current_speed_y *= *ratio_y;
     }
 
-    torch::Tensor next_position() {
-        torch::Tensor dx = current_speed_x_;
-        torch::Tensor dy = current_speed_y_;
-
-        // bbox_ += torch::tensor(std::vector<at::Tensor>{dx, dy, dx, dy}, torch::dtype(torch::kFloat).device(device_));
-
-        clamp_to_arena();
-        return bbox_;
+    if (clamp_to_max) {
+      clamp_speed(1.0);
     }
+  }
 
-private:
-    void clamp_speed(double scale) {
-        current_speed_x_ = torch::clamp(current_speed_x_, -max_speed_x_ * scale, max_speed_x_ * scale);
-        current_speed_y_ = torch::clamp(current_speed_y_, -max_speed_y_ * scale, max_speed_y_ * scale);
-    }
+ private:
+  TranslatingBoxConfig config_;
+  TranslationState state_;
+};
 
-    void clamp_to_arena() {
-        bbox_[0] = torch::clamp(bbox_[0], 0.0, max_width_);
-        bbox_[1] = torch::clamp(bbox_[1], 0.0, max_height_);
-        bbox_[2] = torch::clamp(bbox_[2], 0.0, max_width_);
-        bbox_[3] = torch::clamp(bbox_[3], 0.0, max_height_);
-    }
+class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
+ public:
+  using BasicBox::bounding_box;
+  using BasicBox::set_bbox;
 
-    std::string label_;
-    torch::Tensor current_speed_x_ = torch::tensor(0.0);
-    torch::Tensor current_speed_y_ = torch::tensor(0.0);
+  MovingBox(std::string label, BBox bbox, const MovingBoxConfig& config)
+      : BasicBox(bbox),
+        ResizingBox(config),
+        TranslatingBox(config),
+        label_(label) {}
+
+  void draw(at::Tensor& img, bool draw_thresholds = false) override {
+    // ResizingBox::draw(img, draw_thresholds);
+    // TranslatingBox::draw(img, draw_thresholds);
+    //  putText(img, label_, cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1,
+    //  cv::Scalar(255, 0, 0), 2);
+  }
+
+  void set_destination(const BBox& dest_box) override {
+    ResizingBox::set_destination(dest_box);
+    TranslatingBox::set_destination(dest_box);
+    // set_destination_size(dest_box.width(), dest_box.height());
+  }
+
+  FloatValue get_zoom_level() {
+    BBox bbox = bounding_box();
+    FloatValue current_w = bbox.width();
+    FloatValue current_h = bbox.height();
+    return std::sqrt(current_w * current_w + current_h * current_h);
+  }
+
+  BBox next_position() {
+    // torch::Tensor dx = current_speed_x_;
+    // torch::Tensor dy = current_speed_y_;
+
+    // bbox_ += torch::tensor(std::vector<at::Tensor>{dx, dy, dx, dy},
+    // torch::dtype(torch::kFloat).device(device_));
+
+    clamp_to_arena();
+    return bounding_box();
+  }
+
+  void clamp_to_arena() {
+    const ResizingBoxConfig& rconfig = resizing_config();
+    BBox bbox = bounding_box();
+    auto z = zero();
+    bbox.left = clamp(bbox.left, z, rconfig.max_width);
+    bbox.top = clamp(bbox.top, z, rconfig.max_height);
+    bbox.right = clamp(bbox.right, z, rconfig.max_width);
+    bbox.bottom = clamp(bbox.bottom, z, rconfig.max_height);
+    set_bbox(bbox);
+  }
+
+ private:
+  const std::string label_;
 };
 
 #if 0
