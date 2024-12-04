@@ -100,11 +100,11 @@ class ResizingBox(BasicBox):
         # Threshold to grow width (ratio of bbox)
         self._size_ratio_thresh_grow_dw = 0.05
         # Threshold to grow height (ratio of bbox)
-        self._size_ratio_thresh_grow_dy = 0.1
+        self._size_ratio_thresh_grow_dh = 0.1
         # Threshold to shrink width (ratio of bbox)
         self._size_ratio_thresh_shrink_dw = 0.08
         # Threshold to shrink height (ratio of bbox)
-        self._size_ratio_thresh_shrink_dy = 0.1
+        self._size_ratio_thresh_shrink_dh = 0.1
 
         self._size_is_frozen = True
 
@@ -168,9 +168,9 @@ class ResizingBox(BasicBox):
         my_width = width(bbox)
         my_height = height(bbox)
         grow_width = my_width * self._size_ratio_thresh_grow_dw
-        grow_height = my_height * self._size_ratio_thresh_grow_dy
+        grow_height = my_height * self._size_ratio_thresh_grow_dh
         shrink_width = my_width * self._size_ratio_thresh_shrink_dw
-        shrink_height = my_height * self._size_ratio_thresh_shrink_dy
+        shrink_height = my_height * self._size_ratio_thresh_shrink_dh
         return grow_width, grow_height, shrink_width, shrink_height
 
     def _clamp_resizing(self):
@@ -274,31 +274,17 @@ class ResizingBox(BasicBox):
         assert self._zero.item() == 0
 
         if different_directions(dw, self._current_speed_w):
-            # self._current_speed_w = self._zero.clone()
             self._current_speed_w = torch.where(
                 torch.abs(self._current_speed_w) < self._max_speed_w / 6,
                 0,
                 self._current_speed_w / 2,
             )
-            # if stop_on_dir_change:
-            #     dw = self._zero.clone()
-            # self._size_is_frozen = True
         if different_directions(dh, self._current_speed_h):
-            # self._current_speed_h = self._zero.clone()
             self._current_speed_h = torch.where(
                 torch.abs(self._current_speed_h) < self._max_speed_h / 6,
                 0,
                 self._current_speed_w / 2,
             )
-            # if stop_on_dir_change:
-            #     dh = self._zero.clone()
-            # self._size_is_frozen = True
-
-        # # Growing is allowed at a higher speed than shrinking
-        # resize_larger_scale = 2.0
-        # dw_dh = torch.tensor([dw, dh])
-        # dw_dh = torch.where(dw_dh > 0, dw_dh * resize_larger_scale, dw_dh)
-        # self._adjust_size(accel_w=dw_dh[0], accel_h=dw_dh[1], use_constraints=True)
 
         self._adjust_size(accel_w=dw, accel_h=dh, use_constraints=True)
 
