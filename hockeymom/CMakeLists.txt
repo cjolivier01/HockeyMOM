@@ -17,8 +17,6 @@ set(
   SOURCES
   # csrc/camera/Camera.cpp
   # csrc/dataloader/StitchingDataLoader.cpp
-  csrc/play_tracker/moving_box.cpp
-  csrc/play_tracker/play_tracker.cpp
   csrc/pytorch/image_remap.cpp
   csrc/pytorch/image_blend.cpp
   csrc/pytorch/image_stitch.cpp
@@ -153,6 +151,7 @@ target_link_libraries(_hockeymom PUBLIC hm)
 target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
+target_link_libraries(_hockeymom PUBLIC play_tracker)
 #message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
 set_target_properties(
   _hockeymom PROPERTIES 
