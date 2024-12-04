@@ -15,6 +15,10 @@ using namespace torch;
 
 namespace {
 
+// using BBox = torch::Tensor;
+// using FloatValue = torch::Tensor;
+using FloatValue = float;
+
 inline float sign(const float value) {
   if (value > 0) {
     return 1.0f;
@@ -30,7 +34,36 @@ inline bool different_directions(const float v1, const float v2) {
 }
 } // namespace
 
+struct WHDims {
+  const FloatValue width;
+  const FloatValue height;
+};
+
+struct PointDiff {
+  const FloatValue dx;
+  const FloatValue dy;
+};
+
+struct Point {
+  const FloatValue x;
+  const FloatValue y;
+
+  PointDiff operator-(const Point& pt) const {
+    return PointDiff{.dx = x - pt.x, .dy = y - pt.y};
+  }
+};
+
 struct BBox {
+  BBox() = default;
+  BBox(const Point& center, const WHDims& dims) {
+    auto half_w = dims.width / 2;
+    auto half_h = dims.height / 2;
+    left = center.x - half_w;
+    right = center.x + half_w;
+    top = center.y - half_h;
+    bottom = center.y + half_h;
+  }
+
   float left{0.0};
   float top{0.0};
   float right{0.0};
@@ -46,11 +79,11 @@ struct BBox {
   BBox clone() const {
     return *this;
   }
+  Point center() const {
+    return Point{.x = (right - left) / 2, .y = (bottom - top) / 2};
+  }
+  BBox make_scaled(float scale_width, float scale_height) {}
 };
-
-// using BBox = torch::Tensor;
-// using FloatValue = torch::Tensor;
-using FloatValue = float;
 
 struct IBasicBox {
   virtual ~IBasicBox() = default;
@@ -295,12 +328,9 @@ struct TranslationState {
   float current_speed_y{0.0};
   bool translation_is_frozen{false};
   // Nonstop stuff
-  int64_t nonstop_delay{0};
+  std::optional<int64_t> nonstop_delay{0};
   int64_t nonstop_delay_counter{0};
 };
-
-struct MovingBoxConfig : public ResizingBoxConfig,
-                         public TranslatingBoxConfig {};
 
 class TranslatingBox : public IBasicBox {
  public:
@@ -308,6 +338,20 @@ class TranslatingBox : public IBasicBox {
     if (config_.arena_box.has_value()) {
       gasussian_clamp_lr =
           std::make_pair(config_.arena_box->left, config_.arena_box->right);
+    }
+  }
+
+  void set_destination(const BBox& dest_box) override {
+    BBox bbox = bounding_box();
+    Point center_current = bbox.center();
+    Point center_dest = bbox.center();
+    PointDiff total_diff = center_dest - center_current;
+    // If both the dest box and our current box are on an edge, we zero-out
+    // the magnitude in the direction of that edge so that the size
+    // differences of the box don't keep us in the un-stuck mode,
+    // even though we can't move anymore in that direction
+    if (config_.arena_box.has_value()) {
+      
     }
   }
 
@@ -328,6 +372,18 @@ class TranslatingBox : public IBasicBox {
       torch::optional<FloatValue> accel_y = c10::nullopt,
       torch::optional<FloatValue> scale_constraints = c10::nullopt,
       torch::optional<FloatValue> nonstop_delay = c10::nullopt) {
+    if (scale_constraints.has_value()) {
+      const FloatValue mult = *scale_constraints;
+      if (accel_x.has_value()) {
+        accel_x = clamp(
+            *accel_x, -config_.max_accel_x * mult, config_.max_accel_x * mult);
+      }
+      if (accel_y.has_value()) {
+        accel_y = clamp(
+            *accel_y, -config_.max_accel_y * mult, config_.max_accel_y * mult);
+      }
+    }
+
     if (accel_x.has_value()) {
       state_.current_speed_x += *accel_x;
     }
@@ -338,6 +394,10 @@ class TranslatingBox : public IBasicBox {
 
     if (scale_constraints.has_value()) {
       clamp_speed(*scale_constraints);
+    }
+    if (nonstop_delay.has_value()) {
+      state_.nonstop_delay = std::move(nonstop_delay);
+      state_.nonstop_delay_counter = 0;
     }
   }
 
@@ -381,16 +441,33 @@ class TranslatingBox : public IBasicBox {
   std::optional<std::pair<float, float>> gasussian_clamp_lr{std::nullopt};
 };
 
+struct MovingBoxConfig {
+  FloatValue scale_width{1.0};
+  FloatValue scale_height{1.0};
+};
+
+struct AllMovingBoxConfig : public ResizingBoxConfig,
+                            public TranslatingBoxConfig,
+                            public MovingBoxConfig {};
+
 class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
  public:
   using BasicBox::bounding_box;
   using BasicBox::set_bbox;
 
-  MovingBox(std::string label, BBox bbox, const MovingBoxConfig& config)
+  MovingBox(std::string label, BBox bbox, const AllMovingBoxConfig& config)
       : BasicBox(bbox),
         ResizingBox(config),
         TranslatingBox(config),
-        label_(label) {}
+        label_(label),
+        config_(config) {}
+
+  WHDims get_size_scale() const {
+    return WHDims{
+        .width = config_.scale_width,
+        .height = config_.scale_height,
+    };
+  }
 
   void draw(at::Tensor& img, bool draw_thresholds = false) override {
     // ResizingBox::draw(img, draw_thresholds);
@@ -403,6 +480,14 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
     ResizingBox::set_destination(dest_box);
     TranslatingBox::set_destination(dest_box);
     // set_destination_size(dest_box.width(), dest_box.height());
+  }
+
+  void set_destination(const IBasicBox& dest_box) {
+    BBox bbox = dest_box.bounding_box();
+    WHDims scale_box = get_size_scale();
+    BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
+    ResizingBox::set_destination(scaled_bbox);
+    TranslatingBox::set_destination(scaled_bbox);
   }
 
   // FloatValue get_zoom_level() {
@@ -436,6 +521,7 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
 
  private:
   const std::string label_;
+  const MovingBoxConfig config_;
 };
 
 #if 0
