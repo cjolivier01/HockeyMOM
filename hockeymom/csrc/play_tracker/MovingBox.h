@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+
 namespace hm {
 namespace play_tracker {
 
