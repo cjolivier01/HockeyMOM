@@ -95,13 +95,13 @@ struct ResizingBoxConfig {
   // Sticky sizing thresholds
   //
   // Threshold to grow width (ratio of bbox)
-  const float size_ratio_thresh_grow_dw_{0.05};
+  const float size_ratio_thresh_grow_dw{0.05};
   // Threshold to grow height (ratio of bbox)
-  const float size_ratio_thresh_grow_dy_{0.1};
+  const float size_ratio_thresh_grow_dh{0.1};
   // Threshold to shrink width (ratio of bbox)
-  const float size_ratio_thresh_shrink_dw_{0.08};
+  const float size_ratio_thresh_shrink_dw{0.08};
   // Threshold to shrink height (ratio of bbox)
-  const float size_ratio_thresh_shrink_dy_{0.1};
+  const float size_ratio_thresh_shrink_dh{0.1};
 };
 
 struct ResizingState {
@@ -145,17 +145,28 @@ class ResizingBox : public IBasicBox {
     adjust_size(dw, dh);
   }
 
-  void adjust_size(
-      std::optional<float> accel_w,
-      std::optional<float> accel_h,
-      bool use_constraints = true) {
-    if (accel_w.has_value()) {
-      state_.current_speed_w += *accel_w;
+  void adjust_size(float accel_w, float accel_h, bool use_constraints = true) {
+    if (state_.size_is_frozen) {
+      return;
     }
 
-    if (accel_h.has_value()) {
-      state_.current_speed_h += *accel_h;
+    if (use_constraints) {
+      constexpr float kResizeLargerScaleDifference = 2.0;
+
+      // Growing is allowed at a higher rate than shrinking
+      const float max_accel_w = accel_w > 0
+          ? (config_.max_accel_w * kResizeLargerScaleDifference)
+          : config_.max_accel_w;
+      const float max_accel_h = accel_h > 0
+          ? (config_.max_accel_h * kResizeLargerScaleDifference)
+          : config_.max_accel_h;
+
+      accel_w = clamp(accel_w, -max_accel_w, max_accel_w);
+      accel_h = clamp(accel_h, -max_accel_h, max_accel_h);
     }
+
+    state_.current_speed_w += accel_w;
+    state_.current_speed_h += accel_h;
 
     if (use_constraints) {
       clamp_resizing();
@@ -167,6 +178,20 @@ class ResizingBox : public IBasicBox {
         state_.current_speed_w, -config_.max_speed_w, config_.max_speed_w);
     state_.current_speed_h = clamp(
         state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
+  }
+
+  struct GrowShrink {
+    FloatValue grow_width, grow_height, shrink_width, shring_height;
+  };
+
+  GrowShrink get_grow_shrink_wh(const BBox& bbox) const {
+    auto ww = bbox.width(), hh = bbox.height();
+    return GrowShrink{
+        .grow_width = ww * config_.size_ratio_thresh_grow_dw,
+        .grow_height = hh * config_.size_ratio_thresh_grow_dh,
+        .shrink_width = ww * config_.size_ratio_thresh_shrink_dw,
+        .shring_height = hh * config_.size_ratio_thresh_shrink_dh,
+    };
   }
 
   const ResizingBoxConfig config_;
