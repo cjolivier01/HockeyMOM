@@ -13,6 +13,23 @@
 // using namespace cv;
 using namespace torch;
 
+namespace {
+
+inline float sign(const float value) {
+  if (value > 0) {
+    return 1.0f;
+  } else if (value < 0) {
+    return -1.0f;
+  } else {
+    return 0.0f;
+  }
+}
+
+inline bool different_directions(const float v1, const float v2) {
+  return sign(v1) * sign(v2) < 0.0;
+}
+} // namespace
+
 struct BBox {
   float left{0.0};
   float top{0.0};
@@ -134,7 +151,10 @@ class ResizingBox : public IBasicBox {
   }
 
  private:
-  void set_destination_size(FloatValue dest_width, FloatValue dest_height) {
+  void set_destination_size(
+      FloatValue dest_width,
+      FloatValue dest_height,
+      bool prioritize_width_thresh = true) {
     BBox bbox = bounding_box();
     auto current_w = bbox.width();
     auto current_h = bbox.height();
@@ -142,7 +162,69 @@ class ResizingBox : public IBasicBox {
     auto dw = dest_width - current_w;
     auto dh = dest_height - current_h;
 
-    adjust_size(dw, dh);
+    if (config_.sticky_sizing) {
+      //
+      // Begin size threshholding stuff
+      //
+      GrowShrink resize_rates = get_grow_shrink_wh(bbox);
+
+      // dw
+      bool dw_thresh = dw < 0 && dw < -resize_rates.shrink_width;
+      const bool want_bigger_w = dw > 0 && dw > resize_rates.grow_width;
+      dw_thresh |= want_bigger_w;
+      if (!dw_thresh) {
+        dw = 0.0f;
+      }
+
+      // dh
+      bool dh_thresh = dh < 0 && dh < -resize_rates.shring_height;
+      const bool want_bigger_h = dh > 0 && dh > resize_rates.grow_height;
+      dh_thresh |= want_bigger_h;
+      if (!dh_thresh) {
+        dh = 0.0f;
+      }
+
+      bool both_thresh = dw_thresh && dh_thresh;
+      if (prioritize_width_thresh) {
+        both_thresh |= dw_thresh;
+      }
+      const bool any_thresh = dw_thresh || dh_thresh;
+      const bool want_bigger = (want_bigger_w || want_bigger_h) && any_thresh;
+      state_.size_is_frozen |= !(both_thresh || want_bigger);
+      //
+      // End size threshholding stuff
+      //
+    }
+
+    constexpr float kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio = 6.0;
+    constexpr float kMaxWidthHeightDiffDirectionCutRateRatio = 2.0;
+    if (different_directions(dw, state_.current_speed_w)) {
+      // The desired change is in the opposire direction of the current widening
+      if (std::abs(state_.current_speed_w) <
+          (config_.max_speed_w /
+           kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio)) {
+        // It's small enough, so just stop the velocity in the opposite
+        // direction of the desired change
+        state_.current_speed_w = 0;
+      } else {
+        state_.current_speed_w /= kMaxWidthHeightDiffDirectionCutRateRatio;
+      }
+    }
+    if (different_directions(dh, state_.current_speed_h)) {
+      // The desired change is in the opposire direction of the current
+      // heightening
+      if (std::abs(state_.current_speed_h) <
+          (config_.max_speed_h /
+           kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio)) {
+        // It's small enough, so just stop the velocity in the opposite
+        // direction of the desired change
+        state_.current_speed_h = 0;
+      } else {
+        state_.current_speed_h /= kMaxWidthHeightDiffDirectionCutRateRatio;
+      }
+    }
+
+    adjust_size(/*accel_w=*/dw, /*accel_h=*/dh);
   }
 
   void adjust_size(float accel_w, float accel_h, bool use_constraints = true) {
