@@ -45,8 +45,8 @@ struct PointDiff {
 };
 
 struct Point {
-  const FloatValue x;
-  const FloatValue y;
+  FloatValue x;
+  FloatValue y;
 
   PointDiff operator-(const Point& pt) const {
     return PointDiff{.dx = x - pt.x, .dy = y - pt.y};
@@ -85,7 +85,7 @@ struct BBox {
         WHDims{
             .width = width() * scale_width, .height = height() * scale_height});
   }
-  BBox flate(float dleft, float dtop, float dright, float dbottom) const {
+  BBox inflate(float dleft, float dtop, float dright, float dbottom) const {
     return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
   }
   // The four bbox values
@@ -94,6 +94,39 @@ struct BBox {
   float right{0.0};
   float bottom{0.0};
 };
+
+std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
+    const BBox& box,
+    const BBox& bounding_box) {
+  return std::make_tuple(
+      box.left <= bounding_box.left,
+      box.top <= bounding_box.top,
+      box.right >= bounding_box.right,
+      box.bottom >= bounding_box.bottom);
+}
+
+std::tuple<bool, bool> check_for_box_overshoot(
+    const BBox& box,
+    const BBox& bounding_box,
+    const PointDiff& moving_directions,
+    float epsilon = 0.01) {
+  const auto any_on_edge =
+      is_box_edge_on_or_outside_other_box_edge(box, bounding_box);
+
+  const bool left_on_edge =
+      std::get<0>(any_on_edge) && moving_directions.dx < epsilon;
+  const bool right_on_edge =
+      std::get<2>(any_on_edge) && moving_directions.dx > -epsilon;
+  const bool x_on_edge = left_on_edge || right_on_edge;
+
+  const bool top_on_edge =
+      std::get<1>(any_on_edge) && moving_directions.dy < epsilon;
+  const bool bottom_on_edge =
+      std::get<3>(any_on_edge) && moving_directions.dy > -epsilon;
+  const bool y_on_edge = left_on_edge || right_on_edge;
+
+  return std::make_tuple(x_on_edge, y_on_edge);
+}
 
 struct IBasicBox {
   virtual ~IBasicBox() = default;
@@ -361,6 +394,17 @@ class TranslatingBox : public IBasicBox {
     // differences of the box don't keep us in the un-stuck mode,
     // even though we can't move anymore in that direction
     if (config_.arena_box.has_value()) {
+      // slightly deflated box
+      BBox inflated_box = config_.arena_box->inflate(1, 1, -1, -1);
+      std::tuple<bool, bool> x_y_on_edge = check_for_box_overshoot(
+          bbox,
+          inflated_box,
+          /*moving_directions=*/total_diff,
+          /*epsilon=*/0.1);
+      state_.current_speed_x *= std::get<0>(x_y_on_edge);
+      state_.current_speed_y *= std::get<1>(x_y_on_edge);
+      total_diff.dx *= !!std::get<0>(x_y_on_edge);
+      total_diff.dy *= !!std::get<1>(x_y_on_edge);
     }
   }
 
