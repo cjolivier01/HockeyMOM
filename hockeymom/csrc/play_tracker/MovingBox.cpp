@@ -458,6 +458,45 @@ class TranslatingBox : public IBasicBox {
       // END Sticky Translation
       //
     }
+
+    if (!is_nonstop()) {
+      // If we aren't in a forced state of not applying any
+      // constraint/direction-change stops. This is usually because we noticed
+      // (externally) a big change and need to get things moving in some
+      // corrective way (i.e. follow a breakaway) without any randomness.
+      // interfering and stopping it.
+      // This is in leiu of making a big jump all at once, which can be
+      // (visually) jarring.
+
+      constexpr float kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
+      constexpr float kMaxSpeedDiffDirectionCutRateRatio = 2.0;
+
+      if (different_directions(total_diff.dx, state_.current_speed_x)) {
+        if (std::abs(state_.current_speed_x) <
+            config_.max_speed_x / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
+          state_.current_speed_x = 0.0;
+        } else {
+          state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
+        }
+        if (config_.stop_on_dir_change) {
+          total_diff.dx = 0.0;
+        }
+      }
+
+      if (different_directions(total_diff.dy, state_.current_speed_y)) {
+        if (std::abs(state_.current_speed_y) <
+            config_.max_speed_y / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
+          state_.current_speed_y = 0.0;
+        } else {
+          state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
+        }
+        if (config_.stop_on_dir_change) {
+          total_diff.dy = 0.0;
+        }
+      }
+    } // end of is_nonstop()
+
+    adjust_speed(total_diff.dx, total_diff.dy);
   }
 
  private:
