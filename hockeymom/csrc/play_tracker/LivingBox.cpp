@@ -56,6 +56,43 @@ inline FloatValue sign(const FloatValue value) {
 inline bool different_directions(const FloatValue v1, const FloatValue v2) {
   return sign(v1) * sign(v2) < 0.0;
 }
+
+struct ShiftResult {
+  BBox bbox;
+  bool was_shifted_x;
+  bool was_shifted_y;
+};
+
+ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
+  ShiftResult result{
+      .bbox = box, .was_shifted_x = false, .was_shifted_y = false};
+  FloatValue xw = bounding_box.width(), xh = bounding_box.height();
+  // TODO: Make top-left of bounding box not need to be zero
+  assert(isZero(bounding_box.left) && IsZero(bounding_box.top));
+  if (result.bbox.left < 0) {
+    result.bbox.right -= result.bbox.left;
+    result.bbox.left -= result.bbox.left;
+    result.was_shifted_x = true;
+  } else if (result.bbox.right >= xw) {
+    FloatValue offset = result.bbox.right - xw;
+    result.bbox.left -= offset;
+    result.bbox.right -= offset;
+    result.was_shifted_x = true;
+  }
+  if (result.bbox.top < 0) {
+    result.bbox.bottom -= result.bbox.top;
+    result.bbox.top -= result.bbox.top;
+    result.was_shifted_y = true;
+  } else if (result.bbox.bottom >= xh) {
+    FloatValue offset = result.bbox.bottom - xh;
+    result.bbox.top -= offset;
+    result.bbox.bottom -= offset;
+    result.was_shifted_y = true;
+  }
+
+  return result;
+}
+
 } // namespace
 
 std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
