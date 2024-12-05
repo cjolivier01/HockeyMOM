@@ -691,7 +691,7 @@ class MovingBox(ResizingBox):
         self.set_destination(dest_box=dest_box)
         return self.next_position()
 
-    def next_position(self):
+    def next_position(self) -> torch.Tensor:
         arena_box = self._arena_box
 
         # BEGIN Sticky Translation

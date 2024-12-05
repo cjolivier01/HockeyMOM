@@ -178,7 +178,7 @@ class ResizingBox : virtual public IBasicLivingBox {
     set_destination_size(dest_box.width(), dest_box.height());
   }
 
-  constexpr const ResizingConfig& resizing_config() const {
+  const ResizingConfig& resizing_config() const {
     return config_;
   }
 
