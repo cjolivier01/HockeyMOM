@@ -364,6 +364,12 @@ struct TranslatingBoxConfig {
   bool stop_on_dir_change{true};
   std::optional<BBox> arena_box{std::nullopt};
   std::optional<float> fixed_aspect_ratio{std::nullopt};
+  bool clamp_scaled_input_box{true};
+  // Sticky Sizing
+  bool sticky_translation{false};
+  float sticky_size_ratio_to_frame_width{10.0};
+  float sticky_translation_gaussian_mult{5.0};
+  float unsticky_translation_size_ratio{0.75};
 };
 
 struct TranslationState {
@@ -488,6 +494,14 @@ class TranslatingBox : public IBasicBox {
     return 1 - x / center_x;
   }
 
+  std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const {
+    const float gaussian_factor = 1.0 - get_gaussian_y_about_width_center(bounding_box().center().x);
+    constexpr float kGaussianMult = 6.0;
+    const float gaussian_add  = gaussian_factor * kGaussianMult;
+
+    const float max_sticky_size = config_.max_speed_x
+  }
+
  private:
   TranslatingBoxConfig config_;
   TranslationState state_;
@@ -509,7 +523,7 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
   using BasicBox::set_bbox;
 
   MovingBox(std::string label, BBox bbox, const AllMovingBoxConfig& config)
-      : BasicBox(bbox),
+      : BasicBox(bbox.make_scaled(config.scale_width, config.scale_height)),
         ResizingBox(config),
         TranslatingBox(config),
         label_(label),
