@@ -41,6 +41,20 @@ struct PointDiff {
 };
 
 /**
+ *   _____  _            _____  _  __  __
+ *  / ____|(_)          |  __ \(_)/ _|/ _|
+ * | (___   _  ____ ___ | |  | |_| |_| |_
+ *  \___ \ | ||_  // _ \| |  | | |  _|  _|
+ *  ____) || | / /|  __/| |__| | | | | |
+ * |_____/ |_|/___|\___||_____/|_|_| |_|
+ *
+ */
+struct SizeDiff {
+  FloatValue dw;
+  FloatValue dh;
+};
+
+/**
  *  _____       _       _
  * |  __ \     (_)     | |
  * | |__) |___  _ _ __ | |_
@@ -88,6 +102,9 @@ struct BBox {
     assert(bottom >= top);
     return bottom - top;
   }
+  constexpr FloatValue aspect_ratio() const {
+    return width() / height();
+  }
   BBox clone() const {
     return *this;
   }
@@ -106,6 +123,12 @@ struct BBox {
       FloatValue dright,
       FloatValue dbottom) const {
     return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
+  }
+  void validate() const {
+#ifndef NDEBUG
+    assert(right >= left);
+    assert(bottom >= top);
+#endif
   }
   // The four bbox values
   FloatValue left{0.0};
@@ -217,6 +240,7 @@ struct TranslatingBoxConfig {
 struct LivingBoxConfig {
   FloatValue scale_width{1.0};
   FloatValue scale_height{1.0};
+  std::optional<FloatValue> fixed_aspect_ratio{std::nullopt};
 };
 
 struct AllLivingBoxConfig : public ResizingConfig,

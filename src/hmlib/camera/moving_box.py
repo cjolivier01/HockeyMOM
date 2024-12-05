@@ -757,7 +757,7 @@ class MovingBox(ResizingBox):
             assert torch.isclose(aspect_ratio(self._bbox), self._fixed_aspect_ratio)
         return self._bbox
 
-    def clamp_size_scaled(self):
+    def clamp_size_scaled(self) -> None:
         w = width(self._bbox).unsqueeze(0)
         h = height(self._bbox).unsqueeze(0)
         wscale = self._zero
@@ -777,7 +777,7 @@ class MovingBox(ResizingBox):
             return
         self._bbox = clamp_box(box=self._bbox, clamp_box=self._arena_box)
 
-    def stop_translation_if_out_of_arena(self):
+    def stop_translation_if_out_of_arena(self) -> None:
         if self._arena_box is None:
             return
         edge_ok = torch.logical_not(
@@ -791,7 +791,9 @@ class MovingBox(ResizingBox):
         self._current_speed_x *= edge_ok[0]
         self._current_speed_y *= edge_ok[1]
 
-    def set_aspect_ratio(self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor):
+    def set_aspect_ratio(
+        self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor
+    ) -> torch.Tensor:
         if self._arena_box is not None:
             setting_box = clamp_box(setting_box, self._arena_box)
         w = width(setting_box)

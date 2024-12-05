@@ -27,6 +27,25 @@ bool isZero(const double& value, double epsilon = DBL_EPSILON) {
   return std::abs(value) < epsilon;
 }
 
+bool isClose(float a, float b, float rel_tol = 1e-6f, float abs_tol = 1e-8f) {
+  // Compute the absolute difference
+  float abs_diff = std::fabs(a - b);
+
+  // Check if the numbers are close enough considering absolute tolerance
+  if (abs_diff <= abs_tol) {
+    return true;
+  }
+
+  // Compute the relative tolerance component
+  float max_abs = std::max(std::fabs(a), std::fabs(b));
+  if (abs_diff <= max_abs * rel_tol) {
+    return true;
+  }
+
+  // If neither absolute nor relative tolerance conditions are met, return false
+  return false;
+}
+
 constexpr FloatValue one() {
   return 1.0;
 }
@@ -37,6 +56,45 @@ constexpr FloatValue zero() {
 
 constexpr IntValue zero_int() {
   return 0;
+}
+
+BBox clamp_box(BBox box, const BBox& clamp_box) {
+  clamp_box.validate();
+  box.validate();
+  if (box.left < clamp_box.left) {
+    box.left = clamp_box.left;
+  }
+  if (box.right > clamp_box.right) {
+    box.right = clamp_box.right;
+  }
+  if (box.top < clamp_box.top) {
+    box.top = clamp_box.top;
+  }
+  if (box.bottom > clamp_box.bottom) {
+    box.bottom = clamp_box.bottom;
+  }
+  box.validate();
+  return box;
+}
+
+BBox set_box_aspect_ratio(
+    BBox setting_box,
+    FloatValue aspect_ratio,
+    std::optional<BBox> clamp_to_box = std::nullopt) {
+  if (clamp_to_box.has_value()) {
+    setting_box = clamp_box(setting_box, *clamp_to_box);
+  }
+  const float w = setting_box.width(), h = setting_box.height();
+  float new_h, new_w;
+  if (w / h < aspect_ratio) {
+    new_h = h;
+    new_w = new_h * aspect_ratio;
+  } else {
+    new_w = w;
+    new_h = new_w / aspect_ratio;
+  }
+  assert(new_w >= w); // should always grow to accomodate
+  return BBox(setting_box.center(), WHDims{.width = new_w, .height = new_h});
 }
 
 inline FloatValue norm(const PointDiff& diff) {
@@ -182,6 +240,42 @@ class ResizingBox : virtual public IBasicLivingBox {
     return config_;
   }
 
+ protected:
+  SizeDiff get_proposed_next_size_change() const {
+    if (state_.size_is_frozen) {
+      return SizeDiff{.dw = zero(), .dh = zero()};
+    }
+    return SizeDiff{
+        .dw = state_.current_speed_w / 2, .dh = state_.current_speed_h / 2};
+  }
+
+  WHDims get_min_allowed_width_height() const {
+    return WHDims{.width = config_.min_width, .height = config_.min_height};
+  }
+
+  // WHDims get_max_allowed_width_height() const {
+  //   return WHDims{.width = config_.max_width, .height = config_.max_height};
+  // }
+
+  void clamp_size_scaled() {
+    const BBox bbox = bounding_box();
+    float w = bbox.width();
+    float h = bbox.height();
+    float wscale = zero(), hscale = zero();
+    if (w > config_.max_width) {
+      wscale = config_.max_width / w;
+    }
+    if (h > config_.max_height) {
+      hscale = config_.max_height / h;
+    }
+    float final_scale = std::max(wscale, hscale);
+    if (!isZero(final_scale)) {
+      w *= final_scale;
+      h *= final_scale;
+      set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
+    }
+  }
+
  private:
   void set_destination_size(
       FloatValue dest_width,
@@ -298,25 +392,6 @@ class ResizingBox : virtual public IBasicLivingBox {
         state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
   }
 
-  void clamp_size_scaled() {
-    const BBox bbox = bounding_box();
-    float w = bbox.width();
-    float h = bbox.height();
-    float wscale = zero(), hscale = zero();
-    if (w > config_.max_width) {
-      wscale = config_.max_width / w;
-    }
-    if (h > config_.max_height) {
-      hscale = config_.max_height / h;
-    }
-    float final_scale = std::max(wscale, hscale);
-    if (!isZero(final_scale)) {
-      w *= final_scale;
-      h *= final_scale;
-      set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
-    }
-  }
-
   struct GrowShrink {
     FloatValue grow_width, grow_height, shrink_width, shring_height;
   };
@@ -345,6 +420,10 @@ struct TranslationState {
 };
 
 class TranslatingBox : virtual public IBasicLivingBox {
+  static inline constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio =
+      6.0;
+  static inline constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
+
  public:
   TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {
     if (config_.arena_box.has_value()) {
@@ -427,9 +506,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
       // This is in leiu of making a big jump all at once, which can be
       // (visually) jarring.
 
-      constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
-      constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
-
       if (different_directions(total_diff.dx, state_.current_speed_x)) {
         if (std::abs(state_.current_speed_x) <
             config_.max_speed_x / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
@@ -456,6 +532,58 @@ class TranslatingBox : virtual public IBasicLivingBox {
     } // end of is_nonstop()
 
     adjust_speed(total_diff.dx, total_diff.dy);
+  }
+
+ protected:
+  PointDiff get_proposed_next_position_change() const {
+    if (state_.translation_is_frozen) {
+      return PointDiff{.dx = zero(), .dy = zero()};
+    }
+    return PointDiff{
+        .dx = state_.current_speed_x, .dy = state_.current_speed_y};
+  }
+
+  void stop_translation_if_out_of_arena() {
+    if (!config_.arena_box.has_value()) {
+      return;
+    }
+    std::tuple<bool, bool> x_y_on_edge = check_for_box_overshoot(
+        bounding_box(),
+        config_.arena_box->inflate(1, 1, -1, -1),
+        /*moving_directions=*/
+        PointDiff{.dx = state_.current_speed_x, .dy = state_.current_speed_y},
+        /*epsilon=*/0.1);
+    state_.current_speed_x *= !std::get<0>(x_y_on_edge);
+    state_.current_speed_y *= !std::get<1>(x_y_on_edge);
+  }
+
+  // After new position is set, adjust the nonstop-delay
+  void update_nonstop_delay() {
+    if (state_.nonstop_delay != zero()) {
+      state_.nonstop_delay_counter += 1;
+      if (state_.nonstop_delay_counter > state_.nonstop_delay) {
+        state_.nonstop_delay = zero();
+        state_.nonstop_delay_counter = zero();
+      }
+    }
+  }
+
+  const TranslatingBoxConfig& translating_config() const {
+    return config_;
+  }
+
+  void on_new_position() {
+    if (!config_.arena_box.has_value()) {
+      return;
+    }
+    const ShiftResult shift_result =
+        shift_box_to_edge(bounding_box(), *config_.arena_box);
+    if (shift_result.was_shifted_x) {
+      state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
+    }
+    if (shift_result.was_shifted_y) {
+      state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
+    }
   }
 
  private:
@@ -561,23 +689,11 @@ class TranslatingBox : virtual public IBasicLivingBox {
     return std::make_tuple(sticky_size, unsticky_size);
   }
 
-  void stop_translation_if_out_of_arena() {
-    if (!config_.arena_box.has_value()) {
-      return;
-    }
-    std::tuple<bool, bool> x_y_on_edge = check_for_box_overshoot(
-        bounding_box(),
-        config_.arena_box->inflate(1, 1, -1, -1),
-        /*moving_directions=*/
-        PointDiff{.dx = state_.current_speed_x, .dy = state_.current_speed_y},
-        /*epsilon=*/0.1);
-    state_.current_speed_x *= !std::get<0>(x_y_on_edge);
-    state_.current_speed_y *= !std::get<1>(x_y_on_edge);
-  }
-
  private:
   TranslatingBoxConfig config_;
   TranslationState state_;
+
+  // Calculated clamp values based upon the given arena box (of any)
   std::optional<std::pair<FloatValue, FloatValue>> gasussian_clamp_lr{
       std::nullopt};
 };
@@ -616,6 +732,7 @@ class LivingBox : public ILivingBox,
     TranslatingBox::set_destination(scaled_bbox);
   }
 
+ private:
   // FloatValue get_zoom_level() {
   //   BBox bbox = bounding_box();
   //   FloatValue current_w = bbox.width();
@@ -624,13 +741,47 @@ class LivingBox : public ILivingBox,
   // }
 
   BBox next_position() {
-    // torch::Tensor dx = current_speed_x_;
-    // torch::Tensor dy = current_speed_y_;
+    // These diffs take into account size or translation stickiness
+    const PointDiff translation_change = get_proposed_next_position_change();
+    const SizeDiff size_change = get_proposed_next_size_change();
 
-    // bbox_ += torch::tensor(std::vector<at::Tensor>{dx, dy, dx, dy},
-    // torch::dtype(torch::kFloat).device(device_));
+    BBox new_box = bounding_box();
+    new_box.left += translation_change.dx - size_change.dw;
+    new_box.top += translation_change.dy - size_change.dh;
+    new_box.right += translation_change.dx + size_change.dw;
+    new_box.bottom += translation_change.dy + size_change.dh;
 
+    // Constrain size
+    FloatValue new_ww = new_box.width(), new_hh = new_box.height();
+    const WHDims min_allowed_width_height = get_min_allowed_width_height();
+    FloatValue ww = std::max(new_ww, min_allowed_width_height.width);
+    FloatValue hh = std::max(new_hh, min_allowed_width_height.height);
+    was_size_contrained_ = ww != new_ww || hh != new_hh;
+
+    new_box = BBox(new_box.center(), WHDims{.width = ww, .height = hh});
+    // Assign new bounding box
+    set_bbox(new_box);
+
+    update_nonstop_delay();
+    stop_translation_if_out_of_arena();
     clamp_to_arena();
+
+    const TranslatingBoxConfig& tconfig = translating_config();
+    // Maybe adjust aspect ratio
+    if (config_.fixed_aspect_ratio.has_value()) {
+      set_bbox(set_box_aspect_ratio(
+          bounding_box(), *config_.fixed_aspect_ratio, tconfig.arena_box));
+    }
+    clamp_size_scaled();
+
+    on_new_position();
+
+    // Check that we maintained our aspect ratio
+    if (config_.fixed_aspect_ratio.has_value()) {
+      assert(
+          isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
+    }
+
     return bounding_box();
   }
 
@@ -664,6 +815,10 @@ class LivingBox : public ILivingBox,
  private:
   const std::string label_;
   const LivingBoxConfig config_;
+
+  // Flag to show we were size-constrained on the last update
+  // (debugging/visualization only)
+  bool was_size_contrained_{false};
 };
 
 std::unique_ptr<ILivingBox> create_live_box(
