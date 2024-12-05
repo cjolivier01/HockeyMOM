@@ -64,7 +64,7 @@ def clamp_box(box, clamp_box):
 
 
 def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Tensor):
-    # Avoid BS caused by integer rouding
+    # Avoid BS caused by integer rounding
     assert torch.is_floating_point(center_point)
     half_w = w / 2.0
     half_h = h / 2.0

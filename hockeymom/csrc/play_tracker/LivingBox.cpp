@@ -4,6 +4,7 @@
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
 
 #include <cassert>
+#include <cfloat> // For FLT_EPSILON and DBL_EPSILON
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -17,6 +18,14 @@ namespace hm {
 namespace play_tracker {
 
 namespace {
+
+bool isZero(const float& value, float epsilon = FLT_EPSILON) {
+  return std::abs(value) < epsilon;
+}
+
+bool isZero(const double& value, double epsilon = DBL_EPSILON) {
+  return std::abs(value) < epsilon;
+}
 
 constexpr FloatValue one() {
   return 1.0;
@@ -250,6 +259,25 @@ class ResizingBox : virtual public IBasicLivingBox {
         state_.current_speed_w, -config_.max_speed_w, config_.max_speed_w);
     state_.current_speed_h = clamp(
         state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
+  }
+
+  void clamp_size_scaled() {
+    const BBox bbox = bounding_box();
+    float w = bbox.width();
+    float h = bbox.height();
+    float wscale = zero(), hscale = zero();
+    if (w > config_.max_width) {
+      wscale = config_.max_width / w;
+    }
+    if (h > config_.max_height) {
+      hscale = config_.max_height / h;
+    }
+    float final_scale = std::max(wscale, hscale);
+    if (!isZero(final_scale)) {
+      w *= final_scale;
+      h *= final_scale;
+      set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
+    }
   }
 
   struct GrowShrink {
@@ -494,6 +522,20 @@ class TranslatingBox : virtual public IBasicLivingBox {
     FloatValue unsticky_size =
         sticky_size * config_.unsticky_translation_size_ratio;
     return std::make_tuple(sticky_size, unsticky_size);
+  }
+
+  void stop_translation_if_out_of_arena() {
+    if (!config_.arena_box.has_value()) {
+      return;
+    }
+    std::tuple<bool, bool> x_y_on_edge = check_for_box_overshoot(
+        bounding_box(),
+        config_.arena_box->inflate(1, 1, -1, -1),
+        /*moving_directions=*/
+        PointDiff{.dx = state_.current_speed_x, .dy = state_.current_speed_y},
+        /*epsilon=*/0.1);
+    state_.current_speed_x *= !std::get<0>(x_y_on_edge);
+    state_.current_speed_y *= !std::get<1>(x_y_on_edge);
   }
 
  private:
