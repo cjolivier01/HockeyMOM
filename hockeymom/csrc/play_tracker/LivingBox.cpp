@@ -706,18 +706,13 @@ class LivingBox : public ILivingBox,
                   public TranslatingBox {
  public:
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config)
-      : BoundingBox(bbox.make_scaled(config.scale_width, config.scale_height)),
+      : BoundingBox(bbox.make_scaled(
+            config.scale_dest_width,
+            config.scale_dest_height)),
         ResizingBox(config),
         TranslatingBox(config),
         label_(label),
         config_(config) {}
-
-  WHDims get_size_scale() const {
-    return WHDims{
-        .width = config_.scale_width,
-        .height = config_.scale_height,
-    };
-  }
 
   void draw(at::Tensor& img, bool draw_thresholds = false) override {
     // ResizingBox::draw(img, draw_thresholds);
@@ -726,15 +721,14 @@ class LivingBox : public ILivingBox,
     //  cv::Scalar(255, 0, 0), 2);
   }
 
-  void set_destination(const IBasicLivingBox& dest_box) override {
-    BBox bbox = dest_box.bounding_box();
-    WHDims scale_box = get_size_scale();
-    BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
-    ResizingBox::set_destination(scaled_bbox);
-    TranslatingBox::set_destination(scaled_bbox);
+ private:
+  WHDims get_size_scale() const {
+    return WHDims{
+        .width = config_.scale_dest_width,
+        .height = config_.scale_dest_height,
+    };
   }
 
- private:
   // FloatValue get_zoom_level() {
   //   BBox bbox = bounding_box();
   //   FloatValue current_w = bbox.width();
@@ -806,6 +800,13 @@ class LivingBox : public ILivingBox,
 
   BBox bounding_box() const override {
     return BoundingBox::bounding_box();
+  }
+
+  void set_destination(const IBasicLivingBox& dest_box) override {
+    BBox bbox = dest_box.bounding_box();
+    WHDims scale_box = get_size_scale();
+    BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
+    set_destination(scaled_bbox);
   }
 
   void set_destination(const BBox& dest_box) override {

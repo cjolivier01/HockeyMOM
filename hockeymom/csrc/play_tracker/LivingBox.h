@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 
 namespace hm {
 namespace play_tracker {
@@ -170,7 +171,7 @@ struct IBasicLivingBox {
  *                                 |___/
  */
 struct ILivingBox : virtual public IBasicLivingBox {
-  virtual void set_destination(const IBasicLivingBox& dest_box) = 0;
+  virtual void forward(const std::variant<IBasicLivingBox, BBox>& dest) = 0;
 };
 
 /* clang-format off */
@@ -238,8 +239,8 @@ struct TranslatingBoxConfig {
 };
 
 struct LivingBoxConfig {
-  FloatValue scale_width{1.0};
-  FloatValue scale_height{1.0};
+  FloatValue scale_dest_width{1.0};
+  FloatValue scale_dest_height{1.0};
   std::optional<FloatValue> fixed_aspect_ratio{std::nullopt};
 };
 
