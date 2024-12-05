@@ -40,8 +40,8 @@ struct WHDims {
 };
 
 struct PointDiff {
-  const FloatValue dx;
-  const FloatValue dy;
+  FloatValue dx;
+  FloatValue dy;
 };
 
 struct Point {
@@ -407,11 +407,12 @@ class TranslatingBox : public IBasicBox {
           inflated_box,
           /*moving_directions=*/total_diff,
           /*epsilon=*/0.1);
-      state_.current_speed_x *= std::get<0>(x_y_on_edge);
-      state_.current_speed_y *= std::get<1>(x_y_on_edge);
-      total_diff.dx *= !!std::get<0>(x_y_on_edge);
-      total_diff.dy *= !!std::get<1>(x_y_on_edge);
+      state_.current_speed_x *= !std::get<0>(x_y_on_edge);
+      state_.current_speed_y *= !std::get<1>(x_y_on_edge);
+      total_diff.dx *= !std::get<0>(x_y_on_edge);
+      total_diff.dy *= !std::get<1>(x_y_on_edge);
     }
+
   }
 
  private:
@@ -495,12 +496,23 @@ class TranslatingBox : public IBasicBox {
   }
 
   std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const {
-    const float gaussian_factor = 1.0 - get_gaussian_y_about_width_center(bounding_box().center().x);
+    const BBox bbox = bounding_box();
+    const float gaussian_factor =
+        1.0 - get_gaussian_y_about_width_center(bbox.center().x);
     constexpr float kGaussianMult = 6.0;
-    const float gaussian_add  = gaussian_factor * kGaussianMult;
+    const float gaussian_add = gaussian_factor * kGaussianMult;
 
-    const float max_sticky_size = config_.max_speed_x
+    const float max_sticky_size =
+        config_.max_speed_x * config_.sticky_translation_gaussian_mult +
+        gaussian_add;
+    float sticky_size = bbox.width() / config_.sticky_size_ratio_to_frame_width;
+    sticky_size = std::min(sticky_size, max_sticky_size);
+
+    float unsticky_size = sticky_size * config_.unsticky_translation_size_ratio;
+    return std::make_tuple(sticky_size, unsticky_size);
   }
+
+
 
  private:
   TranslatingBoxConfig config_;
