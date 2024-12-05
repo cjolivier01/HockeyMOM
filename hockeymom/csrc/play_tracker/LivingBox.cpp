@@ -82,9 +82,9 @@ std::tuple<bool, bool> check_for_box_overshoot(
   return std::make_tuple(x_on_edge, y_on_edge);
 }
 
-class BasicBox : public ILiveBox {
+class BoundingBox : virtual public IBasicLivingBox {
  public:
-  BasicBox(BBox bbox) : bbox_(bbox.clone()) {}
+  BoundingBox(BBox bbox) : bbox_(bbox.clone()) {}
 
   void set_bbox(const BBox& bbox) override {
     bbox_ = bbox.clone();
@@ -102,7 +102,7 @@ using DrawOptions = std::unordered_map<int, bool>;
 
 template <typename T>
 inline T clamp(const T& value, const T& min, const T& max) {
-  std::clamp(value, min, max);
+  return std::clamp(value, min, max);
 }
 
 struct ResizingState {
@@ -111,7 +111,7 @@ struct ResizingState {
   FloatValue current_speed_h{0.0};
 };
 
-class ResizingBox : public ILiveBox {
+class ResizingBox : virtual public IBasicLivingBox {
  public:
   ResizingBox(ResizingBox&&) = delete;
   ResizingBox(const ResizingConfig& config) : config_(config) {}
@@ -279,7 +279,7 @@ struct TranslationState {
   IntValue nonstop_delay_counter{0};
 };
 
-class TranslatingBox : public ILiveBox {
+class TranslatingBox : virtual public IBasicLivingBox {
  public:
   TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {
     if (config_.arena_box.has_value()) {
@@ -503,10 +503,13 @@ class TranslatingBox : public ILiveBox {
       std::nullopt};
 };
 
-class LivingBox : public BasicBox, public ResizingBox, public TranslatingBox {
+class LivingBox : public ILivingBox,
+                  public BoundingBox,
+                  public ResizingBox,
+                  public TranslatingBox {
  public:
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config)
-      : BasicBox(bbox.make_scaled(config.scale_width, config.scale_height)),
+      : BoundingBox(bbox.make_scaled(config.scale_width, config.scale_height)),
         ResizingBox(config),
         TranslatingBox(config),
         label_(label),
@@ -526,13 +529,7 @@ class LivingBox : public BasicBox, public ResizingBox, public TranslatingBox {
     //  cv::Scalar(255, 0, 0), 2);
   }
 
-  void set_destination(const BBox& dest_box) override {
-    ResizingBox::set_destination(dest_box);
-    TranslatingBox::set_destination(dest_box);
-    // set_destination_size(dest_box.width(), dest_box.height());
-  }
-
-  void set_destination(const ILiveBox& dest_box) {
+  void set_destination(const IBasicLivingBox& dest_box) override {
     BBox bbox = dest_box.bounding_box();
     WHDims scale_box = get_size_scale();
     BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
@@ -570,16 +567,27 @@ class LivingBox : public BasicBox, public ResizingBox, public TranslatingBox {
   }
 
  protected:
-  // -ILiveBox
+  // -IBasicLivingBox
+  void set_bbox(const BBox& bbox) override {
+    BoundingBox::set_bbox(bbox);
+  }
 
-  // ILiveBox-
+  BBox bounding_box() const override {
+    return BoundingBox::bounding_box();
+  }
+
+  void set_destination(const BBox& dest_box) override {
+    ResizingBox::set_destination(dest_box);
+    TranslatingBox::set_destination(dest_box);
+  }
+  // IBasicLivingBox-
 
  private:
   const std::string label_;
   const LivingBoxConfig config_;
 };
 
-std::unique_ptr<ILiveBox> create_live_box(
+std::unique_ptr<ILivingBox> create_live_box(
     std::string label,
     const BBox& bbox,
     const AllLivingBoxConfig* config) {

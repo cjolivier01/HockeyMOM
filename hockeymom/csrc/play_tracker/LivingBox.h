@@ -114,6 +114,28 @@ struct BBox {
   FloatValue bottom{0.0};
 };
 
+/* clang-format off */
+/**
+ *  _____ ____              _      _      _         _             ____
+ * |_   _|  _ \            (_)    | |    (_)       (_)           |  _ \
+ *   | | | |_) | __ _  ___  _  ___| |     _ __   __ _ _ __   __ _| |_) | ___ __  __
+ *   | | |  _ < / _` |/ __|| |/ __| |    | |\ \ / /| | '_ \ / _` |  _ < / _ \\ \/ /
+ *  _| |_| |_) | (_| |\__ \| | (__| |____| | \ V / | | | | | (_| | |_) | (_) |>  <
+ * |_____|____/ \__,_||___/|_|\___|______|_|  \_/  |_|_| |_|\__, |____/ \___//_/\_\
+ *                                                           __/ |
+ *                                                          |___/
+ */
+/* clang-format on */
+struct IBasicLivingBox {
+  virtual ~IBasicLivingBox() = default;
+
+  virtual void set_bbox(const BBox& bbox) = 0;
+
+  virtual BBox bounding_box() const = 0;
+
+  virtual void set_destination(const BBox& dest_box) = 0;
+};
+
 /**
  *  _____ _      _         _             ____
  * |_   _| |    (_)       (_)           |  _ \
@@ -124,14 +146,8 @@ struct BBox {
  *                                  __/ |
  *                                 |___/
  */
-struct ILivingBox {
-  virtual ~ILivingBox() = default;
-
-  virtual void set_bbox(const BBox& bbox) = 0;
-
-  virtual BBox bounding_box() const = 0;
-
-  virtual void set_destination(const BBox& dest_box) = 0;
+struct ILivingBox : virtual public IBasicLivingBox {
+  virtual void set_destination(const IBasicLivingBox& dest_box) = 0;
 };
 
 /* clang-format off */
