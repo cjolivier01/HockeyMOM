@@ -1,7 +1,7 @@
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 
-#include "hockeymom/csrc/play_tracker/MovingBox.h"
+#include "hockeymom/csrc/play_tracker/LivingBox.h"
 
 #include <cassert>
 #include <cmath>
@@ -13,13 +13,28 @@
 // using namespace cv;
 using namespace torch;
 
+namespace hm {
+namespace play_tracker {
+
 namespace {
 
-// using BBox = torch::Tensor;
-// using FloatValue = torch::Tensor;
-using FloatValue = float;
+constexpr FloatValue one() {
+  return 1.0;
+}
 
-inline float sign(const float value) {
+constexpr FloatValue zero() {
+  return 0.0;
+}
+
+constexpr IntValue zero_int() {
+  return 0;
+}
+
+inline FloatValue norm(const PointDiff& diff) {
+  return std::sqrt(diff.dx * diff.dx + diff.dy * diff.dy);
+}
+
+inline FloatValue sign(const FloatValue value) {
   if (value > 0) {
     return 1.0f;
   } else if (value < 0) {
@@ -29,75 +44,10 @@ inline float sign(const float value) {
   }
 }
 
-inline bool different_directions(const float v1, const float v2) {
+inline bool different_directions(const FloatValue v1, const FloatValue v2) {
   return sign(v1) * sign(v2) < 0.0;
 }
 } // namespace
-
-struct WHDims {
-  const FloatValue width;
-  const FloatValue height;
-};
-
-struct PointDiff {
-  FloatValue dx;
-  FloatValue dy;
-};
-
-static inline float norm(const PointDiff& diff) {
-  return std::sqrt(diff.dx * diff.dx + diff.dy * diff.dy);
-}
-
-struct Point {
-  FloatValue x;
-  FloatValue y;
-
-  PointDiff operator-(const Point& pt) const {
-    return PointDiff{.dx = x - pt.x, .dy = y - pt.y};
-  }
-};
-
-struct BBox {
-  BBox() = default;
-  BBox(float l, float t, float r, float b)
-      : left(l), top(t), right(r), bottom(b) {}
-  BBox(const Point& center, const WHDims& dims) {
-    auto half_w = dims.width / 2;
-    auto half_h = dims.height / 2;
-    left = center.x - half_w;
-    right = center.x + half_w;
-    top = center.y - half_h;
-    bottom = center.y + half_h;
-  }
-  constexpr float width() const {
-    assert(right >= left);
-    return right - left;
-  }
-  constexpr float height() const {
-    assert(bottom >= top);
-    return bottom - top;
-  }
-  BBox clone() const {
-    return *this;
-  }
-  Point center() const {
-    return Point{.x = (right - left) / 2, .y = (bottom - top) / 2};
-  }
-  BBox make_scaled(float scale_width, float scale_height) const {
-    return BBox(
-        center(),
-        WHDims{
-            .width = width() * scale_width, .height = height() * scale_height});
-  }
-  BBox inflate(float dleft, float dtop, float dright, float dbottom) const {
-    return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
-  }
-  // The four bbox values
-  float left{0.0};
-  float top{0.0};
-  float right{0.0};
-  float bottom{0.0};
-};
 
 std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
     const BBox& box,
@@ -113,7 +63,7 @@ std::tuple<bool, bool> check_for_box_overshoot(
     const BBox& box,
     const BBox& bounding_box,
     const PointDiff& moving_directions,
-    float epsilon = 0.01) {
+    FloatValue epsilon = 0.01) {
   const auto any_on_edge =
       is_box_edge_on_or_outside_other_box_edge(box, bounding_box);
 
@@ -132,29 +82,7 @@ std::tuple<bool, bool> check_for_box_overshoot(
   return std::make_tuple(x_on_edge, y_on_edge);
 }
 
-struct IBasicBox {
-  virtual ~IBasicBox() = default;
-
-  virtual void set_bbox(const BBox& bbox) = 0;
-
-  virtual BBox bounding_box() const = 0;
-
-  virtual void set_destination(const BBox& dest_box) = 0;
-
-  static constexpr float one() {
-    return 1.0;
-  }
-
-  static constexpr float zero() {
-    return 0.0;
-  }
-
-  static constexpr int64_t zero_int() {
-    return 0;
-  }
-};
-
-class BasicBox : public IBasicBox {
+class BasicBox : public ILiveBox {
  public:
   BasicBox(BBox bbox) : bbox_(bbox.clone()) {}
 
@@ -177,47 +105,25 @@ inline T clamp(const T& value, const T& min, const T& max) {
   std::clamp(value, min, max);
 }
 
-struct ResizingBoxConfig {
-  float max_speed_w{0.0};
-  float max_speed_h{0.0};
-  float max_accel_w{0.0};
-  float max_accel_h{0.0};
-  float min_width{0.0};
-  float min_height{0.0};
-  float max_width{0.0};
-  float max_height{0.0};
-  bool stop_on_dir_change{true};
-  bool sticky_sizing{false};
-  //
-  // Sticky sizing thresholds
-  //
-  // Threshold to grow width (ratio of bbox)
-  const float size_ratio_thresh_grow_dw{0.05};
-  // Threshold to grow height (ratio of bbox)
-  const float size_ratio_thresh_grow_dh{0.1};
-  // Threshold to shrink width (ratio of bbox)
-  const float size_ratio_thresh_shrink_dw{0.08};
-  // Threshold to shrink height (ratio of bbox)
-  const float size_ratio_thresh_shrink_dh{0.1};
-};
-
 struct ResizingState {
   bool size_is_frozen{true};
-  float current_speed_w{0.0};
-  float current_speed_h{0.0};
+  FloatValue current_speed_w{0.0};
+  FloatValue current_speed_h{0.0};
 };
 
-class ResizingBox : public IBasicBox {
+class ResizingBox : public ILiveBox {
  public:
   ResizingBox(ResizingBox&&) = delete;
-  ResizingBox(const ResizingBoxConfig& config) : config_(config) {}
+  ResizingBox(const ResizingConfig& config) : config_(config) {}
 
   virtual void draw(at::Tensor& img, bool draw_thresholds = true) {
     // cv::Rect bbox_rect(
-    //     static_cast<int>(bbox_[0].item<float>()),
-    //     static_cast<int>(bbox_[1].item<float>()),
-    //     static_cast<int>(bbox_[2].item<float>() - bbox_[0].item<float>()),
-    //     static_cast<int>(bbox_[3].item<float>() - bbox_[1].item<float>())
+    //     static_cast<int>(bbox_[0].item<FloatValue>()),
+    //     static_cast<int>(bbox_[1].item<FloatValue>()),
+    //     static_cast<int>(bbox_[2].item<FloatValue>() -
+    //     bbox_[0].item<FloatValue>()),
+    //     static_cast<int>(bbox_[3].item<FloatValue>() -
+    //     bbox_[1].item<FloatValue>())
     // );
     // cv::rectangle(img, bbox_rect, cv::Scalar(0, 255, 0), 2);
   }
@@ -226,7 +132,7 @@ class ResizingBox : public IBasicBox {
     set_destination_size(dest_box.width(), dest_box.height());
   }
 
-  constexpr const ResizingBoxConfig& resizing_config() const {
+  constexpr const ResizingConfig& resizing_config() const {
     return config_;
   }
 
@@ -276,8 +182,9 @@ class ResizingBox : public IBasicBox {
       //
     }
 
-    constexpr float kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio = 6.0;
-    constexpr float kMaxWidthHeightDiffDirectionCutRateRatio = 2.0;
+    constexpr FloatValue kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio =
+        6.0;
+    constexpr FloatValue kMaxWidthHeightDiffDirectionCutRateRatio = 2.0;
     if (different_directions(dw, state_.current_speed_w)) {
       // The desired change is in the opposire direction of the current widening
       if (std::abs(state_.current_speed_w) <
@@ -307,19 +214,22 @@ class ResizingBox : public IBasicBox {
     adjust_size(/*accel_w=*/dw, /*accel_h=*/dh);
   }
 
-  void adjust_size(float accel_w, float accel_h, bool use_constraints = true) {
+  void adjust_size(
+      FloatValue accel_w,
+      FloatValue accel_h,
+      bool use_constraints = true) {
     if (state_.size_is_frozen) {
       return;
     }
 
     if (use_constraints) {
-      constexpr float kResizeLargerScaleDifference = 2.0;
+      constexpr FloatValue kResizeLargerScaleDifference = 2.0;
 
       // Growing is allowed at a higher rate than shrinking
-      const float max_accel_w = accel_w > 0
+      const FloatValue max_accel_w = accel_w > 0
           ? (config_.max_accel_w * kResizeLargerScaleDifference)
           : config_.max_accel_w;
-      const float max_accel_h = accel_h > 0
+      const FloatValue max_accel_h = accel_h > 0
           ? (config_.max_accel_h * kResizeLargerScaleDifference)
           : config_.max_accel_h;
 
@@ -356,24 +266,8 @@ class ResizingBox : public IBasicBox {
     };
   }
 
-  const ResizingBoxConfig config_;
+  const ResizingConfig config_;
   ResizingState state_;
-};
-
-struct TranslatingBoxConfig {
-  float max_speed_x{0.0};
-  float max_speed_y{0.0};
-  float max_accel_x{0.0};
-  float max_accel_y{0.0};
-  bool stop_on_dir_change{true};
-  std::optional<BBox> arena_box{std::nullopt};
-  std::optional<float> fixed_aspect_ratio{std::nullopt};
-  bool clamp_scaled_input_box{true};
-  // Sticky Sizing
-  bool sticky_translation{false};
-  float sticky_size_ratio_to_frame_width{10.0};
-  float sticky_translation_gaussian_mult{5.0};
-  float unsticky_translation_size_ratio{0.75};
 };
 
 struct TranslationState {
@@ -381,11 +275,11 @@ struct TranslationState {
   FloatValue current_speed_y{0.0};
   bool translation_is_frozen{false};
   // Nonstop stuff
-  std::optional<int64_t> nonstop_delay{0};
-  int64_t nonstop_delay_counter{0};
+  std::optional<IntValue> nonstop_delay{0};
+  IntValue nonstop_delay_counter{0};
 };
 
-class TranslatingBox : public IBasicBox {
+class TranslatingBox : public ILiveBox {
  public:
   TranslatingBox(const TranslatingBoxConfig& config) : config_(config) {
     if (config_.arena_box.has_value()) {
@@ -421,7 +315,7 @@ class TranslatingBox : public IBasicBox {
       //
       // BEGIN Sticky Translation
       //
-      const float diff_magnitude = norm(total_diff);
+      const FloatValue diff_magnitude = norm(total_diff);
 
       // Check if the new center is in a direction opposed to our current
       // velocity
@@ -431,15 +325,15 @@ class TranslatingBox : public IBasicBox {
           (sign(state_.current_speed_y) * sign(total_diff.dy)) < 0;
 
       // Reduce velocities on axes that changed direction
-      const float volocity_x =
+      const FloatValue volocity_x =
           changed_direction_x ? 0.0 : state_.current_speed_x;
-      const float velocity_y =
+      const FloatValue velocity_y =
           changed_direction_y ? 0.0 : state_.current_speed_y;
 
       // See if we are breaking the sticky or unsticky threshold
       const auto sticky_unsticky = get_sticky_translation_sizes();
-      const float sticky_size = std::get<0>(sticky_unsticky);
-      const float unsticky_size = std::get<1>(sticky_unsticky);
+      const FloatValue sticky_size = std::get<0>(sticky_unsticky);
+      const FloatValue unsticky_size = std::get<1>(sticky_unsticky);
       if (!state_.translation_is_frozen) {
         if (diff_magnitude <= sticky_size) {
           state_.translation_is_frozen = true;
@@ -468,8 +362,8 @@ class TranslatingBox : public IBasicBox {
       // This is in leiu of making a big jump all at once, which can be
       // (visually) jarring.
 
-      constexpr float kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
-      constexpr float kMaxSpeedDiffDirectionCutRateRatio = 2.0;
+      constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
+      constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
 
       if (different_directions(total_diff.dx, state_.current_speed_x)) {
         if (std::abs(state_.current_speed_x) <
@@ -504,7 +398,7 @@ class TranslatingBox : public IBasicBox {
     return state_.nonstop_delay != 0;
   }
 
-  void clamp_speed(float scale) {
+  void clamp_speed(FloatValue scale) {
     state_.current_speed_x = clamp(
         state_.current_speed_x,
         -config_.max_speed_x * scale,
@@ -566,13 +460,13 @@ class TranslatingBox : public IBasicBox {
     }
   }
 
-  float get_gaussian_y_about_width_center(float x) const {
+  FloatValue get_gaussian_y_about_width_center(FloatValue x) const {
     // Different than python
     if (!config_.arena_box.has_value()) {
       return 1.0;
     }
     x = clamp(x, gasussian_clamp_lr->first, gasussian_clamp_lr->second);
-    const float center_x = config_.arena_box->width() / 2;
+    const FloatValue center_x = config_.arena_box->width() / 2;
     if (x < center_x) {
       x = -(center_x - x);
     } else if (x > center_x) {
@@ -585,42 +479,33 @@ class TranslatingBox : public IBasicBox {
 
   std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const {
     const BBox bbox = bounding_box();
-    const float gaussian_factor =
+    const FloatValue gaussian_factor =
         1.0 - get_gaussian_y_about_width_center(bbox.center().x);
-    constexpr float kGaussianMult = 6.0;
-    const float gaussian_add = gaussian_factor * kGaussianMult;
+    constexpr FloatValue kGaussianMult = 6.0;
+    const FloatValue gaussian_add = gaussian_factor * kGaussianMult;
 
-    const float max_sticky_size =
+    const FloatValue max_sticky_size =
         config_.max_speed_x * config_.sticky_translation_gaussian_mult +
         gaussian_add;
-    float sticky_size = bbox.width() / config_.sticky_size_ratio_to_frame_width;
+    FloatValue sticky_size =
+        bbox.width() / config_.sticky_size_ratio_to_frame_width;
     sticky_size = std::min(sticky_size, max_sticky_size);
 
-    float unsticky_size = sticky_size * config_.unsticky_translation_size_ratio;
+    FloatValue unsticky_size =
+        sticky_size * config_.unsticky_translation_size_ratio;
     return std::make_tuple(sticky_size, unsticky_size);
   }
 
  private:
   TranslatingBoxConfig config_;
   TranslationState state_;
-  std::optional<std::pair<float, float>> gasussian_clamp_lr{std::nullopt};
+  std::optional<std::pair<FloatValue, FloatValue>> gasussian_clamp_lr{
+      std::nullopt};
 };
 
-struct MovingBoxConfig {
-  FloatValue scale_width{1.0};
-  FloatValue scale_height{1.0};
-};
-
-struct AllMovingBoxConfig : public ResizingBoxConfig,
-                            public TranslatingBoxConfig,
-                            public MovingBoxConfig {};
-
-class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
+class LivingBox : public BasicBox, public ResizingBox, public TranslatingBox {
  public:
-  using BasicBox::bounding_box;
-  using BasicBox::set_bbox;
-
-  MovingBox(std::string label, BBox bbox, const AllMovingBoxConfig& config)
+  LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config)
       : BasicBox(bbox.make_scaled(config.scale_width, config.scale_height)),
         ResizingBox(config),
         TranslatingBox(config),
@@ -647,7 +532,7 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
     // set_destination_size(dest_box.width(), dest_box.height());
   }
 
-  void set_destination(const IBasicBox& dest_box) {
+  void set_destination(const ILiveBox& dest_box) {
     BBox bbox = dest_box.bounding_box();
     WHDims scale_box = get_size_scale();
     BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
@@ -674,7 +559,7 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
   }
 
   void clamp_to_arena() {
-    const ResizingBoxConfig& rconfig = resizing_config();
+    const ResizingConfig& rconfig = resizing_config();
     BBox bbox = bounding_box();
     auto z = zero();
     bbox.left = clamp(bbox.left, z, rconfig.max_width);
@@ -684,17 +569,34 @@ class MovingBox : public BasicBox, public ResizingBox, public TranslatingBox {
     set_bbox(bbox);
   }
 
+ protected:
+  // -ILiveBox
+
+  // ILiveBox-
+
  private:
   const std::string label_;
-  const MovingBoxConfig config_;
+  const LivingBoxConfig config_;
 };
+
+std::unique_ptr<ILiveBox> create_live_box(
+    std::string label,
+    const BBox& bbox,
+    const AllLivingBoxConfig* config) {
+  const static AllLivingBoxConfig default_config;
+  const AllLivingBoxConfig* cfg = config ? config : &default_config;
+  return std::make_unique<LivingBox>(std::move(label), bbox, *cfg);
+}
+
+} // namespace play_tracker
+} // namespace hm
 
 #if 0
 int main() {
     // Example usage
     torch::Tensor bbox = torch::tensor({10, 10, 100, 100}, torch::kFloat);
     auto device = torch::kCPU;
-    MovingBox moving_box("Example Box", bbox, 5.0, 5.0, 1.0, 1.0, 200.0, 200.0, true);
+    LivingBox moving_box("Example Box", bbox, 5.0, 5.0, 1.0, 1.0, 200.0, 200.0, true);
 
     at::Tensor img = at::Tensor::zeros(500, 500, CV_8UC3);
     moving_box.draw(img);
