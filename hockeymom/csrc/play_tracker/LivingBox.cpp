@@ -579,9 +579,11 @@ class TranslatingBox : virtual public IBasicLivingBox {
     const ShiftResult shift_result =
         shift_box_to_edge(bounding_box(), *config_.arena_box);
     if (shift_result.was_shifted_x) {
+      // We show down X velocity if we went off the edge
       state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
     }
     if (shift_result.was_shifted_y) {
+      // We show down X velocity if we went off the edge
       state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
     }
   }
