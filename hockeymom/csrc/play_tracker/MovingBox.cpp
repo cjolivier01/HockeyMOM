@@ -44,6 +44,10 @@ struct PointDiff {
   FloatValue dy;
 };
 
+static inline float norm(const PointDiff& diff) {
+  return std::sqrt(diff.dx * diff.dx + diff.dy * diff.dy);
+}
+
 struct Point {
   FloatValue x;
   FloatValue y;
@@ -373,8 +377,8 @@ struct TranslatingBoxConfig {
 };
 
 struct TranslationState {
-  float current_speed_x{0.0};
-  float current_speed_y{0.0};
+  FloatValue current_speed_x{0.0};
+  FloatValue current_speed_y{0.0};
   bool translation_is_frozen{false};
   // Nonstop stuff
   std::optional<int64_t> nonstop_delay{0};
@@ -413,9 +417,54 @@ class TranslatingBox : public IBasicBox {
       total_diff.dy *= !std::get<1>(x_y_on_edge);
     }
 
+    if (config_.sticky_translation && !is_nonstop()) {
+      //
+      // BEGIN Sticky Translation
+      //
+      const float diff_magnitude = norm(total_diff);
+
+      // Check if the new center is in a direction opposed to our current
+      // velocity
+      const bool changed_direction_x =
+          (sign(state_.current_speed_x) * sign(total_diff.dx)) < 0;
+      const bool changed_direction_y =
+          (sign(state_.current_speed_y) * sign(total_diff.dy)) < 0;
+
+      // Reduce velocities on axes that changed direction
+      const float volocity_x =
+          changed_direction_x ? 0.0 : state_.current_speed_x;
+      const float velocity_y =
+          changed_direction_y ? 0.0 : state_.current_speed_y;
+
+      // See if we are breaking the sticky or unsticky threshold
+      const auto sticky_unsticky = get_sticky_translation_sizes();
+      const float sticky_size = std::get<0>(sticky_unsticky);
+      const float unsticky_size = std::get<1>(sticky_unsticky);
+      if (!state_.translation_is_frozen) {
+        if (diff_magnitude <= sticky_size) {
+          state_.translation_is_frozen = true;
+          state_.current_speed_x = 0.0;
+          state_.current_speed_y = 0.0;
+        }
+      } else {
+        if (diff_magnitude >= unsticky_size) {
+          state_.translation_is_frozen = false;
+          // Unstick at zero velocity
+          state_.current_speed_x = 0.0;
+          state_.current_speed_y = 0.0;
+        }
+      }
+      //
+      // END Sticky Translation
+      //
+    }
   }
 
  private:
+  bool is_nonstop() const {
+    return state_.nonstop_delay != 0;
+  }
+
   void clamp_speed(float scale) {
     state_.current_speed_x = clamp(
         state_.current_speed_x,
@@ -511,8 +560,6 @@ class TranslatingBox : public IBasicBox {
     float unsticky_size = sticky_size * config_.unsticky_translation_size_ratio;
     return std::make_tuple(sticky_size, unsticky_size);
   }
-
-
 
  private:
   TranslatingBoxConfig config_;
