@@ -3,5 +3,7 @@
 namespace hm {
 namespace play_tracker {
 PlayTracker::PlayTracker() {}
+
+void PlayTracker::create_boxes() {}
 } // namespace play_tracker
 } // namespace hm
