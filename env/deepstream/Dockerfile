@@ -92,6 +92,7 @@ RUN apt-get install -y openssh-server
 
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
+RUN find /opt/nvidia/deepstream/ -type d  | xargs sudo chmod 777
 RUN echo '%sudo   ALL=(ALL:ALL) ALL' >> /etc/sudoers
 RUN echo "$USERNAME ALL=(ALL:ALL) ALL" >> /etc/sudoers
 
