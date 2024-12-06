@@ -89,6 +89,7 @@ RUN make -j $(nproc) install
 RUN rm -rf ffmpeg
 
 RUN apt-get install -y openssh-server
+RUN apt-get install -y gedit
 
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
