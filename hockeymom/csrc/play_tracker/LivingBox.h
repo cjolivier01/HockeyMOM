@@ -76,13 +76,13 @@ struct ResizingConfig {
   // Sticky sizing thresholds
   //
   // Threshold to grow width (ratio of bbox)
-  const FloatValue size_ratio_thresh_grow_dw{0.05};
+  FloatValue size_ratio_thresh_grow_dw{0.05};
   // Threshold to grow height (ratio of bbox)
-  const FloatValue size_ratio_thresh_grow_dh{0.1};
+  FloatValue size_ratio_thresh_grow_dh{0.1};
   // Threshold to shrink width (ratio of bbox)
-  const FloatValue size_ratio_thresh_shrink_dw{0.08};
+  FloatValue size_ratio_thresh_shrink_dw{0.08};
   // Threshold to shrink height (ratio of bbox)
-  const FloatValue size_ratio_thresh_shrink_dh{0.1};
+  FloatValue size_ratio_thresh_shrink_dh{0.1};
 };
 
 /* clang-format off */
