@@ -9,6 +9,7 @@ from ._hockeymom import (
     ImageBlenderMode,
     ImageRemapper,
     ImageStitcher,
+    PlayTracker,
     RemapImageInfo,
     RemapperConfig,
     StitchImageInfo,
@@ -33,4 +34,5 @@ __all__ = [
     "HmTrackerPredictionMode",
     "StitchImageInfo",
     "EnBlender",
+    "PlayTracker",
 ]

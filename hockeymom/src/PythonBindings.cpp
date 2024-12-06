@@ -1,8 +1,8 @@
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
-#include "hockeymom/csrc/bytetrack/CenterTrack.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
+#include "hockeymom/csrc/play_tracker/PlayTracker.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_stitch.h"
@@ -838,9 +838,16 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<>());
 }
 
+void init_play_tracker(::pybind11::module_& m) {
+  py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
+      .def(py::init<>())
+      .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes);
+}
+
 PYBIND11_MODULE(_hockeymom, m) {
   init_stitching(m);
   init_tracking(m);
   init_box_structures(m);
   init_living_boxes(m);
+  init_play_tracker(m);
 }

@@ -8,7 +8,7 @@ namespace hm {
 namespace play_tracker {
 
 struct PlayTrackerConfig {
-
+  std::vector<AllLivingBoxConfig>   living_boxes;
 };
 
 class PlayTracker {
