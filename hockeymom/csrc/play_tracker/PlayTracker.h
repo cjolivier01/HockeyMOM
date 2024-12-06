@@ -7,14 +7,19 @@
 namespace hm {
 namespace play_tracker {
 
+struct PlayTrackerConfig {
+
+};
+
 class PlayTracker {
  public:
-  PlayTracker();
+  PlayTracker(const PlayTrackerConfig& config);
   virtual ~PlayTracker() = default;
 
   void create_boxes();
 
  private:
+  const PlayTrackerConfig config_;
   std::vector<std::unique_ptr<ILivingBox>> living_boxes_;
 };
 
