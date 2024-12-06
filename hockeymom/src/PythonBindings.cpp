@@ -2,6 +2,7 @@
 #include "hockeymom/csrc/bytetrack/CenterTrack.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
+#include "hockeymom/csrc/play_tracker/LivingBox.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_stitch.h"
@@ -40,7 +41,7 @@ struct BlenderConfig {
 
 } // namespace hm
 
-PYBIND11_MODULE(_hockeymom, m) {
+void init_stitching(::pybind11::module_& m) {
   // hm::init_stack_trace();
 
   // py::class_<hm::HMPostprocessConfig,
@@ -607,7 +608,9 @@ PYBIND11_MODULE(_hockeymom, m) {
           &hm::ops::ImageStitcher::forward,
           py::arg("inputs"),
           py::call_guard<py::gil_scoped_release>());
+}
 
+void init_tracking(::pybind11::module_& m) {
   /**
    *  ____        _      _______              _
    * |  _ \      | |    |__   __|            | |
@@ -719,11 +722,12 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(
           "total_activated_tracks_count",
           &hm::tracker::HmTracker::total_activated_tracks_count);
+}
 
+void init_box_structures(::pybind11::module_& m) {
   //
   // Box structures
   //
-
   py::class_<WHDims>(m, "WHDims")
       .def(py::init<FloatValue, FloatValue>())
       .def_readwrite("width", &WHDims::width)
@@ -761,4 +765,82 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def_readwrite("right", &BBox::right)
       .def_readwrite("bottom", &BBox::bottom)
       .def("validate", &BBox::validate);
+
+  //
+  // LivingBox Stuff
+  //
+}
+
+void init_living_boxes(::pybind11::module_& m) {
+  py::class_<ResizingConfig>(m, "ResizingConfig")
+      .def(py::init<>())
+      .def_readwrite("max_speed_w", &ResizingConfig::max_speed_w)
+      .def_readwrite("max_speed_h", &ResizingConfig::max_speed_h)
+      .def_readwrite("max_accel_w", &ResizingConfig::max_accel_w)
+      .def_readwrite("max_accel_h", &ResizingConfig::max_accel_h)
+      .def_readwrite("min_width", &ResizingConfig::min_width)
+      .def_readwrite("min_height", &ResizingConfig::min_height)
+      .def_readwrite("max_width", &ResizingConfig::max_width)
+      .def_readwrite("max_height", &ResizingConfig::max_height)
+      .def_readwrite("stop_on_dir_change", &ResizingConfig::stop_on_dir_change)
+      .def_readwrite("sticky_sizing", &ResizingConfig::sticky_sizing)
+      .def_readwrite(
+          "size_ratio_thresh_grow_dw",
+          &ResizingConfig::size_ratio_thresh_grow_dw)
+      .def_readwrite(
+          "size_ratio_thresh_grow_dh",
+          &ResizingConfig::size_ratio_thresh_grow_dh)
+      .def_readwrite(
+          "size_ratio_thresh_shrink_dw",
+          &ResizingConfig::size_ratio_thresh_shrink_dw)
+      .def_readwrite(
+          "size_ratio_thresh_shrink_dh",
+          &ResizingConfig::size_ratio_thresh_shrink_dh);
+
+  py::class_<TranslatingBoxConfig>(m, "TranslatingBoxConfig")
+      .def(py::init<>())
+      .def_readwrite("max_speed_x", &TranslatingBoxConfig::max_speed_x)
+      .def_readwrite("max_speed_y", &TranslatingBoxConfig::max_speed_y)
+      .def_readwrite("max_accel_x", &TranslatingBoxConfig::max_accel_x)
+      .def_readwrite("max_accel_y", &TranslatingBoxConfig::max_accel_y)
+      .def_readwrite(
+          "stop_on_dir_change", &TranslatingBoxConfig::stop_on_dir_change)
+      .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
+      .def_readwrite(
+          "fixed_aspect_ratio", &TranslatingBoxConfig::fixed_aspect_ratio)
+      .def_readwrite(
+          "clamp_scaled_input_box",
+          &TranslatingBoxConfig::clamp_scaled_input_box)
+      .def_readwrite(
+          "sticky_translation", &TranslatingBoxConfig::sticky_translation)
+      .def_readwrite(
+          "sticky_size_ratio_to_frame_width",
+          &TranslatingBoxConfig::sticky_size_ratio_to_frame_width)
+      .def_readwrite(
+          "sticky_translation_gaussian_mult",
+          &TranslatingBoxConfig::sticky_translation_gaussian_mult)
+      .def_readwrite(
+          "unsticky_translation_size_ratio",
+          &TranslatingBoxConfig::unsticky_translation_size_ratio);
+
+  py::class_<LivingBoxConfig>(m, "LivingBoxConfig")
+      .def(py::init<>())
+      .def_readwrite("scale_dest_width", &LivingBoxConfig::scale_dest_width)
+      .def_readwrite("scale_dest_height", &LivingBoxConfig::scale_dest_height)
+      .def_readwrite(
+          "fixed_aspect_ratio", &LivingBoxConfig::fixed_aspect_ratio);
+
+  py::class_<
+      AllLivingBoxConfig,
+      ResizingConfig,
+      TranslatingBoxConfig,
+      LivingBoxConfig>(m, "AllLivingBoxConfig")
+      .def(py::init<>());
+}
+
+PYBIND11_MODULE(_hockeymom, m) {
+  init_stitching(m);
+  init_tracking(m);
+  init_box_structures(m);
+  init_living_boxes(m);
 }
