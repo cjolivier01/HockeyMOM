@@ -22,8 +22,8 @@ using IntValue = int64_t;
  *
  */
 struct WHDims {
-  const FloatValue width;
-  const FloatValue height;
+  FloatValue width;
+  FloatValue height;
 };
 
 /**

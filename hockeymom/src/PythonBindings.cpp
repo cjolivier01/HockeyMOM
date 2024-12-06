@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/CenterTrack.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
+#include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_stitch.h"
@@ -16,6 +17,7 @@ PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
+using namespace hm::play_tracker;
 
 namespace hm {
 // TODO: REMOVE
@@ -717,4 +719,46 @@ PYBIND11_MODULE(_hockeymom, m) {
       .def(
           "total_activated_tracks_count",
           &hm::tracker::HmTracker::total_activated_tracks_count);
+
+  //
+  // Box structures
+  //
+
+  py::class_<WHDims>(m, "WHDims")
+      .def(py::init<FloatValue, FloatValue>())
+      .def_readwrite("width", &WHDims::width)
+      .def_readwrite("height", &WHDims::height);
+
+  py::class_<PointDiff>(m, "PointDiff")
+      .def(py::init<FloatValue, FloatValue>())
+      .def_readwrite("dx", &PointDiff::dx)
+      .def_readwrite("dy", &PointDiff::dy);
+
+  py::class_<SizeDiff>(m, "SizeDiff")
+      .def(py::init<FloatValue, FloatValue>())
+      .def_readwrite("dw", &SizeDiff::dw)
+      .def_readwrite("dh", &SizeDiff::dh);
+
+  py::class_<Point>(m, "Point")
+      .def(py::init<FloatValue, FloatValue>())
+      .def_readwrite("x", &Point::x)
+      .def_readwrite("y", &Point::y)
+      .def("__sub__", &Point::operator-);
+
+  py::class_<BBox>(m, "BBox")
+      .def(py::init<>())
+      .def(py::init<FloatValue, FloatValue, FloatValue, FloatValue>())
+      .def(py::init<const Point&, const WHDims&>())
+      .def("width", &BBox::width)
+      .def("height", &BBox::height)
+      .def("aspect_ratio", &BBox::aspect_ratio)
+      .def("clone", &BBox::clone)
+      .def("center", &BBox::center)
+      .def("make_scaled", &BBox::make_scaled)
+      .def("inflate", &BBox::inflate)
+      .def_readwrite("left", &BBox::left)
+      .def_readwrite("top", &BBox::top)
+      .def_readwrite("right", &BBox::right)
+      .def_readwrite("bottom", &BBox::bottom)
+      .def("validate", &BBox::validate);
 }
