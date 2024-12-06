@@ -1,6 +1,3 @@
-#include <ATen/ATen.h>
-#include <torch/torch.h>
-
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
 
 #include <cassert>
@@ -10,6 +7,9 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+
+#include <ATen/ATen.h>
+#include <torch/torch.h>
 
 // using namespace cv;
 using namespace torch;
@@ -126,7 +126,7 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
       .bbox = box, .was_shifted_x = false, .was_shifted_y = false};
   FloatValue xw = bounding_box.width(), xh = bounding_box.height();
   // TODO: Make top-left of bounding box not need to be zero
-  assert(isZero(bounding_box.left) && IsZero(bounding_box.top));
+  assert(isZero(bounding_box.left) && isZero(bounding_box.top));
   if (result.bbox.left < 0) {
     result.bbox.right -= result.bbox.left;
     result.bbox.left -= result.bbox.left;
@@ -150,8 +150,6 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
 
   return result;
 }
-
-} // namespace
 
 std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
     const BBox& box,
@@ -185,6 +183,15 @@ std::tuple<bool, bool> check_for_box_overshoot(
 
   return std::make_tuple(x_on_edge, y_on_edge);
 }
+
+// Helper to define a visitor based on lambda expressions
+template <class... Ts>
+struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+} // namespace
 
 class BoundingBox : virtual public IBasicLivingBox {
  public:
@@ -802,11 +809,20 @@ class LivingBox : public ILivingBox,
     return BoundingBox::bounding_box();
   }
 
-  void set_destination(const IBasicLivingBox& dest_box) override {
-    BBox bbox = dest_box.bounding_box();
-    WHDims scale_box = get_size_scale();
-    BBox scaled_bbox = bbox.make_scaled(scale_box.width, scale_box.height);
-    set_destination(scaled_bbox);
+  void set_destination(
+      const std::variant<BBox, const IBasicLivingBox*>& dest) override {
+    BBox dest_box;
+    std::visit(
+        overloaded{
+            [this, &dest_box](const IBasicLivingBox* living_box) {
+              BBox bbox = living_box->bounding_box();
+              WHDims scale_box = get_size_scale();
+              dest_box = bbox.make_scaled(scale_box.width, scale_box.height);
+            },
+            [&dest_box](BBox bbox) { dest_box = bbox; },
+        },
+        dest);
+    set_destination(dest_box);
   }
 
   void set_destination(const BBox& dest_box) override {
