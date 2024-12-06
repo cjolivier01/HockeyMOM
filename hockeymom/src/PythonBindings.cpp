@@ -842,6 +842,9 @@ void init_play_tracker(::pybind11::module_& m) {
   py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
       .def(py::init<>())
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes);
+
+  py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
+      .def(py::init<PlayTrackerConfig>());
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
