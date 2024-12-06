@@ -645,6 +645,9 @@ class TranslatingBox : virtual public IBasicLivingBox {
     }
   }
 
+  /**
+   * Scale the current speed by the given ratio
+   */
   void scale_speed(
       torch::optional<FloatValue> ratio_x = c10::nullopt,
       torch::optional<FloatValue> ratio_y = c10::nullopt,
