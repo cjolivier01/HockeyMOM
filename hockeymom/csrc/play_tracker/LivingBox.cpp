@@ -426,10 +426,10 @@ class TranslatingBox : virtual public IBasicLivingBox {
   }
 
   void adjust_speed(
-      torch::optional<FloatValue> accel_x = c10::nullopt,
-      torch::optional<FloatValue> accel_y = c10::nullopt,
-      torch::optional<FloatValue> scale_constraints = c10::nullopt,
-      torch::optional<FloatValue> nonstop_delay = c10::nullopt) {
+      std::optional<FloatValue> accel_x = std::nullopt,
+      std::optional<FloatValue> accel_y = std::nullopt,
+      std::optional<FloatValue> scale_constraints = std::nullopt,
+      std::optional<FloatValue> nonstop_delay = std::nullopt) {
     if (scale_constraints.has_value()) {
       const FloatValue mult = *scale_constraints;
       if (accel_x.has_value()) {
@@ -463,8 +463,8 @@ class TranslatingBox : virtual public IBasicLivingBox {
    * Scale the current speed by the given ratio
    */
   void scale_speed(
-      torch::optional<FloatValue> ratio_x = c10::nullopt,
-      torch::optional<FloatValue> ratio_y = c10::nullopt,
+      std::optional<FloatValue> ratio_x = std::nullopt,
+      std::optional<FloatValue> ratio_y = std::nullopt,
       bool clamp_to_max = false) {
     if (ratio_x.has_value()) {
       state_.current_speed_x *= *ratio_x;
