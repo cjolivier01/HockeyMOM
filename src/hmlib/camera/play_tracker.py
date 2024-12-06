@@ -610,9 +610,3 @@ class PlayTracker(torch.nn.Module):
         # END Breakway detection
         #
         return current_box, online_im
-
-
-def _scalar_like(v, device):
-    if isinstance(v, torch.Tensor):
-        return v.clone()
-    return torch.tensor(v, dtype=torch.float, device=device)
