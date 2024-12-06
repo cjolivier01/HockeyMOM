@@ -1,11 +1,10 @@
 #pragma once
 
 #include <cassert>
+#include <cfloat> // For FLT_EPSILON and DBL_EPSILON
 #include <cmath>
-// #include <memory>
-// #include <optional>
-// #include <string>
-// #include <variant>
+#include <optional>
+#include <tuple>
 
 namespace hm {
 namespace play_tracker {
@@ -137,6 +136,89 @@ struct BBox {
   FloatValue right{0.0};
   FloatValue bottom{0.0};
 };
+
+/**
+ *  _____       _  _
+ * |_   _|     | |(_)
+ *   | |  _ __ | | _ _ __   ___  ___
+ *   | | | '_ \| || | '_ \ / _ \/ __|
+ *  _| |_| | | | || | | | |  __/\__ \
+ * |_____|_| |_|_||_|_| |_|\___||___/
+ *
+ */
+inline bool isZero(const float& value, float epsilon = FLT_EPSILON) {
+  return std::abs(value) < epsilon;
+}
+
+inline bool isZero(const double& value, double epsilon = DBL_EPSILON) {
+  return std::abs(value) < epsilon;
+}
+
+bool isClose(float a, float b, float rel_tol = 1e-6f, float abs_tol = 1e-8f);
+
+inline constexpr FloatValue one() {
+  return 1.0;
+}
+
+inline constexpr FloatValue zero() {
+  return 0.0;
+}
+
+inline constexpr IntValue zero_int() {
+  return 0;
+}
+
+inline FloatValue norm(const PointDiff& diff) {
+  return std::sqrt(diff.dx * diff.dx + diff.dy * diff.dy);
+}
+
+inline FloatValue sign(const FloatValue value) {
+  if (value > 0) {
+    return 1.0f;
+  } else if (value < 0) {
+    return -1.0f;
+  } else {
+    return 0.0f;
+  }
+}
+
+inline bool different_directions(const FloatValue v1, const FloatValue v2) {
+  return sign(v1) * sign(v2) < 0.0;
+}
+
+/**
+ *  ______                _   _
+ * |  ____|              | | (_)
+ * | |__ _   _ _ __   ___| |_ _  ___  _ __   ___
+ * |  __| | | | '_ \ / __| __| |/ _ \| '_ \ / __|
+ * | |  | |_| | | | | (__| |_| | (_) | | | |\__ \
+ * |_|   \__,_|_| |_|\___|\__|_|\___/|_| |_||___/
+ *
+ */
+BBox clamp_box(BBox box, const BBox& clamp_box);
+
+BBox set_box_aspect_ratio(
+    BBox setting_box,
+    FloatValue aspect_ratio,
+    std::optional<BBox> clamp_to_box = std::nullopt);
+
+struct ShiftResult {
+  BBox bbox;
+  bool was_shifted_x;
+  bool was_shifted_y;
+};
+
+ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box);
+
+std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
+    const BBox& box,
+    const BBox& bounding_box);
+
+std::tuple<bool, bool> check_for_box_overshoot(
+    const BBox& box,
+    const BBox& bounding_box,
+    const PointDiff& moving_directions,
+    FloatValue epsilon = 0.01);
 
 } // namespace play_tracker
 } // namespace hm

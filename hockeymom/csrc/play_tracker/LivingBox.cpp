@@ -1,188 +1,14 @@
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
 
+#include <algorithm>
 #include <cassert>
-#include <cfloat> // For FLT_EPSILON and DBL_EPSILON
-#include <cmath>
-#include <iostream>
 #include <memory>
 #include <unordered_map>
-#include <vector>
-
-#include <ATen/ATen.h>
-#include <torch/torch.h>
-
-// using namespace cv;
-using namespace torch;
 
 namespace hm {
 namespace play_tracker {
 
 namespace {
-
-bool isZero(const float& value, float epsilon = FLT_EPSILON) {
-  return std::abs(value) < epsilon;
-}
-
-bool isZero(const double& value, double epsilon = DBL_EPSILON) {
-  return std::abs(value) < epsilon;
-}
-
-bool isClose(float a, float b, float rel_tol = 1e-6f, float abs_tol = 1e-8f) {
-  // Compute the absolute difference
-  float abs_diff = std::fabs(a - b);
-
-  // Check if the numbers are close enough considering absolute tolerance
-  if (abs_diff <= abs_tol) {
-    return true;
-  }
-
-  // Compute the relative tolerance component
-  float max_abs = std::max(std::fabs(a), std::fabs(b));
-  if (abs_diff <= max_abs * rel_tol) {
-    return true;
-  }
-
-  // If neither absolute nor relative tolerance conditions are met, return false
-  return false;
-}
-
-constexpr FloatValue one() {
-  return 1.0;
-}
-
-constexpr FloatValue zero() {
-  return 0.0;
-}
-
-constexpr IntValue zero_int() {
-  return 0;
-}
-
-BBox clamp_box(BBox box, const BBox& clamp_box) {
-  clamp_box.validate();
-  box.validate();
-  if (box.left < clamp_box.left) {
-    box.left = clamp_box.left;
-  }
-  if (box.right > clamp_box.right) {
-    box.right = clamp_box.right;
-  }
-  if (box.top < clamp_box.top) {
-    box.top = clamp_box.top;
-  }
-  if (box.bottom > clamp_box.bottom) {
-    box.bottom = clamp_box.bottom;
-  }
-  box.validate();
-  return box;
-}
-
-BBox set_box_aspect_ratio(
-    BBox setting_box,
-    FloatValue aspect_ratio,
-    std::optional<BBox> clamp_to_box = std::nullopt) {
-  if (clamp_to_box.has_value()) {
-    setting_box = clamp_box(setting_box, *clamp_to_box);
-  }
-  const float w = setting_box.width(), h = setting_box.height();
-  float new_h, new_w;
-  if (w / h < aspect_ratio) {
-    new_h = h;
-    new_w = new_h * aspect_ratio;
-  } else {
-    new_w = w;
-    new_h = new_w / aspect_ratio;
-  }
-  assert(new_w >= w); // should always grow to accomodate
-  return BBox(setting_box.center(), WHDims{.width = new_w, .height = new_h});
-}
-
-inline FloatValue norm(const PointDiff& diff) {
-  return std::sqrt(diff.dx * diff.dx + diff.dy * diff.dy);
-}
-
-inline FloatValue sign(const FloatValue value) {
-  if (value > 0) {
-    return 1.0f;
-  } else if (value < 0) {
-    return -1.0f;
-  } else {
-    return 0.0f;
-  }
-}
-
-inline bool different_directions(const FloatValue v1, const FloatValue v2) {
-  return sign(v1) * sign(v2) < 0.0;
-}
-
-struct ShiftResult {
-  BBox bbox;
-  bool was_shifted_x;
-  bool was_shifted_y;
-};
-
-ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
-  ShiftResult result{
-      .bbox = box, .was_shifted_x = false, .was_shifted_y = false};
-  FloatValue xw = bounding_box.width(), xh = bounding_box.height();
-  // TODO: Make top-left of bounding box not need to be zero
-  assert(isZero(bounding_box.left) && isZero(bounding_box.top));
-  if (result.bbox.left < 0) {
-    result.bbox.right -= result.bbox.left;
-    result.bbox.left -= result.bbox.left;
-    result.was_shifted_x = true;
-  } else if (result.bbox.right >= xw) {
-    FloatValue offset = result.bbox.right - xw;
-    result.bbox.left -= offset;
-    result.bbox.right -= offset;
-    result.was_shifted_x = true;
-  }
-  if (result.bbox.top < 0) {
-    result.bbox.bottom -= result.bbox.top;
-    result.bbox.top -= result.bbox.top;
-    result.was_shifted_y = true;
-  } else if (result.bbox.bottom >= xh) {
-    FloatValue offset = result.bbox.bottom - xh;
-    result.bbox.top -= offset;
-    result.bbox.bottom -= offset;
-    result.was_shifted_y = true;
-  }
-
-  return result;
-}
-
-std::tuple<bool, bool, bool, bool> is_box_edge_on_or_outside_other_box_edge(
-    const BBox& box,
-    const BBox& bounding_box) {
-  return std::make_tuple(
-      box.left <= bounding_box.left,
-      box.top <= bounding_box.top,
-      box.right >= bounding_box.right,
-      box.bottom >= bounding_box.bottom);
-}
-
-std::tuple<bool, bool> check_for_box_overshoot(
-    const BBox& box,
-    const BBox& bounding_box,
-    const PointDiff& moving_directions,
-    FloatValue epsilon = 0.01) {
-  const auto any_on_edge =
-      is_box_edge_on_or_outside_other_box_edge(box, bounding_box);
-
-  const bool left_on_edge =
-      std::get<0>(any_on_edge) && moving_directions.dx < epsilon;
-  const bool right_on_edge =
-      std::get<2>(any_on_edge) && moving_directions.dx > -epsilon;
-  const bool x_on_edge = left_on_edge || right_on_edge;
-
-  const bool top_on_edge =
-      std::get<1>(any_on_edge) && moving_directions.dy < epsilon;
-  const bool bottom_on_edge =
-      std::get<3>(any_on_edge) && moving_directions.dy > -epsilon;
-  const bool y_on_edge = left_on_edge || right_on_edge;
-
-  return std::make_tuple(x_on_edge, y_on_edge);
-}
 
 // Helper to define a visitor based on lambda expressions
 template <class... Ts>
@@ -226,18 +52,6 @@ class ResizingBox : virtual public IBasicLivingBox {
  public:
   ResizingBox(ResizingBox&&) = delete;
   ResizingBox(const ResizingConfig& config) : config_(config) {}
-
-  virtual void draw(at::Tensor& img, bool draw_thresholds = true) {
-    // cv::Rect bbox_rect(
-    //     static_cast<int>(bbox_[0].item<FloatValue>()),
-    //     static_cast<int>(bbox_[1].item<FloatValue>()),
-    //     static_cast<int>(bbox_[2].item<FloatValue>() -
-    //     bbox_[0].item<FloatValue>()),
-    //     static_cast<int>(bbox_[3].item<FloatValue>() -
-    //     bbox_[1].item<FloatValue>())
-    // );
-    // cv::rectangle(img, bbox_rect, cv::Scalar(0, 255, 0), 2);
-  }
 
   void set_destination(const BBox& dest_box) override {
     set_destination_size(dest_box.width(), dest_box.height());
@@ -724,13 +538,6 @@ class LivingBox : public ILivingBox,
         label_(label),
         config_(config) {}
 
-  void draw(at::Tensor& img, bool draw_thresholds = false) override {
-    // ResizingBox::draw(img, draw_thresholds);
-    // TranslatingBox::draw(img, draw_thresholds);
-    //  putText(img, label_, cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1,
-    //  cv::Scalar(255, 0, 0), 2);
-  }
-
  private:
   WHDims get_size_scale() const {
     return WHDims{
@@ -738,13 +545,6 @@ class LivingBox : public ILivingBox,
         .height = config_.scale_dest_height,
     };
   }
-
-  // FloatValue get_zoom_level() {
-  //   BBox bbox = bounding_box();
-  //   FloatValue current_w = bbox.width();
-  //   FloatValue current_h = bbox.height();
-  //   return std::sqrt(current_w * current_w + current_h * current_h);
-  // }
 
   BBox next_position() {
     // These diffs take into account size or translation stickiness
@@ -854,20 +654,3 @@ std::unique_ptr<ILivingBox> create_live_box(
 
 } // namespace play_tracker
 } // namespace hm
-
-#if 0
-int main() {
-    // Example usage
-    torch::Tensor bbox = torch::tensor({10, 10, 100, 100}, torch::kFloat);
-    auto device = torch::kCPU;
-    LivingBox moving_box("Example Box", bbox, 5.0, 5.0, 1.0, 1.0, 200.0, 200.0, true);
-
-    at::Tensor img = at::Tensor::zeros(500, 500, CV_8UC3);
-    moving_box.draw(img);
-
-    cv::imshow("Moving Box", img);
-    cv::waitKey(0);
-
-    return 0;
-}
-#endif
