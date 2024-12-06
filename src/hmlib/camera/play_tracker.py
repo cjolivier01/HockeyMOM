@@ -316,7 +316,7 @@ class PlayTracker(torch.nn.Module):
         online_images: List[torch.Tensor] = []
 
         # Make the original images into a list so that we can release the batched one
-        original_images_list: List[torch.Tensor] = []
+        original_images_list: List[Optional[torch.Tensor]] = []
         for i in range(original_images.shape[0]):
             original_images_list.append(original_images[i])
         del original_images
