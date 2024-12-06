@@ -128,5 +128,8 @@ std::unique_ptr<ILivingBox> create_live_box(
     const BBox& bbox,
     const AllLivingBoxConfig* config = nullptr);
 
+
 } // namespace play_tracker
 } // namespace hm
+
+#include "./LivingBoxImpl.h"

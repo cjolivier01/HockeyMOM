@@ -836,6 +836,10 @@ void init_living_boxes(::pybind11::module_& m) {
       TranslatingBoxConfig,
       LivingBoxConfig>(m, "AllLivingBoxConfig")
       .def(py::init<>());
+
+  // py::class_<LivingBox, std::shared_ptr<LivingBox>>(m, "LivingBox")
+      //.def(py::init<AllLivingBoxConfig>());
+
 }
 
 void init_play_tracker(::pybind11::module_& m) {
