@@ -39,12 +39,22 @@ from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox
 
 
 def to_bbox(tensor: torch.Tensor) -> BBox:
+    if isinstance(tensor, BBox):
+        return tensor
     bbox = BBox()
     bbox.left = tensor[0].item()
     bbox.top = tensor[1].item()
     bbox.right = tensor[2].item()
     bbox.bottom = tensor[3].item()
     return bbox
+
+
+def from_bbox(bbox: BBox, device: torch.device = torch.device("cpu")) -> torch.Tensor:
+    if isinstance(bbox, torch.Tensor):
+        return bbox
+    return torch.tensor(
+        [bbox.left, bbox.top, bbox.right, bbox.bottom], dtype=torch.float, device=device
+    )
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -574,8 +584,11 @@ class PlayTracker(torch.nn.Module):
             #
             # Apply the new calculated play
             #
-            fast_roi_bounding_box = self._current_roi.forward(current_box)
+            fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box))
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
+
+            fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
+            current_box = from_bbox(current_box)
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
@@ -600,8 +613,10 @@ class PlayTracker(torch.nn.Module):
                 )
 
             frame_ids_list.append(frame_id)
-            current_box_list.append(self._current_roi_aspect.bounding_box().clone().cpu())
-            current_fast_box_list.append(self._current_roi.bounding_box().clone().cpu())
+            current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
+            current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
+            # current_box_list.append(self._current_roi_aspect.bounding_box().clone().cpu())
+            # current_fast_box_list.append(self._current_roi.bounding_box().clone().cpu())
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im).to(device=image_device, non_blocking=True)
                 if online_im.ndim == 4 and online_im.shape[0] == 1:

@@ -857,9 +857,10 @@ void init_living_boxes(::pybind11::module_& m) {
 
   py::class_<
       LivingBox,
-      std::shared_ptr<LivingBox>,
-      IBasicLivingBox,
-      ILivingBox>(m, "LivingBox")
+      std::shared_ptr<LivingBox>
+      //,IBasicLivingBox,
+      //ILivingBox
+      >(m, "LivingBox")
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
       //.def("set_dest", &LivingBox::set_dest)
       //.def("set_destination", &LivingBox::set_dest_ex)
@@ -868,14 +869,15 @@ void init_living_boxes(::pybind11::module_& m) {
       .def("bounding_box", &LivingBox::bounding_box)
       .def(
           "forward",
-          [](const std::shared_ptr<ILivingBox>& self,
+          [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
-      .def(
+      /*.def(
           "set_destination",
-          [](const std::shared_ptr<ILivingBox>& self,
+          [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
-              -> void { self->set_destination(dest); });
+              -> void { self->set_destination(dest); })*/
+      ;
 }
 
 void init_play_tracker(::pybind11::module_& m) {
