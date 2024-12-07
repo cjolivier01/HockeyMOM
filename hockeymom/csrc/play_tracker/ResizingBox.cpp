@@ -40,10 +40,6 @@ WHDims ResizingBox::get_min_allowed_width_height() const {
   return WHDims{.width = config_.min_width, .height = config_.min_height};
 }
 
-// WHDims get_max_allowed_width_height() const {
-//   return WHDims{.width = config_.max_width, .height = config_.max_height};
-// }
-
 void ResizingBox::clamp_size_scaled() {
   const BBox bbox = bounding_box();
   float w = bbox.width();
