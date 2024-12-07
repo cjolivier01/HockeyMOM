@@ -1,5 +1,6 @@
 from typing import Optional, Tuple
 
+import cv2
 import torch
 
 from hmlib.bbox.box_functions import (
@@ -109,7 +110,7 @@ class PyLivingBox(LivingBox):
 
     def _draw_translation_state(
         self,
-        img: torch.Tensor,
+        img: torch.Tensor | np.ndarray,
         draw_thresholds: bool = False,
         following_box: Optional[LivingBox] = None,
     ):
@@ -124,6 +125,67 @@ class PyLivingBox(LivingBox):
             label=self.name(),
             text_scale=2,
         )
+
+        # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
+        if draw_thresholds and tconfig.sticky_translation:
+            sticky, unsticky = self.get_sticky_translation_sizes()
+            bbox_t = from_bbox(self.bounding_box())
+            center_tensor = center(bbox_t)
+            my_center = [int(i) for i in center_tensor]
+            # my_width = width(self.bounding_box())
+            # my_height = height(self.bounding_box())
+            img = vis.plot_circle(
+                img,
+                my_center,
+                radius=int(sticky),
+                color=(255, 0, 0),
+                thickness=3,
+            )
+            img = vis.plot_circle(
+                img,
+                my_center,
+                radius=int(unsticky),
+                color=(255, 0, 255),
+                thickness=3,
+            )
+            if following_box is not None:
+                following_bbox = from_bbox(following_box.bounding_box())
+                following_bbox_center = center(following_bbox)
+
+                # Line from center of this box to the center of the box that it is following,
+                # with little circle nubs at each end.
+                co = [int(i) for i in following_bbox_center]
+                img = vis.plot_circle(
+                    img,
+                    my_center,
+                    radius=5,
+                    color=(255, 255, 0),
+                    thickness=cv2.FILLED,
+                )
+                img = vis.plot_circle(
+                    img,
+                    co,
+                    radius=5,
+                    color=(0, 255, 128),
+                    thickness=cv2.FILLED,
+                )
+                img = vis.plot_line(img, my_center, co, color=(255, 255, 0), thickness=10)
+                # X
+                img = vis.plot_line(
+                    img,
+                    my_center,
+                    [co[0], my_center[1]],
+                    color=(255, 255, 0),
+                    thickness=3,
+                )
+                # Y
+                img = vis.plot_line(
+                    img,
+                    my_center,
+                    [my_center[0], co[1]],
+                    color=(255, 255, 0),
+                    thickness=3,
+                )
         return img
 
     def draw(

@@ -916,7 +916,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def("translation_config", &LivingBox::TranslatingBox::get_config)
       .def("living_config", &LivingBox::config)
       .def("living_state", &LivingBox::state)
-      .def("get_grow_shrink_wh", &LivingBox::get_grow_shrink_wh);
+      .def("get_grow_shrink_wh", &LivingBox::get_grow_shrink_wh)
+      .def("get_sticky_translation_sizes", &LivingBox::get_sticky_translation_sizes)
+      ;
 }
 
 void init_play_tracker(::pybind11::module_& m) {

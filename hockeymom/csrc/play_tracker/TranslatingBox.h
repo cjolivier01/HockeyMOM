@@ -41,6 +41,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
       std::optional<FloatValue> ratio_y = std::nullopt,
       bool clamp_to_max = false);
 
+  std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const;
 
  protected:
   PointDiff get_proposed_next_position_change() const;
@@ -58,8 +59,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
   void clamp_speed(FloatValue scale);
 
   FloatValue get_gaussian_y_about_width_center(FloatValue x) const;
-
-  std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const;
 
  private:
   TranslatingBoxConfig config_;
