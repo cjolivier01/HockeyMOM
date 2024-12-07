@@ -815,8 +815,6 @@ void init_living_boxes(::pybind11::module_& m) {
           "stop_on_dir_change", &TranslatingBoxConfig::stop_on_dir_change)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
       .def_readwrite(
-          "fixed_aspect_ratio", &TranslatingBoxConfig::fixed_aspect_ratio)
-      .def_readwrite(
           "clamp_scaled_input_box",
           &TranslatingBoxConfig::clamp_scaled_input_box)
       .def_readwrite(
