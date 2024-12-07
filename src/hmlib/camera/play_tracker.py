@@ -104,8 +104,8 @@ class PlayTracker(torch.nn.Module):
         original_clip_box: Optional[torch.Tensor],
         progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
-        cpp_boxes: bool = True,
-        # cpp_boxes: bool = False,
+        # cpp_boxes: bool = True,
+        cpp_boxes: bool = False,
     ):
         """
         Track the play
@@ -688,8 +688,11 @@ class PlayTracker(torch.nn.Module):
                     torch.logical_and(group_x_velocity < 0, roi_center[0] > edge_center[0]),
                 )
                 if should_adjust_speed.item():
+                    group_x_velocity = group_x_velocity.cpu()
+                    if isinstance(speed_adjust_box, PyLivingBox):
+                        group_x_velocity = group_x_velocity.item()
                     speed_adjust_box.adjust_speed(
-                        accel_x=group_x_velocity.cpu().item()
+                        accel_x=group_x_velocity
                         * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,

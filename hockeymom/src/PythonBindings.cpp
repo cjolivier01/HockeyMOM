@@ -848,7 +848,8 @@ void init_living_boxes(::pybind11::module_& m) {
 
   py::class_<LivingState>(m, "LivingState")
       .def(py::init<>())
-      .def_readwrite("was_size_constrained", &LivingState::was_size_constrained);
+      .def_readwrite(
+          "was_size_constrained", &LivingState::was_size_constrained);
 
   py::class_<
       AllLivingBoxConfig,
@@ -898,7 +899,19 @@ void init_living_boxes(::pybind11::module_& m) {
           [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
-      .def("adjust_speed", &LivingBox::adjust_speed)
+      .def(
+          "adjust_speed",
+          &LivingBox::adjust_speed,
+          py::arg("accel_x") = py::none(),
+          py::arg("accel_y") = py::none(),
+          py::arg("scale_constraints") = py::none(),
+          py::arg("nonstop_delay") = py::none())
+      .def(
+          "scale_speed",
+          &LivingBox::scale_speed,
+          py::arg("ratio_x") = py::none(),
+          py::arg("ratio_y") = py::none(),
+          py::arg("clamp_to_max") = false)
       .def("resizing_state", &LivingBox::ResizingBox::get_state)
       .def("resizing_config", &LivingBox::ResizingBox::get_config)
       .def("translation_state", &LivingBox::TranslatingBox::get_state)

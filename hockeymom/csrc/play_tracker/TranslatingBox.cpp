@@ -199,7 +199,7 @@ void TranslatingBox::adjust_speed(
     std::optional<FloatValue> accel_x,
     std::optional<FloatValue> accel_y,
     std::optional<FloatValue> scale_constraints,
-    std::optional<FloatValue> nonstop_delay) {
+    std::optional<IntValue> nonstop_delay) {
   if (scale_constraints.has_value()) {
     const FloatValue mult = *scale_constraints;
     if (accel_x.has_value()) {

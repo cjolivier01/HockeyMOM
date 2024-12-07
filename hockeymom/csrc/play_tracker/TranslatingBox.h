@@ -31,7 +31,16 @@ class TranslatingBox : virtual public IBasicLivingBox {
       std::optional<FloatValue> accel_x = std::nullopt,
       std::optional<FloatValue> accel_y = std::nullopt,
       std::optional<FloatValue> scale_constraints = std::nullopt,
-      std::optional<FloatValue> nonstop_delay = std::nullopt);
+      std::optional<IntValue> nonstop_delay = std::nullopt);
+
+  /**
+   * Scale the current speed by the given ratio
+   */
+  void scale_speed(
+      std::optional<FloatValue> ratio_x = std::nullopt,
+      std::optional<FloatValue> ratio_y = std::nullopt,
+      bool clamp_to_max = false);
+
 
  protected:
   PointDiff get_proposed_next_position_change() const;
@@ -47,14 +56,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
   bool is_nonstop() const;
 
   void clamp_speed(FloatValue scale);
-
-  /**
-   * Scale the current speed by the given ratio
-   */
-  void scale_speed(
-      std::optional<FloatValue> ratio_x = std::nullopt,
-      std::optional<FloatValue> ratio_y = std::nullopt,
-      bool clamp_to_max = false);
 
   FloatValue get_gaussian_y_about_width_center(FloatValue x) const;
 
