@@ -5,9 +5,15 @@
 namespace hm {
 namespace play_tracker {
 
+namespace {
+constexpr FloatValue kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio = 6.0;
+constexpr FloatValue kMaxWidthHeightDiffDirectionCutRateRatio = 2.0;
+constexpr FloatValue kResizeLargerScaleDifference = 2.0;
+} // namespace
+
 ResizingBox::ResizingBox(const ResizingConfig& config) : config_(config) {}
 
-void ResizingBox::set_destination(const BBox& dest_box) override {
+void ResizingBox::set_destination(const BBox& dest_box) {
   if (!config_.resizing_enabled) {
     return;
   }
@@ -102,8 +108,6 @@ void ResizingBox::set_destination_size(
     //
   }
 
-  constexpr FloatValue kMaxWidthHeightDiffDirectionAssumeStoppedMaxRatio = 6.0;
-  constexpr FloatValue kMaxWidthHeightDiffDirectionCutRateRatio = 2.0;
   if (different_directions(dw, state_.current_speed_w)) {
     // The desired change is in the opposire direction of the current widening
     if (std::abs(state_.current_speed_w) <
@@ -142,8 +146,6 @@ void ResizingBox::adjust_size(
   }
 
   if (use_constraints) {
-    constexpr FloatValue kResizeLargerScaleDifference = 2.0;
-
     // Growing is allowed at a higher rate than shrinking
     const FloatValue max_accel_w = accel_w > 0
         ? (config_.max_accel_w * kResizeLargerScaleDifference)
