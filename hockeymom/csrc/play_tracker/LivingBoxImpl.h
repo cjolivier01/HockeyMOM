@@ -531,109 +531,25 @@ class LivingBox : public ILivingBox,
                   public ResizingBox,
                   public TranslatingBox {
  public:
-  LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config)
-      : BoundingBox(bbox.make_scaled(
-            config.scale_dest_width,
-            config.scale_dest_height)),
-        ResizingBox(config),
-        TranslatingBox(config),
-        label_(label),
-        config_(config) {}
+  LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config);
 
  private:
-  WHDims get_size_scale() const {
-    return WHDims{
-        .width = config_.scale_dest_width,
-        .height = config_.scale_dest_height,
-    };
-  }
+  WHDims get_size_scale() const;
 
-  BBox next_position() {
-    // These diffs take into account size or translation stickiness
-    const PointDiff translation_change = get_proposed_next_position_change();
-    const SizeDiff size_change = get_proposed_next_size_change();
+  BBox next_position();
 
-    BBox new_box = bounding_box();
-    new_box.left += translation_change.dx - size_change.dw;
-    new_box.top += translation_change.dy - size_change.dh;
-    new_box.right += translation_change.dx + size_change.dw;
-    new_box.bottom += translation_change.dy + size_change.dh;
-
-    // Constrain size
-    const FloatValue new_ww = new_box.width(), new_hh = new_box.height();
-    const WHDims min_allowed_width_height = get_min_allowed_width_height();
-    const FloatValue ww = std::max(new_ww, min_allowed_width_height.width);
-    const FloatValue hh = std::max(new_hh, min_allowed_width_height.height);
-    was_size_contrained_ = ww != new_ww || hh != new_hh;
-
-    new_box = BBox(new_box.center(), WHDims{.width = ww, .height = hh});
-    // Assign new bounding box
-    set_bbox(new_box);
-
-    update_nonstop_delay();
-    stop_translation_if_out_of_arena();
-    clamp_to_arena();
-
-    const TranslatingBoxConfig& tconfig = translating_config();
-    // Maybe adjust aspect ratio
-    if (config_.fixed_aspect_ratio.has_value()) {
-      set_bbox(set_box_aspect_ratio(
-          bounding_box(), *config_.fixed_aspect_ratio, tconfig.arena_box));
-    }
-    clamp_size_scaled();
-
-    on_new_position();
-
-    // Check that we maintained our aspect ratio
-    if (config_.fixed_aspect_ratio.has_value()) {
-      assert(
-          isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
-    }
-
-    return bounding_box();
-  }
-
-  void clamp_to_arena() {
-    const ResizingConfig& rconfig = resizing_config();
-    BBox bbox = bounding_box();
-    auto z = zero();
-    bbox.left = clamp(bbox.left, z, rconfig.max_width);
-    bbox.top = clamp(bbox.top, z, rconfig.max_height);
-    bbox.right = clamp(bbox.right, z, rconfig.max_width);
-    bbox.bottom = clamp(bbox.bottom, z, rconfig.max_height);
-    set_bbox(bbox);
-  }
+  void clamp_to_arena();
 
  protected:
   // -IBasicLivingBox
-  void set_bbox(const BBox& bbox) override {
-    BoundingBox::set_bbox(bbox);
-  }
+  void set_bbox(const BBox& bbox) override;
 
-  BBox bounding_box() const override {
-    return BoundingBox::bounding_box();
-  }
+  BBox bounding_box() const override;
 
   void set_destination(
-      const std::variant<BBox, const IBasicLivingBox*>& dest) override {
-    BBox dest_box;
-    std::visit(
-        overloaded{
-            [this, &dest_box](const IBasicLivingBox* living_box) {
-              BBox bbox = living_box->bounding_box();
-              WHDims scale_box = get_size_scale();
-              dest_box = bbox.make_scaled(scale_box.width, scale_box.height);
-            },
-            [&dest_box](BBox bbox) { dest_box = bbox; },
-        },
-        dest);
-    set_destination(dest_box);
-  }
+      const std::variant<BBox, const IBasicLivingBox*>& dest) override;
 
-  void set_destination(const BBox& dest_box) override {
-    ResizingBox::set_destination(dest_box);
-    TranslatingBox::set_destination(dest_box);
-  }
+  void set_destination(const BBox& dest_box) override;
   // IBasicLivingBox-
 
  private:
