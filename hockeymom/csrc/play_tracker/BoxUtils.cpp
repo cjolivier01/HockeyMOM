@@ -1,6 +1,48 @@
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 
+#include <iomanip>
+
 namespace hm {
+
+std::ostream& operator<<(std::ostream& os, const play_tracker::WHDims& dims) {
+  os << "WHDims(width=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << dims.width << ", height=" << std::setw(10) << std::fixed
+     << std::setprecision(6) << dims.height << ")";
+  return os;
+}
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const play_tracker::PointDiff& diff) {
+  os << "PointDiff(dx=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << diff.dx << ", dy=" << std::setw(10) << std::fixed
+     << std::setprecision(6) << diff.dy << ")";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const play_tracker::SizeDiff& diff) {
+  os << "SizeDiff(dw=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << diff.dw << ", dh=" << std::setw(10) << std::fixed
+     << std::setprecision(6) << diff.dh << ")";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const play_tracker::Point& pt) {
+  os << "Point(x=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << pt.x << ", y=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << pt.y << ")";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const play_tracker::BBox& bbox) {
+  os << "BBox(l=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << bbox.left << ", t=" << std::setw(10) << std::fixed
+     << std::setprecision(6) << bbox.top << ", r=" << std::setw(10)
+     << std::fixed << std::setprecision(6) << bbox.right
+     << ", b=" << std::setw(10) << std::fixed << std::setprecision(6)
+     << bbox.bottom << ")";
+  return os;
+}
 namespace play_tracker {
 
 bool isClose(float a, float b, float rel_tol, float abs_tol) {

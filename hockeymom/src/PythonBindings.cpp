@@ -797,6 +797,12 @@ void init_living_boxes(::pybind11::module_& m) {
           "size_ratio_thresh_shrink_dh",
           &ResizingConfig::size_ratio_thresh_shrink_dh);
 
+  py::class_<ResizingState>(m, "ResizingState")
+      .def(py::init<>())
+      .def_readonly("size_is_frozen", &ResizingState::size_is_frozen)
+      .def_readonly("current_speed_w", &ResizingState::current_speed_w)
+      .def_readonly("current_speed_h", &ResizingState::current_speed_h);
+
   py::class_<TranslatingBoxConfig>(m, "TranslatingBoxConfig")
       .def(py::init<>())
       .def_readwrite("max_speed_x", &TranslatingBoxConfig::max_speed_x)
@@ -822,6 +828,16 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "unsticky_translation_size_ratio",
           &TranslatingBoxConfig::unsticky_translation_size_ratio);
+
+  py::class_<TranslationState>(m, "TranslationState")
+      .def(py::init<>())
+      .def_readonly("current_speed_x", &TranslationState::current_speed_x)
+      .def_readonly("current_speed_y", &TranslationState::current_speed_y)
+      .def_readonly(
+          "translation_is_frozen", &TranslationState::translation_is_frozen)
+      .def_readonly("nonstop_delay", &TranslationState::nonstop_delay)
+      .def_readonly(
+          "nonstop_delay_counter", &TranslationState::nonstop_delay_counter);
 
   py::class_<LivingBoxConfig>(m, "LivingBoxConfig")
       .def(py::init<>())
@@ -859,7 +875,7 @@ void init_living_boxes(::pybind11::module_& m) {
       LivingBox,
       std::shared_ptr<LivingBox>
       //,IBasicLivingBox,
-      //ILivingBox
+      // ILivingBox
       >(m, "LivingBox")
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
       //.def("set_dest", &LivingBox::set_dest)
@@ -872,12 +888,8 @@ void init_living_boxes(::pybind11::module_& m) {
           [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
-      /*.def(
-          "set_destination",
-          [](const std::shared_ptr<LivingBox>& self,
-             const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
-              -> void { self->set_destination(dest); })*/
-      ;
+      .def("resizing_state", &LivingBox::ResizingBox::state)
+      .def("translation_state", &LivingBox::TranslatingBox::state);
 }
 
 void init_play_tracker(::pybind11::module_& m) {

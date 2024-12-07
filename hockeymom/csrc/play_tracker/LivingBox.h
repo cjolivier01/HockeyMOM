@@ -67,6 +67,7 @@ struct ILivingBox : virtual public IBasicLivingBox {
  */
 /* clang-format on */
 struct ResizingConfig {
+  bool resizing_enabled{true};
   FloatValue max_speed_w{0.0};
   FloatValue max_speed_h{0.0};
   FloatValue max_accel_w{0.0};
@@ -103,6 +104,7 @@ struct ResizingConfig {
  */
 /* clang-format on */
 struct TranslatingBoxConfig {
+  bool translation_enabled{true};
   FloatValue max_speed_x{0.0};
   FloatValue max_speed_y{0.0};
   FloatValue max_accel_x{0.0};

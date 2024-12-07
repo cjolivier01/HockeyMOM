@@ -35,7 +35,9 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox
+from hockeymom.core import AllLivingBoxConfig, BBox
+
+from .living_box import PyLivingBox
 
 
 def to_bbox(tensor: torch.Tensor) -> BBox:
@@ -212,7 +214,7 @@ class PlayTracker(torch.nn.Module):
             #
             # Initialize `_current_roi` MovingBox with `current_roi_config`
             #
-            self._current_roi = LivingBox("Current ROI", to_bbox(start_box), current_roi_config)
+            self._current_roi = PyLivingBox("Current ROI", to_bbox(start_box), current_roi_config)
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -256,7 +258,7 @@ class PlayTracker(torch.nn.Module):
             # current_roi_aspect_config.thickness = 5
 
             # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
-            self._current_roi_aspect = LivingBox(
+            self._current_roi_aspect = PyLivingBox(
                 "AspectRatio", to_bbox(start_box), current_roi_aspect_config
             )
         else:

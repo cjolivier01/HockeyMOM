@@ -4,6 +4,7 @@
 #include <cfloat> // For FLT_EPSILON and DBL_EPSILON
 #include <cmath>
 #include <optional>
+#include <ostream>
 #include <tuple>
 
 namespace hm {
@@ -221,4 +222,11 @@ std::tuple<bool, bool> check_for_box_overshoot(
     FloatValue epsilon = 0.01);
 
 } // namespace play_tracker
+
+std::ostream& operator<<(std::ostream& os, const play_tracker::WHDims& dims);
+std::ostream& operator<<(std::ostream& os, const play_tracker::PointDiff& diff);
+std::ostream& operator<<(std::ostream& os, const play_tracker::SizeDiff& diff);
+std::ostream& operator<<(std::ostream& os, const play_tracker::Point& point);
+std::ostream& operator<<(std::ostream& os, const play_tracker::BBox& bbox);
+
 } // namespace hm

@@ -56,6 +56,9 @@ class ResizingBox : virtual public IBasicLivingBox {
   ResizingBox(const ResizingConfig& config) : config_(config) {}
 
   void set_destination(const BBox& dest_box) override {
+    if (!config_.resizing_enabled) {
+      return;
+    }
     set_destination_size(dest_box.width(), dest_box.height());
   }
 
@@ -97,6 +100,10 @@ class ResizingBox : virtual public IBasicLivingBox {
       h *= final_scale;
       set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
     }
+  }
+
+  const ResizingState& state() const {
+    return state_;
   }
 
  private:
@@ -256,6 +263,9 @@ class TranslatingBox : virtual public IBasicLivingBox {
   }
 
   void set_destination(const BBox& dest_box) override {
+    if (!config_.translation_enabled) {
+      return;
+    }
     BBox bbox = bounding_box();
     Point center_current = bbox.center();
     Point center_dest = bbox.center();
@@ -355,6 +365,10 @@ class TranslatingBox : virtual public IBasicLivingBox {
     } // end of is_nonstop()
 
     adjust_speed(total_diff.dx, total_diff.dy);
+  }
+
+  const TranslationState& state() const {
+    return state_;
   }
 
  protected:
