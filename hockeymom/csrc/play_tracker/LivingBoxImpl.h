@@ -533,9 +533,12 @@ class LivingBox : public ILivingBox,
  public:
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config);
 
+  // -ILivingBox
   void set_destination(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
       override;
+  void set_dest(std::shared_ptr<IBasicLivingBox>) override {}
+  // ILivingBox-
 
  protected:
   WHDims get_size_scale() const;
