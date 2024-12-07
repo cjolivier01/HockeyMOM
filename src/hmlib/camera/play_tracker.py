@@ -40,7 +40,9 @@ from hockeymom.core import AllLivingBoxConfig, BBox
 from .living_box import PyLivingBox
 
 
-def to_bbox(tensor: torch.Tensor) -> BBox:
+def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:
+    if not is_cpp:
+        return tensor
     if isinstance(tensor, BBox):
         return tensor
     bbox = BBox()
@@ -124,6 +126,7 @@ class PlayTracker(torch.nn.Module):
         progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
         cpp_boxes: bool = True,
+        # cpp_boxes: bool = False,
     ):
         """
         Track the play
@@ -207,14 +210,20 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
             current_roi_config.stop_on_dir_change = False
-            current_roi_config.arena_box = to_bbox(self.get_arena_box())
+            current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # current_roi_config.color = (255, 128, 64)
             # current_roi_config.thickness = 5
 
             #
             # Initialize `_current_roi` MovingBox with `current_roi_config`
             #
-            self._current_roi = PyLivingBox("Current ROI", to_bbox(start_box), current_roi_config)
+            self._current_roi: Union[MovingBox, PyLivingBox] = PyLivingBox(
+                "Current ROI",
+                to_bbox(start_box, self._cpp_boxes),
+                current_roi_config,
+                color=(255, 128, 64),
+                thickness=5,
+            )
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -258,11 +267,15 @@ class PlayTracker(torch.nn.Module):
             # current_roi_aspect_config.thickness = 5
 
             # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
-            self._current_roi_aspect = PyLivingBox(
-                "AspectRatio", to_bbox(start_box), current_roi_aspect_config
+            self._current_roi_aspect: Union[MovingBox, PyLivingBox] = PyLivingBox(
+                "AspectRatio",
+                to_bbox(start_box, self._cpp_boxes),
+                current_roi_aspect_config,
+                color=(255, 0, 255),
+                thickness=5,
             )
         else:
-            self._current_roi = MovingBox(
+            self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
                 bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
@@ -278,7 +291,7 @@ class PlayTracker(torch.nn.Module):
                 device=self._device,
             )
 
-            self._current_roi_aspect = MovingBox(
+            self._current_roi_aspect: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="AspectRatio",
                 bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
@@ -332,24 +345,20 @@ class PlayTracker(torch.nn.Module):
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
         # assert width(box) <= fw and height(box) <= fh
-        size_scale = self._current_roi.get_size_scale()
-        scale_w, scale_h = size_scale.width, size_scale.height
-        # scale_w, scale_h = self._current_roi.get_size_scale()
+        scale_w, scale_h = self._current_roi.get_size_scale()
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
         # We set the roi box to be this exact size
-        self._current_roi.set_bbox(to_bbox(box_roi))
+        self._current_roi.set_bbox(to_bbox(box_roi, self._cpp_boxes))
         # Then we scale up as needed for the aspect roi
-        # box_roi = self._current_roi.bounding_box()
-        size_scale = self._current_roi_aspect.get_size_scale()
-        scale_w, scale_h = size_scale.width, size_scale.height
+        scale_w, scale_h = self._current_roi_aspect.get_size_scale()
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
-        self._current_roi_aspect.set_bbox(to_bbox(box_roi))
+        self._current_roi_aspect.set_bbox(to_bbox(box_roi, self._cpp_boxes))
 
     def get_cluster_boxes(
         self,
@@ -586,11 +595,14 @@ class PlayTracker(torch.nn.Module):
             #
             # Apply the new calculated play
             #
-            fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box))
+            fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
 
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
             current_box = from_bbox(current_box)
+
+            print(f"{fast_roi_bounding_box=}")
+            print(f"{current_box=}")
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(

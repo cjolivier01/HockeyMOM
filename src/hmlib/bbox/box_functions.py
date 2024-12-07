@@ -30,18 +30,19 @@ def tlwh_centers(tlwhs: torch.Tensor):
     return centers
 
 
-def width(box: torch.Tensor):
+def width(box: torch.Tensor) -> torch.Tensor:
     # return box[2] - box[0] + 1.0
     return box[2] - box[0]
 
 
-def height(box: torch.Tensor):
+def height(box: torch.Tensor) -> torch.Tensor:
     # return box[3] - box[1] + 1.0
     return box[3] - box[1]
 
 
-def center(box: torch.Tensor):
-    return (box[:2] + box[2:]) / 2
+def center(box: torch.Tensor) -> torch.Tensor:
+    c = (box[:2] + box[2:]) / 2
+    return c
 
 
 def center_batch(boxes: torch.Tensor):

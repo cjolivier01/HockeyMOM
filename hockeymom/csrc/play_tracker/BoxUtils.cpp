@@ -87,9 +87,9 @@ BBox set_box_aspect_ratio(
     BBox setting_box,
     FloatValue aspect_ratio,
     std::optional<BBox> clamp_to_box) {
-  if (clamp_to_box.has_value()) {
-    setting_box = clamp_box(setting_box, *clamp_to_box);
-  }
+  // if (clamp_to_box.has_value()) {
+  //   setting_box = clamp_box(setting_box, *clamp_to_box);
+  // }
   const float w = setting_box.width(), h = setting_box.height();
   float new_h, new_w;
   if (w / h < aspect_ratio) {
@@ -100,6 +100,8 @@ BBox set_box_aspect_ratio(
     new_h = new_w / aspect_ratio;
   }
   assert(new_w >= w); // should always grow to accomodate
+  // TODO: Should clamp again to arena box, and still maintain aspect ratio
+
   return BBox(setting_box.center(), WHDims{.width = new_w, .height = new_h});
 }
 

@@ -111,7 +111,7 @@ struct BBox {
     return *this;
   }
   Point center() const {
-    return Point{.x = (right - left) / 2, .y = (bottom - top) / 2};
+    return Point{.x = (left + right) / 2, .y = (top + bottom) / 2};
   }
   BBox make_scaled(FloatValue scale_width, FloatValue scale_height) const {
     return BBox(

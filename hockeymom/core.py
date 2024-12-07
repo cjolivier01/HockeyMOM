@@ -16,6 +16,7 @@ from ._hockeymom import (
     RemapImageInfo,
     RemapperConfig,
     StitchImageInfo,
+    WHDims,
 )
 
 try:
@@ -41,4 +42,5 @@ __all__ = [
     "AllLivingBoxConfig",
     "BBox",
     "LivingBox",
+    "WHDims",
 ]

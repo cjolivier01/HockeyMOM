@@ -755,6 +755,10 @@ void init_box_structures(::pybind11::module_& m) {
       .def(py::init<>())
       .def(py::init<FloatValue, FloatValue, FloatValue, FloatValue>())
       .def(py::init<const Point&, const WHDims&>())
+      .def_readwrite("left", &BBox::left)
+      .def_readwrite("top", &BBox::top)
+      .def_readwrite("right", &BBox::right)
+      .def_readwrite("bottom", &BBox::bottom)
       .def("width", &BBox::width)
       .def("height", &BBox::height)
       .def("aspect_ratio", &BBox::aspect_ratio)
@@ -762,10 +766,6 @@ void init_box_structures(::pybind11::module_& m) {
       .def("center", &BBox::center)
       .def("make_scaled", &BBox::make_scaled)
       .def("inflate", &BBox::inflate)
-      .def_readwrite("left", &BBox::left)
-      .def_readwrite("top", &BBox::top)
-      .def_readwrite("right", &BBox::right)
-      .def_readwrite("bottom", &BBox::bottom)
       .def("validate", &BBox::validate);
 
   //
@@ -878,6 +878,7 @@ void init_living_boxes(::pybind11::module_& m) {
       // ILivingBox
       >(m, "LivingBox")
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
+      .def("name", &LivingBox::name)
       .def("get_size_scale", &LivingBox::get_size_scale)
       .def("set_bbox", &LivingBox::set_bbox)
       .def("bounding_box", &LivingBox::bounding_box)
