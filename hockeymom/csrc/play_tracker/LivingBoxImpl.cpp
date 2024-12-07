@@ -63,24 +63,24 @@ BBox LivingBox::next_position() {
 
   // Maybe adjust aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
-    std::cout << name() << ": " << bounding_box() << std::endl;
+    //std::cout << name() << ": " << bounding_box() << std::endl;
     const TranslatingBoxConfig& tconfig = TranslatingBox::get_config();
     set_bbox(set_box_aspect_ratio(
         bounding_box(), *config_.fixed_aspect_ratio, tconfig.arena_box));
-    std::cout << name() << ": " << bounding_box() << std::endl;
+    //std::cout << name() << ": " << bounding_box() << std::endl;
   }
 
   clamp_size_scaled();
-  std::cout << name() << ": " << bounding_box() << std::endl;
+  //std::cout << name() << ": " << bounding_box() << std::endl;
 
   on_new_position();
-  std::cout << name() << ": " << bounding_box() << std::endl;
+  //std::cout << name() << ": " << bounding_box() << std::endl;
 
   // Check that we maintained our aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
     assert(isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
   }
-  std::cout << name() << ": " << bounding_box() << std::endl;
+  //std::cout << name() << ": " << bounding_box() << std::endl;
   return bounding_box();
 }
 

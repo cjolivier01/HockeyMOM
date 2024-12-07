@@ -13,7 +13,7 @@ from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, make_visible_image
 
-from .tk import get_tk_root
+# from .tk import get_tk_root
 
 
 class ImageDisplayer:

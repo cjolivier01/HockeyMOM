@@ -898,6 +898,7 @@ void init_living_boxes(::pybind11::module_& m) {
           [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
+      .def("adjust_speed", &LivingBox::adjust_speed)
       .def("resizing_state", &LivingBox::ResizingBox::get_state)
       .def("resizing_config", &LivingBox::ResizingBox::get_config)
       .def("translation_state", &LivingBox::TranslatingBox::get_state)

@@ -27,6 +27,12 @@ class TranslatingBox : virtual public IBasicLivingBox {
 
   const TranslatingBoxConfig& get_config() const;
 
+  void adjust_speed(
+      std::optional<FloatValue> accel_x = std::nullopt,
+      std::optional<FloatValue> accel_y = std::nullopt,
+      std::optional<FloatValue> scale_constraints = std::nullopt,
+      std::optional<FloatValue> nonstop_delay = std::nullopt);
+
  protected:
   PointDiff get_proposed_next_position_change() const;
 
@@ -41,12 +47,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
   bool is_nonstop() const;
 
   void clamp_speed(FloatValue scale);
-
-  void adjust_speed(
-      std::optional<FloatValue> accel_x = std::nullopt,
-      std::optional<FloatValue> accel_y = std::nullopt,
-      std::optional<FloatValue> scale_constraints = std::nullopt,
-      std::optional<FloatValue> nonstop_delay = std::nullopt);
 
   /**
    * Scale the current speed by the given ratio

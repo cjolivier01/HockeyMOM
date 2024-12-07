@@ -580,8 +580,8 @@ class PlayTracker(torch.nn.Module):
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
             current_box = from_bbox(current_box)
 
-            print(f"{fast_roi_bounding_box=}")
-            print(f"{current_box=}")
+            # print(f"{fast_roi_bounding_box=}")
+            # print(f"{current_box=}")
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
@@ -672,7 +672,8 @@ class PlayTracker(torch.nn.Module):
 
             # If group x velocity is in different direction than current speed, behave a little differently
             if speed_adjust_box is not None:
-                roi_center = center(speed_adjust_box.bounding_box())
+                speed_adjust_bbox = from_bbox(speed_adjust_box.bounding_box())
+                roi_center = center(speed_adjust_bbox)
                 if self._args.plot_individual_player_tracking:
                     online_im = vis.plot_line(
                         online_im,
@@ -688,15 +689,16 @@ class PlayTracker(torch.nn.Module):
                 )
                 if should_adjust_speed.item():
                     speed_adjust_box.adjust_speed(
-                        accel_x=group_x_velocity.cpu()
+                        accel_x=group_x_velocity.cpu().item()
                         * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,
-                        nonstop_delay=torch.tensor(
-                            self._breakaway_detection.nonstop_delay_count,
-                            dtype=torch.int64,
-                            device=self._device,
-                        ),
+                        nonstop_delay=self._breakaway_detection.nonstop_delay_count,
+                        # nonstop_delay=torch.tensor(
+                        #     self._breakaway_detection.nonstop_delay_count,
+                        #     dtype=torch.int64,
+                        #     device=self._device,
+                        # ),
                     )
                 else:
                     # Cut the speed quickly due to overshoot
