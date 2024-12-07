@@ -505,6 +505,9 @@ class MovingBox(ResizingBox):
         return img
 
     def get_gaussian_y_about_width_center(self, x) -> float:
+
+        # return 1.0
+
         if self._horizontal_image_gaussian_distribution is None:
             return 1.0
         else:
@@ -594,13 +597,13 @@ class MovingBox(ResizingBox):
         if isinstance(dest_box, BasicBox):
             dest_box = dest_box.bounding_box()
 
-        print(f"{self._label}: set_destination({dest_box})")
+        # print(f"{self._label}: set_destination({dest_box})")
 
         bbox = self.bounding_box()
         center_current = center(bbox)
         center_dest = center(dest_box)
         total_diff = center_dest - center_current
-
+        # print(f"{self._label}: {total_diff=}")
         # If both the dest box and our current box are on an edge, we zero-out
         # the magnitude in the direction of that edge so that the size
         # differences of the box don't keep us in the un-stuck mode,
@@ -625,16 +628,16 @@ class MovingBox(ResizingBox):
             diff_magnitude = torch.linalg.norm(total_diff)
 
             # Check if the new center is in a direction opposed to our current velocity
-            velocity = torch.tensor(
-                [self._current_speed_x, self._current_speed_y],
-                device=self._current_speed_x.device,
-            )
-            s1 = torch.sign(total_diff)
-            s2 = torch.sign(velocity)
-            changed_direction = s1 * s2
+            # velocity = torch.tensor(
+            #     [self._current_speed_x, self._current_speed_y],
+            #     device=self._current_speed_x.device,
+            # )
+            # s1 = torch.sign(total_diff)
+            # s2 = torch.sign(velocity)
+            # changed_direction = s1 * s2
 
-            # Reduce velocity on axes that changed direction
-            velocity = torch.where(changed_direction < 0, self._zero, velocity)
+            # # Reduce velocity on axes that changed direction
+            # velocity = torch.where(changed_direction < 0, self._zero, velocity)
 
             sticky, unsticky = self._get_sticky_translation_sizes()
             if not self._translation_is_frozen and diff_magnitude <= sticky:
@@ -708,7 +711,7 @@ class MovingBox(ResizingBox):
             dh = self._current_speed_h / 2
         # END Sticky Translation
 
-        print(f"{self._label}: {self._current_speed_w=}, {self._current_speed_h=}")
+        # print(f"{self._label}: {self._current_speed_w=}, {self._current_speed_h=}")
 
         new_box = self._bbox
         new_box += torch.tensor(

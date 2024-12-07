@@ -372,7 +372,9 @@ class PlayTracker(torch.nn.Module):
     ):
         if self._cluster_man is None:
 
-            if True:
+            det_centroids = None
+            if False:
+                # DEBUGGING ONLY
                 det_centroids = torch.tensor(
                     [[1607.35034, 391.35437], [2095.76343, 359.94247], [2361.51660, 388.40149]],
                     dtype=torch.float,
@@ -610,15 +612,15 @@ class PlayTracker(torch.nn.Module):
             #
             # Apply the new calculated play
             #
-            print("")
-            print(f"CENTER = {center(current_box)}")
+            # print("")
+            # print(f"CENTER = {center(current_box)}")
             fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
-            print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
+            # print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
 
-            print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
+            # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-            print(f"current_box={from_bbox(current_box)}")
-            print("")
+            # print(f"current_box={from_bbox(current_box)}")
+            # print("")
 
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
             current_box = from_bbox(current_box)
@@ -685,8 +687,8 @@ class PlayTracker(torch.nn.Module):
         )
         if group_x_velocity:
 
-            if True:
-                return current_box, online_im
+            # if True:
+            #     return current_box, online_im
 
             if self._args.plot_individual_player_tracking:
                 """
