@@ -541,12 +541,7 @@ class LivingBox : public ILivingBox,
   void set_dest_ex(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) override {}
   // ILivingBox-
 
- protected:
   WHDims get_size_scale() const;
-
-  BBox next_position();
-
-  void clamp_to_arena();
 
   // -IBasicLivingBox
   void set_bbox(const BBox& bbox) override;
@@ -555,6 +550,13 @@ class LivingBox : public ILivingBox,
 
   void set_destination(const BBox& dest_box) override;
   // IBasicLivingBox-
+
+
+ protected:
+
+  BBox next_position();
+
+  void clamp_to_arena();
 
  private:
   const std::string label_;

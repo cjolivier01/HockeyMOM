@@ -865,6 +865,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
       //.def("set_dest", &LivingBox::set_dest)
       //.def("set_destination", &LivingBox::set_dest_ex)
+      .def("get_size_scale", &LivingBox::get_size_scale)
+      .def("set_bbox", &LivingBox::set_bbox)
+      .def("bounding_box", &LivingBox::bounding_box)
       .def(
           "set_destination",
           [](const std::shared_ptr<ILivingBox>& self,

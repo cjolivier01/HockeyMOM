@@ -300,8 +300,9 @@ class PlayTracker(torch.nn.Module):
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
     def train(self, mode: bool = True):
-        self._current_roi.train(mode)
-        self._current_roi_aspect.train(mode)
+        if isinstance(self._current_roi, torch.nn.Module):
+            self._current_roi.train(mode)
+            self._current_roi_aspect.train(mode)
         return super().train(mode)
 
     def get_arena_box(self):
@@ -319,16 +320,19 @@ class PlayTracker(torch.nn.Module):
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
         # assert width(box) <= fw and height(box) <= fh
-        scale_w, scale_h = self._current_roi.get_size_scale()
+        size_scale = self._current_roi.get_size_scale()
+        scale_w, scale_h = size_scale.width, size_scale.height
+        # scale_w, scale_h = self._current_roi.get_size_scale()
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
         # We set the roi box to be this exact size
-        self._current_roi.set_bbox(box_roi)
+        self._current_roi.set_bbox(to_bbox(box_roi))
         # Then we scale up as needed for the aspect roi
-        box_roi = self._current_roi.bounding_box()
-        scale_w, scale_h = self._current_roi_aspect.get_size_scale()
+        # box_roi = self._current_roi.bounding_box()
+        size_scale = self._current_roi_aspect.get_size_scale()
+        scale_w, scale_h = size_scale.width, size_scale.height
         box_roi = clamp_box(
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
