@@ -88,11 +88,11 @@ BBox LivingBox::bounding_box() const {
 }
 
 void LivingBox::set_destination(
-    const std::variant<BBox, const IBasicLivingBox*>& dest) {
+    const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
   BBox dest_box;
   std::visit(
       overloaded{
-          [this, &dest_box](const IBasicLivingBox* living_box) {
+          [this, &dest_box](std::shared_ptr<IBasicLivingBox> living_box) {
             BBox bbox = living_box->bounding_box();
             WHDims scale_box = get_size_scale();
             dest_box = bbox.make_scaled(scale_box.width, scale_box.height);

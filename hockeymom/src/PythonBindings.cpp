@@ -838,9 +838,19 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<>());
 
   py::class_<std::shared_ptr<IBasicLivingBox>>(m, "IBasicLivingBox")
-      .def(py::init<>());
+      //.def(py::init<>())
+      //.def("set_destination", &IBasicLivingBox::set_destination)
+      ;
 
-  py::class_<LivingBox, std::shared_ptr<LivingBox>>(m, "LivingBox")
+  py::class_<std::shared_ptr<ILivingBox>>(m, "ILivingBox")
+      //.def(py::init<>())
+      ;
+
+  py::class_<
+      LivingBox,
+      std::shared_ptr<LivingBox>,
+      IBasicLivingBox,
+      ILivingBox>(m, "LivingBox")
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
       //.def("set_destination", &LivingBox::set_destination)
       ;
