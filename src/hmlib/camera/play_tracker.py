@@ -337,7 +337,7 @@ class PlayTracker(torch.nn.Module):
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
-        self._current_roi_aspect.set_bbox(box_roi)
+        self._current_roi_aspect.set_bbox(to_bbox(box_roi))
 
     def get_cluster_boxes(
         self,
