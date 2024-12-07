@@ -369,10 +369,9 @@ class PlayTracker(torch.nn.Module):
     ):
         if self._cluster_man is None:
 
-            det_centroids = None
-            if False:
+            if False and centroids is None:
                 # DEBUGGING ONLY
-                det_centroids = torch.tensor(
+                centroids = torch.tensor(
                     [[1607.35034, 391.35437], [2095.76343, 359.94247], [2361.51660, 388.40149]],
                     dtype=torch.float,
                 )
@@ -380,7 +379,7 @@ class PlayTracker(torch.nn.Module):
             self._cluster_man = ClusterMan(
                 sizes=cluster_counts,
                 device=self._kmeans_cuda_device(),
-                centroids=det_centroids,
+                centroids=centroids,
             )
 
         self._cluster_man.calculate_all_clusters(
