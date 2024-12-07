@@ -39,6 +39,9 @@ from hockeymom.core import AllLivingBoxConfig, BBox
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
+_CPP_BOXES: bool = True
+# _CPP_BOXES: bool = False
+
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     tlwhs = tlbrs.clone()
@@ -104,15 +107,14 @@ class PlayTracker(torch.nn.Module):
         original_clip_box: Optional[torch.Tensor],
         progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
-        # cpp_boxes: bool = True,
-        cpp_boxes: bool = False,
+        cpp_boxes: bool = _CPP_BOXES,
     ):
         """
         Track the play
 
         :param hockey_mom: The old HockeyMom object
         :param play_box: The box allowed for play (assumed the visual play does not exist outside of this box)
-        :param device: Device to use for computations
+        :param device: Device to use for computations`
         :param original_clip_box: Clip box that has been applied to the original image (if any)
         :param progress_bar: Progress bar
         :param args: _description_
@@ -172,22 +174,28 @@ class PlayTracker(torch.nn.Module):
         start_box = self._play_box.clone()
 
         if self._cpp_boxes:
+
+            def _set_config_speed_acc(config: AllLivingBoxConfig, scale: float) -> None:
+                # Translation
+                config.max_speed_x = self._hockey_mom._camera_box_max_speed_x * 1.5 / scale
+                config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / scale
+                config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / scale
+                config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / scale
+
+                # Resizing
+                config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / scale / 1.8
+                config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1.5 / scale / 1.8
+                config.max_accel_w = self._hockey_mom._camera_box_max_accel_x * 1.1 / scale
+                config.max_accel_h = self._hockey_mom._camera_box_max_accel_y * 1.1 / scale
+
             # Create and configure `AllLivingBoxConfig` for `_current_roi`
             current_roi_config = AllLivingBoxConfig()
-            current_roi_config.max_speed_x = (
-                self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
-            )
-            current_roi_config.max_speed_y = (
-                self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
-            )
-            current_roi_config.max_accel_x = (
-                self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
-            )
-            current_roi_config.max_accel_y = (
-                self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
-            )
+
+            _set_config_speed_acc(current_roi_config, scale=speed_scale)
+
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
+
             current_roi_config.stop_on_dir_change = False
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # current_roi_config.color = (255, 128, 64)
@@ -208,6 +216,7 @@ class PlayTracker(torch.nn.Module):
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
             #
             current_roi_aspect_config = AllLivingBoxConfig()
+
             current_roi_aspect_config.max_speed_x = (
                 self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale
             )
@@ -220,11 +229,26 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.max_accel_y = (
                 self._hockey_mom._camera_box_max_accel_y / speed_scale
             )
+
+            current_roi_aspect_config.max_speed_w = (
+                self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / 1.8
+            )
+            current_roi_aspect_config.max_speed_h = (
+                self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale / 1.8
+            )
+            current_roi_aspect_config.max_accel_w = (
+                self._hockey_mom._camera_box_max_accel_x / speed_scale
+            )
+            current_roi_aspect_config.max_accel_h = (
+                self._hockey_mom._camera_box_max_accel_y / speed_scale
+            )
+
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
             current_roi_aspect_config.min_height = play_height / 5
             current_roi_aspect_config.stop_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
+            current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"][
                 "camera"
             ]["sticky_size_ratio_to_frame_width"]
@@ -344,9 +368,21 @@ class PlayTracker(torch.nn.Module):
         online_tlwhs: torch.Tensor,
         online_ids: torch.Tensor,
         cluster_counts: List[int],
+        centroids: Optional[torch.Tensor] = None,
     ):
         if self._cluster_man is None:
-            self._cluster_man = ClusterMan(sizes=cluster_counts, device=self._kmeans_cuda_device())
+
+            if True:
+                det_centroids = torch.tensor(
+                    [[1607.35034, 391.35437], [2095.76343, 359.94247], [2361.51660, 388.40149]],
+                    dtype=torch.float,
+                )
+
+            self._cluster_man = ClusterMan(
+                sizes=cluster_counts,
+                device=self._kmeans_cuda_device(),
+                centroids=det_centroids,
+            )
 
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
@@ -574,14 +610,18 @@ class PlayTracker(torch.nn.Module):
             #
             # Apply the new calculated play
             #
+            print("")
+            print(f"CENTER = {center(current_box)}")
             fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
+            print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
+
+            print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
+            print(f"current_box={from_bbox(current_box)}")
+            print("")
 
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
             current_box = from_bbox(current_box)
-
-            # print(f"{fast_roi_bounding_box=}")
-            # print(f"{current_box=}")
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
@@ -644,6 +684,10 @@ class PlayTracker(torch.nn.Module):
             group_threshhold=self._breakaway_detection.group_ratio_threshold,
         )
         if group_x_velocity:
+
+            if True:
+                return current_box, online_im
+
             if self._args.plot_individual_player_tracking:
                 """
                 When detecting a breakaway, draw a circle on the player

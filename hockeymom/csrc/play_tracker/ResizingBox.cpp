@@ -32,8 +32,8 @@ const ResizingState& ResizingBox::get_state() const {
 }
 
 SizeDiff ResizingBox::get_proposed_next_size_change() const {
-  std::cout << name() << ": current_speed_w = " << state_.current_speed_w
-            << ", current_speed_h = " << state_.current_speed_h << std::endl;
+  // std::cout << name() << ": current_speed_w = " << state_.current_speed_w
+  //           << ", current_speed_h = " << state_.current_speed_h << std::endl;
   if (state_.size_is_frozen) {
     return SizeDiff{.dw = zero(), .dh = zero()};
   }

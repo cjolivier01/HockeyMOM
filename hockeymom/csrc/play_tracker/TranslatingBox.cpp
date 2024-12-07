@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
 
 #include <cassert>
+#include <iostream>
 
 namespace hm {
 namespace play_tracker {
@@ -25,8 +26,11 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   }
   BBox bbox = bounding_box();
   Point center_current = bbox.center();
-  Point center_dest = bbox.center();
+  Point center_dest = dest_box.center();
   PointDiff total_diff = center_dest - center_current;
+
+  std::cout << name() << ": total_diff: " << total_diff << std::endl;
+
   // If both the dest box and our current box are on an edge, we zero-out
   // the magnitude in the direction of that edge so that the size
   // differences of the box don't keep us in the un-stuck mode,
@@ -43,6 +47,8 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     state_.current_speed_y *= !std::get<1>(x_y_on_edge);
     total_diff.dx *= !std::get<0>(x_y_on_edge);
     total_diff.dy *= !std::get<1>(x_y_on_edge);
+  } else {
+    assert(false);
   }
 
   if (config_.sticky_translation && !is_nonstop()) {
@@ -53,16 +59,16 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
 
     // Check if the new center is in a direction opposed to our current
     // velocity
-    const bool changed_direction_x =
-        (sign(state_.current_speed_x) * sign(total_diff.dx)) < 0;
-    const bool changed_direction_y =
-        (sign(state_.current_speed_y) * sign(total_diff.dy)) < 0;
+    // const bool changed_direction_x =
+    //     (sign(state_.current_speed_x) * sign(total_diff.dx)) < 0;
+    // const bool changed_direction_y =
+    //     (sign(state_.current_speed_y) * sign(total_diff.dy)) < 0;
 
-    // Reduce velocities on axes that changed direction
-    const FloatValue volocity_x =
-        changed_direction_x ? 0.0 : state_.current_speed_x;
-    const FloatValue velocity_y =
-        changed_direction_y ? 0.0 : state_.current_speed_y;
+    // // Reduce velocities on axes that changed direction
+    // const FloatValue velocity_x =
+    //     changed_direction_x ? 0.0 : state_.current_speed_x;
+    // const FloatValue velocity_y =
+    //     changed_direction_y ? 0.0 : state_.current_speed_y;
 
     // See if we are breaking the sticky or unsticky threshold
     const auto sticky_unsticky = get_sticky_translation_sizes();
@@ -121,7 +127,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   } // end of is_nonstop()
 
-  adjust_speed(total_diff.dx, total_diff.dy);
+  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
 }
 
 const TranslationState& TranslatingBox::get_state() const {

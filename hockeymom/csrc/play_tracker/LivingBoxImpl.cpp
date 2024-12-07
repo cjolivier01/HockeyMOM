@@ -121,7 +121,8 @@ void LivingBox::set_destination(
 BBox LivingBox::forward(
     const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
   set_destination(dest);
-  return next_position();
+  BBox new_pos = next_position();
+  return new_pos;
 }
 
 void LivingBox::set_destination(const BBox& dest_box) {
@@ -135,8 +136,7 @@ void LivingBox::set_destination(const BBox& dest_box) {
       destination_box = clamp_box(destination_box, *arena_box);
     }
   }
-  std::cout << name() << ": set_destination(" << destination_box << ")"
-            << std::endl;
+  std::cout << name() << ": set_destination: " << destination_box << std::endl;
   ResizingBox::set_destination(destination_box);
   TranslatingBox::set_destination(destination_box);
 }

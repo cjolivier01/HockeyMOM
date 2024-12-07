@@ -1,6 +1,7 @@
 from typing import Optional, Tuple
 
 import cv2
+import numpy as np
 import torch
 
 from hmlib.bbox.box_functions import (
