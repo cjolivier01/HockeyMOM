@@ -533,21 +533,21 @@ class LivingBox : public ILivingBox,
  public:
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config);
 
- private:
+  void set_destination(
+      const std::variant<BBox, const IBasicLivingBox*>& dest) override;
+
+ protected:
+
   WHDims get_size_scale() const;
 
   BBox next_position();
 
   void clamp_to_arena();
 
- protected:
   // -IBasicLivingBox
   void set_bbox(const BBox& bbox) override;
 
   BBox bounding_box() const override;
-
-  void set_destination(
-      const std::variant<BBox, const IBasicLivingBox*>& dest) override;
 
   void set_destination(const BBox& dest_box) override;
   // IBasicLivingBox-
