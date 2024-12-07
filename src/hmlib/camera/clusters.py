@@ -41,8 +41,11 @@ class ClusterSnapshot:
                 return
             elif max_clusters < self._num_clusters:
                 return
+        centroids = self._centroids
+        if centroids is not None:
+            centroids = centroids.clone()[: self._num_clusters]
         labels = self._kmeans_object.fit_predict(
-            center_points.to(self._device), centroids=self._centroids
+            center_points.to(self._device), centroids=centroids
         )
 
         self._cluster_label_ids = list()
@@ -74,7 +77,13 @@ class ClusterSnapshot:
 
 class ClusterMan:
 
-    def __init__(self, sizes: List[int], device="cpu", init_method: Optional[str] = None):
+    def __init__(
+        self,
+        sizes: List[int],
+        device="cpu",
+        init_method: Optional[str] = None,
+        centroids: Optional[torch.Tensor] = None,
+    ):
         self._sizes = sizes
         self._device = device
         self.cluster_snapshots = dict()
@@ -83,6 +92,7 @@ class ClusterMan:
                 num_clusters=i,
                 device=device,
                 init_method="random" if not init_method else init_method,
+                centroids=centroids,
             )
 
     @property
