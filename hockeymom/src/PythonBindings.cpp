@@ -848,28 +848,28 @@ void init_living_boxes(::pybind11::module_& m) {
       //.def(py::init<>())
       .def(PY_PURE_VIRTUAL_FUNCTION(IBasicLivingBox, "set_destination", BBox));
 
-  py::class_<ILivingBox, std::shared_ptr<ILivingBox>>(m, "ILivingBox")
+  py::class_<ILivingBox, IBasicLivingBox, std::shared_ptr<ILivingBox>>(
+      m, "ILivingBox")
       .def(PY_PURE_VIRTUAL_FUNCTION(
           ILivingBox,
           "set_destination",
-          const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>&))
-      //.def(py::init<>())
-      //       .def("set_destination", [](IBasicLivingBox& self) {
-      //   throw std::runtime_error(
-      //       "Pure virtual function called:
-      //       IBasicLivingBox::set_destination");
-      // });
-      ;
+          const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>&));
 
-  // py::class_<
-  //     LivingBox,
-  //     std::shared_ptr<LivingBox>,
-  //     IBasicLivingBox,
-  //     ILivingBox>(m, "LivingBox")
-  //     .def(py::init<std::string, BBox, AllLivingBoxConfig>())
-  //     .def("set_dest", &LivingBox::set_dest)
-  //     //.def("set_destination", &LivingBox::set_destination)
-  //     ;
+  py::class_<
+      LivingBox,
+      std::shared_ptr<LivingBox>
+
+      //,IBasicLivingBox,
+      // ILivingBox
+      >(m, "LivingBox")
+      .def(py::init<std::string, BBox, AllLivingBoxConfig>())
+      //.def("set_dest", &LivingBox::set_dest)
+      //.def("set_destination", &LivingBox::set_dest_ex)
+      .def(
+          "set_destination",
+          [](const std::shared_ptr<ILivingBox>& self,
+             const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
+              -> void { self->set_destination(dest); });
 }
 
 void init_play_tracker(::pybind11::module_& m) {

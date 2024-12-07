@@ -538,6 +538,7 @@ class LivingBox : public ILivingBox,
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
       override;
   void set_dest(std::shared_ptr<IBasicLivingBox>) override {}
+  void set_dest_ex(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) override {}
   // ILivingBox-
 
  protected:
