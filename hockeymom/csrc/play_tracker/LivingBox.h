@@ -111,7 +111,6 @@ struct TranslatingBoxConfig {
   FloatValue max_accel_y{0.0};
   bool stop_on_dir_change{true};
   std::optional<BBox> arena_box{std::nullopt};
-  std::optional<FloatValue> fixed_aspect_ratio{std::nullopt};
   bool clamp_scaled_input_box{true};
   // Sticky Sizing
   bool sticky_translation{false};

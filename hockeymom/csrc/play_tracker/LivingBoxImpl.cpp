@@ -60,9 +60,9 @@ BBox LivingBox::next_position() {
   stop_translation_if_out_of_arena();
   clamp_to_arena();
 
-  const TranslatingBoxConfig& tconfig = TranslatingBox::get_config();
   // Maybe adjust aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
+    const TranslatingBoxConfig& tconfig = TranslatingBox::get_config();
     set_bbox(set_box_aspect_ratio(
         bounding_box(), *config_.fixed_aspect_ratio, tconfig.arena_box));
   }
