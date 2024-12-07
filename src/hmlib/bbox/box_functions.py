@@ -79,10 +79,6 @@ def make_box_at_center(center_point: torch.Tensor, w: torch.Tensor, h: torch.Ten
         dtype=torch.float,
         device=center_point.device,
     )
-    if not torch.isclose(width(box), w) or not torch.isclose(height(box), h):
-        print("not close")
-    # assert torch.isclose(width(box), w)
-    # assert torch.isclose(height(box), h)
     return box
 
 

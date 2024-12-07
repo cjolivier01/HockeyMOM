@@ -85,7 +85,7 @@ void ResizingBox::set_destination_size(
     }
 
     // dh
-    bool dh_thresh = dh < 0 && dh < -resize_rates.shring_height;
+    bool dh_thresh = dh < 0 && dh < -resize_rates.shrink_height;
     const bool want_bigger_h = dh > 0 && dh > resize_rates.grow_height;
     dh_thresh |= want_bigger_h;
     if (!dh_thresh) {
@@ -169,14 +169,14 @@ void ResizingBox::clamp_resizing() {
       clamp(state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
 }
 
-ResizingBox::GrowShrink ResizingBox::get_grow_shrink_wh(
+GrowShrink ResizingBox::get_grow_shrink_wh(
     const BBox& bbox) const {
   auto ww = bbox.width(), hh = bbox.height();
   return GrowShrink{
       .grow_width = ww * config_.size_ratio_thresh_grow_dw,
       .grow_height = hh * config_.size_ratio_thresh_grow_dh,
       .shrink_width = ww * config_.size_ratio_thresh_shrink_dw,
-      .shring_height = hh * config_.size_ratio_thresh_shrink_dh,
+      .shrink_height = hh * config_.size_ratio_thresh_shrink_dh,
   };
 }
 

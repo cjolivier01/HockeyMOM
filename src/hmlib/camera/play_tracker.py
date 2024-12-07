@@ -37,28 +37,7 @@ from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox
 
-from .living_box import PyLivingBox
-
-
-def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:
-    if not is_cpp:
-        return tensor
-    if isinstance(tensor, BBox):
-        return tensor
-    bbox = BBox()
-    bbox.left = tensor[0].item()
-    bbox.top = tensor[1].item()
-    bbox.right = tensor[2].item()
-    bbox.bottom = tensor[3].item()
-    return bbox
-
-
-def from_bbox(bbox: BBox, device: torch.device = torch.device("cpu")) -> torch.Tensor:
-    if isinstance(bbox, torch.Tensor):
-        return bbox
-    return torch.tensor(
-        [bbox.left, bbox.top, bbox.right, bbox.bottom], dtype=torch.float, device=device
-    )
+from .living_box import PyLivingBox, from_bbox, to_bbox
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:

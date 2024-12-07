@@ -3,6 +3,7 @@ from ._hockeymom import (
     AllLivingBoxConfig,
     BBox,
     BlenderConfig,
+    GrowShrink,
     HmByteTrackConfig,
     HmByteTracker,
     HmTracker,
@@ -43,4 +44,5 @@ __all__ = [
     "BBox",
     "LivingBox",
     "WHDims",
+    "GrowShrink",
 ]

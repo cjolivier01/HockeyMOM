@@ -25,6 +25,8 @@ class TranslatingBox : virtual public IBasicLivingBox {
 
   const TranslationState& get_state() const;
 
+  const TranslatingBoxConfig& get_config() const;
+
  protected:
   PointDiff get_proposed_next_position_change() const;
 
@@ -32,8 +34,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
 
   // After new position is set, adjust the nonstop-delay
   void update_nonstop_delay();
-
-  const TranslatingBoxConfig& get_config() const;
 
   void on_new_position();
 

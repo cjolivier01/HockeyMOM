@@ -846,6 +846,10 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "fixed_aspect_ratio", &LivingBoxConfig::fixed_aspect_ratio);
 
+  py::class_<LivingState>(m, "LivingState")
+      .def(py::init<>())
+      .def_readwrite("was_size_constrained", &LivingState::was_size_constrained);
+
   py::class_<
       AllLivingBoxConfig,
       ResizingConfig,
@@ -858,6 +862,13 @@ void init_living_boxes(::pybind11::module_& m) {
     throw std::runtime_error("Pure virtual function called: " #_class$ \
                              "::" _fn_name$);                          \
   }
+
+  py::class_<GrowShrink>(m, "GrowShrink")
+      .def(py::init<>())
+      .def_readonly("grow_width", &GrowShrink::grow_width)
+      .def_readonly("grow_height", &GrowShrink::grow_height)
+      .def_readonly("shrink_width", &GrowShrink::shrink_width)
+      .def_readonly("shrink_height", &GrowShrink::shrink_height);
 
   py::class_<IBasicLivingBox, std::shared_ptr<IBasicLivingBox>>(
       m, "IBasicLivingBox")
@@ -888,7 +899,12 @@ void init_living_boxes(::pybind11::module_& m) {
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
       .def("resizing_state", &LivingBox::ResizingBox::get_state)
-      .def("translation_state", &LivingBox::TranslatingBox::get_state);
+      .def("resizing_config", &LivingBox::ResizingBox::get_config)
+      .def("translation_state", &LivingBox::TranslatingBox::get_state)
+      .def("translation_config", &LivingBox::TranslatingBox::get_config)
+      .def("living_config", &LivingBox::config)
+      .def("living_state", &LivingBox::state)
+      .def("get_grow_shrink_wh", &LivingBox::get_grow_shrink_wh);
 }
 
 void init_play_tracker(::pybind11::module_& m) {

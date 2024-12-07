@@ -8,6 +8,10 @@
 namespace hm {
 namespace play_tracker {
 
+struct LivingState {
+  bool was_size_constrained{false};
+};
+
 class LivingBox : public ILivingBox,
                   public BoundingBox,
                   public ResizingBox,
@@ -40,6 +44,9 @@ class LivingBox : public ILivingBox,
 
   const std::string& name() const override { return label_; }
 
+  const LivingBoxConfig& config() const { return config_; }
+  const LivingState& state() const { return state_; }
+
  protected:
   BBox next_position();
 
@@ -51,7 +58,7 @@ class LivingBox : public ILivingBox,
 
   // Flag to show we were size-constrained on the last update
   // (debugging/visualization only)
-  bool was_size_contrained_{false};
+  LivingState state_;
 };
 
 } // namespace play_tracker

@@ -51,7 +51,7 @@ BBox LivingBox::next_position() {
   const WHDims min_allowed_width_height = get_min_allowed_width_height();
   const FloatValue ww = std::max(new_ww, min_allowed_width_height.width);
   const FloatValue hh = std::max(new_hh, min_allowed_width_height.height);
-  was_size_contrained_ = ww != new_ww || hh != new_hh;
+  state_.was_size_constrained = ww != new_ww || hh != new_hh;
 
   new_box = BBox(new_box.center(), WHDims{.width = ww, .height = hh});
   // Assign new bounding box
