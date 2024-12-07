@@ -122,6 +122,9 @@ BBox LivingBox::forward(
     const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
   set_destination(dest);
   BBox new_pos = next_position();
+  assert(new_pos.left >= 0);
+  assert(new_pos.top >= 0);
+  ++forward_counter_;
   return new_pos;
 }
 

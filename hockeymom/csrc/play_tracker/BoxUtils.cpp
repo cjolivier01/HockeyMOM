@@ -123,7 +123,10 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
     result.bbox.bottom -= offset;
     result.was_shifted_y = true;
   }
-
+  assert(result.bbox.left >= bounding_box.left);
+  assert(result.bbox.top >= bounding_box.top);
+  assert(result.bbox.right <= bounding_box.right);
+  assert(result.bbox.bottom <= bounding_box.bottom);
   return result;
 }
 

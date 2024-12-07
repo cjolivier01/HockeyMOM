@@ -1,8 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-from collections import OrderedDict
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
@@ -22,7 +20,7 @@ from hmlib.bbox.box_functions import (
     tlwh_to_tlbr_single,
     width,
 )
-from hmlib.builder import HM, PIPELINES
+from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
@@ -31,11 +29,10 @@ from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import BoundaryLines
-from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox
+from hockeymom.core import AllLivingBoxConfig
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
@@ -619,11 +616,14 @@ class PlayTracker(torch.nn.Module):
 
             # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-            # print(f"current_box={from_bbox(current_box)}")
+            print(f"current_box={from_bbox(current_box)}")
             # print("")
 
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
             current_box = from_bbox(current_box)
+
+            if current_box[1] < 0:
+                pass
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(

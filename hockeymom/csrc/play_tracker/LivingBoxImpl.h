@@ -59,6 +59,7 @@ class LivingBox : public ILivingBox,
   // Flag to show we were size-constrained on the last update
   // (debugging/visualization only)
   LivingState state_;
+  std::size_t forward_counter_{0};
 };
 
 } // namespace play_tracker

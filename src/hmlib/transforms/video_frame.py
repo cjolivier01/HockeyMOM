@@ -1,27 +1,17 @@
-from contextlib import contextmanager
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, List, Union
 
 import torch
 from mmengine.registry import TRANSFORMS
 
-from hmlib.bbox.box_functions import center, height, width
-from hmlib.config import get_clip_box, get_config, get_nested_value
 from hmlib.log import logger
-from hmlib.scoreboard.scoreboard import Scoreboard
-from hmlib.scoreboard.selector import configure_scoreboard
-from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     crop_image,
     image_height,
     image_width,
-    make_channels_last,
     resize_image,
-    rotate_image,
     to_float_image,
 )
-from hmlib.utils.iterators import CachedIterator
-from hmlib.video.video_stream import VideoStreamReader
 
 
 def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
@@ -63,6 +53,9 @@ class HmCropToVideoFrame:
             y1 = intbox[1]
             y2 = intbox[3]
             x2 = int(x1 + int(float(y2 - y1) * video_frame_cfg["output_aspect_ratio"]))
+            if True:
+                if not (y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0):
+                    pass
             assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
             if y1 > src_image_height or y2 > src_image_height:
                 logger.info(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}")
