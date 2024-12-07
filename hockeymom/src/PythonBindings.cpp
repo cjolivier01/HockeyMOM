@@ -815,9 +815,6 @@ void init_living_boxes(::pybind11::module_& m) {
           "stop_on_dir_change", &TranslatingBoxConfig::stop_on_dir_change)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
       .def_readwrite(
-          "clamp_scaled_input_box",
-          &TranslatingBoxConfig::clamp_scaled_input_box)
-      .def_readwrite(
           "sticky_translation", &TranslatingBoxConfig::sticky_translation)
       .def_readwrite(
           "sticky_size_ratio_to_frame_width",
@@ -843,8 +840,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<>())
       .def_readwrite("scale_dest_width", &LivingBoxConfig::scale_dest_width)
       .def_readwrite("scale_dest_height", &LivingBoxConfig::scale_dest_height)
+      .def_readwrite("fixed_aspect_ratio", &LivingBoxConfig::fixed_aspect_ratio)
       .def_readwrite(
-          "fixed_aspect_ratio", &LivingBoxConfig::fixed_aspect_ratio);
+          "clamp_scaled_input_box", &LivingBoxConfig::clamp_scaled_input_box);
 
   py::class_<LivingState>(m, "LivingState")
       .def(py::init<>())

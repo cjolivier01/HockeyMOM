@@ -113,7 +113,6 @@ struct TranslatingBoxConfig {
   FloatValue max_accel_y{0.0};
   bool stop_on_dir_change{true};
   std::optional<BBox> arena_box{std::nullopt};
-  bool clamp_scaled_input_box{true};
   // Sticky Sizing
   bool sticky_translation{false};
   FloatValue sticky_size_ratio_to_frame_width{10.0};
@@ -125,6 +124,7 @@ struct LivingBoxConfig {
   FloatValue scale_dest_width{1.0};
   FloatValue scale_dest_height{1.0};
   std::optional<FloatValue> fixed_aspect_ratio{std::nullopt};
+  bool clamp_scaled_input_box{true};
 };
 
 struct AllLivingBoxConfig : public ResizingConfig,

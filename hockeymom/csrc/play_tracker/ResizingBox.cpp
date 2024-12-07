@@ -1,6 +1,9 @@
 #include "hockeymom/csrc/play_tracker/ResizingBox.h"
 
 #include <cassert>
+#include <iostream>
+
+#include <unistd.h>
 
 namespace hm {
 namespace play_tracker {
@@ -29,6 +32,8 @@ const ResizingState& ResizingBox::get_state() const {
 }
 
 SizeDiff ResizingBox::get_proposed_next_size_change() const {
+  std::cout << name() << ": current_speed_w = " << state_.current_speed_w
+            << ", current_speed_h = " << state_.current_speed_h << std::endl;
   if (state_.size_is_frozen) {
     return SizeDiff{.dw = zero(), .dh = zero()};
   }
@@ -92,13 +97,24 @@ void ResizingBox::set_destination_size(
       dh = 0.0f;
     }
 
+    bool freeze_size = !dh_thresh && !dh_thresh;
+
     bool both_thresh = dw_thresh && dh_thresh;
     if (prioritize_width_thresh) {
       both_thresh |= dw_thresh;
     }
     const bool any_thresh = dw_thresh || dh_thresh;
     const bool want_bigger = (want_bigger_w || want_bigger_h) && any_thresh;
-    state_.size_is_frozen |= !(both_thresh || want_bigger);
+
+    bool was_frozen = state_.size_is_frozen;
+    state_.size_is_frozen = freeze_size || !(both_thresh || want_bigger);
+    if (was_frozen && !state_.size_is_frozen) {
+      std::cout << "Unfreezing size" << std::endl;
+    }
+    if (state_.size_is_frozen) {
+      usleep(0);
+    }
+
     //
     // End size threshholding stuff
     //
@@ -169,8 +185,7 @@ void ResizingBox::clamp_resizing() {
       clamp(state_.current_speed_h, -config_.max_speed_h, config_.max_speed_h);
 }
 
-GrowShrink ResizingBox::get_grow_shrink_wh(
-    const BBox& bbox) const {
+GrowShrink ResizingBox::get_grow_shrink_wh(const BBox& bbox) const {
   auto ww = bbox.width(), hh = bbox.height();
   return GrowShrink{
       .grow_width = ww * config_.size_ratio_thresh_grow_dw,

@@ -8,7 +8,7 @@ namespace hm {
 namespace play_tracker {
 
 struct ResizingState {
-  bool size_is_frozen{true};
+  bool size_is_frozen{false};
   FloatValue current_speed_w{0.0};
   FloatValue current_speed_h{0.0};
 };

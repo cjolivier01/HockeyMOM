@@ -67,18 +67,10 @@ bool isClose(float a, float b, float rel_tol, float abs_tol) {
 BBox clamp_box(BBox box, const BBox& clamp_box) {
   clamp_box.validate();
   box.validate();
-  if (box.left < clamp_box.left) {
-    box.left = clamp_box.left;
-  }
-  if (box.right > clamp_box.right) {
-    box.right = clamp_box.right;
-  }
-  if (box.top < clamp_box.top) {
-    box.top = clamp_box.top;
-  }
-  if (box.bottom > clamp_box.bottom) {
-    box.bottom = clamp_box.bottom;
-  }
+  box.left = std::clamp(box.left, clamp_box.left, clamp_box.right);
+  box.right = std::clamp(box.right, clamp_box.left, clamp_box.right);
+  box.top = std::clamp(box.top, clamp_box.top, clamp_box.bottom);
+  box.bottom = std::clamp(box.bottom, clamp_box.top, clamp_box.bottom);
   box.validate();
   return box;
 }

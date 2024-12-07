@@ -106,7 +106,7 @@ class ResizingBox(BasicBox):
         # Threshold to shrink height (ratio of bbox)
         self._size_ratio_thresh_shrink_dh = 0.1
 
-        self._size_is_frozen = True
+        self._size_is_frozen = False
 
     def draw(
         self,
@@ -592,11 +592,9 @@ class MovingBox(ResizingBox):
         our current velocity and constraints
         """
         if isinstance(dest_box, BasicBox):
-            dest_box = scale_box(
-                box=dest_box.bounding_box(),
-                scale_width=self._scale_width,
-                scale_height=self._scale_height,
-            )
+            dest_box = dest_box.bounding_box()
+
+        print(f"{self._label}: set_destination({dest_box})")
 
         bbox = self.bounding_box()
         center_current = center(bbox)
@@ -710,6 +708,8 @@ class MovingBox(ResizingBox):
             dh = self._current_speed_h / 2
         # END Sticky Translation
 
+        print(f"{self._label}: {self._current_speed_w=}, {self._current_speed_h=}")
+
         new_box = self._bbox
         new_box += torch.tensor(
             [
@@ -743,7 +743,7 @@ class MovingBox(ResizingBox):
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
             self._bbox = self.set_aspect_ratio(self._bbox, self._fixed_aspect_ratio)
-        self.clamp_size_scaled()
+        self.clamp_size_scaled()  # will maintain aspect ratio
         if arena_box is not None:
             self._bbox, was_shifted_x, was_shifted_y = shift_box_to_edge(self._bbox, arena_box)
             if was_shifted_x:

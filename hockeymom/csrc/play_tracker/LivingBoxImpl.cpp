@@ -63,24 +63,24 @@ BBox LivingBox::next_position() {
 
   // Maybe adjust aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
-    //std::cout << name() << ": " << bounding_box() << std::endl;
+    // std::cout << name() << ": " << bounding_box() << std::endl;
     const TranslatingBoxConfig& tconfig = TranslatingBox::get_config();
     set_bbox(set_box_aspect_ratio(
         bounding_box(), *config_.fixed_aspect_ratio, tconfig.arena_box));
-    //std::cout << name() << ": " << bounding_box() << std::endl;
+    // std::cout << name() << ": " << bounding_box() << std::endl;
   }
 
   clamp_size_scaled();
-  //std::cout << name() << ": " << bounding_box() << std::endl;
+  // std::cout << name() << ": " << bounding_box() << std::endl;
 
   on_new_position();
-  //std::cout << name() << ": " << bounding_box() << std::endl;
+  // std::cout << name() << ": " << bounding_box() << std::endl;
 
   // Check that we maintained our aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
     assert(isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
   }
-  //std::cout << name() << ": " << bounding_box() << std::endl;
+  // std::cout << name() << ": " << bounding_box() << std::endl;
   return bounding_box();
 }
 
@@ -109,10 +109,8 @@ void LivingBox::set_destination(
   BBox dest_box;
   std::visit(
       overloaded{
-          [this, &dest_box](std::shared_ptr<IBasicLivingBox> living_box) {
-            BBox bbox = living_box->bounding_box();
-            WHDims scale_box = get_size_scale();
-            dest_box = bbox.make_scaled(scale_box.width, scale_box.height);
+          [&dest_box](std::shared_ptr<IBasicLivingBox> living_box) {
+            dest_box = living_box->bounding_box();
           },
           [&dest_box](BBox bbox) { dest_box = bbox; },
       },
@@ -127,8 +125,20 @@ BBox LivingBox::forward(
 }
 
 void LivingBox::set_destination(const BBox& dest_box) {
-  ResizingBox::set_destination(dest_box);
-  TranslatingBox::set_destination(dest_box);
+  BBox destination_box = dest_box;
+  WHDims scale_box = get_size_scale();
+  if (scale_box.width != 1 && scale_box.height != 1) {
+    destination_box =
+        destination_box.make_scaled(scale_box.width, scale_box.height);
+    auto& arena_box = TranslatingBox::get_config().arena_box;
+    if (config_.clamp_scaled_input_box && arena_box.has_value()) {
+      destination_box = clamp_box(destination_box, *arena_box);
+    }
+  }
+  std::cout << name() << ": set_destination(" << destination_box << ")"
+            << std::endl;
+  ResizingBox::set_destination(destination_box);
+  TranslatingBox::set_destination(destination_box);
 }
 // IBasicLivingBox-
 
