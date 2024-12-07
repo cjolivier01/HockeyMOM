@@ -615,7 +615,7 @@ class PlayTracker(torch.nn.Module):
 
             # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
             current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-            print(f"current_box={from_bbox(current_box)}")
+            # print(f"current_box={from_bbox(current_box)}")
             # print("")
 
             fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
