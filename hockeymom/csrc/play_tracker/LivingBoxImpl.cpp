@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
 #include <cassert>
+#include <iostream>
 
 namespace hm {
 namespace play_tracker {
@@ -74,7 +75,7 @@ BBox LivingBox::next_position() {
   if (config_.fixed_aspect_ratio.has_value()) {
     assert(isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
   }
-
+  std::cout << name() << ": " << bounding_box() << std::endl;
   return bounding_box();
 }
 

@@ -27,6 +27,8 @@ namespace play_tracker {
 struct IBasicLivingBox {
   virtual ~IBasicLivingBox() = default;
 
+  virtual const std::string& name() const = 0;
+
   virtual void set_bbox(const BBox& bbox) = 0;
 
   virtual BBox bounding_box() const = 0;

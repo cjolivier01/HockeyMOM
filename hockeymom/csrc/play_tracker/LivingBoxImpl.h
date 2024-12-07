@@ -38,6 +38,8 @@ class LivingBox : public ILivingBox,
   BBox forward(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
       override;
 
+  const std::string& name() const override { return label_; }
+
  protected:
   BBox next_position();
 
