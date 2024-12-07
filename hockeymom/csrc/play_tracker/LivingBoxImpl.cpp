@@ -103,6 +103,12 @@ void LivingBox::set_destination(
   set_destination(dest_box);
 }
 
+BBox LivingBox::forward(
+    const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
+  set_destination(dest);
+  return next_position();
+}
+
 void LivingBox::set_destination(const BBox& dest_box) {
   ResizingBox::set_destination(dest_box);
   TranslatingBox::set_destination(dest_box);

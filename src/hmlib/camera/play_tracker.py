@@ -574,8 +574,8 @@ class PlayTracker(torch.nn.Module):
             #
             # Apply the new calculated play
             #
-            fast_roi_bounding_box = self._current_roi(current_box)
-            current_box = self._current_roi_aspect(fast_roi_bounding_box)
+            fast_roi_bounding_box = self._current_roi.forward(current_box)
+            current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
