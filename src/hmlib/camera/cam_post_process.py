@@ -406,7 +406,8 @@ class CamTrackPostProcessor:
                 results = self._play_tracker.forward(results=results)
 
             for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
+                ar = aspect_ratio(current_box)
+                assert torch.isclose(ar, self._final_aspect_ratio)
                 if self._camera_tracking_data is not None:
                     self._camera_tracking_data.add_frame_records(
                         frame_id=frame_id,

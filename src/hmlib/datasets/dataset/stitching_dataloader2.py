@@ -474,10 +474,7 @@ class StitchDataset:
                         if self._auto_adjust_exposure:
                             imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
 
-                        blended_stream_tensor = self._stitcher.forward(
-                            image_1=_prepare_image(imgs_1),
-                            image_2=_prepare_image(imgs_2),
-                        )
+                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                     else:
                         sinfo_1 = core.StitchImageInfo()
                         sinfo_1.image = _prepare_image(to_tensor(imgs_1))
