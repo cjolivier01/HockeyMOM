@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <cfloat> // For FLT_EPSILON and DBL_EPSILON
 #include <cmath>
@@ -181,6 +182,11 @@ inline FloatValue sign(const FloatValue value) {
   } else {
     return 0.0f;
   }
+}
+
+template <typename T>
+inline T clamp(const T& value, const T& min, const T& max) {
+  return std::clamp(value, min, max);
 }
 
 inline bool different_directions(const FloatValue v1, const FloatValue v2) {

@@ -130,12 +130,32 @@ struct AllLivingBoxConfig : public ResizingConfig,
                             public TranslatingBoxConfig,
                             public LivingBoxConfig {};
 
-std::unique_ptr<ILivingBox> create_live_box(
-    std::string label,
-    const BBox& bbox,
-    const AllLivingBoxConfig* config = nullptr);
+/**
+ *  ____                        _  _             ____
+ * |  _ \                      | |(_)           |  _ \
+ * | |_) | ___  _   _ _ __   __| | _ _ __   __ _| |_) | ___ __  __
+ * |  _ < / _ \| | | | '_ \ / _` || | '_ \ / _` |  _ < / _ \\ \/ /
+ * | |_) | (_) | |_| | | | | (_| || | | | | (_| | |_) | (_) |>  <
+ * |____/ \___/ \__,_|_| |_|\__,_||_|_| |_|\__, |____/ \___//_/\_\
+ *                                          __/ |
+ *                                         |___/
+ */
+class BoundingBox : virtual public IBasicLivingBox {
+ public:
+  BoundingBox(BBox bbox) : bbox_(bbox.clone()) {}
+
+  void set_bbox(const BBox& bbox) override {
+    bbox_ = bbox.clone();
+  }
+
+  BBox bounding_box() const override {
+    return bbox_.clone();
+  }
+
+ protected:
+  BBox bbox_;
+};
 
 } // namespace play_tracker
 } // namespace hm
 
-#include "./LivingBoxImpl.h"
