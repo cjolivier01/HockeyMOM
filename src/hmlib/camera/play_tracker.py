@@ -35,6 +35,16 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
+from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox
+
+
+def to_bbox(tensor: torch.Tensor) -> BBox:
+    bbox = BBox()
+    bbox.left = tensor[0].item()
+    bbox.top = tensor[1].item()
+    bbox.right = tensor[2].item()
+    bbox.bottom = tensor[3].item()
+    return bbox
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -101,6 +111,7 @@ class PlayTracker(torch.nn.Module):
         original_clip_box: Optional[torch.Tensor],
         progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
+        cpp_boxes: bool = True,
     ):
         """
         Track the play
@@ -114,6 +125,7 @@ class PlayTracker(torch.nn.Module):
         """
         super(PlayTracker, self).__init__()
         self._args = args
+        self._cpp_boxes = cpp_boxes
         self._hockey_mom: HockeyMOM = hockey_mom
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = play_box
@@ -164,52 +176,126 @@ class PlayTracker(torch.nn.Module):
         speed_scale = self._hockey_mom.fps_speed_scale
 
         start_box = self._play_box.clone()
-        self._current_roi = MovingBox(
-            label="Current ROI",
-            bbox=start_box.clone(),
-            arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
-            max_width=play_width,
-            max_height=play_height,
-            stop_on_dir_change=False,
-            color=(255, 128, 64),
-            thickness=5,
-            device=self._device,
-        )
 
-        self._current_roi_aspect = MovingBox(
-            label="AspectRatio",
-            bbox=start_box.clone(),
-            arena_box=self.get_arena_box(),
-            max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
-            max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
-            max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
-            max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
-            max_width=play_width,
-            max_height=play_height,
-            stop_on_dir_change=True,
-            sticky_translation=True,
-            sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
-                "sticky_size_ratio_to_frame_width"
-            ],
-            sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
-                "sticky_translation_gaussian_mult"
-            ],
-            unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
-                "unsticky_translation_size_ratio"
-            ],
-            sticky_sizing=True,
-            scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
-            scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
-            fixed_aspect_ratio=self._final_aspect_ratio,
-            color=(255, 0, 255),
-            thickness=5,
-            device=self._device,
-            min_height=play_height / 5,
-        )
+        if self._cpp_boxes:
+            # Create and configure `AllLivingBoxConfig` for `_current_roi`
+            current_roi_config = AllLivingBoxConfig()
+            current_roi_config.max_speed_x = (
+                self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
+            )
+            current_roi_config.max_speed_y = (
+                self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
+            )
+            current_roi_config.max_accel_x = (
+                self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
+            )
+            current_roi_config.max_accel_y = (
+                self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            )
+            current_roi_config.max_width = play_width
+            current_roi_config.max_height = play_height
+            current_roi_config.stop_on_dir_change = False
+            current_roi_config.arena_box = to_bbox(self.get_arena_box())
+            # current_roi_config.color = (255, 128, 64)
+            # current_roi_config.thickness = 5
+
+            #
+            # Initialize `_current_roi` MovingBox with `current_roi_config`
+            #
+            self._current_roi = LivingBox("Current ROI", to_bbox(start_box), current_roi_config)
+
+            #
+            # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
+            #
+            current_roi_aspect_config = AllLivingBoxConfig()
+            current_roi_aspect_config.max_speed_x = (
+                self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale
+            )
+            current_roi_aspect_config.max_speed_y = (
+                self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale
+            )
+            current_roi_aspect_config.max_accel_x = (
+                self._hockey_mom._camera_box_max_accel_x / speed_scale
+            )
+            current_roi_aspect_config.max_accel_y = (
+                self._hockey_mom._camera_box_max_accel_y / speed_scale
+            )
+            current_roi_aspect_config.max_width = play_width
+            current_roi_aspect_config.max_height = play_height
+            current_roi_aspect_config.min_height = play_height / 5
+            current_roi_aspect_config.stop_on_dir_change = True
+            current_roi_aspect_config.sticky_translation = True
+            current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"][
+                "camera"
+            ]["sticky_size_ratio_to_frame_width"]
+            current_roi_aspect_config.sticky_translation_gaussian_mult = args.game_config["rink"][
+                "camera"
+            ]["sticky_translation_gaussian_mult"]
+            current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"][
+                "camera"
+            ]["unsticky_translation_size_ratio"]
+            current_roi_aspect_config.sticky_sizing = True
+            current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"][
+                "follower_box_scale_width"
+            ]
+            current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
+                "follower_box_scale_height"
+            ]
+            current_roi_aspect_config.fixed_aspect_ratio = final_aspect_ratio
+            current_roi_aspect_config.color = (255, 0, 255)
+            current_roi_aspect_config.thickness = 5
+
+            # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
+            self._current_roi_aspect = LivingBox(
+                "AspectRatio", to_bbox(start_box), current_roi_aspect_config
+            )
+        else:
+            self._current_roi = MovingBox(
+                label="Current ROI",
+                bbox=start_box.clone(),
+                arena_box=self.get_arena_box(),
+                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
+                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
+                max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
+                max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
+                max_width=play_width,
+                max_height=play_height,
+                stop_on_dir_change=False,
+                color=(255, 128, 64),
+                thickness=5,
+                device=self._device,
+            )
+
+            self._current_roi_aspect = MovingBox(
+                label="AspectRatio",
+                bbox=start_box.clone(),
+                arena_box=self.get_arena_box(),
+                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
+                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
+                max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
+                max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
+                max_width=play_width,
+                max_height=play_height,
+                stop_on_dir_change=True,
+                sticky_translation=True,
+                sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
+                    "sticky_size_ratio_to_frame_width"
+                ],
+                sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
+                    "sticky_translation_gaussian_mult"
+                ],
+                unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
+                    "unsticky_translation_size_ratio"
+                ],
+                sticky_sizing=True,
+                scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
+                scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
+                fixed_aspect_ratio=self._final_aspect_ratio,
+                color=(255, 0, 255),
+                thickness=5,
+                device=self._device,
+                min_height=play_height / 5,
+            )
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 

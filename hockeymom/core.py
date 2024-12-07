@@ -1,5 +1,7 @@
 # Classes
 from ._hockeymom import (
+    AllLivingBoxConfig,
+    BBox,
     BlenderConfig,
     HmByteTrackConfig,
     HmByteTracker,
@@ -9,6 +11,7 @@ from ._hockeymom import (
     ImageBlenderMode,
     ImageRemapper,
     ImageStitcher,
+    LivingBox,
     PlayTracker,
     RemapImageInfo,
     RemapperConfig,
@@ -35,4 +38,7 @@ __all__ = [
     "StitchImageInfo",
     "EnBlender",
     "PlayTracker",
+    "AllLivingBoxConfig",
+    "BBox",
+    "LivingBox",
 ]
