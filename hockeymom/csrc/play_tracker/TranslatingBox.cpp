@@ -29,7 +29,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   Point center_dest = dest_box.center();
   PointDiff total_diff = center_dest - center_current;
 
-  std::cout << name() << ": total_diff: " << total_diff << std::endl;
+  // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
   // If both the dest box and our current box are on an edge, we zero-out
   // the magnitude in the direction of that edge so that the size
