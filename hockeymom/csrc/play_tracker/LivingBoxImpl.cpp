@@ -49,7 +49,7 @@ BBox LivingBox::next_position() {
   stop_translation_if_out_of_arena();
   clamp_to_arena();
 
-  const TranslatingBoxConfig& tconfig = translating_config();
+  const TranslatingBoxConfig& tconfig = TranslatingBox::get_config();
   // Maybe adjust aspect ratio
   if (config_.fixed_aspect_ratio.has_value()) {
     set_bbox(set_box_aspect_ratio(
@@ -68,7 +68,7 @@ BBox LivingBox::next_position() {
 }
 
 void LivingBox::clamp_to_arena() {
-  const ResizingConfig& rconfig = resizing_config();
+  const ResizingConfig& rconfig = ResizingBox::get_config();
   BBox bbox = bounding_box();
   auto z = zero();
   bbox.left = clamp(bbox.left, z, rconfig.max_width);

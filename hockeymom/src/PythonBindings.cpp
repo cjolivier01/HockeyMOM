@@ -878,8 +878,6 @@ void init_living_boxes(::pybind11::module_& m) {
       // ILivingBox
       >(m, "LivingBox")
       .def(py::init<std::string, BBox, AllLivingBoxConfig>())
-      //.def("set_dest", &LivingBox::set_dest)
-      //.def("set_destination", &LivingBox::set_dest_ex)
       .def("get_size_scale", &LivingBox::get_size_scale)
       .def("set_bbox", &LivingBox::set_bbox)
       .def("bounding_box", &LivingBox::bounding_box)
@@ -888,8 +886,8 @@ void init_living_boxes(::pybind11::module_& m) {
           [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
               -> BBox { return self->forward(dest); })
-      .def("resizing_state", &LivingBox::ResizingBox::state)
-      .def("translation_state", &LivingBox::TranslatingBox::state);
+      .def("resizing_state", &LivingBox::ResizingBox::get_state)
+      .def("translation_state", &LivingBox::TranslatingBox::get_state);
 }
 
 void init_play_tracker(::pybind11::module_& m) {

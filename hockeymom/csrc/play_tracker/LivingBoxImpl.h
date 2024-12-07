@@ -62,8 +62,12 @@ class ResizingBox : virtual public IBasicLivingBox {
     set_destination_size(dest_box.width(), dest_box.height());
   }
 
-  const ResizingConfig& resizing_config() const {
+  const ResizingConfig& get_config() const {
     return config_;
+  }
+
+  const ResizingState& get_state() const {
+    return state_;
   }
 
  protected:
@@ -100,10 +104,6 @@ class ResizingBox : virtual public IBasicLivingBox {
       h *= final_scale;
       set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
     }
-  }
-
-  const ResizingState& state() const {
-    return state_;
   }
 
  private:
@@ -367,7 +367,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
     adjust_speed(total_diff.dx, total_diff.dy);
   }
 
-  const TranslationState& state() const {
+  const TranslationState& get_state() const {
     return state_;
   }
 
@@ -405,7 +405,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
     }
   }
 
-  const TranslatingBoxConfig& translating_config() const {
+  const TranslatingBoxConfig& get_config() const {
     return config_;
   }
 
