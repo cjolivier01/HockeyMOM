@@ -184,6 +184,9 @@ void TranslatingBox::on_new_position() {
     // We show down X velocity if we went off the edge
     state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
   }
+  if (shift_result.was_shifted_x || shift_result.was_shifted_y) {
+    set_bbox(shift_result.bbox);
+  }
 }
 
 bool TranslatingBox::is_nonstop() const {
