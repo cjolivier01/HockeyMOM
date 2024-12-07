@@ -1,5 +1,11 @@
 import importlib
 
+from .hm_transforms import HmLoadImageFromWebcam
+
+__all__ = [
+    "HmLoadImageFromWebcam",
+    "LazyImport",
+]
 
 class LazyImport:
     def __init__(self, module_name):
