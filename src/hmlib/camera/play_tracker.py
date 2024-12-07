@@ -241,9 +241,9 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
                 "follower_box_scale_height"
             ]
-            current_roi_aspect_config.fixed_aspect_ratio = final_aspect_ratio
-            current_roi_aspect_config.color = (255, 0, 255)
-            current_roi_aspect_config.thickness = 5
+            current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
+            # current_roi_aspect_config.color = (255, 0, 255)
+            # current_roi_aspect_config.thickness = 5
 
             # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
             self._current_roi_aspect = LivingBox(
