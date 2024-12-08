@@ -49,26 +49,31 @@ class HmImageOverlays:
         self,
         frame_number: bool = False,
         frame_time: bool = False,
-        watermark_image: str = None,
+        watermark_config: Dict[str, Any] = None,
         colors: Dict[str, Tuple[int, int, int]] = None,
         device: Optional[torch.device] = None,
     ):
         self._draw_frame_number = frame_number
         self._draw_frame_time = frame_time
-        self._watermark_image = watermark_image
+        self._watermark_config = watermark_config
         self._colors = colors if colors is not None else {}
         self._image_height_percent: float = 0.001
         self._watermark = None
         self._device = device
-        if self._watermark_image:
+        if self._watermark_config:
             self._load_watermark()
 
     def _load_watermark(self):
-        if self._watermark_image:
-            self._watermark = cv2.imread(
-                self._watermark_image,
-                cv2.IMREAD_UNCHANGED,
-            )
+        # TODO: Make watermark separate
+        if self._watermark_config and "image" in self._watermark_config:
+            self._watermark = self._watermark_config["image"]
+            if self._watermark is None:
+                return
+            if isinstance(self._watermark, str):
+                self._watermark = cv2.imread(
+                    self._watermark,
+                    cv2.IMREAD_UNCHANGED,
+                )
             if self._watermark is None:
                 raise InvalidArgumentError(
                     f"Could not load watermark image: {self._watermark_image}"

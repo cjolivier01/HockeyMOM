@@ -35,7 +35,9 @@ video_out_pipeline = [
     dict(type="HmRenderScoreboard", image_labels=["img", "end_zone_img"]),
     dict(
         type="HmImageOverlays",
-        watermark_image="images/sports_ai_watermark.png",
+        watermark_config=dict(
+            image="images/sports_ai_watermark.png",
+        ),
     ),
 ]
 
