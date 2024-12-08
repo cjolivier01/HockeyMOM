@@ -66,7 +66,7 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
 
 def record_stream_event(
     tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
-) -> torch.cuda.Event:
+) -> Optional[torch.cuda.Event]:
     """
     Centralized event record maker
     """
@@ -76,7 +76,7 @@ def record_stream_event(
     if stream is None:
         stream = torch.cuda.current_stream(tensor.device)
     assert stream is not None
-    event = torch.cuda.Event()
+    event = torch.cuda.Event(blocking=True)
     stream.record_event(event)
     return event
 
@@ -399,11 +399,11 @@ def copy_gpu_to_gpu_async(
     with cuda_stream_scope(src_stream):
         tensor_dest = torch.empty_like(tensor, device=dest_device)
         tensor_dest.copy_(tensor, non_blocking=True)
-        src_event = torch.cuda.Event()
+        src_event = torch.cuda.Event(blocking=True)
         src_stream.record_event(src_event)
     with cuda_stream_scope(src_stream):
         dest_stream.wait_event(src_event)
-        dest_event = torch.cuda.Event()
+        dest_event = torch.cuda.Event(blocking=True)
         dest_stream.record_event(dest_event)
     return tensor_dest, dest_event
 
@@ -459,7 +459,7 @@ class StreamTensorToDevice(StreamTensor):
         with torch.cuda.stream(stream=stream):
             self._tensor = tensor.to(device, non_blocking=True)
             assert self._event is None
-            self._event = torch.cuda.Event()
+            self._event = torch.cuda.Event(blocking=True)
             self._event.record()
 
 
@@ -485,7 +485,7 @@ class StreamTensorToDtype(StreamTensor):
                     self._tensor /= scale_down_factor
                 if contiguous:
                     self._tensor = self._tensor.contiguous()
-                self._event = torch.cuda.Event()
+                self._event = torch.cuda.Event(blocking=True)
                 self._event.record()
         else:
             self._stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
@@ -493,7 +493,7 @@ class StreamTensorToDtype(StreamTensor):
                 self._tensor = tensor.to(dtype=dtype, non_blocking=True)
                 if contiguous:
                     self._tensor = self._tensor.contiguous()
-                self._event = torch.cuda.Event()
+                self._event = torch.cuda.Event(blocking=True)
                 self._event.record()
 
 
