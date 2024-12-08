@@ -104,19 +104,6 @@ def get_best_codec(gpu_number: int, width: int, height: int):
     # return "XVID", False
 
 
-def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int):
-    assert dest_image.ndim == 4
-    assert dest_image.device == watermark_rgb_channels.device
-    assert dest_image.device == watermark_mask.device
-    watermark_height = image_height(watermark_rgb_channels)
-    watermark_width = image_width(watermark_rgb_channels)
-    dest_image[:, y : y + watermark_height, x : x + watermark_width] = (
-        dest_image[:, y : y + watermark_height, x : x + watermark_width] * (1 - watermark_mask)
-        + watermark_rgb_channels * watermark_mask
-    )
-    return dest_image
-
-
 def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
     if isinstance(tensor, StreamTensor):
         return tensor.ref()
@@ -150,7 +137,6 @@ class VideoOutput:
         save_frame_dir: str = None,
         start: bool = True,
         max_queue_backlog: int = 1,
-        watermark_image_path: str = None,
         device: torch.device = None,
         name: str = "",
         simple_save: bool = False,
@@ -270,35 +256,6 @@ class VideoOutput:
         if image_channel_adjustment:
             assert len(image_channel_adjustment) == 3
             self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
-
-        if watermark_image_path:
-            self.watermark = cv2.imread(
-                watermark_image_path,
-                cv2.IMREAD_UNCHANGED,
-            )
-            self.watermark_height = image_height(self.watermark)
-            self.watermark_width = image_width(self.watermark)
-            self.watermark_rgb_channels = self.watermark[:, :, :3]
-            watermark_alpha_channel = self.watermark[:, :, 3]
-            self.watermark_mask = cv2.merge(
-                [
-                    watermark_alpha_channel,
-                    watermark_alpha_channel,
-                    watermark_alpha_channel,
-                ]
-            )
-
-            if self._device is not None:
-                self.watermark_rgb_channels = torch.from_numpy(self.watermark_rgb_channels).to(
-                    self._device
-                )
-                self.watermark_mask = (
-                    torch.from_numpy(self.watermark_mask).to(self._device).to(torch.half)
-                )
-                # Scale mask to [0, 1]
-                self.watermark_mask = self.watermark_mask / torch.max(self.watermark_mask)
-        else:
-            self.watermark = None
 
         self._video_out_pipeline = video_out_pipeline
         if self._video_out_pipeline is not None:
@@ -675,33 +632,6 @@ class VideoOutput:
     def draw_final_overlays(self, img: torch.Tensor, frame_ids: torch.Tensor) -> torch.Tensor:
         # Just make sure we're channels-last
         img = make_channels_last(img)
-
-        #
-        # Watermark
-        #
-        if self.has_args() and self._args.use_watermark:
-            y = int(image_height(img) - self.watermark_height)
-            x = int(image_width(img) - self.watermark_width - self.watermark_width / 10)
-            img = paste_watermark_at_position(
-                img,
-                watermark_rgb_channels=self.watermark_rgb_channels,
-                watermark_mask=self.watermark_mask,
-                x=x,
-                y=y,
-            )
-
-        #
-        # Frame Number
-        #
-        if self.has_args() and self._args.plot_frame_number:
-            assert len(frame_ids) == len(img)
-            for i, frame_id in enumerate(frame_ids):
-                img[i] = make_channels_last(
-                    vis.plot_frame_number(
-                        img[i],
-                        frame_id=frame_id,
-                    )
-                )
 
         img = to_uint8_image(img, non_blocking=True)
 

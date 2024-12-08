@@ -186,6 +186,18 @@ class hm_opts(object):
             help="Offset for left video startig point (first supplied video)",
         )
         parser.add_argument(
+            "--plot-frame-number",
+            type=int,
+            default=0,
+            help="Plot frame number",
+        )
+        parser.add_argument(
+            "--plot-frame-time",
+            type=int,
+            default=0,
+            help="Plot frame time",
+        )
+        parser.add_argument(
             "--rfo",
             "--right-frame-offset",
             dest="rfo",

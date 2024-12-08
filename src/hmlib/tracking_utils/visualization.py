@@ -378,30 +378,30 @@ def unsqueeze(t: Union[torch.Tensor, np.ndarray], dim: int) -> Union[torch.Tenso
     return np.expand_dims(t, axis=dim)
 
 
-def plot_frame_number(image, frame_id):
-    text_scale = max(2, image_width(image) / 800.0)
-    text_thickness = 2
-    text_offset = int(8 * text_scale)
-    if image.ndim == 3:
-        image = unsqueeze(image, 0)
-    result_images = []
-    frame_id = int(frame_id)
-    for i in range(image.shape[0]):
-        img = my_put_text(
-            img=image[i],
-            text=f"F: {frame_id + i}",
-            org=(text_offset, int(15 * text_scale)),
-            fontFace=cv2.FONT_HERSHEY_PLAIN,
-            fontScale=text_scale,
-            color=(0, 0, 255),
-            thickness=text_thickness,
-        )
-        result_images.append(img)
-    if isinstance(image, torch.Tensor):
-        image = torch.stack(result_images)
-    else:
-        image = np.stack(result_images)
-    return image
+# def plot_frame_number(image, frame_id):
+#     text_scale = max(2, image_width(image) / 800.0)
+#     text_thickness = 2
+#     text_offset = int(8 * text_scale)
+#     if image.ndim == 3:
+#         image = unsqueeze(image, 0)
+#     result_images = []
+#     frame_id = int(frame_id)
+#     for i in range(image.shape[0]):
+#         img = my_put_text(
+#             img=image[i],
+#             text=f"F: {frame_id + i}",
+#             org=(text_offset, int(15 * text_scale)),
+#             fontFace=cv2.FONT_HERSHEY_PLAIN,
+#             fontScale=text_scale,
+#             color=(0, 0, 255),
+#             thickness=text_thickness,
+#         )
+#         result_images.append(img)
+#     if isinstance(image, torch.Tensor):
+#         image = torch.stack(result_images)
+#     else:
+#         image = np.stack(result_images)
+#     return image
 
 
 def plot_tracking(

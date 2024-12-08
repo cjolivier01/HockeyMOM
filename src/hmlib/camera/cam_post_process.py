@@ -86,10 +86,6 @@ class DefaultArguments:
         # self.old_tracking_use_new_moving_box = True
         self.old_tracking_use_new_moving_box = False
 
-        # Print each frame number in the upper left corner
-        self.plot_frame_number = False or basic_debugging
-        # self.plot_frame_number = True
-
         self.plot_boundaries = False or basic_debugging or self.plot_individual_player_tracking
         # self.plot_boundaries = True
 
@@ -118,10 +114,6 @@ class DefaultArguments:
 
         # Use cuda for final image resizing (if possible)
         self.use_cuda = False
-
-        # Draw watermark on the image
-        self.use_watermark = True
-        # self.use_watermark = False
 
         # Deprecated
         self.detection_inclusion_box = None
@@ -295,20 +287,20 @@ class CamTrackPostProcessor:
                 cache_size=self._video_out_cache_size,
                 async_output=self._async_video_out,
                 video_out_pipeline=self._video_out_pipeline,
-                watermark_image_path=(
-                    os.path.realpath(
-                        os.path.join(
-                            os.path.dirname(os.path.realpath(__file__)),
-                            "..",
-                            "..",
-                            "..",
-                            "images",
-                            "sports_ai_watermark.png",
-                        )
-                    )
-                    if self._args.use_watermark
-                    else None
-                ),
+                # watermark_image_path=(
+                #     os.path.realpath(
+                #         os.path.join(
+                #             os.path.dirname(os.path.realpath(__file__)),
+                #             "..",
+                #             "..",
+                #             "..",
+                #             "images",
+                #             "sports_ai_watermark.png",
+                #         )
+                #     )
+                #     if self._args.use_watermark
+                #     else None
+                # ),
                 device=self._video_out_device,
                 skip_final_save=self._args.skip_final_video_save,
                 image_channel_adjustment=self._args.game_config["rink"]["camera"][

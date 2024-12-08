@@ -884,6 +884,15 @@ def main(args, num_gpu):
                             crop_image=cam_args.crop_output_image,
                         ),
                     )
+                    update_pipeline_item(
+                        video_out_pipeline,
+                        "HmImageOverlays",
+                        dict(
+                            frame_number=bool(args.plot_frame_number),
+                            frame_time=bool(args.plot_frame_time),
+                            device=gpus["encoder"],
+                        ),
+                    )
                 # TODO: get rid of one of these args things, merging them below
                 postprocessor = CamTrackHead(
                     opt=args,
