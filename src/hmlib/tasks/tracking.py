@@ -57,6 +57,7 @@ def run_mmtrack(
             # Calculate some dataset stats for our progress display
             #
             batch_size = dataloader.batch_size
+            fps: Optional[float] = getattr(dataloader, "fps", None)
             total_batches_in_video = len(dataloader)
             total_frames_in_video = batch_size * total_batches_in_video
             number_of_batches_processed = 0
@@ -113,15 +114,10 @@ def run_mmtrack(
             using_precalculated_detection = (
                 detection_dataframe is not None and detection_dataframe.has_input_data()
             )
-            # batch_counter = 0
             for cur_iter, dataset_results in enumerate(dataloader_iterator):
                 origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
-                # if True or batch_counter % 2 == 0:
-                #     # tmp_img = data["img"]
-                #     show_image("img", data["img"], wait=False)
-                #     # show_image("origin_imgs", origin_imgs, wait=False, enable_resizing=0.2)
-                # batch_counter += 1
-
+                if fps:
+                    data["fps"] = fps
                 with torch.no_grad():
                     frame_id = info_imgs[2][0]
 

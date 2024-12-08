@@ -338,7 +338,16 @@ def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     return im
 
 
-def my_put_text(img, text, org, fontFace, fontScale, color, thickness):
+def my_put_text(
+    img: Union[torch.Tensor, np.ndarray],
+    text: str,
+    org: Tuple[int, int],
+    fontFace: int,
+    fontScale: float,
+    color: Tuple[int, int, int],
+    thickness: int,
+) -> Union[torch.Tensor, np.ndarray]:
+    assert isinstance(text, str)
     if isinstance(img, torch.Tensor):
         img = ptt.draw_text(
             image=img,

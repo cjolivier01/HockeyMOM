@@ -16,6 +16,7 @@ from hmlib.ui import show_image
 from ..utils.image import (
     image_height,
     image_width,
+    is_channels_first,
     is_channels_last,
     make_channels_first,
     make_channels_last,
@@ -165,6 +166,7 @@ def draw_text(
     position_is_text_bottom: bool = False,
 ) -> torch.Tensor:
     # font_size = int(font_size * 25)
+    assert is_channels_first(image)
     font_size = int(font_size * 10)
     global draw_text_SIZE_TO_FONT_PATHS
     font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
@@ -181,8 +183,14 @@ def draw_text(
     if ndims == 4:
         assert image.shape[0] == 1
         image = image.squeeze(0)
+    start_x: int = x
     for char in text:
-        if char in char_images:
+        if char == "\n":
+            x = start_x
+            y += int(char_images["max_height"])
+        elif char == "\r":
+            x = start_x
+        elif char in char_images:
             letter_img = char_images[char]
             base_w = image.shape[-1]
             base_h = image.shape[-2]

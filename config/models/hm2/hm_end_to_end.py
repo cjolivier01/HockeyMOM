@@ -33,6 +33,12 @@ video_out_pipeline = [
     ),
     dict(type="HmCropToVideoFrame"),
     dict(type="HmRenderScoreboard", image_labels=["img", "end_zone_img"]),
+    dict(
+        type="HmImageOverlays",
+        frame_number=True,
+        frame_time=True,
+        watermark_image="images/sports_ai_watermak.png",
+    ),
 ]
 
 model = dict(

@@ -1,3 +1,4 @@
+from .overlays import HmImageOverlays
 from .perspective_rotation import HmPerspectiveRotation
 from .scoreboard_transforms import (
     HmCaptureScoreboard,
@@ -12,4 +13,5 @@ __all__ = [
     "HmCaptureScoreboard",
     "HmRenderScoreboard",
     "HmCropToVideoFrame",
+    "HmImageOverlays",
 ]
