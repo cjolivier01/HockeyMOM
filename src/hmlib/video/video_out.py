@@ -624,22 +624,9 @@ class VideoOutput:
                             data=results,
                             img=self.draw_final_overlays(img=ez_image, frame_ids=frame_ids),
                         )
-                online_im = self.draw_final_overlays(img=online_im, frame_ids=frame_ids)
-
+            online_im = to_uint8_image(online_im, non_blocking=True)
             results["img"] = online_im
         return results
-
-    def draw_final_overlays(self, img: torch.Tensor, frame_ids: torch.Tensor) -> torch.Tensor:
-        # Just make sure we're channels-last
-        img = make_channels_last(img)
-
-        img = to_uint8_image(img, non_blocking=True)
-
-        if self._image_color_scaler is not None:
-            img = self._image_color_scaler.maybe_scale_image_colors(image=img)
-
-        return img
-
 
 def get_open_files_count():
     pid = os.getpid()
