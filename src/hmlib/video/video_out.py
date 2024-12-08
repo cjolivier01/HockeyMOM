@@ -23,6 +23,7 @@ from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
+from hmlib.utils.exceptions import raise_exception_in_thread
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensor,
@@ -457,8 +458,9 @@ class VideoOutput:
                             )
                             final_all_timer = Timer()
                         final_all_timer.tic()
-            except:
+            except Exception as ex:
                 traceback.print_exc()
+                raise_exception_in_thread(exception=ex)
 
     def save_image(
         self,

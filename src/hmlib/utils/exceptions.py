@@ -3,7 +3,11 @@ import threading
 import time
 
 
-def raise_exception_in_thread(thread_id, exception):
+def get_main_thread_id():
+    return threading.main_thread().ident
+
+
+def raise_exception_in_thread(thread_id=get_main_thread_id(), exception=KeyboardInterrupt):
     """
     Function to raise an exception in a given thread
     """

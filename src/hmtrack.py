@@ -955,11 +955,20 @@ def main(args, num_gpu):
     finally:
         try:
             if postprocessor is not None:
-                postprocessor.stop()
+                try:
+                    postprocessor.stop()
+                except:
+                    traceback.print_exc()
             if dataloader is not None and hasattr(dataloader, "close"):
-                dataloader.close()
+                try:
+                    dataloader.close()
+                except:
+                    traceback.print_exc()
             if tracking_dataframe is not None:
-                tracking_dataframe.flush()
+                try:
+                    tracking_dataframe.flush()
+                except:
+                    traceback.print_exc()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
 
