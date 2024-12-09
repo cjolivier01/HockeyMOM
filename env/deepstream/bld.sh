@@ -20,3 +20,4 @@ MAJOR_VERSION="0"
 NEW_VERSION="${MAJOR_VERSION}.$(increment_tag_minor_version)"
 NEW_TAG="${USER}/$(get_tag):${NEW_VERSION}"
 echo "Tagging to ${NEW_TAG}"
+docker tag ${DOCKER_TAG} ${NEW_TAG}
