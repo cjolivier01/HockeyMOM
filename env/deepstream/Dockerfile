@@ -151,6 +151,7 @@ RUN apt-get install -y \
 
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
+RUN apt clean
 
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
@@ -164,9 +165,11 @@ RUN mkdir /var/run/sshd
 # Set the root password (for demo purposes, use a secure password in production)
 RUN echo 'root:password' | chpasswd
 
+RUN groupadd -r colivier
+RUN groupadd -r colivier-local
 RUN groupadd -r docker
-RUN useradd -r -g docker colivier
-RUN useradd -r -g docker colivier-local
+RUN useradd -r -g colivier -G colivier,docker,sudo colivier
+RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
 
 # Allow root login via SSH (for demo purposes)
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
