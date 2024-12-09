@@ -1,12 +1,15 @@
 application:
-  name: MyGraph
+  name: deepstream-test2
 ---
 dependencies:
-- extension: NvDsMuxDemuxExt
-  uuid: 89b8398c-5820-4051-835c-a91f2d49766b
+- extension: NvDsSourceExt
+  uuid: a632d022-3425-4848-9074-e6483ef74366
   version: 1.6.0
 - extension: NvDsBaseExt
   uuid: 56d7e3ec-62c6-4652-bcc8-4f1c3b00df03
+  version: 1.6.0
+- extension: NvDsMuxDemuxExt
+  uuid: 89b8398c-5820-4051-835c-a91f2d49766b
   version: 1.6.0
 - extension: NvDsInferenceExt
   uuid: 0b02963e-c24e-4c13-ace0-c4cdf36c7c71
@@ -14,6 +17,9 @@ dependencies:
 - extension: NvDsSampleModelsExt
   uuid: 909dc1ea-c654-44c1-97a3-0b8fec12141a
   version: 1.7.0
+- extension: NvDsTrackerExt
+  uuid: f5aaeb53-e9b8-4317-87d1-9549d67c1638
+  version: 1.6.0
 - extension: NvDsVisualizationExt
   uuid: 25903cd4-fc5c-4139-987b-47bb27e8b424
   version: 1.6.0
@@ -23,172 +29,243 @@ dependencies:
 - extension: NvDsInferenceUtilsExt
   uuid: 27856a43-5ad4-4d8e-be36-0ec2cf9bbb58
   version: 1.6.0
-- extension: NvDsSourceExt
-  uuid: a632d022-3425-4848-9074-e6483ef74366
-  version: 1.6.0
-- extension: NvDsSampleExt
-  uuid: 44a711e4-8519-4a68-81e8-be7ee4af3ff0
-  version: 1.6.0
 ---
 components:
-- name: Stream Muxer3
+- name: single_source_input
+  parameters:
+    audio-out-%u: audio_output
+    uri: file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4
+    video-out-%u: video_output
+  type: nvidia::deepstream::NvDsSingleSrcInput
+- name: audio_output
+  type: nvidia::deepstream::NvDsDynamicOutput
+- name: video_output
+  type: nvidia::deepstream::NvDsDynamicOutput
+name: single_source_input
+ui_property:
+  position:
+    x: -85.48816680908203
+    y: -12.25196647644043
+  state: 0
+---
+components:
+- name: streammux
   parameters:
     batch-size: 1
     height: 1080
-    video-in-%u: On Request Data Input4
-    video-out: Static Data Output5
+    video-in-%u: video_input
+    video-out: video_output
     width: 1920
   type: nvidia::deepstream::NvDsStreamMux
-- name: On Request Data Input4
+- name: video_input
   type: nvidia::deepstream::NvDsOnRequestInput
-- name: Static Data Output5
+- name: video_output
   type: nvidia::deepstream::NvDsStaticOutput
-name: Stream Muxer
+name: streammux
 ui_property:
   position:
-    x: 544.5
-    y: 630.5
+    x: 145.56698608398438
+    y: 42.417335510253906
+  state: 0
 ---
 components:
-- name: Video Inference6
+- name: nv_ds_connection10..b470
   parameters:
-    infer-model-config: 4-class Detector12
-    video-in: Static Data Input8
-    video-out: Static Data Output7
+    source: single_source_input/video_output
+    target: streammux/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..b550
+---
+components:
+- name: object_detector
+  parameters:
+    infer-model-config: resnet18_4_class_detector45..e550
+    video-in: video_input
+    video-out: video_output
   type: nvidia::deepstream::NvDsInferVideo
-- name: Static Data Output7
-  type: nvidia::deepstream::NvDsStaticOutput
-- name: Static Data Input8
+- name: video_input
   type: nvidia::deepstream::NvDsStaticInput
-- name: 4-class Detector12
+- name: video_output
+  type: nvidia::deepstream::NvDsStaticOutput
+- name: resnet18_4_class_detector45..e550
   type: nvidia::deepstream::NvDsResnet18_4ClassDetectorModel
-name: Video Inference
+name: object_detector
 ui_property:
   position:
-    x: 860.0
-    y: 906.5
+    x: 382.8111267089844
+    y: 18.692914962768555
+  state: 0
 ---
 components:
-- name: On Screen Display9
+- name: nv_ds_connection14..ba20
   parameters:
-    video-in: Static Data Input11
-    video-out: Static Data Output10
-  type: nvidia::deepstream::NvDsOSD
-- name: Static Data Output10
+    source: streammux/video_output
+    target: object_detector/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..5f98
+---
+components:
+- name: tracker
+  parameters:
+    ll-config-file: /opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml
+    ll-lib-file: /opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
+    tracker-height: 384
+    tracker-width: 640
+    video-in: video_input
+    video-out: video_output
+  type: nvidia::deepstream::NvDsTracker
+- name: video_input
+  type: nvidia::deepstream::NvDsStaticInput
+- name: video_output
   type: nvidia::deepstream::NvDsStaticOutput
-- name: Static Data Input11
-  type: nvidia::deepstream::NvDsStaticInput
-name: On Screen Display
+name: tracker
 ui_property:
   position:
-    x: 1327.0
-    y: 896.0
+    x: 605.6143188476562
+    y: 54.79527282714844
+  state: 0
 ---
 components:
-- name: NVidia Video Renderer13
+- name: nv_ds_connection18..6dd8
   parameters:
-    video-in: Static Data Input14
+    source: object_detector/video_output
+    target: tracker/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..ca20
+---
+components:
+- name: vehicle_make_classifier
+  parameters:
+    infer-model-config: secondary_vehicle_make_classifier42..9cf8
+    unique-id: 2
+    video-in: video_input
+    video-out: video_output
+  type: nvidia::deepstream::NvDsInferVideo
+- name: video_input
+  type: nvidia::deepstream::NvDsStaticInput
+- name: video_output
+  type: nvidia::deepstream::NvDsStaticOutput
+- name: secondary_vehicle_make_classifier42..9cf8
+  type: nvidia::deepstream::NvDsSecondaryVehicleMakeClassifierModel
+name: vehicle_make_classifier
+ui_property:
+  position:
+    x: 831.5119018554688
+    y: 37.25985336303711
+  state: 0
+---
+components:
+- name: nv_ds_connection22..8470
+  parameters:
+    source: tracker/video_output
+    target: vehicle_make_classifier/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..bac8
+---
+components:
+- name: nv_ds_connection26..c320
+  parameters:
+    source: vehicle_make_classifier/video_output
+    target: vehicle_type_classifier/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..a710
+---
+components:
+- name: vehicle_type_classifier
+  parameters:
+    infer-model-config: secondary_vehicle_type_classifier44..9a90
+    unique-id: 4
+    video-in: video_input
+    video-out: video_output
+  type: nvidia::deepstream::NvDsInferVideo
+- name: video_input
+  type: nvidia::deepstream::NvDsStaticInput
+- name: video_output
+  type: nvidia::deepstream::NvDsStaticOutput
+- name: secondary_vehicle_type_classifier44..9a90
+  type: nvidia::deepstream::NvDsSecondaryVehicleTypeClassifierModel
+name: vehicle_type_classifier
+ui_property:
+  position:
+    x: -264.1952209472656
+    y: 402.99224853515625
+  state: 0
+---
+components:
+- name: onscreen_display
+  parameters:
+    video-in: video_input
+    video-out: video_output
+  type: nvidia::deepstream::NvDsOSD
+- name: video_input
+  type: nvidia::deepstream::NvDsStaticInput
+- name: video_output
+  type: nvidia::deepstream::NvDsStaticOutput
+name: onscreen_display
+ui_property:
+  position:
+    x: 254.16209411621094
+    y: 480.47467041015625
+  state: 0
+---
+components:
+- name: nv_ds_connection34..0080
+  parameters:
+    source: vehicle_type_classifier/video_output
+    target: onscreen_display/video_input
+  type: nvidia::deepstream::NvDsConnection
+name: node..ea58
+---
+components:
+- name: video_renderer
+  parameters:
+    video-in: video_input
   type: nvidia::deepstream::NvDsVideoRenderer
-- name: Static Data Input14
+- name: video_input
   type: nvidia::deepstream::NvDsStaticInput
-name: NVidia Video Renderer
+name: video_renderer
 ui_property:
   position:
-    x: 1646.5
-    y: 1155.5
+    x: 622.861328125
+    y: 422.6490783691406
+  state: 0
 ---
 components:
-- name: Deepstream Data Connection16
+- name: nv_ds_connection37..1ef0
   parameters:
-    source: Stream Muxer/Static Data Output5
-    target: Video Inference/Static Data Input8
+    source: onscreen_display/video_output
+    target: video_renderer/video_input
   type: nvidia::deepstream::NvDsConnection
-name: node1
+name: node..4ba8
 ---
 components:
-- name: Deepstream Data Connection17
-  parameters:
-    source: Video Inference/Static Data Output7
-    target: On Screen Display/Static Data Input11
-  type: nvidia::deepstream::NvDsConnection
-name: node2
----
-components:
-- name: Deepstream Data Connection18
-  parameters:
-    source: On Screen Display/Static Data Output10
-    target: NVidia Video Renderer/Static Data Input14
-  type: nvidia::deepstream::NvDsConnection
-name: node3
----
-components:
-- name: Deepstream Scheduler19
+- name: scheduler
   type: nvidia::deepstream::NvDsScheduler
-name: Deepstream Scheduler
+name: scheduler
 ui_property:
   position:
-    x: 560.0
-    y: 1189.5
+    x: 953.4622192382812
+    y: 362.1917724609375
   state: 0
 ---
 components:
-- name: Object Counter20
+- name: per_class_object_counting
   parameters:
-    probe-connector: Probe Connector21
+    probe-connector: probe_connector
   type: nvidia::deepstream::NvDsPerClassObjectCounting
-- name: Probe Connector21
+- name: probe_connector
   type: nvidia::deepstream::NvDsProbeConnector
-name: Object Counter
+name: per_class_object_counting
 ui_property:
   position:
-    x: 1268.0
-    y: 1313.5
----
-components:
-- name: Probe Monitor22
-  parameters:
-    io: Video Inference/Static Data Output7
-    probe-connector: Object Counter/Probe Connector21
-  type: nvidia::deepstream::NvDsProbe
-name: node4
----
-components:
-- name: Multi Source Input28
-  parameters:
-    audio-%u-out: Multiple Data Output30
-    source-manip-action: Source Manipulation Action35
-    video-%u-out: Multiple Data Output29
-  type: nvidia::deepstream::NvDsMultiSrcInput
-- name: Multiple Data Output29
-  type: nvidia::deepstream::NvDsMultiOutput
-- name: Multiple Data Output30
-  type: nvidia::deepstream::NvDsMultiOutput
-- name: Source Manipulation Action35
-  type: nvidia::deepstream::NvDsSourceManipulationAction
-name: Multi Source Input
-ui_property:
-  position:
-    x: 129.0
-    y: 593.5
+    x: 344.5144958496094
+    y: 705.103759765625
   state: 0
 ---
 components:
-- name: Multi Data Connection31
+- name: nv_ds_probe41..1048
   parameters:
-    source: Multi Source Input/Multiple Data Output29
-    target: Stream Muxer/On Request Data Input4
-  type: nvidia::deepstream::NvDsMultiSrcConnection
-name: node7
----
-components:
-- name: Source Add/Remove34
-  parameters:
-    max-num-sources: 4
-    source-manip-action: Multi Source Input/Source Manipulation Action35
-    uri: file:///opt/nvidia/deepstream/deepstream-7.1/samples/streams/sample_1080p_h265.mp4
-  type: nvidia::deepstream::NvDsSampleSourceManipulator
-name: Source Add/Remove
-ui_property:
-  position:
-    x: 152.5
-    y: 1131.5
+    io: vehicle_type_classifier/video_output
+    probe-connector: per_class_object_counting/probe_connector
+  type: nvidia::deepstream::NvDsProbe
+name: node..3e80
