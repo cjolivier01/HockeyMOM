@@ -1,5 +1,5 @@
-# FROM nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
-FROM nvcr.io/nvidia/deepstream:6.4-triton-multiarch
+FROM nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
+# FROM nvcr.io/nvidia/deepstream:6.4-triton-multiarch
 
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -95,6 +95,57 @@ RUN rm -rf ffmpeg
 RUN apt-get install -y openssh-server
 RUN apt-get install -y gedit
 
+
+#
+# VSCode Dev Containers packages
+#
+RUN apt-get install -y \
+	apt-utils \
+        bash-completion \
+        openssh-client \
+        gnupg2 \
+        dirmngr \
+        iproute2 \
+        procps \
+        lsof \
+        htop \
+        net-tools \
+        psmisc \
+        curl \
+        tree \
+        wget \
+        rsync \
+        ca-certificates \
+        unzip \
+        bzip2 \
+        xz-utils \
+        zip \
+        nano \
+        vim-tiny \
+        less \
+        jq \
+        lsb-release \
+        apt-transport-https \
+        dialog \
+        libc6 \
+        libgcc1 \
+        libkrb5-3 \
+        libgssapi-krb5-2 \
+        libicu[0-9][0-9] \
+        liblttng-ust[0-9] \
+        libstdc++6 \
+        zlib1g \
+        locales \
+        sudo \
+        ncdu \
+        man-db \
+        strace \
+        manpages \
+        manpages-dev \
+        init-system-helpers        
+
+RUN apt-get upgrade -y
+
 # Create a new user with the provided USERNAME, UID, and GID
 USER root
 RUN find /opt/nvidia/deepstream/ -type d  | xargs sudo chmod 777
@@ -106,6 +157,10 @@ RUN mkdir /var/run/sshd
 
 # Set the root password (for demo purposes, use a secure password in production)
 RUN echo 'root:password' | chpasswd
+
+RUN groupadd -r docker
+RUN useradd -r -g docker colivier
+RUN useradd -r -g docker colivier-local
 
 # Allow root login via SSH (for demo purposes)
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
