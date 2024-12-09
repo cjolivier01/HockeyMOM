@@ -228,6 +228,7 @@ RUN rm -rf vigra
 ##############################################################
 USER root
 
+# Some PyTorch dependencies
 RUN apt-get install -y \
     libopenmpi-dev \
     libmkl-full-dev
