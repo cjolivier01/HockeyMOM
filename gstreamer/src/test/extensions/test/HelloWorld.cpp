@@ -1,0 +1,21 @@
+
+#include "HelloWorld.hpp"  // NOLINT
+
+namespace sample {
+namespace test {
+
+gxf_result_t HelloWorld::start() {
+
+    GXF_LOG_INFO("HelloWorld::start");
+    return GXF_SUCCESS;
+}
+
+gxf_result_t HelloWorld::tick() {
+  GXF_LOG_INFO("HelloWorld::tick");
+  return GXF_SUCCESS;
+}
+
+}  // namespace test
+}  // namespace sample
+
+  
