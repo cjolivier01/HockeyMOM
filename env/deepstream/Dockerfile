@@ -245,12 +245,6 @@ RUN echo "$USERNAME ALL=(ALL:ALL) ALL" >> /etc/sudoers
 # Create the SSH directory and set up a basic configuration
 RUN mkdir /var/run/sshd
 
-# RUN cat /etc/sudoers
-# RUN usermod -aG sudo $USERNAME
-
-# Set a password for the user
-# RUN echo "$USERNAME:password" | chpasswd
-
 # Set the user and prevent the container from running as root
 USER $USERNAME
 
