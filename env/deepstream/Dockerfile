@@ -208,26 +208,25 @@ RUN apt-get install -y \
 # ####################################################################
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/cjolivier01/vigra
-# RUN git clone https://github.com/cjolivier01/vigra && \
-#    cd vigra && \
-#    git checkout colivier/hm \
-#    && mkdir build \
-#    && cd build \
-#    && ../cfig \
-#    && make -j $(nproc)
+RUN git clone https://github.com/cjolivier01/vigra && \
+   cd vigra && \
+   git checkout colivier/hm \
+   && mkdir build \
+   && cd build \
+   && ../cfig \
+   && make -j $(nproc)
 
-# WORKDIR /home/$USERNAME/src/vigra/build
-# USER root
-# RUN make install
-# WORKDIR /home/$USERNAME/src
+WORKDIR /home/$USERNAME/src/vigra/build
+USER root
+RUN make install
+WORKDIR /home/$USERNAME/src
 RUN rm -rf vigra
 
 
 ##############################################################
 # END HM Dependencies
 ##############################################################
-
+USER root
 
 RUN apt-get install -y \
     libopenmpi-dev \
