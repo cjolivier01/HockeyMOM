@@ -1,7 +1,6 @@
 FROM nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
 # FROM nvcr.io/nvidia/deepstream:6.4-triton-multiarch
 
-
 ENV DEBIAN_FRONTEND=noninteractive
 
 
@@ -13,6 +12,9 @@ ENV SHELL=/bin/bash
 
 USER root
 RUN apt update
+
+# Will upgrade a bunch of the NVidia packages
+RUN apt-get upgrade -y
 
 RUN apt-get install -y \
   sudo \
@@ -97,7 +99,7 @@ RUN apt-get install -y gedit
 
 
 #
-# VSCode Dev Containers packages
+# BEGIN VSCode Dev Containers packages
 #
 RUN apt-get install -y \
 	apt-utils \
@@ -143,7 +145,11 @@ RUN apt-get install -y \
         manpages \
         manpages-dev \
         init-system-helpers        
+#
+# END VSCode Dev Containers packages
+#
 
+# In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
 
 # Create a new user with the provided USERNAME, UID, and GID
