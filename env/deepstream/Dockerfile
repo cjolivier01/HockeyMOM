@@ -98,9 +98,9 @@ RUN apt-get install -y openssh-server
 RUN apt-get install -y gedit
 
 
-#
+#-------------------------------------------------------------
 # BEGIN VSCode Dev Containers packages
-#
+#-------------------------------------------------------------
 RUN apt-get install -y \
 	apt-utils \
         bash-completion \
@@ -145,9 +145,89 @@ RUN apt-get install -y \
         manpages \
         manpages-dev \
         init-system-helpers        
-#
+#-------------------------------------------------------------
 # END VSCode Dev Containers packages
-#
+#-------------------------------------------------------------
+
+# Set the root password (for demo purposes, use a secure password in production)
+RUN echo 'root:password' | chpasswd
+
+# User is needed by git
+RUN groupadd -r colivier
+RUN groupadd -r colivier-local
+RUN groupadd -r docker
+RUN useradd -r -g colivier -G colivier,docker,sudo colivier
+RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
+
+# Allow root login via SSH (for demo purposes)
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+
+##############################################################
+# BEGIN HM Dependencies
+##############################################################
+
+# Install Vigra/Hugin dependencies
+RUN apt-get install -y \
+  ccache \
+  libpano13-dev \
+  libglew-dev \
+  libexiv2-dev \
+  libopenexr-dev \
+  libilmbase-dev \
+  liblcms2-dev \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev \
+  libsqlite3-dev \
+  libavformat-dev \
+  liblapack-dev \
+  gettext \
+  libyaml-cpp-dev \
+  liblapack-dev \
+  libglfw3-dev \
+  libfftw3-dev \
+  libglew-dev \
+  libgl-dev \
+  libjpeg-turbo8-dev \
+  libtiff-dev \
+  libopus-dev \
+  libboost-all-dev \
+  libprotobuf-dev \
+  libpng-dev \
+  libopenblas-dev \
+  libomp-dev \
+  libwxgtk3.0-gtk3-dev \
+  && apt-get clean
+
+# ####################################################################
+# #
+# # Build Vigra (dependency of Hugin tools)
+# # We need to build it because it has a patch in one of the headers
+# # that fixes a compile problem with Hugin.
+# #
+# ####################################################################
+USER $USERNAME
+WORKDIR /home/$USERNAME/src
+RUN git clone https://github.com/cjolivier01/vigra
+# RUN git clone https://github.com/cjolivier01/vigra && \
+#    cd vigra && \
+#    git checkout colivier/hm \
+#    && mkdir build \
+#    && cd build \
+#    && ../cfig \
+#    && make -j $(nproc)
+
+# WORKDIR /home/$USERNAME/src/vigra/build
+# USER root
+# RUN make install
+# WORKDIR /home/$USERNAME/src
+RUN rm -rf vigra
+
+
+##############################################################
+# END HM Dependencies
+##############################################################
+
 
 RUN apt-get install -y \
     libopenmpi-dev \
@@ -165,18 +245,6 @@ RUN echo "$USERNAME ALL=(ALL:ALL) ALL" >> /etc/sudoers
 
 # Create the SSH directory and set up a basic configuration
 RUN mkdir /var/run/sshd
-
-# Set the root password (for demo purposes, use a secure password in production)
-RUN echo 'root:password' | chpasswd
-
-RUN groupadd -r colivier
-RUN groupadd -r colivier-local
-RUN groupadd -r docker
-RUN useradd -r -g colivier -G colivier,docker,sudo colivier
-RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
-
-# Allow root login via SSH (for demo purposes)
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 
 # RUN cat /etc/sudoers
 # RUN usermod -aG sudo $USERNAME
