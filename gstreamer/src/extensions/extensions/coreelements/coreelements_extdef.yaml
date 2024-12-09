@@ -1,0 +1,12 @@
+---
+name: coreelements
+uuid: 31dcbaca115a376b9986e2883874ed93
+version: 0.0.1
+author: AUTHOR
+license: LICENSE
+url: www.example.com
+description: GStreamer core elements
+labels:
+- nvidia
+- gpu
+- deepstream

@@ -1,0 +1,12 @@
+---
+name: pango
+uuid: 5de23bd3a3ce38bba38b71087b47f43b
+version: 0.0.1
+author: AUTHOR
+license: LICENSE
+url: www.example.com
+description: Pango-based text rendering and overlay
+labels:
+- nvidia
+- gpu
+- deepstream

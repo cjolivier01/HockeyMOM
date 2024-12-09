@@ -1,0 +1,23 @@
+
+---
+name: filesrc
+uuid: a2408d9d9d6a359785f9ae038e22866c
+description: Read from arbitrary point in a file
+brief: <COMPONENT_BRIEF>
+display-name: <COMPONENT_DISPLAY_NAME>
+namespace: nvidia
+sub-namespace: deepstream
+class-name: GstFileSrc
+params:
+  list:
+  - blocksize
+  - num-buffers
+  - typefind
+  - do-timestamp
+  - location
+  default-values: {}
+  runtime-control-props-get: []
+  runtime-control-props-set: []
+  ignore: []
+  mandatory: []
+extra-headers: []

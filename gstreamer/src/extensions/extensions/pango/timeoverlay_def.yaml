@@ -1,0 +1,56 @@
+
+---
+name: timeoverlay
+uuid: 813de5f5a1cf375987b3bbc265997b6b
+description: Overlays buffer time stamps on a video stream
+brief: <COMPONENT_BRIEF>
+display-name: <COMPONENT_DISPLAY_NAME>
+namespace: nvidia
+sub-namespace: deepstream
+class-name: GstTimeOverlay
+params:
+  list:
+  - text
+  - shaded-background
+  - shading-value
+  - halignment
+  - valignment
+  - xpad
+  - ypad
+  - deltax
+  - deltay
+  - xpos
+  - ypos
+  - x-absolute
+  - y-absolute
+  - wrap-mode
+  - font-desc
+  - silent
+  - line-alignment
+  - wait-text
+  - auto-resize
+  - vertical-render
+  - scale-mode
+  - scale-pixel-aspect-ratio
+  - color
+  - draw-shadow
+  - draw-outline
+  - outline-color
+  - text-x
+  - text-y
+  - text-width
+  - text-height
+  - time-mode
+  - show-times-as-dates
+  - datetime-epoch
+  - datetime-format
+  default-values: {}
+  runtime-control-props-get: []
+  runtime-control-props-set: []
+  ignore:
+  - text-x
+  - text-y
+  - text-width
+  - text-height
+  mandatory: []
+extra-headers: []
