@@ -1,4 +1,6 @@
-FROM nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
+# FROM nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
+FROM nvcr.io/nvidia/deepstream:6.4-triton-multiarch
+
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -9,7 +11,9 @@ ARG GID
 
 ENV SHELL=/bin/bash
 
-RUN apt-get update
+USER root
+RUN apt update
+
 RUN apt-get install -y \
   sudo \
   nasm \
