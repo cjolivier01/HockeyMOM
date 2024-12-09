@@ -29,6 +29,7 @@ docker run ${GPU_FLAGS} --privileged --user=$(id -u):$(id -g) -it \
   --rm -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY -e CUDA_CACHE_DISABLE=0 \
   --memory 32g \
   -p 22298:22298 \
+  -v /mnt/home:/mnt/home \
   -v ${HOME}:${HOME} \
   -v ${HOME}/.ssh:${HOME}/.ssh \
   -v /etc/passwd:/etc/passwd:ro \

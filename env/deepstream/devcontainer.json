@@ -1,7 +1,7 @@
 {
 	// For quick reference: https://containers.dev/implementors/json_reference/
 	"name": "Deepstream",
-	"image": "colivier/deepstream:0.008",
+	"image": "colivier/deepstream:0.009",
 	//"build": {
     //"args": {
         //"RUN_UPGRADE": "false"
