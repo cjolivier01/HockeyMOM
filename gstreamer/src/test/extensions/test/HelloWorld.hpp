@@ -11,7 +11,7 @@ class HelloWorld : public nvidia::gxf::Codelet {
  public:
   gxf_result_t start() override;
   gxf_result_t tick() override;
-  gxf_result_t stop() override { return GXF_SUCCESS; }
+  gxf_result_t stop() override;
 };
 
 }  // namespace test

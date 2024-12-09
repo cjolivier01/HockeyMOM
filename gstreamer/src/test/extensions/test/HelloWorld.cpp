@@ -15,6 +15,11 @@ gxf_result_t HelloWorld::tick() {
   return GXF_SUCCESS;
 }
 
+gxf_result_t HelloWorld::stop() { 
+  GXF_LOG_INFO("HelloWorld::stop");
+  return GXF_SUCCESS;
+}
+
 }  // namespace test
 }  // namespace sample
 
