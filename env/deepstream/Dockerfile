@@ -149,6 +149,10 @@ RUN apt-get install -y \
 # END VSCode Dev Containers packages
 #
 
+RUN apt-get install -y \
+    libopenmpi-dev \
+    libmkl-full-dev
+
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
 RUN apt clean
