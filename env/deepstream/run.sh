@@ -18,7 +18,7 @@ fi
 #   -v /etc/sudoers:/etc/sudoers:ro 
 
 if [ "$(is_arm)" == "1" ]; then
-  GPU_FLAGS=""
+  GPU_FLAGS="--runtime nvidia"
 else
   GPU_FLAGS="--gpus all"
 fi
