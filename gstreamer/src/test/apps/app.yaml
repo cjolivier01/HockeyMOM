@@ -2,9 +2,9 @@
 %YAML 1.2
 ---
 dependencies:
-- extension: test
-  uuid: 05f887af-ddee-3d15-b467-168585f324f2
-  version: 1.0.0
+- extension: hello_world
+  uuid: 05f887af-ddee-3d15-b467-168585f324f1
+  version: 1.0.1
 ---
 name: source
 components:

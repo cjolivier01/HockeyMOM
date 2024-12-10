@@ -35,7 +35,7 @@ register_extension(
     priority="1",
     git_repository="",
     url="www.example.com",
-    uuid="05f887af-ddee-3d15-b467-168585f324f2",
-    version="1.0.0",
+    uuid="05f887af-ddee-3d15-b467-168585f324f3",
+    version="1.0.1",
     visibility=["//visibility:public"],
 )
