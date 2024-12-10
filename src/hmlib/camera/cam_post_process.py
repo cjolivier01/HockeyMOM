@@ -20,10 +20,7 @@ from hmlib.ui import Shower
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_out import VideoOutput
-from hockeymom import core
-
-# MAX_CROPPED_WIDTH = 4096
-MAX_CROPPED_WIDTH = 7680
+from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
 
 ##
@@ -254,8 +251,8 @@ class CamTrackPostProcessor:
         if self._args.crop_output_image:
             self.final_frame_height = self._hockey_mom.video.height
             self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
-            if self.final_frame_width > MAX_CROPPED_WIDTH:
-                self.final_frame_width = MAX_CROPPED_WIDTH
+            if self.final_frame_width > MAX_VIDEO_WIDTH:
+                self.final_frame_width = MAX_VIDEO_WIDTH
                 self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
 
         else:
@@ -287,20 +284,6 @@ class CamTrackPostProcessor:
                 cache_size=self._video_out_cache_size,
                 async_output=self._async_video_out,
                 video_out_pipeline=self._video_out_pipeline,
-                # watermark_image_path=(
-                #     os.path.realpath(
-                #         os.path.join(
-                #             os.path.dirname(os.path.realpath(__file__)),
-                #             "..",
-                #             "..",
-                #             "..",
-                #             "images",
-                #             "sports_ai_watermark.png",
-                #         )
-                #     )
-                #     if self._args.use_watermark
-                #     else None
-                # ),
                 device=self._video_out_device,
                 skip_final_save=self._args.skip_final_video_save,
                 image_channel_adjustment=self._args.game_config["rink"]["camera"][

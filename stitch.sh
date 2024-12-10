@@ -2,4 +2,4 @@
 
 OMP_NUM_THREADS=24 \
 	PYTHONPATH=$(pwd):$(pwd)/xmodels/mixsort \
-	python src/stitch.py --game-id=${GAME_ID} --stitch-auto-adjust-exposure ${OFFSETS}  $@
+	python src/stitch.py --game-id=${GAME_ID} --stitch-auto-adjust-exposure=1 ${OFFSETS}  $@

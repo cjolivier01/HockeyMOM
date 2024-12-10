@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -36,7 +36,16 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 7680  # 8K is 7680 x 4320
+MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
+MAX_NEVC_VIDEO_WIDTH: int = 8192
+
+# MAX_PIXEL_AREA: int = int(7680 * 4320)
+
+
+def _max_video_width(codec: str) -> int:
+    if "hevc" in codec:
+        return MAX_NEVC_VIDEO_WIDTH
+    return MAX_VIDEO_WIDTH
 
 
 class VideoStreamWriterInterface:
@@ -44,10 +53,38 @@ class VideoStreamWriterInterface:
     pass
 
 
-def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
+# def clamp_image_to_max_area(
+#     width: int, height: int, max_area: int = MAX_PIXEL_AREA
+# ) -> Tuple[int, int, bool]:
+#     # Calculate the current area
+#     current_area: int = width * height
+
+#     # Check if the current area is within the limit
+#     if current_area <= max_area:
+#         return width, height, False  # No scaling needed
+
+#     # Calculate the scaling factor
+#     scaling_factor: float = (
+#         max_area / current_area
+#     ) ** 0.5  # Square root of the ratio of max_area to current_area
+
+#     # Calculate new dimensions
+#     new_width = int(width * scaling_factor)
+#     new_height = int(height * scaling_factor)
+
+#     return new_width, new_height, True
+
+
+def video_size(
+    width: int, height: int, codec: Optional[str] = None, max_width: Optional[int] = None
+) -> Tuple[int | Literal[True]] | Tuple[int | Literal[False]]:
+    assert codec or max_width
+    if codec:
+        assert not max_width
+        max_width = _max_video_width(codec)
     h = height
     w = width
-    if h > max_width:
+    if w > max_width:
         ar = w / h
         if ar > 2.1:
             # probably the whole panorama
@@ -59,8 +96,15 @@ def video_size(width: int, height: int, max_width: int = MAX_VIDEO_WIDTH):
 
 
 def clamp_max_video_dimensions(
-    width: torch.Tensor, height: torch.Tensor, max_width: Union[int, torch.Tensor] = MAX_VIDEO_WIDTH
+    width: torch.Tensor,
+    height: torch.Tensor,
+    codec: Optional[str] = None,
+    max_width: Union[None, int, torch.Tensor] = None,
 ) -> Tuple[int, int]:
+    assert codec or max_width
+    if codec:
+        assert not max_width
+        max_width = _max_video_width(codec)
     if width.ndim == 0:
         wh = torch.tensor([width, height])
     else:
@@ -750,6 +794,11 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     def write(self, img: Union[torch.Tensor, np.ndarray]):
         if isinstance(img, StreamTensor):
             img = img.get()
+        if img.ndim == 4:
+            assert img.shape[0] == 1  # batch size of one only
+            img = img.squeeze(0)
+        # OpenCV always wants channels last
+        img = make_channels_last(img)
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
             img = np.ascontiguousarray(img)

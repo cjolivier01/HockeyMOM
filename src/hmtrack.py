@@ -196,6 +196,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--plot-tracking", action="store_true", help="plot individual tracking boxes"
     )
+    parser.add_argument("--plot-ice-mask", action="store_true", help="plot the ice mask")
     parser.add_argument(
         "--plot-trajectories", action="store_true", help="plot individual track trajectories"
     )
@@ -369,8 +370,7 @@ def configure_boundaries(
     top_border_lines,
     bottom_border_lines,
     original_clip_box,
-    gpu_allocator: GpuAllocator,
-    plot_tracking: bool,
+    plot_ice_mask: bool,
 ):
     if hasattr(model, "post_detection_pipeline"):
         has_boundaries = False
@@ -393,8 +393,7 @@ def configure_boundaries(
                 dict(
                     game_id=game_id,
                     original_clip_box=original_clip_box,
-                    draw=plot_tracking,
-                    # gpu_allocator=gpu_allocator,
+                    draw=plot_ice_mask,
                 ),
             )
 
@@ -630,8 +629,7 @@ def main(args, num_gpu):
                 top_border_lines=cam_args.top_border_lines,
                 bottom_border_lines=cam_args.bottom_border_lines,
                 original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                gpu_allocator=gpu_allocator,
-                plot_tracking=args.plot_tracking,
+                plot_ice_mask=args.plot_ice_mask,
             )
         pose_inferencer = None
         if args.multi_pose:

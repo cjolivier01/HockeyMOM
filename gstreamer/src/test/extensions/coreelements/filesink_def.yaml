@@ -1,0 +1,39 @@
+
+---
+name: filesink
+uuid: 8f7558890fbc3070818ad701664a70b7
+description: Write stream to a file
+brief: <COMPONENT_BRIEF>
+display-name: <COMPONENT_DISPLAY_NAME>
+namespace: nvidia
+sub-namespace: deepstream
+class-name: GstFileSink
+params:
+  list:
+  - sync
+  - max-lateness
+  - qos
+  - async
+  - ts-offset
+  - enable-last-sample
+  - last-sample
+  - blocksize
+  - render-delay
+  - throttle-time
+  - max-bitrate
+  - processing-deadline
+  - stats
+  - location
+  - buffer-mode
+  - buffer-size
+  - append
+  - o-sync
+  - max-transient-error-timeout
+  default-values: {}
+  runtime-control-props-get: []
+  runtime-control-props-set: []
+  ignore:
+  - last-sample
+  - stats
+  mandatory: []
+extra-headers: []

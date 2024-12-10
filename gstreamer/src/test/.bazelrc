@@ -1,0 +1,14 @@
+
+build --nokeep_going --color=yes -c opt --crosstool_top=@toolchain//crosstool:toolchain
+
+build:debug -c dbg --strip="never"
+
+build --define=target_platform=x86_64
+build --action_env=target_platform="x86_64"
+build:x86_64 --define=target_platform=x86_64
+build:x86_64 --action_env=target_platform="x86_64"
+
+build:jetson --cpu=aarch64
+build:jetson --define=target_platform=jetson
+build:jetson --action_env=target_platform="jetson"
+

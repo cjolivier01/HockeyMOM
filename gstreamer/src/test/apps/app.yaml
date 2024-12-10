@@ -1,0 +1,22 @@
+
+%YAML 1.2
+---
+dependencies:
+- extension: hello_world
+  uuid: 05f887af-ddee-3d15-b467-168585f324f1
+  version: 1.0.1
+---
+name: source
+components:
+- name: signal
+  type: sample::test::HelloWorld
+- type: nvidia::gxf::CountSchedulingTerm
+  parameters:
+    count: 10
+---
+components:
+- type: nvidia::gxf::GreedyScheduler
+  parameters:
+    realtime: false
+    max_duration_ms: 1000000
+  

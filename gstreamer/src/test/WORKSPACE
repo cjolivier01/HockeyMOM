@@ -1,0 +1,79 @@
+_workspace_name = "test"
+
+workspace(name=_workspace_name)
+
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
+
+local_repository(
+    name="com_extension_dev",
+    path="/opt/nvidia/graph-composer/extension-dev",
+)
+
+load(
+    "@com_extension_dev//build:graph_extension.bzl",
+    "load_extension_dev_workspace",
+    "graph_nvidia_extension",
+)
+
+load_extension_dev_workspace()
+
+graph_nvidia_extension(
+    name="NvDsInterfaceExt",
+    version="1.6.0",
+)
+
+graph_nvidia_extension(
+    name="NvDsBaseExt",
+    version="1.6.0",
+)
+
+graph_nvidia_extension(
+    name="StandardExtension",
+    version="2.6.0",
+)
+
+
+new_git_repository(
+    name="yaml-cpp",
+    commit="9a3624205e8774953ef18f57067b3426c1c5ada6",
+    remote="https://github.com/jbeder/yaml-cpp.git",
+    build_file="@com_extension_dev//build:third_party/yaml-cpp.BUILD",
+)
+
+git_repository(
+    name="rules_python",
+    remote="https://github.com/bazelbuild/rules_python.git",
+    tag="0.1.0",  # Use the tag corresponding to version 0.1.0
+)
+
+git_repository(
+    name="magic_enum",
+    remote="https://github.com/Neargye/magic_enum.git",
+    tag="v0.9.3",  # Use the tag corresponding to version 0.9.3
+    strip_prefix="",  # No need for strip_prefix since Git directly clones the repository
+)
+
+new_git_repository(
+    name="glib",
+    build_file="//build:third_party/glib.BUILD",
+    commit="e264e6fcf7f5199e137314b0d1ebca7648613148",
+    patch_cmds=[
+        "meson _build",
+        "ninja -C _build gobject/glib-enumtypes.h",
+    ],
+    remote="https://github.com/GNOME/glib.git",
+    shallow_since="1545145431 +0000",
+)
+
+new_git_repository(
+    name="gstreamer",
+    build_file="//build:third_party/gstreamer.BUILD",
+    commit="129493687793cbc109d6211bb0e465218e383e9d",
+    patch_cmds=[
+        "./autogen.sh --noconfigure",
+        "./configure",
+        "make -C gst gstenumtypes.h",
+    ],
+    remote="https://github.com/GStreamer/gstreamer.git",
+    shallow_since="1559147561 +0100",
+)
