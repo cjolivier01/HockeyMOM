@@ -18,7 +18,7 @@ class SegmBoundaries:
 
     def __init__(
         self,
-        rink_mask: Optional[torch.Tensor] = None,
+        segment_mask: Optional[torch.Tensor] = None,
         centroid: Optional[torch.Tensor] = None,
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
@@ -39,33 +39,32 @@ class SegmBoundaries:
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
         self._draw = draw
         self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
-        self.set_rink_mask_and_centroid(rink_mask, centroid)
+        self.set_segment_mask_and_centroid(segment_mask, centroid)
 
-    def set_rink_mask_and_centroid(self, rink_mask: torch.Tensor, centroid: torch.Tensor):
-        self._rink_mask = rink_mask
+    def set_segment_mask_and_centroid(self, segment_mask: torch.Tensor, centroid: torch.Tensor):
+        self._segment_mask = segment_mask
         self._centroid = centroid
         if (
             self._original_clip_box is not None
             and len(self._original_clip_box)
-            and self._rink_mask is not None
+            and self._segment_mask is not None
         ):
             # clip the mask to this box as well
             x1, y1, x2, y2 = self._original_clip_box
-            assert self._rink_mask.ndim == 2
-            self._rink_mask = self._rink_mask[y1:y2, x1:x2]
+            assert self._segment_mask.ndim == 2
+            self._segment_mask = self._segment_mask[y1:y2, x1:x2]
 
     def draw(self, img):
-        return img
-        if self._rink_mask is not None:
-            assert self._rink_mask.ndim == 2
-            assert self._rink_mask.shape[0] == image_height(img)
-            assert self._rink_mask.shape[1] == image_width(img)
-            alpha = 0.2
+        if self._segment_mask is not None:
+            assert self._segment_mask.ndim == 2
+            assert self._segment_mask.shape[0] == image_height(img)
+            assert self._segment_mask.shape[1] == image_width(img)
+            alpha = 0.1
             if isinstance(img, StreamTensor):
                 img = img.wait()
             # Make sure we're all compatible tensors
-            if self._rink_mask.device != img.device:
-                self._rink_mask = self._rink_mask.to(img.device)
+            if self._segment_mask.device != img.device:
+                self._segment_mask = self._segment_mask.to(img.device)
             if self._color_mask.device != img.device:
                 self._color_mask = self._color_mask.to(img.device)
             if self._color_mask.dtype != img.dtype:
@@ -73,10 +72,10 @@ class SegmBoundaries:
             img = make_channels_first(img)
             if not torch.is_floating_point(img):
                 img = img.to(torch.float, non_blocking=True)
-            img[:, :, self._rink_mask] = (
-                img[:, :, self._rink_mask] * (1 - alpha) + self._color_mask * alpha
+            img[:, :, self._segment_mask] = (
+                img[:, :, self._segment_mask] * (1 - alpha) + self._color_mask * alpha
             )
-            img[:, :, self._rink_mask] = 0
+            # img[:, :, self._segment_mask] = 0
         if self._centroid is not None:
             # box_side_size = 50 // 2
             # ptv.draw_box(
@@ -166,21 +165,21 @@ class SegmBoundaries:
         #     heights = calculate_box_heights(batch_item_bboxes)
         #     points[:, 1] += heights * self._raise_bbox_by_height_ratio
 
-        valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._rink_mask.shape[1])
-        valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._rink_mask.shape[0])
+        valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._segment_mask.shape[1])
+        valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._segment_mask.shape[0])
         valid_points = valid_x & valid_y
 
         # Filter points to keep only valid ones
         valid_points_indices = torch.where(valid_points)[0]
         valid_points_filtered = points[valid_points_indices]
 
-        if self._rink_mask.device != valid_points_filtered.device:
-            self._rink_mask = self._rink_mask.to(
+        if self._segment_mask.device != valid_points_filtered.device:
+            self._segment_mask = self._segment_mask.to(
                 device=valid_points_filtered.device, non_blocking=True
             )
 
         # Check mask values at these points
-        mask_values = self._rink_mask[
+        mask_values = self._segment_mask[
             valid_points_filtered[:, 1].to(torch.long, non_blocking=True),
             valid_points_filtered[:, 0].to(torch.long, non_blocking=True),
         ]
@@ -194,7 +193,7 @@ class SegmBoundaries:
         return self.forward(*args, **kwargs)
 
     def forward(self, data, **kwargs):
-        if self._rink_mask is None:
+        if self._segment_mask is None:
             # We don't have any information to go on
             return data
 

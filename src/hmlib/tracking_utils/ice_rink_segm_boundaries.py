@@ -4,8 +4,7 @@ import torch
 
 from hmlib.builder import PIPELINES
 from hmlib.config import get_nested_value
-from hmlib.segm.ice_rink import confgure_ice_rink_mask, get_device_to_use_for_rink
-from hmlib.utils.gpu import GpuAllocator
+from hmlib.segm.ice_rink import confgure_ice_rink_mask
 
 from .segm_boundaries import SegmBoundaries
 
@@ -34,7 +33,6 @@ class IceRinkSegmConfig:
 
     def maybe_init_rink_segmentation(self, data: Dict[str, Any]):
         if self._rink_profile is None:
-            expected_width_height: Optional[Tuple[int, int]] = None
             if self._shape_label and self._shape_label in data:
                 image_shape = get_nested_value(data, self._shape_label)[0]
                 assert isinstance(image_shape, torch.Size)
@@ -101,12 +99,12 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         self._shape_label: str = shape_label
 
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        if self._rink_mask is None:
+        if self._segment_mask is None:
             metainfo = data["data_samples"].video_data_samples[0].metainfo
             self._rink_profile = metainfo.get("rink_profile")
             if self._rink_profile is not None:
-                self.set_rink_mask_and_centroid(
-                    rink_mask=self._rink_profile["combined_mask"],
+                self.set_segment_mask_and_centroid(
+                    segment_mask=self._rink_profile["combined_mask"],
                     centroid=self._rink_profile["centroid"],
                 )
         return super().forward(data, **kwargs)

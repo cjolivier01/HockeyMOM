@@ -394,7 +394,6 @@ def configure_boundaries(
                     game_id=game_id,
                     original_clip_box=original_clip_box,
                     draw=plot_tracking,
-                    # gpu_allocator=gpu_allocator,
                 ),
             )
 
