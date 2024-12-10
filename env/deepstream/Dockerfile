@@ -154,10 +154,10 @@ RUN echo 'root:password' | chpasswd
 
 # User is needed by git
 RUN groupadd -r colivier
-RUN groupadd -r colivier-local
+#RUN groupadd -r colivier-local
 RUN groupadd -r docker
 RUN useradd -r -g colivier -G colivier,docker,sudo colivier
-RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
+#RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
 
 # Allow root login via SSH (for demo purposes)
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config

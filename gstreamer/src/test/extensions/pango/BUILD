@@ -37,22 +37,22 @@ graph_cc_extension(
 )
 
 register_extension(
-    name = "register_pango_ext",
-    badges = [""],
-    extension = "pango",
-    labels = [
+    name="register_pango_ext",
+    badges=[""],
+    extension="pango",
+    labels=[
         "nvidia",
         "gpu",
         "deepstream",
     ],
-    ngc_dependencies = {
+    ngc_dependencies={
         "NvDsBaseExt": "1.6.0",
     },
-    priority = "1",
-    git_repository = "",
-    compute_dependencies = ["deepstream"],
-    url = "www.example.com",
-    uuid = "5de23bd3-a3ce-38bb-a38b-71087b47f43b",
-    version = "0.0.1",
-    visibility = ["//visibility:public"],
+    priority="1",
+    git_repository="",
+    compute_dependencies=["deepstream"],
+    url="www.example.com",
+    uuid="5de23bd3-a3ce-38bb-a38b-71087b47f43e",
+    version="1.24.9",
+    visibility=["//visibility:public"],
 )

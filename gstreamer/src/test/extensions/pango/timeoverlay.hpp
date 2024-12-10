@@ -448,7 +448,7 @@ class GstTimeOverlay : public INvDsElement {
 #define GXF_EXT_FACTORY_ADD_GstTimeOverlay()                                  \
   do {                                                                        \
     GXF_EXT_FACTORY_ADD_VERBOSE(                                              \
-        0x813de5f5a1cf3759UL, 0x87b3bbc265997b6bUL,                           \
+        0x813de5f5a1cf3759UL, 0x87b3bbc265997b6eUL,                           \
         nvidia::deepstream::GstTimeOverlay, nvidia::deepstream::INvDsElement, \
         "GstTimeOverlay placeholder display-name",                            \
         "GstTimeOverlay placeholder brief",                                   \

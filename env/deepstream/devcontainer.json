@@ -1,7 +1,7 @@
 {
 	// For quick reference: https://containers.dev/implementors/json_reference/
 	"name": "Deepstream",
-	"image": "colivier-local/deepstream:0.0012",
+	"image": "colivier/deepstream:0.0014",
 	//"build": {
 	//"args": {
 	//"RUN_UPGRADE": "false"
@@ -9,7 +9,7 @@
 	//	"context": "..",
 	//	"dockerfile": "Dockerfile"
 	//},
-	"workspaceFolder": "/home/colivier-local/src/hm",
+	"workspaceFolder": "/home/colivier/src/hm",
 	//"workspaceFolder": "${workspaceRoot}",
 	// 1. Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": []

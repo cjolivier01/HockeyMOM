@@ -1,8 +1,8 @@
 
 ---
 name: timeoverlay
-uuid: 813de5f5a1cf375987b3bbc265997b6b
-description: Overlays buffer time stamps on a video stream
+uuid: 813de5f5a1cf375987b3bbc265997b6e
+description: colivier Overlays buffer time stamps on a video stream
 brief: <COMPONENT_BRIEF>
 display-name: <COMPONENT_DISPLAY_NAME>
 namespace: nvidia
