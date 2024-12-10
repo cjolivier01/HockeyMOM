@@ -370,7 +370,6 @@ def configure_boundaries(
     top_border_lines,
     bottom_border_lines,
     original_clip_box,
-    gpu_allocator: GpuAllocator,
     plot_ice_mask: bool,
 ):
     if hasattr(model, "post_detection_pipeline"):
@@ -630,8 +629,7 @@ def main(args, num_gpu):
                 top_border_lines=cam_args.top_border_lines,
                 bottom_border_lines=cam_args.bottom_border_lines,
                 original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                gpu_allocator=gpu_allocator,
-                plot_tracking=args.plot_ice_mask,
+                plot_ice_mask=args.plot_ice_mask,
             )
         pose_inferencer = None
         if args.multi_pose:
