@@ -98,7 +98,7 @@ def get_best_codec(
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
-    if compute >= 7 and width <= 9900:  # FIXME: I forget what the max is? 99-thousand-something
+    if compute >= 7 and width <= 7680:  # FIXME: I forget what the max is? 99-thousand-something
         return "hevc_nvenc", True
     elif compute >= 6 and width <= 4096:
         return "hevc_nvenc", True
@@ -475,16 +475,6 @@ class VideoOutput:
         image_h = image_height(online_im)
         assert online_im.ndim == 4  # Should have a batch dimension
 
-        if self._allow_scaling and int(self._output_frame_width) != image_w:
-            # assert False
-            online_im = resize_image(
-                img=online_im,
-                new_width=self._output_frame_width,
-                new_height=self._output_frame_height,
-            )
-            image_w = image_width(online_im)
-            image_h = image_height(online_im)
-
         # Output (and maybe show) the final image
         online_im = make_channels_last(online_im)
         assert int(self._output_frame_width) == image_w
@@ -547,7 +537,7 @@ class VideoOutput:
 
     def forward(self, results) -> Dict[str, Any]:
 
-        visualization_config = self._visualization_config
+        # visualization_config = self._visualization_config
 
         online_im = results.pop("img")
         frame_ids = results.get("frame_ids")
@@ -555,81 +545,85 @@ class VideoOutput:
 
         results["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
 
-        # for frame_index, frame_id in enumerate(frame_ids):
-        if True:
-            # online_im = online_images
-            # We clone, since it gets modified sometimes wrt rotation optimizations
-            if current_boxes is None:
-                assert self._simple_save
-                assert online_im.ndim == 4
-                batch_size: int = online_im.size(0)
-                whole_box = torch.tensor(
-                    [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
-                )
-                current_boxes = whole_box.repeat(batch_size, 1)
-            else:
-                current_boxes = current_boxes.clone()
+        if current_boxes is None:
+            assert self._simple_save
+            assert online_im.ndim == 4
+            batch_size: int = online_im.size(0)
+            whole_box = torch.tensor(
+                [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
+            )
+            current_boxes = whole_box.repeat(batch_size, 1)
+        else:
+            current_boxes = current_boxes.clone()
 
-            if isinstance(online_im, StreamTensor):
-                online_im._verbose = True
-                online_im = online_im.get()
-                # online_im = online_im.wait(torch.cuda.current_stream())
+        if isinstance(online_im, StreamTensor):
+            online_im._verbose = True
+            online_im = online_im.get()
+            # online_im = online_im.wait(torch.cuda.current_stream())
 
-            # if self._end_zones is not None:
-            #     online_im = self._end_zones.draw(online_im)
+        # if self._end_zones is not None:
+        #     online_im = self._end_zones.draw(online_im)
 
+        if isinstance(online_im, np.ndarray):
+            online_im = torch.from_numpy(online_im)
+
+        if online_im.device.type != "cpu" and self._device.type == "cpu":
+            #  assert False  # ?
+            online_im = online_im.cpu()
+
+        if online_im.ndim == 3:
+            online_im = online_im.unsqueeze(0)
+            current_box = current_box.unsqueeze(0)
+
+        if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
+            online_im = make_channels_last(online_im)
+            if str(online_im.device) != str(self._device):
+                online_im = online_im.to(self._device, non_blocking=True)
 
-            if online_im.device.type != "cpu" and self._device.type == "cpu":
-                #  assert False  # ?
-                online_im = online_im.cpu()
-
-            if online_im.ndim == 3:
-                online_im = online_im.unsqueeze(0)
-                current_box = current_box.unsqueeze(0)
-
-            if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
-                if isinstance(online_im, np.ndarray):
-                    online_im = torch.from_numpy(online_im)
-                online_im = make_channels_last(online_im)
-                if str(online_im.device) != str(self._device):
-                    online_im = online_im.to(self._device, non_blocking=True)
-
-            if not self._simple_save:
-                #
-                # BEGIN END-ZONE
-                #
-                if self._end_zones is not None:
-                    # EZ needs an image only for matching the lighting
-                    results["img"] = online_im
-                    results = self._end_zones(results)
-                    online_im = results.pop("img")
+        if not self._simple_save:
             #
-            # END END-ZONE
+            # BEGIN END-ZONE
             #
-
-            #
-            # Video-out pipeline
-            #
-            if self._video_out_pipeline is not None:
+            if self._end_zones is not None:
+                # EZ needs an image only for matching the lighting
                 results["img"] = online_im
-                results["camera_box"] = current_boxes
-                results["video_frame_cfg"] = self._video_frame_config
-                results = self._video_out_pipeline(results)
+                results = self._end_zones(results)
                 online_im = results.pop("img")
-                current_boxes = results.pop("camera_box")
+        #
+        # END END-ZONE
+        #
 
-            if not self._simple_save:
-                if self._end_zones is not None:
-                    ez_image = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
-                    if ez_image is not None:
-                        self._end_zones.put_ez_image(
-                            data=results,
-                            img=self.draw_final_overlays(img=ez_image, frame_ids=frame_ids),
-                        )
-            online_im = to_uint8_image(online_im, non_blocking=True)
+        #
+        # Video-out pipeline
+        #
+        if self._video_out_pipeline is not None:
             results["img"] = online_im
+            results["camera_box"] = current_boxes
+            results["video_frame_cfg"] = self._video_frame_config
+            results = self._video_out_pipeline(results)
+            online_im = results.pop("img")
+            current_boxes = results.pop("camera_box")
+
+        if not self._simple_save:
+            if self._end_zones is not None:
+                ez_image = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
+                if ez_image is not None:
+                    self._end_zones.put_ez_image(
+                        data=results,
+                        img=self.draw_final_overlays(img=ez_image, frame_ids=frame_ids),
+                    )
+
+        if self._allow_scaling and int(self._output_frame_width) != image_width(online_im):
+            online_im = resize_image(
+                img=online_im,
+                new_width=self._output_frame_width,
+                new_height=self._output_frame_height,
+            )
+
+        online_im = to_uint8_image(online_im, non_blocking=True)
+        results["img"] = online_im
         return results
 
 def get_open_files_count():
