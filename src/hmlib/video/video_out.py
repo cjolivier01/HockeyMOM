@@ -567,10 +567,6 @@ class VideoOutput:
         if isinstance(online_im, np.ndarray):
             online_im = torch.from_numpy(online_im)
 
-        if online_im.device.type != "cpu" and self._device.type == "cpu":
-            #  assert False  # ?
-            online_im = online_im.cpu()
-
         if online_im.ndim == 3:
             online_im = online_im.unsqueeze(0)
             current_box = current_box.unsqueeze(0)
@@ -623,6 +619,12 @@ class VideoOutput:
             )
 
         online_im = to_uint8_image(online_im, non_blocking=True)
+
+        # Move to CPU last (if necessary)
+        if online_im.device.type != "cpu" and self._device.type == "cpu":
+            online_im = online_im.to("cpu", non_blocking=True)
+            online_im = StreamCheckpoint(online_im)
+
         results["img"] = online_im
         return results
 
