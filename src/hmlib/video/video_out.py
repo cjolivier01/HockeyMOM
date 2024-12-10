@@ -18,7 +18,6 @@ from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.transforms import HmPerspectiveRotation  # TODO: pipeline this
 from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
@@ -43,6 +42,7 @@ from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
+from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
 from .video_stream import (
     VideoStreamWriterInterface,
@@ -94,11 +94,11 @@ def quick_show(img: torch.Tensor, wait: bool = False):
 
 
 def get_best_codec(
-    gpu_number: int, width: int, height: int
+    gpu_number: int, width: int, height: int, allow_scaling: bool = False
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
-    if compute >= 7 and width <= 7680:  # FIXME: I forget what the max is? 99-thousand-something
+    if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
         return "hevc_nvenc", True
     elif compute >= 6 and width <= 4096:
         return "hevc_nvenc", True
@@ -163,21 +163,37 @@ class VideoOutput:
 
         output_frame_width = to_tensor_scalar(output_frame_width, device=device)
         output_frame_height = to_tensor_scalar(output_frame_height, device=device)
+
+        if fourcc == "auto" and device.type == "cuda":
+            fourcc = "hevc_nvenc"
+
         if simple_save and self._clip_to_max_dimensions:
-            pre_area = output_frame_width * output_frame_height
+            original_width = int(output_frame_width)
             output_frame_width, output_frame_height = clamp_max_video_dimensions(
-                output_frame_width, output_frame_height
+                output_frame_width,
+                output_frame_height,
+                codec=fourcc,
             )
-            post_area = output_frame_width * output_frame_height
-            if pre_area != post_area:
-                # We had to scale down
-                self._allow_scaling = True
+            self._allow_scaling = original_width != int(output_frame_width)
 
         if device is not None:
             logger.info(
                 f"Video output {output_frame_width}x{output_frame_height} "
                 f"using device: {device} ({output_video_path})"
             )
+        assert output_frame_width > 4 and output_frame_height > 4
+        self._output_frame_width = output_frame_width
+        self._output_frame_height = output_frame_height
+        self._output_frame_width_int = int(self._output_frame_width)
+        self._output_frame_height_int = int(self._output_frame_height)
+        self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
+        self._video_frame_config = {
+            "output_frame_width": int(self._output_frame_width_int),
+            "output_frame_height": int(self._output_frame_height_int),
+            "output_aspect_ratio": self._output_aspect_ratio,
+        }
+
+        # -----------
 
         self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._name = name
@@ -186,12 +202,6 @@ class VideoOutput:
         self._cache_size = cache_size
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
-        assert output_frame_width > 4 and output_frame_height > 4
-        self._output_frame_width = output_frame_width
-        self._output_frame_height = output_frame_height
-        self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
-        self._output_frame_width_int = int(self._output_frame_width)
-        self._output_frame_height_int = int(self._output_frame_height)
         self._original_clip_box = original_clip_box
         self._max_queue_backlog = max_queue_backlog
         self._imgproc_thread = None
@@ -205,11 +215,6 @@ class VideoOutput:
         self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
         self._default_cuda_stream = None
 
-        self._video_frame_config = {
-            "output_frame_width": int(self._output_frame_width_int),
-            "output_frame_height": int(self._output_frame_height_int),
-            "output_aspect_ratio": self._output_aspect_ratio,
-        }
         self._bit_rate = bit_rate
         self._end_zones = None
         if args is not None and args.end_zones:
@@ -236,6 +241,7 @@ class VideoOutput:
                     device.index,
                     width=int(output_frame_width),
                     height=int(output_frame_height),
+                    allow_scaling=self._allow_scaling,
                 )
                 if not is_gpu:
                     logger.info(f"Can't use GPU for output video {output_video_path}")
@@ -308,7 +314,7 @@ class VideoOutput:
             with cuda_stream_scope(self._cuda_stream):
                 results = self.forward(results)
                 assert results["img"].device == self._device
-                results = self.save_image(
+                results = self.save_frame(
                     results,
                     cuda_stream=self._cuda_stream,
                     default_cuda_stream=self._default_cuda_stream,
@@ -427,7 +433,7 @@ class VideoOutput:
                     batch_size = results["img"].size(0)
 
                     results = self.forward(results)
-                    results = self.save_image(
+                    results = self.save_frame(
                         results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
                     )
 
@@ -464,7 +470,7 @@ class VideoOutput:
                 traceback.print_exc()
                 raise_exception_in_thread(exception=ex)
 
-    def save_image(
+    def save_frame(
         self,
         results: Dict[str, Any],
         cuda_stream: torch.cuda.Stream,
@@ -627,6 +633,7 @@ class VideoOutput:
 
         results["img"] = online_im
         return results
+
 
 def get_open_files_count():
     pid = os.getpid()
