@@ -750,6 +750,11 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     def write(self, img: Union[torch.Tensor, np.ndarray]):
         if isinstance(img, StreamTensor):
             img = img.get()
+        if img.ndim == 4:
+            assert img.shape[0] == 1  # batch size of one only
+            img = img.squeeze(0)
+        # OpenCV always wants channels last
+        img = make_channels_last(img)
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
             img = np.ascontiguousarray(img)

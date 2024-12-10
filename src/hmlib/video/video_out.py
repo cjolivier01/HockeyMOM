@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -93,7 +93,9 @@ def quick_show(img: torch.Tensor, wait: bool = False):
         cv2.waitKey(1 if not wait else 0)
 
 
-def get_best_codec(gpu_number: int, width: int, height: int):
+def get_best_codec(
+    gpu_number: int, width: int, height: int
+) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if compute >= 7 and width <= 9900:  # FIXME: I forget what the max is? 99-thousand-something
@@ -298,8 +300,8 @@ class VideoOutput:
             self._shower.close()
             self._shower = None
 
-    def is_cuda_encoder(self):
-        return "nvenc" in self._fourcc
+    # def is_cuda_encoder(self):
+    #     return "nvenc" in self._fourcc
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._async_output:
