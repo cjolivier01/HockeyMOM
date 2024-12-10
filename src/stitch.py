@@ -296,6 +296,8 @@ def main(args):
         encoder_device, decoder_device = remapping_device, remapping_device
     if args.encoder_device:
         encoder_device = torch.device(args.encoder_device)
+    if args.decoder_device:
+        decoder_device = torch.device(args.decoder_device)
     with torch.no_grad():
         stitch_videos(
             args.video_dir,
