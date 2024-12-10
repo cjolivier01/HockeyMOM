@@ -36,7 +36,7 @@ _FOURCC_TO_CODEC = {
     "FMP4": "mpeg4_cuvid",
 }
 
-MAX_VIDEO_WIDTH = 7680  # 8K is 7680 x 4320
+MAX_VIDEO_WIDTH = 7682  # 8K is 7680 x 4320
 
 
 class VideoStreamWriterInterface:
