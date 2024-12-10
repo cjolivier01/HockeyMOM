@@ -1,3 +1,6 @@
+#
+#
+#
 
 load("@com_extension_dev//build:graph_extension.bzl", "graph_cc_extension")
 load("@com_extension_dev//build:registry.bzl", "register_extension")
@@ -5,34 +8,34 @@ load("@com_extension_dev//build:registry.bzl", "register_extension")
 exports_files(["LICENSE"])
 
 graph_cc_extension(
-    name = "test",
-    srcs = [
+    name="hello_world",
+    srcs=[
         "HelloWorld.cpp",
-        "test.cpp",
+        "hello_world.cpp",
     ],
-    hdrs = [
+    hdrs=[
         "HelloWorld.hpp",
     ],
-    deps = [
+    deps=[
         "@StandardExtension",
     ],
 )
 
 register_extension(
-    name = "register_test_ext",
-    badges = [""],
-    extension = "test",
-    labels = [
+    name="register_helloworld_ext",
+    badges=[""],
+    extension="hello_world",
+    labels=[
         "nvidia",
         "gpu",
     ],
-    ngc_dependencies = {
+    ngc_dependencies={
         "StandardExtension": "2.6.0",
     },
-    priority = "1",
-    git_repository = "",
-    url = "www.example.com",
-    uuid = "05f887af-ddee-3d15-b467-168585f324f2",
-    version = "1.0.0",
-    visibility = ["//visibility:public"],
+    priority="1",
+    git_repository="",
+    url="www.example.com",
+    uuid="05f887af-ddee-3d15-b467-168585f324f2",
+    version="1.0.0",
+    visibility=["//visibility:public"],
 )
