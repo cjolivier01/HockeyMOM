@@ -235,6 +235,8 @@ RUN apt-get install -y \
 
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
+# TODO: Consolidate apt installs to earlier
+RUN apt install -y rclone
 RUN apt clean
 
 # Create a new user with the provided USERNAME, UID, and GID
