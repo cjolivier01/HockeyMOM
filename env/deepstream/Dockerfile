@@ -95,8 +95,7 @@ RUN make -j $(nproc) install
 RUN rm -rf ffmpeg
 
 RUN apt-get install -y openssh-server
-RUN apt-get install -y gedit
-
+RUN apt-get install -y gedit rclone
 
 #-------------------------------------------------------------
 # BEGIN VSCode Dev Containers packages
@@ -235,8 +234,6 @@ RUN apt-get install -y \
 
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
-# TODO: Consolidate apt installs to earlier
-RUN apt install -y rclone
 RUN apt clean
 
 # Create a new user with the provided USERNAME, UID, and GID
