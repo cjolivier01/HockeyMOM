@@ -24,8 +24,12 @@ RUN apt-get install -y \
   x264 \
   aptitude \
   libvpx-dev \
-  libffmpeg-nvenc-dev
-# RUN apt-get clean
+  libffmpeg-nvenc-dev \
+  libopenmpi-dev \
+  libmkl-full-dev \
+  openssh-server \
+  gedit \
+  rclone
 
 # why is this necessary?
 RUN apt-get install -y --reinstall libx264-dev libx264-163 x264
@@ -93,9 +97,6 @@ RUN ./configure \
 
 RUN make -j $(nproc) install
 RUN rm -rf ffmpeg
-
-RUN apt-get install -y openssh-server
-RUN apt-get install -y gedit rclone
 
 #-------------------------------------------------------------
 # BEGIN VSCode Dev Containers packages
@@ -227,13 +228,9 @@ RUN rm -rf vigra
 ##############################################################
 USER root
 
-# Some PyTorch dependencies
-RUN apt-get install -y \
-    libopenmpi-dev \
-    libmkl-full-dev
-
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
+
 RUN apt clean
 
 # Create a new user with the provided USERNAME, UID, and GID
