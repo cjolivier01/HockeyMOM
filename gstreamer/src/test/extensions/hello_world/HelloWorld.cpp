@@ -1,13 +1,16 @@
 
-#include "HelloWorld.hpp"  // NOLINT
+#include "HelloWorld.hpp" // NOLINT
+
+#include <unistd.h>
+#include <iostream>
 
 namespace sample {
 namespace test {
 
 gxf_result_t HelloWorld::start() {
-
-    GXF_LOG_INFO("HelloWorld::start");
-    return GXF_SUCCESS;
+  GXF_LOG_INFO("Starting this thing...");
+  GXF_LOG_INFO("HelloWorld::start");
+  return GXF_SUCCESS;
 }
 
 gxf_result_t HelloWorld::tick() {
@@ -15,12 +18,10 @@ gxf_result_t HelloWorld::tick() {
   return GXF_SUCCESS;
 }
 
-gxf_result_t HelloWorld::stop() { 
+gxf_result_t HelloWorld::stop() {
   GXF_LOG_INFO("HelloWorld::stop");
   return GXF_SUCCESS;
 }
 
-}  // namespace test
-}  // namespace sample
-
-  
+} // namespace test
+} // namespace sample

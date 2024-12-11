@@ -3,8 +3,8 @@
 ---
 dependencies:
 - extension: hello_world
-  uuid: 05f887af-ddee-3d15-b467-168585f324f3
-  version: 1.0.1
+  uuid: 05f887af-ddee-3d15-b467-168585f324f4
+  version: 1.0.2
 ---
 name: source
 components:
