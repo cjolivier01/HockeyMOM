@@ -11,7 +11,7 @@ ARG GID
 ENV SHELL=/bin/bash
 
 USER root
-RUN apt update
+RUN apt-get update
 
 # Will upgrade a bunch of the NVidia packages
 RUN apt-get upgrade -y
@@ -169,6 +169,7 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
 ##############################################################
 
 # Install Vigra/Hugin dependencies
+RUN apt-get update
 RUN apt-get install -y \
   ccache \
   libpano13-dev \
