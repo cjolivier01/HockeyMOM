@@ -29,7 +29,8 @@ RUN apt-get install -y \
   libmkl-full-dev \
   openssh-server \
   gedit \
-  rclone
+  rclone \
+  git-lfs
 
 # why is this necessary?
 RUN apt-get install -y --reinstall libx264-dev libx264-163 x264
