@@ -154,10 +154,12 @@ RUN apt-get install -y \
 RUN echo 'root:password' | chpasswd
 
 # User is needed by git
-RUN groupadd -r colivier
+RUN groupadd -r $USERNAME
+#RUN groupadd -r colivier
 #RUN groupadd -r colivier-local
 RUN groupadd -r docker
-RUN useradd -r -g colivier -G colivier,docker,sudo colivier
+RUN useradd -r -g $USERNAME -G $USERNAME,docker,sudo $USERNAME
+#RUN useradd -r -g colivier -G colivier,docker,sudo colivier
 #RUN useradd -r -g colivier-local -G colivier-local,docker,sudo colivier-local
 
 # Allow root login via SSH (for demo purposes)
@@ -232,6 +234,9 @@ USER root
 
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
+
+RUN apt-get install -y \
+  viewnior
 
 RUN apt clean
 
