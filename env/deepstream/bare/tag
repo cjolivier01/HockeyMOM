@@ -1,1 +1,1 @@
-nvcr.io/nvidia/deepstream:7.1-gc-triton-devel
+deepstream-base
