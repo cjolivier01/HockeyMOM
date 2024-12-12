@@ -60,6 +60,8 @@ libxcb1-dev
 libxcb-shm0-dev
 libxcb-xfixes0-dev
 libyaml-cpp-dev
+libdw-dev
+libx11-xcb-dev
 make
 mc
 mesa-utils
