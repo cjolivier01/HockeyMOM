@@ -145,7 +145,7 @@ RUN apt-get install -y \
         strace \
         manpages \
         manpages-dev \
-        init-system-helpers        
+        init-system-helpers
 #-------------------------------------------------------------
 # END VSCode Dev Containers packages
 #-------------------------------------------------------------
@@ -201,6 +201,7 @@ RUN apt-get install -y \
   libopenblas-dev \
   libomp-dev \
   libwxgtk3.0-gtk3-dev \
+  libflac-dev \
   && apt-get clean
 
 # ####################################################################
