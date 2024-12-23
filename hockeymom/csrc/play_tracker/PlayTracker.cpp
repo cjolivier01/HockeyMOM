@@ -110,17 +110,19 @@ PlayTrackerResults PlayTracker::forward(
     std::vector<BBox>& tracking_boxes) {
   assert(tracking_ids.size() == living_boxes_.size());
 
+  // auto& player_track = living_box->player_track();
+  // if (player_track.age(tick_count_) > config_.max_lost_track_age) {
+  //   player_track.reset();
+  // }
+  // if (tracking_ids[i] != 0) {
+  //   player_track.add_position(tick_count_, tracking_boxes[i].center());
+  // }
+
+  BBox cluster_box = get_cluster_box(tracking_boxes);
   PlayTrackerResults results;
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
-
-    // auto& player_track = living_box->player_track();
-    // if (player_track.age(tick_count_) > config_.max_lost_track_age) {
-    //   player_track.reset();
-    // }
-    // if (tracking_ids[i] != 0) {
-    //   player_track.add_position(tick_count_, tracking_boxes[i].center());
-    // }
+    cluster_box = living_box->forward(cluster_box);
   }
   ++tick_count_;
   return results;
