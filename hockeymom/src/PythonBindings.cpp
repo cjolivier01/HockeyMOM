@@ -923,6 +923,10 @@ void init_living_boxes(::pybind11::module_& m) {
           "get_sticky_translation_sizes",
           &LivingBox::get_sticky_translation_sizes);
 
+}
+
+void init_play_tracker(::pybind11::module_& m) {
+
   /**
    *  _  __      __  __
    * | |/ /     |  \/  |
@@ -963,9 +967,7 @@ void init_living_boxes(::pybind11::module_& m) {
       py::arg("dim"),
       py::arg("num_iterations") = 6,
       py::call_guard<py::gil_scoped_release>());
-}
 
-void init_play_tracker(::pybind11::module_& m) {
   py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
       .def(py::init<>())
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes);
