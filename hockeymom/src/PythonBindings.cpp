@@ -975,7 +975,11 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite("tracking_box", &PlayTrackerResults::tracking_box);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
-      .def(py::init<PlayTrackerConfig>())
+      .def(
+          py::init<BBox, PlayTrackerConfig>(),
+          py::arg("initial_box"),
+          py::arg("config"),
+          py::call_guard<py::gil_scoped_release>())
       .def(
           "forward",
           &PlayTracker::forward,

@@ -62,7 +62,7 @@ PlayTracker::PlayTracker(
     const BBox& initial_box,
     const PlayTrackerConfig& config)
     : config_(config) {
-  create_boxes();
+  create_boxes(initial_box);
 }
 
 void PlayTracker::create_boxes(const BBox& initial_box) {
@@ -113,12 +113,25 @@ PlayTrackerResults PlayTracker::forward(
     std::vector<BBox>& tracking_boxes) {
   assert(tracking_ids.size() == living_boxes_.size());
 
+  //
+  // Update the tracks
+  //
+  for (size_t i = 0, n = tracking_ids.size(); i < n; ++i) {
+    const size_t tracking_id = tracking_ids[i];
+    const BBox& bbox = tracking_boxes.at(i);
+
+  }
+
+  //
+  // Compute the next box
+  //
   BBox cluster_box = get_cluster_box(tracking_boxes);
   PlayTrackerResults results;
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
     cluster_box = living_box->forward(cluster_box);
   }
+
   ++tick_count_;
   return results;
 }
