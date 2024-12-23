@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 from fast_pytorch_kmeans import KMeans
+from hockeymom.core import compute_kmeans_clusters
 
 
 class ClusterSnapshot:
@@ -13,25 +14,52 @@ class ClusterSnapshot:
         centroids: Optional[torch.Tensor] = None,
         minibatch: Optional[int] = None,
         init_method: Optional[str] = None,
+        cpp_clusters: bool = True,
+        # cpp_clusters: bool = False,
     ):
-        self._device = device
-        self._num_clusters = num_clusters
-        self._centroids = centroids
-        self._kmeans_object = KMeans(
-            n_clusters=num_clusters,
-            mode="euclidean",
-            minibatch=minibatch,
-            init_method=init_method,
+        self._device: str = device
+        self._num_clusters: int = num_clusters
+        self._centroids: torch.Tensor | None = centroids
+        self._cpp_clusters: bool = cpp_clusters
+        self._kmeans_object: KMeans[int] | None = (
+            KMeans(
+                n_clusters=num_clusters,
+                mode="euclidean",
+                minibatch=minibatch,
+                init_method=init_method,
+            )
+            if not cpp_clusters
+            else None
         )
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self._cluster_label_ids = None
         self._largest_cluster_label = None
         self._largest_cluster_id_set = None
         self._cluster_counts = None
 
-    def calculate(self, center_points: torch.Tensor, ids: torch.Tensor):
+    def calculate_labels(self, center_points: torch.Tensor, cpp_clusters: bool) -> torch.Tensor:
+        if self._kmeans_object is None or cpp_clusters:
+            points: List[float] = center_points.flatten().cpu().tolist()
+            cluster_results: Tuple[List[int], Dict[int, List[int]]] = compute_kmeans_clusters(
+                points=points,
+                num_clusters=self._num_clusters,
+                dim=len(center_points[0]),
+            )
+            labels: torch.Tensor = torch.tensor(
+                cluster_results[0], dtype=torch.int64, device=center_points.device
+            )
+        else:
+            centroids = self._centroids
+            if centroids is not None:
+                centroids = centroids.clone()[: self._num_clusters]
+            labels = self._kmeans_object.fit_predict(
+                center_points.to(self._device), centroids=centroids
+            )
+        return labels
+
+    def calculate(self, center_points: torch.Tensor, ids: torch.Tensor) -> None:
         assert len(center_points) == len(ids)
         self.reset()
         if len(center_points) < self._num_clusters:
@@ -41,14 +69,30 @@ class ClusterSnapshot:
                 return
             elif max_clusters < self._num_clusters:
                 return
-        centroids = self._centroids
-        if centroids is not None:
-            centroids = centroids.clone()[: self._num_clusters]
-        labels = self._kmeans_object.fit_predict(
-            center_points.to(self._device), centroids=centroids
-        )
 
-        self._cluster_label_ids = list()
+        labels: torch.Tensor = self.calculate_labels(center_points, self._cpp_clusters)
+        # if not self._cpp_clusters:
+        #     other_labels = self.calculate_labels(center_points, cpp_clusters=True)
+
+        # if self._kmeans_object is None:
+        #     points: List[float] = center_points.flatten().cpu().tolist()
+        #     cluster_results: Tuple[List[int], Dict[int, List[int]]] = compute_kmeans_clusters(
+        #         points=points,
+        #         num_clusters=self._num_clusters,
+        #         dim=len(center_points[0]),
+        #     )
+        #     labels: torch.Tensor = torch.tensor(
+        #         cluster_results[0], dtype=torch.int64, device=center_points.device
+        #     )
+        # else:
+        #     centroids = self._centroids
+        #     if centroids is not None:
+        #         centroids = centroids.clone()[: self._num_clusters]
+        #     labels = self._kmeans_object.fit_predict(
+        #         center_points.to(self._device), centroids=centroids
+        #     )
+
+        self._cluster_label_ids: List[torch.Tensor] = list()
         for i in range(self._num_clusters):
             cids = ids[labels == i]
             self._cluster_label_ids.append(cids)
@@ -62,7 +106,7 @@ class ClusterSnapshot:
             self._cluster_label_ids[self._largest_cluster_label].tolist()
         )
 
-    def prune_not_in_largest_cluster(self, ids):
+    def prune_not_in_largest_cluster(self, ids) -> list | torch.Tensor:
         if not self._largest_cluster_id_set:
             return []
         result_ids = []

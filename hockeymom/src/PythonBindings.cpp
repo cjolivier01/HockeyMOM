@@ -939,7 +939,9 @@ void init_living_boxes(::pybind11::module_& m) {
          size_t num_clusters,
          size_t dim,
          size_t num_iterations)
-          -> std::unordered_map<size_t, std::vector<size_t>> {
+          -> std::tuple<
+              std::vector<int>,
+              std::unordered_map<size_t, std::vector<size_t>>> {
         std::vector<int> assignments;
         compute_kmeans(
             points,
@@ -954,7 +956,7 @@ void init_living_boxes(::pybind11::module_& m) {
           size_t cluster_id = assignments[i];
           assignment_map[cluster_id].push_back(i);
         }
-        return assignment_map;
+        return std::make_tuple(assignments, assignment_map);
       },
       py::arg("points"),
       py::arg("num_clusters"),
