@@ -28,7 +28,7 @@ from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.tracking_utils.boundaries import BoundaryLines
+# from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
@@ -141,17 +141,17 @@ class PlayTracker(torch.nn.Module):
         if args.track_ids:
             self._track_ids = set([int(i) for i in args.track_ids.split(",")])
 
-        if (
-            self._args.plot_boundaries
-            and self._args.top_border_lines
-            or self._args.bottom_border_lines
-        ):
-            # Only used for plotting the lines
-            self._boundaries = BoundaryLines(
-                self._args.top_border_lines,
-                self._args.bottom_border_lines,
-                self._original_clip_box,
-            )
+        # if (
+        #     self._args.plot_boundaries
+        #     and self._args.top_border_lines
+        #     or self._args.bottom_border_lines
+        # ):
+        #     # Only used for plotting the lines
+        #     self._boundaries = BoundaryLines(
+        #         self._args.top_border_lines,
+        #         self._args.bottom_border_lines,
+        #         self._original_clip_box,
+        #     )
 
         # Persistent state across frames
         self._previous_cluster_union_box = None
