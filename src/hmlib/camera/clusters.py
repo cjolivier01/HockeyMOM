@@ -71,26 +71,6 @@ class ClusterSnapshot:
                 return
 
         labels: torch.Tensor = self.calculate_labels(center_points, self._cpp_clusters)
-        # if not self._cpp_clusters:
-        #     other_labels = self.calculate_labels(center_points, cpp_clusters=True)
-
-        # if self._kmeans_object is None:
-        #     points: List[float] = center_points.flatten().cpu().tolist()
-        #     cluster_results: Tuple[List[int], Dict[int, List[int]]] = compute_kmeans_clusters(
-        #         points=points,
-        #         num_clusters=self._num_clusters,
-        #         dim=len(center_points[0]),
-        #     )
-        #     labels: torch.Tensor = torch.tensor(
-        #         cluster_results[0], dtype=torch.int64, device=center_points.device
-        #     )
-        # else:
-        #     centroids = self._centroids
-        #     if centroids is not None:
-        #         centroids = centroids.clone()[: self._num_clusters]
-        #     labels = self._kmeans_object.fit_predict(
-        #         center_points.to(self._device), centroids=centroids
-        #     )
 
         self._cluster_label_ids: List[torch.Tensor] = list()
         for i in range(self._num_clusters):
