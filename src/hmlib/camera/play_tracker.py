@@ -28,19 +28,20 @@ from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
+
 # from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig
+from hockeymom.core import AllLivingBoxConfig, PlayTracker, PlayTrackerConfig
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-_CPP_BOXES: bool = True
-# _CPP_BOXES: bool = False
+_CPP_PLAYTRACKER: bool = True
+# _CPP_PLAYTRACKER: bool = False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -51,38 +52,38 @@ def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     return tlwhs
 
 
-def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
-    if len(online_tlwhs) == 0:
-        # online_ids should also be empty
-        assert len(online_ids) == 0
-        # nothing
-        return online_tlwhs, online_ids
-    if inclusion_box is None and boundaries is None:
-        return online_tlwhs, online_ids
-    filtered_online_tlwh = []
-    filtered_online_ids = []
-    online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-    for i, this_center in enumerate(online_tlwhs_centers):
-        if inclusion_box is not None:
-            if inclusion_box[0] and this_center[0] < inclusion_box[0]:
-                continue
-            elif inclusion_box[2] and this_center[0] > inclusion_box[2]:
-                continue
-            elif inclusion_box[1] and this_center[1] < inclusion_box[1]:
-                continue
-            elif inclusion_box[3] and this_center[1] > inclusion_box[3]:
-                continue
-        if boundaries is not None:
-            # TODO: boundaries could be done with the box edges
-            if boundaries.is_point_outside(this_center):
-                # logger.info(f"ignoring: {this_center}")
-                continue
-        filtered_online_tlwh.append(online_tlwhs[i])
-        filtered_online_ids.append(online_ids[i])
-    if len(filtered_online_tlwh) == 0:
-        assert len(filtered_online_ids) == 0
-        return [], []
-    return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
+# def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
+#     if len(online_tlwhs) == 0:
+#         # online_ids should also be empty
+#         assert len(online_ids) == 0
+#         # nothing
+#         return online_tlwhs, online_ids
+#     if inclusion_box is None and boundaries is None:
+#         return online_tlwhs, online_ids
+#     filtered_online_tlwh = []
+#     filtered_online_ids = []
+#     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
+#     for i, this_center in enumerate(online_tlwhs_centers):
+#         if inclusion_box is not None:
+#             if inclusion_box[0] and this_center[0] < inclusion_box[0]:
+#                 continue
+#             elif inclusion_box[2] and this_center[0] > inclusion_box[2]:
+#                 continue
+#             elif inclusion_box[1] and this_center[1] < inclusion_box[1]:
+#                 continue
+#             elif inclusion_box[3] and this_center[1] > inclusion_box[3]:
+#                 continue
+#         if boundaries is not None:
+#             # TODO: boundaries could be done with the box edges
+#             if boundaries.is_point_outside(this_center):
+#                 # logger.info(f"ignoring: {this_center}")
+#                 continue
+#         filtered_online_tlwh.append(online_tlwhs[i])
+#         filtered_online_ids.append(online_ids[i])
+#     if len(filtered_online_tlwh) == 0:
+#         assert len(filtered_online_ids) == 0
+#         return [], []
+#     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
 
 
 class BreakawayDetection:
@@ -108,6 +109,7 @@ class PlayTracker(torch.nn.Module):
         progress_bar: Optional[ProgressBar],
         args: argparse.Namespace,
         cpp_boxes: bool = _CPP_BOXES,
+        cpp_playtracker: bool = _CPP_PLAYTRACKER,
     ):
         """
         Track the play
@@ -122,6 +124,8 @@ class PlayTracker(torch.nn.Module):
         super(PlayTracker, self).__init__()
         self._args = args
         self._cpp_boxes = cpp_boxes
+        self._cpp_playtracker = cpp_playtracker
+        self._playtracker: Union[PlayTracker, None] = None
         self._hockey_mom: HockeyMOM = hockey_mom
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = play_box
@@ -202,17 +206,6 @@ class PlayTracker(torch.nn.Module):
             # current_roi_config.thickness = 5
 
             #
-            # Initialize `_current_roi` MovingBox with `current_roi_config`
-            #
-            self._current_roi: Union[MovingBox, PyLivingBox] = PyLivingBox(
-                "Current ROI",
-                to_bbox(start_box, self._cpp_boxes),
-                current_roi_config,
-                color=(255, 128, 64),
-                thickness=5,
-            )
-
-            #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
             #
             current_roi_aspect_config = AllLivingBoxConfig()
@@ -269,6 +262,17 @@ class PlayTracker(torch.nn.Module):
             # current_roi_aspect_config.color = (255, 0, 255)
             # current_roi_aspect_config.thickness = 5
 
+            #
+            # Initialize `_current_roi` MovingBox with `current_roi_config`
+            #
+            self._current_roi: Union[MovingBox, PyLivingBox] = PyLivingBox(
+                "Current ROI",
+                to_bbox(start_box, self._cpp_boxes),
+                current_roi_config,
+                color=(255, 128, 64),
+                thickness=5,
+            )
+
             # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
             self._current_roi_aspect: Union[MovingBox, PyLivingBox] = PyLivingBox(
                 "AspectRatio",
@@ -277,7 +281,16 @@ class PlayTracker(torch.nn.Module):
                 color=(255, 0, 255),
                 thickness=5,
             )
+
+            if self._cpp_playtracker:
+                pt_config = PlayTrackerConfig()
+                pt_config.live_boxes = [
+                    current_roi_config,
+                    current_roi_aspect_config,
+                ]
+                self._playtracker = PlayTracker(pt_config)
         else:
+            assert not self._cpp_playtracker
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
                 bbox=start_box.clone(),

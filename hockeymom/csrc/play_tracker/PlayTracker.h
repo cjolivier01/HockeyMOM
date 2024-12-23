@@ -2,6 +2,7 @@
 
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
 
+#include <memory>
 #include <vector>
 
 namespace hm {
@@ -11,14 +12,20 @@ struct PlayTrackerConfig {
   std::vector<AllLivingBoxConfig>   living_boxes;
 };
 
+struct PlayTrackerResults {
+
+};
+
 class PlayTracker {
  public:
   PlayTracker(const PlayTrackerConfig& config);
   virtual ~PlayTracker() = default;
 
-  void create_boxes();
+
 
  private:
+  void create_boxes();
+
   const PlayTrackerConfig config_;
   std::vector<std::unique_ptr<ILivingBox>> living_boxes_;
 };
