@@ -193,6 +193,18 @@ inline bool different_directions(const FloatValue v1, const FloatValue v2) {
   return sign(v1) * sign(v2) < 0.0;
 }
 
+inline PointDiff operator+(const PointDiff& lhs, const PointDiff& rhs) {
+  return PointDiff{.dx = lhs.dx + rhs.dx, .dy = lhs.dy + rhs.dy};
+}
+
+inline PointDiff operator-(const PointDiff& lhs, const PointDiff& rhs) {
+  return PointDiff{.dx = lhs.dx - rhs.dx, .dy = lhs.dy - rhs.dy};
+}
+
+inline PointDiff operator/(const PointDiff& lhs, float scalar) {
+  return PointDiff{.dx = lhs.dx / scalar, .dy = lhs.dy / scalar};
+}
+
 /**
  *  ______                _   _
  * |  ____|              | | (_)

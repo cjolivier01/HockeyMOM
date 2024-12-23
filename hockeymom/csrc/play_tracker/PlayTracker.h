@@ -1,8 +1,10 @@
 #pragma once
 
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
+#include "hockeymom/csrc/play_tracker/PlayerTrack.h"
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace hm {
@@ -10,6 +12,12 @@ namespace play_tracker {
 
 struct PlayTrackerConfig {
   std::vector<AllLivingBoxConfig>   living_boxes;
+  // After this number of ticks, "lost" tracks are discarded
+  size_t max_lost_track_age{30};
+};
+
+struct PlayTrackerState {
+  std::unordered_map<size_t/*track_id*/, PlayerTrack> player_tracks;
 };
 
 struct PlayTrackerResults {
@@ -28,6 +36,8 @@ class PlayTracker {
 
   const PlayTrackerConfig config_;
   std::vector<std::unique_ptr<ILivingBox>> living_boxes_;
+  // Just keep track of the number of iterations
+  size_t tick_count_{0};
 };
 
 } // namespace play_tracker
