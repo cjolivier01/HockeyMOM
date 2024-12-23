@@ -934,7 +934,7 @@ void init_living_boxes(::pybind11::module_& m) {
    *
    */
   m.def(
-      "_compute_kmeans",
+      "compute_kmeans_clusters",
       [](const std::vector<float>& points,
          size_t num_clusters,
          size_t dim,
