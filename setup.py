@@ -168,7 +168,7 @@ if __name__ == "__main__":
     if True:
         submodule_dirs = [
             "external/fast_pytorch_kmeans",
-            "xmodels/LightGlue",
+            # "xmodels/LightGlue",
         ]
         for submodule in submodule_dirs:
             print("***************************************")
