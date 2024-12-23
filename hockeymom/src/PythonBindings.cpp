@@ -922,11 +922,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(
           "get_sticky_translation_sizes",
           &LivingBox::get_sticky_translation_sizes);
-
 }
 
 void init_play_tracker(::pybind11::module_& m) {
-
   /**
    *  _  __      __  __
    * | |/ /     |  \/  |
@@ -972,8 +970,14 @@ void init_play_tracker(::pybind11::module_& m) {
       .def(py::init<>())
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes);
 
+  py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
+      .def(py::init<>())
+      .def_readwrite("tracking_box", &PlayTrackerResults::tracking_box);
+
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
-      .def(py::init<PlayTrackerConfig>());
+      .def(py::init<PlayTrackerConfig>())
+      .def("forward", &PlayTracker::forward, py::arg())
+      ;
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
