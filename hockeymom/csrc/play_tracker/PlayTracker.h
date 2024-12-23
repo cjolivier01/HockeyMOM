@@ -27,7 +27,7 @@ struct PlayTrackerResults {
 
 class PlayTracker {
  public:
-  PlayTracker(const PlayTrackerConfig& config);
+  PlayTracker(const BBox& initial_box, const PlayTrackerConfig& config);
   virtual ~PlayTracker() = default;
 
   PlayTrackerResults forward(
@@ -35,7 +35,7 @@ class PlayTracker {
       std::vector<BBox>& tracking_boxes);
 
  private:
-  void create_boxes();
+  void create_boxes(const BBox& initial_box);
   BBox get_cluster_box(const std::vector<BBox>& tracking_boxes) const;
 
   // Config

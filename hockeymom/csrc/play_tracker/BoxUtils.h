@@ -132,6 +132,9 @@ struct BBox {
     assert(bottom >= top);
 #endif
   }
+  float area() const {
+    return width() * height();
+  }
   // The four bbox values
   FloatValue left{0.0};
   FloatValue top{0.0};

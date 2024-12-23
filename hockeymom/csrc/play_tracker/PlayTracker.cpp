@@ -58,14 +58,17 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
 }
 } // namespace
 
-PlayTracker::PlayTracker(const PlayTrackerConfig& config) : config_(config) {
+PlayTracker::PlayTracker(
+    const BBox& initial_box,
+    const PlayTrackerConfig& config)
+    : config_(config) {
   create_boxes();
 }
 
-void PlayTracker::create_boxes() {
+void PlayTracker::create_boxes(const BBox& initial_box) {
   for (std::size_t i = 0; i < config_.living_boxes.size(); ++i) {
     living_boxes_.emplace_back(std::make_unique<LivingBox>(
-        std::to_string(i + 1), BBox(), config_.living_boxes[i]));
+        std::to_string(i + 1), initial_box, config_.living_boxes[i]));
   }
 }
 
