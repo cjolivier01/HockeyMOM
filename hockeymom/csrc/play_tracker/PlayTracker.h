@@ -50,6 +50,7 @@ class PlayTracker {
   // Housekeeping stuff
   // Just keep track of the number of iterations
   size_t tick_count_{0};
+
 };
 
 } // namespace play_tracker

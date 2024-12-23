@@ -2,6 +2,8 @@
 #include "hockeymom/csrc//kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
+#include <unordered_set>
+
 namespace hm {
 namespace play_tracker {
 
@@ -34,6 +36,26 @@ std::vector<size_t> get_largest_cluster_item_indexes(
   return cluster_to_indexes.at(std::distance(
       frequency.begin(), std::max_element(frequency.begin(), frequency.end())));
 }
+
+BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
+  if (boxes.empty()) {
+    return BBox();
+  }
+
+  float minTop = std::numeric_limits<float>::max();
+  float minLeft = std::numeric_limits<float>::max();
+  float maxBottom = std::numeric_limits<float>::min();
+  float maxRight = std::numeric_limits<float>::min();
+
+  for (const auto& box : boxes) {
+    minTop = std::min(minTop, box.top);
+    minLeft = std::min(minLeft, box.left);
+    maxBottom = std::max(maxBottom, box.bottom);
+    maxRight = std::max(maxRight, box.right);
+  }
+
+  return BBox{minTop, minLeft, maxBottom, maxRight};
+}
 } // namespace
 
 PlayTracker::PlayTracker(const PlayTrackerConfig& config) : config_(config) {
@@ -59,20 +81,27 @@ BBox PlayTracker::get_cluster_box(
     points.push_back(c.x);
     points.push_back(c.y);
   }
-  std::vector<int> assignments;
+  std::unordered_set<size_t> all_indexes;
+  all_indexes.reserve(tracking_boxes.size());
   size_t cluster_count = cluster_sizes_.size();
+
 #pragma omp parallel for num_threads(cluster_count)
   for (size_t cluster_id = 0; cluster_id < cluster_count; ++cluster_id) {
-    assignments.clear();
-    hm::kmeans::compute_kmeans(
+    std::vector<size_t> item_indexes = get_largest_cluster_item_indexes(
         points,
-        cluster_sizes_[cluster_id],
-        /*dim=*/2,
-        /*numIterations=*/6,
-        assignments,
-        hm::kmeans::KMEANS_TYPE::KM_OMP);
+        cluster_sizes_.at(cluster_id),
+        /*dim=*/2);
+#pragma omp critical // Ensure single-threaded execution for these iterations
+    { all_indexes.insert(item_indexes.begin(), item_indexes.end()); }
   }
-  // std::unordered_map<size_t,
+
+  std::vector<BBox> inlarge_bboxes;
+  inlarge_bboxes.reserve(tracking_boxes.size());
+  for (size_t idx : all_indexes) {
+    inlarge_bboxes.emplace_back(tracking_boxes.at(idx));
+  }
+  result_box = get_union_bounding_box(inlarge_bboxes);
+
   return result_box;
 }
 
