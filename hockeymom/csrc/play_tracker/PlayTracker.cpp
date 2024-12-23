@@ -1,9 +1,41 @@
 #include "hockeymom/csrc/play_tracker/PlayTracker.h"
-#include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 #include "hockeymom/csrc//kmeans/kmeans.h"
+#include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
 namespace hm {
 namespace play_tracker {
+
+namespace {
+std::vector<size_t> get_largest_cluster_item_indexes(
+    const std::vector<float> points,
+    size_t num_clusters,
+    int dim) {
+  std::size_t item_count = points.size() / dim;
+  std::vector<int> assignments;
+  assignments.reserve(item_count);
+  hm::kmeans::compute_kmeans(
+      points,
+      num_clusters,
+      /*dim=*/2,
+      /*numIterations=*/6,
+      assignments,
+      hm::kmeans::KMEANS_TYPE::KM_OMP);
+  std::vector<std::vector<size_t>> cluster_to_indexes(num_clusters);
+  std::for_each(
+      cluster_to_indexes.begin(),
+      cluster_to_indexes.end(),
+      [item_count](auto& v) { v.reserve(item_count); });
+  std::vector<size_t> frequency(num_clusters, 0);
+  for (size_t item_index = 0; item_index < item_count; ++item_index) {
+    int cluster_nr = assignments.at(item_index);
+    cluster_to_indexes[cluster_nr].push_back(item_index);
+    ++frequency[cluster_nr];
+  }
+  return cluster_to_indexes.at(std::distance(
+      frequency.begin(), std::max_element(frequency.begin(), frequency.end())));
+}
+} // namespace
+
 PlayTracker::PlayTracker(const PlayTrackerConfig& config) : config_(config) {
   create_boxes();
 }
@@ -27,9 +59,18 @@ BBox PlayTracker::get_cluster_box(
     points.push_back(c.x);
     points.push_back(c.y);
   }
-
-  for (size_t cluster_id = 0, cluster_count = cluster_sizes_.size(); cluster_id < cluster_count; ++cluster_id) {
-
+  std::vector<int> assignments;
+  size_t cluster_count = cluster_sizes_.size();
+#pragma omp parallel for num_threads(cluster_count)
+  for (size_t cluster_id = 0; cluster_id < cluster_count; ++cluster_id) {
+    assignments.clear();
+    hm::kmeans::compute_kmeans(
+        points,
+        cluster_sizes_[cluster_id],
+        /*dim=*/2,
+        /*numIterations=*/6,
+        assignments,
+        hm::kmeans::KMEANS_TYPE::KM_OMP);
   }
   // std::unordered_map<size_t,
   return result_box;
