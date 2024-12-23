@@ -1,5 +1,6 @@
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
+#include "hockeymom/csrc/kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 #include "hockeymom/csrc/play_tracker/PlayTracker.h"
@@ -896,7 +897,8 @@ void init_living_boxes(::pybind11::module_& m) {
           "forward",
           [](const std::shared_ptr<LivingBox>& self,
              const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
-              -> BBox { return self->forward(dest); })
+              -> BBox { return self->forward(dest); },
+          py::call_guard<py::gil_scoped_release>())
       .def(
           "adjust_speed",
           &LivingBox::adjust_speed,
@@ -917,8 +919,48 @@ void init_living_boxes(::pybind11::module_& m) {
       .def("living_config", &LivingBox::config)
       .def("living_state", &LivingBox::state)
       .def("get_grow_shrink_wh", &LivingBox::get_grow_shrink_wh)
-      .def("get_sticky_translation_sizes", &LivingBox::get_sticky_translation_sizes)
-      ;
+      .def(
+          "get_sticky_translation_sizes",
+          &LivingBox::get_sticky_translation_sizes);
+
+  /**
+   *  _  __      __  __
+   * | |/ /     |  \/  |
+   * | ' /______| \  / | ___   __ _ _ __   ___
+   * |  <|______| |\/| |/ _ \ / _` | '_ \ / __|
+   * | . \      | |  | |  __/| (_| | | | |\__ \
+   * |_|\_\     |_|  |_|\___| \__,_|_| |_||___/
+   *
+   *
+   */
+  m.def(
+      "_compute_kmeans",
+      [](const std::vector<float>& points,
+         size_t num_clusters,
+         size_t dim,
+         size_t num_iterations)
+          -> std::unordered_map<size_t, std::vector<size_t>> {
+        std::vector<int> assignments;
+        compute_kmeans(
+            points,
+            num_clusters,
+            dim,
+            num_iterations,
+            assignments,
+            hm::kmeans::KMEANS_TYPE::KM_SEQ);
+        assert(assignments.size() == points.size() / dim);
+        std::unordered_map<size_t, std::vector<size_t>> assignment_map;
+        for (std::size_t i = 0, n = assignments.size(); i < n; ++i) {
+          size_t cluster_id = assignments[i];
+          assignment_map[cluster_id].push_back(i);
+        }
+        return assignment_map;
+      },
+      py::arg("points"),
+      py::arg("num_clusters"),
+      py::arg("dim"),
+      py::arg("num_iterations") = 6,
+      py::call_guard<py::gil_scoped_release>());
 }
 
 void init_play_tracker(::pybind11::module_& m) {
