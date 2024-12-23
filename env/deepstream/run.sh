@@ -30,8 +30,8 @@ docker run ${GPU_FLAGS} --privileged --user=$(id -u):$(id -g) -it \
   --memory 32g \
   -p 22298:22298 \
   --runtime nvidia \
-  -v /mnt/home:/mnt/home \
-  -v /mnt/data:/mnt/data \
+  -v /mnt:/mnt \
+  -v /olivier-pool:/olivier-pool \
   -v ${HOME}:${HOME} \
   -v ${HOME}/.ssh:${HOME}/.ssh \
   -v /etc/passwd:/etc/passwd:ro \

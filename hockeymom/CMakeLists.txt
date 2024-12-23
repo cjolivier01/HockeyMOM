@@ -21,6 +21,12 @@ set(
   csrc/pytorch/image_blend.cpp
   csrc/pytorch/image_stitch.cpp
   csrc/pytorch/smart_image_stitch.cpp
+  csrc/kmeans/kmeans.cpp
+  csrc/kmeans/file_io.cpp
+  csrc/kmeans/wtime.cpp
+  csrc/kmeans/seq_kmeans.cpp
+  csrc/kmeans/omp_kmeans.cpp
+  csrc/kmeans/wtime.cpp
 )
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")

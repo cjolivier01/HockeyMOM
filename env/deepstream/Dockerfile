@@ -233,6 +233,9 @@ RUN rm -rf vigra
 ##############################################################
 USER root
 
+# Fix wrong version in distribution bazel file
+RUN sed -i 's/6\.2\.1/7.1/g' /opt/nvidia/graph-composer/extension-dev/build/registry.bzl
+
 # In case any upgrades were missed?  Ideally, should do nothing.
 RUN apt-get upgrade -y
 

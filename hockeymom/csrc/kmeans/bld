@@ -1,0 +1,1 @@
+nvcc kmeans_cuda_simple.cu -DBUILD_MAIN -o kmeans_cuda
