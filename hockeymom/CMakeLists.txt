@@ -21,12 +21,6 @@ set(
   csrc/pytorch/image_blend.cpp
   csrc/pytorch/image_stitch.cpp
   csrc/pytorch/smart_image_stitch.cpp
-  csrc/kmeans/kmeans.cpp
-  csrc/kmeans/file_io.cpp
-  csrc/kmeans/wtime.cpp
-  csrc/kmeans/seq_kmeans.cpp
-  csrc/kmeans/omp_kmeans.cpp
-  csrc/kmeans/wtime.cpp
 )
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
@@ -158,6 +152,7 @@ target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
 target_link_libraries(_hockeymom PUBLIC play_tracker)
+target_link_libraries(_hockeymom PUBLIC kmeans)
 #message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
 set_target_properties(
   _hockeymom PROPERTIES 
