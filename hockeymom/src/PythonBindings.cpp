@@ -976,8 +976,12 @@ void init_play_tracker(::pybind11::module_& m) {
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(py::init<PlayTrackerConfig>())
-      .def("forward", &PlayTracker::forward, py::arg())
-      ;
+      .def(
+          "forward",
+          &PlayTracker::forward,
+          py::arg("tracking_ids"),
+          py::arg("tracking_boxes"),
+          py::call_guard<py::gil_scoped_release>());
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
