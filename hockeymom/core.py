@@ -18,6 +18,7 @@ from ._hockeymom import (
     RemapperConfig,
     StitchImageInfo,
     WHDims,
+    compute_kmeans_clusters,
 )
 
 try:
@@ -45,4 +46,5 @@ __all__ = [
     "LivingBox",
     "WHDims",
     "GrowShrink",
+    "compute_kmeans_clusters",
 ]
