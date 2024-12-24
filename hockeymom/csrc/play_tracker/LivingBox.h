@@ -54,6 +54,7 @@ struct ILivingBox : virtual public IBasicLivingBox {
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;
   virtual BBox forward(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;
+  virtual std::optional<BBox > get_arena_box() const = 0;
 };
 
 /* clang-format off */

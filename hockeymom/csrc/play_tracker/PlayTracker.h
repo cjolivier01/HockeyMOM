@@ -12,6 +12,7 @@ namespace hm {
 namespace play_tracker {
 
 struct PlayTrackerConfig {
+  bool no_wide_start{false};
   std::vector<AllLivingBoxConfig> living_boxes;
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
@@ -57,6 +58,8 @@ class PlayTracker : public IBreakawayAdjuster {
  private:
   void create_boxes(const BBox& initial_box);
   ClusterBoxes get_cluster_boxes(const std::vector<BBox>& tracking_boxes) const;
+
+  BBox get_play_box() const;
 
   // BEGIN IBreakawayAdjuster
 

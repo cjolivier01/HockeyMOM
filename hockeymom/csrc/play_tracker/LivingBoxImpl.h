@@ -27,6 +27,7 @@ class LivingBox : public ILivingBox,
   void set_dest(std::shared_ptr<IBasicLivingBox>) override {}
   void set_dest_ex(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>&
                        dest) override {}
+  std::optional<BBox > get_arena_box() const override;
   // ILivingBox-
 
   WHDims get_size_scale() const;

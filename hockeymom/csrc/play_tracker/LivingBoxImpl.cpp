@@ -35,6 +35,10 @@ WHDims LivingBox::get_size_scale() const {
   };
 }
 
+std::optional<BBox> LivingBox::get_arena_box() const {
+  return TranslatingBox::get_config().arena_box;
+}
+
 BBox LivingBox::next_position() {
   // These diffs take into account size or translation stickiness
   const PointDiff translation_change = get_proposed_next_position_change();

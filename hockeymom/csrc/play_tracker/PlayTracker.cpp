@@ -157,7 +157,9 @@ void PlayTracker::set_bboxes(const std::vector<BBox>& bboxes) {
 }
 
 void PlayTracker::set_bboxes_scaled(BBox bbox, float scale_step) {
+  const BBox arena_box = get_play_box();
   for (size_t i = 0, n = living_boxes_.size(); i < n; ++i) {
+    bbox = clamp_box(bbox, arena_box);
     living_boxes_[i]->set_bbox(bbox);
     BBox new_bbox = bbox.make_scaled(scale_step, scale_step);
     // We don't allow it to go an empty box (w==0 or h==0)
@@ -169,6 +171,12 @@ void PlayTracker::set_bboxes_scaled(BBox bbox, float scale_step) {
 
 std::shared_ptr<ILivingBox> PlayTracker::get_live_box(size_t index) const {
   return living_boxes_.at(index);
+}
+
+BBox PlayTracker::get_play_box() const {
+  auto arena_box = living_boxes_.at(living_boxes_.size() - 1)->get_arena_box();
+  assert(arena_box.has_value());
+  return *arena_box;
 }
 
 PlayTrackerResults PlayTracker::forward(
@@ -195,16 +203,40 @@ PlayTrackerResults PlayTracker::forward(
     }
   }
 
-  play_detector_.forward(
+  PlayDetectorResult play_detector_result = play_detector_.forward(
       tick_count_, tracking_ids, tracking_boxes, ignore_tracking_ids);
+  (void)play_detector_result;
 
   //
   // Compute the next box
   //
-  ClusterBoxes cluster_boxes_result = get_cluster_boxes(*p_cluster_bboxes);
-  results.cluster_boxes = std::move(cluster_boxes_result.cluster_boxes);
-  results.final_cluster_box = cluster_boxes_result.final_cluster_box;
+  const BBox arena_box = get_play_box();
+  {
+    ClusterBoxes cluster_boxes_result = get_cluster_boxes(*p_cluster_bboxes);
+    results.cluster_boxes = std::move(cluster_boxes_result.cluster_boxes);
+    results.final_cluster_box = cluster_boxes_result.final_cluster_box;
+  }
 
+  BBox start_bbox = results.final_cluster_box;
+  // Special cases
+  if (start_bbox.empty()) {
+    // probably not enough tracks
+    if (!tracking_boxes.empty()) {
+      // Just union all tracking boxes
+      start_bbox = get_union_bounding_box(tracking_boxes);
+    }
+  }
+  clamp_box(start_bbox, arena_box);
+  if (start_bbox.empty()) {
+    start_bbox = arena_box;
+  }
+
+  if (!tick_count_ && config_.no_wide_start) {
+    // We start at our first detected box
+    set_bboxes_scaled(start_bbox, 1.2);
+  }
+
+  assert(!results.final_cluster_box.empty()); // TODO: need arena size
   BBox current_box = results.final_cluster_box;
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];

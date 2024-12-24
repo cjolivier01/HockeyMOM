@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-# _CPP_PLAYTRACKER: bool = True
-_CPP_PLAYTRACKER: bool = False
+_CPP_PLAYTRACKER: bool = True
+# _CPP_PLAYTRACKER: bool = False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -256,6 +256,7 @@ class PlayTracker(torch.nn.Module):
                     current_roi_aspect_config,
                 ]
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
+                pt_config.no_wide_start = self._args.no_wide_start
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
         else:
             assert not self._cpp_playtracker
@@ -334,9 +335,6 @@ class PlayTracker(torch.nn.Module):
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
-
-        if self._playtracker is not None:
-            self._playtracker.set_bboxes_scaled(to_bbox(box_roi, self._cpp_boxes), scale_h)
 
         # We set the roi box to be this exact size
         self._current_roi.set_bbox(to_bbox(box_roi, self._cpp_boxes))
