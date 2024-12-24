@@ -30,6 +30,7 @@ tifffile
 scikit-build
 scikit-learn
 kornia
+pandas
 lmdb
 loguru
 thop
