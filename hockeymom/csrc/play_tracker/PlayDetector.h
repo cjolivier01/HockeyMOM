@@ -3,6 +3,7 @@
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/PlayerSTrack.h"
 
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -15,20 +16,45 @@ struct IBreakawayAdjuster {
 };
 
 struct PlayDetectorConfig {
+  // Trajectory/velocity config
   size_t max_positions{30};
   size_t max_velocity_positions{10};
   size_t frame_step{1};
+
+  // Breakaway detection
+  // Group velocities less than this are ignored
+  float min_considered_group_velocity = 3.0;
+  // What ratio of tracked players must be all reacting
+  // to a breakaway?
+  float group_ratio_threshold = 0.5;
+  // What ratio of the group speed should we try to
+  // apply within a single frame's speed adjustment?
+  float group_velocity_speed_ratio = 0.3;
+  // During a breakaway, what scale do we adjust the
+  // maximum camera speed to allow for faster-than-normal tracking?
+  float scale_speed_constraints = 2.0;
+  // The number of frame steps to not allow any camera-stop conditions to
+  // trigger such as cluster(s) direction change or "sticky translation" rules.
+  // This is because the clusters may not have changed enough at the
+  // beginning of a breakaway and may simply stop the camera movement
+  // due to the cluster tracking rules.
+  float nonstop_delay_count = 2;
+  // When over-shooting the breakaway players, what scale do we apply
+  // to the current speed each frame in order to slow it down?
+  float overshoot_scale_speed_ratio = 0.7;
 };
 
-struct PlayDetectorResult {
-
+struct PlayDetectorResults {
+  // Center of the object that is farthest forward in the breakaway (logically
+  // the one that we think most likely has the puck/ball)
+  std::optional<Point> breakaway_edge_center;
 };
 
 class PlayDetector {
  public:
   PlayDetector(const PlayDetectorConfig& config, IBreakawayAdjuster* adjuster);
 
-  PlayDetectorResult forward(
+  PlayDetectorResults forward(
       size_t frame_id,
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes,

@@ -984,7 +984,9 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite(
           "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox);
 
-  py::class_<PlayDetectorResult>(m, "PlayDetectorResult").def(py::init<>());
+  py::class_<PlayDetectorResults>(m, "PlayDetectorResults").def(py::init<>())
+    .def_readonly("breakaway_edge_center", &PlayDetectorResults::breakaway_edge_center)
+  ;
 
   py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
       .def(py::init<>())

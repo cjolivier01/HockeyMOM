@@ -70,12 +70,12 @@ void PlayDetector::reset() {
   tracks_.clear();
 }
 
-PlayDetectorResult PlayDetector::forward(
+PlayDetectorResults PlayDetector::forward(
     size_t frame_id,
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes,
     const std::set<size_t>& disregard_tracking_ids) {
-  PlayDetectorResult result;
+  PlayDetectorResults result;
   assert(tracking_ids.size() == tracking_boxes.size());
 
   PointDiff cumulative_velocity{.dx = 0.0, .dy = 0.0};

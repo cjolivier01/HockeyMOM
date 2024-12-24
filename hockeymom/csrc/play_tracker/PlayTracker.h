@@ -27,7 +27,7 @@ struct PlayTrackerResults {
   std::unordered_map<size_t, BBox> cluster_boxes;
   BBox final_cluster_box;
   std::vector<BBox> tracking_boxes;
-  PlayDetectorResult play_detection;
+  std::optional<PlayDetectorResults> play_detection;
   std::optional<size_t> largest_tracking_bbox_id;
   std::optional<BBox> largest_tracking_bbox;
 };

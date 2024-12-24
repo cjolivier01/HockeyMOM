@@ -203,7 +203,7 @@ PlayTrackerResults PlayTracker::forward(
     }
   }
 
-  PlayDetectorResult play_detector_result = play_detector_.forward(
+  PlayDetectorResults play_detector_result = play_detector_.forward(
       tick_count_, tracking_ids, tracking_boxes, ignore_tracking_ids);
   (void)play_detector_result;
 
