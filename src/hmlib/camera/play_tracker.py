@@ -499,16 +499,20 @@ class PlayTracker(torch.nn.Module):
                     online_ids.cpu().tolist(), online_bboxes
                 )
 
-                cluster_enclosing_box = from_bbox(playtracker_results.cluster_boxes[-1])
+                if playtracker_results.largest_tracking_bbox_id >= 0:
+                    largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox)
+                else:
+                    largest_bbox = None
 
-                cluster_boxes_map = {}
-                for cc in cluster_counts:
-                    cluster_boxes_map[cc] = clamp_box(cluster_enclosing_box, self._play_box)
-                cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
+                cluster_enclosing_box = from_bbox(playtracker_results.final_cluster_box)
+                cluster_boxes_map = playtracker_results.cluster_boxes
+                # cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
+
                 fast_roi_bounding_box = from_bbox(playtracker_results.tracking_boxes[0])
-                current_box = from_bbox(playtracker_results.tracking_boxes[-1])
-                current_box_list.append(current_box)
                 current_fast_box_list.append(fast_roi_bounding_box)
+
+                current_box = from_bbox(playtracker_results.tracking_boxes[1])
+                current_box_list.append(current_box)
 
                 if self._args.plot_moving_boxes:
                     # Fast
@@ -628,7 +632,7 @@ class PlayTracker(torch.nn.Module):
                     if cc in cluster_boxes_map:
                         online_im = vis.plot_rectangle(
                             online_im,
-                            cluster_boxes_map[cc],
+                            from_bbox(cluster_boxes_map[cc]),
                             color=cluster_box_colors[cc],
                             thickness=1,
                             label=f"cluster_box_{cc}",
@@ -642,7 +646,7 @@ class PlayTracker(torch.nn.Module):
                     # The union of the two cluster boxes
                     online_im = vis.plot_alpha_rectangle(
                         online_im,
-                        cluster_enclosing_box,
+                        from_bbox(cluster_enclosing_box),
                         color=color,
                         label="union_clusters",
                         opacity_percent=25,

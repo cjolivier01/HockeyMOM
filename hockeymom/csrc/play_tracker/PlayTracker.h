@@ -23,14 +23,22 @@ struct PlayTrackerState {
 };
 
 struct PlayTrackerResults {
-  std::vector<BBox> cluster_boxes;
+  std::unordered_map<size_t, BBox> cluster_boxes;
+  BBox final_cluster_box;
   std::vector<BBox> tracking_boxes;
   PlayDetectorResult play_detection;
+  int64_t largest_tracking_bbox_id{-1};
+  BBox largest_tracking_bbox;
 };
 
 class PlayTracker : public IBreakawayAdjuster {
 
   using Velocity = PointDiff;
+
+  struct ClusterBoxes {
+    std::unordered_map<size_t, BBox> cluster_boxes;
+    BBox final_cluster_box;
+  };
 
  public:
   PlayTracker(const BBox& initial_box, const PlayTrackerConfig& config);
@@ -48,7 +56,7 @@ class PlayTracker : public IBreakawayAdjuster {
 
  private:
   void create_boxes(const BBox& initial_box);
-  BBox get_cluster_box(const std::vector<BBox>& tracking_boxes) const;
+  ClusterBoxes get_cluster_boxes(const std::vector<BBox>& tracking_boxes) const;
 
   // BEGIN IBreakawayAdjuster
 

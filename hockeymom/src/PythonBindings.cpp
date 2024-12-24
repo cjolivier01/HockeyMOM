@@ -987,8 +987,14 @@ void init_play_tracker(::pybind11::module_& m) {
   py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
       .def(py::init<>())
       .def_readonly("cluster_boxes", &PlayTrackerResults::cluster_boxes)
+      .def_readonly("final_cluster_box", &PlayTrackerResults::final_cluster_box)
       .def_readonly("tracking_boxes", &PlayTrackerResults::tracking_boxes)
-      .def_readonly("play_detection", &PlayTrackerResults::play_detection);
+      .def_readonly("play_detection", &PlayTrackerResults::play_detection)
+      .def_readonly(
+          "largest_tracking_bbox_id",
+          &PlayTrackerResults::largest_tracking_bbox_id)
+      .def_readonly(
+          "largest_tracking_bbox", &PlayTrackerResults::largest_tracking_bbox);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(

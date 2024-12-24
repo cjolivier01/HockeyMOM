@@ -101,8 +101,10 @@ void PlayTracker::create_boxes(const BBox& initial_box) {
   }
 }
 
-BBox PlayTracker::get_cluster_box(
+PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     const std::vector<BBox>& tracking_boxes) const {
+  ClusterBoxes cluster_boxes_result;
+
   BBox result_box;
   size_t counter = 0;
   std::vector<float> points;
@@ -113,28 +115,35 @@ BBox PlayTracker::get_cluster_box(
     points.push_back(c.x);
     points.push_back(c.y);
   }
-  std::unordered_set<size_t> all_indexes;
-  all_indexes.reserve(tracking_boxes.size());
+
   size_t cluster_count = cluster_sizes_.size();
+  std::vector<std::vector<size_t>> cluster_item_indexes(cluster_count);
+  std::vector<BBox> cluster_bboxes(cluster_count);
 
 #pragma omp parallel for num_threads(cluster_count)
   for (size_t cluster_id = 0; cluster_id < cluster_count; ++cluster_id) {
-    std::vector<size_t> item_indexes = get_largest_cluster_item_indexes(
+    auto& this_cluster_item_indexes = cluster_item_indexes.at(cluster_id);
+    this_cluster_item_indexes = get_largest_cluster_item_indexes(
         points,
         cluster_sizes_.at(cluster_id),
         /*dim=*/2);
-#pragma omp critical // Ensure single-threaded execution for these iterations
-    { all_indexes.insert(item_indexes.begin(), item_indexes.end()); }
+    std::vector<BBox> bboxes;
+    bboxes.reserve(this_cluster_item_indexes.size());
+    for (size_t idx : this_cluster_item_indexes) {
+      bboxes.emplace_back(tracking_boxes.at(idx));
+    }
+    cluster_bboxes.at(cluster_id) = get_union_bounding_box(bboxes);
   }
 
-  std::vector<BBox> inlarge_bboxes;
-  inlarge_bboxes.reserve(tracking_boxes.size());
-  for (size_t idx : all_indexes) {
-    inlarge_bboxes.emplace_back(tracking_boxes.at(idx));
+  for (size_t i = 0; i < cluster_sizes_.size(); ++i) {
+    cluster_boxes_result.cluster_boxes[cluster_sizes_[i]] =
+        cluster_bboxes.at(i);
   }
-  result_box = get_union_bounding_box(inlarge_bboxes);
 
-  return result_box;
+  cluster_boxes_result.final_cluster_box =
+      get_union_bounding_box(cluster_bboxes);
+
+  return cluster_boxes_result;
 }
 
 void PlayTracker::set_bboxes(const std::vector<BBox>& bboxes) {
@@ -181,6 +190,8 @@ PlayTrackerResults PlayTracker::forward(
       p_cluster_bboxes = &std::get<2>(prune_results);
       assert(p_cluster_bboxes->size() == tracking_boxes.size() - 1);
       ignore_tracking_ids.emplace(tracking_ids.at(ignore_index));
+      results.largest_tracking_bbox_id = tracking_ids.at(ignore_index);
+      results.largest_tracking_bbox = tracking_boxes.at(ignore_index);
     }
   }
 
@@ -190,9 +201,11 @@ PlayTrackerResults PlayTracker::forward(
   //
   // Compute the next box
   //
-  BBox current_box = get_cluster_box(*p_cluster_bboxes);
-  results.cluster_boxes.emplace_back(current_box);
+  ClusterBoxes cluster_boxes_result = get_cluster_boxes(*p_cluster_bboxes);
+  results.cluster_boxes = std::move(cluster_boxes_result.cluster_boxes);
+  results.final_cluster_box = cluster_boxes_result.final_cluster_box;
 
+  BBox current_box = results.final_cluster_box;
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
     current_box = living_box->forward(current_box);
