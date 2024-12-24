@@ -1006,7 +1006,8 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite("no_wide_start", &PlayTrackerConfig::no_wide_start)
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes)
       .def_readwrite(
-          "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox);
+          "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox)
+      .def_readwrite("play_detector", &PlayTrackerConfig::play_detector);
 
   py::class_<PlayDetectorResults>(m, "PlayDetectorResults")
       .def(py::init<>())

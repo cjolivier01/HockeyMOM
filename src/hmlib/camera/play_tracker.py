@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-# _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
-_CPP_PLAYTRACKER: bool = False and _CPP_BOXES
+_CPP_PLAYTRACKER: bool = True and _CPP_BOXES
+# _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -105,7 +105,6 @@ class PlayTracker(torch.nn.Module):
         self._boundaries = None
         self._cluster_man: Optional[ClusterMan] = None
         self._original_clip_box = original_clip_box
-        self._breakaway_detection = BreakawayDetection(args.game_config)
         self._progress_bar = progress_bar
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
@@ -257,11 +256,38 @@ class PlayTracker(torch.nn.Module):
                 ]
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
                 pt_config.no_wide_start = self._args.no_wide_start
+
+                breakaway_detection = get_nested_value(
+                    args.game_config, "rink.camera.breakaway_detection", None
+                )
+                pt_config.play_detector.min_considered_group_velocity = breakaway_detection[
+                    "min_considered_group_velocity"
+                ]
+                pt_config.play_detector.group_ratio_threshold = breakaway_detection[
+                    "group_ratio_threshold"
+                ]
+                pt_config.play_detector.group_velocity_speed_ratio = breakaway_detection[
+                    "group_velocity_speed_ratio"
+                ]
+                pt_config.play_detector.scale_speed_constraints = breakaway_detection[
+                    "scale_speed_constraints"
+                ]
+                pt_config.play_detector.nonstop_delay_count = breakaway_detection[
+                    "nonstop_delay_count"
+                ]
+                pt_config.play_detector.overshoot_scale_speed_ratio = breakaway_detection[
+                    "overshoot_scale_speed_ratio"
+                ]
+                self._breakaway_detection = None
+
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
                 self._current_roi = None
                 self._current_roi_aspect = None
         else:
             assert not self._cpp_playtracker
+
+            self._breakaway_detection = BreakawayDetection(args.game_config)
+
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
                 bbox=start_box.clone(),
