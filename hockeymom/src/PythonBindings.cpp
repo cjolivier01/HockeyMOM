@@ -977,6 +977,30 @@ void init_play_tracker(::pybind11::module_& m) {
    *                  __/ |
    *                 |___/
    */
+
+  py::class_<PlayDetectorConfig>(m, "PlayDetectorConfig")
+      .def(py::init<>())
+      .def_readwrite("max_positions", &PlayDetectorConfig::max_positions)
+      .def_readwrite(
+          "max_velocity_positions", &PlayDetectorConfig::max_velocity_positions)
+      .def_readwrite("frame_step", &PlayDetectorConfig::frame_step)
+      .def_readwrite(
+          "min_considered_group_velocity",
+          &PlayDetectorConfig::min_considered_group_velocity)
+      .def_readwrite(
+          "group_ratio_threshold", &PlayDetectorConfig::group_ratio_threshold)
+      .def_readwrite(
+          "group_velocity_speed_ratio",
+          &PlayDetectorConfig::group_velocity_speed_ratio)
+      .def_readwrite(
+          "scale_speed_constraints",
+          &PlayDetectorConfig::scale_speed_constraints)
+      .def_readwrite(
+          "nonstop_delay_count", &PlayDetectorConfig::nonstop_delay_count)
+      .def_readwrite(
+          "overshoot_scale_speed_ratio",
+          &PlayDetectorConfig::overshoot_scale_speed_ratio);
+
   py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
       .def(py::init<>())
       .def_readwrite("no_wide_start", &PlayTrackerConfig::no_wide_start)
@@ -984,9 +1008,10 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite(
           "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox);
 
-  py::class_<PlayDetectorResults>(m, "PlayDetectorResults").def(py::init<>())
-    .def_readonly("breakaway_edge_center", &PlayDetectorResults::breakaway_edge_center)
-  ;
+  py::class_<PlayDetectorResults>(m, "PlayDetectorResults")
+      .def(py::init<>())
+      .def_readonly(
+          "breakaway_edge_center", &PlayDetectorResults::breakaway_edge_center);
 
   py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
       .def(py::init<>())

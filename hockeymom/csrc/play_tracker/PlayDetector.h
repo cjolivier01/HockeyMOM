@@ -38,7 +38,7 @@ struct PlayDetectorConfig {
   // This is because the clusters may not have changed enough at the
   // beginning of a breakaway and may simply stop the camera movement
   // due to the cluster tracking rules.
-  float nonstop_delay_count = 2;
+  size_t nonstop_delay_count = 2;
   // When over-shooting the breakaway players, what scale do we apply
   // to the current speed each frame in order to slow it down?
   float overshoot_scale_speed_ratio = 0.7;
