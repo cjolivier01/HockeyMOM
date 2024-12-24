@@ -229,27 +229,27 @@ class PlayTracker(torch.nn.Module):
             # current_roi_aspect_config.color = (255, 0, 255)
             # current_roi_aspect_config.thickness = 5
 
-            #
-            # Initialize `_current_roi` MovingBox with `current_roi_config`
-            #
-            self._current_roi: Union[MovingBox, PyLivingBox] = PyLivingBox(
-                "Current ROI",
-                to_bbox(start_box, self._cpp_boxes),
-                current_roi_config,
-                color=(255, 128, 64),
-                thickness=5,
-            )
+            if not self._cpp_playtracker:
+                #
+                # Initialize `_current_roi` MovingBox with `current_roi_config`
+                #
+                self._current_roi: Union[MovingBox, PyLivingBox] = PyLivingBox(
+                    "Current ROI",
+                    to_bbox(start_box, self._cpp_boxes),
+                    current_roi_config,
+                    color=(255, 128, 64),
+                    thickness=5,
+                )
 
-            # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
-            self._current_roi_aspect: Union[MovingBox, PyLivingBox] = PyLivingBox(
-                "AspectRatio",
-                to_bbox(start_box, self._cpp_boxes),
-                current_roi_aspect_config,
-                color=(255, 0, 255),
-                thickness=5,
-            )
-
-            if self._cpp_playtracker:
+                # Initialize `_current_roi_aspect` MovingBox with `current_roi_aspect_config`
+                self._current_roi_aspect: Union[MovingBox, PyLivingBox] = PyLivingBox(
+                    "AspectRatio",
+                    to_bbox(start_box, self._cpp_boxes),
+                    current_roi_aspect_config,
+                    color=(255, 0, 255),
+                    thickness=5,
+                )
+            else:
                 pt_config = PlayTrackerConfig()
                 pt_config.living_boxes = [
                     current_roi_config,
@@ -258,6 +258,8 @@ class PlayTracker(torch.nn.Module):
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
                 pt_config.no_wide_start = self._args.no_wide_start
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
+                self._current_roi = None
+                self._current_roi_aspect = None
         else:
             assert not self._cpp_playtracker
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
