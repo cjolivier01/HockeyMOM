@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-_CPP_PLAYTRACKER: bool = True
-# _CPP_PLAYTRACKER: bool = False
+# _CPP_PLAYTRACKER: bool = True
+_CPP_PLAYTRACKER: bool = False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
