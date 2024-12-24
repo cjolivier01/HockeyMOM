@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-_CPP_PLAYTRACKER: bool = True
-# _CPP_PLAYTRACKER: bool = False
+# _CPP_PLAYTRACKER: bool = True
+_CPP_PLAYTRACKER: bool = False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -368,6 +368,10 @@ class PlayTracker(torch.nn.Module):
             box=scale_box(box, scale_width=scale_w, scale_height=scale_h),
             clamp_box=frame_box,
         )
+
+        if self._playtracker is not None:
+            self._playtracker.set_bboxes_scaled(to_bbox(box_roi, self._cpp_boxes), scale_h)
+
         # We set the roi box to be this exact size
         self._current_roi.set_bbox(to_bbox(box_roi, self._cpp_boxes))
         # Then we scale up as needed for the aspect roi
@@ -377,6 +381,7 @@ class PlayTracker(torch.nn.Module):
             clamp_box=frame_box,
         )
         self._current_roi_aspect.set_bbox(to_bbox(box_roi, self._cpp_boxes))
+
 
     def get_cluster_boxes(
         self,
@@ -474,52 +479,60 @@ class PlayTracker(torch.nn.Module):
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
 
-            if self._playtracker is not None:
-                online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
-                new_current_box = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
-
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
             )
 
             self._frame_counter += 1
 
-            largest_bbox = None
-
-            if self._args.cam_ignore_largest and len(online_tlwhs):
-                # Don't remove unless we have at least 4 online items being tracked
-                online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
-                online_ids = online_ids[mask]
-
             online_im = original_images_list[frame_index]
             # deref the original one to free the cuda memory
             original_images_list[frame_index] = None
 
-            self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
-
-            # Maybe draw trjectories...
-            if self._args.plot_trajectories:
-                for tid in online_ids:
-                    hist = self._hockey_mom.get_history(tid)
-                    if hist is not None:
-                        online_img = hist.draw(online_im)
-
             #
-            # BEGIN Clusters and Cluster Boxes
+            # Play
             #
             cluster_counts = [3, 2]
-            cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
-                online_tlwhs, online_ids, cluster_counts=cluster_counts
-            )
 
-            if cluster_boxes_map:
-                cluster_enclosing_box = get_enclosing_box(cluster_boxes)
-            elif self._previous_cluster_union_box is not None:
-                cluster_enclosing_box = self._previous_cluster_union_box.clone()
+            if True and self._playtracker is not None:
+                online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
+                playtracker_results = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
+
+                cluster_enclosing_box = from_bbox(playtracker_results.cluster_boxes[-1])
+
+                cluster_boxes_map = {}
+                for cc in cluster_counts:
+                    cluster_boxes_map[cc] = cluster_enclosing_box
+                cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
+                fast_roi_bounding_box = from_bbox(playtracker_results.tracking_boxes[0])
+                current_box = from_bbox(playtracker_results.tracking_boxes[-1])
+                current_box_list.append(current_box)
+                current_fast_box_list.append(fast_roi_bounding_box)
+                
             else:
-                cluster_enclosing_box = self.get_arena_box()
+                largest_bbox = None
+                if self._args.cam_ignore_largest and len(online_tlwhs):
+                    # Don't remove unless we have at least 4 online items being tracked
+                    online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
+                    online_ids = online_ids[mask]
 
-            current_box = cluster_enclosing_box
+                self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
+
+                #
+                # BEGIN Clusters and Cluster Boxes
+                #
+                cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
+                    online_tlwhs, online_ids, cluster_counts=cluster_counts
+                )
+
+                if cluster_boxes_map:
+                    cluster_enclosing_box = get_enclosing_box(cluster_boxes)
+                elif self._previous_cluster_union_box is not None:
+                    cluster_enclosing_box = self._previous_cluster_union_box.clone()
+                else:
+                    cluster_enclosing_box = self.get_arena_box()
+
+                current_box = cluster_enclosing_box
 
             if self._args.plot_boundaries and self._boundaries is not None:
                 online_im = self._boundaries.draw(online_im)
@@ -551,6 +564,13 @@ class PlayTracker(torch.nn.Module):
                                     thickness=1,
                                 )
 
+                # Maybe draw trajectories...
+                if self._args.plot_trajectories:
+                    for tid in online_ids:
+                        hist = self._hockey_mom.get_history(tid)
+                        if hist is not None:
+                            online_img = hist.draw(online_im)
+
             if self._args.plot_individual_player_tracking:
                 online_im = vis.plot_tracking(
                     online_im,
@@ -569,10 +589,6 @@ class PlayTracker(torch.nn.Module):
                         thickness=1,
                         label="IGNORED",
                     )
-
-            online_im = self._jersey_tracker.draw(
-                image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs
-            )
 
             if self._args.plot_cluster_tracking:
                 cluster_box_colors = {
@@ -607,44 +623,48 @@ class PlayTracker(torch.nn.Module):
             # END Clusters and Cluster Boxes
             #
 
-            current_box, online_im = self.calculate_breakaway(
-                current_box=current_box,
-                online_im=online_im,
-                speed_adjust_box=self._current_roi,
-                average_current_box=True,
+            online_im = self._jersey_tracker.draw(
+                image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs
             )
 
-            #
-            # Backup the last calculated box
-            #
-            self._previous_cluster_union_box = current_box.clone()
-
-            # Some players may be off-screen, so their box may go over an edge
-            # current_box = self._hockey_mom.clamp(current_box)
-            current_box = clamp_box(current_box, self._play_box)
-
-            # Maybe set initial box sizes if we aren't starting with a wide frame
-            if self._frame_counter == 1 and self._args.no_wide_start:
-                self.set_initial_tracking_box(current_box)
-
-            #
-            # Apply the new calculated play
-            #
-            # print("")
-            # print(f"CENTER = {center(current_box)}")
-            fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
-            # print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
-
-            # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
-            current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-            # print(f"current_box={from_bbox(current_box)}")
-            # print("")
-
-            fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
-            current_box = from_bbox(current_box)
-
-            if current_box[1] < 0:
+            if True and self._playtracker is not None:
                 pass
+            else:
+                current_box, online_im = self.calculate_breakaway(
+                    current_box=current_box,
+                    online_im=online_im,
+                    speed_adjust_box=self._current_roi,
+                    average_current_box=True,
+                )
+
+                #
+                # Backup the last calculated box
+                #
+                self._previous_cluster_union_box = current_box.clone()
+
+                # Some players may be off-screen, so their box may go over an edge
+                # current_box = self._hockey_mom.clamp(current_box)
+                current_box = clamp_box(current_box, self._play_box)
+
+                # Maybe set initial box sizes if we aren't starting with a wide frame
+                if self._frame_counter == 1 and self._args.no_wide_start:
+                    self.set_initial_tracking_box(current_box)
+
+                #
+                # Apply the new calculated play
+                #
+                # print("")
+                # print(f"CENTER = {center(current_box)}")
+                fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
+                # print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
+
+                # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
+                current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
+                # print(f"current_box={from_bbox(current_box)}")
+                # print("")
+
+                fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
+                current_box = from_bbox(current_box)
 
             if self._args.plot_speed:
                 vis.plot_frame_id_and_speeds(
@@ -667,10 +687,10 @@ class PlayTracker(torch.nn.Module):
                     color=(255, 255, 255),
                     thickness=2,
                 )
+                current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
+                current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
 
             frame_ids_list.append(frame_id)
-            current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
-            current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
             # current_box_list.append(self._current_roi_aspect.bounding_box().clone().cpu())
             # current_fast_box_list.append(self._current_roi.bounding_box().clone().cpu())
             if isinstance(online_im, np.ndarray):
