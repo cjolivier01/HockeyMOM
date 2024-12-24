@@ -12,7 +12,7 @@ constexpr size_t kMinPositionDiffsToCalculateVelocity = 2;
 PlayerSTrack::PlayerSTrack(
     size_t max_positions,
     size_t max_velocity_positions,
-    size_t frame_step = 1)
+    size_t frame_step)
     : max_positions_(max_positions),
       max_velocity_positions_(max_velocity_positions),
       frame_step_(frame_step) {
