@@ -37,6 +37,9 @@ class PlayTracker : public IBreakawayAdjuster {
   PlayTrackerResults forward(
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes);
+  
+  void set_bboxes(const std::vector<BBox>& bboxes);
+  void set_bboxes_scaled(BBox bbox, float scale_step);
 
  private:
   void create_boxes(const BBox& initial_box);

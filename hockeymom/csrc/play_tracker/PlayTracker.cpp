@@ -2,6 +2,7 @@
 #include "hockeymom/csrc//kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
+#include <cassert>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -136,10 +137,31 @@ BBox PlayTracker::get_cluster_box(
   return result_box;
 }
 
+void PlayTracker::set_bboxes(const std::vector<BBox>& bboxes) {
+  if (bboxes.size() != 1 && bboxes.size() != living_boxes_.size()) {
+    throw std::runtime_error(
+        "Number of bounding boxes should be one or the same as the number of living boxes");
+  }
+  for (size_t i = 0, n = living_boxes_.size(); i < n; ++i) {
+    living_boxes_[i]->set_bbox(bboxes.size() == 1 ? bboxes[0] : bboxes.at(i));
+  }
+}
+
+void PlayTracker::set_bboxes_scaled(BBox bbox, float scale_step) {
+  for (size_t i = 0, n = living_boxes_.size(); i < n; ++i) {
+    living_boxes_[i]->set_bbox(bbox);
+    BBox new_bbox = bbox.make_scaled(scale_step, scale_step);
+    // We don't allow it to go an empty box (w==0 or h==0)
+    if (!new_bbox.empty()) {
+      bbox = new_bbox;
+    }
+  }
+}
+
 PlayTrackerResults PlayTracker::forward(
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes) {
-  assert(tracking_ids.size() == living_boxes_.size());
+  assert(tracking_ids.size() == tracking_boxes.size());
 
   std::set<size_t> ignore_tracking_ids;
   std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
@@ -168,7 +190,7 @@ PlayTrackerResults PlayTracker::forward(
     auto& living_box = living_boxes_[i];
     cluster_box = living_box->forward(cluster_box);
   }
-
+  results.tracking_box = cluster_box;
   ++tick_count_;
   return results;
 }

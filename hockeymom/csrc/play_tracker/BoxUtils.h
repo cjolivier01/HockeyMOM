@@ -135,6 +135,10 @@ struct BBox {
   float area() const {
     return width() * height();
   }
+  bool empty() const {
+    validate();
+    return left == right || top == bottom;
+  }
   // The four bbox values
   FloatValue left{0.0};
   FloatValue top{0.0};
