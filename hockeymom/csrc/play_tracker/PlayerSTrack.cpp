@@ -27,9 +27,9 @@ void PlayerSTrack::add_position(size_t frame_id, const Point& position) {
     assert(!frame_id || frame_id - frame_step_ == last_frame_id_);
   }
 
-  if (positions_.size() >= max_velocity_positions_) {
-    // TODO: is this correct?
+  if (position_diffs_.size() >= max_velocity_positions_) {
     sum_position_diffs_ = sum_position_diffs_ - position_diffs_.front();
+    position_diffs_.pop_front();
   }
   if (positions_.size() >= max_positions_) {
     positions_.pop_front();
@@ -53,6 +53,7 @@ size_t PlayerSTrack::age(size_t frame_id) const {
 void PlayerSTrack::reset() {
   sum_position_diffs_ = PointDiff{0.0f, 0.0f};
   positions_.clear();
+  position_diffs_.clear();
 }
 
 PointDiff PlayerSTrack::velocity() const {
