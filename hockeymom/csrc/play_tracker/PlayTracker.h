@@ -41,7 +41,10 @@ class PlayTracker : public IBreakawayAdjuster {
       std::vector<BBox>& tracking_boxes);
   
   void set_bboxes(const std::vector<BBox>& bboxes);
+  // TODO: this can be done via living box's get_size_scale()
   void set_bboxes_scaled(BBox bbox, float scale_step);
+
+  std::shared_ptr<ILivingBox> get_live_box(size_t index) const;
 
  private:
   void create_boxes(const BBox& initial_box);
@@ -62,7 +65,7 @@ class PlayTracker : public IBreakawayAdjuster {
   const std::array<size_t, 2> cluster_sizes_{2, 3};
 
   // Tracking stuff
-  std::vector<std::unique_ptr<ILivingBox>> living_boxes_;
+  std::vector<std::shared_ptr<ILivingBox>> living_boxes_;
 
   // Housekeeping stuff
   // Just keep track of the number of iterations

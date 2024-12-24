@@ -158,6 +158,10 @@ void PlayTracker::set_bboxes_scaled(BBox bbox, float scale_step) {
   }
 }
 
+std::shared_ptr<ILivingBox> PlayTracker::get_live_box(size_t index) const {
+  return living_boxes_.at(index);
+}
+
 PlayTrackerResults PlayTracker::forward(
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes) {

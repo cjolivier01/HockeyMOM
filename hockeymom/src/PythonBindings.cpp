@@ -1001,7 +1001,14 @@ void init_play_tracker(::pybind11::module_& m) {
           &PlayTracker::forward,
           py::arg("tracking_ids"),
           py::arg("tracking_boxes"),
-          py::call_guard<py::gil_scoped_release>());
+          py::call_guard<py::gil_scoped_release>())
+      .def("get_live_box", &PlayTracker::get_live_box, py::arg("index"))
+      .def("set_bboxes", &PlayTracker::set_bboxes, py::arg("bboxes"))
+      .def(
+          "set_bboxes_scaled",
+          &PlayTracker::set_bboxes_scaled,
+          py::arg("bbox"),
+          py::arg("scale_step"));
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
