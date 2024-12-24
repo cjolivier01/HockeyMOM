@@ -192,7 +192,7 @@ class PyLivingBox(LivingBox):
         return img
 
     @staticmethod
-    def _draw(
+    def draw_impl(
         live_box: LivingBox,
         img: torch.Tensor,
         color: Tuple[int, int, int],
@@ -219,7 +219,7 @@ class PyLivingBox(LivingBox):
         draw_thresholds: bool = False,
         following_box: Optional[LivingBox] = None,
     ) -> torch.Tensor:
-        return PyLivingBox._draw(
+        return PyLivingBox.draw_impl(
             live_box=self,
             img=img,
             draw_thresholds=draw_thresholds,
