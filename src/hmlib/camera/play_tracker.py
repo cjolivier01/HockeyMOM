@@ -33,7 +33,8 @@ from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, PlayTracker, PlayTrackerConfig
+from hockeymom.core import AllLivingBoxConfig, PlayTrackerConfig, BBox
+from hockeymom.core import PlayTracker as CppPlayTracker
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
@@ -289,7 +290,7 @@ class PlayTracker(torch.nn.Module):
                     current_roi_aspect_config,
                 ]
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
-                self._playtracker = PlayTracker(pt_config)
+                self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
         else:
             assert not self._cpp_playtracker
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
@@ -472,6 +473,10 @@ class PlayTracker(torch.nn.Module):
                 frame_id = frame_id.cpu()
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
+
+            if self._playtracker is not None:
+                online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
+                new_current_box = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
 
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
