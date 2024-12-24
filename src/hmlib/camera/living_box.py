@@ -50,20 +50,21 @@ class PyLivingBox(LivingBox):
         self._color = color
         self._thickness = thickness
 
+    @staticmethod
     def _draw_resizing_state(
-        self,
+        live_box: LivingBox,
         img: torch.Tensor,
         draw_thresholds: bool = False,
         following_box: Optional[LivingBox] = None,
     ):
-        rconfig = self.resizing_config()
-        rstate = self.resizing_state()
-        lconfig = self.living_config()
-        lstate = self.living_state()
+        rconfig = live_box.resizing_config()
+        rstate = live_box.resizing_state()
+        lconfig = live_box.living_config()
+        lstate = live_box.living_state()
 
         if rconfig.sticky_sizing:
             assert following_box is not None  # why?
-            my_bbox = self.bounding_box()
+            my_bbox = live_box.bounding_box()
             my_bbox_t: torch.Tensor = from_bbox(my_bbox)
             center_tensor = center(my_bbox_t)
             my_width = my_bbox.width()
@@ -93,7 +94,7 @@ class PyLivingBox(LivingBox):
 
             # Sizing thresholds
             if draw_thresholds:
-                gs = self.get_grow_shrink_wh(my_bbox)
+                gs = live_box.get_grow_shrink_wh(my_bbox)
                 grow_box = make_box_at_center(
                     center_point=center_tensor,
                     w=my_width + gs.grow_width,
@@ -109,32 +110,33 @@ class PyLivingBox(LivingBox):
                 img = vis.draw_centered_lines(img, bbox=shrink_box, thickness=4, color=(0, 0, 255))
         return img
 
+    @staticmethod
     def _draw_translation_state(
-        self,
+        live_box: LivingBox,
         img: torch.Tensor | np.ndarray,
+        color: Tuple[int, int, int],
+        thickness: int,
         draw_thresholds: bool = False,
         following_box: Optional[LivingBox] = None,
     ):
-        tconfig = self.translation_config()
-        tstate = self.translation_state()
-        draw_box = from_bbox(self.bounding_box())
+        tconfig = live_box.translation_config()
+        tstate = live_box.translation_state()
+        draw_box = from_bbox(live_box.bounding_box())
         img = vis.plot_rectangle(
             img,
             draw_box,
-            color=self._color if not tstate.translation_is_frozen else (128, 128, 128),
-            thickness=self._thickness,
-            label=self.name(),
+            color=color if not tstate.translation_is_frozen else (128, 128, 128),
+            thickness=thickness,
+            label=live_box.name(),
             text_scale=2,
         )
 
         # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_thresholds and tconfig.sticky_translation:
-            sticky, unsticky = self.get_sticky_translation_sizes()
-            bbox_t = from_bbox(self.bounding_box())
+            sticky, unsticky = live_box.get_sticky_translation_sizes()
+            bbox_t = from_bbox(live_box.bounding_box())
             center_tensor = center(bbox_t)
             my_center = [int(i) for i in center_tensor]
-            # my_width = width(self.bounding_box())
-            # my_height = height(self.bounding_box())
             img = vis.plot_circle(
                 img,
                 my_center,
@@ -189,19 +191,42 @@ class PyLivingBox(LivingBox):
                 )
         return img
 
+    @staticmethod
+    def _draw(
+        live_box: LivingBox,
+        img: torch.Tensor,
+        color: Tuple[int, int, int],
+        thickness: int,
+        draw_thresholds: bool = False,
+        following_box: Optional[LivingBox] = None,
+    ) -> torch.Tensor:
+        img = PyLivingBox._draw_resizing_state(
+            live_box=live_box, img=img, draw_thresholds=draw_thresholds, following_box=following_box
+        )
+        img = PyLivingBox._draw_translation_state(
+            live_box=live_box,
+            img=img,
+            draw_thresholds=draw_thresholds,
+            following_box=following_box,
+            color=color,
+            thickness=thickness,
+        )
+        return img
+
     def draw(
         self,
         img: torch.Tensor,
         draw_thresholds: bool = False,
         following_box: Optional[LivingBox] = None,
     ) -> torch.Tensor:
-        img = self._draw_resizing_state(
-            img, draw_thresholds=draw_thresholds, following_box=following_box
+        return PyLivingBox._draw(
+            live_box=self,
+            img=img,
+            draw_thresholds=draw_thresholds,
+            following_box=following_box,
+            color=self._color,
+            thickness=self._thickness,
         )
-        img = self._draw_translation_state(
-            img, draw_thresholds=draw_thresholds, following_box=following_box
-        )
-        return img
 
     def get_size_scale(self) -> Tuple[float, float]:
         size_scale: WHDims = super().get_size_scale()
