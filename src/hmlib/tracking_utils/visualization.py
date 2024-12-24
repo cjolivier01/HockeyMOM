@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional, Set
 
 import cv2
 import numpy as np
@@ -418,7 +418,11 @@ def plot_tracking(
     line_thickness: int = 1,
     ignore_frame_id: bool = False,
     print_track_id: bool = True,
+    ignore_tracking_ids: Set[int] = None,
+    ignored_color: Optional[Tuple[int, int, int]] = None,
 ):
+    if ignore_tracking_ids is None:
+        ignore_tracking_ids = set()
     if not ignore_frame_id:
         global last_frame_id
         # don't call this more than once per frame
@@ -450,26 +454,35 @@ def plot_tracking(
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
 
-        im = plot_rectangle(
-            im,
-            box=intbox,
-            color=normalize_color(im, color),
-            thickness=line_thickness,
-        )
-
-        if print_track_id:
-            id_text = "{}".format(int(obj_id))
-            if ids2 is not None:
-                id_text = id_text + ", {}".format(int(ids2[i]))
-            im = my_put_text(
+        if obj_id in ignore_tracking_ids:
+            im = plot_rectangle(
                 im,
-                id_text,
-                (intbox[0], intbox[1] + text_offset),
-                cv2.FONT_HERSHEY_PLAIN,
-                text_scale,
-                (0, 0, 255),
-                thickness=text_thickness,
+                box=intbox,
+                color=ignored_color,
+                thickness=1,
+                label=f"IGNORED",
             )
+        else:
+            im = plot_rectangle(
+                im,
+                box=intbox,
+                color=normalize_color(im, color),
+                thickness=line_thickness,
+            )
+
+            if print_track_id:
+                id_text = "{}".format(int(obj_id))
+                if ids2 is not None:
+                    id_text = id_text + ", {}".format(int(ids2[i]))
+                im = my_put_text(
+                    im,
+                    id_text,
+                    (intbox[0], intbox[1] + text_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    text_scale,
+                    (0, 0, 255),
+                    thickness=text_thickness,
+                )
         if speeds:
             speed = speeds[i]
             if not np.isnan(speed):

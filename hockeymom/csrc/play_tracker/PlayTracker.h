@@ -28,8 +28,8 @@ struct PlayTrackerResults {
   BBox final_cluster_box;
   std::vector<BBox> tracking_boxes;
   PlayDetectorResult play_detection;
-  int64_t largest_tracking_bbox_id{-1};
-  BBox largest_tracking_bbox;
+  std::optional<size_t> largest_tracking_bbox_id;
+  std::optional<BBox> largest_tracking_bbox;
 };
 
 class PlayTracker : public IBreakawayAdjuster {

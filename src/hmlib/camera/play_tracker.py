@@ -459,14 +459,18 @@ class PlayTracker(torch.nn.Module):
             #
             cluster_counts = [3, 2]
 
+            vis_ignored_tracking_ids: Union[Set[int], None] = None
+
             if True and self._playtracker is not None:
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
                 playtracker_results = self._playtracker.forward(
                     online_ids.cpu().tolist(), online_bboxes
                 )
 
-                if playtracker_results.largest_tracking_bbox_id >= 0:
+                if playtracker_results.largest_tracking_bbox_id is not None:
                     largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox)
+                    largest_bbox = batch_tlbrs_to_tlwhs(largest_bbox.unsqueeze(0)).squeeze(0)
+                    vis_ignored_tracking_ids = {playtracker_results.largest_tracking_bbox_id}
                 else:
                     largest_bbox = None
 
@@ -577,9 +581,11 @@ class PlayTracker(torch.nn.Module):
                     frame_id=frame_id,
                     speeds=[],
                     line_thickness=2,
+                    ignore_tracking_ids=vis_ignored_tracking_ids,
+                    ignored_color=(0, 0, 0),
                 )
                 # logger.info(f"Tracking {len(online_ids)} players...")
-                if largest_bbox is not None:
+                if largest_bbox is not None and vis_ignored_tracking_ids is None:
                     online_im = vis.plot_rectangle(
                         online_im,
                         [int(i) for i in tlwh_to_tlbr_single(largest_bbox)],
