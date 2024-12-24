@@ -639,7 +639,6 @@ class PlayTracker(torch.nn.Module):
                 self._previous_cluster_union_box = current_box.clone()
 
                 # Some players may be off-screen, so their box may go over an edge
-                # current_box = self._hockey_mom.clamp(current_box)
                 current_box = clamp_box(current_box, self._play_box)
 
                 # Maybe set initial box sizes if we aren't starting with a wide frame
@@ -649,17 +648,11 @@ class PlayTracker(torch.nn.Module):
                 #
                 # Apply the new calculated play
                 #
-                # print("")
-                # print(f"CENTER = {center(current_box)}")
                 fast_roi_bounding_box = self._current_roi.forward(
                     to_bbox(current_box, self._cpp_boxes)
                 )
-                # print(f"fast_roi_bounding_box={from_bbox(fast_roi_bounding_box)}")
 
-                # print(f"CENTER(fast_roi_bounding_box) = {center(from_bbox(fast_roi_bounding_box))}")
                 current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-                # print(f"current_box={from_bbox(current_box)}")
-                # print("")
 
                 fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
                 current_box = from_bbox(current_box)
