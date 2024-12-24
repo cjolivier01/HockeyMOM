@@ -284,10 +284,11 @@ class PlayTracker(torch.nn.Module):
 
             if self._cpp_playtracker:
                 pt_config = PlayTrackerConfig()
-                pt_config.live_boxes = [
+                pt_config.living_boxes = [
                     current_roi_config,
                     current_roi_aspect_config,
                 ]
+                pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
                 self._playtracker = PlayTracker(pt_config)
         else:
             assert not self._cpp_playtracker

@@ -10,7 +10,30 @@ namespace play_tracker {
 
 namespace {
 
-using Velocity = PointDiff;
+constexpr size_t kMinTracksBeforePruning = 3;
+constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
+
+std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
+remove_largest(std::vector<size_t> ids, std::vector<BBox> bboxes) {
+  double largest_area = 0.0;
+  size_t largest_index = kBadIdOrIndex;
+  for (size_t i = 0, n = ids.size(); i < n; ++i) {
+    double this_area = bboxes[i].area();
+    if (this_area > largest_area) {
+      largest_area = this_area;
+      largest_index = i;
+    }
+  }
+  // Making a new vector will be more expensive than just removing a vector item
+  // because to create a new vector, you are guaranteed to traverse the entire
+  // vector except one item, plus construction and allocation overhead, etc.
+  // So, simply erase the element.
+  if (largest_index != kBadIdOrIndex) {
+    ids.erase(ids.begin() + largest_index);
+    bboxes.erase(bboxes.begin() + largest_index);
+  }
+  return std::make_tuple(largest_index, std::move(ids), std::move(bboxes));
+}
 
 std::vector<size_t> get_largest_cluster_item_indexes(
     const std::vector<float> points,
@@ -59,54 +82,6 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
   }
 
   return BBox{minTop, minLeft, maxBottom, maxRight};
-}
-
-// Helper function to compute the magnitude of a velocity
-// Helper function to compute the magnitude of a velocity
-double compute_magnitude(const Velocity& velocity) {
-  return std::sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy);
-}
-
-// Function to compute the average velocity of the top N fastest-moving
-// velocities with the same dx sign
-Velocity average_velocity_of_fastest_n_in_same_x_direction(
-    const std::vector<Velocity>& velocities,
-    int n) {
-  if (n <= 0) {
-    throw std::invalid_argument("n must be greater than 0.");
-  }
-
-  // Filter velocities with the same sign of dx (use the sign of the first
-  // velocity's dx as the reference)
-  std::vector<Velocity> filtered_velocities;
-  bool is_positive = velocities[0].dx > 0; // Assume the sign of dx to filter by
-  for (const auto& velocity : velocities) {
-    if ((is_positive && velocity.dx > 0) || (!is_positive && velocity.dx < 0)) {
-      filtered_velocities.push_back(velocity);
-    }
-  }
-
-  if (filtered_velocities.size() < static_cast<size_t>(n)) {
-    throw std::invalid_argument(
-        "Not enough velocities with the same dx sign to compute the average.");
-  }
-
-  // Sort filtered velocities by magnitude in descending order
-  std::sort(
-      filtered_velocities.begin(),
-      filtered_velocities.end(),
-      [](const Velocity& a, const Velocity& b) {
-        return compute_magnitude(a) > compute_magnitude(b);
-      });
-
-  // Compute the average dx and dy for the top n velocities
-  double total_dx = 0.0, total_dy = 0.0;
-  for (int i = 0; i < n; ++i) {
-    total_dx += filtered_velocities[i].dx;
-    total_dy += filtered_velocities[i].dy;
-  }
-
-  return {.dx = float(total_dx / n), .dy = float(total_dy / n)};
 }
 
 } // namespace
@@ -166,12 +141,28 @@ PlayTrackerResults PlayTracker::forward(
     std::vector<BBox>& tracking_boxes) {
   assert(tracking_ids.size() == living_boxes_.size());
 
-  play_detector_.forward(tick_count_, tracking_ids, tracking_boxes);
+  std::set<size_t> ignore_tracking_ids;
+  std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
+      prune_results;
+  std::vector<BBox>* p_cluster_bboxes = &tracking_boxes;
+  if (config_.ignore_largest_bbox &&
+      tracking_ids.size() > kMinTracksBeforePruning) {
+    prune_results = remove_largest(tracking_ids, tracking_boxes);
+    const size_t ignore_index = std::get<0>(prune_results);
+    if (ignore_index != kBadIdOrIndex) {
+      p_cluster_bboxes = &std::get<2>(prune_results);
+      assert(p_cluster_bboxes->size() == tracking_boxes.size() - 1);
+      ignore_tracking_ids.emplace(tracking_ids.at(ignore_index));
+    }
+  }
+
+  play_detector_.forward(
+      tick_count_, tracking_ids, tracking_boxes, ignore_tracking_ids);
 
   //
   // Compute the next box
   //
-  BBox cluster_box = get_cluster_box(tracking_boxes);
+  BBox cluster_box = get_cluster_box(*p_cluster_bboxes);
   PlayTrackerResults results;
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];

@@ -15,6 +15,7 @@ struct PlayTrackerConfig {
   std::vector<AllLivingBoxConfig> living_boxes;
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
+  bool ignore_largest_bbox{true};
 };
 
 struct PlayTrackerState {

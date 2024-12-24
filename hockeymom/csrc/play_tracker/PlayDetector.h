@@ -6,6 +6,7 @@
 #include <cassert>
 #include <unordered_map>
 #include <vector>
+#include <set>
 
 namespace hm {
 namespace play_tracker {
@@ -27,7 +28,8 @@ class PlayDetector {
   void forward(
       size_t frame_id,
       std::vector<size_t>& tracking_ids,
-      std::vector<BBox>& tracking_boxes);
+      std::vector<BBox>& tracking_boxes,
+      const std::set<size_t>& disregard_tracking_ids);
 
   void reset();
 
