@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-# _CPP_PLAYTRACKER: bool = True
-_CPP_PLAYTRACKER: bool = False
+_CPP_PLAYTRACKER: bool = True
+# _CPP_PLAYTRACKER: bool = False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -503,7 +503,7 @@ class PlayTracker(torch.nn.Module):
 
                 cluster_boxes_map = {}
                 for cc in cluster_counts:
-                    cluster_boxes_map[cc] = cluster_enclosing_box
+                    cluster_boxes_map[cc] = clamp_box(cluster_enclosing_box, self._play_box)
                 cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
                 fast_roi_bounding_box = from_bbox(playtracker_results.tracking_boxes[0])
                 current_box = from_bbox(playtracker_results.tracking_boxes[-1])
@@ -512,18 +512,18 @@ class PlayTracker(torch.nn.Module):
 
                 if self._args.plot_moving_boxes:
                     # Fast
-                    online_im = PyLivingBox.draw(
-                        live_box=self._play_tracker.get_live_box(0),
+                    online_im = PyLivingBox.draw_impl(
+                        live_box=self._playtracker.get_live_box(0),
                         img=online_im,
                         color=(255, 128, 64),
                         thickness=5,
                     )
                     # Following
                     online_im = PyLivingBox.draw_impl(
-                        live_box=self._play_tracker.get_live_box(1),
+                        live_box=self._playtracker.get_live_box(1),
                         img=online_im,
                         draw_thresholds=True,
-                        following_box=self._play_tracker.get_live_box(0),
+                        following_box=self._playtracker.get_live_box(0),
                         color=(255, 0, 255),
                         thickness=5,
                     )

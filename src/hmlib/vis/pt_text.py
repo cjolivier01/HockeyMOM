@@ -195,7 +195,7 @@ def draw_text(
             base_w = image.shape[-1]
             base_h = image.shape[-2]
             letter_w = letter_img.shape[-1]
-            letter_h = letter_img.shape[-1]
+            letter_h = letter_img.shape[-2]
             if x + letter_w > base_w or y + letter_h > base_h:
                 # Going off the edge of the image
                 break
