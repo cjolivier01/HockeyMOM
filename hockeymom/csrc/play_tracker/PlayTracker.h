@@ -26,6 +26,9 @@ struct PlayTrackerResults {
 };
 
 class PlayTracker : public IBreakawayAdjuster {
+
+  using Velocity = PointDiff;
+
  public:
   PlayTracker(const BBox& initial_box, const PlayTrackerConfig& config);
   virtual ~PlayTracker() = default;

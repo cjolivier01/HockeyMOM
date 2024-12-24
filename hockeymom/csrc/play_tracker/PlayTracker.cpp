@@ -2,12 +2,16 @@
 #include "hockeymom/csrc//kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
+#include <stdexcept>
 #include <unordered_set>
 
 namespace hm {
 namespace play_tracker {
 
 namespace {
+
+using Velocity = PointDiff;
+
 std::vector<size_t> get_largest_cluster_item_indexes(
     const std::vector<float> points,
     size_t num_clusters,
@@ -56,6 +60,55 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
 
   return BBox{minTop, minLeft, maxBottom, maxRight};
 }
+
+// Helper function to compute the magnitude of a velocity
+// Helper function to compute the magnitude of a velocity
+double compute_magnitude(const Velocity& velocity) {
+  return std::sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy);
+}
+
+// Function to compute the average velocity of the top N fastest-moving
+// velocities with the same dx sign
+Velocity average_velocity_of_fastest_n_in_same_x_direction(
+    const std::vector<Velocity>& velocities,
+    int n) {
+  if (n <= 0) {
+    throw std::invalid_argument("n must be greater than 0.");
+  }
+
+  // Filter velocities with the same sign of dx (use the sign of the first
+  // velocity's dx as the reference)
+  std::vector<Velocity> filtered_velocities;
+  bool is_positive = velocities[0].dx > 0; // Assume the sign of dx to filter by
+  for (const auto& velocity : velocities) {
+    if ((is_positive && velocity.dx > 0) || (!is_positive && velocity.dx < 0)) {
+      filtered_velocities.push_back(velocity);
+    }
+  }
+
+  if (filtered_velocities.size() < static_cast<size_t>(n)) {
+    throw std::invalid_argument(
+        "Not enough velocities with the same dx sign to compute the average.");
+  }
+
+  // Sort filtered velocities by magnitude in descending order
+  std::sort(
+      filtered_velocities.begin(),
+      filtered_velocities.end(),
+      [](const Velocity& a, const Velocity& b) {
+        return compute_magnitude(a) > compute_magnitude(b);
+      });
+
+  // Compute the average dx and dy for the top n velocities
+  double total_dx = 0.0, total_dy = 0.0;
+  for (int i = 0; i < n; ++i) {
+    total_dx += filtered_velocities[i].dx;
+    total_dy += filtered_velocities[i].dy;
+  }
+
+  return {.dx = float(total_dx / n), .dy = float(total_dy / n)};
+}
+
 } // namespace
 
 PlayTracker::PlayTracker(
