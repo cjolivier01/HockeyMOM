@@ -3,10 +3,9 @@
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/PlayerSTrack.h"
 
-#include <cassert>
+#include <set>
 #include <unordered_map>
 #include <vector>
-#include <set>
 
 namespace hm {
 namespace play_tracker {
