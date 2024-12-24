@@ -113,6 +113,10 @@ struct BBox {
   Point center() const {
     return Point{.x = (left + right) / 2, .y = (top + bottom) / 2};
   }
+  // Anchor point is bottom center atm
+  Point anchor_point() const {
+    return Point{.x = (left + right) / 2, .y = bottom};
+  }
   BBox make_scaled(FloatValue scale_width, FloatValue scale_height) const {
     return BBox(
         center(),
@@ -206,6 +210,10 @@ inline PointDiff operator+(const PointDiff& lhs, const PointDiff& rhs) {
 
 inline PointDiff operator-(const PointDiff& lhs, const PointDiff& rhs) {
   return PointDiff{.dx = lhs.dx - rhs.dx, .dy = lhs.dy - rhs.dy};
+}
+
+inline PointDiff operator*(const PointDiff& lhs, float scalar) {
+  return PointDiff{.dx = lhs.dx * scalar, .dy = lhs.dy * scalar};
 }
 
 inline PointDiff operator/(const PointDiff& lhs, float scalar) {

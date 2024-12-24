@@ -19,7 +19,10 @@ PlayerSTrack::PlayerSTrack(
   assert(max_velocity_positions_ <= max_positions_);
 }
 
-void PlayerSTrack::add_position(size_t frame_id, const Point& position) {
+void PlayerSTrack::add_position(
+    size_t frame_id,
+    const Point& position,
+    const Point& center) {
   // If it was a lost frame, start everything over
   if (last_frame_id_ + frame_step_ != frame_id) {
     reset();
@@ -33,6 +36,7 @@ void PlayerSTrack::add_position(size_t frame_id, const Point& position) {
   }
   if (positions_.size() >= max_positions_) {
     positions_.pop_front();
+    centers_.pop_front();
   }
   if (!positions_.empty()) {
     auto last_position = positions_.back();
@@ -42,6 +46,7 @@ void PlayerSTrack::add_position(size_t frame_id, const Point& position) {
     sum_position_diffs_ = sum_position_diffs_ + position_diff;
   }
   positions_.push_back(position);
+  centers_.push_back(center);
   last_frame_id_ = frame_id;
 }
 
@@ -53,6 +58,7 @@ size_t PlayerSTrack::age(size_t frame_id) const {
 void PlayerSTrack::reset() {
   sum_position_diffs_ = PointDiff{0.0f, 0.0f};
   positions_.clear();
+  centers_.clear();
   position_diffs_.clear();
 }
 

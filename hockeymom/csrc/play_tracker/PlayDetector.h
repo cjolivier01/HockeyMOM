@@ -21,6 +21,10 @@ struct PlayDetectorConfig {
   size_t max_velocity_positions{10};
   size_t frame_step{1};
 
+  // Different fps have different speed scaling
+  // Default is 1.0 for 29.97 fps (~30fps)
+  float fps_speed_scale{1.0};
+
   // Breakaway detection
   // Group velocities less than this are ignored
   float min_considered_group_velocity = 3.0;
@@ -79,7 +83,18 @@ class PlayDetector {
       std::vector<BBox>& tracking_boxes,
       const std::set<size_t>& disregard_tracking_ids);
 
-  void detect_breakaway();
+  // Function to compute the average velocity of the top N fastest-moving
+  // velocities with the same dx sign
+  struct GroupMovementInfo {
+    Velocity group_velocity{0.0, 0.0};
+    Point leftmost_center;
+    Point rightmost_center;
+  };
+
+  std::optional<GroupMovementInfo> get_group_velocity(
+      const std::unordered_map<size_t, Velocity>& track_velocities);
+
+  void detect_breakaway(const TrackStateInfo& track_state_info);
 
   using TrackingMap = std::unordered_map</*tracking_id=*/size_t, PlayerSTrack>;
 

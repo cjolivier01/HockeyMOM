@@ -980,6 +980,7 @@ void init_play_tracker(::pybind11::module_& m) {
 
   py::class_<PlayDetectorConfig>(m, "PlayDetectorConfig")
       .def(py::init<>())
+      .def_readwrite("fps_speed_scale", &PlayDetectorConfig::fps_speed_scale)
       .def_readwrite("max_positions", &PlayDetectorConfig::max_positions)
       .def_readwrite(
           "max_velocity_positions", &PlayDetectorConfig::max_velocity_positions)
