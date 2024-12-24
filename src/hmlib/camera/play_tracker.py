@@ -41,8 +41,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-_CPP_PLAYTRACKER: bool = True
-# _CPP_PLAYTRACKER: bool = False
+# _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
+_CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -438,6 +438,7 @@ class PlayTracker(torch.nn.Module):
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
             online_ids = video_data_sample.pred_track_instances.instances_id
+
             if True:
                 # goes a few fps faster when async if this is on CPU
                 frame_id = frame_id.cpu()
@@ -461,7 +462,7 @@ class PlayTracker(torch.nn.Module):
 
             vis_ignored_tracking_ids: Union[Set[int], None] = None
 
-            if True and self._playtracker is not None:
+            if self._playtracker is not None:
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
                 playtracker_results = self._playtracker.forward(
                     online_ids.cpu().tolist(), online_bboxes

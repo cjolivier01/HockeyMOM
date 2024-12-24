@@ -51,6 +51,8 @@ struct PlayDetectorResults {
 };
 
 class PlayDetector {
+  using Velocity = PointDiff;
+
  public:
   PlayDetector(const PlayDetectorConfig& config, IBreakawayAdjuster* adjuster);
 
@@ -65,6 +67,19 @@ class PlayDetector {
  private:
   const PlayDetectorConfig config_;
   IBreakawayAdjuster* adjuster_;
+
+  struct TrackStateInfo {
+    std::unordered_map<size_t, Velocity> track_velocity;
+    Velocity cumulative_velocity;
+  };
+
+  TrackStateInfo update_tracks(
+      size_t frame_id,
+      std::vector<size_t>& tracking_ids,
+      std::vector<BBox>& tracking_boxes,
+      const std::set<size_t>& disregard_tracking_ids);
+
+  void detect_breakaway();
 
   using TrackingMap = std::unordered_map</*tracking_id=*/size_t, PlayerSTrack>;
 

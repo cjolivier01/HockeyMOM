@@ -70,20 +70,14 @@ void PlayDetector::reset() {
   tracks_.clear();
 }
 
-PlayDetectorResults PlayDetector::forward(
+PlayDetector::TrackStateInfo PlayDetector::update_tracks(
     size_t frame_id,
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes,
     const std::set<size_t>& disregard_tracking_ids) {
-  PlayDetectorResults result;
-  assert(tracking_ids.size() == tracking_boxes.size());
+  TrackStateInfo ts_info;
+  ts_info.track_velocity.reserve(tracking_ids.size());
 
-  PointDiff cumulative_velocity{.dx = 0.0, .dy = 0.0};
-  std::vector<Velocity> velocities;
-
-  //
-  // Update the tracks
-  //
   for (size_t i = 0, n = tracking_ids.size(); i < n; ++i) {
     const size_t track_id = tracking_ids[i];
     const BBox& bbox = tracking_boxes.at(i);
@@ -100,12 +94,14 @@ PlayDetectorResults PlayDetector::forward(
     }
     PlayerSTrack& track = found_track->second;
     track.add_position(frame_id, tracking_boxes.at(i).center());
+    auto track_velocity = track.velocity();
+    ts_info.track_velocity.emplace(track_id, track_velocity);
     if (!disregard_tracking_ids.count(track_id)) {
-      auto track_velocity = track.velocity();
-      velocities.emplace_back(track_velocity);
-      cumulative_velocity = cumulative_velocity + track_velocity;
+      ts_info.cumulative_velocity =
+          ts_info.cumulative_velocity + track_velocity;
     }
   }
+
   //
   // Dump any lost, stale tracks
   //
@@ -122,6 +118,28 @@ PlayDetectorResults PlayDetector::forward(
   std::for_each(remove_tracks.begin(), remove_tracks.end(), [this](auto& iter) {
     tracks_.erase(iter);
   });
+
+  return ts_info;
+}
+
+//
+// Update the tracks
+//
+void PlayDetector::detect_breakaway() {}
+
+PlayDetectorResults PlayDetector::forward(
+    size_t frame_id,
+    std::vector<size_t>& tracking_ids,
+    std::vector<BBox>& tracking_boxes,
+    const std::set<size_t>& disregard_tracking_ids) {
+  PlayDetectorResults result;
+  assert(tracking_ids.size() == tracking_boxes.size());
+
+  //
+  // Update the tracks
+  //
+  TrackStateInfo track_info = update_tracks(
+      frame_id, tracking_ids, tracking_boxes, disregard_tracking_ids);
 
   //
   // Ok, now analyze what's going on...
