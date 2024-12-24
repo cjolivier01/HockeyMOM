@@ -61,7 +61,7 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
 PlayTracker::PlayTracker(
     const BBox& initial_box,
     const PlayTrackerConfig& config)
-    : config_(config) {
+    : config_(config), play_detector_(PlayDetectorConfig(), this) {
   create_boxes(initial_box);
 }
 
@@ -113,14 +113,7 @@ PlayTrackerResults PlayTracker::forward(
     std::vector<BBox>& tracking_boxes) {
   assert(tracking_ids.size() == living_boxes_.size());
 
-  //
-  // Update the tracks
-  //
-  for (size_t i = 0, n = tracking_ids.size(); i < n; ++i) {
-    const size_t tracking_id = tracking_ids[i];
-    const BBox& bbox = tracking_boxes.at(i);
-
-  }
+  play_detector_.forward(tick_count_, tracking_ids, tracking_boxes);
 
   //
   // Compute the next box

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
-#include "hockeymom/csrc/play_tracker/PlayerTrack.h"
+#include "hockeymom/csrc/play_tracker/PlayDetector.h"
 
 #include <array>
 #include <memory>
@@ -25,7 +25,7 @@ struct PlayTrackerResults {
   BBox tracking_box;
 };
 
-class PlayTracker {
+class PlayTracker : public IBreakawayAdjuster {
  public:
   PlayTracker(const BBox& initial_box, const PlayTrackerConfig& config);
   virtual ~PlayTracker() = default;
@@ -37,6 +37,14 @@ class PlayTracker {
  private:
   void create_boxes(const BBox& initial_box);
   BBox get_cluster_box(const std::vector<BBox>& tracking_boxes) const;
+
+  // BEGIN IBreakawayAdjuster
+
+  // END IBreakawayAdjuster
+
+  //
+  // DATA
+  //
 
   // Config
   const PlayTrackerConfig config_;
@@ -51,6 +59,8 @@ class PlayTracker {
   // Just keep track of the number of iterations
   size_t tick_count_{0};
 
+  // Should be close to last since it has a pointer to this class
+  PlayDetector play_detector_;
 };
 
 } // namespace play_tracker
