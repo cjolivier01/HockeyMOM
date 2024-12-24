@@ -966,15 +966,29 @@ void init_play_tracker(::pybind11::module_& m) {
       py::arg("num_iterations") = 6,
       py::call_guard<py::gil_scoped_release>());
 
+  /**
+   *  _____  _               _______              _
+   * |  __ \| |             |__   __|            | |
+   * | |__) | | __ _ _   _     | |_ __  __ _  ___| | __ ___  _ __
+   * |  ___/| |/ _` | | | |    | | '__|/ _` |/ __| |/ // _ \| '__|
+   * | |    | | (_| | |_| |    | | |  | (_| | (__|   <|  __/| |
+   * |_|    |_|\__,_|\__, |    |_|_|   \__,_|\___|_|\_\\___||_|
+   *                  __/ |
+   *                 |___/
+   */
   py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
       .def(py::init<>())
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes)
       .def_readwrite(
           "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox);
 
+  py::class_<PlayDetectorResult>(m, "PlayDetectorResult").def(py::init<>());
+
   py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
       .def(py::init<>())
-      .def_readwrite("tracking_box", &PlayTrackerResults::tracking_box);
+      .def_readonly("cluster_boxes", &PlayTrackerResults::cluster_boxes)
+      .def_readonly("tracking_boxes", &PlayTrackerResults::tracking_boxes)
+      .def_readonly("play_detection", &PlayTrackerResults::play_detection);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(

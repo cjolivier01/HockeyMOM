@@ -20,11 +20,15 @@ struct PlayDetectorConfig {
   size_t frame_step{1};
 };
 
+struct PlayDetectorResult {
+
+};
+
 class PlayDetector {
  public:
   PlayDetector(const PlayDetectorConfig& config, IBreakawayAdjuster* adjuster);
 
-  void forward(
+  PlayDetectorResult forward(
       size_t frame_id,
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes,

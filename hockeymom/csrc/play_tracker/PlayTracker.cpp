@@ -163,6 +163,8 @@ PlayTrackerResults PlayTracker::forward(
     std::vector<BBox>& tracking_boxes) {
   assert(tracking_ids.size() == tracking_boxes.size());
 
+  PlayTrackerResults results;
+
   std::set<size_t> ignore_tracking_ids;
   std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
       prune_results;
@@ -184,13 +186,14 @@ PlayTrackerResults PlayTracker::forward(
   //
   // Compute the next box
   //
-  BBox cluster_box = get_cluster_box(*p_cluster_bboxes);
-  PlayTrackerResults results;
+  BBox current_box = get_cluster_box(*p_cluster_bboxes);
+  results.cluster_boxes.emplace_back(current_box);
+
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
-    cluster_box = living_box->forward(cluster_box);
+    current_box = living_box->forward(current_box);
+    results.tracking_boxes.emplace_back(current_box);
   }
-  results.tracking_box = cluster_box;
   ++tick_count_;
   return results;
 }

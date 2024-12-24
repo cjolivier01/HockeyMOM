@@ -23,7 +23,9 @@ struct PlayTrackerState {
 };
 
 struct PlayTrackerResults {
-  BBox tracking_box;
+  std::vector<BBox> cluster_boxes;
+  std::vector<BBox> tracking_boxes;
+  PlayDetectorResult play_detection;
 };
 
 class PlayTracker : public IBreakawayAdjuster {
