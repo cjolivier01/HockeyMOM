@@ -8,9 +8,11 @@
 namespace hm {
 namespace play_tracker {
 
-class PlayerTrack {
+class PlayerSTrack {
+  static inline constexpr size_t kMinPositionDiffsToCalculateVelocity = 2;
+
  public:
-  PlayerTrack(
+  PlayerSTrack(
       size_t max_positions,
       size_t max_velocity_positions,
       size_t frame_step = 1)
@@ -25,14 +27,14 @@ class PlayerTrack {
     if (last_frame_id_ + frame_step_ != frame_id) {
       reset();
     } else {
-      assert(!frame_id || frame_id - frame_step_ > last_frame_id_);
+      assert(!frame_id || frame_id - frame_step_ == last_frame_id_);
     }
 
     if (positions_.size() >= max_velocity_positions_) {
+      // TODO: is this correct?
       sum_position_diffs_ = sum_position_diffs_ - position_diffs_.front();
     }
     if (positions_.size() >= max_positions_) {
-      position_diffs_.pop_front();
       positions_.pop_front();
     }
     if (!positions_.empty()) {
@@ -58,12 +60,12 @@ class PlayerTrack {
   }
 
   PointDiff velocity() const {
-    if (positions_.size() < 2) {
+    if (position_diffs_.size() < kMinPositionDiffsToCalculateVelocity) {
       return PointDiff{0.0f, 0.0f};
     }
+    assert(position_diffs_.size() <= max_velocity_positions_);
     // We only calculate velocity for the last max_velocity_positions_
-    const size_t velocity_count =
-        std::min(positions_.size() - 1, max_velocity_positions_);
+    const float velocity_count = position_diffs_.size();
     return PointDiff{
         .dx = sum_position_diffs_.dx / velocity_count,
         .dy = sum_position_diffs_.dy / velocity_count};

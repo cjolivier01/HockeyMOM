@@ -91,13 +91,13 @@ void PlayDetector::forward(
       found_track = tracks_
                         .emplace(
                             track_id,
-                            PlayerTrack(
+                            PlayerSTrack(
                                 config_.max_positions,
                                 config_.max_velocity_positions,
                                 config_.frame_step))
                         .first;
     }
-    PlayerTrack& track = found_track->second;
+    PlayerSTrack& track = found_track->second;
     track.add_position(frame_id, tracking_boxes.at(i).center());
     if (!disregard_tracking_ids.count(track_id)) {
       auto track_velocity = track.velocity();

@@ -19,7 +19,7 @@ struct PlayTrackerConfig {
 };
 
 struct PlayTrackerState {
-  std::unordered_map<size_t /*track_id*/, PlayerTrack> player_tracks;
+  std::unordered_map<size_t /*track_id*/, PlayerSTrack> player_tracks;
 };
 
 struct PlayTrackerResults {

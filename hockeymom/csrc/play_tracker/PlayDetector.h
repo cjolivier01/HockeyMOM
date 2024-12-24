@@ -1,7 +1,7 @@
 #pragma once
 
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
-#include "hockeymom/csrc/play_tracker/PlayerTrack.h"
+#include "hockeymom/csrc/play_tracker/PlayerSTrack.h"
 
 #include <cassert>
 #include <unordered_map>
@@ -37,7 +37,7 @@ class PlayDetector {
   const PlayDetectorConfig config_;
   IBreakawayAdjuster* adjuster_;
 
-  using TrackingMap = std::unordered_map</*tracking_id=*/size_t, PlayerTrack>;
+  using TrackingMap = std::unordered_map</*tracking_id=*/size_t, PlayerSTrack>;
 
   TrackingMap tracks_;
 };

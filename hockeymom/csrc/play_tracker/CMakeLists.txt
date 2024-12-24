@@ -1,6 +1,6 @@
 set(SOURCES 
   ResizingBox.cpp
-  PlayerTrack.cpp
+  PlayerSTrack.cpp
   PlayTracker.cpp
   PlayDetector.cpp 
   TranslatingBox.cpp
@@ -10,7 +10,7 @@ set(SOURCES
 )
 set(HEADERS
   LivingBox.h
-  PlayerTrack.h
+  PlayerSTrack.h
   PlayTracker.h
   PlayDetector.h
   LivingBoxImpl.h 
