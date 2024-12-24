@@ -65,6 +65,10 @@ void PlayDetector::forward(
   std::for_each(remove_tracks.begin(), remove_tracks.end(), [this](auto& iter) {
     tracks_.erase(iter);
   });
+
+  //
+  // Ok, now analyze what's going on...
+  //
 }
 
 } // namespace play_tracker
