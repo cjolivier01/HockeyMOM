@@ -309,7 +309,9 @@ def draw_line(
     image_region = image[:, y_min:y_max, x_min:x_max]
 
     # Clone the image to avoid in-place modifications
-    image = image.clone()
+    if False:
+        # Why is this necessary?
+        image = image.clone()
 
     # Modify the region in the image
     image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, image_region)

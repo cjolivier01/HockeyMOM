@@ -240,14 +240,13 @@ def plot_line(
     color: Tuple[int, int, int],
     thickness: int,
 ) -> np.ndarray:
-    my_draw_line(
+    return my_draw_line(
         img,
         _to_int(src_point),
         _to_int(dest_point),
         color=normalize_color(img, color),
         thickness=thickness,
     )
-    return img
 
 
 def plot_point(
