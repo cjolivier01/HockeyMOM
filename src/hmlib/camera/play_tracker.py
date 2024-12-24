@@ -53,40 +53,6 @@ def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     return tlwhs
 
 
-# def prune_by_inclusion_box(online_tlwhs, online_ids, inclusion_box, boundaries):
-#     if len(online_tlwhs) == 0:
-#         # online_ids should also be empty
-#         assert len(online_ids) == 0
-#         # nothing
-#         return online_tlwhs, online_ids
-#     if inclusion_box is None and boundaries is None:
-#         return online_tlwhs, online_ids
-#     filtered_online_tlwh = []
-#     filtered_online_ids = []
-#     online_tlwhs_centers = tlwh_centers(tlwhs=online_tlwhs)
-#     for i, this_center in enumerate(online_tlwhs_centers):
-#         if inclusion_box is not None:
-#             if inclusion_box[0] and this_center[0] < inclusion_box[0]:
-#                 continue
-#             elif inclusion_box[2] and this_center[0] > inclusion_box[2]:
-#                 continue
-#             elif inclusion_box[1] and this_center[1] < inclusion_box[1]:
-#                 continue
-#             elif inclusion_box[3] and this_center[1] > inclusion_box[3]:
-#                 continue
-#         if boundaries is not None:
-#             # TODO: boundaries could be done with the box edges
-#             if boundaries.is_point_outside(this_center):
-#                 # logger.info(f"ignoring: {this_center}")
-#                 continue
-#         filtered_online_tlwh.append(online_tlwhs[i])
-#         filtered_online_ids.append(online_ids[i])
-#     if len(filtered_online_tlwh) == 0:
-#         assert len(filtered_online_ids) == 0
-#         return [], []
-#     return torch.stack(filtered_online_tlwh), torch.stack(filtered_online_ids)
-
-
 class BreakawayDetection:
     def __init__(self, config: dict):
         breakaway_detection = get_nested_value(config, "rink.camera.breakaway_detection", None)
