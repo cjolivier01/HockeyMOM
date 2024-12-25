@@ -54,7 +54,21 @@ struct ILivingBox : virtual public IBasicLivingBox {
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;
   virtual BBox forward(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;
-  virtual std::optional<BBox > get_arena_box() const = 0;
+  virtual std::optional<BBox> get_arena_box() const = 0;
+
+  virtual void adjust_speed(
+      std::optional<FloatValue> accel_x,
+      std::optional<FloatValue> accel_y,
+      std::optional<FloatValue> scale_constraints,
+      std::optional<IntValue> nonstop_delay) = 0;
+
+  /**
+   * Scale the current speed by the given ratio
+   */
+  virtual void scale_speed(
+      std::optional<FloatValue> ratio_x,
+      std::optional<FloatValue> ratio_y,
+      bool clamp_to_max = false) = 0;
 };
 
 /* clang-format off */
@@ -160,4 +174,3 @@ class BoundingBox : virtual public IBasicLivingBox {
 
 } // namespace play_tracker
 } // namespace hm
-

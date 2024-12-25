@@ -202,12 +202,27 @@ std::optional<BBox> PlayDetector::detect_breakaway(
     new_dest_bbox = current_target_bbox.at_center(edge_center);
   }
 
-  // Maybe adjust some speeds
-  const bool should_adjust_speed = (group_info->group_velocity.dx > 0 &&
-                                    current_roi_center.x < edge_center.x) ||
-      (group_info->group_velocity.dx < 0 &&
-       current_roi_center.x > edge_center.x);
-
+  if (adjuster_) {
+    // Maybe adjust some speeds
+    const bool should_adjust_speed = (group_info->group_velocity.dx > 0 &&
+                                      current_roi_center.x < edge_center.x) ||
+        (group_info->group_velocity.dx < 0 &&
+         current_roi_center.x > edge_center.x);
+    if (should_adjust_speed) {
+      adjuster_->adjust_speed(
+          /*accel_x=*/group_info->group_velocity.dx *
+              config_.group_velocity_speed_ratio,
+          /*accel_y=*/std::nullopt,
+          /*scale_constraints=*/config_.scale_speed_constraints,
+          /*nonstop_delay=*/config_.nonstop_delay_count);
+    } else {
+      // Cut the speed quickly due to overshoot
+      adjuster_->scale_speed(
+          /*ratio_x=*/config_.overshoot_scale_speed_ratio,
+          /*ratio_y=*/std::nullopt,
+          /*clamp_to_max=*/false);
+    }
+  }
   return new_dest_bbox;
 }
 

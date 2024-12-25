@@ -15,8 +15,7 @@ struct LivingState {
 class LivingBox : public ILivingBox,
                   public BoundingBox,
                   public ResizingBox,
-                  public TranslatingBox 
-                  {
+                  public TranslatingBox {
  public:
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config);
 
@@ -27,7 +26,7 @@ class LivingBox : public ILivingBox,
   void set_dest(std::shared_ptr<IBasicLivingBox>) override {}
   void set_dest_ex(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>&
                        dest) override {}
-  std::optional<BBox > get_arena_box() const override;
+  std::optional<BBox> get_arena_box() const override;
   // ILivingBox-
 
   WHDims get_size_scale() const;
@@ -43,10 +42,32 @@ class LivingBox : public ILivingBox,
   BBox forward(const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
       override;
 
-  const std::string& name() const override { return label_; }
+  const std::string& name() const override {
+    return label_;
+  }
 
-  const LivingBoxConfig& config() const { return config_; }
-  const LivingState& state() const { return state_; }
+  const LivingBoxConfig& config() const {
+    return config_;
+  }
+  const LivingState& state() const {
+    return state_;
+  }
+
+  void adjust_speed(
+      std::optional<FloatValue> accel_x,
+      std::optional<FloatValue> accel_y,
+      std::optional<FloatValue> scale_constraints,
+      std::optional<IntValue> nonstop_delay) override {
+    TranslatingBox::adjust_speed(
+        accel_x, accel_y, scale_constraints, nonstop_delay);
+  }
+
+  void scale_speed(
+      std::optional<FloatValue> ratio_x,
+      std::optional<FloatValue> ratio_y,
+      bool clamp_to_max = false) override {
+    TranslatingBox::scale_speed(ratio_x, ratio_y, clamp_to_max);
+  }
 
  protected:
   BBox next_position();

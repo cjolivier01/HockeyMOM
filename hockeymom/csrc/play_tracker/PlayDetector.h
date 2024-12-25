@@ -13,6 +13,20 @@ namespace play_tracker {
 
 struct IBreakawayAdjuster {
   virtual ~IBreakawayAdjuster() = default;
+
+  virtual void adjust_speed(
+      std::optional<FloatValue> accel_x,
+      std::optional<FloatValue> accel_y,
+      std::optional<FloatValue> scale_constraints,
+      std::optional<IntValue> nonstop_delay) = 0;
+
+  /**
+   * Scale the current speed by the given ratio
+   */
+  virtual void scale_speed(
+      std::optional<FloatValue> ratio_x,
+      std::optional<FloatValue> ratio_y,
+      bool clamp_to_max = false) = 0;
 };
 
 struct PlayDetectorConfig {

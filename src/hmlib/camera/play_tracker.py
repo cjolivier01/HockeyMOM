@@ -229,6 +229,7 @@ class PlayTracker(torch.nn.Module):
             # current_roi_aspect_config.thickness = 5
 
             if not self._cpp_playtracker:
+                self._breakaway_detection = BreakawayDetection(args.game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
                 #
@@ -809,11 +810,6 @@ class PlayTracker(torch.nn.Module):
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,
                         nonstop_delay=self._breakaway_detection.nonstop_delay_count,
-                        # nonstop_delay=torch.tensor(
-                        #     self._breakaway_detection.nonstop_delay_count,
-                        #     dtype=torch.int64,
-                        #     device=self._device,
-                        # ),
                     )
                 else:
                     # Cut the speed quickly due to overshoot

@@ -34,7 +34,6 @@ struct PlayTrackerResults {
 };
 
 class PlayTracker : public IBreakawayAdjuster {
-
   using Velocity = PointDiff;
 
   struct ClusterBoxes {
@@ -49,7 +48,7 @@ class PlayTracker : public IBreakawayAdjuster {
   PlayTrackerResults forward(
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes);
-  
+
   void set_bboxes(const std::vector<BBox>& bboxes);
   // TODO: this can be done via living box's get_size_scale()
   void set_bboxes_scaled(BBox bbox, float scale_step);
@@ -63,7 +62,21 @@ class PlayTracker : public IBreakawayAdjuster {
   BBox get_play_box() const;
 
   // BEGIN IBreakawayAdjuster
+  void adjust_speed(
+      std::optional<FloatValue> accel_x,
+      std::optional<FloatValue> accel_y,
+      std::optional<FloatValue> scale_constraints,
+      std::optional<IntValue> nonstop_delay) override {
+    living_boxes_.at(0)->adjust_speed(
+        accel_x, accel_y, scale_constraints, nonstop_delay);
+  }
 
+  void scale_speed(
+      std::optional<FloatValue> ratio_x,
+      std::optional<FloatValue> ratio_y,
+      bool clamp_to_max = false) override {
+    living_boxes_.at(0)->scale_speed(ratio_x, ratio_y, clamp_to_max);
+  }
   // END IBreakawayAdjuster
 
   //
