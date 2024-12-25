@@ -166,13 +166,16 @@ PlayDetectorResults PlayDetector::forward(
   //
   // Ok, now analyze what's going on...
   //
-  result.breakaway_target_bbox = detect_breakaway(
+  auto br_result = detect_breakaway(
       current_target_bbox, current_roi_center, track_state_info);
-
+  if (br_result.has_value()) {
+    result.breakaway_target_bbox = std::get<0>(*br_result);
+    result.breakaway_edge_center = std::get<1>(*br_result);
+  }
   return result;
 }
 
-std::optional<BBox> PlayDetector::detect_breakaway(
+std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
     const BBox& current_target_bbox,
     const Point& current_roi_center,
     const TrackStateInfo& track_state_info,
@@ -223,7 +226,7 @@ std::optional<BBox> PlayDetector::detect_breakaway(
           /*clamp_to_max=*/false);
     }
   }
-  return new_dest_bbox;
+  return std::make_tuple(new_dest_bbox, edge_center);
 }
 
 std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(

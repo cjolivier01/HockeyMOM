@@ -111,7 +111,7 @@ class PlayDetector {
   std::optional<GroupMovementInfo> get_group_velocity(
       const std::unordered_map<size_t, Velocity>& track_velocities);
 
-  std::optional<BBox> detect_breakaway(
+  std::optional<std::tuple<BBox, Point>> detect_breakaway(
       const BBox& current_box,
       const Point& current_roi_center,
       const TrackStateInfo& track_state_info,

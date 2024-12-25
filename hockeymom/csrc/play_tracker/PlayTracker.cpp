@@ -234,15 +234,16 @@ PlayTrackerResults PlayTracker::forward(
   assert(!results.final_cluster_box.empty()); // TODO: need arena size
   BBox current_box = results.final_cluster_box;
 
-  PlayDetectorResults play_detector_result = play_detector_.forward(
+  results.play_detection = play_detector_.forward(
       /*frame_id=*/tick_count_,
       /*current_target_bbox=*/current_box,
       /*current_roi_center=*/get_live_box(0)->bounding_box().center(),
       tracking_ids,
       tracking_boxes,
       ignore_tracking_ids);
-  if (play_detector_result.breakaway_target_bbox.has_value()) {
-    current_box = *play_detector_result.breakaway_target_bbox;
+
+  if (results.play_detection->breakaway_target_bbox.has_value()) {
+    current_box = *results.play_detection->breakaway_target_bbox;
   }
 
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
