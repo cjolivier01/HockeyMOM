@@ -150,7 +150,7 @@ PlayDetector::TrackStateInfo PlayDetector::update_tracks(
 PlayDetectorResults PlayDetector::forward(
     size_t frame_id,
     const BBox& current_target_bbox,
-    const BBox& current_roi_bbox,
+    const Point& current_roi_center,
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes,
     const std::set<size_t>& disregard_tracking_ids) {
@@ -166,14 +166,15 @@ PlayDetectorResults PlayDetector::forward(
   //
   // Ok, now analyze what's going on...
   //
-  result.breakaway_target_bbox =
-      detect_breakaway(current_target_bbox, track_state_info);
+  result.breakaway_target_bbox = detect_breakaway(
+      current_target_bbox, current_roi_center, track_state_info);
 
   return result;
 }
 
 std::optional<BBox> PlayDetector::detect_breakaway(
     const BBox& current_target_bbox,
+    const Point& current_roi_center,
     const TrackStateInfo& track_state_info,
     bool average_boxes) {
   if (track_state_info.track_velocity.size() <
@@ -202,6 +203,10 @@ std::optional<BBox> PlayDetector::detect_breakaway(
   }
 
   // Maybe adjust some speeds
+  const bool should_adjust_speed = (group_info->group_velocity.dx > 0 &&
+                                    current_roi_center.x < edge_center.x) ||
+      (group_info->group_velocity.dx < 0 &&
+       current_roi_center.x > edge_center.x);
 
   return new_dest_bbox;
 }

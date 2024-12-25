@@ -64,7 +64,7 @@ class PlayDetector {
   PlayDetectorResults forward(
       size_t frame_id,
       const BBox& current_target_bbox,
-      const BBox& current_roi_bbox,
+      const Point& current_roi_center,
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes,
       const std::set<size_t>& disregard_tracking_ids);
@@ -99,6 +99,7 @@ class PlayDetector {
 
   std::optional<BBox> detect_breakaway(
       const BBox& current_box,
+      const Point& current_roi_center,
       const TrackStateInfo& track_state_info,
       bool average_boxes = true);
 
