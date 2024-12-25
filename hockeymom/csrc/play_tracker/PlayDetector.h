@@ -63,7 +63,8 @@ class PlayDetector {
 
   PlayDetectorResults forward(
       size_t frame_id,
-      const BBox& current_box,
+      const BBox& current_target_bbox,
+      const BBox& current_roi_bbox,
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes,
       const std::set<size_t>& disregard_tracking_ids);

@@ -235,8 +235,9 @@ PlayTrackerResults PlayTracker::forward(
   BBox current_box = results.final_cluster_box;
 
   PlayDetectorResults play_detector_result = play_detector_.forward(
-      tick_count_,
-      current_box,
+      /*frame_id=*/tick_count_,
+      /*current_target_bbox=*/current_box,
+      /*current_roi_bbox=*/get_live_box(0)->bounding_box(),
       tracking_ids,
       tracking_boxes,
       ignore_tracking_ids);
