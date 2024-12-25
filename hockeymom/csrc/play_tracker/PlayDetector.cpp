@@ -1,10 +1,9 @@
 
 #include "hockeymom/csrc/play_tracker/PlayDetector.h"
 
+#include <limits>
 #include <cassert>
-#include <iostream>
 #include <iterator>
-#include <set>
 
 namespace hm {
 namespace play_tracker {
@@ -189,7 +188,6 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
   if (!group_info.has_value()) {
     return std::nullopt;
   }
-  std::cout << "group velocity: " << group_info->group_velocity << std::endl;
   BBox new_dest_bbox;
   const Point edge_center = group_info->group_velocity.dx < 0
       ? group_info->leftmost_center
