@@ -149,6 +149,7 @@ PlayDetector::TrackStateInfo PlayDetector::update_tracks(
 
 PlayDetectorResults PlayDetector::forward(
     size_t frame_id,
+    const BBox& current_box,
     std::vector<size_t>& tracking_ids,
     std::vector<BBox>& tracking_boxes,
     const std::set<size_t>& disregard_tracking_ids) {
@@ -164,22 +165,41 @@ PlayDetectorResults PlayDetector::forward(
   //
   // Ok, now analyze what's going on...
   //
-  detect_breakaway(track_state_info);
+  result.breakaway_target_bbox =
+      detect_breakaway(current_box, track_state_info);
 
   return result;
 }
 
-void PlayDetector::detect_breakaway(const TrackStateInfo& track_state_info) {
+std::optional<BBox> PlayDetector::detect_breakaway(
+    const BBox& current_box,
+    const TrackStateInfo& track_state_info,
+    bool average_boxes) {
   if (track_state_info.track_velocity.size() <
       kMinPlayersForBreakawayDetection) {
-    return;
+    return std::nullopt;
   }
   std::optional<GroupMovementInfo> group_info =
       get_group_velocity(track_state_info.track_velocity);
   if (!group_info.has_value()) {
-    return;
+    return std::nullopt;
   }
   std::cout << "group velocity: " << group_info->group_velocity << std::endl;
+  BBox new_dest_bbox;
+  const Point edge_center = group_info->group_velocity.dx < 0
+      ? group_info->leftmost_center
+      : group_info->rightmost_center;
+  if (average_boxes) {
+    Point cb_center = current_box.center();
+    Point avg_center{
+        .x = float((double(cb_center.x) + edge_center.x) / 2.0f),
+        .y = float((double(cb_center.y) + edge_center.y) / 2.0f),
+    };
+    new_dest_bbox = current_box.at_center(avg_center);
+  } else {
+    new_dest_bbox = current_box.at_center(edge_center);
+  }
+  return new_dest_bbox;
 }
 
 std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(

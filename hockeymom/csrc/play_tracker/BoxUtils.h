@@ -130,6 +130,14 @@ struct BBox {
       FloatValue dbottom) const {
     return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
   }
+  BBox at_center(const Point& center) const {
+    double half_w = width() / 2.0, half_h = height() / 2.0;
+    return BBox(
+        center.x - half_w,
+        center.y - half_h,
+        center.x + half_w,
+        center.y + half_h);
+  }
   void validate() const {
 #ifndef NDEBUG
     assert(right >= left);
@@ -203,6 +211,22 @@ inline T clamp(const T& value, const T& min, const T& max) {
 inline bool different_directions(const FloatValue v1, const FloatValue v2) {
   return sign(v1) * sign(v2) < 0.0;
 }
+
+// inline Point operator+(const Point& lhs, const Point& rhs) {
+//   return Point{.x = lhs.x + rhs.x, .y = lhs.y + rhs.y};
+// }
+
+// inline Point operator-(const Point& lhs, const Point& rhs) {
+//   return Point{.x = lhs.x - rhs.x, .y = lhs.y - rhs.y};
+// }
+
+// inline Point operator*(const Point& lhs, float scalar) {
+//   return Point{.x = lhs.x * scalar, .y = lhs.y * scalar};
+// }
+
+// inline Point operator/(const Point& lhs, float scalar) {
+//   return Point{.x = lhs.x / scalar, .y = lhs.y / scalar};
+// }
 
 inline PointDiff operator+(const PointDiff& lhs, const PointDiff& rhs) {
   return PointDiff{.dx = lhs.dx + rhs.dx, .dy = lhs.dy + rhs.dy};

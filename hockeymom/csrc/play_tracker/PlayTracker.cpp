@@ -203,10 +203,6 @@ PlayTrackerResults PlayTracker::forward(
     }
   }
 
-  PlayDetectorResults play_detector_result = play_detector_.forward(
-      tick_count_, tracking_ids, tracking_boxes, ignore_tracking_ids);
-  (void)play_detector_result;
-
   //
   // Compute the next box
   //
@@ -235,9 +231,19 @@ PlayTrackerResults PlayTracker::forward(
     // We start at our first detected box
     set_bboxes_scaled(start_bbox, 1.2);
   }
-
   assert(!results.final_cluster_box.empty()); // TODO: need arena size
   BBox current_box = results.final_cluster_box;
+
+  PlayDetectorResults play_detector_result = play_detector_.forward(
+      tick_count_,
+      current_box,
+      tracking_ids,
+      tracking_boxes,
+      ignore_tracking_ids);
+  if (play_detector_result.breakaway_target_bbox.has_value()) {
+    current_box = *play_detector_result.breakaway_target_bbox;
+  }
+
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
     current_box = living_box->forward(current_box);

@@ -52,6 +52,7 @@ struct PlayDetectorResults {
   // Center of the object that is farthest forward in the breakaway (logically
   // the one that we think most likely has the puck/ball)
   std::optional<Point> breakaway_edge_center;
+  std::optional<BBox> breakaway_target_bbox;
 };
 
 class PlayDetector {
@@ -62,6 +63,7 @@ class PlayDetector {
 
   PlayDetectorResults forward(
       size_t frame_id,
+      const BBox& current_box,
       std::vector<size_t>& tracking_ids,
       std::vector<BBox>& tracking_boxes,
       const std::set<size_t>& disregard_tracking_ids);
@@ -94,7 +96,10 @@ class PlayDetector {
   std::optional<GroupMovementInfo> get_group_velocity(
       const std::unordered_map<size_t, Velocity>& track_velocities);
 
-  void detect_breakaway(const TrackStateInfo& track_state_info);
+  std::optional<BBox> detect_breakaway(
+      const BBox& current_box,
+      const TrackStateInfo& track_state_info,
+      bool average_boxes = true);
 
   using TrackingMap = std::unordered_map</*tracking_id=*/size_t, PlayerSTrack>;
 
