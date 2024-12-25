@@ -116,7 +116,18 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     points.push_back(c.y);
   }
 
-  size_t cluster_count = cluster_sizes_.size();
+  // Restrict toi cluster sizes that have some meaning based on how many
+  // tracking objects we have (or are valid, for that matter)
+  std::vector<size_t> cluster_sizes;
+  cluster_sizes.reserve(cluster_sizes_.size());
+  for (size_t cluster_size : cluster_sizes_) {
+    // Equal or less clustering is meaningless
+    if (cluster_size > tracking_boxes.size()) {
+      cluster_sizes.emplace_back(cluster_size);
+    }
+  }
+
+  size_t cluster_count = cluster_sizes.size();
   std::vector<std::vector<size_t>> cluster_item_indexes(cluster_count);
   std::vector<BBox> cluster_bboxes(cluster_count);
 
@@ -125,7 +136,7 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     auto& this_cluster_item_indexes = cluster_item_indexes.at(cluster_id);
     this_cluster_item_indexes = get_largest_cluster_item_indexes(
         points,
-        cluster_sizes_.at(cluster_id),
+        cluster_sizes.at(cluster_id),
         /*dim=*/2);
     std::vector<BBox> bboxes;
     bboxes.reserve(this_cluster_item_indexes.size());
@@ -135,9 +146,8 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     cluster_bboxes.at(cluster_id) = get_union_bounding_box(bboxes);
   }
 
-  for (size_t i = 0; i < cluster_sizes_.size(); ++i) {
-    cluster_boxes_result.cluster_boxes[cluster_sizes_[i]] =
-        cluster_bboxes.at(i);
+  for (size_t i = 0; i < cluster_sizes.size(); ++i) {
+    cluster_boxes_result.cluster_boxes[cluster_sizes[i]] = cluster_bboxes.at(i);
   }
 
   cluster_boxes_result.final_cluster_box =

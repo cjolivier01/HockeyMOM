@@ -38,6 +38,7 @@ void compute_kmeans(
     std::vector<int>& assignments,
     KMEANS_TYPE kmeans_type) {
   const size_t object_count = points.size() / 2;
+  assert(numClusters <= object_count);
   assignments.resize(object_count);
 
   std::vector<std::vector<float>> point_data;
