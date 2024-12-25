@@ -537,6 +537,34 @@ class PlayTracker(torch.nn.Module):
                         thickness=2,
                     )
 
+                if (
+                    self._args.plot_individual_player_tracking
+                    and playtracker_results.play_detection is not None
+                    and playtracker_results.play_detection.breakaway_edge_center is not None
+                ):
+                    """
+                    When detecting a breakaway, draw a circle on the player
+                    that represents the forward edge of the breakaway players
+                    (person out in front the most, although this may be a defenseman
+                    backing up, for instance)
+                    """
+                    edge_center = playtracker_results.play_detection.breakaway_edge_center
+                    edge_center = [edge_center.x, edge_center.y]
+                    online_im = vis.plot_circle(
+                        online_im,
+                        edge_center,
+                        radius=30,
+                        color=(255, 0, 255),
+                        thickness=20,
+                    )
+                    online_im = vis.plot_line(
+                        online_im,
+                        edge_center,
+                        center(fast_roi_bounding_box),
+                        color=(128, 255, 128),
+                        thickness=4,
+                    )
+
             else:
                 largest_bbox = None
                 if self._args.cam_ignore_largest and len(online_tlwhs):
