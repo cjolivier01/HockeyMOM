@@ -144,7 +144,9 @@ struct LivingBoxConfig {
 
 struct AllLivingBoxConfig : public ResizingConfig,
                             public TranslatingBoxConfig,
-                            public LivingBoxConfig {};
+                            public LivingBoxConfig {
+  std::string name;
+};
 
 /**
  *  ____                        _  _             ____
