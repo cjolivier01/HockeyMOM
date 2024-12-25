@@ -121,7 +121,7 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
   cluster_sizes.reserve(cluster_sizes_.size());
   for (size_t cluster_size : cluster_sizes_) {
     // Equal or less clustering is meaningless
-    if (cluster_size > tracking_boxes.size()) {
+    if (cluster_size < tracking_boxes.size()) {
       cluster_sizes.emplace_back(cluster_size);
     }
   }
