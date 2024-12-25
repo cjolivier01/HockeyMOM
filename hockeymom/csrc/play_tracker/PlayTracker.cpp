@@ -106,7 +106,6 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
   ClusterBoxes cluster_boxes_result;
 
   BBox result_box;
-  size_t counter = 0;
   std::vector<float> points;
   points.reserve(tracking_boxes.size() << 1);
 

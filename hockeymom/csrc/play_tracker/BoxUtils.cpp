@@ -158,7 +158,7 @@ std::tuple<bool, bool> check_for_box_overshoot(
       std::get<1>(any_on_edge) && moving_directions.dy < epsilon;
   const bool bottom_on_edge =
       std::get<3>(any_on_edge) && moving_directions.dy > -epsilon;
-  const bool y_on_edge = left_on_edge || right_on_edge;
+  const bool y_on_edge = top_on_edge || bottom_on_edge;
 
   return std::make_tuple(x_on_edge, y_on_edge);
 }

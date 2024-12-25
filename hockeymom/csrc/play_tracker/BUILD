@@ -6,6 +6,11 @@ cc_library(
     hdrs = glob(["*.h"]),
     includes = ["."],
     visibility = ["//visibility:public"],
+    copts = [
+        "-fopenmp",
+        "-fPIC",
+        "-Wno-error=comment",
+    ],
     deps=[
       "//hockeymom/csrc/kmeans:kmeans",
     ]

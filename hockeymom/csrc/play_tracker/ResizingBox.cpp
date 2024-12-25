@@ -106,7 +106,7 @@ void ResizingBox::set_destination_size(
     const bool any_thresh = dw_thresh || dh_thresh;
     const bool want_bigger = (want_bigger_w || want_bigger_h) && any_thresh;
 
-    bool was_frozen = state_.size_is_frozen;
+    // bool was_frozen = state_.size_is_frozen;
     state_.size_is_frozen = freeze_size || !(both_thresh || want_bigger);
     // if (was_frozen && !state_.size_is_frozen) {
     //   std::cout << "Unfreezing size" << std::endl;

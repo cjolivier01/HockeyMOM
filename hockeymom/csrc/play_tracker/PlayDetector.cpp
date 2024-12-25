@@ -18,10 +18,6 @@ constexpr float kLargestNegFloatValue = std::numeric_limits<FloatValue>::min();
 constexpr size_t kMinPlayersForBreakawayDetection = 4;
 
 // Helper function to compute the magnitude of a velocity
-double compute_magnitude(const Velocity& velocity) {
-  return std::sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy);
-}
-
 template <typename MapType>
 class ValueIterator {
   using IteratorType = typename MapType::iterator;
@@ -99,7 +95,6 @@ PlayDetector::TrackStateInfo PlayDetector::update_tracks(
 
   for (size_t i = 0, n = tracking_ids.size(); i < n; ++i) {
     const size_t track_id = tracking_ids[i];
-    const BBox& bbox = tracking_boxes.at(i);
     auto found_track = tracks_.find(track_id);
     if (found_track == tracks_.end()) {
       found_track = tracks_
@@ -230,8 +225,6 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
 std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(
     const std::unordered_map<size_t, Velocity>& track_velocities) {
   GroupMovementInfo group_info;
-  Velocity left_velocity{0.0, 0.0};
-  Velocity right_velocity{0.0, 0.0};
   Point leftmost_fast{.x = kLargestPosFloatValue, .y = 0.0};
   Point rightmost_fast{.x = kLargestNegFloatValue, .y = 0.0};
   size_t pos_count = 0, neg_count = 0;
