@@ -415,17 +415,6 @@ class MovingBox(ResizingBox):
             self._gaussian_x_clamp[0] += ww / 2
             self._gaussian_x_clamp[1] -= ww / 2
 
-    # def get_zoom_level(self):
-    #     """
-    #     We calculate zoom level as the ratio of sqrt area of
-    #     ourselves vs that of a max-sized box on the arena for a fixed aspect ratio
-    #     """
-    #     if self._full_aspect_ratio_size is None:
-    #         return self.one
-    #     bbox = self.bounding_box()
-    #     zl = torch.sqrt(torch.square(width(bbox) + torch.square(height(bbox))))
-    #     return zl
-
     def draw(
         self,
         img: np.array,
