@@ -230,19 +230,18 @@ PlayTrackerResults PlayTracker::forward(
     if (!tracking_boxes.empty()) {
       // Just union all tracking boxes
       start_bbox = get_union_bounding_box(tracking_boxes);
+    } else {
+      // Last resort, the entire arena area
+      start_bbox = arena_box;
     }
   }
   clamp_box(start_bbox, arena_box);
-  if (start_bbox.empty()) {
-    start_bbox = arena_box;
-  }
 
   if (!tick_count_ && config_.no_wide_start) {
     // We start at our first detected box
     set_bboxes_scaled(start_bbox, 1.2);
   }
-  assert(!results.final_cluster_box.empty()); // TODO: need arena size
-  BBox current_box = results.final_cluster_box;
+  BBox current_box = start_bbox;
 
   results.play_detection = play_detector_.forward(
       /*frame_id=*/tick_count_,
