@@ -166,7 +166,8 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
 
-            current_roi_config.stop_on_dir_change = False
+            current_roi_config.stop_resizing_on_dir_change = False
+            current_roi_config.stop_translation_on_dir_change = False
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # current_roi_config.color = (255, 128, 64)
             # current_roi_config.thickness = 5
@@ -205,7 +206,8 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
             current_roi_aspect_config.min_height = play_height / 5
-            current_roi_aspect_config.stop_on_dir_change = True
+            current_roi_config.stop_resizing_on_dir_change = True
+            current_roi_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"][
