@@ -786,7 +786,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite("min_height", &ResizingConfig::min_height)
       .def_readwrite("max_width", &ResizingConfig::max_width)
       .def_readwrite("max_height", &ResizingConfig::max_height)
-      .def_readwrite("stop_on_dir_change", &ResizingConfig::stop_on_dir_change)
+      .def_readwrite(
+          "stop_resizing_on_dir_change",
+          &ResizingConfig::stop_resizing_on_dir_change)
       .def_readwrite("sticky_sizing", &ResizingConfig::sticky_sizing)
       .def_readwrite(
           "size_ratio_thresh_grow_dw",
@@ -814,7 +816,8 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite("max_accel_x", &TranslatingBoxConfig::max_accel_x)
       .def_readwrite("max_accel_y", &TranslatingBoxConfig::max_accel_y)
       .def_readwrite(
-          "stop_on_dir_change", &TranslatingBoxConfig::stop_on_dir_change)
+          "stop_translation_on_dir_change",
+          &TranslatingBoxConfig::stop_translation_on_dir_change)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
       .def_readwrite(
           "sticky_translation", &TranslatingBoxConfig::sticky_translation)
