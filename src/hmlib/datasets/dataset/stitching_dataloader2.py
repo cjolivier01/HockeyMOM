@@ -395,11 +395,12 @@ class StitchDataset:
             for i, img in enumerate(images):
                 img = make_channels_first(img)
                 w = int(image_width(img))
-                h = image_height(img)
+                h = int(image_height(img))
                 slice_w = w // 6
+                slice_h = h // 3
                 slice_h_width: int = h // 6
-                slice_top = int(h // 2 - slice_h_width)
-                slice_bottom = int(h // 2 + slice_h_width)
+                slice_top = int(slice_h)
+                slice_bottom = int(slice_h + h // 3)
                 if i == 0:
                     # Left image
                     img = img[:, :, slice_top:slice_bottom, w - slice_w :]
@@ -444,7 +445,7 @@ class StitchDataset:
             return images
         for i, exp in enumerate(self._exposure_adjustment):
             if exp is not None:
-                images[i] = images[i] * exp
+                images[i] *= exp
         return images
 
     def _prepare_next_frame(self, frame_id: int):

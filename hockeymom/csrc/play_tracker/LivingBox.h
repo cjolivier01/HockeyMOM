@@ -93,7 +93,7 @@ struct ResizingConfig {
   FloatValue min_height{0.0};
   FloatValue max_width{0.0};
   FloatValue max_height{0.0};
-  bool stop_on_dir_change{true};
+  bool stop_resizing_on_dir_change{true};
   bool sticky_sizing{false};
   //
   // Sticky sizing thresholds
@@ -126,7 +126,7 @@ struct TranslatingBoxConfig {
   FloatValue max_speed_y{0.0};
   FloatValue max_accel_x{0.0};
   FloatValue max_accel_y{0.0};
-  bool stop_on_dir_change{true};
+  bool stop_translation_on_dir_change{true};
   std::optional<BBox> arena_box{std::nullopt};
   // Sticky Sizing
   bool sticky_translation{false};

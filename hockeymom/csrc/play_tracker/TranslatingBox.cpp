@@ -109,7 +109,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       } else {
         state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
       }
-      if (config_.stop_on_dir_change) {
+      if (config_.stop_translation_on_dir_change) {
         total_diff.dx = 0.0;
       }
     }
@@ -121,7 +121,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       } else {
         state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
       }
-      if (config_.stop_on_dir_change) {
+      if (config_.stop_translation_on_dir_change) {
         total_diff.dy = 0.0;
       }
     }
