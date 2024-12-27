@@ -12,6 +12,15 @@
 namespace hm {
 namespace play_tracker {
 
+struct AllLivingBoxConfig;
+struct LivingState;
+struct ResizingState;
+struct TranslationState;
+
+struct GrowShrink {
+  FloatValue grow_width, grow_height, shrink_width, shrink_height;
+};
+
 /* clang-format off */
 /**
  *  _____ ____              _      _      _         _             ____
@@ -61,6 +70,16 @@ struct ILivingBox : virtual public IBasicLivingBox {
       std::optional<FloatValue> accel_y,
       std::optional<FloatValue> scale_constraints,
       std::optional<IntValue> nonstop_delay) = 0;
+
+
+  virtual const LivingState& get_live_box_state() const = 0;
+  virtual const ResizingState& get_resizing_state() const = 0;
+  virtual const TranslationState& get_translation_state() const = 0;
+
+  virtual GrowShrink get_grow_shrink_wh(const BBox& bbox) const = 0;
+  virtual std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const = 0;
+
+  // virtual const AllLivingBoxConfig& get_config() const = 0;
 
   /**
    * Scale the current speed by the given ratio

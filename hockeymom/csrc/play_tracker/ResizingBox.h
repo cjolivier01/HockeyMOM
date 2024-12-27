@@ -13,10 +13,6 @@ struct ResizingState {
   FloatValue current_speed_h{0.0};
 };
 
-struct GrowShrink {
-  FloatValue grow_width, grow_height, shrink_width, shrink_height;
-};
-
 class ResizingBox : virtual public IBasicLivingBox {
  public:
   ResizingBox(ResizingBox&&) = delete;

@@ -4,7 +4,7 @@
 
 namespace hm {
 
-std::ostream& operator<<(std::ostream& os, const play_tracker::WHDims& dims) {
+std::ostream& operator<<(std::ostream& os, const WHDims& dims) {
   os << "WHDims(width=" << std::setw(10) << std::fixed << std::setprecision(6)
      << dims.width << ", height=" << std::setw(10) << std::fixed
      << std::setprecision(6) << dims.height << ")";
@@ -13,28 +13,28 @@ std::ostream& operator<<(std::ostream& os, const play_tracker::WHDims& dims) {
 
 std::ostream& operator<<(
     std::ostream& os,
-    const play_tracker::PointDiff& diff) {
+    const PointDiff& diff) {
   os << "PointDiff(dx=" << std::setw(10) << std::fixed << std::setprecision(6)
      << diff.dx << ", dy=" << std::setw(10) << std::fixed
      << std::setprecision(6) << diff.dy << ")";
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const play_tracker::SizeDiff& diff) {
+std::ostream& operator<<(std::ostream& os, const SizeDiff& diff) {
   os << "SizeDiff(dw=" << std::setw(10) << std::fixed << std::setprecision(6)
      << diff.dw << ", dh=" << std::setw(10) << std::fixed
      << std::setprecision(6) << diff.dh << ")";
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const play_tracker::Point& pt) {
+std::ostream& operator<<(std::ostream& os, const Point& pt) {
   os << "Point(x=" << std::setw(10) << std::fixed << std::setprecision(6)
      << pt.x << ", y=" << std::setw(10) << std::fixed << std::setprecision(6)
      << pt.y << ")";
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const play_tracker::BBox& bbox) {
+std::ostream& operator<<(std::ostream& os, const BBox& bbox) {
   os << "BBox(l=" << std::setw(10) << std::fixed << std::setprecision(6)
      << bbox.left << ", t=" << std::setw(10) << std::fixed
      << std::setprecision(6) << bbox.top << ", r=" << std::setw(10)
@@ -43,7 +43,7 @@ std::ostream& operator<<(std::ostream& os, const play_tracker::BBox& bbox) {
      << bbox.bottom << ")";
   return os;
 }
-namespace play_tracker {
+//namespace play_tracker {
 
 bool isClose(float a, float b, float rel_tol, float abs_tol) {
   // Compute the absolute difference
@@ -163,5 +163,5 @@ std::tuple<bool, bool> check_for_box_overshoot(
   return std::make_tuple(x_on_edge, y_on_edge);
 }
 
-} // namespace play_tracker
+//} // namespace play_tracker
 } // namespace hm

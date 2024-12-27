@@ -1,9 +1,9 @@
 
 #include "hockeymom/csrc/play_tracker/PlayDetector.h"
 
-#include <limits>
 #include <cassert>
 #include <iterator>
+#include <limits>
 
 namespace hm {
 namespace play_tracker {
@@ -12,8 +12,9 @@ namespace {
 
 using Velocity = PointDiff;
 
-constexpr float kLargestPosFloatValue = std::numeric_limits<FloatValue>::max();
-constexpr float kLargestNegFloatValue = std::numeric_limits<FloatValue>::min();
+// constexpr float kLargestPosFloatValue =
+// std::numeric_limits<FloatValue>::max(); constexpr float kLargestNegFloatValue
+// = std::numeric_limits<FloatValue>::min();
 
 constexpr size_t kMinPlayersForBreakawayDetection = 4;
 
@@ -184,26 +185,27 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
     return std::nullopt;
   }
   BBox new_dest_bbox;
-  const Point edge_center = group_info->group_velocity.dx < 0
+  const std::optional<Point> edge_center = group_info->group_velocity.dx < 0
       ? group_info->leftmost_center
       : group_info->rightmost_center;
+  assert(edge_center.has_value());
   if (average_boxes) {
     Point cb_center = current_target_bbox.center();
     Point avg_center{
-        .x = float((double(cb_center.x) + edge_center.x) / 2.0f),
-        .y = float((double(cb_center.y) + edge_center.y) / 2.0f),
+        .x = float((double(cb_center.x) + edge_center->x) / 2.0f),
+        .y = float((double(cb_center.y) + edge_center->y) / 2.0f),
     };
     new_dest_bbox = current_target_bbox.at_center(avg_center);
   } else {
-    new_dest_bbox = current_target_bbox.at_center(edge_center);
+    new_dest_bbox = current_target_bbox.at_center(*edge_center);
   }
 
   if (adjuster_) {
     // Maybe adjust some speeds
     const bool should_adjust_speed = (group_info->group_velocity.dx > 0 &&
-                                      current_roi_center.x < edge_center.x) ||
+                                      current_roi_center.x < edge_center->x) ||
         (group_info->group_velocity.dx < 0 &&
-         current_roi_center.x > edge_center.x);
+         current_roi_center.x > edge_center->x);
     if (should_adjust_speed) {
       adjuster_->adjust_speed(
           /*accel_x=*/group_info->group_velocity.dx *
@@ -219,14 +221,14 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
           /*clamp_to_max=*/false);
     }
   }
-  return std::make_tuple(new_dest_bbox, edge_center);
+  return std::make_tuple(new_dest_bbox, *edge_center);
 }
 
 std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(
     const std::unordered_map<size_t, Velocity>& track_velocities) {
   GroupMovementInfo group_info;
-  Point leftmost_fast{.x = kLargestPosFloatValue, .y = 0.0};
-  Point rightmost_fast{.x = kLargestNegFloatValue, .y = 0.0};
+  std::optional<Point> leftmost_fast;
+  std::optional<Point> rightmost_fast;
   size_t pos_count = 0, neg_count = 0;
   Velocity pos_sum{0.0, 0.0}, neg_sum{0.0, 0.0};
   for (const auto& track_velocity_item : track_velocities) {
@@ -237,7 +239,7 @@ std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(
       pos_sum = pos_sum + velocity;
       const size_t track_id = track_velocity_item.first;
       const Point cc = tracks_.at(track_id).center();
-      if (cc.x > rightmost_fast.x) {
+      if (!rightmost_fast.has_value() || cc.x > rightmost_fast->x) {
         rightmost_fast = cc;
       }
     } else if (x_speed <= -config_.min_considered_group_velocity) {
@@ -245,23 +247,26 @@ std::optional<PlayDetector::GroupMovementInfo> PlayDetector::get_group_velocity(
       neg_sum = neg_sum + velocity;
       const size_t track_id = track_velocity_item.first;
       const Point cc = tracks_.at(track_id).center();
-      if (cc.x < leftmost_fast.x) {
+      if (!leftmost_fast.has_value() || cc.x < leftmost_fast->x) {
         leftmost_fast = cc;
       }
     }
   }
-  group_info.leftmost_center = leftmost_fast;
-  group_info.rightmost_center = rightmost_fast;
   const size_t total_ids = track_velocities.size();
   if (float(pos_count) / total_ids > config_.group_ratio_threshold) {
     // Make sure the opposite isn't also true, or else we need to chose the max
     assert(!(float(neg_count) / total_ids > config_.group_ratio_threshold));
+    group_info.leftmost_center = leftmost_fast;
+    assert(rightmost_fast.has_value());
+    group_info.rightmost_center = rightmost_fast;
     Velocity average_speed = pos_sum / pos_count;
     group_info.group_velocity = average_speed;
     return group_info;
   } else if (float(neg_count) / total_ids > config_.group_ratio_threshold) {
     // Make sure the opposite isn't also true, or else we need to chose the max
     assert(!(float(pos_count) / total_ids > config_.group_ratio_threshold));
+    assert(leftmost_fast.has_value());
+    group_info.leftmost_center = leftmost_fast;
     Velocity average_speed = neg_sum / neg_count;
     group_info.group_velocity = average_speed;
     return group_info;

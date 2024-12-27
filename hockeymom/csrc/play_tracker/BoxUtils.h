@@ -9,7 +9,7 @@
 #include <tuple>
 
 namespace hm {
-namespace play_tracker {
+// namespace play_tracker {
 
 using FloatValue = float;
 using IntValue = int64_t;
@@ -278,12 +278,12 @@ std::tuple<bool, bool> check_for_box_overshoot(
     const PointDiff& moving_directions,
     FloatValue epsilon = 0.01);
 
-} // namespace play_tracker
+// } // namespace play_tracker
 
-std::ostream& operator<<(std::ostream& os, const play_tracker::WHDims& dims);
-std::ostream& operator<<(std::ostream& os, const play_tracker::PointDiff& diff);
-std::ostream& operator<<(std::ostream& os, const play_tracker::SizeDiff& diff);
-std::ostream& operator<<(std::ostream& os, const play_tracker::Point& point);
-std::ostream& operator<<(std::ostream& os, const play_tracker::BBox& bbox);
+std::ostream& operator<<(std::ostream& os, const WHDims& dims);
+std::ostream& operator<<(std::ostream& os, const PointDiff& diff);
+std::ostream& operator<<(std::ostream& os, const SizeDiff& diff);
+std::ostream& operator<<(std::ostream& os, const Point& point);
+std::ostream& operator<<(std::ostream& os, const BBox& bbox);
 
 } // namespace hm

@@ -21,6 +21,7 @@ PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
 
 namespace py = pybind11;
+using namespace hm;
 using namespace hm::play_tracker;
 
 namespace hm {
@@ -921,7 +922,7 @@ void init_living_boxes(::pybind11::module_& m) {
       .def("translation_state", &LivingBox::TranslatingBox::get_state)
       .def("translation_config", &LivingBox::TranslatingBox::get_config)
       .def("living_config", &LivingBox::config)
-      .def("living_state", &LivingBox::state)
+      .def("living_state", &LivingBox::get_live_box_state)
       .def("get_grow_shrink_wh", &LivingBox::get_grow_shrink_wh)
       .def(
           "get_sticky_translation_sizes",

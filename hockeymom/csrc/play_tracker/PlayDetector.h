@@ -41,7 +41,8 @@ struct PlayDetectorConfig {
 
   // Breakaway detection
   // Group velocities less than this are ignored
-  float min_considered_group_velocity = 3.0;
+  // float min_considered_group_velocity = 3.0;
+  float min_considered_group_velocity = 1.0;
   // What ratio of tracked players must be all reacting
   // to a breakaway?
   float group_ratio_threshold = 0.5;
@@ -104,8 +105,8 @@ class PlayDetector {
   // velocities with the same dx sign
   struct GroupMovementInfo {
     Velocity group_velocity{0.0, 0.0};
-    Point leftmost_center;
-    Point rightmost_center;
+    std::optional<Point> leftmost_center;
+    std::optional<Point> rightmost_center;
   };
 
   std::optional<GroupMovementInfo> get_group_velocity(

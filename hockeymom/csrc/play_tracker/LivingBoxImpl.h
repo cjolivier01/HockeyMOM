@@ -49,8 +49,25 @@ class LivingBox : public ILivingBox,
   const LivingBoxConfig& config() const {
     return config_;
   }
-  const LivingState& state() const {
+  const LivingState& get_live_box_state() const override {
     return state_;
+  }
+
+  const ResizingState& get_resizing_state() const override {
+    return ResizingBox::get_state();
+  }
+
+  const TranslationState& get_translation_state() const override {
+    return TranslatingBox::get_state();
+  }
+
+  GrowShrink get_grow_shrink_wh(const BBox& bbox) const override {
+    return ResizingBox::get_grow_shrink_wh(bbox);
+  }
+
+  virtual std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes()
+      const override {
+    return TranslatingBox::get_sticky_translation_sizes();
   }
 
   void adjust_speed(
