@@ -82,7 +82,7 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
     maxRight = std::max(maxRight, box.right);
   }
 
-  return BBox{minTop, minLeft, maxBottom, maxRight};
+  return BBox(/*l=*/minLeft, /*t=*/minTop, /*r=*/maxRight, /*b=*/maxBottom);
 }
 
 } // namespace
@@ -105,7 +105,6 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     const std::vector<BBox>& tracking_boxes) const {
   ClusterBoxes cluster_boxes_result;
 
-  BBox result_box;
   std::vector<float> points;
   points.reserve(tracking_boxes.size() << 1);
 
@@ -126,7 +125,7 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     }
   }
 
-  size_t cluster_count = cluster_sizes.size();
+  const size_t cluster_count = cluster_sizes.size();
   std::vector<std::vector<size_t>> cluster_item_indexes(cluster_count);
   std::vector<BBox> cluster_bboxes(cluster_count);
 
@@ -137,6 +136,7 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
         points,
         cluster_sizes.at(cluster_id),
         /*dim=*/2);
+    assert(!this_cluster_item_indexes.empty());
     std::vector<BBox> bboxes;
     bboxes.reserve(this_cluster_item_indexes.size());
     for (size_t idx : this_cluster_item_indexes) {

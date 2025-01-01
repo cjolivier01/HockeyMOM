@@ -50,6 +50,11 @@ BBox LivingBox::next_position() {
   new_box.right += translation_change.dx + size_change.dw;
   new_box.bottom += translation_change.dy + size_change.dh;
 
+  new_box = new_box.normalize(/*reversible=*/false);
+  if (new_box.empty()) {
+    std::cerr << "Empty box for next position!" << std::endl;
+  }
+
   // Constrain size
   const FloatValue new_ww = new_box.width(), new_hh = new_box.height();
   const WHDims min_allowed_width_height = get_min_allowed_width_height();

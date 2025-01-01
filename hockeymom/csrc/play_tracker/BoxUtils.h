@@ -138,6 +138,24 @@ struct BBox {
         center.x + half_w,
         center.y + half_h);
   }
+  BBox normalize(bool reversible) const {
+    if (reversible) {
+      auto min_x = std::min(left, right);
+      auto max_x = std::max(left, right);
+      auto min_y = std::min(top, bottom);
+      auto max_y = std::max(top, bottom);
+      return BBox(min_x, min_y, max_x, max_y);
+    } else {
+      BBox box = *this;
+      if (box.left > box.right) {
+        box.left = box.right;
+      }
+      if (box.top > box.bottom) {
+        box.bottom = box.top;
+      }
+      return box;
+    }
+  }
   void validate() const {
 #ifndef NDEBUG
     assert(right >= left);
