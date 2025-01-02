@@ -4,7 +4,6 @@
 
 #include <cassert>
 #include <stdexcept>
-#include <unordered_set>
 
 namespace hm {
 namespace play_tracker {
@@ -146,11 +145,16 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
   }
 
   for (size_t i = 0; i < cluster_sizes.size(); ++i) {
-    cluster_boxes_result.cluster_boxes[cluster_sizes[i]] = cluster_bboxes.at(i);
+    const auto& this_cluster_box = cluster_bboxes.at(i);
+    cluster_boxes_result.cluster_boxes[cluster_sizes[i]] = this_cluster_box;
   }
 
   cluster_boxes_result.final_cluster_box =
       get_union_bounding_box(cluster_bboxes);
+
+  // if (cluster_boxes_result.final_cluster_box.left == 0) {
+  //   std::cerr << "Main tracking box is full left" << std::endl;
+  // }
 
   return cluster_boxes_result;
 }
