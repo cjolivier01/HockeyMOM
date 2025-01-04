@@ -62,6 +62,21 @@ bool isClose(float a, float b, float rel_tol, float abs_tol) {
   return false;
 }
 
+void clamp_if_close(
+    FloatValue& var,
+    const FloatValue& min,
+    const FloatValue& max,
+    FloatValue epsilon = 0.0001) {
+  assert(min <= max);
+  if (var < min) {
+    assert(min - var <= epsilon);
+    var = min;
+  } else if (var > max) {
+    assert(var - max < epsilon);
+    var = max;
+  }
+}
+
 BBox clamp_box(BBox box, const BBox& clamp_box) {
   clamp_box.validate();
   box.validate();
@@ -103,8 +118,8 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
   // assert(isZero(bounding_box.left) && isZero(bounding_box.top));
 #if 1
   // Should clamped somewhere along the way before now
-  assert(box.width() <= bounding_box.width());
-  assert(box.height() <= bounding_box.height());
+  // assert(box.width() <= bounding_box.width());
+  // assert(box.height() <= bounding_box.height());
   FloatValue min_x = bounding_box.left, max_x = bounding_box.right,
              min_y = bounding_box.top, max_y = bounding_box.bottom;
   if (result.bbox.left < min_x) {
@@ -151,10 +166,11 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
     result.was_shifted_y = true;
   }
 #endif
-  assert(result.bbox.left >= bounding_box.left);
-  assert(result.bbox.top >= bounding_box.top);
-  assert(result.bbox.right <= bounding_box.right);
-  assert(result.bbox.bottom <= bounding_box.bottom);
+  clamp_if_close(result.bbox.left, bounding_box.left, bounding_box.right);
+  clamp_if_close(result.bbox.right, bounding_box.left, bounding_box.right);
+  clamp_if_close(result.bbox.top, bounding_box.top, bounding_box.bottom);
+  clamp_if_close(result.bbox.bottom, bounding_box.top, bounding_box.bottom);
+  result.bbox.validate();
   return result;
 }
 

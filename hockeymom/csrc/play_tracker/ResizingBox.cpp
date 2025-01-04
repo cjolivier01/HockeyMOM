@@ -60,12 +60,18 @@ void ResizingBox::clamp_size_scaled() {
   if (!isZero(final_scale)) {
     w *= final_scale;
     h *= final_scale;
+    float ar = w / h;
     // Fix some tiny float divergences here
     constexpr float kEplison = 0.0001;
-    assert(std::abs(w - config_.max_width) < kEplison);
-    assert(std::abs(h - config_.max_height) < kEplison);
-    w = std::min(w, config_.max_width);
-    h = std::min(h, config_.max_height);
+    if (w > config_.max_width) {
+      assert(w - config_.max_width < kEplison);
+      w = config_.max_width;
+      // h = w / ar;
+    }
+    if (h > config_.max_height) {
+      assert(h - config_.max_height < kEplison);
+      h = config_.max_height;
+    }
     BBox new_box = BBox(bbox.center(), WHDims{.width = w, .height = h});
     set_bbox(BBox(bbox.center(), WHDims{.width = w, .height = h}));
   }
