@@ -145,23 +145,20 @@ class PlayTracker(torch.nn.Module):
 
         if self._cpp_boxes:
 
-            def _set_config_speed_acc(config: AllLivingBoxConfig, scale: float) -> None:
-                # Translation
-                config.max_speed_x = self._hockey_mom._camera_box_max_speed_x * 1.5 / scale
-                config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / scale
-                config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / scale
-                config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / scale
-
-                # Resizing
-                config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / scale / 1.8
-                config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1.5 / scale / 1.8
-                config.max_accel_w = self._hockey_mom._camera_box_max_accel_x * 1.1 / scale
-                config.max_accel_h = self._hockey_mom._camera_box_max_accel_y * 1.1 / scale
-
             # Create and configure `AllLivingBoxConfig` for `_current_roi`
             current_roi_config = AllLivingBoxConfig()
 
-            _set_config_speed_acc(current_roi_config, scale=speed_scale)
+            # Translation
+            config.max_speed_x = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
+            config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
+            config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
+            config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+
+            # Resizing
+            config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
+            config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale / 1.8
+            config.max_accel_w = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
+            config.max_accel_h = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
 
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
@@ -170,8 +167,6 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
-            # current_roi_config.color = (255, 128, 64)
-            # current_roi_config.thickness = 5
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -228,8 +223,6 @@ class PlayTracker(torch.nn.Module):
                 "follower_box_scale_height"
             ]
             current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
-            # current_roi_aspect_config.color = (255, 0, 255)
-            # current_roi_aspect_config.thickness = 5
 
             if not self._cpp_playtracker:
                 self._breakaway_detection = BreakawayDetection(args.game_config)

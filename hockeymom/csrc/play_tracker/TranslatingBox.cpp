@@ -266,7 +266,7 @@ FloatValue TranslatingBox::get_gaussian_y_about_width_center(
   }
   // return 1.0;
   x = clamp(x, gasussian_clamp_lr->first, gasussian_clamp_lr->second);
-  const FloatValue center_x = config_.arena_box->width() / 2;
+  const FloatValue center_x = config_.arena_box->center().x;
   if (x < center_x) {
     x = -(center_x - x);
   } else if (x > center_x) {
