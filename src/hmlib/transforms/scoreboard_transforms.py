@@ -82,12 +82,18 @@ class HmCaptureScoreboard:
             dest_width = scoreboard.pop("dest_width")
             if isinstance(dest_width, str) and dest_width.startswith("%"):
                 ratio = float(dest_width[1:]) / 100
-                dw = results["ori_shape"][-1]
+                if "video_frame_cfg" in results:
+                    dw = results["video_frame_cfg"]["output_frame_width"]
+                else:
+                    dw = results["ori_shape"][-1]
                 dest_width = dw * ratio
             dest_height = scoreboard.pop("dest_height")
             if isinstance(dest_height, str) and dest_height.startswith("%"):
                 ratio = float(dest_height[1:]) / 100
-                dh = results["ori_shape"][-2]
+                if "video_frame_cfg" in results:
+                    dh = results["video_frame_cfg"]["output_frame_height"]
+                else:
+                    dh = results["ori_shape"][-2]
                 dest_height = dh * ratio
             self._scoreboard = Scoreboard(
                 src_pts=scoreboard["scoreboard_points"],
