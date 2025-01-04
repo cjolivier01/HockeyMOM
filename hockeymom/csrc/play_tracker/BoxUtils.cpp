@@ -66,7 +66,7 @@ void clamp_if_close(
     FloatValue& var,
     const FloatValue& min,
     const FloatValue& max,
-    FloatValue epsilon = 0.01) {
+    FloatValue epsilon) {
   assert(min <= max);
   if (var < min) {
     assert(min - var <= epsilon);
@@ -113,7 +113,7 @@ BBox set_box_aspect_ratio(
 ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
   ShiftResult result{
       .bbox = box, .was_shifted_x = false, .was_shifted_y = false};
-  FloatValue xw = bounding_box.width(), xh = bounding_box.height();
+  // FloatValue xw = bounding_box.width(), xh = bounding_box.height();
   // TODO: Make top-left of bounding box not need to be zero
   // assert(isZero(bounding_box.left) && isZero(bounding_box.top));
 #if 1

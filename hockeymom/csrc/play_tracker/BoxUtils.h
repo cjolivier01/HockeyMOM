@@ -296,6 +296,12 @@ std::tuple<bool, bool> check_for_box_overshoot(
     const PointDiff& moving_directions,
     FloatValue epsilon = 0.01);
 
+void clamp_if_close(
+    FloatValue& var,
+    const FloatValue& min,
+    const FloatValue& max,
+    FloatValue epsilon = 0.01);
+
 // } // namespace play_tracker
 
 std::ostream& operator<<(std::ostream& os, const WHDims& dims);
