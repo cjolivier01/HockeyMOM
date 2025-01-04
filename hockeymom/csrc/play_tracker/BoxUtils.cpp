@@ -123,7 +123,7 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
     result.bbox.bottom -= offset;
     result.bbox.top -= offset;
     result.was_shifted_y = true;
-  } else if (result.bbox.bottom >= xh) {
+  } else if (result.bbox.bottom >= max_y) {
     FloatValue offset = result.bbox.bottom - max_y;
     result.bbox.top -= offset;
     result.bbox.bottom -= offset;

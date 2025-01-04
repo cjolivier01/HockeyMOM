@@ -26,7 +26,14 @@ LivingBox::LivingBox(
       ResizingBox(config),
       TranslatingBox(config),
       label_(label),
-      config_(config) {}
+      config_(config) {
+  // Sanity check
+  if (config.arena_box.has_value()) {
+    const BBox& arena_box = *config.arena_box;
+    assert(config.max_width <= arena_box.width());
+    assert(config.max_height <= arena_box.height());
+  }
+}
 
 WHDims LivingBox::get_size_scale() const {
   return WHDims{
@@ -151,7 +158,8 @@ void LivingBox::set_destination(const BBox& dest_box) {
       destination_box = clamp_box(destination_box, *arena_box);
     }
   }
-  // std::cout << name() << ": set_destination: " << destination_box << std::endl;
+  // std::cout << name() << ": set_destination: " << destination_box <<
+  // std::endl;
   ResizingBox::set_destination(destination_box);
   TranslatingBox::set_destination(destination_box);
 }

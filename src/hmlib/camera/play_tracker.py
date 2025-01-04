@@ -165,6 +165,7 @@ class PlayTracker(torch.nn.Module):
 
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
+            current_roi_config.min_height = 10
 
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
@@ -515,6 +516,18 @@ class PlayTracker(torch.nn.Module):
                 current_box_list.append(current_box)
 
                 if self._args.plot_moving_boxes:
+                    # Play box
+                    if (
+                        torch.sum(self._play_box == self._hockey_mom._video_frame.bounding_box())
+                        != 4
+                    ):
+                        online_im = vis.draw_dashed_rectangle(
+                            img=online_im,
+                            box=self._play_box,
+                            color=(255, 0, 0),
+                            thickness=2,
+                        )
+
                     # Fast
                     online_im = PyLivingBox.draw_impl(
                         live_box=self._playtracker.get_live_box(0),

@@ -3,6 +3,7 @@
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
 #include <cassert>
+#include <iostream>
 #include <stdexcept>
 
 namespace hm {
@@ -12,6 +13,8 @@ namespace {
 
 constexpr size_t kMinTracksBeforePruning = 3;
 constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
+// Arbitrarily large jump in bbox center that would be a bug
+constexpr size_t kMaxJumpAssertionValue = 300;
 
 std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
 remove_largest(std::vector<size_t> ids, std::vector<BBox> bboxes) {
@@ -264,7 +267,13 @@ PlayTrackerResults PlayTracker::forward(
 
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
+    auto last_center = living_box->bounding_box().center();
     current_box = living_box->forward(current_box);
+    auto new_center = living_box->bounding_box().center();
+    if (norm(new_center - last_center) > kMaxJumpAssertionValue) {
+      std::cout << "Detected large jump at tick count " << tick_count_
+                << std::endl;
+    }
     results.tracking_boxes.emplace_back(current_box);
   }
   ++tick_count_;
