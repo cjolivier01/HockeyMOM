@@ -149,16 +149,32 @@ class PlayTracker(torch.nn.Module):
             current_roi_config = AllLivingBoxConfig()
 
             # Translation
-            config.max_speed_x = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
-            config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
-            config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
-            config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            current_roi_config.max_speed_x = (
+                self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
+            )
+            current_roi_config.max_speed_y = (
+                self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
+            )
+            current_roi_config.max_accel_x = (
+                self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
+            )
+            current_roi_config.max_accel_y = (
+                self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            )
 
             # Resizing
-            config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
-            config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale / 1.8
-            config.max_accel_w = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
-            config.max_accel_h = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            current_roi_config.max_speed_w = (
+                self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
+            )
+            current_roi_config.max_speed_h = (
+                self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale / 1.8
+            )
+            current_roi_config.max_accel_w = (
+                self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
+            )
+            current_roi_config.max_accel_h = (
+                self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            )
 
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
