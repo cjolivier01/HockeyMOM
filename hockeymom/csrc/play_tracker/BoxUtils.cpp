@@ -207,5 +207,17 @@ std::tuple<bool, bool> check_for_box_overshoot(
   return std::make_tuple(x_on_edge, y_on_edge);
 }
 
-//} // namespace play_tracker
+WHDims get_box_size_necessary_for_rotations(
+    const WHDims& src_size,
+    const WHDims& viewport_size) {
+  FloatValue min_width_per_size =
+      std::sqrt(
+          (viewport_size.width * viewport_size.width) +
+          (viewport_size.height * viewport_size.height)) /
+      2.0;
+  FloatValue w = std::min(src_size.width, min_width_per_size);
+  FloatValue h = std::min(src_size.height, min_width_per_size);
+  return WHDims{.width = w, .height = h};
+}
+
 } // namespace hm

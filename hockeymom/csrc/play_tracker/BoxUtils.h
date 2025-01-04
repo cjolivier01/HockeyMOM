@@ -9,7 +9,6 @@
 #include <tuple>
 
 namespace hm {
-// namespace play_tracker {
 
 using FloatValue = float;
 using IntValue = int64_t;
@@ -302,7 +301,17 @@ void clamp_if_close(
     const FloatValue& max,
     FloatValue epsilon = 0.01);
 
-// } // namespace play_tracker
+/**
+ * @brief Given some box (or image) of size 'src_size', and a final viewport
+ * size of '' (i.e. the final video frame size such that we want to minimize
+ * pixel loss within a box that size), calculate the minimum width and height we
+ * need to fill the viewport with all available pixels after an arbitrary
+ * rotation (i.e. so that pixels may rotate into view that aren't within the
+ * original 'viewport_size' box).
+ */
+WHDims get_box_size_necessary_for_rotations(
+    const WHDims& src_size,
+    const WHDims& viewport_size);
 
 std::ostream& operator<<(std::ostream& os, const WHDims& dims);
 std::ostream& operator<<(std::ostream& os, const PointDiff& diff);
