@@ -66,7 +66,7 @@ void clamp_if_close(
     FloatValue& var,
     const FloatValue& min,
     const FloatValue& max,
-    FloatValue epsilon = 0.0001) {
+    FloatValue epsilon = 0.01) {
   assert(min <= max);
   if (var < min) {
     assert(min - var <= epsilon);

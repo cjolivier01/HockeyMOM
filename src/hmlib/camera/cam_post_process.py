@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Union
 
 import torch
 
-from hmlib.bbox.box_functions import aspect_ratio
+from hmlib.bbox.box_functions import aspect_ratio, width, height
 from hmlib.builder import HM
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.camera.play_tracker import PlayTracker
@@ -241,7 +241,7 @@ class CamTrackPostProcessor:
 
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
-            #play_box=hockey_mom._video_frame.bounding_box(),
+            # play_box=hockey_mom._video_frame.bounding_box(),
             play_box=play_box,
             device=device,
             original_clip_box=original_clip_box,
@@ -251,16 +251,31 @@ class CamTrackPostProcessor:
         self.secondary_init()
 
     def secondary_init(self):
-        if self._args.crop_output_image:
-            self.final_frame_height = self._hockey_mom.video.height
-            self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
-            if self.final_frame_width > MAX_VIDEO_WIDTH:
-                self.final_frame_width = MAX_VIDEO_WIDTH
-                self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+        play_box: torch.Tensor = self._play_tracker.play_box
+        play_width, play_height = width(play_box), height(play_box)
 
+        if self._args.crop_output_image:
+            if self._args.crop_output_image:
+                self.final_frame_height = play_height
+                self.final_frame_width = play_height * self._final_aspect_ratio
+                if self.final_frame_width > MAX_VIDEO_WIDTH:
+                    self.final_frame_width = MAX_VIDEO_WIDTH
+                    self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+
+            else:
+                self.final_frame_height = play_height
+                self.final_frame_width = play_width
         else:
-            self.final_frame_height = self._hockey_mom.video.height
-            self.final_frame_width = self._hockey_mom.video.width
+            if self._args.crop_output_image:
+                self.final_frame_height = self._hockey_mom.video.height
+                self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
+                if self.final_frame_width > MAX_VIDEO_WIDTH:
+                    self.final_frame_width = MAX_VIDEO_WIDTH
+                    self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+
+            else:
+                self.final_frame_height = self._hockey_mom.video.height
+                self.final_frame_width = self._hockey_mom.video.width
 
         self.final_frame_width = int(self.final_frame_width + 0.5)
         self.final_frame_height = int(self.final_frame_height + 0.5)
@@ -396,4 +411,5 @@ class CamTrackPostProcessor:
                 self._shower.show(results["img"])
 
     def get_arena_box(self):
-        return self._hockey_mom._video_frame.bounding_box()
+        # return self._hockey_mom._video_frame.bounding_box()
+        return self._play_tracker.play_box

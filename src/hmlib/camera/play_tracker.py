@@ -341,6 +341,10 @@ class PlayTracker(torch.nn.Module):
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
+    @property
+    def play_box(self) -> torch.Tensor:
+        return self._play_box.clone()
+
     def train(self, mode: bool = True):
         if isinstance(self._current_roi, torch.nn.Module):
             self._current_roi.train(mode)
