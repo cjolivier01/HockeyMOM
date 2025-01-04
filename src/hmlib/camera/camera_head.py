@@ -10,6 +10,7 @@ from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
+from hmlib.bbox.box_functions import width, height, center, make_box_at_center
 
 
 def to_rgb_non_planar(image):
@@ -98,14 +99,22 @@ class CamTrackHead:
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         return outputs, output_results
 
-    def _maybe_init(self, frame_id, img_width: int, img_height: int, device: torch.device):
+    def _maybe_init(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
         if self._postprocessor is None:
             self.on_first_image(
-                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device
+                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device, arena=arena
             )
 
     def is_initialized(self) -> bool:
         return not self._hockey_mom is None
+
+    @staticmethod
+    def calculate_play_box(results: Dict[str, Any], scale: float = 1.2) -> List[int]:
+        first_data_sample = results['data_samples'][0]
+        play_box = torch.tensor(first_data_sample.metainfo['rink_profile']['combined_bbox'], dtype=torch.int64)
+        ww, hh = width(play_box), height(play_box)
+        cc = center(play_box)
+        return make_box_at_center(cc, ww * scale, hh * scale)
 
     def process_tracking(
         self,
@@ -121,48 +130,58 @@ class CamTrackHead:
             metainfo = video_data_sample.metainfo
             original_shape = metainfo["ori_shape"]
             # torch.Size will be (H, W)
+
+            # play_box: List[int] = [0, 0, original_shape[1], original_shape[0]]
+            # first_data_sample = results['data_samples'][0]
+            # play_box = first_data_sample.metainfo['rink_profile']['combined_bbox']
+
+            arena = self.calculate_play_box(results)
+
             assert isinstance(original_shape, torch.Size)
             self._maybe_init(
                 frame_id=video_data_sample.frame_id,
                 img_height=original_shape[0],
                 img_width=original_shape[1],
+                arena=arena,
                 device=self._device,
             )
         results = self._postprocessor.send(results)
         return results
 
-    def on_first_image(self, frame_id, img_width: int, img_height: int, device: torch.device):
-        if self._hockey_mom is None:
-            self._hockey_mom = HockeyMOM(
-                image_width=img_width,
-                image_height=img_height,
-                fps=self._fps,
-                device=device,
-                camera_name=self._camera_name,
-            )
+    def on_first_image(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+        assert self._hockey_mom is None
 
-        if self._postprocessor is None:
-            self._postprocessor = CamTrackPostProcessor(
-                self._hockey_mom,
-                start_frame_id=frame_id,
-                data_type=self._data_type,
-                fps=self._fps,
-                save_dir=self._save_dir,
-                output_video_path=self._output_video_path,
-                save_frame_dir=self._save_frame_dir,
-                device=device,
-                original_clip_box=self._original_clip_box,  # TODO: Put in args
-                args=self._args,
-                async_post_processing=self._async_post_processing,
-                video_out_device=self._video_out_device,
-                video_out_cache_size=self._video_out_cache_size,
-                async_video_out=self._async_video_out,
-                video_out_pipeline=self._video_out_pipeline,
-                no_cuda_streams=self._no_cuda_streams,
-            )
-            self._postprocessor.eval()
-            if self._async_post_processing:
-                self._postprocessor.start()
+        self._hockey_mom = HockeyMOM(
+            image_width=img_width,
+            image_height=img_height,
+            fps=self._fps,
+            device=device,
+            camera_name=self._camera_name,
+        )
+        assert self._postprocessor is None
+
+        self._postprocessor = CamTrackPostProcessor(
+            self._hockey_mom,
+            start_frame_id=frame_id,
+            data_type=self._data_type,
+            fps=self._fps,
+            save_dir=self._save_dir,
+            output_video_path=self._output_video_path,
+            save_frame_dir=self._save_frame_dir,
+            device=device,
+            original_clip_box=self._original_clip_box,  # TODO: Put in args
+            play_box=arena,
+            args=self._args,
+            async_post_processing=self._async_post_processing,
+            video_out_device=self._video_out_device,
+            video_out_cache_size=self._video_out_cache_size,
+            async_video_out=self._async_video_out,
+            video_out_pipeline=self._video_out_pipeline,
+            no_cuda_streams=self._no_cuda_streams,
+        )
+        self._postprocessor.eval()
+        if self._async_post_processing:
+            self._postprocessor.start()
 
     def stop(self):
         if self._postprocessor is not None:

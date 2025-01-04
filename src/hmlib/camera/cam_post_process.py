@@ -194,6 +194,7 @@ class CamTrackPostProcessor:
         device,
         original_clip_box,
         video_out_pipeline: Dict[str, Any],
+        play_box: torch.Tensor,
         args: argparse.Namespace,
         save_frame_dir: str = None,
         async_post_processing: bool = False,
@@ -237,9 +238,11 @@ class CamTrackPostProcessor:
         self._send_to_timer_post_process = Timer()
         self._exception = None
         self._shower: Union[None, Shower] = None
+
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
-            play_box=hockey_mom._video_frame.bounding_box(),
+            #play_box=hockey_mom._video_frame.bounding_box(),
+            play_box=play_box,
             device=device,
             original_clip_box=original_clip_box,
             progress_bar=progress_bar,

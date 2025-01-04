@@ -95,7 +95,7 @@ class PlayTracker(torch.nn.Module):
         self._playtracker: Union[PlayTracker, None] = None
         self._hockey_mom: HockeyMOM = hockey_mom
         # Amount to scale speed-related calculations based upon non-standard fps
-        self._play_box = play_box
+        self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
@@ -135,8 +135,8 @@ class PlayTracker(torch.nn.Module):
         play_width = width(self._play_box)
         play_height = height(self._play_box)
 
-        assert play_width == self._hockey_mom._video_frame.width
-        assert play_height == self._hockey_mom._video_frame.height
+        assert play_width <= self._hockey_mom._video_frame.width
+        assert play_height <= self._hockey_mom._video_frame.height
 
         # speed_scale = 1.0
         speed_scale = self._hockey_mom.fps_speed_scale

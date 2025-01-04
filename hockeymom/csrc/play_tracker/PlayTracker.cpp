@@ -171,10 +171,14 @@ void PlayTracker::set_bboxes(const std::vector<BBox>& bboxes) {
 
 void PlayTracker::set_bboxes_scaled(BBox bbox, float scale_step) {
   const BBox arena_box = get_play_box();
+  if (bbox.empty()) {
+    bbox = arena_box;
+  }
   for (size_t i = 0, n = living_boxes_.size(); i < n; ++i) {
     bbox = clamp_box(bbox, arena_box);
     living_boxes_[i]->set_bbox(bbox);
-    BBox new_bbox = bbox.make_scaled(scale_step, scale_step);
+    BBox new_bbox =
+        clamp_box(bbox.make_scaled(scale_step, scale_step), arena_box);
     // We don't allow it to go an empty box (w==0 or h==0)
     if (!new_bbox.empty()) {
       bbox = new_bbox;

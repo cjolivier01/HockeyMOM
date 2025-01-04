@@ -11,9 +11,7 @@ std::ostream& operator<<(std::ostream& os, const WHDims& dims) {
   return os;
 }
 
-std::ostream& operator<<(
-    std::ostream& os,
-    const PointDiff& diff) {
+std::ostream& operator<<(std::ostream& os, const PointDiff& diff) {
   os << "PointDiff(dx=" << std::setw(10) << std::fixed << std::setprecision(6)
      << diff.dx << ", dy=" << std::setw(10) << std::fixed
      << std::setprecision(6) << diff.dy << ")";
@@ -43,7 +41,7 @@ std::ostream& operator<<(std::ostream& os, const BBox& bbox) {
      << bbox.bottom << ")";
   return os;
 }
-//namespace play_tracker {
+// namespace play_tracker {
 
 bool isClose(float a, float b, float rel_tol, float abs_tol) {
   // Compute the absolute difference
@@ -102,7 +100,36 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
       .bbox = box, .was_shifted_x = false, .was_shifted_y = false};
   FloatValue xw = bounding_box.width(), xh = bounding_box.height();
   // TODO: Make top-left of bounding box not need to be zero
-  assert(isZero(bounding_box.left) && isZero(bounding_box.top));
+  // assert(isZero(bounding_box.left) && isZero(bounding_box.top));
+#if 1
+  // Should clamped somewhere along the way before now
+  assert(box.width() <= bounding_box.width());
+  assert(box.height() <= bounding_box.height());
+  FloatValue min_x = bounding_box.left, max_x = bounding_box.right,
+             min_y = bounding_box.top, max_y = bounding_box.bottom;
+  if (result.bbox.left < min_x) {
+    FloatValue offset = result.bbox.left - min_x;
+    result.bbox.right -= offset;
+    result.bbox.left -= offset;
+    result.was_shifted_x = true;
+  } else if (result.bbox.right >= max_x) {
+    FloatValue offset = result.bbox.right - max_x;
+    result.bbox.left -= offset;
+    result.bbox.right -= offset;
+    result.was_shifted_x = true;
+  }
+  if (result.bbox.top < min_y) {
+    FloatValue offset = result.bbox.top - min_y;
+    result.bbox.bottom -= offset;
+    result.bbox.top -= offset;
+    result.was_shifted_y = true;
+  } else if (result.bbox.bottom >= xh) {
+    FloatValue offset = result.bbox.bottom - max_y;
+    result.bbox.top -= offset;
+    result.bbox.bottom -= offset;
+    result.was_shifted_y = true;
+  }
+#else
   if (result.bbox.left < 0) {
     result.bbox.right -= result.bbox.left;
     result.bbox.left -= result.bbox.left;
@@ -123,6 +150,7 @@ ShiftResult shift_box_to_edge(const BBox& box, const BBox& bounding_box) {
     result.bbox.bottom -= offset;
     result.was_shifted_y = true;
   }
+#endif
   assert(result.bbox.left >= bounding_box.left);
   assert(result.bbox.top >= bounding_box.top);
   assert(result.bbox.right <= bounding_box.right);
