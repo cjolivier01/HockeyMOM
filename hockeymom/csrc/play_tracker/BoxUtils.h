@@ -116,6 +116,9 @@ struct BBox {
   Point anchor_point() const {
     return Point{.x = (left + right) / 2, .y = bottom};
   }
+  WHDims size() const {
+    return WHDims{.width = width(), .height = height()};
+  }
   BBox make_scaled(FloatValue scale_width, FloatValue scale_height) const {
     return BBox(
         center(),
