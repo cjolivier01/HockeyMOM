@@ -15,7 +15,6 @@ def validate_timestamp(timestamp):
 def create_text_video(text, duration, output_file, width, height):
     cmd = [
         "ffmpeg",
-        "-nobanner",
         "-f",
         "lavfi",
         "-i",
@@ -31,7 +30,6 @@ def create_text_video(text, duration, output_file, width, height):
 def add_clip_number(input_file, output_file, clip_number, width, height):
     cmd = [
         "ffmpeg",
-        "-nobanner",
         "-i",
         input_file,
         "-vf",
@@ -85,7 +83,6 @@ def main():
         clip_file = f"{temp_dir}/clip_{i}.mp4"
         cmd = [
             "ffmpeg",
-            "-nobanner",
             "-i",
             args.input_video,
             "-ss",
@@ -118,7 +115,6 @@ def main():
     subprocess.run(
         [
             "ffmpeg",
-            "-nobanner",
             "-f",
             "concat",
             "-safe",
