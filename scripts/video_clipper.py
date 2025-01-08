@@ -109,7 +109,7 @@ def main():
     # Create file list for concatenation
     with open(f"{temp_dir}/list.txt", "w") as f:
         for clip in clips:
-            f.write(f"file '{clip}'\n")
+            f.write(f"file '{os.path.realpath(clip)}'\n")
 
     # Concatenate all clips
     subprocess.run(
