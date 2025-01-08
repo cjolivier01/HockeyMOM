@@ -27,7 +27,7 @@ def create_text_video(text, duration, output_file, width, height):
     subprocess.run(cmd, check=True)
 
 
-def add_clip_number(input_file, output_file, text, clip_number, width, height):
+def add_clip_number(input_file, output_file, clip_number, width, height):
     cmd = [
         "ffmpeg",
         "-i",
@@ -103,7 +103,7 @@ def main():
 
         # Add clip number overlay
         numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-        add_clip_number(clip_file, args.label, numbered_clip, i + 1, width, height)
+        add_clip_number(clip_file, numbered_clip, i + 1, width, height)
         clips.append(numbered_clip)
 
     # Create file list for concatenation
