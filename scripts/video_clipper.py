@@ -83,14 +83,15 @@ def main():
         clip_file = f"{temp_dir}/clip_{i}.mp4"
         cmd = [
             "ffmpeg",
-            "-i",
-            args.input_video,
             "-ss",
             start_time,
+            "-i",
+            args.input_video,
             "-to",
             end_time,
             "-c",
             "copy",
+            "-copyts",
             "-y",
             clip_file,
         ]
@@ -132,9 +133,9 @@ def main():
     )
 
     # Cleanup
-    for file in os.listdir(temp_dir):
-        os.remove(os.path.join(temp_dir, file))
-    os.rmdir(temp_dir)
+    # for file in os.listdir(temp_dir):
+    #     os.remove(os.path.join(temp_dir, file))
+    # os.rmdir(temp_dir)
 
 
 if __name__ == "__main__":
