@@ -155,6 +155,9 @@ def main():
             f"{temp_dir}/list.txt",
             "-c:a",
             "copy",
+            # "aac",
+            # "-b:a",
+            # "128k",
         ]
         + FINAL_ENCODER_ARGS
         + [
