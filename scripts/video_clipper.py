@@ -12,12 +12,11 @@ def validate_timestamp(timestamp):
         return False
 
 
-encoder_args = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-final_encoder_args = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+FINAL_ENCODER_ARGS = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
 
 
 def create_text_video(text: str, duration: int, output_file: str, width: int, height: int) -> None:
-    global encoder_args
     cmd = (
         [
             "ffmpeg",
@@ -35,7 +34,7 @@ def create_text_video(text: str, duration: int, output_file: str, width: int, he
             "30",
             "-shortest",
         ]
-        + encoder_args
+        + ENCODER_ARGS_LOSSLESS
         + [
             "-y",
             output_file,
@@ -58,7 +57,7 @@ def add_clip_number(
             "-codec:a",
             "copy",
         ]
-        + encoder_args
+        + ENCODER_ARGS_LOSSLESS
         + [
             "-y",
             output_file,
@@ -118,7 +117,7 @@ def main():
                 "-c:a",
                 "copy",
             ]
-            + encoder_args
+            + ENCODER_ARGS_LOSSLESS
             + [
                 "-copyts",
                 "-y",
@@ -155,7 +154,7 @@ def main():
             "-c:a ",
             "copy",
         ]
-        + encoder_args
+        + ENCODER_ARGS_LOSSLESS
         + [
             "-copyts",
             "-y",
