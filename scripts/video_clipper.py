@@ -13,7 +13,7 @@ def validate_timestamp(timestamp):
 
 
 ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-FINAL_ENCODER_ARGS = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
+FINAL_ENCODER_ARGS = "-c:v hevc_nvenc -preset slow".split(" ")
 
 
 def create_text_video(text: str, duration: int, output_file: str, width: int, height: int) -> None:
@@ -99,6 +99,8 @@ def main():
 
     # Extract clips and create transition screens
     for i, line in enumerate(timestamps):
+        if not line or line[0] == "#":
+            continue
         start_time, end_time = line.strip().split()
         if not all(validate_timestamp(t) for t in [start_time, end_time]):
             raise ValueError(f"Invalid timestamp format in line {i+1}")
@@ -140,7 +142,7 @@ def main():
     with open(f"{temp_dir}/list.txt", "w") as f:
         for clip in clips:
             f.write(f"file '{os.path.realpath(clip)}'\n")
-
+    print("Doing final join quietly...")
     # Concatenate all clips
     subprocess.run(
         [
@@ -151,13 +153,16 @@ def main():
             "0",
             "-i",
             f"{temp_dir}/list.txt",
-            "-c:a ",
+            "-c:a",
             "copy",
         ]
-        + ENCODER_ARGS_LOSSLESS
+        + FINAL_ENCODER_ARGS
         + [
-            "-copyts",
+            # "-copyts",
             "-y",
+            # Don't bitch about timestamps...
+            "-loglevel",
+            "error",
             "output.mp4",
         ],
         check=True,
