@@ -188,7 +188,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         cache_size: int = 4,
         bit_rate: int = int(55e6),
         device: torch.device = None,
-        lossless: bool = True,
+        lossless: bool = int(os.environ.get("HM_LOSSLESS_OUT", "0")) != 0,
         container_type: str = "matroska",
         local_resize: bool = True,
         streaming_drop_frame_interval: int = 3,
