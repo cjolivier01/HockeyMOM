@@ -13,6 +13,7 @@ def validate_timestamp(timestamp):
 
 
 encoder_args = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+final_encoder_args = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
 
 
 def create_text_video(text: str, duration: int, output_file: str, width: int, height: int) -> None:
