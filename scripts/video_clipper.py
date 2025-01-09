@@ -12,7 +12,6 @@ def validate_timestamp(timestamp):
         return False
 
 
-# encoder_args = "-c:v hevc_nvenc".split(" ")
 encoder_args = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
 
 
