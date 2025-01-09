@@ -12,44 +12,58 @@ def validate_timestamp(timestamp):
         return False
 
 
-def create_text_video(text, duration, output_file, width, height):
-    cmd = [
-        "ffmpeg",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=c=black:s={}x{}:d={}".format(width, height, duration),
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=r=44100:cl=stereo",
-        "-vf",
-        f"drawtext=text='{text}':fontsize=45:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
-        "-shortest",
-        "-c:v",
-        "hevc_nvenc",
-        "-y",
-        output_file,
-    ]
+# encoder_args = "-c:v hevc_nvenc".split(" ")
+encoder_args = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+
+
+def create_text_video(text: str, duration: int, output_file: str, width: int, height: int) -> None:
+    global encoder_args
+    cmd = (
+        [
+            "ffmpeg",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s={}x{}:d={}".format(width, height, duration),
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=stereo",
+            "-vf",
+            f"drawtext=text='{text}':fontsize=50:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
+            "-r",
+            "30",
+            "-shortest",
+        ]
+        + encoder_args
+        + [
+            "-y",
+            output_file,
+        ]
+    )
     subprocess.run(cmd, check=True)
 
 
-def add_clip_number(input_file, output_file, clip_number, width, height):
-    cmd = [
-        "ffmpeg",
-        "-i",
-        input_file,
-        "-vf",
-        f"drawtext=text='{clip_number}':fontsize=52:fontcolor=white:x=w-tw-10:y=10",
-        "-codec:a",
-        "copy",
-        "-c:v",
-        "hevc_nvenc",
-        "-preset",
-        "slow",
-        "-y",
-        output_file,
-    ]
+def add_clip_number(
+    input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int
+) -> None:
+    text = label + " " + str(clip_number)
+    cmd = (
+        [
+            "ffmpeg",
+            "-i",
+            input_file,
+            "-vf",
+            f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10",
+            "-codec:a",
+            "copy",
+        ]
+        + encoder_args
+        + [
+            "-y",
+            output_file,
+        ]
+    )
     subprocess.run(cmd, check=True)
 
 
@@ -92,22 +106,25 @@ def main():
 
         # Extract clip
         clip_file = f"{temp_dir}/clip_{i}.mp4"
-        cmd = [
-            "ffmpeg",
-            "-ss",
-            start_time,
-            "-i",
-            args.input_video,
-            "-to",
-            end_time,
-            "-c:a",
-            "copy",
-            "-c:v",
-            "copy",
-            "-copyts",
-            "-y",
-            clip_file,
-        ]
+        cmd = (
+            [
+                "ffmpeg",
+                "-ss",
+                start_time,
+                "-i",
+                args.input_video,
+                "-to",
+                end_time,
+                "-c:a",
+                "copy",
+            ]
+            + encoder_args
+            + [
+                "-copyts",
+                "-y",
+                clip_file,
+            ]
+        )
         subprocess.run(cmd, check=True)
 
         # Create transition screen
@@ -117,7 +134,7 @@ def main():
 
         # Add clip number overlay
         numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-        add_clip_number(clip_file, numbered_clip, i + 1, width, height)
+        add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
         clips.append(numbered_clip)
 
     # Create file list for concatenation
@@ -135,8 +152,11 @@ def main():
             "0",
             "-i",
             f"{temp_dir}/list.txt",
-            "-c",
+            "-c:a ",
             "copy",
+        ]
+        + encoder_args
+        + [
             "-copyts",
             "-y",
             "output.mp4",
