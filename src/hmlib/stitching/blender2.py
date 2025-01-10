@@ -1182,8 +1182,8 @@ def main(args):
     with torch.no_grad():
         blend_video(
             opts,
-            video_file_1="GX010094.MP4",
-            video_file_2="GX010013.MP4",
+            video_file_1="left.mp4",
+            video_file_2="right.mp4",
             dir_name=args.video_dir,
             lfo=args.lfo,
             rfo=args.rfo,
