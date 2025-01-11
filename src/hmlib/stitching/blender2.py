@@ -257,11 +257,6 @@ class PtImageBlender(torch.nn.Module):
                 device=self._seam_mask.device,
             )
 
-        HH = 0
-        WW = 1
-        XX = 2
-        YY = 3
-
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
         x1 = self._images_info[0].xpos
@@ -302,55 +297,6 @@ class PtImageBlender(torch.nn.Module):
             level_ainfo_1.append(ainfo_1)
             level_ainfo_2.append(ainfo_2)
             level_canvas_dims.append(canvas_dims)
-
-        # def _make_full(
-        #     img_1: torch.Tensor,
-        #     img_2: torch.Tensor,
-        #     level: int,
-        #     # ainfo_1: torch.Tensor,
-        #     # ainfo_2: torch.Tensor,
-        # ):
-        #     ainfo_1 = level_ainfo_1[level]
-        #     ainfo_2 = level_ainfo_2[level]
-
-        #     h1 = ainfo_1[HH]
-        #     w1 = ainfo_1[WW]
-        #     x1 = ainfo_1[XX]
-        #     y1 = ainfo_1[YY]
-        #     h2 = ainfo_2[HH]
-        #     w2 = ainfo_2[WW]
-        #     x2 = ainfo_2[XX]
-        #     y2 = ainfo_2[YY]
-
-        #     # If these hit, you may have not passed "-s" to autotoptimiser
-        #     assert x1 == 0 or x2 == 0  # for now this is the case
-        #     assert y1 == 0 or y2 == 0  # for now this is the case
-
-        #     canvas_dims = level_canvas_dims[level]
-
-        #     full_left = torch.nn.functional.pad(
-        #         img_1,
-        #         (
-        #             x1,
-        #             canvas_dims[1] - x1 - w1,
-        #             y1,
-        #             canvas_dims[0] - y1 - h1,
-        #         ),
-        #         mode="constant",
-        #     )
-
-        #     full_right = torch.nn.functional.pad(
-        #         img_2,
-        #         (
-        #             x2,
-        #             canvas_dims[1] - x2 - w2,
-        #             y2,
-        #             canvas_dims[0] - y2 - h2,
-        #         ),
-        #         mode="constant",
-        #     )
-
-        #     return full_left, full_right
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
