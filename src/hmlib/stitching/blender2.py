@@ -186,60 +186,56 @@ class PtImageBlender(torch.nn.Module):
 
     #     return full_left, full_right
 
-    def make_level_info(
-        self,
-        nr_levels: int,
-        image_info_hwxy_1: torch.Tensor,
-        image_info_hwxy_2: torch.Tensor,
-        canvas_width: int,
-        canvas_height: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Tenspor positions
-        HH = 0
-        WW = 1
-        XX = 2
-        YY = 3
-        h1, w1, x1, y1 = image_info_hwxy_1
-        h2, w2, x2, y2 = image_info_hwxy_1
-        if y1 <= y2:
-            y2 -= y1
-            y1 = 0
-        elif y2 < y1:
-            y1 -= y2
-            y2 = 0
-        if x1 <= x2:
-            x2 -= x1
-            x1 = 0
-        elif x2 < x1:
-            x1 -= x2
-            x2 = 0
+    # def make_level_info(
+    #     self,
+    #     nr_levels: int,
+    #     image_info_hwxy_1: torch.Tensor,
+    #     image_info_hwxy_2: torch.Tensor,
+    #     canvas_width: int,
+    #     canvas_height: int,
+    # ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    #     # Tenspor positions
+    #     h1, w1, x1, y1 = image_info_hwxy_1
+    #     h2, w2, x2, y2 = image_info_hwxy_1
+    #     if y1 <= y2:
+    #         y2 -= y1
+    #         y1 = 0
+    #     elif y2 < y1:
+    #         y1 -= y2
+    #         y2 = 0
+    #     if x1 <= x2:
+    #         x2 -= x1
+    #         x1 = 0
+    #     elif x2 < x1:
+    #         x1 -= x2
+    #         x2 = 0
 
-        ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64, device=image_info_hwxy_1.device)
-        ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64, device=image_info_hwxy_2.device)
+    #     ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64, device=image_info_hwxy_1.device)
+    #     ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64, device=image_info_hwxy_2.device)
 
-        level_ainfo_1: List[torch.Tensor] = [ainfo_1]
-        level_ainfo_2: List[torch.Tensor] = [ainfo_2]
+    #     level_ainfo_1: List[torch.Tensor] = [ainfo_1]
+    #     level_ainfo_2: List[torch.Tensor] = [ainfo_2]
 
-        canvas_dims = torch.tensor(
-            [canvas_height, canvas_width],
-            dtype=torch.int64,
-            device=image_info_hwxy_1.device,
-        )
-        level_canvas_dims: List[torch.Tensor] = [canvas_dims]
+    #     canvas_dims = torch.tensor(
+    #         [canvas_height, canvas_width],
+    #         dtype=torch.int64,
+    #         device=image_info_hwxy_1.device,
+    #     )
+    #     level_canvas_dims: List[torch.Tensor] = [canvas_dims]
 
-        for _ in range(nr_levels):
-            ainfo_1 = ainfo_1 // 2
-            ainfo_2 = ainfo_2 // 2
-            canvas_dims = canvas_dims // 2
-            level_ainfo_1.append(ainfo_1)
-            level_ainfo_2.append(ainfo_2)
-            level_canvas_dims.append(canvas_dims)
+    #     for _ in range(nr_levels):
+    #         ainfo_1 = ainfo_1 // 2
+    #         ainfo_2 = ainfo_2 // 2
+    #         canvas_dims = canvas_dims // 2
+    #         level_ainfo_1.append(ainfo_1)
+    #         level_ainfo_2.append(ainfo_2)
+    #         level_canvas_dims.append(canvas_dims)
 
-        return (
-            torch.stack(level_ainfo_1),
-            torch.stack(level_ainfo_2),
-            torch.stack(level_canvas_dims),
-        )
+    #     return (
+    #         torch.stack(level_ainfo_1),
+    #         torch.stack(level_ainfo_2),
+    #         torch.stack(level_canvas_dims),
+    #     )
 
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
         batch_size = image_1.shape[0]

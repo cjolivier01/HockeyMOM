@@ -219,6 +219,7 @@ class LaplacianBlend(torch.nn.Module):
 
         return full_left, full_right
 
+    # @torch.jit.script_method
     def forward(
         self,
         left,
