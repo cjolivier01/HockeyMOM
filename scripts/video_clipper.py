@@ -38,7 +38,7 @@ ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
-if not _DEBUG:
+if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
 else:
