@@ -22,3 +22,21 @@ def format_duration_to_hhmmss(seconds: float, decimals: int = 4) -> str:
     formatted_duration = f"{hours:02}:{minutes:02}:{formatted_seconds}"
 
     return formatted_duration
+
+
+def hhmmss_to_duration_seconds(time_str: str) -> float:
+    # Split the time duration string into components
+    h = 0
+    m = 0
+    s = 0
+    tokens = time_str.split(":")
+    s = float(tokens[-1])
+    if len(tokens) > 1:
+        m = int(tokens[-2])
+        if len(tokens) > 2:
+            assert len(tokens) == 3
+            h = int(tokens[0])
+    # Extract seconds and milliseconds
+    # Convert hours, minutes, seconds, and milliseconds to total seconds
+    total_seconds = h * 3600 + m * 60 + s
+    return total_seconds
