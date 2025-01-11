@@ -21,9 +21,6 @@ ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".sp
 ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
 
-# ENCODER_ARGS_FAST = "-c:v hevc -preset fast".split(" ")
-# ENCODER_ARGS_HQ = "-c:v hevc -preset slow".split(" ")
-
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
 if not _DEBUG:
@@ -105,35 +102,11 @@ def extract_clip(
         ]
         + WORKING_ENCODER_ARGS
         + [
-            # "-copyts",
             "-y",
             clip_file,
         ]
     )
     subprocess.run(cmd, check=True)
-
-
-def join_audio_and_video(video_file: str, audio_file: str, output_file: str):
-    subprocess.run(
-        FFMPEG_BASE_HW
-        # + FFMPEG_CUDA_DECODER
-        + [
-            "-i",
-            video_file,
-            "-i",
-            audio_file,
-            "-c:a",
-            "copy",
-        ]
-        + FINAL_ENCODER_ARGS
-        + [
-            "-strict",
-            "experimental",
-            "-y",
-            output_file,
-        ],
-        check=True,
-    )
 
 
 def concat_video_clips(list_file: str, output_file: str) -> None:
@@ -147,32 +120,15 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
             "-i",
             list_file,
         ]
-        + FINAL_ENCODER_ARGS
+        # + FINAL_ENCODER_ARGS
+        + [
+            "-c:a",
+            "copy",
+            "-c:v",
+            "copy",
+        ]
         + [
             "-y",
-            output_file,
-        ],
-        check=True,
-    )
-
-
-def concat_audio_clips(list_file: str, output_file: str, rate_k: int = 192) -> None:
-    subprocess.run(
-        FFMPEG_BASE
-        + [
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            list_file,
-            "-vn",
-            "-b:a",
-            f"{rate_k}k",
-            "-y",
-            # Don't bitch about timestamps...
-            "-loglevel",
-            "error",
             output_file,
         ],
         check=True,
