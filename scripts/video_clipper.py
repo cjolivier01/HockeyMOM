@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import List
 from pathlib import Path
+import json
 
 
 def validate_timestamp(timestamp):
@@ -14,17 +15,17 @@ def validate_timestamp(timestamp):
         return False
 
 
-_DEBUG = False
+_DEBUG = True
 
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
 
-ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
-ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast".split(" ")
-ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset slow".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc -preset slow -qp 0".split(" ")
+ENCODER_ARGS_FAST = "-c:v hevc -preset fast".split(" ")
+ENCODER_ARGS_HQ = "-c:v hevc -preset slow".split(" ")
 
-FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
+# FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
 if not _DEBUG:
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
@@ -35,7 +36,37 @@ else:
     FINAL_ENCODER_ARGS = ENCODER_ARGS_FAST
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
-FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
+FFMPEG_BASE_HW: List[str] = FFMPEG_BASE  # + ["-hwaccel", "cuda"]
+
+
+def get_audio_sample_rate(file_path: str):
+    try:
+        # Execute the ffprobe command to get the audio stream information
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=sample_rate",
+                "-of",
+                "json",
+                file_path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Parse the JSON output
+        output = json.loads(result.stdout)
+        sample_rate = output["streams"][0]["sample_rate"]
+        return int(sample_rate)
+    except (subprocess.CalledProcessError, KeyError, IndexError, ValueError) as e:
+        print(f"Error retrieving sample rate: {e}")
+        return None
 
 
 def hhmmss_to_duration_seconds(time_str: str) -> float:
@@ -62,7 +93,7 @@ def extract_clip(
     duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
     cmd = (
         FFMPEG_BASE_HW
-        + FFMPEG_CUDA_DECODER
+        # + FFMPEG_CUDA_DECODER
         + [
             "-ss",
             start_time,
@@ -70,8 +101,8 @@ def extract_clip(
             input_video,
             "-t",
             str(duration),
-            "-b:a",
-            f"{rate_k}k",
+            "-c:a",
+            "aac",
         ]
         + WORKING_ENCODER_ARGS
         + [
@@ -86,7 +117,7 @@ def extract_clip(
 def join_audio_and_video(video_file: str, audio_file: str, output_file: str):
     subprocess.run(
         FFMPEG_BASE_HW
-        + FFMPEG_CUDA_DECODER
+        # + FFMPEG_CUDA_DECODER
         + [
             "-i",
             video_file,
@@ -116,8 +147,17 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
             "0",
             "-i",
             list_file,
+            # "-c:a",
+            # "aac",
+            # "-c:v",
+            # "libx264",
+            # "-preset",
+            # "fast",
+            # "-crf",
+            # "23",
         ]
-        + WORKING_ENCODER_ARGS
+        # + WORKING_ENCODER_ARGS
+        + FINAL_ENCODER_ARGS
         + [
             "-y",
             output_file,
@@ -150,7 +190,13 @@ def concat_audio_clips(list_file: str, output_file: str, rate_k: int = 192) -> N
 
 
 def create_text_video(
-    text: str, duration: int, output_file: str, width: int, height: int, fps: float
+    text: str,
+    duration: int,
+    output_file: str,
+    width: int,
+    height: int,
+    fps: float,
+    audio_sample_rate: int,
 ) -> None:
     cmd = (
         FFMPEG_BASE_HW
@@ -162,7 +208,7 @@ def create_text_video(
             "-f",
             "lavfi",
             "-i",
-            "anullsrc=r=44100:cl=stereo",
+            f"anullsrc=r={int(audio_sample_rate)}:cl=stereo",
             "-vf",
             f"drawtext=text='{text}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
             "-r",
@@ -244,6 +290,8 @@ def main():
     frame_rate_num, frame_rate_demon = map(int, r_frame_rate.split("/"))
     fps = float(frame_rate_num) / float(frame_rate_demon)
 
+    audio_sample_rate = get_audio_sample_rate(args.input_video)
+
     # Create temporary directory
     temp_dir = "temp_clips"
     os.makedirs(temp_dir, exist_ok=True)
@@ -267,15 +315,17 @@ def main():
 
         # Create transition screen
         transition = f"{temp_dir}/transition_{i}.mp4"
-        create_text_video(f"{args.label}\nClip {i + 1}", 5, transition, width, height, fps)
+        create_text_video(
+            f"{args.label}\nClip {i + 1}", 3.0, transition, width, height, fps, audio_sample_rate
+        )
         clips.append(transition)
-        audio_clips.append(extract_audio(transition))
+        audio_clips.append(transition)
 
         # Add clip number overlay
         numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
         add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
         clips.append(numbered_clip)
-        audio_clips.append(extract_audio(transition))
+        audio_clips.append(numbered_clip)
 
     # Create file list for concatenation
     with open(f"{temp_dir}/list.txt", "w") as f:
@@ -287,10 +337,10 @@ def main():
     print("Doing final join quietly...")
     # Concatenate all clips
     concat_video_clips(f"{temp_dir}/list.txt", f"{temp_dir}/output_video.mp4")
-    concat_audio_clips(f"{temp_dir}/audio_list.txt", f"{temp_dir}/output_audio.aac")
-    join_audio_and_video(
-        f"{temp_dir}/output_video.mp4", f"{temp_dir}/output_audio.aac", f"{args.label}_clips.mp4"
-    )
+    # concat_audio_clips(f"{temp_dir}/audio_list.txt", f"{temp_dir}/output_audio.aac")
+    # join_audio_and_video(
+    #     f"{temp_dir}/output_video.mp4", f"{temp_dir}/output_audio.aac", f"{args.label}_clips.mp4"
+    # )
     # Cleanup
     # for file in os.listdir(temp_dir):
     #     os.remove(os.path.join(temp_dir, file))
