@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 import torch
@@ -39,21 +39,22 @@ def gaussian_conv2d(x, g_kernel):
     return y
 
 
-def downsample(x):
+def downsample(x: torch.Tensor) -> torch.Tensor:
     downsample = F.avg_pool2d(x, kernel_size=2)
     return downsample
 
 
-def upsample(image, size):
-    # print(f"upsample {image.shape[-2:]} -> {size}")
-    # return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
+def upsample(image: torch.Tensor, size: List[int]) -> torch.Tensor:
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
 
-def create_laplacian_pyramid(x, kernel, levels):
+@torch.jit.script
+def create_laplacian_pyramid(
+    x: torch.Tensor, kernel: torch.Tensor, levels: int
+) -> List[torch.Tensor]:
     pyramids = []
     current_x = x
-    for level in range(0, levels):
+    for _ in range(0, levels):
         gauss_filtered_x = gaussian_conv2d(current_x, kernel)
         down = downsample(gauss_filtered_x)
         laplacian = current_x - upsample(down, size=gauss_filtered_x.shape[-2:])
@@ -95,10 +96,10 @@ class LaplacianBlend(torch.nn.Module):
         xor_mask: Optional[torch.Tensor] = None,
     ):
         super(LaplacianBlend, self).__init__()
-        self.max_levels = max_levels
-        self.kernel_size = kernel_size
-        self.channels = channels
-        self.sigma = sigma
+        self.max_levels: int = max_levels
+        self.kernel_size: int = kernel_size
+        self.channels: int = channels
+        self.sigma: int = sigma
         if seam_mask is not None:
             self.register_buffer("seam_mask", to_float(seam_mask))
         else:
@@ -222,13 +223,13 @@ class LaplacianBlend(torch.nn.Module):
     # @torch.jit.script_method
     def forward(
         self,
-        left,
-        right,
+        left: torch.Tensor,
+        right: torch.Tensor,
         level_ainfo_1,
         level_ainfo_2,
         level_canvas_dims,
         # make_full_fn: callable = None,
-    ):
+    ) -> torch.Tensor:
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
         # assert left.shape == right.shape  # They should be "full" already
