@@ -39,6 +39,7 @@ ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
 if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
+    print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
 else:
@@ -48,6 +49,24 @@ else:
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
+
+
+def hhmmss_to_duration_seconds(time_str: str) -> float:
+    # Split the time duration string into components
+    h = 0
+    m = 0
+    s = 0
+    tokens = time_str.split(":")
+    s = float(tokens[-1])
+    if len(tokens) > 1:
+        m = int(tokens[-2])
+        if len(tokens) > 2:
+            assert len(tokens) == 3
+            h = int(tokens[0])
+    # Extract seconds and milliseconds
+    # Convert hours, minutes, seconds, and milliseconds to total seconds
+    total_seconds = h * 3600 + m * 60 + s
+    return total_seconds
 
 
 def get_audio_sample_rate(file_path: str):
@@ -80,31 +99,13 @@ def get_audio_sample_rate(file_path: str):
         return None
 
 
-def hhmmss_to_duration_seconds(time_str: str) -> float:
-    # Split the time duration string into components
-    h = 0
-    m = 0
-    s = 0
-    tokens = time_str.split(":")
-    s = float(tokens[-1])
-    if len(tokens) > 1:
-        m = int(tokens[-2])
-        if len(tokens) > 2:
-            assert len(tokens) == 3
-            h = int(tokens[0])
-    # Extract seconds and milliseconds
-    # Convert hours, minutes, seconds, and milliseconds to total seconds
-    total_seconds = h * 3600 + m * 60 + s
-    return total_seconds
-
-
 def extract_clip(
     input_video: str, start_time: str, end_time: str, clip_file: str, rate_k: int = 192
 ) -> None:
     duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
     cmd = (
         FFMPEG_BASE_HW
-        # + FFMPEG_CUDA_DECODER
+        + FFMPEG_CUDA_DECODER
         + [
             "-ss",
             start_time,
@@ -127,6 +128,7 @@ def extract_clip(
 def concat_video_clips(list_file: str, output_file: str) -> None:
     subprocess.run(
         FFMPEG_BASE
+        + FFMPEG_CUDA_DECODER
         + [
             "-f",
             "concat",
@@ -135,7 +137,6 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
             "-i",
             list_file,
         ]
-        # + FINAL_ENCODER_ARGS
         + [
             "-c:a",
             "copy",
