@@ -102,7 +102,7 @@ class PtImageBlender(torch.nn.Module):
         laplacian_blend: False,
         max_levels: int = 6,
         dtype: torch.dtype = torch.float,
-    ):
+    ) -> None:
         super().__init__()
         self._images_info = images_info
         self._seam_mask = seam_mask.clone()
@@ -116,6 +116,7 @@ class PtImageBlender(torch.nn.Module):
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
             )
+            self._laplacian_blend.initialize(input_shape=None, device=seam_mask.device)
         else:
             self._laplacian_blend: bool = None
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]

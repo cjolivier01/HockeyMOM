@@ -108,7 +108,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         use_cpp_remap_op: bool = False,
         debug: bool = False,
         batch_size: Optional[int] = None,
-    ):
+    ) -> None:
         super().__init__()
         assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op

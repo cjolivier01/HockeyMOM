@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -116,6 +116,7 @@ class LaplacianBlend(torch.nn.Module):
             mask[:, : mask.shape[-1] // 2] = 1.0
             mask = mask.unsqueeze(0).unsqueeze(0)
         else:
+            assert input_shape is None
             mask = self.seam_mask.unsqueeze(0).unsqueeze(0)
             unique_values = torch.unique(mask)
             assert len(unique_values) == 2
@@ -167,23 +168,26 @@ class LaplacianBlend(torch.nn.Module):
         level_ainfo_1,
         level_ainfo_2,
         level_canvas_dims,
-    ):
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         ainfo_1 = level_ainfo_1[level]
         ainfo_2 = level_ainfo_2[level]
 
-        HH = 0
-        WW = 1
-        XX = 2
-        YY = 3
+        # HH = 0
+        # WW = 1
+        # XX = 2
+        # YY = 3
 
-        h1 = ainfo_1[HH]
-        w1 = ainfo_1[WW]
-        x1 = ainfo_1[XX]
-        y1 = ainfo_1[YY]
-        h2 = ainfo_2[HH]
-        w2 = ainfo_2[WW]
-        x2 = ainfo_2[XX]
-        y2 = ainfo_2[YY]
+        h1, w1, x1, y1 = ainfo_1
+        h2, w2, x2, y2 = ainfo_2
+
+        # h1 = ainfo_1[HH]
+        # w1 = ainfo_1[WW]
+        # x1 = ainfo_1[XX]
+        # y1 = ainfo_1[YY]
+        # h2 = ainfo_2[HH]
+        # w2 = ainfo_2[WW]
+        # x2 = ainfo_2[XX]
+        # y2 = ainfo_2[YY]
 
         # If these hit, you may have not passed "-s" to autotoptimiser
         assert x1 == 0 or x2 == 0  # for now this is the case
@@ -228,7 +232,13 @@ class LaplacianBlend(torch.nn.Module):
         right = to_float(right, scale_variance=False)
         # assert left.shape == right.shape  # They should be "full" already
         if not self._initialized:
-            self.initialize(input_shape=left.shape, device=left.device)
+            # Let's not do this anymore
+            assert False
+            self.initialize(
+                # input_shape=left.shape,
+                input_shape=None,
+                device=left.device,
+            )
         if False:
             return self.gpt_forward(left, right)
         else:
