@@ -146,16 +146,7 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
             "0",
             "-i",
             list_file,
-            # "-c:a",
-            # "aac",
-            # "-c:v",
-            # "libx264",
-            # "-preset",
-            # "fast",
-            # "-crf",
-            # "23",
         ]
-        # + WORKING_ENCODER_ARGS
         + FINAL_ENCODER_ARGS
         + [
             "-y",
@@ -313,7 +304,7 @@ def main():
             f.write(f"file '{os.path.realpath(clip)}'\n")
     print("Doing final join quietly...")
     # Concatenate all clips
-    concat_video_clips(f"{temp_dir}/list.txt", f"{temp_dir}/output_video.mp4")
+    concat_video_clips(f"{temp_dir}/list.txt", f"clips-{args.label}.mp4")
 
     # Cleanup
     # for file in os.listdir(temp_dir):
