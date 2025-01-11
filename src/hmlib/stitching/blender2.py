@@ -237,7 +237,7 @@ class PtImageBlender(torch.nn.Module):
     #         torch.stack(level_canvas_dims),
     #     )
 
-    def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor):
+    def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
 
