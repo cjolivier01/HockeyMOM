@@ -162,6 +162,7 @@ class LaplacianBlend(torch.nn.Module):
         self._initialized = True
 
     @staticmethod
+    # @torch.jit.script
     def _make_full(
         img_1: torch.Tensor,
         img_2: torch.Tensor,
