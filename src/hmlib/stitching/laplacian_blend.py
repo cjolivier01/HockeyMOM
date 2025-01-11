@@ -159,7 +159,71 @@ class LaplacianBlend(torch.nn.Module):
         self.create_masks(input_shape=input_shape, device=device)
         self._initialized = True
 
-    def forward(self, left, right, make_full_fn: callable = None):
+    @staticmethod
+    def _make_full(
+        img_1: torch.Tensor,
+        img_2: torch.Tensor,
+        level: int,
+        level_ainfo_1,
+        level_ainfo_2,
+        level_canvas_dims,
+    ):
+        ainfo_1 = level_ainfo_1[level]
+        ainfo_2 = level_ainfo_2[level]
+
+        HH = 0
+        WW = 1
+        XX = 2
+        YY = 3
+
+        h1 = ainfo_1[HH]
+        w1 = ainfo_1[WW]
+        x1 = ainfo_1[XX]
+        y1 = ainfo_1[YY]
+        h2 = ainfo_2[HH]
+        w2 = ainfo_2[WW]
+        x2 = ainfo_2[XX]
+        y2 = ainfo_2[YY]
+
+        # If these hit, you may have not passed "-s" to autotoptimiser
+        assert x1 == 0 or x2 == 0  # for now this is the case
+        assert y1 == 0 or y2 == 0  # for now this is the case
+
+        canvas_dims = level_canvas_dims[level]
+
+        full_left = torch.nn.functional.pad(
+            img_1,
+            (
+                x1,
+                canvas_dims[1] - x1 - w1,
+                y1,
+                canvas_dims[0] - y1 - h1,
+            ),
+            mode="constant",
+        )
+
+        full_right = torch.nn.functional.pad(
+            img_2,
+            (
+                x2,
+                canvas_dims[1] - x2 - w2,
+                y2,
+                canvas_dims[0] - y2 - h2,
+            ),
+            mode="constant",
+        )
+
+        return full_left, full_right
+
+    def forward(
+        self,
+        left,
+        right,
+        level_ainfo_1,
+        level_ainfo_2,
+        level_canvas_dims,
+        # make_full_fn: callable = None,
+    ):
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
         # assert left.shape == right.shape  # They should be "full" already
@@ -182,14 +246,17 @@ class LaplacianBlend(torch.nn.Module):
             mask_left = mask_1d
             mask_right = 1 - mask_1d
 
-            if make_full_fn is not None:
+            if level_canvas_dims is not None:
                 (
                     left_small_gaussian_blurred,
                     right_small_gaussian_blurred,
-                ) = make_full_fn(
+                ) = self._make_full(
                     left_small_gaussian_blurred,
                     right_small_gaussian_blurred,
                     level=self.max_levels,
+                    level_ainfo_1=level_ainfo_1,
+                    level_ainfo_2=level_ainfo_2,
+                    level_canvas_dims=level_canvas_dims,
                 )
 
             F_2 = (
@@ -208,8 +275,15 @@ class LaplacianBlend(torch.nn.Module):
                 L_left = left_laplacian[this_level]
                 L_right = right_laplacian[this_level]
 
-                if make_full_fn is not None:
-                    L_left, L_right = make_full_fn(L_left, L_right, level=this_level)
+                if level_canvas_dims is not None:
+                    L_left, L_right = self._make_full(
+                        L_left,
+                        L_right,
+                        level=this_level,
+                        level_ainfo_1=level_ainfo_1,
+                        level_ainfo_2=level_ainfo_2,
+                        level_canvas_dims=level_canvas_dims,
+                    )
                     assert L_left.shape[-2:] == mask_left.shape
                     assert L_right.shape[-2:] == mask_right.shape
 
@@ -268,4 +342,4 @@ class LaplacianBlend(torch.nn.Module):
         for i in range(self.max_levels - 2, -1, -1):
             upsampled = F.interpolate(image, scale_factor=2, mode="bilinear", align_corners=False)
             image = upsampled + pyramid[i]
-        return image
+        return (imageself,)

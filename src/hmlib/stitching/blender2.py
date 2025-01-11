@@ -302,61 +302,64 @@ class PtImageBlender(torch.nn.Module):
             level_ainfo_2.append(ainfo_2)
             level_canvas_dims.append(canvas_dims)
 
-        def _make_full(
-            img_1: torch.Tensor,
-            img_2: torch.Tensor,
-            level: int,
-            # ainfo_1: torch.Tensor,
-            # ainfo_2: torch.Tensor,
-        ):
-            ainfo_1 = level_ainfo_1[level]
-            ainfo_2 = level_ainfo_2[level]
+        # def _make_full(
+        #     img_1: torch.Tensor,
+        #     img_2: torch.Tensor,
+        #     level: int,
+        #     # ainfo_1: torch.Tensor,
+        #     # ainfo_2: torch.Tensor,
+        # ):
+        #     ainfo_1 = level_ainfo_1[level]
+        #     ainfo_2 = level_ainfo_2[level]
 
-            h1 = ainfo_1[HH]
-            w1 = ainfo_1[WW]
-            x1 = ainfo_1[XX]
-            y1 = ainfo_1[YY]
-            h2 = ainfo_2[HH]
-            w2 = ainfo_2[WW]
-            x2 = ainfo_2[XX]
-            y2 = ainfo_2[YY]
+        #     h1 = ainfo_1[HH]
+        #     w1 = ainfo_1[WW]
+        #     x1 = ainfo_1[XX]
+        #     y1 = ainfo_1[YY]
+        #     h2 = ainfo_2[HH]
+        #     w2 = ainfo_2[WW]
+        #     x2 = ainfo_2[XX]
+        #     y2 = ainfo_2[YY]
 
-            # If these hit, you may have not passed "-s" to autotoptimiser
-            assert x1 == 0 or x2 == 0  # for now this is the case
-            assert y1 == 0 or y2 == 0  # for now this is the case
+        #     # If these hit, you may have not passed "-s" to autotoptimiser
+        #     assert x1 == 0 or x2 == 0  # for now this is the case
+        #     assert y1 == 0 or y2 == 0  # for now this is the case
 
-            canvas_dims = level_canvas_dims[level]
+        #     canvas_dims = level_canvas_dims[level]
 
-            full_left = torch.nn.functional.pad(
-                img_1,
-                (
-                    x1,
-                    canvas_dims[1] - x1 - w1,
-                    y1,
-                    canvas_dims[0] - y1 - h1,
-                ),
-                mode="constant",
-            )
+        #     full_left = torch.nn.functional.pad(
+        #         img_1,
+        #         (
+        #             x1,
+        #             canvas_dims[1] - x1 - w1,
+        #             y1,
+        #             canvas_dims[0] - y1 - h1,
+        #         ),
+        #         mode="constant",
+        #     )
 
-            full_right = torch.nn.functional.pad(
-                img_2,
-                (
-                    x2,
-                    canvas_dims[1] - x2 - w2,
-                    y2,
-                    canvas_dims[0] - y2 - h2,
-                ),
-                mode="constant",
-            )
+        #     full_right = torch.nn.functional.pad(
+        #         img_2,
+        #         (
+        #             x2,
+        #             canvas_dims[1] - x2 - w2,
+        #             y2,
+        #             canvas_dims[0] - y2 - h2,
+        #         ),
+        #         mode="constant",
+        #     )
 
-            return full_left, full_right
+        #     return full_left, full_right
 
         if self._laplacian_blend is not None:
             # TODO: Can get rid of canvas creation up top for this path
             canvas = self._laplacian_blend.forward(
                 left=image_1,
                 right=image_2,
-                make_full_fn=_make_full,
+                # make_full_fn=_make_full,
+                level_ainfo_1=level_ainfo_1,
+                level_ainfo_2=level_ainfo_2,
+                level_canvas_dims=level_canvas_dims,
             )
         else:
             full_left, full_right = _make_full(image_1, image_2, level=0)
