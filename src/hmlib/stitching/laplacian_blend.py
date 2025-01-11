@@ -64,7 +64,7 @@ def create_laplacian_pyramid(
     return pyramids
 
 
-def one_level_gaussian_pyramid(img, kernel):
+def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
     print(f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}")
@@ -74,11 +74,11 @@ def one_level_gaussian_pyramid(img, kernel):
     return down
 
 
-def to_float(img: torch.Tensor, scale_variance: bool = False):
+def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
     if img is None:
         return None
     if img.dtype == torch.uint8:
-        img = img.to(torch.float)
+        img = img.to(torch.float, non_blocking=True)
         if scale_variance:
             assert False
             img /= 255.0
@@ -108,7 +108,7 @@ class LaplacianBlend(torch.nn.Module):
             self.register_buffer("xor_mask", to_float(xor_mask))
         else:
             self.seam_mask = None
-        self.mask_small_gaussian_blurred = []
+        self.mask_small_gaussian_blurred: List[torch.Tensor] = []
         self._initialized = False
 
     def create_masks(self, input_shape: torch.Size, device: torch.device):
@@ -173,22 +173,8 @@ class LaplacianBlend(torch.nn.Module):
         ainfo_1 = level_ainfo_1[level]
         ainfo_2 = level_ainfo_2[level]
 
-        # HH = 0
-        # WW = 1
-        # XX = 2
-        # YY = 3
-
         h1, w1, x1, y1 = ainfo_1
         h2, w2, x2, y2 = ainfo_2
-
-        # h1 = ainfo_1[HH]
-        # w1 = ainfo_1[WW]
-        # x1 = ainfo_1[XX]
-        # y1 = ainfo_1[YY]
-        # h2 = ainfo_2[HH]
-        # w2 = ainfo_2[WW]
-        # x2 = ainfo_2[XX]
-        # y2 = ainfo_2[YY]
 
         # If these hit, you may have not passed "-s" to autotoptimiser
         assert x1 == 0 or x2 == 0  # for now this is the case
