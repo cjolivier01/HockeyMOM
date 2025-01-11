@@ -17,15 +17,14 @@ def validate_timestamp(timestamp):
 
 _DEBUG = True
 
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
-# ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset slow -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
 
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc -preset slow -qp 0".split(" ")
-ENCODER_ARGS_FAST = "-c:v hevc -preset fast".split(" ")
-ENCODER_ARGS_HQ = "-c:v hevc -preset slow".split(" ")
+# ENCODER_ARGS_FAST = "-c:v hevc -preset fast".split(" ")
+# ENCODER_ARGS_HQ = "-c:v hevc -preset slow".split(" ")
 
-# FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
+FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
 if not _DEBUG:
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
@@ -36,7 +35,7 @@ else:
     FINAL_ENCODER_ARGS = ENCODER_ARGS_FAST
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
-FFMPEG_BASE_HW: List[str] = FFMPEG_BASE  # + ["-hwaccel", "cuda"]
+FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
 
 
 def get_audio_sample_rate(file_path: str):
@@ -247,22 +246,6 @@ def add_clip_number(
     subprocess.run(cmd, check=True)
 
 
-def extract_audio(video_file: str, rate_k: int = 192, ext: str = "aac") -> str:
-    audio_file: str = str(Path(video_file).with_suffix("." + ext))
-    cmd = [
-        "ffmpeg",
-        "-i",
-        video_file,
-        "-vn",
-        "-b:a",
-        f"{rate_k}k",
-        "-y",
-        audio_file,
-    ]
-    subprocess.run(cmd, check=True)
-    return audio_file
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input_video", help="Input video file")
@@ -297,7 +280,6 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     clips: List[str] = []
-    audio_clips: List[str] = []
     with open(args.timestamps_file, "r") as f:
         timestamps = f.readlines()
 
@@ -319,28 +301,20 @@ def main():
             f"{args.label}\nClip {i + 1}", 3.0, transition, width, height, fps, audio_sample_rate
         )
         clips.append(transition)
-        audio_clips.append(transition)
 
         # Add clip number overlay
         numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
         add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
         clips.append(numbered_clip)
-        audio_clips.append(numbered_clip)
 
     # Create file list for concatenation
     with open(f"{temp_dir}/list.txt", "w") as f:
         for clip in clips:
             f.write(f"file '{os.path.realpath(clip)}'\n")
-    with open(f"{temp_dir}/audio_list.txt", "w") as f:
-        for audio_clip in audio_clips:
-            f.write(f"file '{os.path.realpath(audio_clip)}'\n")
     print("Doing final join quietly...")
     # Concatenate all clips
     concat_video_clips(f"{temp_dir}/list.txt", f"{temp_dir}/output_video.mp4")
-    # concat_audio_clips(f"{temp_dir}/audio_list.txt", f"{temp_dir}/output_audio.aac")
-    # join_audio_and_video(
-    #     f"{temp_dir}/output_video.mp4", f"{temp_dir}/output_audio.aac", f"{args.label}_clips.mp4"
-    # )
+
     # Cleanup
     # for file in os.listdir(temp_dir):
     #     os.remove(os.path.join(temp_dir, file))
