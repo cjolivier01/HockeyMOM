@@ -1,3 +1,18 @@
+"""
+Given a vide, timestamp file of:
+
+start_hh_mm_hh end_hh_mm_hh
+start_hh_mm_hh end_hh_mm_hh
+start_hh_mm_hh end_hh_mm_hh
+...
+
+.. and a text label...
+
+Create transition text screens to separate and join all the clips into a new
+video along with text labeling of the clip number and user-designated label
+
+"""
+
 import argparse
 import subprocess
 import os
