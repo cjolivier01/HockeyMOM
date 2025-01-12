@@ -16,6 +16,7 @@ video along with text labeling of the clip number and user-designated label
 import argparse
 import subprocess
 import os
+import re
 from datetime import datetime
 from typing import List
 from pathlib import Path
@@ -248,9 +249,11 @@ def main():
 
     # Extract clips and create transition screens
     for i, line in enumerate(timestamps):
+        line = re.sub(r"\s+", " ", line)
         line = line.strip()
         if not line or line[0] == "#":
             continue
+        print(f"{line=}")
         start_time, end_time = line.replace("\t", " ").strip().split(" ")
         if not all(validate_timestamp(t) for t in [start_time, end_time]):
             raise ValueError(f"Invalid timestamp format in line {i+1}")
