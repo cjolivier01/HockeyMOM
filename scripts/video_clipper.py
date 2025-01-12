@@ -248,26 +248,27 @@ def main():
 
     # Extract clips and create transition screens
     for i, line in enumerate(timestamps):
+        line = line.strip()
         if not line or line[0] == "#":
             continue
-        start_time, end_time = line.replace("\t", " ").strip().split()
+        start_time, end_time = line.replace("\t", " ").strip().split(" ")
         if not all(validate_timestamp(t) for t in [start_time, end_time]):
             raise ValueError(f"Invalid timestamp format in line {i+1}")
 
         # Extract clip
         clip_file = f"{temp_dir}/clip_{i}.mp4"
-        extract_clip(args.input_video, start_time, end_time, clip_file)
+        # extract_clip(args.input_video, start_time, end_time, clip_file)
 
         # Create transition screen
         transition = f"{temp_dir}/transition_{i}.mp4"
-        create_text_video(
-            f"{args.label}\nClip {i + 1}", 3.0, transition, width, height, fps, audio_sample_rate
-        )
+        # create_text_video(
+        #     f"{args.label}\nClip {i + 1}", 3.0, transition, width, height, fps, audio_sample_rate
+        # )
         clips.append(transition)
 
         # Add clip number overlay
         numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-        add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
+        # add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
         clips.append(numbered_clip)
 
     # Create file list for concatenation
