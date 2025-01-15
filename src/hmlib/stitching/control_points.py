@@ -178,7 +178,7 @@ def calculate_control_points(
 ) -> Dict[str, torch.Tensor]:
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    extractor = (
+    extractor: SuperPoint = (
         SuperPoint(
             max_num_keypoints=max_num_keypoints,
         )

@@ -5,7 +5,6 @@ which is usual;;ly base dupon some homography matrix)
 
 import argparse
 import os
-import time
 from typing import Optional, Tuple, Union
 
 import cv2
@@ -37,13 +36,13 @@ def get_image_geo_position(tiff_image_file: str):
     return xpos, ypos
 
 
-def _permute(t, *args):
+def _permute(t: Union[torch.Tensor, np.ndarray], *args) -> Union[torch.Tensor, np.ndarray]:
     if isinstance(t, np.ndarray):
         return t.transpose(*args)
     return t.permute(*args)
 
 
-def make_channels_first(img: torch.Tensor):
+def make_channels_first(img: torch.Tensor) -> torch.Tensor:
     if len(img.shape) == 4:
         if img.shape[-1] in [1, 3, 4]:
             return _permute(img, 0, 3, 1, 2)
