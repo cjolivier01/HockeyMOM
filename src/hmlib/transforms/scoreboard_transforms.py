@@ -40,7 +40,7 @@ class HmConfigureScoreboard:
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if self._game_id and not self._configured:
             self._configured = True
-            scoreboard_points = configure_scoreboard(game_id=self._game_id)
+            scoreboard_points = configure_scoreboard(game_id=self._game_id, image=results["img"])
             if (
                 scoreboard_points is not None
                 and torch.sum(torch.tensor(scoreboard_points, dtype=torch.float)).item() != 0
