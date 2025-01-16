@@ -132,7 +132,7 @@ class TlwhHistory(object):
 CAMERA_TYPE_MAX_SPEEDS = {
     "GoPro": 200.0,
     "Zhiwei": 200.0,
-    "LiveBarn": 150.0,
+    "LiveBarn": 300.0,
 }
 
 
