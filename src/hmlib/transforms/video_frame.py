@@ -91,8 +91,15 @@ class HmUnsharpMask:
     def __init__(self, enabled: bool = False, image_label: str = "img") -> None:
         self._enabled = enabled
         self._image_label = image_label
+        # self._count = 0
+        # self._flip = False
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if self._enabled:
+            # if self._count % 250 == 0:
+            #     self._flip = not self._flip
+            #     print("off" if not self._flip else "on")
+            # if self._flip:
             results[self._image_label] = unsharp_mask(results[self._image_label])
+        # self._count += 1
         return results
