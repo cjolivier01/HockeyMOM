@@ -23,7 +23,9 @@ struct PlayTrackerConfig {
 };
 
 struct PlayTrackerState {
-  std::unordered_map<size_t /*track_id*/, PlayerSTrack> player_tracks;
+  // Just keep track of the number of iterations
+  size_t tick_count_{0};
+  bool tracked_player_count{0};
 };
 
 struct PlayTrackerResults {
@@ -94,12 +96,10 @@ class PlayTracker : public IBreakawayAdjuster {
   // Tracking stuff
   std::vector<std::shared_ptr<ILivingBox>> living_boxes_;
 
-  // Housekeeping stuff
-  // Just keep track of the number of iterations
-  size_t tick_count_{0};
-
   // Should be close to last since it has a pointer to this class
   PlayDetector play_detector_;
+
+  PlayTrackerState state_;
 };
 
 } // namespace play_tracker

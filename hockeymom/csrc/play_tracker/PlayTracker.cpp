@@ -247,14 +247,14 @@ PlayTrackerResults PlayTracker::forward(
   }
   clamp_box(start_bbox, arena_box);
 
-  if (!tick_count_ && config_.no_wide_start) {
+  if (!state_.tick_count_ && config_.no_wide_start) {
     // We start at our first detected box
     set_bboxes_scaled(start_bbox, 1.2);
   }
   BBox current_box = start_bbox;
 
   results.play_detection = play_detector_.forward(
-      /*frame_id=*/tick_count_,
+      /*frame_id=*/state_.tick_count_,
       /*current_target_bbox=*/current_box,
       /*current_roi_center=*/get_live_box(0)->bounding_box().center(),
       tracking_ids,
@@ -265,10 +265,22 @@ PlayTrackerResults PlayTracker::forward(
     current_box = *results.play_detection->breakaway_target_bbox;
   }
 
-  // After we did all that work, let's check an exception that there aren't enough players to allow a smaller box than the arena
-  if (tracking_ids.size() <  config_.min_tracked_players) {
+  // BEGIN Enforce minimum player count
+  // After we did all that work, let's check an exception that there aren't
+  // enough players to allow a smaller box than the arena
+  // This should also help to see a penalty shot.
+  if (tracking_ids.size() < config_.min_tracked_players) {
     current_box = arena_box;
+    std::cout << "Too few players tracked (" << tracking_ids.size()
+              << "), expanding play box players, so resuming play tracking";
+  } else if (
+      state_.tracked_player_count < config_.min_tracked_players &&
+      state_.tick_count_) {
+    std::cout << "Now tracking " << tracking_ids.size()
+              << " players, so resuming play tracking";
   }
+  state_.tracked_player_count = tracking_ids.size();
+  // END Enforce minimum player count
 
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
@@ -276,12 +288,12 @@ PlayTrackerResults PlayTracker::forward(
     current_box = living_box->forward(current_box);
     auto new_center = living_box->bounding_box().center();
     if (norm(new_center - last_center) > kMaxJumpAssertionValue) {
-      std::cout << "Detected large jump at tick count " << tick_count_
+      std::cout << "Detected large jump at tick count " << state_.tick_count_
                 << std::endl;
     }
     results.tracking_boxes.emplace_back(current_box);
   }
-  ++tick_count_;
+  ++state_.tick_count_;
   return results;
 }
 
