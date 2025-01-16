@@ -136,6 +136,10 @@ CAMERA_TYPE_MAX_SPEEDS = {
 }
 
 
+def should_unsharp_mask_camera(camera_name: str) -> bool:
+    return camera_name in ["LiveBarn", "Zhiwei"]
+
+
 class HockeyMOM:
     """
     The Observer (The Mom)
