@@ -10,7 +10,7 @@ from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
-from hmlib.bbox.box_functions import width, height, center, make_box_at_center
+from hmlib.bbox.box_functions import width, height, center, make_box_at_center, clamp_box
 
 
 def to_rgb_non_planar(image):
@@ -109,12 +109,21 @@ class CamTrackHead:
         return not self._hockey_mom is None
 
     @staticmethod
-    def calculate_play_box(results: Dict[str, Any], scale: float = 1.2) -> List[int]:
+    def calculate_play_box(results: Dict[str, Any], scale: float = 1.3) -> List[int]:
         first_data_sample = results['data_samples'][0]
         play_box = torch.tensor(first_data_sample.metainfo['rink_profile']['combined_bbox'], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
         cc = center(play_box)
-        return make_box_at_center(cc, ww * scale, hh * scale)
+        play_box = make_box_at_center(cc, ww * scale, hh * scale)
+        return clamp_box(
+            play_box,
+            [
+                0,
+                0,
+                image_width(results["original_images"]),
+                image_height(results["original_images"]),
+            ],
+        )
 
     def process_tracking(
         self,

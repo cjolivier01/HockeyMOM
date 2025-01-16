@@ -41,7 +41,12 @@ class hm_opts(object):
             "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
-
+        parser.add_argument(
+            "--crop-play-box",
+            default=None,
+            type=int,
+            help="Crop to play area only",
+        )
         parser.add_argument(
             "--end-zones",
             action="store_true",
