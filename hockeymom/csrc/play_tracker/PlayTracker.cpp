@@ -121,8 +121,8 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
   std::vector<size_t> cluster_sizes;
   cluster_sizes.reserve(cluster_sizes_.size());
   for (size_t cluster_size : cluster_sizes_) {
-    // Equal or less clustering is meaningless
-    if (cluster_size < tracking_boxes.size()) {
+    // Equal or less clustering is meaningless (also +1)
+    if (tracking_boxes.size() > cluster_size + 1) {
       cluster_sizes.emplace_back(cluster_size);
     }
   }
@@ -154,10 +154,6 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
 
   cluster_boxes_result.final_cluster_box =
       get_union_bounding_box(cluster_bboxes);
-
-  // if (cluster_boxes_result.final_cluster_box.left == 0) {
-  //   std::cerr << "Main tracking box is full left" << std::endl;
-  // }
 
   return cluster_boxes_result;
 }
@@ -271,13 +267,17 @@ PlayTrackerResults PlayTracker::forward(
   // This should also help to see a penalty shot.
   if (tracking_ids.size() < config_.min_tracked_players) {
     current_box = arena_box;
-    std::cout << "Too few players tracked (" << tracking_ids.size()
-              << "), expanding play box players, so resuming play tracking";
+    if (state_.tracked_player_count >= config_.min_tracked_players) {
+      // We weren't tracking on the last tick
+      // std::cout << "Too few players tracked (" << tracking_ids.size()
+      //           << "), expanding play box players, so resuming play tracking"
+      //           << std::endl;
+    }
   } else if (
       state_.tracked_player_count < config_.min_tracked_players &&
       state_.tick_count_) {
-    std::cout << "Now tracking " << tracking_ids.size()
-              << " players, so resuming play tracking";
+    // std::cout << "Now tracking " << tracking_ids.size()
+    //           << " players, so resuming play tracking" << std::endl;
   }
   state_.tracked_player_count = tracking_ids.size();
   // END Enforce minimum player count

@@ -14,7 +14,7 @@ namespace play_tracker {
 struct PlayTrackerConfig {
   bool no_wide_start{false};
   // For less than this, we just move towards the arena box
-  size_t min_tracked_players{3};
+  size_t min_tracked_players{4};
   std::vector<AllLivingBoxConfig> living_boxes;
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
@@ -25,7 +25,7 @@ struct PlayTrackerConfig {
 struct PlayTrackerState {
   // Just keep track of the number of iterations
   size_t tick_count_{0};
-  bool tracked_player_count{0};
+  size_t tracked_player_count{0};
 };
 
 struct PlayTrackerResults {
