@@ -265,6 +265,11 @@ PlayTrackerResults PlayTracker::forward(
     current_box = *results.play_detection->breakaway_target_bbox;
   }
 
+  // After we did all that work, let's check an exception that there aren't enough players to allow a smaller box than the arena
+  if (tracking_ids.size() <  config_.min_tracked_players) {
+    current_box = arena_box;
+  }
+
   for (std::size_t i = 0; i < living_boxes_.size(); ++i) {
     auto& living_box = living_boxes_[i];
     auto last_center = living_box->bounding_box().center();
