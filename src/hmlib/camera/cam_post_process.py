@@ -241,8 +241,9 @@ class CamTrackPostProcessor:
 
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
-            play_box=hockey_mom._video_frame.bounding_box(),
-            # play_box=play_box,
+            play_box=(
+                hockey_mom._video_frame.bounding_box() if not self._args.crop_play_box else play_box
+            ),
             device=device,
             original_clip_box=original_clip_box,
             progress_bar=progress_bar,
@@ -254,7 +255,7 @@ class CamTrackPostProcessor:
         play_box: torch.Tensor = self._play_tracker.play_box
         play_width, play_height = width(play_box), height(play_box)
 
-        if self._args.crop_output_image:
+        if self._args.crop_play_box:
             if self._args.crop_output_image:
                 self.final_frame_height = play_height
                 self.final_frame_width = play_height * self._final_aspect_ratio

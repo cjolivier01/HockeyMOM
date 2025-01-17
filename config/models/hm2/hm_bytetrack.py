@@ -108,23 +108,6 @@ inference_pipeline = [
     # Not sure exactly what this does.  Puts stuff in particular dicrt entries, maybe?
     # dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
     dict(type="mmdet.PackTrackInputs", meta_keys=("img_metas", "rink_profile")),
-    # dict(
-    #     type="MultiScaleFlipAug",
-    #     # img_scale=img_scale,
-    #     allow_flip=False,
-    #     transforms=[
-    #         dict(type="HmImageToTensor", keys=["img"]),
-    #         dict(type="HmResize", keep_ratio=True),
-    #         dict(type="RandomFlip"),
-    #         # dict(type="Normalize", **img_norm_cfg),
-    #         dict(
-    #             type="HmPad",
-    #             pad_val=114.0,
-    #             size_divisor=32,
-    #         ),
-    #         dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
-    #     ],
-    # ),
 ]
 
 train_dataloader = dict(

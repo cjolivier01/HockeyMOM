@@ -132,8 +132,13 @@ class TlwhHistory(object):
 CAMERA_TYPE_MAX_SPEEDS = {
     "GoPro": 200.0,
     "Zhiwei": 200.0,
-    "LiveBarn": 150.0,
+    "LiveBarn": 300.0,
 }
+
+
+def should_unsharp_mask_camera(camera_name: str) -> bool:
+    # return camera_name in ["LiveBarn", "Zhiwei"]
+    return False
 
 
 class HockeyMOM:

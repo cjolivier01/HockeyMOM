@@ -33,6 +33,7 @@ video_out_pipeline = [
     ),
     dict(type="HmCropToVideoFrame"),
     dict(type="HmRenderScoreboard", image_labels=["img", "end_zone_img"]),
+    dict(type="HmUnsharpMask", enabled=False, image_label="img"),
     dict(
         type="HmImageOverlays",
         watermark_config=dict(

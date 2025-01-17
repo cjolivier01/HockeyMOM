@@ -5,6 +5,7 @@ from mmengine.registry import TRANSFORMS
 
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensor
+from hmlib.algo.unsharp_mask import unsharp_mask
 from hmlib.utils.image import (
     crop_image,
     image_height,
@@ -27,8 +28,10 @@ def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
 
 @TRANSFORMS.register_module()
 class HmCropToVideoFrame:
-    def __init__(self, crop_image: bool = True):
+
+    def __init__(self, crop_image: bool = True, unsharp_mask: bool = True):
         self._crop_image = crop_image
+        self._unsharp_mask = unsharp_mask
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         video_frame_cfg = results["video_frame_cfg"]
@@ -80,5 +83,23 @@ class HmCropToVideoFrame:
             assert image_width(img) == video_frame_width
             cropped_images.append(img)
         results["img"] = torch.stack(cropped_images)
+        return results
 
+
+@TRANSFORMS.register_module()
+class HmUnsharpMask:
+    def __init__(self, enabled: bool = False, image_label: str = "img") -> None:
+        self._enabled = enabled
+        self._image_label = image_label
+        # self._count = 0
+        # self._flip = False
+
+    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if self._enabled:
+            # if self._count % 250 == 0:
+            #     self._flip = not self._flip
+            #     print("off" if not self._flip else "on")
+            # if self._flip:
+            results[self._image_label] = unsharp_mask(results[self._image_label])
+        # self._count += 1
         return results

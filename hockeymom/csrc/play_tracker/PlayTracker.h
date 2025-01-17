@@ -13,6 +13,8 @@ namespace play_tracker {
 
 struct PlayTrackerConfig {
   bool no_wide_start{false};
+  // For less than this, we just move towards the arena box
+  size_t min_tracked_players{4};
   std::vector<AllLivingBoxConfig> living_boxes;
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
@@ -21,7 +23,9 @@ struct PlayTrackerConfig {
 };
 
 struct PlayTrackerState {
-  std::unordered_map<size_t /*track_id*/, PlayerSTrack> player_tracks;
+  // Just keep track of the number of iterations
+  size_t tick_count_{0};
+  size_t tracked_player_count{0};
 };
 
 struct PlayTrackerResults {
@@ -92,12 +96,10 @@ class PlayTracker : public IBreakawayAdjuster {
   // Tracking stuff
   std::vector<std::shared_ptr<ILivingBox>> living_boxes_;
 
-  // Housekeeping stuff
-  // Just keep track of the number of iterations
-  size_t tick_count_{0};
-
   // Should be close to last since it has a pointer to this class
   PlayDetector play_detector_;
+
+  PlayTrackerState state_;
 };
 
 } // namespace play_tracker

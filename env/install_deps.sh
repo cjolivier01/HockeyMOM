@@ -1,0 +1,21 @@
+#!/bin/bash
+sudo apt install -y \
+  ccache \
+  libpano13-dev \
+  libglew-dev \
+  libexiv2-dev \
+  libfftw3-dev \
+  libopenexr-dev \
+  libilmbase-dev \
+  liblcms2-dev \
+  libsqlite3-dev \
+  gettext \
+  libyaml-cpp-dev \
+  liblapack-dev \
+  libglfw3-dev \
+  libtiff-dev \
+  libpng-dev \
+  fftw-dev \
+  libprotobuf-dev \
+  protobuf-compiler \
+  libwxgtk3.0-gtk3-dev

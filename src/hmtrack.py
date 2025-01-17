@@ -18,6 +18,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib.tracking_utils.ice_rink_segm_boundaries
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
+from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
@@ -158,12 +159,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="rink name",
     )
-    parser.add_argument(
-        "--camera",
-        default="GoPro",
-        type=str,
-        help="Camera name",
-    )
+    # parser.add_argument(
+    #     "--camera",
+    #     default=None,
+    #     type=str,
+    #     help="Camera name",
+    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
@@ -441,6 +442,14 @@ def main(args, num_gpu):
         model = None
 
         args.multi_pose |= args.plot_pose
+
+        # cmdline overrides
+        if args.camera_name:
+            set_nested_value(game_config, "camera.name", args.camera_name)
+        else:
+            args.camera_name = get_nested_value(game_config, "camera.name")
+        if args.unsharp_mask is None and should_unsharp_mask_camera(args.camera_name):
+            args.unsharp_mask = 1
 
         cam_args = DefaultArguments(
             game_config=game_config,
@@ -885,6 +894,13 @@ def main(args, num_gpu):
                     )
                     update_pipeline_item(
                         video_out_pipeline,
+                        "HmUnsharpMask",
+                        dict(
+                            enabled=args.unsharp_mask,
+                        ),
+                    )
+                    update_pipeline_item(
+                        video_out_pipeline,
                         "HmImageOverlays",
                         dict(
                             frame_number=bool(args.plot_frame_number),
@@ -990,7 +1006,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     game_config = get_config(
-        game_id=args.game_id, rink=args.rink, camera=args.camera, root_dir=args.root_dir
+        game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir
     )
 
     # Set up the task flags
