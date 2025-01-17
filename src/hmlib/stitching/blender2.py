@@ -18,6 +18,7 @@ import torch
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.stitching.configure_stitching import get_image_geo_position
+from hmlib.orientation import configure_game_videos
 from hmlib.stitching.laplacian_blend import LaplacianBlend
 from hmlib.stitching.remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.synchronize import synchronize_by_audio
@@ -974,14 +975,16 @@ def blend_video(
     minimize_blend: bool = True,
     overlap_pad: int = 120,
     draw: bool = False,
-):
-    video_file_1 = os.path.join(dir_name, video_file_1)
-    video_file_2 = os.path.join(dir_name, video_file_2)
+) -> None:
+    if "/" not in video_file_1:
+        video_file_1 = os.path.join(dir_name, video_file_1)
+    if "/" not in video_file_2:
+        video_file_2 = os.path.join(dir_name, video_file_2)
 
     vidinfo_1 = BasicVideoInfo(video_file_1)
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
-    stitcher = create_stitcher(
+    stitcher: ImageStitcher = create_stitcher(
         dir_name=dir_name,
         batch_size=batch_size,
         left_image_size_wh=(vidinfo_1.width, vidinfo_1.height),
@@ -1125,11 +1128,23 @@ def main(args):
     if not args.video_dir and args.game_id:
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
+
+    game_videos = configure_game_videos(
+        game_id=args.game_id,
+        write_results=True,
+        force=False,
+    )
+    if True:  # or args.single_file:
+        if "left" in game_videos and game_videos["left"]:
+            game_videos["left"] = game_videos["left"][:1][0]
+        if "right" in game_videos and game_videos["right"]:
+            game_videos["right"] = game_videos["right"][:1][0]
+
     with torch.no_grad():
         blend_video(
             opts,
-            video_file_1="left.mp4",
-            video_file_2="right.mp4",
+            video_file_1=game_videos["left"],
+            video_file_2=game_videos["right"],
             dir_name=args.video_dir,
             lfo=args.lfo,
             rfo=args.rfo,
