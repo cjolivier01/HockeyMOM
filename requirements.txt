@@ -14,7 +14,6 @@ progress
 motmetrics
 matplotlib
 openpyxl
-Pillow-simd
 psutil
 filterpy
 ffmpegio
