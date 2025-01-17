@@ -30,11 +30,10 @@ ROOT_DIR = os.getcwd()
 
 logger = get_root_logger()
 
+
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
-    parser.add_argument(
-        "--num-workers", default=1, type=int, help="Number of stitching workers"
-    )
+    parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
     parser.add_argument(
@@ -171,13 +170,9 @@ def stitch_videos(
         total_frame_count = len(data_loader)
 
         def _table_callback(table_map: OrderedDict):
-            table_map["Stitching Dataset Delivery FPS"] = "{:.2f}".format(
-                dataset_delivery_fps
-            )
+            table_map["Stitching Dataset Delivery FPS"] = "{:.2f}".format(dataset_delivery_fps)
             if dataset_delivery_fps > 0:
-                remaining_secs = (
-                    total_frame_count - frame_count
-                ) / dataset_delivery_fps
+                remaining_secs = (total_frame_count - frame_count) / dataset_delivery_fps
                 table_map["Time Remaining"] = convert_seconds_to_hms(remaining_secs)
 
         scroll_output = ScrollOutput()
@@ -222,9 +217,7 @@ def stitch_videos(
 
         dataset_timer = Timer()
         for i, stitched_image in enumerate(data_loader_iter):
-            if not output_stitched_video_file and isinstance(
-                stitched_image, StreamTensor
-            ):
+            if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
                 stitched_image._verbose = False
                 stitched_image = stitched_image.get()
 
@@ -237,9 +230,7 @@ def stitch_videos(
                 dataset_timer.toc()
             if (i + 1) % 20 == 0:
                 assert stitched_image.ndim == 4
-                dataset_delivery_fps = batch_size / max(
-                    1e-5, dataset_timer.average_time
-                )
+                dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
                 logger.info(
                     "Dataset frame {} ({:.2f} fps)".format(
                         i * batch_size,
@@ -259,9 +250,7 @@ def stitch_videos(
 
         if start is not None:
             duration = time.time() - start
-            print(
-                f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
-            )
+            print(f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)")
     except StopIteration:
         pass
     finally:

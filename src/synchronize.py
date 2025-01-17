@@ -1,8 +1,10 @@
 """
 Experiments in stitching
 """
+
 import argparse
 import os
+import hm_opts
 
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -12,16 +14,10 @@ ROOT_DIR = os.getcwd()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
-    parser.add_argument(
-        "--num-workers", default=1, type=int, help="Number of stitching workers"
-    )
+    parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
-    parser.add_argument(
-        "--left", default="left.mp4", type=str, help="Left file to be stitched"
-    )
-    parser.add_argument(
-        "--right", default="right.mp4", type=str, help="Right file to be stitched"
-    )
+    parser.add_argument("--left", default="left.mp4", type=str, help="Left file to be stitched")
+    parser.add_argument("--right", default="right.mp4", type=str, help="Right file to be stitched")
     return parser
 
 
