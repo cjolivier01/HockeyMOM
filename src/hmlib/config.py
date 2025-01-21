@@ -20,12 +20,14 @@ class Game:
     team: Optional[str] = None
 
 
-def get_game_dir(game_id: str) -> Optional[str]:
+def get_game_dir(game_id: str, assert_exists: bool = True) -> Optional[str]:
     if not game_id:
         raise AttributeError("No valid Game ID specified")
     game_video_dir = os.path.join(GAME_DIR_BASE, game_id)
     if os.path.isdir(game_video_dir):
         return game_video_dir
+    if assert_exists:
+        raise AssertionError(f"No game direectory found for game id: {game_id}")
     return None
 
 
