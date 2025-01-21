@@ -3,7 +3,6 @@ _base_ = [
 ]
 
 post_detection_pipeline = [
-    # Prune detections which are outside of boundaries (if any)
     # dict(type="BoundaryLines"),
     dict(type="IceRinkSegmBoundaries"),
     # dict(type="HmExtractBoundingBoxes"),

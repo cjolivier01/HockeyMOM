@@ -2,3 +2,21 @@ camera:
   name: "LiveBarn"
   make: "Shit"
   model: "Varies"
+
+# Rink-specifics, mostly tracking-speed related to a LiveBarn feed
+rink:
+  camera:
+    sticky_size_ratio_to_frame_width: 8.0
+    sticky_translation_gaussian_mult: 5.0
+    unsticky_translation_size_ratio: 0.5
+
+    breakaway_detection:
+      # Group velocities less than this are ignored
+      min_considered_group_velocity: 4.0
+      # What ratio of tracked players must be all reacting
+      # to a breakaway?
+      group_ratio_threshold: 0.6
+      # What ratio of the group speed should we try to
+      # apply within a single frame's speed adjustment?
+      group_velocity_speed_ratio: 0.1
+

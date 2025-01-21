@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import traceback
 import tkinter as tk
 from tkinter import messagebox
 from typing import List, Optional, Tuple, Union
@@ -32,9 +33,14 @@ class ScoreboardSelector:
             if isinstance(image, Image.Image):
                 self.image = image
             else:
-                self.image: Image.Image = Image.Image(image)
+                if isinstance(image, torch.Tensor):
+                    if image.ndim == 4:
+                        image = image.squeeze(0)
+                    image = image.cpu().numpy()
+                self.image: Image.Image = Image.fromarray(image)
         except Exception as e:
-            raise AssertionError(f"Error opening image file: {e}")
+            traceback.print_exc()
+            raise
 
         self.root: tk.Tk = tk.Tk()
         self.root.title("Select Scoreboard Corners")
