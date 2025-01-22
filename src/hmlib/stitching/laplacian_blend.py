@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from hmlib.ui import show_image
+
 
 def create_gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
@@ -169,7 +171,7 @@ class LaplacianBlend(torch.nn.Module):
             # self.register_buffer("xor_mask", to_float(xor_mask))
             self.register_buffer("xor_mask", xor_mask)
         else:
-            self.seam_mask = None
+            self.xor_mask = None
         self.mask_small_gaussian_blurred: List[torch.Tensor] = []
         self._initialized = False
 
@@ -188,6 +190,10 @@ class LaplacianBlend(torch.nn.Module):
             mask[mask == left_value] = 1
             mask[mask == right_value] = 0
             mask = mask.to(torch.float)
+
+        self._unique_values = torch.unique(self.seam_mask)
+        self._left_value = self._unique_values[0]
+        self._right_value = self._unique_values[1]
 
         mask_img = mask
         self.mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
@@ -295,50 +301,69 @@ class LaplacianBlend(torch.nn.Module):
         mask_left = mask_1d
         mask_right = 1 - mask_1d
 
-        if level_canvas_dims is not None:
-            (
-                left_small_gaussian_blurred,
-                right_small_gaussian_blurred,
-            ) = self.make_full(
-                left_small_gaussian_blurred,
-                right_small_gaussian_blurred,
-                level=self.max_levels,
-                level_ainfo_1=level_ainfo_1,
-                level_ainfo_2=level_ainfo_2,
-                level_canvas_dims=level_canvas_dims,
-            )
+        assert level_canvas_dims is not None
 
-            F_2 = (
-                left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
-            )
-            # show_image("F_2", F_2)
+        (
+            left_small_gaussian_blurred,
+            right_small_gaussian_blurred,
+        ) = self.make_full(
+            left_small_gaussian_blurred,
+            right_small_gaussian_blurred,
+            level=self.max_levels,
+            level_ainfo_1=level_ainfo_1,
+            level_ainfo_2=level_ainfo_2,
+            level_canvas_dims=level_canvas_dims,
+        )
 
-            for this_level in reversed(range(self.max_levels)):
-                mask_1d = self.mask_small_gaussian_blurred[this_level]
-                mask_left = mask_1d
-                mask_right = 1 - mask_1d
+        F_2 = left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
+        # show_image("F_2", F_2)
 
-                F_1 = upsample(F_2, size=mask_1d.shape[-2:])
-                upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
+        for this_level in reversed(range(self.max_levels)):
+            mask_1d = self.mask_small_gaussian_blurred[this_level]
+            mask_left = mask_1d
+            mask_right = 1 - mask_1d
 
-                L_left = left_laplacian[this_level]
-                L_right = right_laplacian[this_level]
+            F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+            upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
-                if level_canvas_dims is not None:
-                    L_left, L_right = self.make_full(
-                        L_left,
-                        L_right,
-                        level=this_level,
-                        level_ainfo_1=level_ainfo_1,
-                        level_ainfo_2=level_ainfo_2,
-                        level_canvas_dims=level_canvas_dims,
-                    )
-                    assert L_left.shape[-2:] == mask_left.shape
-                    assert L_right.shape[-2:] == mask_right.shape
+            L_left = left_laplacian[this_level]
+            L_right = right_laplacian[this_level]
 
-                L_left *= mask_left
-                L_right *= mask_right
-                L_left += L_right
-                L_left += upsampled_F1
-                F_2 = L_left
-            return F_2
+            if level_canvas_dims is not None:
+                L_left, L_right = self.make_full(
+                    L_left,
+                    L_right,
+                    level=this_level,
+                    level_ainfo_1=level_ainfo_1,
+                    level_ainfo_2=level_ainfo_2,
+                    level_canvas_dims=level_canvas_dims,
+                )
+                assert L_left.shape[-2:] == mask_left.shape
+                assert L_right.shape[-2:] == mask_right.shape
+
+            L_left *= mask_left
+            L_right *= mask_right
+            L_left += L_right
+            L_left += upsampled_F1
+            F_2 = L_left
+
+        # if self.xor_mask is not None:
+        #     l_full, r_full = self.make_full(
+        #         left,
+        #         right,
+        #         level=0,
+        #         level_ainfo_1=level_ainfo_1,
+        #         level_ainfo_2=level_ainfo_2,
+        #         level_canvas_dims=level_canvas_dims,
+        #     )
+        #     show_image("l_full", l_full, wait=False, enable_resizing=0.1)
+        #     show_image("r_full", r_full, wait=False, enable_resizing=0.1)
+        #     F_2[:, :, self.xor_mask == self._left_value] = l_full[
+        #         :, :, self.xor_mask == self._left_value
+        #     ]
+        #     # F_2[:, :, self.xor_mask == self._right_value] = r_full[
+        #     #     :, :, self.xor_mask == self._right_value
+        #     # ]
+        #     show_image("F_2", F_2, wait=False, enable_resizing=0.1)
+
+        return F_2

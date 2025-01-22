@@ -646,6 +646,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 blended = self.draw(blended)
         else:
             blended = blended_img
+
         return blended
 
 
