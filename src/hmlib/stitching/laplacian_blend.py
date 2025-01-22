@@ -346,7 +346,7 @@ class LaplacianBlend(torch.nn.Module):
                     assert L_left.shape[-2:] == mask_left.shape
                     assert L_right.shape[-2:] == mask_right.shape
 
-                if False:
+                if True:
                     L_left *= mask_left
                     L_right *= mask_right
                     L_left += L_right
