@@ -194,9 +194,9 @@ class PtImageBlender(torch.nn.Module):
 
         ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
         ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
-        canvas_dims = torch.tensor(
-            [self._seam_mask.shape[0], self._seam_mask.shape[1]], dtype=torch.int64
-        )
+        canvas_h = self._seam_mask.shape[0]
+        canvas_w = self._seam_mask.shape[1]
+        canvas_dims = torch.tensor([canvas_h, canvas_w], dtype=torch.int64)
 
         if self._laplacian_blend is not None:
             level_ainfo_1 = [ainfo_1]
@@ -219,10 +219,10 @@ class PtImageBlender(torch.nn.Module):
                 level_canvas_dims=level_canvas_dims,
             )
         else:
-            full_left, full_right = simple_make_full(image_1, x1, y1, image_2, x2, y2, canvas_dims)
-            # show_image("self._seam_mask", self._seam_mask, wait=False, enable_resizing=0.1)
-            canvas = torch.zeros(
-                # canvas = torch.empty(
+            full_left, full_right = simple_make_full(
+                image_1, x1, y1, image_2, x2, y2, canvas_w, canvas_h
+            )
+            canvas = torch.empty(
                 size=(
                     batch_size,
                     channels,
@@ -232,8 +232,6 @@ class PtImageBlender(torch.nn.Module):
                 dtype=image_1.dtype,
                 device=image_1.device,
             )
-            # assert image_width(canvas) == image_width(self._seam_mask)
-            # assert image_height(canvas) == image_height(self._seam_mask)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]
@@ -1010,6 +1008,7 @@ def blend_video(
                 video_out.stop()
 
 
+@torch.jit.script
 def simple_make_full(
     img_1: torch.Tensor,
     x1: int,
@@ -1017,16 +1016,14 @@ def simple_make_full(
     img_2: torch.Tensor,
     x2: int,
     y2: int,
-    canvas_dims,
+    canvas_w: int,
+    canvas_h: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
 
     h1 = img_1.shape[2]
     w1 = img_1.shape[3]
     h2 = img_2.shape[2]
     w2 = img_2.shape[3]
-
-    canvas_w = canvas_dims[1]
-    canvas_h = canvas_dims[0]
 
     assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
     if y1 <= y2:
@@ -1048,23 +1045,23 @@ def simple_make_full(
 
     full_left = torch.nn.functional.pad(
         img_1,
-        (
+        [
             x1,
             canvas_w - x1 - w1,
             y1,
             canvas_h - y1 - h1,
-        ),
+        ],
         mode="constant",
     )
 
     full_right = torch.nn.functional.pad(
         img_2,
-        (
+        [
             x2,
             canvas_w - x2 - w2,
             y2,
             canvas_h - y2 - h2,
-        ),
+        ],
         mode="constant",
     )
 
