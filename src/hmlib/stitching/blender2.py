@@ -210,7 +210,6 @@ class PtImageBlender(torch.nn.Module):
                 level_ainfo_2.append(ainfo_2)
                 level_canvas_dims.append(canvas_dims)
 
-            # TODO: Can get rid of canvas creation up top for this path
             canvas = self._laplacian_blend.forward(
                 left=image_1,
                 right=image_2,
@@ -220,8 +219,9 @@ class PtImageBlender(torch.nn.Module):
             )
         else:
             full_left, full_right = simple_make_full(image_1, x1, y1, image_2, x2, y2, canvas_dims)
-            show_image("full_left", full_left, wait=False, enable_resizing=0.1)
-            canvas = torch.empty(
+            # show_image("self._seam_mask", self._seam_mask, wait=False, enable_resizing=0.1)
+            canvas = torch.zeros(
+                # canvas = torch.empty(
                 size=(
                     batch_size,
                     channels,
@@ -231,10 +231,12 @@ class PtImageBlender(torch.nn.Module):
                 dtype=image_1.dtype,
                 device=image_1.device,
             )
-
+            assert image_width(canvas) == image_width(self._seam_mask)
+            assert image_height(canvas) == image_height(self._seam_mask)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]
+            # show_image("canvas", canvas, wait=False, enable_resizing=0.1)
             canvas[:, :, self._seam_mask == self._right_value] = full_right[
                 :, :, self._seam_mask == self._right_value
             ]
