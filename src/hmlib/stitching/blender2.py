@@ -135,6 +135,7 @@ class PtImageBlender(torch.nn.Module):
         self._unique_values = None
         self._left_value = None
         self._right_value = None
+        self.init()
 
     def init(self):
         # Check some sanity
@@ -231,15 +232,15 @@ class PtImageBlender(torch.nn.Module):
                 dtype=image_1.dtype,
                 device=image_1.device,
             )
-            assert image_width(canvas) == image_width(self._seam_mask)
-            assert image_height(canvas) == image_height(self._seam_mask)
+            # assert image_width(canvas) == image_width(self._seam_mask)
+            # assert image_height(canvas) == image_height(self._seam_mask)
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]
-            # show_image("canvas", canvas, wait=False, enable_resizing=0.1)
             canvas[:, :, self._seam_mask == self._right_value] = full_right[
                 :, :, self._seam_mask == self._right_value
             ]
+            show_image("canvas", canvas, wait=False, enable_resizing=0.1)
 
         return canvas
 
