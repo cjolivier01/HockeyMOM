@@ -448,6 +448,14 @@ def make_seam_and_xor_masks(
             right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
         )
     seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+
+    if True:
+        seam_w = int(image_width(seam_tensor))
+        v1 = seam_tensor[0][0]
+        v2 = seam_tensor[0][seam_w - 1]
+        seam_tensor[:, : seam_w // 2] = v1
+        seam_tensor[:, seam_w // 2 :] = v2
+
     xor_tensor = torch.from_numpy(cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH))
     return seam_tensor, xor_tensor
 

@@ -455,6 +455,9 @@ at::Tensor ImageBlender::hard_seam_blend(
            torch::indexing::Slice(),
            condition_right_}));
 
+  // TODO: fix xor map stuff
+  // canvas = at::where(xor_map_ > 0, ())
+
   return canvas;
 }
 
