@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -163,7 +163,7 @@ class LaplacianBlend(torch.nn.Module):
 
     @staticmethod
     # @torch.jit.script
-    def _make_full(
+    def make_full(
         img_1: torch.Tensor,
         img_2: torch.Tensor,
         level: int,

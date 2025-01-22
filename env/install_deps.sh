@@ -1,4 +1,5 @@
 #!/bin/bash
+WXW="$(apt search libwxgtk3 | grep dev | grep ^libwx | sed 's/\// /g' | awk '{print$1}')"
 sudo apt install -y \
   ccache \
   libpano13-dev \
@@ -18,4 +19,4 @@ sudo apt install -y \
   fftw-dev \
   libprotobuf-dev \
   protobuf-compiler \
-  libwxgtk3.0-gtk3-dev
+  $WXW

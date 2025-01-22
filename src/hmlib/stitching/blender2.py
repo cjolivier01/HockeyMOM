@@ -17,8 +17,8 @@ import torch
 
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
-from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.orientation import configure_game_videos
+from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.laplacian_blend import LaplacianBlend
 from hmlib.stitching.remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.synchronize import synchronize_by_audio
@@ -117,7 +117,7 @@ class PtImageBlender(torch.nn.Module):
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
         self._dtype: torch.dtype = dtype
-        self.max_levels: int = max_levels
+        self.max_levels: int = max_levels if laplacian_blend else 0
         if laplacian_blend:
             self._laplacian_blend: bool = LaplacianBlend(
                 max_levels=self.max_levels,
@@ -156,17 +156,17 @@ class PtImageBlender(torch.nn.Module):
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
 
-        if self._laplacian_blend is None:
-            canvas = torch.empty(
-                size=(
-                    batch_size,
-                    channels,
-                    self._seam_mask.shape[0],
-                    self._seam_mask.shape[1],
-                ),
-                dtype=torch.uint8 if self._laplacian_blend is None else self._dtype,
-                device=self._seam_mask.device,
-            )
+        # if self._laplacian_blend is None:
+        #     canvas = torch.empty(
+        #         size=(
+        #             batch_size,
+        #             channels,
+        #             self._seam_mask.shape[0],
+        #             self._seam_mask.shape[1],
+        #         ),
+        #         dtype=torch.uint8 if self._laplacian_blend is None else self._dtype,
+        #         device=self._seam_mask.device,
+        #     )
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
@@ -197,30 +197,41 @@ class PtImageBlender(torch.nn.Module):
             [self._seam_mask.shape[0], self._seam_mask.shape[1]], dtype=torch.int64
         )
 
-        level_ainfo_1 = [ainfo_1]
-        level_ainfo_2 = [ainfo_2]
-        level_canvas_dims = [canvas_dims]
-
-        for _ in range(self.max_levels):
-            ainfo_1 = ainfo_1 // 2
-            ainfo_2 = ainfo_2 // 2
-            canvas_dims = canvas_dims // 2
-            level_ainfo_1.append(ainfo_1)
-            level_ainfo_2.append(ainfo_2)
-            level_canvas_dims.append(canvas_dims)
-
         if self._laplacian_blend is not None:
+            level_ainfo_1 = [ainfo_1]
+            level_ainfo_2 = [ainfo_2]
+            level_canvas_dims = [canvas_dims]
+
+            for _ in range(self.max_levels):
+                ainfo_1 = ainfo_1 // 2
+                ainfo_2 = ainfo_2 // 2
+                canvas_dims = canvas_dims // 2
+                level_ainfo_1.append(ainfo_1)
+                level_ainfo_2.append(ainfo_2)
+                level_canvas_dims.append(canvas_dims)
+
             # TODO: Can get rid of canvas creation up top for this path
             canvas = self._laplacian_blend.forward(
                 left=image_1,
                 right=image_2,
-                # make_full_fn=_make_full,
                 level_ainfo_1=level_ainfo_1,
                 level_ainfo_2=level_ainfo_2,
                 level_canvas_dims=level_canvas_dims,
             )
         else:
-            full_left, full_right = _make_full(image_1, image_2, level=0)
+            full_left, full_right = simple_make_full(image_1, x1, y1, image_2, x2, y2, canvas_dims)
+            show_image("full_left", full_left, wait=False, enable_resizing=0.1)
+            canvas = torch.empty(
+                size=(
+                    batch_size,
+                    channels,
+                    canvas_dims[0],
+                    canvas_dims[1],
+                ),
+                dtype=image_1.dtype,
+                device=image_1.device,
+            )
+
             canvas[:, :, self._seam_mask == self._left_value] = full_left[
                 :, :, self._seam_mask == self._left_value
             ]
@@ -996,6 +1007,67 @@ def blend_video(
                 video_out.stop()
 
 
+def simple_make_full(
+    img_1: torch.Tensor,
+    x1: int,
+    y1: int,
+    img_2: torch.Tensor,
+    x2: int,
+    y2: int,
+    canvas_dims,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    h1 = img_1.shape[2]
+    w1 = img_1.shape[3]
+    h2 = img_2.shape[2]
+    w2 = img_2.shape[3]
+
+    canvas_w = canvas_dims[1]
+    canvas_h = canvas_dims[0]
+
+    assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+    if y1 <= y2:
+        y2 -= y1
+        y1 = 0
+    elif y2 < y1:
+        y1 -= y2
+        y2 = 0
+    if x1 <= x2:
+        x2 -= x1
+        x1 = 0
+    elif x2 < x1:
+        x1 -= x2
+        x2 = 0
+
+    # If these hit, you may have not passed "-s" to autotoptimiser
+    assert x1 == 0 or x2 == 0  # for now this is the case
+    assert y1 == 0 or y2 == 0  # for now this is the case
+
+    full_left = torch.nn.functional.pad(
+        img_1,
+        (
+            x1,
+            canvas_w - x1 - w1,
+            y1,
+            canvas_h - y1 - h1,
+        ),
+        mode="constant",
+    )
+
+    full_right = torch.nn.functional.pad(
+        img_2,
+        (
+            x2,
+            canvas_w - x2 - w2,
+            y2,
+            canvas_h - y2 - h2,
+        ),
+        mode="constant",
+    )
+
+    return full_left, full_right
+
+
 def gpu_index(want: int = 1):
     return min(torch.cuda.device_count() - 1, want)
 
@@ -1050,7 +1122,7 @@ def main(args):
             dtype=torch.float16 if args.fp16 else torch.float,
             draw=args.draw,
             minimize_blend=args.minimize_blend,
-            # blend_mode=None,
+            blend_mode=args.blend_mode,
         )
 
 
