@@ -101,7 +101,8 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-class PtImageBlender(torch.nn.Module):
+class PtImageBlender(torch.jit.ScriptModule):
+    # class PtImageBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -113,7 +114,10 @@ class PtImageBlender(torch.nn.Module):
         dtype: torch.dtype = torch.float,
     ) -> None:
         super().__init__()
-        self._images_info = images_info
+        # self._images_info: List[BlendImageInfo] = images_info
+        self._image_positions: List[int] = []
+        for bli in images_info:
+            self._image_positions.append((bli.xpos, bli.ypos))
         self._seam_mask = seam_mask.clone()
         self._xor_mask = xor_mask.clone()
         self._dtype: torch.dtype = dtype
@@ -146,25 +150,23 @@ class PtImageBlender(torch.nn.Module):
         assert len(self._unique_values) == 2
         print("Initialized")
 
+    @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
         image_2: torch.Tensor,
-    ):
-        return self._forward(image_1, image_2)
-
-    def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
+    ) -> torch.Tensor:
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
-        x1 = self._images_info[0].xpos
-        y1 = self._images_info[0].ypos
+        x1 = self._image_positions[0][0]
+        y1 = self._image_positions[0][1]
         h2 = image_2.shape[2]
         w2 = image_2.shape[3]
-        x2 = self._images_info[1].xpos
-        y2 = self._images_info[1].ypos
+        x2 = self._image_positions[1][0]
+        y2 = self._image_positions[1][1]
 
         assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
         if y1 <= y2:
@@ -180,13 +182,13 @@ class PtImageBlender(torch.nn.Module):
             x1 -= x2
             x2 = 0
 
-        ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
-        ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
         canvas_h = self._seam_mask.shape[0]
         canvas_w = self._seam_mask.shape[1]
-        canvas_dims = torch.tensor([canvas_h, canvas_w], dtype=torch.int64)
 
         if self._laplacian_blend is not None:
+            canvas_dims = torch.tensor([canvas_h, canvas_w], dtype=torch.int64)
+            ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
+            ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
             level_ainfo_1 = [ainfo_1]
             level_ainfo_2 = [ainfo_2]
             level_canvas_dims = [canvas_dims]
@@ -214,8 +216,8 @@ class PtImageBlender(torch.nn.Module):
                 size=(
                     batch_size,
                     channels,
-                    canvas_dims[0],
-                    canvas_dims[1],
+                    canvas_h,
+                    canvas_w,
                 ),
                 dtype=image_1.dtype,
                 device=image_1.device,
@@ -226,7 +228,7 @@ class PtImageBlender(torch.nn.Module):
             canvas[:, :, self._seam_mask == self._right_value] = full_right[
                 :, :, self._seam_mask == self._right_value
             ]
-            show_image("canvas", canvas, wait=False, enable_resizing=0.1)
+            # show_image("canvas", canvas, wait=False, enable_resizing=0.1)
 
         return canvas
 
