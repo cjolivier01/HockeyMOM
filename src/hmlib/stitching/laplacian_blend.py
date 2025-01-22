@@ -245,23 +245,23 @@ class LaplacianBlend(torch.nn.Module):
 
         full_left = torch.nn.functional.pad(
             img_1,
-            (
+            [
                 x1,
                 canvas_dims[1] - x1 - w1,
                 y1,
                 canvas_dims[0] - y1 - h1,
-            ),
+            ],
             mode="constant",
         )
 
         full_right = torch.nn.functional.pad(
             img_2,
-            (
+            [
                 x2,
                 canvas_dims[1] - x2 - w2,
                 y2,
                 canvas_dims[0] - y2 - h2,
-            ),
+            ],
             mode="constant",
         )
 
@@ -309,7 +309,7 @@ class LaplacianBlend(torch.nn.Module):
                 (
                     left_small_gaussian_blurred,
                     right_small_gaussian_blurred,
-                ) = self._make_full(
+                ) = self.make_full(
                     left_small_gaussian_blurred,
                     right_small_gaussian_blurred,
                     level=self.max_levels,
@@ -335,7 +335,7 @@ class LaplacianBlend(torch.nn.Module):
                 L_right = right_laplacian[this_level]
 
                 if level_canvas_dims is not None:
-                    L_left, L_right = self._make_full(
+                    L_left, L_right = self.make_full(
                         L_left,
                         L_right,
                         level=this_level,
