@@ -101,8 +101,8 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-class PtImageBlender(torch.jit.ScriptModule):
-    # class PtImageBlender(torch.nn.Module):
+# class PtImageBlender(torch.jit.ScriptModule):
+class PtImageBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -114,7 +114,6 @@ class PtImageBlender(torch.jit.ScriptModule):
         dtype: torch.dtype = torch.float,
     ) -> None:
         super().__init__()
-        # self._images_info: List[BlendImageInfo] = images_info
         self._image_positions: List[int] = []
         for bli in images_info:
             self._image_positions.append((bli.xpos, bli.ypos))
@@ -150,7 +149,7 @@ class PtImageBlender(torch.jit.ScriptModule):
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
