@@ -790,6 +790,7 @@ def create_stitcher(
     blend_mode: str = "laplacian",
     interpolation: str = "bilinear",
     levels: int = 6,
+    draw: bool = False,
 ):
     blender_config: core.BlenderConfig = create_blender_config(
         mode=blend_mode,
@@ -829,6 +830,7 @@ def create_stitcher(
         use_python_blender=python_blender,
         # use_python_blender=True,
         minimize_blend=minimize_blend,
+        draw=draw,
     )
     if device is not None:
         stitcher = stitcher.to(device=device)
@@ -842,10 +844,8 @@ def blend_video(
     dir_name: str,
     device: torch.device,
     dtype: torch.dtype,
-    interpolation: str = None,
     lfo: float = None,
     rfo: float = None,
-    python_blend: bool = False,
     show: bool = False,
     show_scaled: float | None = None,
     start_frame_number: int = 0,
@@ -876,6 +876,7 @@ def blend_video(
         device=device,
         dtype=dtype,
         blend_mode=blend_mode,
+        draw=draw,
     )
 
     if lfo is None or rfo is None:
@@ -1038,9 +1039,7 @@ def main(args):
             dir_name=args.video_dir,
             lfo=args.lfo,
             rfo=args.rfo,
-            python_blend=args.python,
             start_frame_number=args.start_frame_number,
-            interpolation="bilinear",
             show=args.show_image,
             show_scaled=args.show_scaled,
             output_video=args.output_file,
