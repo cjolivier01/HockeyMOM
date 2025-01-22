@@ -18,4 +18,4 @@ sudo apt install -y \
   fftw-dev \
   libprotobuf-dev \
   protobuf-compiler \
-  libwxgtk3.0-gtk3-dev
+  libwxgtk3.2-gtk3-dev
