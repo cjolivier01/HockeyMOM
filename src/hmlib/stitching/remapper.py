@@ -94,7 +94,8 @@ class RemapImageInfoEx(core.RemapImageInfo):
         self.ypos: int = ypos
 
 
-class ImageRemapper(torch.jit.ScriptModule):
+# class ImageRemapper(torch.jit.ScriptModule):
+class ImageRemapper(torch.nn.Module):
     UNMAPPED_PIXEL_VALUE = 65535
 
     def __init__(
@@ -235,7 +236,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         assert self._initialized
         # make sure channel is where we expect it to be

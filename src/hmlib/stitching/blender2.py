@@ -49,6 +49,14 @@ def make_parser():
         help="Batch size",
     )
     parser.add_argument(
+        "--files",
+        "-f",
+        dest="files",
+        default=None,
+        type=str,
+        help="Queue size",
+    )
+    parser.add_argument(
         "-q",
         "--queue-size",
         dest="queue_size",
@@ -143,100 +151,6 @@ class PtImageBlender(torch.nn.Module):
         image_2: torch.Tensor,
     ):
         return self._forward(image_1, image_2)
-
-    # def _make_full(img_1, img_2, level):
-    #     ainfo_1 = level_ainfo_1[level]
-    #     ainfo_2 = level_ainfo_2[level]
-
-    #     h1 = ainfo_1[H1]
-    #     w1 = ainfo_1[W1]
-    #     x1 = ainfo_1[X1]
-    #     y1 = ainfo_1[Y1]
-    #     h2 = ainfo_2[H2]
-    #     w2 = ainfo_2[W2]
-    #     x2 = ainfo_2[X2]
-    #     y2 = ainfo_2[Y2]
-
-    #     # If these hit, you may have not passed "-s" to autotoptimiser
-    #     assert x1 == 0 or x2 == 0  # for now this is the case
-    #     assert y1 == 0 or y2 == 0  # for now this is the case
-
-    #     canvas_dims = level_canvas_dims[level]
-
-    #     full_left = torch.nn.functional.pad(
-    #         img_1,
-    #         (
-    #             x1,
-    #             canvas_dims[1] - x1 - w1,
-    #             y1,
-    #             canvas_dims[0] - y1 - h1,
-    #         ),
-    #         mode="constant",
-    #     )
-
-    #     full_right = torch.nn.functional.pad(
-    #         img_2,
-    #         (
-    #             x2,
-    #             canvas_dims[1] - x2 - w2,
-    #             y2,
-    #             canvas_dims[0] - y2 - h2,
-    #         ),
-    #         mode="constant",
-    #     )
-
-    #     return full_left, full_right
-
-    # def make_level_info(
-    #     self,
-    #     nr_levels: int,
-    #     image_info_hwxy_1: torch.Tensor,
-    #     image_info_hwxy_2: torch.Tensor,
-    #     canvas_width: int,
-    #     canvas_height: int,
-    # ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    #     # Tenspor positions
-    #     h1, w1, x1, y1 = image_info_hwxy_1
-    #     h2, w2, x2, y2 = image_info_hwxy_1
-    #     if y1 <= y2:
-    #         y2 -= y1
-    #         y1 = 0
-    #     elif y2 < y1:
-    #         y1 -= y2
-    #         y2 = 0
-    #     if x1 <= x2:
-    #         x2 -= x1
-    #         x1 = 0
-    #     elif x2 < x1:
-    #         x1 -= x2
-    #         x2 = 0
-
-    #     ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64, device=image_info_hwxy_1.device)
-    #     ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64, device=image_info_hwxy_2.device)
-
-    #     level_ainfo_1: List[torch.Tensor] = [ainfo_1]
-    #     level_ainfo_2: List[torch.Tensor] = [ainfo_2]
-
-    #     canvas_dims = torch.tensor(
-    #         [canvas_height, canvas_width],
-    #         dtype=torch.int64,
-    #         device=image_info_hwxy_1.device,
-    #     )
-    #     level_canvas_dims: List[torch.Tensor] = [canvas_dims]
-
-    #     for _ in range(nr_levels):
-    #         ainfo_1 = ainfo_1 // 2
-    #         ainfo_2 = ainfo_2 // 2
-    #         canvas_dims = canvas_dims // 2
-    #         level_ainfo_1.append(ainfo_1)
-    #         level_ainfo_2.append(ainfo_2)
-    #         level_canvas_dims.append(canvas_dims)
-
-    #     return (
-    #         torch.stack(level_ainfo_1),
-    #         torch.stack(level_ainfo_2),
-    #         torch.stack(level_canvas_dims),
-    #     )
 
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
         batch_size = image_1.shape[0]
@@ -404,52 +318,6 @@ def make_seam_and_xor_masks(
     return seam_tensor, xor_tensor
 
 
-# def make_seam_and_xor_masks(
-#     dir_name: str,
-#     force: bool = False,
-# ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-#     seam_filename = os.path.join(dir_name, "seam_file.png")
-#     xor_filename = os.path.join(dir_name, "xor_file.png")
-#     if not force and os.path.isfile(seam_filename):
-#         mapping_file = os.path.join(dir_name, "mapping_0000.tif")
-#         if os.path.exists(mapping_file):
-#             mapping_file_mtime = datetime.datetime.fromtimestamp(
-#                 os.path.getmtime(mapping_file)
-#             ).isoformat()
-#             seam_file_mtime = datetime.datetime.fromtimestamp(
-#                 os.path.getmtime(seam_filename)
-#             ).isoformat()
-#             force = mapping_file_mtime >= seam_file_mtime
-#             if force:
-#                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
-#         else:
-#             print(f"Warning: no mapping file found: {mapping_file}")
-
-#     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
-#         blender = core.EnBlender(
-#             args=[
-#                 f"--save-seams",
-#                 seam_filename,
-#                 f"--save-xor",
-#                 xor_filename,
-#             ]
-#         )
-#         # Blend one image to create the seam file
-#         _ = blender.blend_images(
-#             left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-#             left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-#             right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-#             right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-#         )
-
-#     seam_tensor = cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH)
-#     xor_mask_tensor = cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH)
-#     return (
-#         torch.from_numpy(seam_tensor).contiguous(),
-#         torch.from_numpy(xor_mask_tensor).contiguous(),
-#     )
-
-
 def create_blender_config(
     mode: str,
     dir_name: str,
@@ -589,11 +457,17 @@ class SmartRemapperBlender(torch.nn.Module):
         self._device = device
         self._overlapping_width = None
         self._empty_image_pixel_value: int = 0
-        self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
-        self.register_buffer(
-            "_xor_mask_tensor",
-            self.convert_mask_tensor(xor_mask_tensor if xor_mask_tensor is not None else None),
-        )
+        if seam_tensor is not None:
+            self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
+        else:
+            self._seam_tensor = None
+        if xor_mask_tensor is not None:
+            self.register_buffer(
+                "_xor_mask_tensor",
+                self.convert_mask_tensor(xor_mask_tensor if xor_mask_tensor is not None else None),
+            )
+        else:
+            self._xor_mask_tensor = None
         self._init()
 
     def _init(self) -> None:
@@ -1000,6 +874,7 @@ def blend_video(
         minimize_blend=minimize_blend,
         device=device,
         dtype=dtype,
+        blend_mode=blend_mode,
     )
 
     if lfo is None or rfo is None:
@@ -1137,22 +1012,28 @@ def main(args):
         args.video_dir = os.path.join(os.environ["HOME"], "Videos", args.game_id)
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
 
-    game_videos = configure_game_videos(
-        game_id=args.game_id,
-        write_results=True,
-        force=False,
-    )
-    if True:  # or args.single_file:
+    file_list = []
+    if args.files:
+        file_list = args.files.split(",")
+    if not file_list:
+        game_videos = configure_game_videos(
+            game_id=args.game_id,
+            write_results=True,
+            force=False,
+        )
         if "left" in game_videos and game_videos["left"]:
             game_videos["left"] = game_videos["left"][:1][0]
         if "right" in game_videos and game_videos["right"]:
             game_videos["right"] = game_videos["right"][:1][0]
+        file_list = [game_videos["left"], game_videos["right"]]
+
+    assert len(file_list) == 2
 
     with torch.no_grad():
         blend_video(
             opts,
-            video_file_1=game_videos["left"],
-            video_file_2=game_videos["right"],
+            video_file_1=file_list[0],
+            video_file_2=file_list[1],
             dir_name=args.video_dir,
             lfo=args.lfo,
             rfo=args.rfo,
@@ -1169,6 +1050,7 @@ def main(args):
             dtype=torch.float16 if args.fp16 else torch.float,
             draw=args.draw,
             minimize_blend=args.minimize_blend,
+            # blend_mode=None,
         )
 
 
