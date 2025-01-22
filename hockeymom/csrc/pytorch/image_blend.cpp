@@ -567,7 +567,6 @@ at::Tensor ImageBlender::blend(
   left_small_gaussian_blurred *= mask_left;
   right_small_gaussian_blurred *= mask_right;
   return left_small_gaussian_blurred + right_small_gaussian_blurred;
-  // return right_small_gaussian_blurred;
 #else
   at::Tensor F_2 = left_small_gaussian_blurred * mask_left +
       right_small_gaussian_blurred * mask_right;
@@ -633,19 +632,6 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
 
   for (int this_level = levels_ - 1; this_level >= 0; this_level--) {
     const ImageSize& canvas_dims = level_canvas_dims_.at(this_level);
-
-    // at::Tensor F_1 = upsample(F_2, {canvas_dims.h, canvas_dims.w});
-    // at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
-    // at::Tensor L_left = left_laplacian.at(this_level);
-    // at::Tensor L_right = right_laplacian.at(this_level);
-
-    // if (!make_all_full_first_) {
-    //   auto res = make_full(L_left, xy_pos_1, L_right, xy_pos_2, this_level);
-    //   L_left = res.first;
-    //   L_right = res.second;
-    // }
-    // at::Tensor L_c = blend(std::move(L_left), std::move(L_right),
-    // this_level); F_2 = L_c + upsampled_F1;
 
     at::Tensor L_left;
     at::Tensor L_right;

@@ -161,11 +161,13 @@ class LaplacianBlend(torch.nn.Module):
         self.channels: int = channels
         self.sigma: int = sigma
         if seam_mask is not None:
-            self.register_buffer("seam_mask", to_float(seam_mask))
+            # self.register_buffer("seam_mask", to_float(seam_mask))
+            self.register_buffer("seam_mask", seam_mask)
         else:
             self.seam_mask = None
         if xor_mask is not None:
-            self.register_buffer("xor_mask", to_float(xor_mask))
+            # self.register_buffer("xor_mask", to_float(xor_mask))
+            self.register_buffer("xor_mask", xor_mask)
         else:
             self.seam_mask = None
         self.mask_small_gaussian_blurred: List[torch.Tensor] = []
@@ -183,8 +185,9 @@ class LaplacianBlend(torch.nn.Module):
             assert len(unique_values) == 2
             left_value = unique_values[0]
             right_value = unique_values[1]
-            mask[mask == left_value] = 1.0
+            mask[mask == left_value] = 1
             mask[mask == right_value] = 0
+            mask = mask.to(torch.float)
 
         mask_img = mask
         self.mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
@@ -193,16 +196,9 @@ class LaplacianBlend(torch.nn.Module):
             self.mask_small_gaussian_blurred.append(mask_img.squeeze(0).squeeze(0))
 
         for i in range(len(self.mask_small_gaussian_blurred)):
-            # print(
-            #     f"BEFORE mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
-            # )
             self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[i] / torch.max(
                 self.mask_small_gaussian_blurred[i]
             )
-            # print(
-            #     f"AFTER mask[{i}]: min={torch.min(self.mask_small_gaussian_blurred[i]).item()}, max={torch.max(self.mask_small_gaussian_blurred[i]).item()}"
-            # )
-        # print("Done creating masks")
 
     def initialize(self, input_shape: torch.Size, device: torch.device):
         assert not self._initialized
@@ -279,44 +275,38 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
+
         # assert left.shape == right.shape  # They should be "full" already
         if not self._initialized:
             # Let's not do this anymore
             assert False
-            self.initialize(
-                # input_shape=left.shape,
-                input_shape=None,
-                device=left.device,
-            )
-        if False:
-            return self.gpt_forward(left, right)
-        else:
-            left_laplacian = create_laplacian_pyramid(
-                x=left, kernel=self.gaussian_kernel, levels=self.max_levels
-            )
-            right_laplacian = create_laplacian_pyramid(
-                x=right, kernel=self.gaussian_kernel, levels=self.max_levels
-            )
 
-            left_small_gaussian_blurred = left_laplacian[-1]
-            right_small_gaussian_blurred = right_laplacian[-1]
+        left_laplacian = create_laplacian_pyramid(
+            x=left, kernel=self.gaussian_kernel, levels=self.max_levels
+        )
+        right_laplacian = create_laplacian_pyramid(
+            x=right, kernel=self.gaussian_kernel, levels=self.max_levels
+        )
 
-            mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
-            mask_left = mask_1d
-            mask_right = 1 - mask_1d
+        left_small_gaussian_blurred = left_laplacian[-1]
+        right_small_gaussian_blurred = right_laplacian[-1]
 
-            if level_canvas_dims is not None:
-                (
-                    left_small_gaussian_blurred,
-                    right_small_gaussian_blurred,
-                ) = self.make_full(
-                    left_small_gaussian_blurred,
-                    right_small_gaussian_blurred,
-                    level=self.max_levels,
-                    level_ainfo_1=level_ainfo_1,
-                    level_ainfo_2=level_ainfo_2,
-                    level_canvas_dims=level_canvas_dims,
-                )
+        mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
+        mask_left = mask_1d
+        mask_right = 1 - mask_1d
+
+        if level_canvas_dims is not None:
+            (
+                left_small_gaussian_blurred,
+                right_small_gaussian_blurred,
+            ) = self.make_full(
+                left_small_gaussian_blurred,
+                right_small_gaussian_blurred,
+                level=self.max_levels,
+                level_ainfo_1=level_ainfo_1,
+                level_ainfo_2=level_ainfo_2,
+                level_canvas_dims=level_canvas_dims,
+            )
 
             F_2 = (
                 left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
@@ -346,59 +336,9 @@ class LaplacianBlend(torch.nn.Module):
                     assert L_left.shape[-2:] == mask_left.shape
                     assert L_right.shape[-2:] == mask_right.shape
 
-                if True:
-                    L_left *= mask_left
-                    L_right *= mask_right
-                    L_left += L_right
-                    L_left += upsampled_F1
-                    # L_c = (mask_left * L_left) + (mask_right * L_right)
-                    F_2 = L_left
-                else:
-                    L_c = (mask_left * L_left) + (mask_right * L_right)
-                    F_2 = L_c + upsampled_F1
-                # show_image("F_2", F_2)
+                L_left *= mask_left
+                L_right *= mask_right
+                L_left += L_right
+                L_left += upsampled_F1
+                F_2 = L_left
             return F_2
-
-    #
-    # GPT
-    #
-    def gpt_forward(self, image1, image2):
-        if not self._initialized:
-            self.initialize(input_shape=image1.shape, device=image1.device)
-
-        # Build Laplacian pyramids for both images
-        pyramid1 = self.build_laplacian_pyramid(image1)
-        pyramid2 = self.build_laplacian_pyramid(image2)
-
-        mask_1d = self.mask_small_gaussian_blurred[self.max_levels].repeat(3, 1, 1)
-
-        # Blend the pyramids using the seam mask
-        blended_pyramid = []
-        for level in range(self.max_levels):
-            seam_mask = self.mask_small_gaussian_blurred[level]
-            assert seam_mask.shape[-2:] == pyramid1[level].shape[-2:]
-            blended_level = pyramid1[level] * seam_mask + pyramid2[level] * (1 - seam_mask)
-            blended_pyramid.append(blended_level)
-
-        # Reconstruct the blended image from the blended pyramid
-        blended_image = self.reconstruct_laplacian_pyramid(blended_pyramid)
-
-        return blended_image
-
-    def build_laplacian_pyramid(self, image):
-        pyramid = []
-        for _ in range(self.max_levels):
-            blurred = F.avg_pool2d(image, kernel_size=2)
-            upsampled = F.interpolate(blurred, scale_factor=2, mode="bilinear", align_corners=False)
-            residual = image - upsampled
-            pyramid.append(residual)
-            image = blurred
-        pyramid.append(image)  # Low-pass residual image
-        return pyramid
-
-    def reconstruct_laplacian_pyramid(self, pyramid):
-        image = pyramid[-1]
-        for i in range(self.max_levels - 2, -1, -1):
-            upsampled = F.interpolate(image, scale_factor=2, mode="bilinear", align_corners=False)
-            image = upsampled + pyramid[i]
-        return (imageself,)
