@@ -85,6 +85,66 @@ def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
     return img
 
 
+@torch.jit.script
+def simple_make_full(
+    img_1: torch.Tensor,
+    x1: int,
+    y1: int,
+    img_2: torch.Tensor,
+    x2: int,
+    y2: int,
+    canvas_w: int,
+    canvas_h: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    h1 = img_1.shape[2]
+    w1 = img_1.shape[3]
+    h2 = img_2.shape[2]
+    w2 = img_2.shape[3]
+
+    assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
+    if y1 <= y2:
+        y2 -= y1
+        y1 = 0
+    elif y2 < y1:
+        y1 -= y2
+        y2 = 0
+    if x1 <= x2:
+        x2 -= x1
+        x1 = 0
+    elif x2 < x1:
+        x1 -= x2
+        x2 = 0
+
+    # If these hit, you may have not passed "-s" to autotoptimiser
+    assert x1 == 0 or x2 == 0  # for now this is the case
+    assert y1 == 0 or y2 == 0  # for now this is the case
+
+    full_left = torch.nn.functional.pad(
+        img_1,
+        [
+            x1,
+            canvas_w - x1 - w1,
+            y1,
+            canvas_h - y1 - h1,
+        ],
+        mode="constant",
+    )
+
+    full_right = torch.nn.functional.pad(
+        img_2,
+        [
+            x2,
+            canvas_w - x2 - w2,
+            y2,
+            canvas_h - y2 - h2,
+        ],
+        mode="constant",
+    )
+
+    return full_left, full_right
+
+
 class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,

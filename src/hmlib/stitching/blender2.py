@@ -19,7 +19,7 @@ import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
-from hmlib.stitching.laplacian_blend import LaplacianBlend
+from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
 from hmlib.stitching.remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
@@ -156,18 +156,6 @@ class PtImageBlender(torch.nn.Module):
     def _forward(self, image_1: torch.Tensor, image_2: torch.Tensor) -> torch.Tensor:
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
-
-        # if self._laplacian_blend is None:
-        #     canvas = torch.empty(
-        #         size=(
-        #             batch_size,
-        #             channels,
-        #             self._seam_mask.shape[0],
-        #             self._seam_mask.shape[1],
-        #         ),
-        #         dtype=torch.uint8 if self._laplacian_blend is None else self._dtype,
-        #         device=self._seam_mask.device,
-        #     )
 
         h1 = image_1.shape[2]
         w1 = image_1.shape[3]
@@ -1006,66 +994,6 @@ def blend_video(
                 video_out.close()
             else:
                 video_out.stop()
-
-
-@torch.jit.script
-def simple_make_full(
-    img_1: torch.Tensor,
-    x1: int,
-    y1: int,
-    img_2: torch.Tensor,
-    x2: int,
-    y2: int,
-    canvas_w: int,
-    canvas_h: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-
-    h1 = img_1.shape[2]
-    w1 = img_1.shape[3]
-    h2 = img_2.shape[2]
-    w2 = img_2.shape[3]
-
-    assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-    if y1 <= y2:
-        y2 -= y1
-        y1 = 0
-    elif y2 < y1:
-        y1 -= y2
-        y2 = 0
-    if x1 <= x2:
-        x2 -= x1
-        x1 = 0
-    elif x2 < x1:
-        x1 -= x2
-        x2 = 0
-
-    # If these hit, you may have not passed "-s" to autotoptimiser
-    assert x1 == 0 or x2 == 0  # for now this is the case
-    assert y1 == 0 or y2 == 0  # for now this is the case
-
-    full_left = torch.nn.functional.pad(
-        img_1,
-        [
-            x1,
-            canvas_w - x1 - w1,
-            y1,
-            canvas_h - y1 - h1,
-        ],
-        mode="constant",
-    )
-
-    full_right = torch.nn.functional.pad(
-        img_2,
-        [
-            x2,
-            canvas_w - x2 - w2,
-            y2,
-            canvas_h - y2 - h2,
-        ],
-        mode="constant",
-    )
-
-    return full_left, full_right
 
 
 def gpu_index(want: int = 1):
