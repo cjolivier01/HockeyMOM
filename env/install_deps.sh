@@ -25,4 +25,3 @@ WXW="$(apt search libwxgtk3 | grep dev | grep ^libwx | sed 's/\// /g' | awk '{pr
 if [ ! -z "${WXW}" ]; then
   sudo apt install -y $WXW
 fi
-
