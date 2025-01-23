@@ -282,19 +282,6 @@ class LaplacianBlend(torch.nn.Module):
 
         return full_left, full_right
 
-    # @staticmethod
-    # # @torch.jit.script_method
-    # def blend(
-    #     left_small_gaussian_blurred: torch.Tensor,
-    #     right_small_gaussian_blurred: torch.Tensor,
-    #     mask_small_gaussian_blurred: torch.Tensor,
-    # ) -> torch.Tensor:
-    #     mask_left = mask_small_gaussian_blurred
-    #     mask_right = 1.0 - mask_small_gaussian_blurred
-    #     left_small_gaussian_blurred *= mask_left
-    #     right_small_gaussian_blurred *= mask_right
-    #     return left_small_gaussian_blurred + right_small_gaussian_blurred
-
     # @torch.jit.script_method
     def forward(
         self,
