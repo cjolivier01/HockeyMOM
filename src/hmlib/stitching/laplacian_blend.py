@@ -224,7 +224,6 @@ class LaplacianBlend(torch.nn.Module):
         self._initialized = True
 
     @staticmethod
-    # @torch.jit.script
     def make_full(
         img_1: torch.Tensor,
         img_2: torch.Tensor,
@@ -280,14 +279,32 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         make_full_first: bool = True
         if make_full_first:
-            left, right = self.make_full(
-                left,
-                right,
-                level=0,
-                level_ainfo_1=level_ainfo_1,
-                level_ainfo_2=level_ainfo_2,
-                level_canvas_dims=level_canvas_dims,
+
+            h1, w1, x1, y1 = level_ainfo_1[0]
+            h2, w2, x2, y2 = level_ainfo_2[0]
+
+            canvas_w = level_canvas_dims[0][1]
+            canvas_h = level_canvas_dims[0][0]
+
+            left, right = simple_make_full(
+                img_1=left,
+                x1=x1,
+                y1=y1,
+                img_2=right,
+                x2=x2,
+                y2=y2,
+                canvas_w=canvas_w,
+                canvas_h=canvas_h,
             )
+
+            # left, right = self.make_full(
+            #     left,
+            #     right,
+            #     level=0,
+            #     level_ainfo_1=level_ainfo_1,
+            #     level_ainfo_2=level_ainfo_2,
+            #     level_canvas_dims=level_canvas_dims,
+            # )
 
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
