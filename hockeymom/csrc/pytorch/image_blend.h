@@ -108,7 +108,7 @@ class ImageBlender {
   };
   std::vector<std::vector<AInfo>> ainfos_;
   std::vector<ImageSize> level_canvas_dims_;
-  bool make_all_full_first_{true};
+  bool make_all_full_first_{false};
 
   // Laplacian pyramid persistent tensors
   at::Tensor gussian_kernel_;
