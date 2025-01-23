@@ -629,7 +629,7 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     F_2 = L_c;
     F_2 += upsampled_F1;
   }
-  show_image("blended output", F_2, /*wait=*/false, /*scale=*/0.1);
+  // show_image("blended output", F_2, /*wait=*/false, /*scale=*/0.1);
   return F_2;
 }
 
