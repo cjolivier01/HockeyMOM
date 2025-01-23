@@ -26,6 +26,7 @@ def create_gaussian_kernel(
     return kernel_tensor.to(device)
 
 
+@torch.jit.script
 def gaussian_conv2d(x, g_kernel):
     assert x.dtype != torch.uint8
     # Assumes input of x is of shape: (minibatch, depth, height, width)
@@ -41,11 +42,13 @@ def gaussian_conv2d(x, g_kernel):
     return y
 
 
+@torch.jit.script
 def downsample(x: torch.Tensor) -> torch.Tensor:
     downsample = F.avg_pool2d(x, kernel_size=2)
     return downsample
 
 
+@torch.jit.script
 def upsample(image: torch.Tensor, size: List[int]) -> torch.Tensor:
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
@@ -66,6 +69,7 @@ def create_laplacian_pyramid(
     return pyramids
 
 
+@torch.jit.script
 def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
@@ -241,7 +245,7 @@ class LaplacianBlend(torch.nn.Module):
         self.create_masks(input_shape=input_shape, device=device)
         self._initialized = True
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
