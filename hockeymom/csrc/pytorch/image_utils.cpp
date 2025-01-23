@@ -106,8 +106,7 @@ at::Tensor simple_scale_image(const at::Tensor& img, float scale) {
 }
 
 #ifdef NDEBUG
-#error foo
-show_image(const at::Tensor& tensor, bool wait = false) {}
+void show_image(const at::Tensor& tensor, bool wait = false) {}
 #else
 #ifdef WITH_OPENCV
 void show_image(
