@@ -362,11 +362,11 @@ USER root
 RUN pip install dist/*.whl
 RUN cp dis/*.whl /wheels/
 
-# ####################################################################
-# #
-# # Build and install Hugin
-# #
-# ####################################################################
+####################################################################
+#
+# Build and install Hugin
+#
+####################################################################
 
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
@@ -379,6 +379,13 @@ RUN mkdir build && cd build && \
 USER root
 WORKDIR /home/$USERNAME/src/hugin/build
 RUN make install
+
+####################################################################
+#
+# Build and install OpenCV
+#
+####################################################################
+
 
 #
 # Clean up builds
