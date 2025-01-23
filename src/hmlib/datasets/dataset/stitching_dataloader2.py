@@ -167,7 +167,8 @@ class StitchDataset:
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
-        python_blender: bool = False,
+        # python_blender: bool = False,
+        python_blender: bool = True,
         no_cuda_streams: bool = False,
     ):
         max_input_queue_size = max(1, max_input_queue_size)
