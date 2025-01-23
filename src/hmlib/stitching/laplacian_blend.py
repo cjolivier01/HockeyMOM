@@ -293,25 +293,22 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         assert self._initialized
 
-        make_full_first: bool = True
+        _, _, x1, y1 = level_ainfo_1[0]
+        _, _, x2, y2 = level_ainfo_2[0]
+        canvas_w = level_canvas_dims[0][1]
+        canvas_h = level_canvas_dims[0][0]
 
-        if make_full_first:
-            _, _, x1, y1 = level_ainfo_1[0]
-            _, _, x2, y2 = level_ainfo_2[0]
-            canvas_w = level_canvas_dims[0][1]
-            canvas_h = level_canvas_dims[0][0]
-
-            left, right = simple_make_full(
-                img_1=left,
-                x1=x1,
-                y1=y1,
-                img_2=right,
-                x2=x2,
-                y2=y2,
-                canvas_w=canvas_w,
-                canvas_h=canvas_h,
-            )
-            assert left.shape == right.shape
+        left, right = simple_make_full(
+            img_1=left,
+            x1=x1,
+            y1=y1,
+            img_2=right,
+            x2=x2,
+            y2=y2,
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+        )
+        assert left.shape == right.shape
 
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
@@ -326,27 +323,7 @@ class LaplacianBlend(torch.nn.Module):
         left_small_gaussian_blurred = left_laplacian[-1]
         right_small_gaussian_blurred = right_laplacian[-1]
 
-        # mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
-        # mask_left = mask_1d
-        # mask_right = 1 - mask_1d
-
         assert level_canvas_dims is not None
-
-        if not make_full_first:
-            (
-                left_small_gaussian_blurred,
-                right_small_gaussian_blurred,
-            ) = self.make_full(
-                left_small_gaussian_blurred,
-                right_small_gaussian_blurred,
-                level=self.max_levels,
-                level_ainfo_1=level_ainfo_1,
-                level_ainfo_2=level_ainfo_2,
-                level_canvas_dims=level_canvas_dims,
-            )
-
-        # F_2 = left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
-        # show_image("F_2", F_2)
 
         F_2 = simple_blend_in_place(
             left_small_gaussian_blurred,
@@ -356,8 +333,6 @@ class LaplacianBlend(torch.nn.Module):
 
         for this_level in reversed(range(self.max_levels)):
             mask_1d = self.mask_small_gaussian_blurred[this_level]
-            # mask_left = mask_1d
-            # mask_right = 1 - mask_1d
 
             F_1 = upsample(F_2, size=mask_1d.shape[-2:])
             upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
@@ -365,24 +340,6 @@ class LaplacianBlend(torch.nn.Module):
             L_left = left_laplacian[this_level]
             L_right = right_laplacian[this_level]
 
-            if level_canvas_dims is not None:
-                if not make_full_first:
-                    L_left, L_right = self.make_full(
-                        L_left,
-                        L_right,
-                        level=this_level,
-                        level_ainfo_1=level_ainfo_1,
-                        level_ainfo_2=level_ainfo_2,
-                        level_canvas_dims=level_canvas_dims,
-                    )
-                    assert L_left.shape[-2:] == mask_1d.shape
-                    assert L_right.shape[-2:] == mask_1d.shape
-
-            # L_left *= mask_left
-            # L_right *= mask_right
-            # L_left += L_right
-            # L_left += upsampled_F1
-            # F_2 = L_left
             F_2 = simple_blend_in_place(L_left, L_right, mask_1d)
             F_2 += upsampled_F1
 
