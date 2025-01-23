@@ -76,6 +76,7 @@ def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch
     return down
 
 
+@torch.jit.script
 def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
     if img is None:
         return None
@@ -97,6 +98,7 @@ def simple_make_full(
     y2: int,
     canvas_w: int,
     canvas_h: int,
+    adjust_origin: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
 
     h1 = img_1.shape[2]
@@ -105,22 +107,24 @@ def simple_make_full(
     w2 = img_2.shape[3]
 
     assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
-    if y1 <= y2:
-        y2 -= y1
-        y1 = 0
-    elif y2 < y1:
-        y1 -= y2
-        y2 = 0
-    if x1 <= x2:
-        x2 -= x1
-        x1 = 0
-    elif x2 < x1:
-        x1 -= x2
-        x2 = 0
+
+    if adjust_origin:
+        if y1 <= y2:
+            y2 -= y1
+            y1 = 0
+        elif y2 < y1:
+            y1 -= y2
+            y2 = 0
+        if x1 <= x2:
+            x2 -= x1
+            x1 = 0
+        elif x2 < x1:
+            x1 -= x2
+            x2 = 0
 
     # If these hit, you may have not passed "-s" to autotoptimiser
-    assert x1 == 0 or x2 == 0  # for now this is the case
-    assert y1 == 0 or y2 == 0  # for now this is the case
+    assert int(x1) == 0 or int(x2) == 0  # for now this is the case
+    assert int(y1) == 0 or int(y2) == 0  # for now this is the case
 
     full_left = torch.nn.functional.pad(
         img_1,
@@ -237,66 +241,19 @@ class LaplacianBlend(torch.nn.Module):
         self.create_masks(input_shape=input_shape, device=device)
         self._initialized = True
 
-    @staticmethod
-    def make_full(
-        img_1: torch.Tensor,
-        img_2: torch.Tensor,
-        level: int,
-        level_ainfo_1,
-        level_ainfo_2,
-        level_canvas_dims,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ainfo_1 = level_ainfo_1[level]
-        ainfo_2 = level_ainfo_2[level]
-
-        h1, w1, x1, y1 = ainfo_1
-        h2, w2, x2, y2 = ainfo_2
-
-        # If these hit, you may have not passed "-s" to autotoptimiser
-        assert x1 == 0 or x2 == 0  # for now this is the case
-        assert y1 == 0 or y2 == 0  # for now this is the case
-
-        canvas_dims = level_canvas_dims[level]
-
-        full_left = torch.nn.functional.pad(
-            img_1,
-            [
-                x1,
-                canvas_dims[1] - x1 - w1,
-                y1,
-                canvas_dims[0] - y1 - h1,
-            ],
-            mode="constant",
-        )
-
-        full_right = torch.nn.functional.pad(
-            img_2,
-            [
-                x2,
-                canvas_dims[1] - x2 - w2,
-                y2,
-                canvas_dims[0] - y2 - h2,
-            ],
-            mode="constant",
-        )
-
-        return full_left, full_right
-
     # @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
+        x1: int,
+        y1: int,
         right: torch.Tensor,
-        level_ainfo_1,
-        level_ainfo_2,
-        level_canvas_dims,
+        x2: int,
+        y2: int,
+        canvas_w: int,
+        canvas_h: int,
     ) -> torch.Tensor:
         assert self._initialized
-
-        _, _, x1, y1 = level_ainfo_1[0]
-        _, _, x2, y2 = level_ainfo_2[0]
-        canvas_w = level_canvas_dims[0][1]
-        canvas_h = level_canvas_dims[0][0]
 
         left, right = simple_make_full(
             img_1=left,
@@ -322,8 +279,6 @@ class LaplacianBlend(torch.nn.Module):
 
         left_small_gaussian_blurred = left_laplacian[-1]
         right_small_gaussian_blurred = right_laplacian[-1]
-
-        assert level_canvas_dims is not None
 
         F_2 = simple_blend_in_place(
             left_small_gaussian_blurred,

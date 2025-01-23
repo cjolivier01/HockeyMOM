@@ -158,12 +158,8 @@ class PtImageBlender(torch.nn.Module):
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
 
-        h1 = image_1.shape[2]
-        w1 = image_1.shape[3]
         x1 = self._image_positions[0][0]
         y1 = self._image_positions[0][1]
-        h2 = image_2.shape[2]
-        w2 = image_2.shape[3]
         x2 = self._image_positions[1][0]
         y2 = self._image_positions[1][1]
 
@@ -181,31 +177,22 @@ class PtImageBlender(torch.nn.Module):
             x1 -= x2
             x2 = 0
 
+        assert int(x1) == 0 or int(x2) == 0  # for now this is the case
+        assert int(y1) == 0 or int(y2) == 0  # for now this is the case
+
         canvas_h = self._seam_mask.shape[0]
         canvas_w = self._seam_mask.shape[1]
 
         if self._laplacian_blend is not None:
-            canvas_dims = torch.tensor([canvas_h, canvas_w], dtype=torch.int64)
-            ainfo_1 = torch.tensor([h1, w1, x1, y1], dtype=torch.int64)
-            ainfo_2 = torch.tensor([h2, w2, x2, y2], dtype=torch.int64)
-            level_ainfo_1 = [ainfo_1]
-            level_ainfo_2 = [ainfo_2]
-            level_canvas_dims = [canvas_dims]
-
-            for _ in range(self.max_levels):
-                ainfo_1 = ainfo_1 // 2
-                ainfo_2 = ainfo_2 // 2
-                canvas_dims = canvas_dims // 2
-                level_ainfo_1.append(ainfo_1)
-                level_ainfo_2.append(ainfo_2)
-                level_canvas_dims.append(canvas_dims)
-
             canvas = self._laplacian_blend.forward(
                 left=image_1,
+                x1=x1,
+                y1=y1,
                 right=image_2,
-                level_ainfo_1=level_ainfo_1,
-                level_ainfo_2=level_ainfo_2,
-                level_canvas_dims=level_canvas_dims,
+                x2=x2,
+                y2=y2,
+                canvas_h=canvas_h,
+                canvas_w=canvas_w,
             )
         else:
             full_left, full_right = simple_make_full(
