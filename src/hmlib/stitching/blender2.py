@@ -572,6 +572,11 @@ class SmartRemapperBlender(torch.nn.Module):
     def forward(
         self, remapped_image_1: torch.Tensor, remapped_image_2: torch.Tensor
     ) -> torch.Tensor:
+
+        # show_image("seam", self._seam_tensor, wait=False, enable_resizing=0.1)
+        # show_image("xor", self._xor_mask_tensor, wait=False, enable_resizing=0.1)
+        # print(torch.unique(self._xor_mask_tensor))
+
         if self._minimize_blend:
             assert image_width(remapped_image_1) == self._remapper_1.width  # sanity
             canvas = (
@@ -816,7 +821,6 @@ def create_stitcher(
         blender_config=blender_config,
         dtype=dtype,
         use_python_blender=python_blender,
-        # use_python_blender=True,
         minimize_blend=minimize_blend,
         draw=draw,
     )

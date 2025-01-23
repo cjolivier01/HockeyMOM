@@ -73,7 +73,7 @@ def create_laplacian_pyramid(
 def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
-    print(f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}")
+    # print(f"gauss_filtered_x: min={torch.min(gauss_filtered_x)}, max={torch.max(gauss_filtered_x)}")
     # Downsample blurred A
     down = downsample(gauss_filtered_x)
     # print(down.shape)
@@ -185,12 +185,10 @@ class LaplacianBlend(torch.nn.Module):
         self.channels: int = channels
         self.sigma: int = sigma
         if seam_mask is not None:
-            # self.register_buffer("seam_mask", to_float(seam_mask))
             self.register_buffer("seam_mask", seam_mask)
         else:
             self.seam_mask = None
         if xor_mask is not None:
-            # self.register_buffer("xor_mask", to_float(xor_mask))
             self.register_buffer("xor_mask", xor_mask)
         else:
             self.xor_mask = None
@@ -204,11 +202,14 @@ class LaplacianBlend(torch.nn.Module):
             mask = mask.unsqueeze(0).unsqueeze(0)
         else:
             assert input_shape is None
-            mask = self.seam_mask.unsqueeze(0).unsqueeze(0)
+            mask = self.seam_mask.unsqueeze(0).unsqueeze(0).clone()
             unique_values = torch.unique(mask)
             assert len(unique_values) == 2
-            left_value = unique_values[0]
-            right_value = unique_values[1]
+            left_value = self.seam_mask[self.seam_mask.shape[0] // 2][0]
+            right_value = self.seam_mask[self.seam_mask.shape[0] // 2][self.seam_mask.shape[1] - 1]
+            # Can we make assumption that they were discovered left-to-right?
+            assert left_value == unique_values[0]
+            assert right_value == unique_values[1]
             mask[mask == left_value] = 1
             mask[mask == right_value] = 0
             mask = mask.to(torch.float)
@@ -302,23 +303,14 @@ class LaplacianBlend(torch.nn.Module):
             F_2 = simple_blend_in_place(L_left, L_right, mask_1d)
             F_2 += upsampled_F1
 
-        # if self.xor_mask is not None:
-        #     l_full, r_full = self.make_full(
-        #         left,
-        #         right,
-        #         level=0,
-        #         level_ainfo_1=level_ainfo_1,
-        #         level_ainfo_2=level_ainfo_2,
-        #         level_canvas_dims=level_canvas_dims,
-        #     )
-        #     show_image("l_full", l_full, wait=False, enable_resizing=0.1)
-        #     show_image("r_full", r_full, wait=False, enable_resizing=0.1)
-        #     F_2[:, :, self.xor_mask == self._left_value] = l_full[
-        #         :, :, self.xor_mask == self._left_value
-        #     ]
-        #     # F_2[:, :, self.xor_mask == self._right_value] = r_full[
-        #     #     :, :, self.xor_mask == self._right_value
-        #     # ]
-        #     show_image("F_2", F_2, wait=False, enable_resizing=0.1)
+        if self.xor_mask is not None and self._left_value != self._right_value:
+            # Fill in any portions not meant to to be blended with the
+            # original data
+            F_2[:, :, self.xor_mask == self._left_value] = left[
+                :, :, self.xor_mask == self._left_value
+            ]
+            F_2[:, :, self.xor_mask == self._right_value] = right[
+                :, :, self.xor_mask == self._right_value
+            ]
 
         return F_2
