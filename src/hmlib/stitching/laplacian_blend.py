@@ -147,6 +147,20 @@ def simple_make_full(
     return full_left, full_right
 
 
+@torch.jit.script
+def simple_blend_in_place(
+    left_small_gaussian_blurred: torch.Tensor,
+    right_small_gaussian_blurred: torch.Tensor,
+    mask_small_gaussian_blurred: torch.Tensor,
+) -> torch.Tensor:
+    mask_left = mask_small_gaussian_blurred
+    mask_right = 1.0 - mask_small_gaussian_blurred
+    left_small_gaussian_blurred *= mask_left
+    right_small_gaussian_blurred *= mask_right
+    left_small_gaussian_blurred += right_small_gaussian_blurred
+    return left_small_gaussian_blurred
+
+
 class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
@@ -268,6 +282,19 @@ class LaplacianBlend(torch.nn.Module):
 
         return full_left, full_right
 
+    # @staticmethod
+    # # @torch.jit.script_method
+    # def blend(
+    #     left_small_gaussian_blurred: torch.Tensor,
+    #     right_small_gaussian_blurred: torch.Tensor,
+    #     mask_small_gaussian_blurred: torch.Tensor,
+    # ) -> torch.Tensor:
+    #     mask_left = mask_small_gaussian_blurred
+    #     mask_right = 1.0 - mask_small_gaussian_blurred
+    #     left_small_gaussian_blurred *= mask_left
+    #     right_small_gaussian_blurred *= mask_right
+    #     return left_small_gaussian_blurred + right_small_gaussian_blurred
+
     # @torch.jit.script_method
     def forward(
         self,
@@ -312,9 +339,9 @@ class LaplacianBlend(torch.nn.Module):
         left_small_gaussian_blurred = left_laplacian[-1]
         right_small_gaussian_blurred = right_laplacian[-1]
 
-        mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
-        mask_left = mask_1d
-        mask_right = 1 - mask_1d
+        # mask_1d = self.mask_small_gaussian_blurred[self.max_levels]
+        # mask_left = mask_1d
+        # mask_right = 1 - mask_1d
 
         assert level_canvas_dims is not None
 
@@ -331,13 +358,19 @@ class LaplacianBlend(torch.nn.Module):
                 level_canvas_dims=level_canvas_dims,
             )
 
-        F_2 = left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
+        # F_2 = left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
         # show_image("F_2", F_2)
+
+        F_2 = simple_blend_in_place(
+            left_small_gaussian_blurred,
+            right_small_gaussian_blurred,
+            self.mask_small_gaussian_blurred[self.max_levels],
+        )
 
         for this_level in reversed(range(self.max_levels)):
             mask_1d = self.mask_small_gaussian_blurred[this_level]
-            mask_left = mask_1d
-            mask_right = 1 - mask_1d
+            # mask_left = mask_1d
+            # mask_right = 1 - mask_1d
 
             F_1 = upsample(F_2, size=mask_1d.shape[-2:])
             upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
@@ -355,14 +388,16 @@ class LaplacianBlend(torch.nn.Module):
                         level_ainfo_2=level_ainfo_2,
                         level_canvas_dims=level_canvas_dims,
                     )
-                    assert L_left.shape[-2:] == mask_left.shape
-                    assert L_right.shape[-2:] == mask_right.shape
+                    assert L_left.shape[-2:] == mask_1d.shape
+                    assert L_right.shape[-2:] == mask_1d.shape
 
-            L_left *= mask_left
-            L_right *= mask_right
-            L_left += L_right
-            L_left += upsampled_F1
-            F_2 = L_left
+            # L_left *= mask_left
+            # L_right *= mask_right
+            # L_left += L_right
+            # L_left += upsampled_F1
+            # F_2 = L_left
+            F_2 = simple_blend_in_place(L_left, L_right, mask_1d)
+            F_2 += upsampled_F1
 
         # if self.xor_mask is not None:
         #     l_full, r_full = self.make_full(
