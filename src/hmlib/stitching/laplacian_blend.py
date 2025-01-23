@@ -277,8 +277,18 @@ class LaplacianBlend(torch.nn.Module):
         level_ainfo_1,
         level_ainfo_2,
         level_canvas_dims,
-        # make_full_fn: callable = None,
     ) -> torch.Tensor:
+        make_full_first: bool = True
+        if make_full_first:
+            left, right = self.make_full(
+                left,
+                right,
+                level=0,
+                level_ainfo_1=level_ainfo_1,
+                level_ainfo_2=level_ainfo_2,
+                level_canvas_dims=level_canvas_dims,
+            )
+
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
 
@@ -303,17 +313,18 @@ class LaplacianBlend(torch.nn.Module):
 
         assert level_canvas_dims is not None
 
-        (
-            left_small_gaussian_blurred,
-            right_small_gaussian_blurred,
-        ) = self.make_full(
-            left_small_gaussian_blurred,
-            right_small_gaussian_blurred,
-            level=self.max_levels,
-            level_ainfo_1=level_ainfo_1,
-            level_ainfo_2=level_ainfo_2,
-            level_canvas_dims=level_canvas_dims,
-        )
+        if not make_full_first:
+            (
+                left_small_gaussian_blurred,
+                right_small_gaussian_blurred,
+            ) = self.make_full(
+                left_small_gaussian_blurred,
+                right_small_gaussian_blurred,
+                level=self.max_levels,
+                level_ainfo_1=level_ainfo_1,
+                level_ainfo_2=level_ainfo_2,
+                level_canvas_dims=level_canvas_dims,
+            )
 
         F_2 = left_small_gaussian_blurred * mask_left + right_small_gaussian_blurred * mask_right
         # show_image("F_2", F_2)
@@ -330,16 +341,17 @@ class LaplacianBlend(torch.nn.Module):
             L_right = right_laplacian[this_level]
 
             if level_canvas_dims is not None:
-                L_left, L_right = self.make_full(
-                    L_left,
-                    L_right,
-                    level=this_level,
-                    level_ainfo_1=level_ainfo_1,
-                    level_ainfo_2=level_ainfo_2,
-                    level_canvas_dims=level_canvas_dims,
-                )
-                assert L_left.shape[-2:] == mask_left.shape
-                assert L_right.shape[-2:] == mask_right.shape
+                if not make_full_first:
+                    L_left, L_right = self.make_full(
+                        L_left,
+                        L_right,
+                        level=this_level,
+                        level_ainfo_1=level_ainfo_1,
+                        level_ainfo_2=level_ainfo_2,
+                        level_canvas_dims=level_canvas_dims,
+                    )
+                    assert L_left.shape[-2:] == mask_left.shape
+                    assert L_right.shape[-2:] == mask_right.shape
 
             L_left *= mask_left
             L_right *= mask_right

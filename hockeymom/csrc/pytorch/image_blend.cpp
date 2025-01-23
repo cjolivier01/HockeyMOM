@@ -561,8 +561,12 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     image_left = std::move(image_1);
     image_right = std::move(image_2);
   }
-  image_left = image_left.to(dtype_, /*non_blocking=*/true);
-  image_right = image_right.to(dtype_, /*non_blocking=*/true);
+  if (image_left.dtype() != dtype_) {
+    image_left = image_left.to(dtype_, /*non_blocking=*/true);
+  }
+  if (image_right.dtype() != dtype_) {
+    image_right = image_right.to(dtype_, /*non_blocking=*/true);
+  }
 
   if (verbose) {
     std::cout << "image_left size=" << image_left.sizes()
