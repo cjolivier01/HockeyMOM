@@ -277,12 +277,13 @@ class LaplacianBlend(torch.nn.Module):
         level_ainfo_2,
         level_canvas_dims,
     ) -> torch.Tensor:
+        assert self._initialized
+
         make_full_first: bool = True
+
         if make_full_first:
-
-            h1, w1, x1, y1 = level_ainfo_1[0]
-            h2, w2, x2, y2 = level_ainfo_2[0]
-
+            _, _, x1, y1 = level_ainfo_1[0]
+            _, _, x2, y2 = level_ainfo_2[0]
             canvas_w = level_canvas_dims[0][1]
             canvas_h = level_canvas_dims[0][0]
 
@@ -296,23 +297,10 @@ class LaplacianBlend(torch.nn.Module):
                 canvas_w=canvas_w,
                 canvas_h=canvas_h,
             )
-
-            # left, right = self.make_full(
-            #     left,
-            #     right,
-            #     level=0,
-            #     level_ainfo_1=level_ainfo_1,
-            #     level_ainfo_2=level_ainfo_2,
-            #     level_canvas_dims=level_canvas_dims,
-            # )
+            assert left.shape == right.shape
 
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
-
-        # assert left.shape == right.shape  # They should be "full" already
-        if not self._initialized:
-            # Let's not do this anymore
-            assert False
 
         left_laplacian = create_laplacian_pyramid(
             x=left, kernel=self.gaussian_kernel, levels=self.max_levels
