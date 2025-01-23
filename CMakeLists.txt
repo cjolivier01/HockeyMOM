@@ -33,6 +33,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(WITH_OPENCV 1)
+
 # set(CMAKE_CXX_STANDARD 14)
 
 # OpenCV config
@@ -142,6 +144,17 @@ include_directories(${AVUTIL_INCLUDE_DIRS})
 include_directories(${SWSCALE_INCLUDE_DIRS})
 
 set(FFMPEG_LIBS ${AVCODEC_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
+
+if (WITH_OPENCV)
+  # cudaimgproc
+  find_package(OpenCV REQUIRED core highgui)
+  set(OpenCV_ENABLE_OPENGL TRUE)  # Print OpenCV version and directories (optional but helpful for debugging)
+  message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+  message(STATUS "OpenCV include dirs: ${OpenCV_INCLUDE_DIRS}")
+  message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
+  add_compile_options(-DWITH_OPENCV=1)
+  include_directories(${OpenCV_INCLUDE_DIRS})
+endif()
 
 # message(FATAL_ERROR " FFMPEG_LIBS=${FFMPEG_LIBS}")
 

@@ -20,6 +20,7 @@ set(
   csrc/pytorch/image_remap.cpp
   csrc/pytorch/image_blend.cpp
   csrc/pytorch/image_stitch.cpp
+  csrc/pytorch/image_utils.cpp
   csrc/pytorch/smart_image_stitch.cpp
 )
 
@@ -36,8 +37,7 @@ else()
   add_compile_options(-DNO_CPP_BLENDING)
 endif()
 
-set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
-
+# set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
 
 file(GLOB_RECURSE BYTETRACK_SOURCES
         csrc/bytetrack/**.cpp
@@ -129,6 +129,11 @@ target_link_libraries(hm PUBLIC png jpeg tiff)
 # target_link_libraries(hm PRIVATE glfw)
 target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
 target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
+
+if (WITH_OPENCV)
+  target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs ${OpenCV_LIBS})
+endif()
+
 #target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs)
 
 set_target_properties(

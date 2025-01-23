@@ -1,4 +1,5 @@
 #include "hockeymom/csrc/pytorch/image_blend.h"
+#include "hockeymom/csrc/pytorch/image_utils.h"
 
 #include <torch/nn/functional.h>
 
@@ -10,33 +11,6 @@ namespace {
 bool verbose = false;
 
 constexpr std::size_t kMinPixelSizeForImage = 16;
-
-std::int64_t image_width(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine width, or not channels-first: ",
-      ndims);
-  return t.size(-1);
-}
-
-std::int64_t image_height(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine height, or not channels-first: ",
-      ndims);
-  return t.size(-2);
-}
-
-std::array<std::int64_t, 2> image_size(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine height, or not channels-first: ",
-      ndims);
-  return std::array<std::int64_t, 2>{t.size(-2), t.size(-1)};
-}
 
 void prettyPrintTensor(const torch::Tensor& tensor) {
   auto sizes = tensor.sizes();
@@ -205,7 +179,6 @@ void ImageBlender::init() {
 void ImageBlender::create_masks() {
   int canvas_h = seam_.size(0);
   int canvas_w = seam_.size(1);
-
   // The canvas width pyramid
   level_canvas_dims_.reserve(levels_);
   level_canvas_dims_.clear();
@@ -655,10 +628,8 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
 
     F_2 = L_c;
     F_2 += upsampled_F1;
-
-    // F_2 = L_c + upsampled_F1;
   }
-
+  show_image("blended output", F_2, /*wait=*/false, /*scale=*/0.1);
   return F_2;
 }
 

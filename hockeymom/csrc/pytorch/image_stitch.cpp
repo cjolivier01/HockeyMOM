@@ -6,28 +6,6 @@
 namespace hm {
 namespace ops {
 
-// StreamTensor::StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor)
-//     : stream_(std::make_unique<c10::cuda::CUDAStream>(std::move(stream))),
-//       tensor_(std::move(tensor)) {}
-
-// StreamTensor::StreamTensor(at::Tensor tensor) : tensor_(std::move(tensor)) {}
-
-// at::Tensor StreamTensor::get() {
-//   if (stream_) {
-//     stream_->synchronize();
-//     stream_.reset();
-//   }
-//   return tensor_;
-// }
-
-// struct HmCudaStreamGuard {
-//   HmCudaStreamGuard(cudaStream_t stream) : stream_(stream) {}
-//   ~HmCudaStreamGuard() {}
-
-//  private:
-//   cudaStream_t stream_;
-// };
-
 ImageStitcher::ImageStitcher(
     std::size_t batch_size,
     std::vector<RemapImageInfo> remap_image_info,
