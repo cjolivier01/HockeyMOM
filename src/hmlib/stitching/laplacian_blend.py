@@ -245,7 +245,7 @@ class LaplacianBlend(torch.nn.Module):
         self.create_masks(input_shape=input_shape, device=device)
         self._initialized = True
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
