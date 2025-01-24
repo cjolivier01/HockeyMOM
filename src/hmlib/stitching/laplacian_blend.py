@@ -169,6 +169,39 @@ def simple_blend_in_place(
     return left_small_gaussian_blurred
 
 
+# def simple_blend_in_place(
+#     left_small_gaussian_blurred: torch.Tensor,  # RGBA
+#     right_small_gaussian_blurred: torch.Tensor,  # RGBA
+#     mask_small_gaussian_blurred: torch.Tensor,
+# ) -> torch.Tensor:
+#     left_alpha = left_small_gaussian_blurred[:, 3:4]
+#     right_alpha = right_small_gaussian_blurred[:, 3:4]
+
+#     left_blank = (left_alpha == 0).squeeze(0).squeeze(0)
+#     right_blank = (right_alpha == 0).squeeze(0).squeeze(0)
+
+#     left_nonblank = (left_alpha != 0).squeeze(0).squeeze(0)
+#     right_nonblank = (right_alpha != 0).squeeze(0).squeeze(0)
+
+#     mask_left = mask_small_gaussian_blurred
+#     mask_right = 1.0 - mask_small_gaussian_blurred
+
+#     assert left_small_gaussian_blurred.shape == right_small_gaussian_blurred.shape
+
+#     left_orig = left_small_gaussian_blurred.clone()
+#     right_orig = right_small_gaussian_blurred.clone()
+
+#     left_small_gaussian_blurred[:, :3, left_nonblank] *= mask_left[left_nonblank]
+#     right_small_gaussian_blurred[:, :3, right_nonblank] *= mask_right[right_nonblank]
+#     left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[
+#         :, :3, right_nonblank
+#     ]
+
+#     # left_small_gaussian_blurred[:, :3, right_blank] = left_orig[:, :, right_blank]
+
+#     return left_small_gaussian_blurred
+
+
 class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
