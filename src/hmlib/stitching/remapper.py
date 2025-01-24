@@ -108,6 +108,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         basename: str = None,
         remap_info: RemapImageInfoEx = None,
         interpolation: str = None,
+        channels: int = 3,
         add_alpha_channel: bool = False,
         use_cpp_remap_op: bool = False,
         debug: bool = False,
@@ -122,6 +123,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._interpolation = interpolation
         self._source_hw = source_hw
         self._add_alpha_channel = add_alpha_channel
+        self._alpha_channel = None
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
@@ -227,6 +229,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self.register_buffer("_unmapped_mask", mask.contiguous())
 
             if self._add_alpha_channel:
+                assert False  # uses too much memory, use _unmapped_mask instead
                 # Set up the alpha channel
                 alpha_channel = torch.empty(
                     size=(batch_size, 1, self._working_h, self._working_w),
@@ -259,7 +262,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized

@@ -155,29 +155,29 @@ def simple_make_full(
     return full_left, full_right
 
 
-def upsample_ignore_alpha(image, size):
-    """
-    Args:
-        image: torch.Tensor of shape (B, C, H, W) or (C, H, W)
-        size: tuple of (H_new, W_new) for target size
-    """
-    if len(image.shape) == 3:
-        image = image.unsqueeze(0)
+# def upsample_ignore_alpha(image, size):
+#     """
+#     Args:
+#         image: torch.Tensor of shape (B, C, H, W) or (C, H, W)
+#         size: tuple of (H_new, W_new) for target size
+#     """
+#     if len(image.shape) == 3:
+#         image = image.unsqueeze(0)
 
-    rgb = image[:, :3]
-    alpha = image[:, 3:4]
-    mask = (alpha > 0).float()
+#     rgb = image[:, :3]
+#     alpha = image[:, 3:4]
+#     mask = (alpha > 0).float()
 
-    rgb_masked = rgb * mask
-    rgb_upsampled = F.interpolate(rgb_masked, size=size, mode="bilinear", align_corners=False)
-    alpha_upsampled = F.interpolate(alpha, size=size, mode="nearest")
-    mask_upsampled = F.interpolate(mask, size=size, mode="bilinear", align_corners=False)
+#     rgb_masked = rgb * mask
+#     rgb_upsampled = F.interpolate(rgb_masked, size=size, mode="bilinear", align_corners=False)
+#     alpha_upsampled = F.interpolate(alpha, size=size, mode="nearest")
+#     mask_upsampled = F.interpolate(mask, size=size, mode="bilinear", align_corners=False)
 
-    mask_upsampled = torch.clamp(mask_upsampled, min=1e-6)
-    rgb_normalized = rgb_upsampled / mask_upsampled
+#     mask_upsampled = torch.clamp(mask_upsampled, min=1e-6)
+#     rgb_normalized = rgb_upsampled / mask_upsampled
 
-    result = torch.cat([rgb_normalized, alpha_upsampled], dim=1)
-    return result.squeeze(0) if len(image.shape) == 3 else result
+#     result = torch.cat([rgb_normalized, alpha_upsampled], dim=1)
+#     return result.squeeze(0) if len(image.shape) == 3 else result
 
 
 @torch.jit.script
@@ -383,8 +383,8 @@ class LaplacianBlend(torch.nn.Module):
         for this_level in reversed(range(self.max_levels)):
             mask_1d = self.mask_small_gaussian_blurred[this_level]
 
-            # F_1 = upsample(F_2, size=mask_1d.shape[-2:])
-            F_1 = upsample_ignore_alpha(F_2, size=mask_1d.shape[-2:])
+            F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+            # F_1 = upsample_ignore_alpha(F_2, size=mask_1d.shape[-2:])
             upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
             L_left = left_laplacian[this_level]
