@@ -40,7 +40,12 @@ def show_image(
     img: Union[str, torch.Tensor],
     wait: bool = True,
     enable_resizing: Union[bool, float, None] = None,
+    scale: Optional[float] = None,
 ):
+    if enable_resizing is None and scale is not None:
+        enable_resizing = scale
+    else:
+        assert scale is None
     if isinstance(img, str):
         img = cv2.imread(img)
     elif isinstance(img, Image):
