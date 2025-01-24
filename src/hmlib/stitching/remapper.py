@@ -16,6 +16,7 @@ import hockeymom.core as core
 from hmlib.log import get_root_logger
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import show_image
 from hmlib.utils.image import (
     make_channels_first,
     make_visible_image,
@@ -106,6 +107,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         remap_info: RemapImageInfoEx = None,
         interpolation: str = None,
         channels: int = 3,
+        add_alpha_channel: bool = True,
         use_cpp_remap_op: bool = False,
         debug: bool = False,
         batch_size: Optional[int] = None,
@@ -118,6 +120,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._basename = basename
         self._interpolation = interpolation
         self._source_hw = source_hw
+        self._add_alpha_channel = add_alpha_channel
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
@@ -217,6 +220,16 @@ class ImageRemapper(torch.jit.ScriptModule):
             self.register_buffer("_row_map", row_map.contiguous())
             self.register_buffer("_mask", mask.contiguous())
 
+            if self._add_alpha_channel:
+                # Set up the alpha channel
+                alpha_channel = torch.empty(
+                    size=(batch_size, 1, self._working_h, self._working_w),
+                    dtype=torch.uint8,
+                )
+                alpha_channel.fill_(255)
+                alpha_channel[:, :, self._mask] = 0
+                self.register_buffer("_alpha_channel", alpha_channel.contiguous())
+
         # Done.
         self._initialized = True
 
@@ -236,8 +249,9 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
+        show_image("mask", self._mask, wait=True)
         assert self._initialized
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
@@ -272,6 +286,10 @@ class ImageRemapper(torch.jit.ScriptModule):
                 )
                 destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
         destination_tensor[:, :, self._mask] = 0
+
+        # Add an alpha channel if necessary
+        if self._add_alpha_channel:
+            destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
 
         # Clip to the original size that was specified
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
