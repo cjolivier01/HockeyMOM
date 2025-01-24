@@ -231,9 +231,9 @@ def make_cv_compatible_tensor(tensor):
     return np.ascontiguousarray(tensor)
 
 
-def get_images_and_positions(dir_name: str, basename: str = "nona") -> List[ImageAndPos]:
-    xpos_1, ypos_1, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0000")
-    xpos_2, ypos_2, _, _ = get_mapping(dir_name=dir_name, basename="mapping_0001")
+def get_images_and_positions(dir_name: str, basename: str = "mapping_") -> List[ImageAndPos]:
+    xpos_1, ypos_1, _, _ = get_mapping(dir_name=dir_name, basename=f"{basename}0000")
+    xpos_2, ypos_2, _, _ = get_mapping(dir_name=dir_name, basename=f"{basename}0001")
 
     images_and_positions = [
         ImageAndPos(
@@ -779,7 +779,7 @@ def create_stitcher(
     minimize_blend: bool = True,
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
-    remapped_basename: str = "nona",
+    remapped_basename: str = "mapping_",
     blend_mode: str = "laplacian",
     interpolation: str = "bilinear",
     levels: int = 6,

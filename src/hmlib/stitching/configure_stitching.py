@@ -183,17 +183,6 @@ def build_stitching_project(
         os.system(" ".join(cmd))
 
         if test_blend or True:
-            cmd = [
-                "nona",
-                "-m",
-                "TIFF_m",
-                "-z",
-                "NONE",
-                "--bigtiff",
-                "-o",
-                "nona",
-                autooptimiser_out,
-            ]
             os.system(" ".join(cmd))
             if os.path.exists(MULTIBLEND_BIN):
                 cmd = [
@@ -204,7 +193,7 @@ def build_stitching_project(
                     # os.path.join(dir_name, "xor_file.png"),
                     "-o",
                     os.path.join(dir_name, "panorama.tif"),
-                    os.path.join(dir_name, "nona*.tif"),
+                    os.path.join(dir_name, "mapping_????.tif"),
                 ]
             else:
                 print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
