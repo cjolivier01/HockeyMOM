@@ -108,8 +108,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         basename: str = None,
         remap_info: RemapImageInfoEx = None,
         interpolation: str = None,
-        channels: int = 3,
-        add_alpha_channel: bool = True,
+        add_alpha_channel: bool = False,
         use_cpp_remap_op: bool = False,
         debug: bool = False,
         batch_size: Optional[int] = None,
@@ -170,7 +169,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                 col_map=col_map,
                 row_map=row_map,
                 dtype=torch.float32,
-                add_alpha_channel=False,
+                add_alpha_channel=self._add_alpha_channel,
                 pad_value=0,
                 interpolation=self._interpolation,
             )

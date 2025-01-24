@@ -570,7 +570,7 @@ class StitchDataset:
                     python_blender=self._python_blender,
                     minimize_blend=self._minimize_blend,
                     blend_mode=self._blend_mode,
-                    add_alpha_channel=True,
+                    add_alpha_channel=False,
                 )
             else:
                 from hmlib.stitching.blender import create_stitcher
@@ -586,7 +586,7 @@ class StitchDataset:
                     device=self._remapping_device,
                     dtype=self._dtype,
                     blend_mode=self._blend_mode,
-                    add_alpha_channel=True,
+                    add_alpha_channel=False,
                 )
                 self._stitcher.to(self._remapping_device)
 

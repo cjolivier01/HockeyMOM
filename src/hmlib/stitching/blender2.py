@@ -111,7 +111,7 @@ class PtImageBlender(torch.nn.Module):
         laplacian_blend: False,
         max_levels: int = 6,
         dtype: torch.dtype = torch.float,
-        add_alpha_channel: bool = True,
+        add_alpha_channel: bool = False,
     ) -> None:
         super().__init__()
         self._image_positions: List[int] = []
@@ -430,7 +430,7 @@ class SmartRemapperBlender(torch.nn.Module):
         seam_tensor: torch.Tensor,
         xor_mask_tensor: torch.Tensor | None,
         device: torch.device,
-        add_alpha_channel: bool = True,
+        add_alpha_channel: bool = False,
     ) -> None:
         super().__init__()
         self._remapper_1 = remapper_1
@@ -865,7 +865,7 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
-    add_alpha_channel: bool = True,
+    add_alpha_channel: bool = False,
     overlap_pad: int = 120,
     draw: bool = False,
 ) -> None:
