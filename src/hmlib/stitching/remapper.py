@@ -249,9 +249,9 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
-        show_image("mask", self._mask, wait=True)
+        # show_image("mask", self._mask, wait=True)
         assert self._initialized
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
