@@ -303,14 +303,17 @@ class LaplacianBlend(torch.nn.Module):
             F_2 = simple_blend_in_place(L_left, L_right, mask_1d)
             F_2 += upsampled_F1
 
-        if self.xor_mask is not None and self._left_value != self._right_value:
+        if False and (self.xor_mask is not None and self._left_value != self._right_value):
             # Fill in any portions not meant to to be blended with the
             # original data
+            # Not really needed so far
             F_2[:, :, self.xor_mask == self._left_value] = left[
                 :, :, self.xor_mask == self._left_value
             ]
+            # F_2[:, :, self.xor_mask == self._left_value] = 64
             F_2[:, :, self.xor_mask == self._right_value] = right[
                 :, :, self.xor_mask == self._right_value
             ]
+            # F_2[:, :, self.xor_mask == self._right_value] = 138
 
         return F_2
