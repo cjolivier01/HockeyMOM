@@ -314,7 +314,7 @@ RUN \
 
 USER root
 RUN pip install dist/*.whl
-RUN cp dis/*.whl /wheels/
+RUN cp dist/*.whl /wheels/
 
 # ####################################################################
 # #
@@ -337,7 +337,7 @@ RUN \
 
 USER root
 RUN pip install dist/*.whl
-RUN cp dis/*.whl /wheels/
+RUN cp dist/*.whl /wheels/
 
 ####################################################################
 #
@@ -360,7 +360,7 @@ RUN \
 
 USER root
 RUN pip install dist/*.whl
-RUN cp dis/*.whl /wheels/
+RUN cp dist/*.whl /wheels/
 
 ####################################################################
 #
