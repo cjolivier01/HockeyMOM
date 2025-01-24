@@ -779,6 +779,7 @@ def create_stitcher(
     dtype: torch.dtype,
     left_image_size_wh: Tuple[int, int],
     right_image_size_wh: Tuple[int, int],
+    add_alpha_channel: bool,
     python_blender: bool = True,
     minimize_blend: bool = True,
     mapping_basename_1: str = "mapping_0000",
@@ -852,6 +853,7 @@ def blend_video(
     blend_mode: str = "laplacian",
     queue_size: int = 1,
     minimize_blend: bool = True,
+    add_alpha_channel: bool = True,
     overlap_pad: int = 120,
     draw: bool = False,
 ) -> None:
@@ -873,6 +875,7 @@ def blend_video(
         dtype=dtype,
         blend_mode=blend_mode,
         draw=draw,
+        add_alpha_channel=add_alpha_channel,
     )
 
     if lfo is None or rfo is None:
