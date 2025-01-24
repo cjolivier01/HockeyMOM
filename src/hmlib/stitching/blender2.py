@@ -698,7 +698,6 @@ class ImageStitcher(torch.nn.Module):
             use_cpp_remap_op=False,
             debug=False,
         )
-        # self._remapper_1.init(batch_size=batch_size)
 
         self._remapper_2 = ImageRemapper(
             remap_info=remap_image_info[1],
@@ -708,7 +707,6 @@ class ImageStitcher(torch.nn.Module):
             use_cpp_remap_op=False,
             debug=False,
         )
-        # self._remapper_2.init(batch_size=batch_size)
 
         self._smart_remapper_blender = SmartRemapperBlender(
             remapper_1=self._remapper_1,
