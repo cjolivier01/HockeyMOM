@@ -155,11 +155,37 @@ def simple_make_full(
     return full_left, full_right
 
 
+def upsample_ignore_alpha(image, size):
+    """
+    Args:
+        image: torch.Tensor of shape (B, C, H, W) or (C, H, W)
+        size: tuple of (H_new, W_new) for target size
+    """
+    if len(image.shape) == 3:
+        image = image.unsqueeze(0)
+
+    rgb = image[:, :3]
+    alpha = image[:, 3:4]
+    mask = (alpha > 0).float()
+
+    rgb_masked = rgb * mask
+    rgb_upsampled = F.interpolate(rgb_masked, size=size, mode="bilinear", align_corners=False)
+    alpha_upsampled = F.interpolate(alpha, size=size, mode="nearest")
+    mask_upsampled = F.interpolate(mask, size=size, mode="bilinear", align_corners=False)
+
+    mask_upsampled = torch.clamp(mask_upsampled, min=1e-6)
+    rgb_normalized = rgb_upsampled / mask_upsampled
+
+    result = torch.cat([rgb_normalized, alpha_upsampled], dim=1)
+    return result.squeeze(0) if len(image.shape) == 3 else result
+
+
 @torch.jit.script
 def simple_blend_in_place(
     left_small_gaussian_blurred: torch.Tensor,
     right_small_gaussian_blurred: torch.Tensor,
     mask_small_gaussian_blurred: torch.Tensor,
+    level: int,
 ) -> torch.Tensor:
     mask_left = mask_small_gaussian_blurred
     mask_right = 1.0 - mask_small_gaussian_blurred
@@ -169,37 +195,51 @@ def simple_blend_in_place(
     return left_small_gaussian_blurred
 
 
-# def simple_blend_in_place(
-#     left_small_gaussian_blurred: torch.Tensor,  # RGBA
-#     right_small_gaussian_blurred: torch.Tensor,  # RGBA
-#     mask_small_gaussian_blurred: torch.Tensor,
-# ) -> torch.Tensor:
-#     left_alpha = left_small_gaussian_blurred[:, 3:4]
-#     right_alpha = right_small_gaussian_blurred[:, 3:4]
+def _simple_blend_in_place(
+    left_small_gaussian_blurred: torch.Tensor,  # RGBA
+    right_small_gaussian_blurred: torch.Tensor,  # RGBA
+    mask_small_gaussian_blurred: torch.Tensor,
+    level: int,
+) -> torch.Tensor:
+    left_alpha = left_small_gaussian_blurred[:, 3:4]
+    right_alpha = right_small_gaussian_blurred[:, 3:4]
 
-#     left_blank = (left_alpha == 0).squeeze(0).squeeze(0)
-#     right_blank = (right_alpha == 0).squeeze(0).squeeze(0)
+    left_blank = (left_alpha == 0).squeeze(0).squeeze(0)
+    right_blank = (right_alpha == 0).squeeze(0).squeeze(0)
 
-#     left_nonblank = (left_alpha != 0).squeeze(0).squeeze(0)
-#     right_nonblank = (right_alpha != 0).squeeze(0).squeeze(0)
+    left_nonblank = (left_alpha != 0).squeeze(0).squeeze(0)
+    right_nonblank = (right_alpha != 0).squeeze(0).squeeze(0)
 
-#     mask_left = mask_small_gaussian_blurred
-#     mask_right = 1.0 - mask_small_gaussian_blurred
+    mask_left = mask_small_gaussian_blurred
+    mask_right = 1.0 - mask_small_gaussian_blurred
 
-#     assert left_small_gaussian_blurred.shape == right_small_gaussian_blurred.shape
+    assert left_small_gaussian_blurred.shape == right_small_gaussian_blurred.shape
 
-#     left_orig = left_small_gaussian_blurred.clone()
-#     right_orig = right_small_gaussian_blurred.clone()
+    left_orig = left_small_gaussian_blurred.clone()
+    right_orig = right_small_gaussian_blurred.clone()
 
-#     left_small_gaussian_blurred[:, :3, left_nonblank] *= mask_left[left_nonblank]
-#     right_small_gaussian_blurred[:, :3, right_nonblank] *= mask_right[right_nonblank]
-#     left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[
-#         :, :3, right_nonblank
-#     ]
+    # if level == 0:
+    #     show_image(
+    #         "left_" + str(level) + str(left_small_gaussian_blurred.shape),
+    #         left_small_gaussian_blurred,
+    #         wait=False,
+    #     )
 
-#     # left_small_gaussian_blurred[:, :3, right_blank] = left_orig[:, :, right_blank]
+    left_small_gaussian_blurred[:, :3, left_nonblank] *= mask_left[left_nonblank]
+    right_small_gaussian_blurred[:, :3, right_nonblank] *= mask_right[right_nonblank]
+    left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[
+        :, :3, right_nonblank
+    ]
 
-#     return left_small_gaussian_blurred
+    # left_small_gaussian_blurred[:, :3, right_blank] = left_orig[:, :, right_blank]
+
+    return left_small_gaussian_blurred
+
+
+def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
+    assert img.ndim == 4
+    mask = (img[:, 3:4] == 0).squeeze(0).squeeze(0)
+    return mask
 
 
 class LaplacianBlend(torch.nn.Module):
@@ -305,6 +345,19 @@ class LaplacianBlend(torch.nn.Module):
         )
         assert left.shape == right.shape
 
+        # rblank = get_alpha_mask(right)
+        # lblank = get_alpha_mask(left)
+
+        # both = torch.logical_and(rblank, lblank)
+        # show_image("rblank", rblank, wait=False)
+        # show_image("both", both, wait=False)
+
+        # right[:, :, rblank] = left[:, :, rblank]
+        # left[:, :, lblank] = right[:, :, lblank]
+
+        # show_image("right", right, wait=False, scale=0.25)
+        # show_image("left", left, wait=False, scale=0.25)
+
         left = to_float(left, scale_variance=False)
         right = to_float(right, scale_variance=False)
 
@@ -322,24 +375,27 @@ class LaplacianBlend(torch.nn.Module):
             left_small_gaussian_blurred,
             right_small_gaussian_blurred,
             self.mask_small_gaussian_blurred[self.max_levels],
+            level=self.max_levels,
         )
 
         for this_level in reversed(range(self.max_levels)):
             mask_1d = self.mask_small_gaussian_blurred[this_level]
 
-            F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+            # F_1 = upsample(F_2, size=mask_1d.shape[-2:])
+            F_1 = upsample_ignore_alpha(F_2, size=mask_1d.shape[-2:])
             upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
             L_left = left_laplacian[this_level]
             L_right = right_laplacian[this_level]
 
-            F_2 = simple_blend_in_place(L_left, L_right, mask_1d)
+            F_2 = simple_blend_in_place(L_left, L_right, mask_1d, level=this_level)
             F_2 += upsampled_F1
+            # show_image(str(this_level), F_2.clone(), wait=False)
 
         # show_image("left", left, wait=False, scale=0.5)
         # show_image("right", right, wait=False, scale=0.5)
 
-        if True and (self.xor_mask is not None and self._left_value != self._right_value):
+        if False and (self.xor_mask is not None and self._left_value != self._right_value):
             # Fill in any portions not meant to to be blended with the
             # original data
             # Not really needed so far
@@ -351,6 +407,7 @@ class LaplacianBlend(torch.nn.Module):
                 :, :, self.xor_mask == self._right_value
             ]
             F_2[:, :, self.xor_mask == self._right_value] = 138
-        # show_image("F_2", F_2, wait=False, scale=0.5)
+        # F_2[:, :, both] = 128
+        show_image("F_2", F_2, wait=False, scale=0.5)
 
         return F_2
