@@ -360,9 +360,6 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         assert self._initialized
 
-        # right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        # left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
-
         left, lblank, right, rblank = simple_make_full(
             img_1=left,
             mask_1=alpha_mask_left,
@@ -379,6 +376,9 @@ class LaplacianBlend(torch.nn.Module):
 
         # rblank = get_alpha_mask(right)
         # lblank = get_alpha_mask(left)
+
+        right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
+        left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
         # both = torch.logical_and(rblank, lblank)
         # show_image("rblank", rblank, wait=False)
