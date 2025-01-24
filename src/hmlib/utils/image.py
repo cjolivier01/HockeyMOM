@@ -695,6 +695,8 @@ def make_showable_type(
             if scale_elements and scale_elements != 1:
                 img = img * scale_elements
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8, non_blocking=False)
+        elif img.dtype == torch.bool:
+            img = img.to(torch.uint8) * 255
         img = np.ascontiguousarray(img.cpu().numpy())
     return img
 
