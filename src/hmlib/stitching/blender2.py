@@ -112,6 +112,7 @@ class PtImageBlender(torch.nn.Module):
         laplacian_blend: False,
         max_levels: int = 6,
         dtype: torch.dtype = torch.float,
+        add_alpha_channel: bool = True,
     ) -> None:
         super().__init__()
         self._image_positions: List[int] = []
@@ -124,7 +125,7 @@ class PtImageBlender(torch.nn.Module):
         if laplacian_blend:
             self._laplacian_blend: bool = LaplacianBlend(
                 max_levels=self.max_levels,
-                channels=3,
+                channels=3 if not add_alpha_channel else 4,
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
             )
@@ -424,6 +425,7 @@ class SmartRemapperBlender(torch.nn.Module):
         seam_tensor: torch.Tensor,
         xor_mask_tensor: torch.Tensor | None,
         device: torch.device,
+        add_alpha_channel: bool = True,
     ) -> None:
         super().__init__()
         self._remapper_1 = remapper_1
@@ -438,6 +440,7 @@ class SmartRemapperBlender(torch.nn.Module):
         self._dtype = dtype
         self._overlap_pad = overlap_pad
         self._draw = draw
+        self._add_alpha_channel = add_alpha_channel
         self._minimize_blend = minimize_blend
         self._blend_levels = blend_levels
         self._padded_blended_tlbr = None
@@ -500,6 +503,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
                 lazy_init=True,
                 interpolation="bilinear",
+                add_alpha_channel=self._add_alpha_channel,
             )
             self._blender.to(self._device)
         else:
