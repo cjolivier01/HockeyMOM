@@ -32,7 +32,7 @@ autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
 
 # Remap the images
 #nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
-nona --bigtiff -m TIFF_m -z NONE --bigtiff -o nona autooptimiser_out.pto
+# nona --bigtiff -m TIFF_m -z NONE -o nona autooptimiser_out.pto
 
 #nona -m TIFF_m -o nona my_project.pto
 
@@ -41,7 +41,7 @@ nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 
 # Blend the images to create the panorama
 #enblend -o panorama.tif nona*.tif
-$HOME/src/multiblend/src/multiblend -o panorama.tif nona*.tif
+$HOME/src/multiblend/src/multiblend -o panorama.tif mapping_????.tif
 
 #
 # mapping files

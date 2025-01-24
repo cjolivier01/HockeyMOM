@@ -109,7 +109,11 @@ def build_stitching_project(
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
     assert autooptimiser_out != hm_project
-    if skip_if_exists and (os.path.exists(autooptimiser_out) or os.path.exists(project_file_path)):
+    if skip_if_exists and (
+        os.path.exists(project_file_path)
+        and os.path.exists(autooptimiser_out)
+        and not is_older_than(project_file_path, autooptimiser_out)
+    ):
         print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
         return True
     assert len(image_files) == 2
@@ -118,6 +122,7 @@ def build_stitching_project(
 
     curr_dir = os.getcwd()
     try:
+        use_hugin = False
         if not os.path.exists(hm_project) or force:
             os.chdir(dir_name)
             cmd = [
@@ -133,7 +138,8 @@ def build_stitching_project(
             ]
             cmd_str = " ".join(cmd)
             os.system(cmd_str)
-
+        else:
+            use_hugin = True
         if True:
             configure_control_points(
                 output_directory=str(dir_name),
@@ -142,7 +148,7 @@ def build_stitching_project(
                 image1=right_image_file,
                 max_control_points=max_control_points,
                 force=True,
-                use_hugin=False,
+                use_hugin=use_hugin,
             )
         else:
             cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]
@@ -262,8 +268,14 @@ def configure_video_stitching(
             )
 
     # PTO Project File
-    pto_project_file = os.path.join(dir_name, project_file_name)
-    if force or not os.path.exists(pto_project_file):
+    pto_project_file: str = os.path.join(dir_name, project_file_name)
+    autooptimiser_out: str = os.path.join(dir_name, "autooptimiser_out.pto")
+    if (
+        force
+        or not os.path.exists(pto_project_file)
+        or not os.path.exists(autooptimiser_out)
+        or (os.path.exists(pto_project_file) and is_older_than(pto_project_file, autooptimiser_out))
+    ):
         left_image_file, right_image_file = extract_frames(
             video_left,
             base_frame_offset + left_frame_offset,
