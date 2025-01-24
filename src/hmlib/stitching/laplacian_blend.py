@@ -323,9 +323,11 @@ class LaplacianBlend(torch.nn.Module):
     def forward(
         self,
         left: torch.Tensor,
+        alpha_mask_left: torch.Tensor,
         x1: int,
         y1: int,
         right: torch.Tensor,
+        alpha_mask_right: torch.Tensor,
         x2: int,
         y2: int,
         canvas_w: int,

@@ -3,13 +3,12 @@ Experiments in stitching
 """
 
 import argparse
-import copy
 import datetime
 import logging
 import os
 import traceback
 from dataclasses import dataclass
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -156,7 +155,9 @@ class PtImageBlender(torch.nn.Module):
     def forward(
         self,
         image_1: torch.Tensor,
+        alpha_mask_1: torch.Tensor,
         image_2: torch.Tensor,
+        alpha_mask_2: torch.Tensor,
     ) -> torch.Tensor:
         batch_size = image_1.shape[0]
         channels = image_1.shape[1]
@@ -189,9 +190,11 @@ class PtImageBlender(torch.nn.Module):
         if self._laplacian_blend is not None:
             canvas = self._laplacian_blend.forward(
                 left=image_1,
+                alpha_mask_left=alpha_mask_1,
                 x1=x1,
                 y1=y1,
                 right=image_2,
+                alpha_mask_right=alpha_mask_2,
                 x2=x2,
                 y2=y2,
                 canvas_h=canvas_h,
@@ -583,6 +586,9 @@ class SmartRemapperBlender(torch.nn.Module):
         # show_image("xor", self._xor_mask_tensor, wait=False, enable_resizing=0.1)
         # print(torch.unique(self._xor_mask_tensor))
 
+        alpha_mask_1 = self._remapper_1.unmapped_mask
+        alpha_mask_2 = self._remapper_2.unmapped_mask
+
         if self._minimize_blend:
             assert image_width(remapped_image_1) == self._remapper_1.width  # sanity
             canvas = (
@@ -600,16 +606,20 @@ class SmartRemapperBlender(torch.nn.Module):
             )
             partial_1 = remapped_image_1[:, :, :, : self._x2 + self._overlap_pad]
             partial_2 = remapped_image_2[:, :, :, self._overlapping_width - self._overlap_pad :]
+
             remapped_image_1 = remapped_image_1[
                 :, :, :, self._x2 - self._overlap_pad : self._remapper_1.width
             ]
+            alpha_mask_1 = alpha_mask_1[:, self._x2 - self._overlap_pad : self._remapper_1.width]
             remapped_image_2 = remapped_image_2[
                 :, :, :, : self._overlapping_width + self._overlap_pad
             ]
-
+            alpha_mask_2 = alpha_mask_1[:, : self._overlapping_width + self._overlap_pad]
         fwd_args = dict(
             image_1=remapped_image_1.to(self._dtype, non_blocking=True),
+            alpha_mask_1=alpha_mask_1,
             image_2=remapped_image_2.to(self._dtype, non_blocking=True),
+            alpha_mask_2=alpha_mask_2,
         )
         if not self._use_python_blender:
             fwd_args.update(
