@@ -44,11 +44,29 @@ def _get_dir_name(path):
         return path
     return Path(path).parent
 
+_VERBOSE = True
+
+
+def INFO(*args, **kwargs):
+    if not _VERBOSE:
+        return
+    print(*args, **kwargs)
+
+
+def safe_put_queue(queue, object):
+    try:
+        queue.put(object)
+    except BrokenPipeError:
+        # Ignore broken pipe error
+        return
+    return
+
 
 _USE_NEW_STITCHER: bool = True
 
-from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
+# from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
 
+_LARGE_NUMBER_OF_FRAMES = 1e128
 
 def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):

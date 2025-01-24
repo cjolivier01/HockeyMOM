@@ -36,6 +36,15 @@ def get_tiff_tag_value(tiff_tag):
     return float(numerator) / denominator
 
 
+def is_older_than(file1: str, file2: str):
+    try:
+        mtime1 = os.path.getmtime(file1)
+        mtime2 = os.path.getmtime(file2)
+        return mtime2 < mtime1
+    except OSError:
+        return None
+
+
 def get_image_geo_position(tiff_image_file: str):
     xpos, ypos = 0, 0
     with tifffile.TiffFile(tiff_image_file) as tif:
