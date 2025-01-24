@@ -121,10 +121,10 @@ def build_stitching_project(
     right_image_file = image_files[1]
 
     curr_dir = os.getcwd()
+    os.chdir(dir_name)
     try:
         use_hugin = False
         if not os.path.exists(hm_project) or force:
-            os.chdir(dir_name)
             cmd = [
                 "pto_gen",
                 "-p",
@@ -183,7 +183,6 @@ def build_stitching_project(
         os.system(" ".join(cmd))
 
         if test_blend or True:
-            os.system(" ".join(cmd))
             if os.path.exists(MULTIBLEND_BIN):
                 cmd = [
                     MULTIBLEND_BIN,

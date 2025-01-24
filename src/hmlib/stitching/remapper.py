@@ -18,6 +18,8 @@ from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.image import (
+    image_height,
+    image_width,
     make_channels_first,
     make_visible_image,
     pad_tensor_to_size_batched,
@@ -187,6 +189,8 @@ class ImageRemapper(torch.jit.ScriptModule):
                 self._working_h,
                 self.UNMAPPED_PIXEL_VALUE,
             ).squeeze(0)
+            assert image_width(col_map) == self._working_w
+            assert image_height(col_map) == self._working_h
             row_map = pad_tensor_to_size_batched(
                 row_map.unsqueeze(0),
                 self._working_w,
@@ -197,6 +201,9 @@ class ImageRemapper(torch.jit.ScriptModule):
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,
             )
+
+            assert image_width(col_map) == image_width(row_map)
+            assert image_width(col_map) == image_width(mask)
 
             # The 65536 will result in an invalid index, so set these to 0,0
             # and we'll get rid of them later with the mask after the image is remapped

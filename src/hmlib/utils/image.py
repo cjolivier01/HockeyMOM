@@ -653,7 +653,7 @@ def pad_tensor_to_size(tensor, target_width, target_height, pad_value):
         pad_width = target_width - tensor.size(2)
     pad_height = max(0, pad_height)
     pad_width = max(0, pad_width)
-    if pad_height == 0 and pad_height == 0:
+    if pad_height == 0 and pad_width == 0:
         return tensor
     padding = [0, pad_width, 0, pad_height]
     padded_tensor = TF.pad(tensor, padding, "constant", pad_value)
@@ -667,7 +667,7 @@ def pad_tensor_to_size_batched(
     pad_width = target_width - jittable_image_width(tensor)
     pad_height = max(0, pad_height)
     pad_width = max(0, pad_width)
-    if pad_height == 0 and pad_height == 0:
+    if pad_height == 0 and pad_width == 0:
         return tensor
     padding = [0, pad_width, 0, pad_height]
     if pad_value is None:

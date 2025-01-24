@@ -17,30 +17,12 @@ PROJECT_FILE="hm_project.pto"
 
 # auto-level, auto-size
 autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
-#autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
 
-# autooptimiser -s -m -n -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-
-# no auto size
-# autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-# no optimize
-# cp "${PROJECT_FILE}" autooptimiser_out.pto
-
-#autooptimiser -a -m -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-# Remap the images
-#nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
-# nona --bigtiff -m TIFF_m -z NONE -o nona autooptimiser_out.pto
-
-#nona -m TIFF_m -o nona my_project.pto
-
-#echo "Making mapping files..."
+echo "Making mapping files..."
 nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 
 # Blend the images to create the panorama
-#enblend -o panorama.tif nona*.tif
+#enblend -o panorama.tif mapping_????.tif
 $HOME/src/multiblend/src/multiblend -o panorama.tif mapping_????.tif
 
 #
