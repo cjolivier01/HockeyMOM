@@ -218,7 +218,7 @@ class ImageRemapper(torch.jit.ScriptModule):
 
             self.register_buffer("_col_map", col_map.contiguous())
             self.register_buffer("_row_map", row_map.contiguous())
-            self.register_buffer("_mask", mask.contiguous())
+            self.register_buffer("_unmapped_mask", mask.contiguous())
 
             if self._add_alpha_channel:
                 # Set up the alpha channel
@@ -227,7 +227,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                     dtype=torch.uint8,
                 )
                 alpha_channel.fill_(255)
-                alpha_channel[:, :, self._mask] = 0
+                alpha_channel[:, :, self._unmapped_mask] = 0
                 self.register_buffer("_alpha_channel", alpha_channel.contiguous())
 
         # Done.
@@ -242,6 +242,10 @@ class ImageRemapper(torch.jit.ScriptModule):
     def height(self):
         return self._dest_h
 
+    @property
+    def unmapped_mask(self) -> torch.Tensor:
+        return self._unmapped_mask
+
     def to(self, device: torch.device, **kwargs):
         dev = device
         if self._use_cpp_remap_op:
@@ -251,7 +255,7 @@ class ImageRemapper(torch.jit.ScriptModule):
 
     @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
-        # show_image("mask", self._mask, wait=True)
+        # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
         # make sure channel is where we expect it to be
         assert source_image.shape[1] in [3, 4]
@@ -285,7 +289,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                     align_corners=False,
                 )
                 destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
-        destination_tensor[:, :, self._mask] = 0
+        destination_tensor[:, :, self._unmapped_mask] = 0
 
         # Add an alpha channel if necessary
         if self._add_alpha_channel:

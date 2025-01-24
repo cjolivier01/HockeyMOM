@@ -143,7 +143,9 @@ class PtImageBlender(torch.nn.Module):
 
     def init(self):
         # Check some sanity
-        print(f"Final stitched image size: {self._seam_mask.shape[1]} x {self._seam_mask.shape[0]}")
+        print(
+            f"Final stitched image size: {image_width(self._seam_mask)} x {image_height(self._seam_mask)}"
+        )
         self._unique_values = torch.unique(self._seam_mask)
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
