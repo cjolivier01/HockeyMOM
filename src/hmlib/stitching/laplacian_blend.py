@@ -381,6 +381,10 @@ class LaplacianBlend(torch.nn.Module):
         assert alpha_mask_left.shape == alpha_mask_right.shape
         assert left.shape[-2:] == alpha_mask_left.shape
 
+        # In image portions where we have no mapped pixels,
+        # replace with whatever is on the opposing image
+        # This keeps it from blending against "black"
+        # TODO: How to simply not blend to where there's no pixels?
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
