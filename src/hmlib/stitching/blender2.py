@@ -617,17 +617,23 @@ class SmartRemapperBlender(torch.nn.Module):
             alpha_mask_2 = alpha_mask_1[:, : self._overlapping_width + self._overlap_pad]
         fwd_args = dict(
             image_1=remapped_image_1.to(self._dtype, non_blocking=True),
-            alpha_mask_1=alpha_mask_1,
             image_2=remapped_image_2.to(self._dtype, non_blocking=True),
-            alpha_mask_2=alpha_mask_2,
         )
-        if not self._use_python_blender:
+        if self._use_python_blender:
+            fwd_args.update(
+                dict(
+                    alpha_mask_1=alpha_mask_1,
+                    alpha_mask_2=alpha_mask_2,
+                )
+            )
+        else:
             fwd_args.update(
                 dict(
                     xy_pos_1=[self._remapper_1.xpos, self._remapper_1.ypos],
                     xy_pos_2=[self._remapper_2.xpos, self._remapper_2.ypos],
                 )
             )
+
         blended_img = self._blender.forward(**fwd_args)
 
         if self._minimize_blend:
