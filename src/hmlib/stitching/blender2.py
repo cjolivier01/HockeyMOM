@@ -508,7 +508,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
                 lazy_init=True,
                 interpolation="bilinear",
-                add_alpha_channel=self._add_alpha_channel,
+                # add_alpha_channel=self._add_alpha_channel,
             )
             self._blender.to(self._device)
         else:

@@ -377,8 +377,8 @@ class LaplacianBlend(torch.nn.Module):
         # rblank = get_alpha_mask(right)
         # lblank = get_alpha_mask(left)
 
-        right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
+        # right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
+        # left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
         # both = torch.logical_and(rblank, lblank)
         # show_image("rblank", rblank, wait=False)
@@ -437,6 +437,6 @@ class LaplacianBlend(torch.nn.Module):
             ]
             F_2[:, :, self.xor_mask == self._right_value] = 138
         # F_2[:, :, both] = 128
-        show_image("F_2", F_2, wait=False, scale=0.2)
+        # show_image("F_2", F_2, wait=False, scale=0.2)
 
         return F_2
