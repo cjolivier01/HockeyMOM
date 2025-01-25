@@ -607,14 +607,19 @@ class SmartRemapperBlender(torch.nn.Module):
             partial_1 = remapped_image_1[:, :, :, : self._x2 + self._overlap_pad]
             partial_2 = remapped_image_2[:, :, :, self._overlapping_width - self._overlap_pad :]
 
+            assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
             remapped_image_1 = remapped_image_1[
                 :, :, :, self._x2 - self._overlap_pad : self._remapper_1.width
             ]
             alpha_mask_1 = alpha_mask_1[:, self._x2 - self._overlap_pad : self._remapper_1.width]
+            assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
+
+            assert remapped_image_2.shape[-2:] == alpha_mask_2.shape
             remapped_image_2 = remapped_image_2[
                 :, :, :, : self._overlapping_width + self._overlap_pad
             ]
-            alpha_mask_2 = alpha_mask_1[:, : self._overlapping_width + self._overlap_pad]
+            alpha_mask_2 = alpha_mask_2[:, : self._overlapping_width + self._overlap_pad]
+            assert remapped_image_2.shape[-2:] == alpha_mask_2.shape
         fwd_args = dict(
             image_1=remapped_image_1.to(self._dtype, non_blocking=True),
             image_2=remapped_image_2.to(self._dtype, non_blocking=True),

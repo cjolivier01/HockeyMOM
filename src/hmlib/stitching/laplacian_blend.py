@@ -92,7 +92,7 @@ def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
     return img
 
 
-# @torch.jit.script
+@torch.jit.script
 def simple_make_full(
     img_1: torch.Tensor,
     mask_1: Optional[torch.Tensor],
@@ -105,7 +105,7 @@ def simple_make_full(
     canvas_w: int,
     canvas_h: int,
     adjust_origin: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
 
     h1 = img_1.shape[2]
     w1 = img_1.shape[3]
@@ -168,7 +168,7 @@ def simple_make_full(
 
     if mask_2 is not None:
         mask_2 = torch.nn.functional.pad(
-            mask_1,
+            mask_2,
             [
                 x2,
                 canvas_w - x2 - w2,
@@ -362,8 +362,8 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         assert self._initialized
 
-        assert left.shape == alpha_mask_left.shape
-        assert right.shape == alpha_mask_right.shape
+        assert left.shape[-2:] == alpha_mask_left.shape
+        assert right.shape[-2:] == alpha_mask_right.shape
 
         left, lblank, right, rblank = simple_make_full(
             img_1=left,
@@ -379,7 +379,7 @@ class LaplacianBlend(torch.nn.Module):
         )
         assert left.shape == right.shape
         assert lblank.shape == rblank.shape
-        assert left.shape == lblank.shape
+        assert left.shape[-2:] == lblank.shape
 
         # rblank = get_alpha_mask(right)
         # lblank = get_alpha_mask(left)
