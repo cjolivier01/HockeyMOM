@@ -365,7 +365,7 @@ class LaplacianBlend(torch.nn.Module):
         assert left.shape[-2:] == alpha_mask_left.shape
         assert right.shape[-2:] == alpha_mask_right.shape
 
-        left, lblank, right, rblank = simple_make_full(
+        left, alpha_mask_left, right, alpha_mask_right = simple_make_full(
             img_1=left,
             mask_1=alpha_mask_left,
             x1=x1,
@@ -378,14 +378,11 @@ class LaplacianBlend(torch.nn.Module):
             canvas_h=canvas_h,
         )
         assert left.shape == right.shape
-        assert lblank.shape == rblank.shape
-        assert left.shape[-2:] == lblank.shape
+        assert alpha_mask_left.shape == alpha_mask_right.shape
+        assert left.shape[-2:] == alpha_mask_left.shape
 
-        # rblank = get_alpha_mask(right)
-        # lblank = get_alpha_mask(left)
-
-        # right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        # left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
+        right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
+        left[:, :, alpha_mask_right] = right[:, :, alpha_mask_left]
 
         # both = torch.logical_and(rblank, lblank)
         # show_image("rblank", rblank, wait=False)
