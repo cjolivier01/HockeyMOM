@@ -382,7 +382,7 @@ class LaplacianBlend(torch.nn.Module):
         assert left.shape[-2:] == alpha_mask_left.shape
 
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        left[:, :, alpha_mask_right] = right[:, :, alpha_mask_left]
+        left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
         # both = torch.logical_and(rblank, lblank)
         # show_image("rblank", rblank, wait=False)
