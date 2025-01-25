@@ -445,6 +445,6 @@ class LaplacianBlend(torch.nn.Module):
             ]
             F_2[:, :, self.xor_mask == self._right_value] = 138
         # F_2[:, :, both] = 128
-        show_image("F_2", F_2, wait=False, scale=0.2)
+        # show_image("F_2", F_2, wait=False, scale=0.2)
 
         return F_2
