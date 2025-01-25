@@ -92,14 +92,14 @@ def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
     return img
 
 
-@torch.jit.script
+# @torch.jit.script
 def simple_make_full(
     img_1: torch.Tensor,
-    mask_1: torch.Tensor,
+    mask_1: Optional[torch.Tensor],
     x1: int,
     y1: int,
     img_2: torch.Tensor,
-    mask_2: torch.Tensor,
+    mask_2: Optional[torch.Tensor],
     x2: int,
     y2: int,
     canvas_w: int,
@@ -142,17 +142,18 @@ def simple_make_full(
         ],
         mode="constant",
     )
-    mask_1 = torch.nn.functional.pad(
-        mask_1,
-        [
-            x1,
-            canvas_w - x1 - w1,
-            y1,
-            canvas_h - y1 - h1,
-        ],
-        mode="constant",
-        value=True,
-    )
+    if mask_1 is not None:
+        mask_1 = torch.nn.functional.pad(
+            mask_1,
+            [
+                x1,
+                canvas_w - x1 - w1,
+                y1,
+                canvas_h - y1 - h1,
+            ],
+            mode="constant",
+            value=True,
+        )
 
     full_2 = torch.nn.functional.pad(
         img_2,
@@ -165,17 +166,18 @@ def simple_make_full(
         mode="constant",
     )
 
-    mask_2 = torch.nn.functional.pad(
-        mask_1,
-        [
-            x1,
-            canvas_w - x1 - w1,
-            y1,
-            canvas_h - y1 - h1,
-        ],
-        mode="constant",
-        value=True,
-    )
+    if mask_2 is not None:
+        mask_2 = torch.nn.functional.pad(
+            mask_1,
+            [
+                x2,
+                canvas_w - x2 - w2,
+                y2,
+                canvas_h - y2 - h2,
+            ],
+            mode="constant",
+            value=True,
+        )
 
     return full_1, mask_1, full_2, mask_2
 
@@ -360,6 +362,9 @@ class LaplacianBlend(torch.nn.Module):
     ) -> torch.Tensor:
         assert self._initialized
 
+        assert left.shape == alpha_mask_left.shape
+        assert right.shape == alpha_mask_right.shape
+
         left, lblank, right, rblank = simple_make_full(
             img_1=left,
             mask_1=alpha_mask_left,
@@ -373,6 +378,8 @@ class LaplacianBlend(torch.nn.Module):
             canvas_h=canvas_h,
         )
         assert left.shape == right.shape
+        assert lblank.shape == rblank.shape
+        assert left.shape == lblank.shape
 
         # rblank = get_alpha_mask(right)
         # lblank = get_alpha_mask(left)
@@ -437,6 +444,6 @@ class LaplacianBlend(torch.nn.Module):
             ]
             F_2[:, :, self.xor_mask == self._right_value] = 138
         # F_2[:, :, both] = 128
-        # show_image("F_2", F_2, wait=False, scale=0.2)
+        show_image("F_2", F_2, wait=False, scale=0.2)
 
         return F_2
