@@ -13,6 +13,7 @@ wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
 
 # Install the key package
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
+rm cuda-keyring_1.1-1_all.deb
 
 # Add CUDA repository
 echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /" | \
@@ -25,7 +26,4 @@ echo -e "Package: *\nPin: origin developer.download.nvidia.com\nPin-Priority: 60
 # Update package list
 sudo apt-get update
 
-echo "CUDA repository has been successfully added!"
-echo "You can now install CUDA using: sudo apt-get install cuda"
-echo "Or install specific versions using: sudo apt-get install cuda-<version>"
-echo "Example: sudo apt-get install cuda-12-2"
+sudo apt-get install cuda-12-6 libcudnn9-dev-cuda-12
