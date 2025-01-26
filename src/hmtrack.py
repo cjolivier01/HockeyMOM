@@ -1002,6 +1002,10 @@ def setup_logging():
 if __name__ == "__main__":
     setup_logging()
 
+    # Just quick check to make sure you build PyTorch correctly
+    assert torch.cuda.is_available()
+    assert torch.backends.cudnn.is_available()
+
     parser = make_parser()
     args = parser.parse_args()
 
