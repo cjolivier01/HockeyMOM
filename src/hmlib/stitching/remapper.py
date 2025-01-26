@@ -138,6 +138,8 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
         if self._batch_size is not None:
             self.init(batch_size=self._batch_size)
+        else:
+            assert False
 
     def init(self, batch_size: int):
         if self._remap_info is not None:
@@ -265,7 +267,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
@@ -294,7 +296,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             else:
                 # Perform the grid sampling with bicubic interpolation
                 if not torch.is_floating_point(source_tensor):
-                    source_tensor = source_tensor.to(self._dtype, non_blocking=True)
+                    source_tensor = source_tensor.to(dtype=self._dtype, non_blocking=True)
                 elif source_tensor.dtype != self._grid.dtype:
                     print("Incompatible dtypes")
                     raise AssertionError("Incompatible dtypes")

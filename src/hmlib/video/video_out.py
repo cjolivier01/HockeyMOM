@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Set, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -122,6 +122,15 @@ def tensor_checkpoint(
     return tensor
 
 
+_FP_TYPES: Set[torch.dtype] = {
+    torch.float,
+    torch.float32,
+    torch.float16,
+    torch.bfloat16,
+    torch.half,
+}
+
+
 class VideoOutput:
 
     VIDEO_DEFAULT: str = "default"
@@ -153,6 +162,7 @@ class VideoOutput:
         async_output: bool = False,
         visualization_config: Dict[str, Any] = None,
         no_cuda_streams: bool = False,
+        dtype: torch.dtype = None,
     ):
         self._args = args
         self._allow_scaling = False
@@ -160,6 +170,8 @@ class VideoOutput:
         self._clip_to_max_dimensions = clip_to_max_dimensions
         self._visualization_config = visualization_config
         self._no_cuda_streams = no_cuda_streams
+        self._dtype = dtype if dtype is not None else torch.get_default_dtype()
+        assert self._dtype in _FP_TYPES
 
         output_frame_width = to_tensor_scalar(output_frame_width, device=device)
         output_frame_height = to_tensor_scalar(output_frame_height, device=device)

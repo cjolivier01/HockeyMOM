@@ -689,8 +689,8 @@ def make_showable_type(
             img = img.squeeze(0)
         assert len(img.shape) == 3
         img = make_channels_last(img)
-        if img.dtype in [torch.float16, torch.float, torch.float64]:
-            if img.dtype == torch.float16:
+        if img.dtype in [torch.float16, torch.bfloat16, torch.float, torch.float64]:
+            if img.dtype == torch.float or img.dtype == torch.bfloat16:
                 img = img.to(torch.float32)
             if scale_elements and scale_elements != 1:
                 img = img * scale_elements

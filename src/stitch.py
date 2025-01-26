@@ -269,7 +269,8 @@ def main(args):
         force=args.force,
     )
 
-    HalfFloatType = torch.bfloat16
+    # HalfFloatType = torch.bfloat16
+    HalfFloatType = torch.float16
 
     if args.fp16:
         torch.set_default_dtype(HalfFloatType)
