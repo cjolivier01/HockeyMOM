@@ -167,4 +167,4 @@ set_target_properties(
 add_subdirectory(csrc)
 
 # Stuff we need to configure stitching
-add_dependencies(hm pto_gen nona autooptimiser)
+# add_dependencies(hm pto_gen nona autooptimiser)
