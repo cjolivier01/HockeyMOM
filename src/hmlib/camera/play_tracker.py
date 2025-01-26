@@ -650,12 +650,12 @@ class PlayTracker(torch.nn.Module):
                                     thickness=1,
                                 )
 
-                # Maybe draw trajectories...
-                if self._args.plot_trajectories:
-                    for tid in online_ids:
-                        hist = self._hockey_mom.get_history(tid)
-                        if hist is not None:
-                            online_img = hist.draw(online_im)
+            # Maybe draw trajectories...
+            if self._args.plot_trajectories:
+                for tid in online_ids:
+                    hist = self._hockey_mom.get_history(tid)
+                    if hist is not None:
+                        online_img = hist.draw(online_im)
 
             if self._args.plot_individual_player_tracking:
                 online_im = vis.plot_tracking(
