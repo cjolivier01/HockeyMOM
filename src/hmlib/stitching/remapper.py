@@ -172,7 +172,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                 src_height=src_h,
                 col_map=col_map,
                 row_map=row_map,
-                dtype=torch.float32,
+                dtype=self._dtype,
                 add_alpha_channel=self._add_alpha_channel,
                 pad_value=0,
                 interpolation=self._interpolation,
@@ -224,6 +224,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                 # Create the grid for grid_sample
                 grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
                 grid = grid.expand((batch_size, *grid.shape))
+                grid = grid.to(self._dtype)
                 self.register_buffer("_grid", grid.contiguous())
 
             self.register_buffer("_col_map", col_map.contiguous())
@@ -264,7 +265,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
@@ -294,6 +295,9 @@ class ImageRemapper(torch.jit.ScriptModule):
                 # Perform the grid sampling with bicubic interpolation
                 if not torch.is_floating_point(source_tensor):
                     source_tensor = source_tensor.to(self._dtype, non_blocking=True)
+                elif source_tensor.dtype != self._grid.dtype:
+                    print("Incompatible dtypes")
+                    raise AssertionError("Incompatible dtypes")
                 destination_tensor = F.grid_sample(
                     source_tensor,
                     self._grid,
