@@ -268,8 +268,9 @@ def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
     mask = (img[:, 3:4] == 0).squeeze(0).squeeze(0)
     return mask
 
-# class LaplacianBlend(torch.jit.ScriptModule):
-class LaplacianBlend(torch.nn.Module):
+
+class LaplacianBlend(torch.jit.ScriptModule):
+    # class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
         max_levels=4,
@@ -353,22 +354,7 @@ class LaplacianBlend(torch.nn.Module):
         for i, m in enumerate(self.mask_small_gaussian_blurred):
             self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
 
-    # def initialize(self, device: torch.device):
-    #     # self.gaussian_kernel = create_gaussian_kernel(
-    #     #     size=self.kernel_size,
-    #     #     channels=self.channels,
-    #     #     sigma=self.sigma,
-    #     #     device=device,
-    #     # )
-    #     # self.mask_gaussian_kernel = create_gaussian_kernel(
-    #     #     size=self.kernel_size,
-    #     #     channels=1,
-    #     #     sigma=self.sigma,
-    #     #     device=device,
-    #     # )
-    #     self.create_masks(input_shape=input_shape, device=device)
-
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
@@ -435,7 +421,9 @@ class LaplacianBlend(torch.nn.Module):
             level=self.max_levels,
         )
 
-        for this_level in reversed(range(self.max_levels)):
+        # for this_level in reversed(range(self.max_levels)):
+        this_level = self.max_levels - 1
+        while this_level >= 0:
             mask_1d = self.mask_small_gaussian_blurred[this_level]
 
             F_1 = upsample(F_2, size=mask_1d.shape[-2:])
@@ -448,6 +436,7 @@ class LaplacianBlend(torch.nn.Module):
             F_2 = simple_blend_in_place(L_left, L_right, mask_1d, level=this_level)
             F_2 += upsampled_F1
             # show_image(str(this_level), F_2.clone(), wait=False)
+            this_level -= 1
 
         # show_image("left", left, wait=False, scale=0.5)
         # show_image("right", right, wait=False, scale=0.5)
