@@ -1050,8 +1050,11 @@ def main(args):
 
     assert len(file_list) == 2
 
+    HalfFloatType = torch.float16
+    # HalfFloatType = torch.bfloat16
+
     if args.fp16:
-        torch.set_default_dtype(torch.bfloat16)
+        torch.set_default_dtype(HalfFloatType)
 
     with torch.no_grad():
         blend_video(
@@ -1069,7 +1072,7 @@ def main(args):
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
             device=fast_gpu,
-            dtype=torch.bfloat16 if args.fp16 else torch.float,
+            dtype=HalfFloatType if args.fp16 else torch.float,
             draw=args.draw,
             minimize_blend=args.minimize_blend,
             blend_mode=args.blend_mode,
