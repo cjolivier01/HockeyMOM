@@ -742,9 +742,10 @@ class ImageStitcher(torch.nn.Module):
         return super().to(device, **kwargs)
 
     def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        # show_image("inputs[0]", inputs[0], wait=False)
         remapped_tensor_1 = self._remapper_1.forward(source_image=inputs[0])
         remapped_tensor_2 = self._remapper_2.forward(source_image=inputs[1])
-
+        # show_image("remapped_tensor_1", remapped_tensor_1, wait=False)
         return self._smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
 
 

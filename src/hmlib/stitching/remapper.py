@@ -118,6 +118,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         super().__init__()
         assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
+
         self._dtype = dtype
         self._debug = debug
         self._dir_name = dir_name
@@ -216,12 +217,13 @@ class ImageRemapper(torch.jit.ScriptModule):
             row_map[mask] = 0
 
             if self._interpolation:
+                # This normalization needs to occur in float32 or it gets really pixellated
                 row_map_normalized = (
-                    2.0 * row_map / (self._working_h - 1)
-                ) - 1  # Normalize to [-1, 1]
+                    row_map.to(torch.float32) * 2.0 / (self._working_h - 1)
+                ) - 1.0  # Normalize to [-1, 1]
                 col_map_normalized = (
-                    2.0 * col_map / (self._working_w - 1)
-                ) - 1  # Normalize to [-1, 1]
+                    col_map.to(torch.float32) * 2.0 / (self._working_w - 1)
+                ) - 1.0  # Normalize to [-1, 1]
 
                 # Create the grid for grid_sample
                 grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
@@ -296,7 +298,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             else:
                 # Perform the grid sampling with bicubic interpolation
                 if not torch.is_floating_point(source_tensor):
-                    source_tensor = source_tensor.to(dtype=self._dtype, non_blocking=True)
+                    source_tensor = source_tensor.to(dtype=self._grid.dtype, non_blocking=True)
                 elif source_tensor.dtype != self._grid.dtype:
                     print("Incompatible dtypes")
                     raise AssertionError("Incompatible dtypes")
