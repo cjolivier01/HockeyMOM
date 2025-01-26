@@ -352,7 +352,7 @@ class LaplacianBlend(torch.jit.ScriptModule):
         for i, m in enumerate(self.mask_small_gaussian_blurred):
             self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,

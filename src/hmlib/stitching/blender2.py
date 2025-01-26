@@ -101,7 +101,6 @@ class ImageAndPos:
 
 
 class PtImageBlender(torch.jit.ScriptModule):
-    # class PtImageBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -152,7 +151,7 @@ class PtImageBlender(torch.jit.ScriptModule):
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
@@ -221,7 +220,6 @@ class PtImageBlender(torch.jit.ScriptModule):
             canvas[:, :, self._seam_mask == self._right_value] = full_right[
                 :, :, self._seam_mask == self._right_value
             ]
-            # show_image("canvas", canvas, wait=False, enable_resizing=0.1)
 
         return canvas
 
@@ -741,9 +739,6 @@ class ImageStitcher(torch.nn.Module):
 
     def to(self, *args, device: torch.device, **kwargs):
         assert isinstance(device, (torch.device, str))
-        # self._remapper_1.to(device=device)
-        # self._remapper_2.to(device=device)
-        # self._smart_remapper_blender.to(device=device)
         return super().to(device, **kwargs)
 
     def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
