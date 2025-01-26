@@ -279,25 +279,30 @@ def make_seam_and_xor_masks(
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
-        blender = core.EnBlender(
-            args=[
-                f"--save-seams",
-                seam_filename,
-                f"--save-xor",
-                xor_filename,
-            ]
-        )
+        if core.EnBlender is not None:
+            blender = core.EnBlender(
+                args=[
+                    f"--save-seams",
+                    seam_filename,
+                    f"--save-xor",
+                    xor_filename,
+                ]
+            )
 
-        if not images_and_positions:
-            images_and_positions = get_images_and_positions(dir_name=dir_name, basename=basename)
+            if not images_and_positions:
+                images_and_positions = get_images_and_positions(
+                    dir_name=dir_name, basename=basename
+                )
 
-        # Blend one image to create the seam file
-        _ = blender.blend_images(
-            left_image=make_cv_compatible_tensor(images_and_positions[0].image),
-            left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
-            right_image=make_cv_compatible_tensor(images_and_positions[1].image),
-            right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
-        )
+            # Blend one image to create the seam file
+            _ = blender.blend_images(
+                left_image=make_cv_compatible_tensor(images_and_positions[0].image),
+                left_xy_pos=[images_and_positions[0].xpos, images_and_positions[0].ypos],
+                right_image=make_cv_compatible_tensor(images_and_positions[1].image),
+                right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
+            )
+        else:
+            print("No Enblender on this platform, so no seam file is available")
     seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
 
     if False:
