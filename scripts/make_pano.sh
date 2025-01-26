@@ -23,7 +23,8 @@ nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 
 # Blend the images to create the panorama
 #enblend -o panorama.tif mapping_????.tif
-$HOME/src/multiblend/src/multiblend -o panorama.tif mapping_????.tif
+enblend --save-masks=seam_file.png -o panorama.tif  mapping_????.tif
+# $HOME/src/multiblend/src/multiblend -o panorama.tif mapping_????.tif
 
 #
 # mapping files

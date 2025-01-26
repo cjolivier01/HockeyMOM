@@ -20,7 +20,13 @@ sudo apt install -y \
   fftw-dev \
   libprotobuf-dev \
   protobuf-compiler
-  
+
+# Enblend
+sudo apt install -y \
+  libgsl-dev \
+  help2man \
+  texlive-latex-base
+
 WXW="$(apt search libwxgtk3 | grep dev | grep ^libwx | sed 's/\// /g' | awk '{print$1}')"
 if [ ! -z "${WXW}" ]; then
   sudo apt install -y $WXW
