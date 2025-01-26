@@ -282,6 +282,7 @@ def make_seam_and_xor_masks(
     assert images_and_positions is None or len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
+    seam_tensor = None
     if not force and os.path.isfile(seam_filename):
         mapping_file = os.path.join(dir_name, "mapping_0000.tif")
         if os.path.exists(mapping_file):
@@ -322,28 +323,31 @@ def make_seam_and_xor_masks(
             seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
         else:
             print("No Enblender on this platform, so no seam file is available")
-            return None, None
-            # seam_tensor = create_generic_seam_mask(
-            #     (
-            #         image_width(images_and_positions[0].image),
-            #         image_height(images_and_positions[0].image),
-            #     ),
-            #     (images_and_positions[0].xpos, images_and_positions[0].ypos),
-            #     (
-            #         image_width(images_and_positions[1].image),
-            #         image_height(images_and_positions[1].image),
-            #     ),
-            #     (images_and_positions[1].xpos, images_and_positions[1].ypos),
-            # )
+            curr_dir = os.getcwd()
+            os.chdir(dir_name)
+            try:
+                cmd: List[str] = [
+                    "enblend",
+                    f"--save-masks={seam_filename}",
+                    "-o",
+                    f"{os.path.join(dir_name, 'panorama.tif')}",
+                    f"{os.path.join(dir_name, 'mapping_????.tif')}",
+                ]
+                os.system(" ".join(cmd))
+                seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+            finally:
+                os.chdir(curr_dir)
 
-    if False:
+    if seam_tensor is None:
         seam_w = int(image_width(seam_tensor))
         v1 = seam_tensor[0][0]
         v2 = seam_tensor[0][seam_w - 1]
         seam_tensor[:, : seam_w // 2] = v1
         seam_tensor[:, seam_w // 2 :] = v2
-
-    xor_tensor = torch.from_numpy(cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH))
+    if os.path.exists(xor_filename):
+        xor_tensor = torch.from_numpy(cv2.imread(xor_filename, cv2.IMREAD_ANYDEPTH))
+    else:
+        xor_tensor = None
     return seam_tensor, xor_tensor
 
 
