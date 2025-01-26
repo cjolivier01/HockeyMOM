@@ -7,11 +7,7 @@ from typing import List, Tuple, Optional
 import kornia as K
 from lightglue import SuperPoint, LightGlue
 from lightglue.utils import load_image, rbd
-from kornia.geometry import RANSAC, find_homography_dlt
-
-# from kornia.feature import LightGlue
-# from kornia.feature import SuperPoint, LightGlue
-
+from kornia.geometry import RANSAC
 
 def _permute(t: torch.Tensor, *args) -> torch.Tensor:
     return t.permute(*args)

@@ -255,6 +255,24 @@ def get_images_and_positions(dir_name: str, basename: str = "mapping_") -> List[
     return images_and_positions
 
 
+def create_generic_seam_mask(img1_size, img2_size, pos1, pos2):
+    # Calculate canvas size
+    assert pos1[0] == 0 or pos2[0] == 0
+    assert pos1[1] == 0 or pos2[1] == 0
+
+    width = max(pos1[0] + img1_size[0], pos2[0] + img2_size[0])
+    height = max(pos1[1] + img1_size[1], pos2[1] + img2_size[1])
+
+    # Create mask
+    mask = np.zeros((height, width), dtype=np.uint8)
+
+    # Fill regions
+    mask[pos1[1] : pos1[1] + img1_size[1], pos1[0] : pos1[0] + img1_size[0]] = 76
+    mask[pos2[1] : pos2[1] + img2_size[1], pos2[0] : pos2[0] + img2_size[0]] = 128
+
+    return mask
+
+
 def make_seam_and_xor_masks(
     dir_name: str,
     basename: str,
@@ -301,9 +319,22 @@ def make_seam_and_xor_masks(
                 right_image=make_cv_compatible_tensor(images_and_positions[1].image),
                 right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
             )
+            seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
         else:
             print("No Enblender on this platform, so no seam file is available")
-    seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+            return None, None
+            # seam_tensor = create_generic_seam_mask(
+            #     (
+            #         image_width(images_and_positions[0].image),
+            #         image_height(images_and_positions[0].image),
+            #     ),
+            #     (images_and_positions[0].xpos, images_and_positions[0].ypos),
+            #     (
+            #         image_width(images_and_positions[1].image),
+            #         image_height(images_and_positions[1].image),
+            #     ),
+            #     (images_and_positions[1].xpos, images_and_positions[1].ypos),
+            # )
 
     if False:
         seam_w = int(image_width(seam_tensor))
