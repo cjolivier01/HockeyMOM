@@ -128,7 +128,7 @@ class PtImageBlender(torch.nn.Module):
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
             )
-            self._laplacian_blend.initialize(input_shape=None, device=seam_mask.device)
+            self._laplacian_blend.to(seam_mask.device)
         else:
             self._laplacian_blend: bool = None
         assert self._seam_mask.shape[1] == self._xor_mask.shape[1]

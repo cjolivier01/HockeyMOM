@@ -268,7 +268,7 @@ def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
     mask = (img[:, 3:4] == 0).squeeze(0).squeeze(0)
     return mask
 
-
+# class LaplacianBlend(torch.jit.ScriptModule):
 class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
@@ -293,7 +293,26 @@ class LaplacianBlend(torch.nn.Module):
         else:
             self.xor_mask = None
         self.mask_small_gaussian_blurred: List[torch.Tensor] = []
-        self._initialized = False
+
+        self.register_buffer(
+            "gaussian_kernel",
+            create_gaussian_kernel(
+                size=self.kernel_size,
+                channels=self.channels,
+                sigma=self.sigma,
+                device=self.seam_mask.device,
+            ),
+        )
+        self.register_buffer(
+            "mask_gaussian_kernel",
+            create_gaussian_kernel(
+                size=self.kernel_size,
+                channels=1,
+                sigma=self.sigma,
+                device=self.seam_mask.device,
+            ),
+        )
+        self.create_masks(input_shape=None, device=self.seam_mask.device)
 
     def create_masks(self, input_shape: torch.Size, device: torch.device):
         if self.seam_mask is None:
@@ -329,22 +348,25 @@ class LaplacianBlend(torch.nn.Module):
                 self.mask_small_gaussian_blurred[i]
             )
 
-    def initialize(self, input_shape: torch.Size, device: torch.device):
-        assert not self._initialized
-        self.gaussian_kernel = create_gaussian_kernel(
-            size=self.kernel_size,
-            channels=self.channels,
-            sigma=self.sigma,
-            device=device,
-        )
-        self.mask_gaussian_kernel = create_gaussian_kernel(
-            size=self.kernel_size,
-            channels=1,
-            sigma=self.sigma,
-            device=device,
-        )
-        self.create_masks(input_shape=input_shape, device=device)
-        self._initialized = True
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        for i, m in enumerate(self.mask_small_gaussian_blurred):
+            self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
+
+    # def initialize(self, device: torch.device):
+    #     # self.gaussian_kernel = create_gaussian_kernel(
+    #     #     size=self.kernel_size,
+    #     #     channels=self.channels,
+    #     #     sigma=self.sigma,
+    #     #     device=device,
+    #     # )
+    #     # self.mask_gaussian_kernel = create_gaussian_kernel(
+    #     #     size=self.kernel_size,
+    #     #     channels=1,
+    #     #     sigma=self.sigma,
+    #     #     device=device,
+    #     # )
+    #     self.create_masks(input_shape=input_shape, device=device)
 
     # @torch.jit.script_method
     def forward(
@@ -360,8 +382,6 @@ class LaplacianBlend(torch.nn.Module):
         canvas_w: int,
         canvas_h: int,
     ) -> torch.Tensor:
-        assert self._initialized
-
         assert left.shape[-2:] == alpha_mask_left.shape
         assert right.shape[-2:] == alpha_mask_right.shape
 
@@ -377,9 +397,9 @@ class LaplacianBlend(torch.nn.Module):
             canvas_w=canvas_w,
             canvas_h=canvas_h,
         )
-        assert left.shape == right.shape
-        assert alpha_mask_left.shape == alpha_mask_right.shape
-        assert left.shape[-2:] == alpha_mask_left.shape
+        # assert left.shape == right.shape
+        # assert alpha_mask_left.shape == alpha_mask_right.shape
+        # assert left.shape[-2:] == alpha_mask_left.shape
 
         # In image portions where we have no mapped pixels,
         # replace with whatever is on the opposing image
