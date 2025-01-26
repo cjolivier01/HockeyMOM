@@ -100,8 +100,8 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-# class PtImageBlender(torch.jit.ScriptModule):
-class PtImageBlender(torch.nn.Module):
+class PtImageBlender(torch.jit.ScriptModule):
+    # class PtImageBlender(torch.nn.Module):
 
     def __init__(
         self,
@@ -151,7 +151,7 @@ class PtImageBlender(torch.nn.Module):
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    # @torch.jit.script_method
+    @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
