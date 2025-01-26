@@ -4,9 +4,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hmlib.ui import show_image
-
-
 def create_gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
 ):
@@ -81,14 +78,11 @@ def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch
 
 
 @torch.jit.script
-def to_float(img: torch.Tensor, scale_variance: bool = False) -> torch.Tensor:
+def to_float(img: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     if img is None:
         return None
     if img.dtype == torch.uint8:
-        img = img.to(torch.float, non_blocking=True)
-        if scale_variance:
-            assert False
-            img /= 255.0
+        img = img.to(dtype, non_blocking=True)
     return img
 
 
@@ -277,14 +271,16 @@ class LaplacianBlend(torch.jit.ScriptModule):
         channels=3,
         kernel_size=5,
         sigma=1,
+        dtype: torch.dtype = torch.float,
         seam_mask: Optional[torch.Tensor] = None,
         xor_mask: Optional[torch.Tensor] = None,
     ):
-        super(LaplacianBlend, self).__init__()
+        super().__init__()
         self.max_levels: int = max_levels
         self.kernel_size: int = kernel_size
         self.channels: int = channels
         self.sigma: int = sigma
+        self._dtype = dtype
         if seam_mask is not None:
             self.register_buffer("seam_mask", seam_mask)
         else:
@@ -302,6 +298,7 @@ class LaplacianBlend(torch.jit.ScriptModule):
                 channels=self.channels,
                 sigma=self.sigma,
                 device=self.seam_mask.device,
+                dtype=self._dtype,
             ),
         )
         self.register_buffer(
@@ -311,13 +308,14 @@ class LaplacianBlend(torch.jit.ScriptModule):
                 channels=1,
                 sigma=self.sigma,
                 device=self.seam_mask.device,
+                dtype=self._dtype,
             ),
         )
         self.create_masks(input_shape=None, device=self.seam_mask.device)
 
     def create_masks(self, input_shape: torch.Size, device: torch.device):
         if self.seam_mask is None:
-            mask = torch.zeros(input_shape[-2:], dtype=torch.float, device=device)
+            mask = torch.zeros(input_shape[-2:], dtype=self._dtype, device=device)
             mask[:, : mask.shape[-1] // 2] = 1.0
             mask = mask.unsqueeze(0).unsqueeze(0)
         else:
@@ -332,7 +330,7 @@ class LaplacianBlend(torch.jit.ScriptModule):
             assert right_value == unique_values[1]
             mask[mask == left_value] = 1
             mask[mask == right_value] = 0
-            mask = mask.to(torch.float)
+            mask = mask.to(self._dtype)
 
         self._unique_values = torch.unique(self.seam_mask)
         self._left_value = self._unique_values[0]
@@ -354,7 +352,7 @@ class LaplacianBlend(torch.jit.ScriptModule):
         for i, m in enumerate(self.mask_small_gaussian_blurred):
             self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
@@ -383,26 +381,12 @@ class LaplacianBlend(torch.jit.ScriptModule):
             canvas_w=canvas_w,
             canvas_h=canvas_h,
         )
-        # assert left.shape == right.shape
-        # assert alpha_mask_left.shape == alpha_mask_right.shape
-        # assert left.shape[-2:] == alpha_mask_left.shape
 
-        # In image portions where we have no mapped pixels,
-        # replace with whatever is on the opposing image
-        # This keeps it from blending against "black"
-        # TODO: How to simply not blend to where there's no pixels?
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
-        # both = torch.logical_and(rblank, lblank)
-        # show_image("rblank", rblank, wait=False)
-        # show_image("both", both, wait=False)
-
-        # show_image("right", right, wait=False, scale=0.25)
-        # show_image("left", left, wait=False, scale=0.25)
-
-        left = to_float(left, scale_variance=False)
-        right = to_float(right, scale_variance=False)
+        left = to_float(left, dtype=self._dtype)
+        right = to_float(right, dtype=self._dtype)
 
         left_laplacian = create_laplacian_pyramid(
             x=left, kernel=self.gaussian_kernel, levels=self.max_levels
@@ -427,7 +411,6 @@ class LaplacianBlend(torch.jit.ScriptModule):
             mask_1d = self.mask_small_gaussian_blurred[this_level]
 
             F_1 = upsample(F_2, size=mask_1d.shape[-2:])
-            # F_1 = upsample_ignore_alpha(F_2, size=mask_1d.shape[-2:])
             upsampled_F1 = gaussian_conv2d(F_1, self.gaussian_kernel)
 
             L_left = left_laplacian[this_level]
@@ -435,25 +418,6 @@ class LaplacianBlend(torch.jit.ScriptModule):
 
             F_2 = simple_blend_in_place(L_left, L_right, mask_1d, level=this_level)
             F_2 += upsampled_F1
-            # show_image(str(this_level), F_2.clone(), wait=False)
             this_level -= 1
-
-        # show_image("left", left, wait=False, scale=0.5)
-        # show_image("right", right, wait=False, scale=0.5)
-
-        if False and (self.xor_mask is not None and self._left_value != self._right_value):
-            # Fill in any portions not meant to to be blended with the
-            # original data
-            # Not really needed so far
-            F_2[:, :, self.xor_mask == self._left_value] = left[
-                :, :, self.xor_mask == self._left_value
-            ]
-            F_2[:, :, self.xor_mask == self._left_value] = 64
-            F_2[:, :, self.xor_mask == self._right_value] = right[
-                :, :, self.xor_mask == self._right_value
-            ]
-            F_2[:, :, self.xor_mask == self._right_value] = 138
-        # F_2[:, :, both] = 128
-        # show_image("F_2", F_2, wait=False, scale=0.2)
 
         return F_2

@@ -103,6 +103,7 @@ class ImageRemapper(torch.jit.ScriptModule):
 
     def __init__(
         self,
+        dtype: torch.dtype,
         source_hw: Tuple[int] = None,
         dir_name: str = None,
         basename: str = None,
@@ -117,6 +118,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         super().__init__()
         assert source_hw is None or len(source_hw) == 2
         self._use_cpp_remap_op = use_cpp_remap_op
+        self._dtype = dtype
         self._debug = debug
         self._dir_name = dir_name
         self._basename = basename
@@ -290,14 +292,16 @@ class ImageRemapper(torch.jit.ScriptModule):
                 destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
             else:
                 # Perform the grid sampling with bicubic interpolation
+                if not torch.is_floating_point(source_tensor):
+                    source_tensor = source_tensor.to(self._dtype, non_blocking=True)
                 destination_tensor = F.grid_sample(
-                    source_tensor.to(torch.float),
+                    source_tensor,
                     self._grid,
                     mode=self._interpolation,
                     padding_mode="zeros",
                     align_corners=False,
                 )
-                destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
+                # destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
         destination_tensor[:, :, self._unmapped_mask] = 0
 
         # Add an alpha channel if necessary

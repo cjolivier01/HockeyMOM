@@ -108,9 +108,9 @@ class PtImageBlender(torch.jit.ScriptModule):
         images_info: List[BlendImageInfo],
         seam_mask: torch.Tensor,
         xor_mask: torch.Tensor,
+        dtype: torch.dtype,
         laplacian_blend: False,
         max_levels: int = 6,
-        dtype: torch.dtype = torch.float,
         add_alpha_channel: bool = False,
     ) -> None:
         super().__init__()
@@ -127,6 +127,7 @@ class PtImageBlender(torch.jit.ScriptModule):
                 channels=3 if not add_alpha_channel else 4,
                 seam_mask=self._seam_mask,
                 xor_mask=self._xor_mask,
+                dtype=self._dtype,
             )
             self._laplacian_blend.to(seam_mask.device)
         else:
@@ -151,7 +152,7 @@ class PtImageBlender(torch.jit.ScriptModule):
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
@@ -536,6 +537,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 ),
                 laplacian_blend=self._blend_mode == "laplacian",
                 max_levels=self._blend_levels,
+                dtype=self._dtype,
             )
 
     def convert_mask_tensor(self, mask: torch.Tensor) -> torch.Tensor:
@@ -703,6 +705,7 @@ class ImageStitcher(torch.nn.Module):
 
         self._remapper_1 = ImageRemapper(
             remap_info=remap_image_info[0],
+            dtype=self._dtype,
             channels=channels,
             batch_size=batch_size,
             interpolation=self._blender_config.interpolation,
@@ -712,6 +715,7 @@ class ImageStitcher(torch.nn.Module):
 
         self._remapper_2 = ImageRemapper(
             remap_info=remap_image_info[1],
+            dtype=self._dtype,
             channels=channels,
             batch_size=batch_size,
             interpolation=self._blender_config.interpolation,
@@ -722,12 +726,12 @@ class ImageStitcher(torch.nn.Module):
         self._smart_remapper_blender = SmartRemapperBlender(
             remapper_1=self._remapper_1,
             remapper_2=self._remapper_2,
+            dtype=self._dtype,
             minimize_blend=minimize_blend,
             blend_levels=blender_config.levels,
             overlap_pad=overlap_pad,
             draw=draw,
             use_python_blender=use_python_blender,
-            dtype=dtype,
             blend_mode=blender_config.mode,
             seam_tensor=self._blender_config.seam,
             xor_mask_tensor=self._blender_config.xor_map,
@@ -1051,6 +1055,9 @@ def main(args):
 
     assert len(file_list) == 2
 
+    if args.fp16:
+        torch.set_default_dtype(torch.bfloat16)
+
     with torch.no_grad():
         blend_video(
             opts,
@@ -1067,7 +1074,7 @@ def main(args):
             skip_final_video_save=args.skip_final_video_save,
             queue_size=args.queue_size,
             device=fast_gpu,
-            dtype=torch.float16 if args.fp16 else torch.float,
+            dtype=torch.bfloat16 if args.fp16 else torch.float,
             draw=args.draw,
             minimize_blend=args.minimize_blend,
             blend_mode=args.blend_mode,
