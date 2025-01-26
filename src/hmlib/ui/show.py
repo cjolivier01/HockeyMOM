@@ -9,9 +9,14 @@ from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_visible_image
 
 
+def cv2_has_opengl() -> bool:
+    return hasattr(cv2, "ogl")
+
+
 # Assuming you have a GPU tensor with shape [H, W, C] or [C, H, W]
 # and values normalized between 0-1 or 0-255
 def show_gpu_tensor(label: str, tensor: torch.Tensor, wait: bool = True) -> None:
+    assert cv2_has_opengl()
     # Ensure tensor is in correct format [H, W, C]
     if tensor.dim() == 3 and tensor.shape[0] in [1, 3, 4]:
         tensor = tensor.permute(1, 2, 0)
@@ -20,7 +25,11 @@ def show_gpu_tensor(label: str, tensor: torch.Tensor, wait: bool = True) -> None
     cv2.namedWindow(label, cv2.WINDOW_OPENGL)
 
     # Create OpenGL texture
-    tex = cv2.ogl.Texture2D()
+    channels = tensor.shape[-1]
+    if channels == 4:
+        tex = cv2.ogl.Texture2D()
+    else:
+        tex = cv2.ogl.Texture2D_RGB()
 
     # Register CUDA-OpenGL interop
     cuda_gl_interop = cv2.cuda_GpuMat()

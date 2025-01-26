@@ -12,6 +12,7 @@ from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, make_visible_image
+from .show import cv2_has_opengl, show_gpu_tensor
 
 # from .tk import get_tk_root
 
@@ -58,6 +59,7 @@ class Shower:
         self._cache_on_cpu = cache_on_cpu
         if self._fps is not None:
             self._label += " (" + str(self._fps) + " fps)"
+        self._cv2_has_opengl_support = cv2_has_opengl()
         # TODO: use th
         self._next_frame_time = None
         self._use_tk = use_tk
@@ -83,11 +85,14 @@ class Shower:
             if self._use_tk:
                 self._tk_displayer.display(s_img)
             else:
-                cv2.imshow(
-                    self._label,
-                    make_visible_image(s_img, enable_resizing=self._show_scaled),
-                )
-                cv2.waitKey(1)
+                if self._cv2_has_opengl_support and s_img.device.type == "cuda":
+                    show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
+                else:
+                    cv2.imshow(
+                        self._label,
+                        make_visible_image(s_img, enable_resizing=self._show_scaled),
+                    )
+                    cv2.waitKey(1)
 
     def close(self):
         if self._thread is not None:

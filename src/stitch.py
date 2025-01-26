@@ -268,6 +268,12 @@ def main(args):
         write_results=not args.single_file,
         force=args.force,
     )
+
+    HalfFloatType = torch.bfloat16
+
+    if args.fp16:
+        torch.set_default_dtype(HalfFloatType)
+
     if args.single_file:
         if "left" in game_videos and game_videos["left"]:
             game_videos["left"] = game_videos["left"][:1]
@@ -308,7 +314,7 @@ def main(args):
             remapping_device=remapping_device,
             decoder_device=decoder_device,
             encoder_device=encoder_device,
-            dtype=torch.half if args.fp16 else torch.float,
+            dtype=HalfFloatType if args.fp16 else torch.float,
             force=args.force,
             auto_adjust_exposure=args.stitch_auto_adjust_exposure,
             minimize_blend=not args.no_minimize_blend,
