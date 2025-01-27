@@ -297,7 +297,7 @@ def make_seam_and_xor_masks(
                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
-    if force or not os.path.isfile(seam_filename) or not os.path.isfile(xor_filename):
+    if force or not os.path.isfile(seam_filename):
         if core.EnBlender is not None:
             blender = core.EnBlender(
                 args=[
@@ -320,7 +320,6 @@ def make_seam_and_xor_masks(
                 right_image=make_cv_compatible_tensor(images_and_positions[1].image),
                 right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
             )
-            seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
         else:
             print("No Enblender on this platform, so no seam file is available")
             curr_dir = os.getcwd()
@@ -334,11 +333,13 @@ def make_seam_and_xor_masks(
                     f"{os.path.join(dir_name, 'mapping_????.tif')}",
                 ]
                 os.system(" ".join(cmd))
-                seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
             finally:
                 os.chdir(curr_dir)
 
-    if seam_tensor is None:
+    if os.path.exists(seam_filename):
+        seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+
+    if False:
         seam_w = int(image_width(seam_tensor))
         v1 = seam_tensor[0][0]
         v2 = seam_tensor[0][seam_w - 1]
@@ -367,7 +368,9 @@ def create_blender_config(
     config.mode = mode
     config.levels = levels
     config.device = str(device)
-    config.seam, config.xor_map = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
+    config.seam, xor_map = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
+    if xor_map is not None:
+        config.xor_map = xor_map
     config.lazy_init = lazy_init
     config.interpolation = interpolation
     return config
@@ -496,6 +499,7 @@ class SmartRemapperBlender(torch.nn.Module):
             self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
         else:
             self._seam_tensor = None
+        self._xor_mask_tensor = None
         if xor_mask_tensor is not None:
             self.register_buffer(
                 "_xor_mask_tensor",
@@ -580,6 +584,31 @@ class SmartRemapperBlender(torch.nn.Module):
 
     def convert_mask_tensor(self, mask: torch.Tensor) -> torch.Tensor:
         # Mask should be the same size as our canvas
+        padw: int = 0
+        padh: int = 0
+        mwidth: int = image_width(mask)
+        mheight: int = image_height(mask)
+
+        assert mwidth <= self._canvas_info.width
+        assert mheight <= self._canvas_info.height
+
+        if mwidth < self._canvas_info.width:
+            padw = self._canvas_info.width - mwidth
+        if mheight < self._canvas_info.height:
+            padh = self._canvas_info.height - mheight
+
+        if padw or padh:
+            mask = torch.nn.functional.pad(
+                mask.unsqueeze(0),
+                [
+                    0,
+                    padw,
+                    0,
+                    padh,
+                ],
+                mode="replicate",
+            ).squeeze(0)
+
         assert image_width(mask) == self._canvas_info.width
         assert image_height(mask) == self._canvas_info.height
         if not self._minimize_blend:

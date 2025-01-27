@@ -62,10 +62,6 @@ def safe_put_queue(queue, object):
     return
 
 
-_USE_NEW_STITCHER: bool = True
-
-# from hmlib.stitching.stitch_worker import _LARGE_NUMBER_OF_FRAMES, INFO, safe_put_queue
-
 _LARGE_NUMBER_OF_FRAMES = 1e128
 
 def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
@@ -492,28 +488,12 @@ class StitchDataset:
                 stream = None
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
-                    if _USE_NEW_STITCHER:
-                        imgs_1 = to_tensor(imgs_1)
-                        imgs_2 = to_tensor(imgs_2)
-                        if self._auto_adjust_exposure:
-                            imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
+                    imgs_1 = to_tensor(imgs_1)
+                    imgs_2 = to_tensor(imgs_2)
+                    if self._auto_adjust_exposure:
+                        imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
 
-                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
-                    else:
-                        sinfo_1 = core.StitchImageInfo()
-                        sinfo_1.image = _prepare_image(to_tensor(imgs_1))
-                        sinfo_1.xy_pos = self._xy_pos_1
-
-                        sinfo_2 = core.StitchImageInfo()
-                        sinfo_2.image = _prepare_image(to_tensor(imgs_2))
-                        sinfo_2.xy_pos = self._xy_pos_2
-
-                        if self._auto_adjust_exposure:
-                            sinfo_1.image, sinfo_2.image = self._adjust_exposures(
-                                images=[sinfo_1.image, sinfo_2.image]
-                            )
-
-                        blended_stream_tensor = self._stitcher.forward(inputs=[sinfo_1, sinfo_2])
+                    blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
@@ -554,41 +534,23 @@ class StitchDataset:
             #
             assert self._stitcher is None
             assert self._remapping_device.type != "cpu"
-            if _USE_NEW_STITCHER:
-                from hmlib.stitching.blender2 import create_stitcher
+            from hmlib.stitching.blender2 import create_stitcher
 
-                self._stitcher = create_stitcher(
-                    dir_name=self._dir_name,
-                    batch_size=self._batch_size,
-                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                    right_image_size_wh=(
-                        self._video_right_info.width,
-                        self._video_right_info.height,
-                    ),
-                    device=self._remapping_device,
-                    dtype=self._dtype,
-                    python_blender=self._python_blender,
-                    minimize_blend=self._minimize_blend,
-                    blend_mode=self._blend_mode,
-                    add_alpha_channel=False,
-                )
-            else:
-                from hmlib.stitching.blender import create_stitcher
-
-                self._stitcher, self._xy_pos_1, self._xy_pos_2 = create_stitcher(
-                    dir_name=self._dir_name,
-                    batch_size=self._batch_size,
-                    left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                    right_image_size_wh=(
-                        self._video_right_info.width,
-                        self._video_right_info.height,
-                    ),
-                    device=self._remapping_device,
-                    dtype=self._dtype,
-                    blend_mode=self._blend_mode,
-                    add_alpha_channel=False,
-                )
-                self._stitcher.to(self._remapping_device)
+            self._stitcher = create_stitcher(
+                dir_name=self._dir_name,
+                batch_size=self._batch_size,
+                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+                right_image_size_wh=(
+                    self._video_right_info.width,
+                    self._video_right_info.height,
+                ),
+                device=self._remapping_device,
+                dtype=self._dtype,
+                python_blender=self._python_blender,
+                minimize_blend=self._minimize_blend,
+                blend_mode=self._blend_mode,
+                add_alpha_channel=False,
+            )
 
             frame_count = 0
             while frame_count < self._max_frames:
