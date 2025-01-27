@@ -117,7 +117,8 @@ class PtImageBlender(torch.jit.ScriptModule):
         for bli in images_info:
             self._image_positions.append((bli.xpos, bli.ypos))
         self._seam_mask = seam_mask.clone()
-        self._xor_mask = xor_mask.clone()
+        # self._xor_mask = xor_mask.clone() if xor_mask is not None else None
+        self._xor_mask = None
         self._dtype: torch.dtype = dtype
         self.max_levels: int = max_levels if laplacian_blend else 0
         if laplacian_blend:
@@ -131,8 +132,8 @@ class PtImageBlender(torch.jit.ScriptModule):
             self._laplacian_blend.to(seam_mask.device)
         else:
             self._laplacian_blend: bool = None
-        assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
-        assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
+        # assert self._seam_mask.shape[1] == self._xor_mask.shape[1]
+        # assert self._seam_mask.shape[0] == self._xor_mask.shape[0]
 
         # Final misc init
         self._unique_values = None
@@ -500,13 +501,13 @@ class SmartRemapperBlender(torch.nn.Module):
         else:
             self._seam_tensor = None
         self._xor_mask_tensor = None
-        if xor_mask_tensor is not None:
-            self.register_buffer(
-                "_xor_mask_tensor",
-                self.convert_mask_tensor(xor_mask_tensor if xor_mask_tensor is not None else None),
-            )
-        else:
-            self._xor_mask_tensor = None
+        # if xor_mask_tensor is not None:
+        #     self.register_buffer(
+        #         "_xor_mask_tensor",
+        #         self.convert_mask_tensor(xor_mask_tensor if xor_mask_tensor is not None else None),
+        #     )
+        # else:
+        #     self._xor_mask_tensor = None
         self._init()
 
     def _init(self) -> None:
