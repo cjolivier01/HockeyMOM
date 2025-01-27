@@ -279,6 +279,8 @@ def make_seam_and_xor_masks(
     basename: str,
     images_and_positions: List[ImageAndPos] = None,
     force: bool = False,
+    use_enblend_tool: bool = True,
+    # use_enblend_tool: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert images_and_positions is None or len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
@@ -299,7 +301,7 @@ def make_seam_and_xor_masks(
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename):
-        if core.EnBlender is not None:
+        if not use_enblend_tool and core.EnBlender is not None:
             blender = core.EnBlender(
                 args=[
                     f"--save-seams",
@@ -322,7 +324,6 @@ def make_seam_and_xor_masks(
                 right_xy_pos=[images_and_positions[1].xpos, images_and_positions[1].ypos],
             )
         else:
-            print("No Enblender on this platform, so no seam file is available")
             curr_dir = os.getcwd()
             os.chdir(dir_name)
             try:
