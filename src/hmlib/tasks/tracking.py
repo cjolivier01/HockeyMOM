@@ -146,7 +146,6 @@ def run_mmtrack(
                         detection_image = make_channels_first(detection_image)
                         if isinstance(detection_image, StreamTensor):
                             detection_image.verbose = True
-                            # detection_image = detection_image.get()
                             detection_image = detection_image.wait(cuda_stream)
 
                         if detection_image.device != device:
@@ -176,11 +175,7 @@ def run_mmtrack(
                                 data = model(return_loss=False, rescale=True, **data)
 
                         detect_timer.toc()
-                        # del data["img"]
-                        # del detection_image
                         track_data_sample = data["data_samples"]
-                        # assert len(tracking_results) == 1
-                        # track_data_sample: TrackDataSample = tracking_results[0]
                         nr_tracks = int(
                             track_data_sample.video_data_samples[0].metainfo["nr_tracks"]
                         )
@@ -191,20 +186,6 @@ def run_mmtrack(
                             max_tracking_id = torch.max(tracking_ids)
                     else:
                         assert False
-                        # track_data_sample = data["data_samples"]
-                        # We will be adding "pred_track_instances"
-                        # assert not hasattr(track_data_sample, "pred_track_instances")
-
-                        # df_tracking_data = tracking_dataframe[frame_id]
-                        # track_data_sample.pred_track_instances = InstanceData(
-                        #     instances_id=df_tracking_data["tracking_ids"],
-                        #     bboxes=df_tracking_data["bboxes"],
-                        #     scores=df_tracking_data["scores"],
-                        #     labels=df_tracking_data["labels"],
-                        # )
-
-                        # if "original_images" not in data:
-                        #     data["original_images"] = origin_imgs
 
                     if True:
                         jersey_results = data.get("jersey_results")
@@ -222,7 +203,7 @@ def run_mmtrack(
                             if not using_precalculated_tracking:
                                 if tracking_dataframe is not None:
                                     tracking_dataframe.add_frame_records(
-                                        frame_id=frame_id,
+                                        frame_id=frame_id + frame_index,
                                         tracking_ids=pred_track_instances.instances_id,
                                         tlbr=pred_track_instances.bboxes,
                                         scores=pred_track_instances.scores,
@@ -258,10 +239,6 @@ def run_mmtrack(
                                 data_to_send["pose_results"] = pose_results
 
                         if postprocessor is not None:
-                            # if isinstance(origin_imgs, StreamTensor):
-                            #     origin_imgs.verbose = True
-                            #     origin_imgs = origin_imgs.get()
-                            # tracking_results, detections, online_tlwhs = (
                             results = postprocessor.process_tracking(results=data_to_send)
                             results = None
 
@@ -288,8 +265,6 @@ def run_mmtrack(
                                         config=config,
                                         pose_inferencer=pose_inferencer,
                                         cur_frame=make_channels_last(origin_imgs).wait().squeeze(0),
-                                        # dataset=pose_dataset_type,
-                                        # dataset_info=pose_dataset_info,
                                         tracking_results=tracking_results,
                                         smooth=config["smooth"],
                                         show=config["plot_pose"],
