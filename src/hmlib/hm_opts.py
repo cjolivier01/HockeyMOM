@@ -312,7 +312,8 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--python-blender",
-            action="store_true",
+            type=int,
+            default=1,
             help="Use the pythonb lending code (should be identical to C++, but may have performance differences)",
         )
         parser.add_argument(

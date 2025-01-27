@@ -550,7 +550,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 half=False,
                 levels=self._blend_levels,
                 seam=self._seam_tensor,
-                xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
+                # xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
                 lazy_init=True,
                 interpolation="bilinear",
                 # add_alpha_channel=self._add_alpha_channel,
