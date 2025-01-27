@@ -11,15 +11,13 @@ from hmlib.tracking_utils.tracking_dataframe import convert_tlbr_to_tlwh
 class CameraTrackingDataFrame(HmDataFrameBase):
 
     def __init__(self, *args, input_batch_size: int, **kwargs):
-        fields: List[str] = (
-            [
-                "Frame",
-                "BBox_X",
-                "BBox_Y",
-                "BBox_W",
-                "BBox_H",
-            ],
-        )
+        fields: List[str] = [
+            "Frame",
+            "BBox_X",
+            "BBox_Y",
+            "BBox_W",
+            "BBox_H",
+        ]
         super().__init__(*args, fields=fields, input_batch_size=input_batch_size, **kwargs)
 
     def add_frame_records(

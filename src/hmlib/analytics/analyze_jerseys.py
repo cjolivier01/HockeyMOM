@@ -41,6 +41,98 @@ class JerseyTimeIntervals:
     intervals: List[TimeInterval] = None
 
 
+@dataclass
+class CrowdedPeriod:
+    start_time: float  # in seconds
+    end_time: float  # in seconds
+    avg_track_count: float
+
+
+def find_crowded_periods(
+    frame_tracks: Dict[int, Set[int]],
+    fps: float,
+    min_tracks: int,
+    min_duration: float,
+    occupancy_threshold: float = 0.9,
+) -> List[CrowdedPeriod]:
+    """
+    Find periods where there are more than min_tracks active for at least min_duration seconds.
+
+    Args:
+        frame_tracks: Dictionary mapping frame_id to set of active track IDs
+        fps: Frames per second
+        min_tracks: Minimum number of concurrent tracks required
+        min_duration: Minimum duration in seconds
+        occupancy_threshold: Minimum fraction of frames that must have min_tracks or more tracks
+                           within the period (default: 0.9)
+
+    Returns:
+        List of CrowdedPeriod objects containing start_time, end_time, and average track count
+    """
+    if not frame_tracks:
+        return []
+
+    # Convert to numpy array for efficient processing
+    max_frame = max(frame_tracks.keys())
+    track_counts = np.zeros(max_frame + 1, dtype=int)
+
+    # Fill in track counts for each frame
+    for frame_id, tracks in frame_tracks.items():
+        track_counts[frame_id] = len(tracks)
+
+    # Convert frames to times
+    frame_times = np.arange(len(track_counts)) / fps
+
+    # Minimum number of frames for the required duration
+    min_frames = int(min_duration * fps)
+
+    if min_frames <= 0:
+        raise ValueError("min_duration must result in at least 1 frame")
+
+    crowded_periods = []
+    start_frame = 0
+
+    while start_frame < len(track_counts) - min_frames:
+        # Look at a window of min_frames
+        window = track_counts[start_frame : start_frame + min_frames]
+
+        # Check if enough frames in the window have sufficient tracks
+        crowded_frames = np.sum(window >= min_tracks)
+        occupancy_rate = crowded_frames / min_frames
+
+        if occupancy_rate >= occupancy_threshold:
+            # Found a qualifying window, try to extend it
+            end_frame = start_frame + min_frames
+
+            while (
+                end_frame < len(track_counts)
+                and np.sum(track_counts[start_frame:end_frame] >= min_tracks)
+                / (end_frame - start_frame)
+                >= occupancy_threshold
+            ):
+                end_frame += 1
+
+            # Back up one frame since the last extension failed
+            end_frame -= 1
+
+            # Calculate average number of tracks in this period
+            avg_tracks = np.mean(track_counts[start_frame:end_frame])
+
+            period = CrowdedPeriod(
+                start_time=frame_times[start_frame],
+                end_time=frame_times[end_frame],
+                avg_track_count=float(avg_tracks),
+            )
+            crowded_periods.append(period)
+
+            # Start looking after this period
+            start_frame = end_frame
+        else:
+            start_frame += 1
+
+    return crowded_periods
+
+
 def split_by_lg_10(numbers: List[int]) -> Tuple[List[int], List[int]]:
     less_than_10: List[int] = []
     greater_than_10: List[int] = []
@@ -274,6 +366,10 @@ def panoramic_distance(image_width, x1, x2, rink_width=200):
 def merge_intervals(
     intervals: List[Tuple[float, float]], min_difference: float
 ) -> List[Tuple[float, float]]:
+
+    if not intervals:
+        return intervals
+
     # Sort intervals by start time
     intervals.sort()
 
@@ -317,21 +413,20 @@ def analyze_data(
     track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     # frame_id -> tracking_id -> velocity
     frame_track_velocity: Dict[int, Dict[int, float]] = {}
-    # player_tracking_iter = iter(DataFrameDataset(player_tracking_data))
-    player_tracking_iter = iter(player_tracking_data)
-    # camera_tracking_iter = (
-    #     iter(camera_tracking_data) if camera_tracking_data is not None else camera_tracking_data
-    # )
+    player_tracking_iter: Iterator[Dict[str, Any] | None] = iter(player_tracking_data)
+
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
     seen_numbers: Set[int] = set()
     item_count: int = 0
     min_score: float = 0.7
 
-    # camera_tracking_item = next(camera_tracking_iter)
+    # More than this number of active tracks for 2s or more,
+    # then it's a full shift-change (usually at a faceoff)
+    track_count_shift_change_threshhold: int = 15
 
-    max_frame_id = 0
-    # max_frame_id = 10000
+    # max_frame_id = 0
+    max_frame_id = 10000
 
     try:
         last_frame_id = 0
@@ -353,6 +448,7 @@ def analyze_data(
                 jersey_item = json_to_dataclass(player_tracking_item.JerseyInfo, TrackJerseyInfo)
                 if jersey_item.tracking_id < 0:
                     # Add bad use-case json string for speedy skipping
+                    print(f"Ignoring jersey record case: {player_tracking_item.JerseyInfo}")
                     empty_json_set.add(player_tracking_item.JerseyInfo)
                     jersey_item = None
                 else:
@@ -365,7 +461,10 @@ def analyze_data(
             prev_frame_stuff = track_id_to_last_frame_id.get(row_tracking_id)
             if prev_frame_stuff is not None:
                 prev_frame_id, prev_center = prev_frame_stuff
-                assert prev_frame_id != frame_id
+                if prev_frame_id == frame_id:
+                    pass
+                assert prev_frame_id <= frame_id
+                # assert prev_frame_id != frame_id
                 # FIXME: batch size issue when saving frame data (hence the 2)
                 if prev_frame_id == frame_id - 1 or prev_frame_id == frame_id - 2:
                     pandist_x = panoramic_distance(
@@ -406,6 +505,15 @@ def analyze_data(
     print(f"Unique player numbers seen: {len(seen_numbers)}")
     print(f"Tracks seen with numbers: {len(tracking_id_to_numbers)}")
 
+    crowded_periods = find_crowded_periods(
+        frame_tracks=frame_to_tracking_ids,
+        fps=29.97,
+        min_tracks=10,
+        min_duration=2.0,
+        occupancy_threshold=0.4,
+    )
+    print(crowded_periods)
+
     period_intervals = {
         "min_velocity": 0.2,
         "min_frames": 30,
@@ -422,12 +530,12 @@ def analyze_data(
     show_time_intervals("Period breaks", merged_period_breaks)
 
     faceoff_intervals = {
-        "min_velocity": 0.3,
-        # "min_velocity": 0.4,
+        # "min_velocity": 0.3,
+        "min_velocity": 0.4,
         # "min_frames": 30,
         "min_frames": 20,
-        # "min_slow_track_ratio": 0.7,
-        "min_slow_track_ratio": 0.8,
+        "min_slow_track_ratio": 0.7,
+        # "min_slow_track_ratio": 0.8,
     }
     faceoff_breaks = find_low_velocity_ranges(data=frame_track_velocity, **faceoff_intervals)
     # print("Unmerged faceoff breaks:")
