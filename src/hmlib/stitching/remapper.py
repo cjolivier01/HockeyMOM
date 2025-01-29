@@ -186,23 +186,26 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
 
-            self._working_w = max(src_w, self._dest_w)
-            self._working_h = max(src_h, self._dest_h)
+            # self._working_w = max(src_w, self._dest_w)
+            # self._working_h = max(src_h, self._dest_h)
 
-            col_map = pad_tensor_to_size_batched(
-                col_map.unsqueeze(0),
-                self._working_w,
-                self._working_h,
-                self.UNMAPPED_PIXEL_VALUE,
-            ).squeeze(0)
-            assert image_width(col_map) == self._working_w
-            assert image_height(col_map) == self._working_h
-            row_map = pad_tensor_to_size_batched(
-                row_map.unsqueeze(0),
-                self._working_w,
-                self._working_h,
-                self.UNMAPPED_PIXEL_VALUE,
-            ).squeeze(0)
+            self._working_w = self._dest_w
+            self._working_h = self._dest_h
+
+            # col_map = pad_tensor_to_size_batched(
+            #     col_map.unsqueeze(0),
+            #     self._working_w,
+            #     self._working_h,
+            #     self.UNMAPPED_PIXEL_VALUE,
+            # ).squeeze(0)
+            # assert image_width(col_map) == self._working_w
+            # assert image_height(col_map) == self._working_h
+            # row_map = pad_tensor_to_size_batched(
+            #     row_map.unsqueeze(0),
+            #     self._working_w,
+            #     self._working_h,
+            #     self.UNMAPPED_PIXEL_VALUE,
+            # ).squeeze(0)
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,

@@ -25,7 +25,7 @@ from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
 
-MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
+# MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
 
 
 def get_tiff_tag_value(tiff_tag):
@@ -182,21 +182,21 @@ def build_stitching_project(
         ]
         os.system(" ".join(cmd))
 
-        if test_blend or True:
-            if os.path.exists(MULTIBLEND_BIN):
-                cmd = [
-                    MULTIBLEND_BIN,
-                    # "--save-seams",
-                    # os.path.join(dir_name, "seam_file.png"),
-                    # "--save-xor",
-                    # os.path.join(dir_name, "xor_file.png"),
-                    "-o",
-                    os.path.join(dir_name, "panorama.tif"),
-                    os.path.join(dir_name, "mapping_????.tif"),
-                ]
-            else:
-                print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
-            os.system(" ".join(cmd))
+        # if test_blend or True:
+        #     if os.path.exists(MULTIBLEND_BIN):
+        #         cmd = [
+        #             MULTIBLEND_BIN,
+        #             # "--save-seams",
+        #             # os.path.join(dir_name, "seam_file.png"),
+        #             # "--save-xor",
+        #             # os.path.join(dir_name, "xor_file.png"),
+        #             "-o",
+        #             os.path.join(dir_name, "panorama.tif"),
+        #             os.path.join(dir_name, "mapping_????.tif"),
+        #         ]
+        #     else:
+        #         print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
+        #     os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
