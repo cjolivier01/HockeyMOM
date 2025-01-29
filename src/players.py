@@ -1,4 +1,5 @@
 import os
+import math
 import traceback
 from collections import defaultdict
 from dataclasses import dataclass
@@ -96,19 +97,33 @@ if __name__ == "__main__":
                     for i, time_interval in enumerate(jersey_time_interval.intervals):
                         interval_start_adjust = -3.0
                         st = time_interval.start_time + interval_start_adjust  # Go back 3 seconds
-                        dur = time_interval.duration - interval_start_adjust
-                        f.write(f"file '{input_file}'\n")
-                        f.write(f"inpoint {st}\n")
-                        if dur == float("inf"):
-                            dur = "..."
-                            end_time_hhmmss = "..."
+                        st = max(0, st)
+                        if True:
+                            end = time_interval.start_time + time_interval.duration
+                            if math.isfinite(st):
+                                from_time: str = format_duration_to_hhmmss(st, decimals=0)
+                                if math.isfinite(end):
+                                    to_time: str = format_duration_to_hhmmss(end, decimals=0)
+                                else:
+                                    to_time = ""
+                                print(f"{from_time}    {to_time}")
+                                f.write(f"{from_time}    {to_time}\n")
+                            else:
+                                print(f"Bad range: {st=}, {end=}")
                         else:
-                            f.write(f"outpoint {st + dur}\n")
-                            end_time_hhmmss = format_duration_to_hhmmss(st + dur, decimals=0)
-                        start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
-                        print(
-                            f"\tShift {i}: From {start_time_hhmmss} to {end_time_hhmmss}, shift for {dur} seconds"
-                        )
+                            dur = time_interval.duration - interval_start_adjust
+                            f.write(f"file '{input_file}'\n")
+                            f.write(f"inpoint {st}\n")
+                            if dur == float("inf"):
+                                dur = "..."
+                                end_time_hhmmss = "..."
+                            else:
+                                f.write(f"outpoint {st + dur}\n")
+                                end_time_hhmmss = format_duration_to_hhmmss(st + dur, decimals=0)
+                            start_time_hhmmss = format_duration_to_hhmmss(st, decimals=0)
+                            print(
+                                f"\tShift {i}: From {start_time_hhmmss} to {end_time_hhmmss}, shift for {dur} seconds"
+                            )
                 player_video = f"player_{player}.mkv"
                 ffmpeg_command = f'ffmpeg -f concat -safe 0 -segment_time_metadata 1 -i {player_file_path}  -b:v 5M -c:v hevc_nvenc -vf "select=concatdec_select" -af "aselect=concatdec_select,aresample=async=1" {player_video}'
                 print(ffmpeg_command)

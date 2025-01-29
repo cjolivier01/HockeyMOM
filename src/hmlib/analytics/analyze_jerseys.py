@@ -425,8 +425,8 @@ def analyze_data(
     # then it's a full shift-change (usually at a faceoff)
     track_count_shift_change_threshhold: int = 15
 
-    # max_frame_id = 0
-    max_frame_id = 10000
+    max_frame_id = 0
+    # max_frame_id = 10000
 
     try:
         last_frame_id = 0
@@ -508,8 +508,8 @@ def analyze_data(
     crowded_periods = find_crowded_periods(
         frame_tracks=frame_to_tracking_ids,
         fps=29.97,
-        min_tracks=10,
-        min_duration=2.0,
+        min_tracks=15,
+        min_duration=1.0,
         occupancy_threshold=0.4,
     )
     print(crowded_periods)
