@@ -124,10 +124,10 @@ if __name__ == "__main__":
                             print(
                                 f"\tShift {i}: From {start_time_hhmmss} to {end_time_hhmmss}, shift for {dur} seconds"
                             )
-                player_video = f"player_{player}.mkv"
-                ffmpeg_command = f'ffmpeg -f concat -safe 0 -segment_time_metadata 1 -i {player_file_path}  -b:v 5M -c:v hevc_nvenc -vf "select=concatdec_select" -af "aselect=concatdec_select,aresample=async=1" {player_video}'
-                print(ffmpeg_command)
-                sf.write(f"{ffmpeg_command}\n")
+                # player_video = f"player_{player}.mkv"
+                # ffmpeg_command = f'ffmpeg -f concat -safe 0 -segment_time_metadata 1 -i {player_file_path}  -b:v 5M -c:v hevc_nvenc -vf "select=concatdec_select" -af "aselect=concatdec_select,aresample=async=1" {player_video}'
+                # print(ffmpeg_command)
+                # sf.write(f"{ffmpeg_command}\n")
         print(f"Saved player highlight creation script to {shell_file}")
 
     except Exception:
