@@ -31,10 +31,12 @@ def validate_timestamp(timestamp):
         return False
 
 
-_DEBUG = False
+_DEBUG = True
 
 ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
+# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
+# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_FAST = "-c:v mpeg4 -preset ultrafast -crf 23".split(" ")
 ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
@@ -43,6 +45,7 @@ if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
+    assert False
 else:
     # Debugging, faster, lower quality encoding
     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
@@ -266,8 +269,14 @@ def main():
         if not line or line[0] == "#":
             continue
         print(f"{line=}")
-        start_time, end_time = line.replace("\t", " ").strip().split(" ")
-        if not all(validate_timestamp(t) for t in [start_time, end_time]):
+        time_tokens = line.replace("\t", " ").strip().split(" ")
+
+        end_time = ""
+        start_time = time_tokens[0]
+        if len(time_tokens) > 1:
+            end_time = time_tokens[1]
+
+        if not all(validate_timestamp(t) for t in time_tokens):
             raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
 
         # Extract clip
