@@ -46,7 +46,6 @@ if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
-    assert False
 else:
     # Debugging, faster, lower quality encoding
     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
