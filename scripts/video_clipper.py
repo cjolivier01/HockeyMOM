@@ -31,7 +31,7 @@ def validate_timestamp(timestamp):
         return False
 
 
-_DEBUG = True
+_DEBUG = False
 
 ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
 ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
@@ -103,7 +103,10 @@ def get_audio_sample_rate(file_path: str):
 def extract_clip(
     input_video: str, start_time: str, end_time: str, clip_file: str, rate_k: int = 192
 ) -> None:
-    duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+    if end_time:
+        duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+    else:
+        duration = None
     cmd = (
         FFMPEG_BASE_HW
         + FFMPEG_CUDA_DECODER
@@ -112,8 +115,15 @@ def extract_clip(
             start_time,
             "-i",
             input_video,
+        ]
+    )
+    if duration is not None:
+        cmd += [
             "-t",
             str(duration),
+        ]
+    cmd += (
+        [
             "-c:a",
             "aac",
         ]
@@ -123,6 +133,7 @@ def extract_clip(
             clip_file,
         ]
     )
+
     subprocess.run(cmd, check=True)
 
 
@@ -215,6 +226,7 @@ def main():
     parser.add_argument("input_video", help="Input video file")
     parser.add_argument("timestamps_file", help="File containing timestamps")
     parser.add_argument("label", help="Text label for transitions")
+    parser.add_argument("--quick", type=int, default=0, help="Quick mode (lower quality)")
     args = parser.parse_args()
 
     # Get video dimensions
@@ -256,7 +268,7 @@ def main():
         print(f"{line=}")
         start_time, end_time = line.replace("\t", " ").strip().split(" ")
         if not all(validate_timestamp(t) for t in [start_time, end_time]):
-            raise ValueError(f"Invalid timestamp format in line {i+1}")
+            raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
 
         # Extract clip
         clip_file = f"{temp_dir}/clip_{i}.mp4"
