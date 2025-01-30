@@ -3,6 +3,7 @@ import os
 import re
 import time
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
@@ -270,7 +271,8 @@ def apply_homography(image_path: str, H: np.ndarray) -> None:
     transformed_image = cv2.warpPerspective(image, H, (width, height))
 
     # Save & display the result
-    output_path = "transformed_" + image_path
+    image_path = Path(image_path)
+    output_path = str(image_path.parent / f"transformed_{image_path.name}")
     cv2.imwrite(output_path, transformed_image)
     print(f"Transformed image saved as {output_path}")
 
