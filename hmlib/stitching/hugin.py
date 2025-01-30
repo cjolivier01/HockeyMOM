@@ -1,10 +1,11 @@
+import math
 import os
 import re
 import time
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import cv2
+import numpy as np
 import torch
 
 from hmlib.stitching.control_points import calculate_control_points
@@ -173,3 +174,95 @@ def configure_control_points(
         pto_file.append(line)
     save_pto_file(file_path=project_file_path, data=pto_file)
     print("Done with control points")
+
+
+def parse_pto_transformations(lines: List[str]) -> List[Dict[str, Any]]:
+    image_params: List[Dict[str, Any]] = []
+    for line in lines:
+        if line.startswith("i "):  # Image transformation line
+            params: Dict[str, Any] = {}
+
+            # Euler angles (fallback if quaternion missing)
+            params["yaw"] = float(re.search(r"y(-?\d+\.?\d*)", line).group(1))  # type: ignore
+            params["pitch"] = float(re.search(r"p(-?\d+\.?\d*)", line).group(1))  # type: ignore
+            params["roll"] = float(re.search(r"r(-?\d+\.?\d*)", line).group(1))  # type: ignore
+
+            # Field of view & image dimensions
+            params["fov"] = float(re.search(r"v(-?\d+\.?\d*)", line).group(1))  # type: ignore
+            params["width"] = int(re.search(r"w(\d+)", line).group(1))  # type: ignore
+            params["height"] = int(re.search(r"h(\d+)", line).group(1))  # type: ignore
+
+            # Optional translations
+            params["TrX"] = float(re.search(r"TrX(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["TrY"] = float(re.search(r"TrY(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["TrZ"] = float(re.search(r"TrZ(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+
+            # Lens distortion parameters (optional)
+            params["b"] = float(re.search(r"b(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["c"] = float(re.search(r"c(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["d"] = float(re.search(r"d(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["e"] = float(re.search(r"e(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+            params["g"] = float(re.search(r"g(-?\d+\.?\d*)", line).group(1) or 0.0)  # type: ignore
+
+            # Quaternion rotation (if available)
+            try:
+                params["Ra"] = float(re.search(r"Ra(-?\d+\.?\d*)", line).group(1))  # type: ignore
+                params["Rb"] = float(re.search(r"Rb(-?\d+\.?\d*)", line).group(1))  # type: ignore
+                params["Rc"] = float(re.search(r"Rc(-?\d+\.?\d*)", line).group(1))  # type: ignore
+                params["Rd"] = float(re.search(r"Rd(-?\d+\.?\d*)", line).group(1))  # type: ignore
+                params["Re"] = float(re.search(r"Re(-?\d+\.?\d*)", line).group(1))  # type: ignore
+                params["use_quaternion"] = True
+            except AttributeError:
+                params["use_quaternion"] = False
+
+            image_params.append(params)
+
+    return image_params
+
+
+def euler_to_rotation_matrix(yaw: float, pitch: float, roll: float) -> np.ndarray:
+    """Convert yaw, pitch, roll to a 3×3 rotation matrix."""
+    yaw, pitch, roll = map(math.radians, [yaw, pitch, roll])
+
+    Rz: np.ndarray = np.array(
+        [[math.cos(yaw), -math.sin(yaw), 0], [math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]]
+    )
+
+    Ry: np.ndarray = np.array(
+        [[math.cos(pitch), 0, math.sin(pitch)], [0, 1, 0], [-math.sin(pitch), 0, math.cos(pitch)]]
+    )
+
+    Rx: np.ndarray = np.array(
+        [[1, 0, 0], [0, math.cos(roll), -math.sin(roll)], [0, math.sin(roll), math.cos(roll)]]
+    )
+
+    return Rz @ Ry @ Rx  # Combined rotation matrix
+
+
+def compute_homography(params: Dict[str, Any]) -> np.ndarray:
+    """Compute the homography matrix from extracted .pto parameters."""
+    R: np.ndarray = euler_to_rotation_matrix(params["yaw"], params["pitch"], params["roll"])
+
+    # Compute focal length from FOV
+    f: float = (0.5 * params["width"]) / math.tan(math.radians(params["fov"]) / 2)
+
+    # Intrinsic camera matrix
+    K: np.ndarray = np.array([[f, 0, params["width"] / 2], [0, f, params["height"] / 2], [0, 0, 1]])
+
+    # Approximate homography (assuming Z=0)
+    H: np.ndarray = K @ R @ np.linalg.inv(K)
+
+    return H
+
+
+# Compute homographies for each image
+# homographies = [compute_homography(img) for img in image_data]
+
+# # Print results
+# for i, H in enumerate(homographies):
+#     print(f"Homography Matrix for Image {i}:\n", H)
+
+if __name__ == "__main__":
+    lines = load_pto_file(f"{os.environ['HOME']}/Videos/pdp/autooptimiser_out.pto")
+    params = parse_pto_transformations(lines)
+    pass

@@ -10,7 +10,7 @@ import yaml
 from hmlib.bbox.box_functions import scale_bbox_with_constraints
 
 GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
-ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 @dataclass
