@@ -272,7 +272,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, source_image: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
@@ -313,6 +313,7 @@ class ImageRemapper(torch.jit.ScriptModule):
                     align_corners=False,
                 )
                 # destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
+        assert self._unmapped_mask.shape[-2] == destination_tensor.shape[-2]
         destination_tensor[:, :, self._unmapped_mask] = 0
 
         # Add an alpha channel if necessary
@@ -321,6 +322,8 @@ class ImageRemapper(torch.jit.ScriptModule):
             # destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
 
         # Clip to the original size that was specified
+        assert self._dest_h <= destination_tensor.shape[-2]
+        assert self._dest_w <= destination_tensor.shape[-1]
         destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
         return destination_tensor
 

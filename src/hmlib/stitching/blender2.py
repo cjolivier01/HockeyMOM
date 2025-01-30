@@ -7,12 +7,15 @@ import datetime
 import logging
 import os
 import traceback
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+import onnx
 import torch
+import torch2trt
 
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
@@ -497,6 +500,8 @@ class SmartRemapperBlender(torch.nn.Module):
         self._device = device
         self._overlapping_width = None
         self._empty_image_pixel_value: int = 0
+        self._use_trt: bool = False
+        self._trt_blender: Optional[torch2trt.TRTModule] = None
         if seam_tensor is not None:
             self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
         else:
@@ -691,26 +696,44 @@ class SmartRemapperBlender(torch.nn.Module):
             ]
             alpha_mask_2 = alpha_mask_2[:, : self._overlapping_width + self._overlap_pad]
             assert remapped_image_2.shape[-2:] == alpha_mask_2.shape
-        fwd_args = dict(
+        fwd_args = OrderedDict(
             image_1=remapped_image_1.to(self._dtype, non_blocking=True),
             image_2=remapped_image_2.to(self._dtype, non_blocking=True),
         )
         if self._use_python_blender:
             fwd_args.update(
-                dict(
+                OrderedDict(
                     alpha_mask_1=alpha_mask_1,
                     alpha_mask_2=alpha_mask_2,
                 )
             )
         else:
             fwd_args.update(
-                dict(
+                OrderedDict(
                     xy_pos_1=[self._remapper_1.xpos, self._remapper_1.ypos],
                     xy_pos_2=[self._remapper_2.xpos, self._remapper_2.ypos],
                 )
             )
 
-        blended_img = self._blender.forward(**fwd_args)
+        if not self._use_trt:
+            blended_img = self._blender.forward(*values)
+        elif self._trt_blender is None:
+            # shapes: List[Any] = []
+            values: List[torch.Tensor] = [
+                fwd_args["image_1"],
+                fwd_args["alpha_mask_1"],
+                fwd_args["image_2"],
+                fwd_args["alpha_mask_2"],
+            ]
+            self._trt_blender: torch2trt.TRTModule = torch2trt.torch2trt(
+                self._blender, values, fp16_mode=False, max_workspace_size=1 << 25
+            )
+        blended_img = self._trt_blender(
+            fwd_args["image_1"],
+            fwd_args["alpha_mask_1"],
+            fwd_args["image_2"],
+            fwd_args["alpha_mask_2"],
+        )
 
         if self._minimize_blend:
             canvas[
@@ -814,6 +837,29 @@ class ImageStitcher(torch.nn.Module):
 
     def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         # show_image("inputs[0]", inputs[0], wait=False)
+        # path = "remapper.onnx"
+        # # Export to ONNX
+        # torch.onnx.export(
+        #     self._remapper_1,
+        #     inputs[0],
+        #     path=path,
+        #     verbose=True,
+        #     input_names=["input"],
+        #     output_names=["output"],
+        #     dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+        #     opset_version=13,
+        #     do_constant_folding=True,
+        # )
+
+        # # Verify ONNX model
+        # onnx_model = onnx.load(path)
+        # onnx.checker.check_model(onnx_model)
+        # print("ONNX export successful and verified!")
+        # return path
+
+        # self._rm_trt1: torch2trt.TRTModule = torch2trt.torch2trt(
+        #     self._remapper_1, [inputs[0]], fp16_mode=False, max_workspace_size=1 << 25
+        # )
         remapped_tensor_1 = self._remapper_1.forward(source_image=inputs[0])
         remapped_tensor_2 = self._remapper_2.forward(source_image=inputs[1])
         # show_image("remapped_tensor_1", remapped_tensor_1, wait=False)
