@@ -186,26 +186,29 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
 
-            # self._working_w = max(src_w, self._dest_w)
-            # self._working_h = max(src_h, self._dest_h)
+            if True:
+                self._working_w = self._dest_w
+                self._working_h = self._dest_h
+            else:
+                # Is it really necessary  to do this?
+                # If src is smaller than dest, that was a problem, right?
+                self._working_w = max(src_w, self._dest_w)
+                self._working_h = max(src_h, self._dest_h)
 
-            self._working_w = self._dest_w
-            self._working_h = self._dest_h
-
-            # col_map = pad_tensor_to_size_batched(
-            #     col_map.unsqueeze(0),
-            #     self._working_w,
-            #     self._working_h,
-            #     self.UNMAPPED_PIXEL_VALUE,
-            # ).squeeze(0)
-            # assert image_width(col_map) == self._working_w
-            # assert image_height(col_map) == self._working_h
-            # row_map = pad_tensor_to_size_batched(
-            #     row_map.unsqueeze(0),
-            #     self._working_w,
-            #     self._working_h,
-            #     self.UNMAPPED_PIXEL_VALUE,
-            # ).squeeze(0)
+                col_map = pad_tensor_to_size_batched(
+                    col_map.unsqueeze(0),
+                    self._working_w,
+                    self._working_h,
+                    self.UNMAPPED_PIXEL_VALUE,
+                ).squeeze(0)
+                assert image_width(col_map) == self._working_w
+                assert image_height(col_map) == self._working_h
+                row_map = pad_tensor_to_size_batched(
+                    row_map.unsqueeze(0),
+                    self._working_w,
+                    self._working_h,
+                    self.UNMAPPED_PIXEL_VALUE,
+                ).squeeze(0)
             mask = torch.logical_or(
                 row_map == self.UNMAPPED_PIXEL_VALUE,
                 col_map == self.UNMAPPED_PIXEL_VALUE,
@@ -272,23 +275,23 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    # @torch.jit.script_method
-    def forward(self, source_image: torch.Tensor) -> torch.Tensor:
+    @torch.jit.script_method
+    def forward(self, source_tensor: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
         # make sure channel is where we expect it to be
-        assert source_image.shape[1] in [3, 4]
-        if not isinstance(source_image, torch.Tensor):
+        assert source_tensor.shape[1] in [3, 4]
+        if not isinstance(source_tensor, torch.Tensor):
             assert False
-            source_image = torch.from_numpy(source_image)
+            source_tensor = torch.from_numpy(source_tensor)
 
         if self._use_cpp_remap_op:
             assert self._remap_op is not None
-            return self._remap_op.remap(source_image)
+            return self._remap_op.remap(source_tensor)
 
         # Per frame code
         source_tensor = pad_tensor_to_size_batched(
-            source_image, self._working_w, self._working_h, 0
+            source_tensor, self._working_w, self._working_h, 0
         )
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 3:  # Single channel

@@ -383,6 +383,8 @@ class LaplacianBlend(torch.jit.ScriptModule):
             canvas_h=canvas_h,
         )
 
+        # For unmapped pixels, put pixels from the other image there, or else
+        # it will get interpolated towards black.
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
 
