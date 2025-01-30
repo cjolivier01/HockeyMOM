@@ -717,23 +717,24 @@ class SmartRemapperBlender(torch.nn.Module):
 
         if not self._use_trt:
             blended_img = self._blender.forward(*values)
-        elif self._trt_blender is None:
-            # shapes: List[Any] = []
-            values: List[torch.Tensor] = [
+        else:
+            if self._trt_blender is None:
+                # shapes: List[Any] = []
+                values: List[torch.Tensor] = [
+                    fwd_args["image_1"],
+                    fwd_args["alpha_mask_1"],
+                    fwd_args["image_2"],
+                    fwd_args["alpha_mask_2"],
+                ]
+                self._trt_blender: torch2trt.TRTModule = torch2trt.torch2trt(
+                    self._blender, values, fp16_mode=False, max_workspace_size=1 << 25
+                )
+            blended_img = self._trt_blender(
                 fwd_args["image_1"],
                 fwd_args["alpha_mask_1"],
                 fwd_args["image_2"],
                 fwd_args["alpha_mask_2"],
-            ]
-            self._trt_blender: torch2trt.TRTModule = torch2trt.torch2trt(
-                self._blender, values, fp16_mode=False, max_workspace_size=1 << 25
             )
-        blended_img = self._trt_blender(
-            fwd_args["image_1"],
-            fwd_args["alpha_mask_1"],
-            fwd_args["image_2"],
-            fwd_args["alpha_mask_2"],
-        )
 
         if self._minimize_blend:
             canvas[
