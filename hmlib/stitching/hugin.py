@@ -257,6 +257,34 @@ def compute_homography(params: Dict[str, Any]) -> np.ndarray:
     return H
 
 
+def compute_output_size(image: np.ndarray, H: np.ndarray) -> tuple[int, int, np.ndarray]:
+    """Compute the ideal width and height after applying the homography."""
+    height, width = image.shape[:2]
+
+    # Define the four corners of the image
+    corners = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype=np.float32)
+
+    # Convert to homogeneous coordinates (add a 1 for matrix multiplication)
+    corners = np.hstack([corners, np.ones((4, 1))])
+
+    # Transform the corners using the homography matrix
+    transformed_corners = H @ corners.T
+    transformed_corners /= transformed_corners[2]  # Normalize by third coordinate
+
+    # Get min/max x and y coordinates
+    x_min, y_min = np.min(transformed_corners[:2], axis=1)
+    x_max, y_max = np.max(transformed_corners[:2], axis=1)
+
+    # Compute new width and height
+    new_width = int(np.ceil(x_max - x_min))
+    new_height = int(np.ceil(y_max - y_min))
+
+    # Translation matrix to shift transformed image into positive coordinates
+    translation_matrix = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]], dtype=np.float32)
+
+    return new_width, new_height, translation_matrix
+
+
 def apply_homography(image_path: str, H: np.ndarray) -> None:
     """Apply homography transformation to an image using OpenCV."""
     image: np.ndarray = cv2.imread(image_path)
@@ -282,6 +310,35 @@ def apply_homography(image_path: str, H: np.ndarray) -> None:
     cv2.destroyAllWindows()
 
 
+def apply_homography_with_size_compute(image_path: str, H: np.ndarray) -> None:
+    """Apply homography transformation to an image using OpenCV with an optimal output size."""
+    image_path = Path(image_path)  # Convert to Path object
+    image = cv2.imread(str(image_path))
+
+    if image is None:
+        print(f"Error: Unable to load image {image_path}")
+        return
+
+    # Compute the ideal output size
+    new_width, new_height, translation_matrix = compute_output_size(image, H)
+
+    # Adjust homography to include translation
+    H_adjusted = translation_matrix @ H
+
+    # Apply warping with computed dimensions
+    transformed_image = cv2.warpPerspective(image, H_adjusted, (new_width, new_height))
+
+    # Save the result
+    output_path = image_path.parent / f"transformed_{image_path.name}"
+    cv2.imwrite(str(output_path), transformed_image)
+    print(f"Transformed image saved as {output_path}")
+
+    # Display the image
+    cv2.imshow("Warped Image", transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
 # Compute homographies for each image
 # homographies = [compute_homography(img) for img in image_data]
 
@@ -294,5 +351,8 @@ if __name__ == "__main__":
     params = parse_pto_transformations(lines)
     H = compute_homography(params[0])
     print(H)
-    apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
+
+    # Compute the ideal output size
+    # apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
+    apply_homography_with_size_compute(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
     pass
