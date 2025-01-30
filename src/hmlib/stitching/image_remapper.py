@@ -12,7 +12,8 @@ import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
-from hmlib.stitching.configure_stitching import get_image_geo_position
+
+# from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
 
 
@@ -30,11 +31,11 @@ class ImageRemapper(torch.jit.ScriptModule):
     def __init__(
         self,
         dtype: torch.dtype,
-        source_hw: Tuple[int] = None,
-        dir_name: str = None,
-        basename: str = None,
-        remap_info: RemapImageInfoEx = None,
-        interpolation: str = None,
+        source_hw: Optional[torch.Size] = None,
+        dir_name: Optional[str] = None,
+        basename: Optional[str] = None,
+        remap_info: Optional[RemapImageInfoEx] = None,
+        interpolation: Optional[str] = None,
         channels: int = 3,
         add_alpha_channel: bool = False,
         use_cpp_remap_op: bool = False,
@@ -56,7 +57,7 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._initialized = False
         self._remap_op = None
         self._remap_op_device = "cpu"
-        self._remap_info = remap_info
+        self._remap_info: RemapImageInfoEx = remap_info
         self.xpos, self.ypos = None, None
         self._dest_w, self._dest_h = None, None
         self._working_w, self._working_h = None, None
@@ -75,6 +76,7 @@ class ImageRemapper(torch.jit.ScriptModule):
             col_map = self._remap_info.col_map
             row_map = self._remap_info.row_map
         else:
+            assert False
             assert self._dir_name is not None
             assert self._basename
             x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
