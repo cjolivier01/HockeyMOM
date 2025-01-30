@@ -339,20 +339,49 @@ def apply_homography_with_size_compute(image_path: str, H: np.ndarray) -> None:
     cv2.destroyAllWindows()
 
 
-# Compute homographies for each image
-# homographies = [compute_homography(img) for img in image_data]
+def extract_control_points(pto_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """Extracts control points from a Hugin .pto file and returns two sets of points."""
+    with open(pto_path, "r") as file:
+        lines = file.readlines()
 
-# # Print results
-# for i, H in enumerate(homographies):
-#     print(f"Homography Matrix for Image {i}:\n", H)
+    src_points = []
+    dst_points = []
+
+    for line in lines:
+        if line.startswith("c "):  # Control point line
+            match = re.search(r"x([\d.]+) y([\d.]+) X([\d.]+) Y([\d.]+)", line)
+            if match:
+                x, y, X, Y = map(float, match.groups())
+                src_points.append([x, y])
+                dst_points.append([X, Y])
+
+    return np.array(src_points, dtype=np.float32), np.array(dst_points, dtype=np.float32)
+
+
+def compute_homography_from_control_points(pto_path: str) -> np.ndarray:
+    """Compute the homography matrix from control points in a Hugin .pto file."""
+    src_points, dst_points = extract_control_points(pto_path)
+
+    if len(src_points) < 4:
+        raise ValueError("At least 4 control points are required to compute homography.")
+
+    H, _ = cv2.findHomography(src_points, dst_points, method=cv2.RANSAC)
+    return H
+
 
 if __name__ == "__main__":
-    lines = load_pto_file(f"{os.environ['HOME']}/Videos/pdp/autooptimiser_out.pto")
-    params = parse_pto_transformations(lines)
-    H = compute_homography(params[0])
+    # filename = f"{os.environ['HOME']}/Videos/pdp/autooptimiser_out.pto"
+    filename = f"{os.environ['HOME']}/Videos/pdp/hm_project.pto"
+    H = compute_homography_from_control_points(filename)
+
+    # lines = load_pto_file(filename)
+    # content = parse_pto_content(lines)
+    # params = parse_pto_transformations(lines)
+    # H = compute_homography(params[0])
     print(H)
 
-    # Compute the ideal output size
+    # # Compute the ideal output size
     apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
+    # apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
     # apply_homography_with_size_compute(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
     pass
