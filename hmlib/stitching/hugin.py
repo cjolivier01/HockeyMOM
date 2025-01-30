@@ -353,6 +353,6 @@ if __name__ == "__main__":
     print(H)
 
     # Compute the ideal output size
-    # apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
-    apply_homography_with_size_compute(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
+    apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
+    # apply_homography_with_size_compute(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
     pass
