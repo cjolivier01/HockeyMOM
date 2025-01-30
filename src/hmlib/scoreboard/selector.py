@@ -1,8 +1,8 @@
 import argparse
 import os
 import sys
-import traceback
 import tkinter as tk
+import traceback
 from tkinter import messagebox
 from typing import List, Optional, Tuple, Union
 
@@ -18,6 +18,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.utils.image import make_visible_image
 
 
 class ScoreboardSelector:
@@ -36,7 +37,7 @@ class ScoreboardSelector:
                 if isinstance(image, torch.Tensor):
                     if image.ndim == 4:
                         image = image.squeeze(0)
-                    image = image.cpu().numpy()
+                    image = make_visible_image(image)
                 self.image: Image.Image = Image.fromarray(image)
         except Exception as e:
             traceback.print_exc()
