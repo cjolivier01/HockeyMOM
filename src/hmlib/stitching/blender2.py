@@ -716,7 +716,7 @@ class SmartRemapperBlender(torch.nn.Module):
             )
 
         if not self._use_trt:
-            blended_img = self._blender.forward(*values)
+            blended_img = self._blender.forward(**fwd_args)
         else:
             if self._trt_blender is None:
                 # shapes: List[Any] = []
