@@ -1,0 +1,257 @@
+"""
+Remap an image given mapping png files (usually produced by hugin's nona,
+which is usual;;ly base dupon some homography matrix)
+"""
+
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+import hockeymom.core as core
+from hmlib.stitching.configure_stitching import get_image_geo_position
+from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
+
+
+class RemapImageInfoEx(core.RemapImageInfo):
+    def __init__(self, *args, xpos: int = None, ypos: int = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.xpos: int = xpos
+        self.ypos: int = ypos
+
+
+class ImageRemapper(torch.jit.ScriptModule):
+    # class ImageRemapper(torch.nn.Module):
+    UNMAPPED_PIXEL_VALUE = 65535
+
+    def __init__(
+        self,
+        dtype: torch.dtype,
+        source_hw: Tuple[int] = None,
+        dir_name: str = None,
+        basename: str = None,
+        remap_info: RemapImageInfoEx = None,
+        interpolation: str = None,
+        channels: int = 3,
+        add_alpha_channel: bool = False,
+        use_cpp_remap_op: bool = False,
+        debug: bool = False,
+        batch_size: Optional[int] = None,
+    ) -> None:
+        super().__init__()
+        assert source_hw is None or len(source_hw) == 2
+        self._use_cpp_remap_op = use_cpp_remap_op
+
+        self._dtype = dtype
+        self._debug = debug
+        self._dir_name = dir_name
+        self._basename = basename
+        self._interpolation = interpolation
+        self._source_hw = source_hw
+        self._add_alpha_channel = add_alpha_channel
+        self._alpha_channel = None
+        self._initialized = False
+        self._remap_op = None
+        self._remap_op_device = "cpu"
+        self._remap_info = remap_info
+        self.xpos, self.ypos = None, None
+        self._dest_w, self._dest_h = None, None
+        self._working_w, self._working_h = None, None
+        self._batch_size = batch_size
+        if self._remap_info is not None and not self._source_hw:
+            self._source_hw = [self._remap_info.src_height, self._remap_info.src_width]
+        if self._batch_size is not None:
+            self.init(batch_size=self._batch_size)
+        else:
+            assert False
+
+    def init(self, batch_size: int):
+        if self._remap_info is not None:
+            self.xpos = self._remap_info.xpos
+            self.ypos = self._remap_info.ypos
+            col_map = self._remap_info.col_map
+            row_map = self._remap_info.row_map
+        else:
+            assert self._dir_name is not None
+            assert self._basename
+            x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
+            y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
+            self.xpos, self.ypos = get_image_geo_position(
+                os.path.join(self._dir_name, f"{self._basename}.tif")
+            )
+
+            x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
+            y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
+            if x_map is None:
+                raise AssertionError(f"Could not read mapping file: {x_file}")
+            if y_map is None:
+                raise AssertionError(f"Could not read mapping file: {y_file}")
+            col_map = torch.from_numpy(x_map.astype(np.int64))
+            row_map = torch.from_numpy(y_map.astype(np.int64))
+
+        src_w = self._source_hw[1]
+        src_h = self._source_hw[0]
+
+        if self._use_cpp_remap_op:
+            self._remap_op = core.ImageRemapper(
+                src_width=src_w,
+                src_height=src_h,
+                col_map=col_map,
+                row_map=row_map,
+                dtype=self._dtype,
+                add_alpha_channel=self._add_alpha_channel,
+                pad_value=0,
+                interpolation=self._interpolation,
+            )
+            self._remap_op.init(batch_size=batch_size)
+        else:
+            assert col_map.shape == row_map.shape
+            self._dest_w = col_map.shape[1]
+            self._dest_h = col_map.shape[0]
+
+            if True:
+                self._working_w = self._dest_w
+                self._working_h = self._dest_h
+            else:
+                # Is it really necessary  to do this?
+                # If src is smaller than dest, that was a problem, right?
+                self._working_w = max(src_w, self._dest_w)
+                self._working_h = max(src_h, self._dest_h)
+
+                col_map = pad_tensor_to_size_batched(
+                    col_map.unsqueeze(0),
+                    self._working_w,
+                    self._working_h,
+                    self.UNMAPPED_PIXEL_VALUE,
+                ).squeeze(0)
+                assert image_width(col_map) == self._working_w
+                assert image_height(col_map) == self._working_h
+                row_map = pad_tensor_to_size_batched(
+                    row_map.unsqueeze(0),
+                    self._working_w,
+                    self._working_h,
+                    self.UNMAPPED_PIXEL_VALUE,
+                ).squeeze(0)
+            mask = torch.logical_or(
+                row_map == self.UNMAPPED_PIXEL_VALUE,
+                col_map == self.UNMAPPED_PIXEL_VALUE,
+            )
+
+            assert image_width(col_map) == image_width(row_map)
+            assert image_width(col_map) == image_width(mask)
+
+            # The 65536 will result in an invalid index, so set these to 0,0
+            # and we'll get rid of them later with the mask after the image is remapped
+            col_map[mask] = 0
+            row_map[mask] = 0
+
+            if self._interpolation:
+                # This normalization needs to occur in float32 or it gets really pixellated
+                row_map_normalized = (
+                    row_map.to(torch.float32) * 2.0 / (self._working_h - 1)
+                ) - 1.0  # Normalize to [-1, 1]
+                col_map_normalized = (
+                    col_map.to(torch.float32) * 2.0 / (self._working_w - 1)
+                ) - 1.0  # Normalize to [-1, 1]
+
+                # Create the grid for grid_sample
+                grid = torch.stack((col_map_normalized, row_map_normalized), dim=-1)
+                grid = grid.expand((batch_size, *grid.shape))
+                grid = grid.to(self._dtype)
+                self.register_buffer("_grid", grid.contiguous())
+
+            self.register_buffer("_col_map", col_map.contiguous())
+            self.register_buffer("_row_map", row_map.contiguous())
+            self.register_buffer("_unmapped_mask", mask.contiguous())
+
+            if self._add_alpha_channel:
+                assert False  # uses too much memory, use _unmapped_mask instead
+                # Set up the alpha channel
+                alpha_channel = torch.empty(
+                    size=(batch_size, 1, self._working_h, self._working_w),
+                    dtype=torch.uint8,
+                )
+                alpha_channel.fill_(255)
+                alpha_channel[:, :, self._unmapped_mask] = 0
+                self.register_buffer("_alpha_channel", alpha_channel.contiguous())
+
+        # Done.
+        self._initialized = True
+
+    @property
+    def width(self):
+        assert self._initialized
+        return self._dest_w
+
+    @property
+    def height(self):
+        return self._dest_h
+
+    @property
+    def unmapped_mask(self) -> torch.Tensor:
+        return self._unmapped_mask
+
+    def to(self, device: torch.device, **kwargs):
+        dev = device
+        if self._use_cpp_remap_op:
+            self._remap_op_device = dev
+            self._remap_op.to(dev)
+        return super().to(device, **kwargs)
+
+    @torch.jit.script_method
+    def forward(self, source_tensor: torch.Tensor) -> torch.Tensor:
+        # show_image("mask", self._unmapped_mask, wait=True)
+        assert self._initialized
+        # make sure channel is where we expect it to be
+        assert source_tensor.shape[1] in [3, 4]
+        if not isinstance(source_tensor, torch.Tensor):
+            assert False
+            source_tensor = torch.from_numpy(source_tensor)
+
+        if self._use_cpp_remap_op:
+            assert self._remap_op is not None
+            return self._remap_op.remap(source_tensor)
+
+        # Per frame code
+        source_tensor = pad_tensor_to_size_batched(
+            source_tensor, self._working_w, self._working_h, 0
+        )
+        # Check if source tensor is a single channel or has multiple channels
+        if len(source_tensor.shape) == 3:  # Single channel
+            destination_tensor = source_tensor[:, self._row_map, self._col_map]
+        else:  # Multiple channels
+            assert len(source_tensor.shape) == 4
+            if not self._interpolation:
+                destination_tensor = torch.empty_like(source_tensor)
+                destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
+            else:
+                # Perform the grid sampling with bicubic interpolation
+                if not torch.is_floating_point(source_tensor):
+                    source_tensor = source_tensor.to(dtype=self._grid.dtype, non_blocking=True)
+                elif source_tensor.dtype != self._grid.dtype:
+                    print("Incompatible dtypes")
+                    raise AssertionError("Incompatible dtypes")
+                destination_tensor = F.grid_sample(
+                    source_tensor,
+                    self._grid,
+                    mode=self._interpolation,
+                    padding_mode="zeros",
+                    align_corners=False,
+                )
+                # destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
+        assert self._unmapped_mask.shape[-2] == destination_tensor.shape[-2]
+        destination_tensor[:, :, self._unmapped_mask] = 0
+
+        # Add an alpha channel if necessary
+        if self._add_alpha_channel:
+            assert False
+            # destination_tensor = torch.cat((destination_tensor, self._alpha_channel), dim=1)
+
+        # Clip to the original size that was specified
+        assert self._dest_h <= destination_tensor.shape[-2]
+        assert self._dest_w <= destination_tensor.shape[-1]
+        destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
+        return destination_tensor

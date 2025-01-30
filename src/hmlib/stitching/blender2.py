@@ -21,8 +21,8 @@ import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
+from hmlib.stitching.image_remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
-from hmlib.stitching.remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
