@@ -125,6 +125,9 @@ struct BBox {
         WHDims{
             .width = width() * scale_width, .height = height() * scale_height});
   }
+  BBox make_canvas_scaled(FloatValue scale_x, FloatValue scale_y) const {
+    return BBox(left * scale_x, top * scale_y, right * scale_x, bottom * scale_y);
+  }
   BBox inflate(
       FloatValue dleft,
       FloatValue dtop,
