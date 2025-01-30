@@ -5,6 +5,7 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
 import torch
 
@@ -255,6 +256,30 @@ def compute_homography(params: Dict[str, Any]) -> np.ndarray:
     return H
 
 
+def apply_homography(image_path: str, H: np.ndarray) -> None:
+    """Apply homography transformation to an image using OpenCV."""
+    image: np.ndarray = cv2.imread(image_path)
+
+    if image is None:
+        print(f"Error: Unable to load image {image_path}")
+        return
+
+    height, width = image.shape[:2]
+
+    # Apply perspective transformation
+    transformed_image = cv2.warpPerspective(image, H, (width, height))
+
+    # Save & display the result
+    output_path = "transformed_" + image_path
+    cv2.imwrite(output_path, transformed_image)
+    print(f"Transformed image saved as {output_path}")
+
+    # Display the image
+    cv2.imshow("Warped Image", transformed_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
 # Compute homographies for each image
 # homographies = [compute_homography(img) for img in image_data]
 
@@ -265,4 +290,7 @@ def compute_homography(params: Dict[str, Any]) -> np.ndarray:
 if __name__ == "__main__":
     lines = load_pto_file(f"{os.environ['HOME']}/Videos/pdp/autooptimiser_out.pto")
     params = parse_pto_transformations(lines)
+    H = compute_homography(params[0])
+    print(H)
+    apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)
     pass
