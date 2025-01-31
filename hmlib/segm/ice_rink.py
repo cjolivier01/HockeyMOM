@@ -496,8 +496,9 @@ def confgure_ice_rink_mask(
             image_frame = image_frame.to(device)
     else:
         image_frame = _get_first_frame(image_file)
-    assert image_height(image_frame) == expected_shape[0]
-    assert image_width(image_frame) == expected_shape[1]
+    if expected_shape is not None:
+        assert image_height(image_frame) == expected_shape[0]
+        assert image_width(image_frame) == expected_shape[1]
     rink_results = find_ice_rink_masks(
         image=image_frame,
         config_file=model_config_file,
@@ -629,7 +630,8 @@ if __name__ == "__main__":
         else torch.device("cpu")
     )
 
-    args.game_id = "mlk-extreme"
+    if not args.game_id:
+        args.game_id = "mlk-extreme"
 
     assert args.game_id
     image = cv2.imread(f"{os.environ['HOME']}/Videos/{args.game_id}/s.png")
