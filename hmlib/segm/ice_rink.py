@@ -629,15 +629,18 @@ if __name__ == "__main__":
         else torch.device("cpu")
     )
 
-    args.game_id = "ev-blackstars-ps"
+    args.game_id = "mlk-extreme"
 
     assert args.game_id
+    image = cv2.imread(f"{os.environ['HOME']}/Videos/{args.game_id}/s.png")
 
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
         device=device,
         show=False,
         force=True,
+        image=image,
+        expected_shape=image.shape,
     )
     mask = results["combined_mask"]
     centroid = [int(i) for i in results["centroid"]]
