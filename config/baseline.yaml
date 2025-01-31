@@ -114,6 +114,10 @@ game:
   home: null
   away: null
 
+  videos:
+    left: null
+    right: null
+
   stitching:
     frame_offsets:
       left: null
