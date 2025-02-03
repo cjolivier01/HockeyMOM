@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import torch
-
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
@@ -18,13 +17,14 @@ from hmlib.log import get_root_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
-from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
+
+from hmlib.ui import Shower
 
 ROOT_DIR = os.getcwd()
 
@@ -36,6 +36,9 @@ def make_parser():
     parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
+    parser.add_argument(
+        "--configure-only", action="store_true", help="Run stitching configuration only"
+    )
     parser.add_argument(
         "--single-file",
         default=0,
@@ -87,6 +90,7 @@ def stitch_videos(
     minimize_blend: bool = True,
     python_blender: bool = False,
     async_output: bool = False,
+    configure_only: bool = False,
 ):
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
@@ -166,7 +170,7 @@ def stitch_videos(
             show_scaled=show_scaled,
         )
 
-    if use_progress_bar:
+    if use_progress_bar and not configure_only:
         total_frame_count = len(data_loader)
 
         def _table_callback(table_map: OrderedDict):
@@ -217,6 +221,8 @@ def stitch_videos(
 
         dataset_timer = Timer()
         for i, stitched_image in enumerate(data_loader_iter):
+            if configure_only:
+                break
             if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
                 stitched_image._verbose = False
                 stitched_image = stitched_image.get()
@@ -275,7 +281,7 @@ def main(args):
     if args.fp16:
         torch.set_default_dtype(HalfFloatType)
 
-    if args.single_file:
+    if args.single_file or args.configure_only:
         if "left" in game_videos and game_videos["left"]:
             game_videos["left"] = game_videos["left"][:1]
         if "right" in game_videos and game_videos["right"]:
@@ -321,6 +327,7 @@ def main(args):
             minimize_blend=not args.no_minimize_blend,
             python_blender=args.python_blender,
             max_control_points=args.max_control_points,
+            configure_only=args.configure_only,
         )
 
 
