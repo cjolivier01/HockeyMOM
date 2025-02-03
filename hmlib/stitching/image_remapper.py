@@ -185,11 +185,13 @@ class ImageRemapper(torch.jit.ScriptModule):
     @property
     def width(self):
         assert self._initialized
-        return self._dest_w
+        #return self._dest_w
+        return self._working_w
 
     @property
     def height(self):
-        return self._dest_h
+        #return self._dest_h
+        return self._working_h
 
     @property
     def unmapped_mask(self) -> torch.Tensor:
