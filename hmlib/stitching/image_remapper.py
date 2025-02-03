@@ -15,6 +15,7 @@ import hockeymom.core as core
 
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
+from hmlib.ui import show_image
 
 
 class RemapImageInfoEx(core.RemapImageInfo):
@@ -51,6 +52,9 @@ class ImageRemapper(torch.jit.ScriptModule):
         self._dir_name = dir_name
         self._basename = basename
         self._interpolation = interpolation
+
+        # self._interpolation = None
+
         self._source_hw = source_hw
         self._add_alpha_channel = add_alpha_channel
         self._alpha_channel = None
@@ -113,6 +117,17 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._dest_w = col_map.shape[1]
             self._dest_h = col_map.shape[0]
 
+            realsize_mask = torch.logical_or(
+                row_map == self.UNMAPPED_PIXEL_VALUE,
+                col_map == self.UNMAPPED_PIXEL_VALUE,
+            )
+
+            if False:
+                self._min_src_col = torch.min(col_map[col_map != self.UNMAPPED_PIXEL_VALUE])
+                self._max_src_col = torch.max(col_map[col_map != self.UNMAPPED_PIXEL_VALUE])
+                self._min_src_row = torch.min(row_map[row_map != self.UNMAPPED_PIXEL_VALUE])
+                self._max_src_row = torch.max(row_map[row_map != self.UNMAPPED_PIXEL_VALUE])
+
             if False:
                 self._working_w = self._dest_w
                 self._working_h = self._dest_h
@@ -166,7 +181,8 @@ class ImageRemapper(torch.jit.ScriptModule):
 
             self.register_buffer("_col_map", col_map.contiguous())
             self.register_buffer("_row_map", row_map.contiguous())
-            self.register_buffer("_unmapped_mask", mask.contiguous())
+            # self.register_buffer("_unmapped_mask", mask.contiguous())
+            self.register_buffer("_unmapped_mask", realsize_mask.contiguous())
 
             if self._add_alpha_channel:
                 assert False  # uses too much memory, use _unmapped_mask instead
@@ -185,13 +201,13 @@ class ImageRemapper(torch.jit.ScriptModule):
     @property
     def width(self):
         assert self._initialized
-        #return self._dest_w
-        return self._working_w
+        return self._dest_w
+        # return self._working_w
 
     @property
     def height(self):
-        #return self._dest_h
-        return self._working_h
+        return self._dest_h
+        # return self._working_h
 
     @property
     def unmapped_mask(self) -> torch.Tensor:
@@ -228,8 +244,8 @@ class ImageRemapper(torch.jit.ScriptModule):
         else:  # Multiple channels
             assert len(source_tensor.shape) == 4
             if not self._interpolation:
-                destination_tensor = torch.empty_like(source_tensor)
-                destination_tensor[:, :] = source_tensor[:, :, self._row_map, self._col_map]
+                destination_tensor = torch.zeros_like(source_tensor)
+                destination_tensor = source_tensor[:, :, self._row_map, self._col_map]
             else:
                 # Perform the grid sampling with bicubic interpolation
                 if not torch.is_floating_point(source_tensor):
@@ -245,8 +261,8 @@ class ImageRemapper(torch.jit.ScriptModule):
                     align_corners=False,
                 )
                 # destination_tensor = destination_tensor.clamp(min=0, max=255.0).to(torch.uint8)
-        assert self._unmapped_mask.shape[-2:] == destination_tensor.shape[-2:]
-        destination_tensor[:, :, self._unmapped_mask] = 0
+        # assert self._unmapped_mask.shape[-2:] == destination_tensor.shape[-2:]
+        # destination_tensor[:, :, self._unmapped_mask] = 0
 
         # Add an alpha channel if necessary
         if self._add_alpha_channel:
@@ -256,5 +272,8 @@ class ImageRemapper(torch.jit.ScriptModule):
         # Clip to the original size that was specified
         assert self._dest_h <= destination_tensor.shape[-2]
         assert self._dest_w <= destination_tensor.shape[-1]
-        # destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
+        destination_tensor = destination_tensor[:, :, : self._dest_h, : self._dest_w]
+        assert self._unmapped_mask.shape[-2:] == destination_tensor.shape[-2:]
+        destination_tensor[:, :, self._unmapped_mask] = 0
+        # show_image("destination_tensor", destination_tensor, wait=False)
         return destination_tensor
