@@ -717,6 +717,8 @@ def make_visible_image(
     else:
         vis_w = get_complete_monitor_width()
         mult = 0.7
+    if isinstance(img, torch.Tensor) and img.dtype == torch.bool:
+        img = img.to(torch.uint8) * 255
     if vis_w and width and width > vis_w:
         height = image_height(img)
         ar = width / height

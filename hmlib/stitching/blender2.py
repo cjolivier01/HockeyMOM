@@ -159,7 +159,7 @@ class PtImageBlender(torch.jit.ScriptModule):
         assert len(self._unique_values) == 2
         print("Initialized")
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         image_1: torch.Tensor,
@@ -668,6 +668,8 @@ class SmartRemapperBlender(torch.nn.Module):
 
         alpha_mask_1 = self._remapper_1.unmapped_mask
         alpha_mask_2 = self._remapper_2.unmapped_mask
+
+        # show_image("alpha_mask_1", alpha_mask_1, wait=False, scale=0.2)
 
         if self._minimize_blend:
             assert image_width(remapped_image_1) == self._remapper_1.width  # sanity

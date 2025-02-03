@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from hmlib.ui import show_image
 
 
 def create_gaussian_kernel(
@@ -353,7 +354,7 @@ class LaplacianBlend(torch.jit.ScriptModule):
         for i, m in enumerate(self.mask_small_gaussian_blurred):
             self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,
@@ -383,10 +384,24 @@ class LaplacianBlend(torch.jit.ScriptModule):
             canvas_h=canvas_h,
         )
 
+        # show_image("left", left, wait=False)
+
         # For unmapped pixels, put pixels from the other image there, or else
         # it will get interpolated towards black.
-        right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
+
+        #show_image("left", left.clone(), wait=False, scale=0.2)
+        # show_image("alpha_mask_left", alpha_mask_left, wait=False, scale=0.2)
+        #show_image("right", right.clone(), wait=False, scale=0.2)
+
+        # show_image("amright", right[:, :, alpha_mask_left], wait=False, scale=0.25)
+
+        # left_tmp = left.clone()
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
+        right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
+        # left = left_tmp
+        # del left_tmp
+
+        # show_image("masked_left", left, wait=False, scale=0.2)
 
         left = to_float(left, dtype=self._dtype)
         right = to_float(right, dtype=self._dtype)
