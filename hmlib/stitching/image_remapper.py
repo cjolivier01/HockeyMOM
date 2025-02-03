@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 import hockeymom.core as core
 
-# from hmlib.stitching.configure_stitching import get_image_geo_position
+from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
 
 
@@ -76,7 +76,6 @@ class ImageRemapper(torch.jit.ScriptModule):
             col_map = self._remap_info.col_map
             row_map = self._remap_info.row_map
         else:
-            assert False
             assert self._dir_name is not None
             assert self._basename
             x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")

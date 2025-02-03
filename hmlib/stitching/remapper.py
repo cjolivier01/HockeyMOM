@@ -110,6 +110,7 @@ def remap_video(
         interpolation=interpolation,
         batch_size=batch_size,
         use_cpp_remap_op=False,
+        dtype=torch.float16,
     )
     remapper.to(device=device)
 
@@ -143,7 +144,7 @@ def remap_video(
 def main(args) -> None:
     remap_video(
         args,
-        "GX010094.MP4",
+        "GX010097.MP4",
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",
