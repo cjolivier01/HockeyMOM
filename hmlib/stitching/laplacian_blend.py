@@ -402,11 +402,12 @@ class LaplacianBlend(torch.jit.ScriptModule):
         # cv2.imwrite("right_ready.png", make_visible_image(right))
         # cv2.imwrite("seam_mask_ready.png", make_visible_image(self.seam_mask))
 
-        # left_tmp = left.clone()
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        # left = left_tmp
-        # del left_tmp
+
+        # cv2.imwrite("left_ready.png", make_visible_image(left))
+        # cv2.imwrite("right_ready.png", make_visible_image(right))
+        # cv2.imwrite("seam_mask_ready.png", make_visible_image(self.seam_mask))
 
         # show_image("masked_left", left, wait=False, scale=0.2)
 
