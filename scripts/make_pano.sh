@@ -17,6 +17,7 @@ PROJECT_FILE="hm_project.pto"
 
 # auto-level, auto-size
 autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+# autooptimiser -x 0.7 -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
 
 echo "Making mapping files..."
 nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
