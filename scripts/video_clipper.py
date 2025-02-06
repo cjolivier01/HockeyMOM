@@ -55,6 +55,10 @@ FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
 
 
+def friendly_label(label: str) -> str:
+    return label.replace("_", " ")
+
+
 def hhmmss_to_duration_seconds(time_str: str) -> float:
     # Split the time duration string into components
     h = 0
@@ -175,6 +179,7 @@ def create_text_video(
     fps: float,
     audio_sample_rate: int,
 ) -> None:
+    text = friendly_label(text)
     cmd = (
         FFMPEG_BASE_HW
         + [
@@ -204,7 +209,7 @@ def create_text_video(
 def add_clip_number(
     input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int
 ) -> None:
-    text = label + " " + str(clip_number)
+    text = friendly_label(label) + " " + str(clip_number)
     cmd = (
         [
             "ffmpeg",
