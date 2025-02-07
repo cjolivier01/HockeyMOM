@@ -1,3 +1,4 @@
+external/hm-cupano            colivier/hm
 external/fast_pytorch_kmeans  colivier/hockeymom
 external/hugin                colivier/hockeymom
 xmodels/LightGlue             colivier/hm
