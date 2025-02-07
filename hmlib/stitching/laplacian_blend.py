@@ -1,9 +1,12 @@
 from typing import List, Optional, Tuple
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+
 from hmlib.ui import show_image
+from hmlib.utils.image import make_visible_image
 
 
 def create_gaussian_kernel(
@@ -389,17 +392,22 @@ class LaplacianBlend(torch.jit.ScriptModule):
         # For unmapped pixels, put pixels from the other image there, or else
         # it will get interpolated towards black.
 
-        #show_image("left", left.clone(), wait=False, scale=0.2)
+        # show_image("left", left.clone(), wait=False, scale=0.2)
         # show_image("alpha_mask_left", alpha_mask_left, wait=False, scale=0.2)
-        #show_image("right", right.clone(), wait=False, scale=0.2)
+        # show_image("right", right.clone(), wait=False, scale=0.2)
 
         # show_image("amright", right[:, :, alpha_mask_left], wait=False, scale=0.25)
 
-        # left_tmp = left.clone()
+        # cv2.imwrite("left_ready.png", make_visible_image(left))
+        # cv2.imwrite("right_ready.png", make_visible_image(right))
+        # cv2.imwrite("seam_mask_ready.png", make_visible_image(self.seam_mask))
+
         left[:, :, alpha_mask_left] = right[:, :, alpha_mask_left]
         right[:, :, alpha_mask_right] = left[:, :, alpha_mask_right]
-        # left = left_tmp
-        # del left_tmp
+
+        # cv2.imwrite("left_ready.png", make_visible_image(left))
+        # cv2.imwrite("right_ready.png", make_visible_image(right))
+        # cv2.imwrite("seam_mask_ready.png", make_visible_image(self.seam_mask))
 
         # show_image("masked_left", left, wait=False, scale=0.2)
 

@@ -672,7 +672,7 @@ class SmartRemapperBlender(torch.nn.Module):
         # show_image("alpha_mask_1", alpha_mask_1, wait=False, scale=0.2)
 
         if self._minimize_blend:
-            assert image_width(remapped_image_1) == self._remapper_1.width  # sanity
+            # assert image_width(remapped_image_1) == self._remapper_1.width  # sanity
             canvas = (
                 torch.zeros(
                     size=(
@@ -691,9 +691,11 @@ class SmartRemapperBlender(torch.nn.Module):
 
             assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
             remapped_image_1 = remapped_image_1[
-                :, :, :, self._x2 - self._overlap_pad : self._remapper_1.width
+                :, :, :, self._x2 - self._overlap_pad : # self._remapper_1.width
             ]
-            alpha_mask_1 = alpha_mask_1[:, self._x2 - self._overlap_pad : self._remapper_1.width]
+            alpha_mask_1 = alpha_mask_1[:, self._x2 - self._overlap_pad : 
+                # self._remapper_1.width
+            ]
             assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
 
             assert remapped_image_2.shape[-2:] == alpha_mask_2.shape

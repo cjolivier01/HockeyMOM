@@ -144,7 +144,7 @@ def remap_video(
 def main(args) -> None:
     remap_video(
         args,
-        "GX010097.MP4",
+        "GX010100.MP4",
         args.video_dir,
         "mapping_0000",
         interpolation="bilinear",

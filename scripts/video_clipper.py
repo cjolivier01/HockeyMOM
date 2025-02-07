@@ -18,7 +18,7 @@ import subprocess
 import os
 import re
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import json
 
@@ -53,6 +53,10 @@ else:
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
+
+
+def friendly_label(label: str) -> str:
+    return label.replace("_", " ")
 
 
 def hhmmss_to_duration_seconds(time_str: str) -> float:
@@ -175,6 +179,7 @@ def create_text_video(
     fps: float,
     audio_sample_rate: int,
 ) -> None:
+    text = friendly_label(text)
     cmd = (
         FFMPEG_BASE_HW
         + [
@@ -204,7 +209,7 @@ def create_text_video(
 def add_clip_number(
     input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int
 ) -> None:
-    text = label + " " + str(clip_number)
+    text = friendly_label(label) + " " + str(clip_number)
     cmd = (
         [
             "ffmpeg",
@@ -226,11 +231,37 @@ def add_clip_number(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("input_video", help="Input video file")
-    parser.add_argument("timestamps_file", help="File containing timestamps")
-    parser.add_argument("label", help="Text label for transitions")
+    parser.add_argument("--input", "-i", default=None, help="Input video file")
+    parser.add_argument("--timestamps", "-t", default=None, help="File containing timestamps")
     parser.add_argument("--quick", type=int, default=0, help="Quick mode (lower quality)")
+    parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
+    parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
+
+    if args.video_file_list:
+        args.video_file_list = args.video_file_list.split(",")
+
+    args.video_file_list: Optional[List[str]] = [
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1297.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1298.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1299.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1300.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1301.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1302.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1303.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1304.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1305.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1306.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1307.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1308.MOV",
+        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1309.MOV",
+    ]
+
+    if not args.video_file_list and not (args.input and args.timestamps):
+        print("--video-file-list or both --input and --timestamps must be provided")
+        exit(1)
+
+    probe_video = args.input if args.input else args.video_file_list[0]
 
     # Get video dimensions
     cmd = [
@@ -243,57 +274,88 @@ def main():
         "stream=width,height,r_frame_rate",
         "-of",
         "csv=s=x:p=0",
-        args.input_video,
+        probe_video,
     ]
     fprobe_output = subprocess.check_output(cmd).decode().strip()
-    width, height, r_frame_rate = fprobe_output.split("x")
+    ffprobe_results = fprobe_output.split("x")
+    assert len(ffprobe_results) >= 3
+    width = ffprobe_results[0]
+    height = ffprobe_results[1]
+    r_frame_rate = ffprobe_results[2]
     width = int(width)
     height = int(height)
     frame_rate_num, frame_rate_demon = map(int, r_frame_rate.split("/"))
     fps = float(frame_rate_num) / float(frame_rate_demon)
 
-    audio_sample_rate = get_audio_sample_rate(args.input_video)
+    audio_sample_rate = get_audio_sample_rate(probe_video)
 
     # Create temporary directory
     temp_dir = "temp_clips"
     os.makedirs(temp_dir, exist_ok=True)
 
     clips: List[str] = []
-    with open(args.timestamps_file, "r") as f:
-        timestamps = f.readlines()
 
-    # Extract clips and create transition screens
-    for i, line in enumerate(timestamps):
-        line = re.sub(r"\s+", " ", line)
-        line = line.strip()
-        if not line or line[0] == "#":
-            continue
-        print(f"{line=}")
-        time_tokens = line.replace("\t", " ").strip().split(" ")
+    if args.video_file_list:
+        # Extract clips and create transition screens
+        for i, clip_file in enumerate(args.video_file_list):
+            # Create transition screen
+            transition = f"{temp_dir}/transition_{i}.mp4"
+            create_text_video(
+                f"{args.label}\nClip {i + 1}",
+                3.0,
+                transition,
+                width,
+                height,
+                fps,
+                audio_sample_rate,
+            )
+            clips.append(transition)
 
-        end_time = ""
-        start_time = time_tokens[0]
-        if len(time_tokens) > 1:
-            end_time = time_tokens[1]
+            # Add clip number overlay
+            numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
+            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
+            clips.append(numbered_clip)
+    else:
+        with open(args.timestamps, "r") as f:
+            timestamps = f.readlines()
+        # Extract clips and create transition screens
+        for i, line in enumerate(timestamps):
+            line = re.sub(r"\s+", " ", line)
+            line = line.strip()
+            if not line or line[0] == "#":
+                continue
+            print(f"{line=}")
+            time_tokens = line.replace("\t", " ").strip().split(" ")
 
-        if not all(validate_timestamp(t) for t in time_tokens):
-            raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
+            end_time = ""
+            start_time = time_tokens[0]
+            if len(time_tokens) > 1:
+                end_time = time_tokens[1]
 
-        # Extract clip
-        clip_file = f"{temp_dir}/clip_{i}.mp4"
-        extract_clip(args.input_video, start_time, end_time, clip_file)
+            if not all(validate_timestamp(t) for t in time_tokens):
+                raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
 
-        # Create transition screen
-        transition = f"{temp_dir}/transition_{i}.mp4"
-        create_text_video(
-            f"{args.label}\nClip {i + 1}", 3.0, transition, width, height, fps, audio_sample_rate
-        )
-        clips.append(transition)
+            # Extract clip
+            clip_file = f"{temp_dir}/clip_{i}.mp4"
+            extract_clip(args.input, start_time, end_time, clip_file)
 
-        # Add clip number overlay
-        numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-        add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
-        clips.append(numbered_clip)
+            # Create transition screen
+            transition = f"{temp_dir}/transition_{i}.mp4"
+            create_text_video(
+                f"{args.label}\nClip {i + 1}",
+                3.0,
+                transition,
+                width,
+                height,
+                fps,
+                audio_sample_rate,
+            )
+            clips.append(transition)
+
+            # Add clip number overlay
+            numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
+            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
+            clips.append(numbered_clip)
 
     # Create file list for concatenation
     with open(f"{temp_dir}/list.txt", "w") as f:
