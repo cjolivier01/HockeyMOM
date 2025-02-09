@@ -1,0 +1,19 @@
+load("@python_deps//:requirements.bzl", "requirement")
+load("//tools/python/library:defs.bzl", "python_library", "wheel")
+
+python_library(
+    deps=[
+        requirement("loguru"),
+    ],
+    test_deps=[
+        requirement("pytest"),
+        requirement("loguru-mypy"),
+    ],
+    imports=["../.."],  # Allow importing as `from core.logging import *`
+    visibility=["//visibility:public"],
+    wheel=wheel(
+        "core.logging",
+        requires=["loguru>=0.6.0,<1.0.0"],
+    ),
+    version="0.3.0",
+)

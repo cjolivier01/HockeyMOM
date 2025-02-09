@@ -1,0 +1,21 @@
+load("@python_deps//:requirements.bzl", "requirement")
+load("//tools/python/library:defs.bzl", "python_library")
+
+
+python_library(
+    deps=[
+        "//src/users/content_type:lib",
+        "//src/core/api:lib",
+        requirement("uvicorn"),
+    ],
+    test_deps=[
+        requirement("pytest"),
+        requirement("pytest-asyncio"),
+        requirement("pytest-docker"),
+        requirement("types-requests"),
+    ],
+    test_data=["tests/docker-compose.yml"],
+    imports=["../.."],
+    visibility=["//visibility:public"],
+    image_repository="bazel-python-demo/users/api",
+)

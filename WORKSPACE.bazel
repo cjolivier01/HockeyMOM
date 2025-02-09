@@ -1,0 +1,140 @@
+workspace(
+    name="bazel-python-demo",
+)
+
+# Make secrets available for build and publish. These should be set on the host.
+load("//tools/environment:defs.bzl", "environment")
+environment(
+    name="secrets",
+    variables={
+        "PYPI_URL": "http://localhost:6006",
+        "PYPI_USERNAME": "admin",
+        "PYPI_PASSWORD": "password",
+        "IMAGE_REGISTRY": "localhost:15000",
+    },
+)
+
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+
+# Install lcov dependencies:
+load("//tools/coverage/lcov:repositories.bzl", "install_lcov_dependencies")
+install_lcov_dependencies()
+
+http_archive(
+    name="bazel_skylib",
+    urls=[
+        "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+    ],
+    sha256="74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
+)
+load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
+bazel_skylib_workspace()
+
+
+# Fetch C++ rules
+http_archive(
+    name="rules_cc",
+    urls=["https://github.com/bazelbuild/rules_cc/releases/download/0.0.4/rules_cc-0.0.4.tar.gz"],
+    sha256="af6cc82d87db94585bceeda2561cb8a9d55ad435318ccb4ddfee18a43580fb5d",
+    strip_prefix="rules_cc-0.0.4",
+)
+load("@rules_cc//cc:repositories.bzl", "rules_cc_dependencies", "rules_cc_toolchains")
+rules_cc_dependencies()
+rules_cc_toolchains()
+
+
+# Fetch Python rules:
+http_archive(
+    name="rules_python",
+    sha256="8c8fe44ef0a9afc256d1e75ad5f448bb59b81aba149b8958f02f7b3a98f5d9b4",
+    strip_prefix="rules_python-0.13.0",
+    url="https://github.com/bazelbuild/rules_python/archive/refs/tags/0.13.0.tar.gz",
+)
+
+
+# Fetch Go rules (used by Docker rules):
+http_archive(
+    name="io_bazel_rules_go",
+    sha256="e0015762cdeb5a2a9c48f96fb079c6a98e001d44ec23ad4fa2ca27208c5be4fb",
+    urls=[
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.24.14/rules_go-v0.24.14.tar.gz",
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.24.14/rules_go-v0.24.14.tar.gz",
+    ],
+)
+
+load("@io_bazel_rules_go//go:deps.bzl", "go_rules_dependencies")
+go_rules_dependencies()
+load("//tools/go:repositories.bzl", "go_register_toolchains")
+go_register_toolchains()
+
+
+# Fetch Docker rules:
+http_archive(
+    name="io_bazel_rules_docker",
+    sha256="b1e80761a8a8243d03ebca8845e9cc1ba6c82ce7c5179ce2b295cd36f7e394bf",
+    urls=["https://github.com/bazelbuild/rules_docker/releases/download/v0.25.0/rules_docker-v0.25.0.tar.gz"],
+)
+
+load("@io_bazel_rules_docker//repositories:repositories.bzl", container_repositories="repositories")
+container_repositories()
+
+load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps="deps")
+container_deps(go_repository_default_config="@//:WORKSPACE.bazel")
+
+
+load("//tools/packaging/docker:repositories.bzl", local_container_repositories="repositories")
+local_container_repositories()
+
+
+# Register Python toolchain and repositories
+
+# This must happen after `local_container_repositories` above, to ensure the correct Python
+# toolchain is used for Docker images). Otherwise Python itself will be loaded as the final
+# layer in the image. See https://github.com/bazelbuild/rules_docker/issues/1858
+load("@rules_python//python:repositories.bzl", "python_register_toolchains")
+
+python_register_toolchains(
+    name="python",
+    # Available versions are listed in @rules_python//python:versions.bzl.
+    python_version="3.10.2",
+)
+load("@python//:defs.bzl", "interpreter")
+
+
+# Create a central repo that knows about the dependencies needed from Pipfile.lock
+# Each dependency will only be loaded if needed by a target.
+load("//tools/python/pipenv:defs.bzl", "pipenv_parse")
+pipenv_parse(
+    name="python_deps",
+    pipfile="//:Pipfile",
+    pipfile_lock="//:Pipfile.lock",
+    python_interpreter_target=interpreter,
+)
+
+# Create repos for each dependency in python_deps
+load("@python_deps//:requirements.bzl", "install_deps")
+install_deps()
+
+# Eigen
+http_archive(
+    name = "eigen",
+    sha256 = "0215c6593c4ee9f1f7f28238c4e8995584ebf3b556e9dbf933d84feb98d5b9ef",
+    strip_prefix = "eigen-3.3.8",
+    urls = [
+        "https://gitlab.com/libeigen/eigen/-/archive/3.3.8/eigen-3.3.8.tar.bz2",
+    ],
+    build_file_content =
+"""
+# TODO(keir): Replace this with a better version, like from TensorFlow.
+# See https://github.com/ceres-solver/ceres-solver/issues/337.
+cc_library(
+    name = 'eigen',
+    srcs = [],
+    includes = ['.'],
+    hdrs = glob(['Eigen/**']),
+    visibility = ['//visibility:public'],
+)
+""")

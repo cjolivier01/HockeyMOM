@@ -1,0 +1,57 @@
+
+#build --compiler=clang
+build --nokeep_going --color=yes
+# build --crosstool_top=@toolchain//crosstool:toolchain
+build --copt=-fPIC
+build --copt=-std=c++17
+
+#build -c opt
+build:opt -c opt
+build:opt --copt=-O3
+
+build:debug -c dbg --strip="never"
+build:debug --copt=-g3
+build:debug --copt=-O0
+build:debug --copt=-UNDEBUG
+# build:debug --copt=-v
+build:debug --copt=-fdiagnostics-color=always
+# build:debug --linkopt=-v
+build:debug --linkopt=-Wl,-g
+build:debug --linkopt=-Wl,--discard-none
+
+
+# build:opt -c opt --strip="always"
+
+# build --define=target_platform=x86_64
+# build --action_env=target_platform="x86_64"
+build:x86_64 --cpu=k8
+build:x86_64 --define=target_platform=x86_64
+build:x86_64 --action_env=target_platform="x86_64"
+
+
+build --define=target_platform=jetson
+build --action_env=target_platform="jetson"
+build:jetson --cpu=aarch64
+build:jetson --define=target_platform=jetson
+build:jetson --action_env=target_platform="jetson"
+
+# Necessary for some bazel functionality:
+build --java_runtime_version=remotejdk_11
+
+# Required for docker_rules to work on Mac
+build --@io_bazel_rules_docker//transitions:enable=false
+
+# Don't clutter the workspace with symlinks
+build --experimental_convenience_symlinks=clean
+
+# Stamping
+build --workspace_status_command=$PWD/stamp.sh
+
+
+# Test configuration:
+test --test_output=errors
+
+# Coverage-related configuration:
+coverage --combined_report=lcov
+test --instrumentation_filter="^//src[/:]"
+test --collect_code_coverage

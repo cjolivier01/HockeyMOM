@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+SCRIPT_DIR=$(dirname $(realpath $0))
+
+#CPU="$(uname -p)"
+#if [ "$CPU" == "x86_64" ]; then
+#  CPU="k8"
+#fi
+
+if [ ! -e "$(which bazelisk)" ]; then
+  echo "Need to install bazelisk."
+  ./scripts/install_bazelisk.sh
+fi
+
+#BAZEL_FLAGS="--config=debug --cpu=${CPU}"
+BAZEL_FLAGS="--config=debug"
+
+TARGET="$@"
+if [ -z "${TARGET}" ]; then
+  TARGET="//..."
+fi
+
+bazelisk build ${BAZEL_FLAGS} ${TARGET}
