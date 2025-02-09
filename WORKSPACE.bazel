@@ -118,7 +118,7 @@ pipenv_parse(
 load("@python_deps//:requirements.bzl", "install_deps")
 install_deps()
 
-# Eigen
+################################ Eigen Setup ################################
 http_archive(
     name = "eigen",
     sha256 = "0215c6593c4ee9f1f7f28238c4e8995584ebf3b556e9dbf933d84feb98d5b9ef",
@@ -138,3 +138,20 @@ cc_library(
     visibility = ['//visibility:public'],
 )
 """)
+
+################################ PyTorch Setup ################################
+
+load("//bazel:dependencies.bzl", "conda_repository")
+
+conda_repository(
+    name = "libpython",
+    build_file = "@//buildfiles/third_party:lib_python.BUILD",
+    files = ["lib/libpython3.11.so"],
+)
+
+conda_repository(
+    name = "libtorch",
+    build_file = "@//buildfiles/third_party:pytorch.BUILD",
+    package_dir = "lib/python3.11/site-packages/torch",
+    strip_prefix = "lib/python3.11/site-packages/torch",
+)

@@ -7,6 +7,7 @@ cc_library(
     includes = ["."],
     visibility = ["//visibility:public"],
     deps = [
+      "@libtorch",
       "@eigen//:eigen",
     ],
 )

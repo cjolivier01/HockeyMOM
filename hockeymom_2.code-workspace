@@ -8,6 +8,9 @@
     },
     {
       "path": "../bazel-python-demo"
+    },
+    {
+      "path": "../xla"
     }
   ],
   "settings": {
