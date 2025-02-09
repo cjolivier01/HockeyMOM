@@ -1,0 +1,19 @@
+load("//tools/python/library:defs.bzl", "python_library")
+
+python_library(
+    srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
+    data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
+        #"py.typed",
+        #"words.txt",
+    ],
+    deps=[
+        # "//other/lib",
+        #requirement("requests"),
+    ],
+    # test_data=glob("tests/**/fixtures/*.txt"),
+    test_deps=[
+        #requirement("pytest"),
+        #requirement("types-requests"),
+    ],
+    imports=[".."],  # Add the parent directory to PYTHONPATH
+)
