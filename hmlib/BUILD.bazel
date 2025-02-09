@@ -1,3 +1,4 @@
+load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library")
 
 python_library(
@@ -12,8 +13,8 @@ python_library(
     ],
     # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps=[
-        #requirement("pytest"),
-        #requirement("types-requests"),
+        requirement("pytest"),
+        requirement("types-requests"),
     ],
     imports=[".."],  # Add the parent directory to PYTHONPATH
 )
