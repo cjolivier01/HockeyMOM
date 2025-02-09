@@ -1,0 +1,31 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+
+pybind_extension(
+  name="hockeymomC",
+  srcs=[
+    "PythonBindings.cpp",
+  ],
+  deps=[
+    "//hockeymom/csrc/bytetrack:bytetrack",
+    "//hockeymom/csrc/pytorch:pytorch_stitch",
+  ],
+  linkopts=[
+    "-lpython3.11",
+  ],
+)
+
+
+# py_binary(
+#   name="hockeymom",
+#   srcs=[
+#   ],
+#   deps=[
+#     #":hockeymomC",
+#   ],
+#   # extension_modules = {
+#   #     "hmlib": "hmlib",
+#   # },
+#   visibility = ["//visibility:public"],
+#   # python_version="PY3.11",
+# )
