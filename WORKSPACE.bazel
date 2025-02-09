@@ -16,6 +16,20 @@ environment(
 
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
+git_repository(
+    name = "rules_cuda",
+    # v0.2.3 breaks some lubcupti for our version of bazel
+    commit = "3f2429254ec956220557e79ea9d5f5e8871c2907",
+    remote = "https://github.com/bazel-contrib/rules_cuda",
+)
+
+load("@rules_cuda//cuda:repositories.bzl", "register_detected_cuda_toolchains", "rules_cuda_dependencies")
+
+rules_cuda_dependencies()
+
+register_detected_cuda_toolchains()
 
 
 # Install lcov dependencies:
@@ -155,3 +169,4 @@ conda_repository(
     package_dir = "lib/python3.11/site-packages/torch",
     strip_prefix = "lib/python3.11/site-packages/torch",
 )
+

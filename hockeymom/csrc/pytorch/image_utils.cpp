@@ -5,6 +5,8 @@
 #ifdef WITH_OPENCV
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/opengl.hpp>
+#else
+#include <iostream>
 #endif
 
 namespace hm {
@@ -145,7 +147,7 @@ void show_image(
   cv::waitKey(wait ? 0 : 1);
 }
 #else
-show_image(const at::Tensor& tensor, bool wait = false) {
+void show_image(const at::Tensor& tensor, bool wait = false) {
   std::cout << "Can't show image when OpenCV is disabled" << std::endl;
 }
 #endif
