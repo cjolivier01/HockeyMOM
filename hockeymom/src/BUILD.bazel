@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
 
 pybind_extension(
@@ -9,12 +9,21 @@ pybind_extension(
   deps=[
     "//hockeymom/csrc/bytetrack:bytetrack",
     "//hockeymom/csrc/pytorch:pytorch_stitch",
+    "//hockeymom/csrc/kmeans:kmeans",
+    "//hockeymom/csrc/play_tracker:play_tracker",
+  ],
+  copts=[
+    "-DNO_CPP_BLENDING=1",
   ],
   linkopts=[
-    "-lpython3.11",
+    # "-lpython3.11",
   ],
 )
 
+py_library(
+  name="hockeymom",
+  data=[":hockeymomC.so"],
+)
 
 # py_binary(
 #   name="hockeymom",
