@@ -2,7 +2,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
 
 pybind_extension(
-  name="hockeymomC",
+  name="_hockeymom",
   srcs=[
     "PythonBindings.cpp",
   ],
@@ -22,7 +22,7 @@ pybind_extension(
 
 py_library(
   name="hockeymom",
-  data=[":hockeymomC.so"],
+  data=[":_hockeymom.so"],
 )
 
 # py_binary(
