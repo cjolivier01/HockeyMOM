@@ -24,7 +24,7 @@ set(
   csrc/pytorch/smart_image_stitch.cpp
 )
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+if(FALSE AND CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
   set(
     BLEND_SOURCES
     csrc/mblend/mblend.cpp
@@ -120,9 +120,9 @@ set(TORCH_PYTHON_LIBS torch_python)
 
 target_include_directories(hm PUBLIC ./include)
 #set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
-  target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
-endif()
+# if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+#   target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
+# endif()
 # target_link_libraries(hm PUBLIC ${HM_HUGIN_COMMON_LIBS})
 target_link_libraries(hm PUBLIC png jpeg tiff)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
@@ -142,7 +142,7 @@ set_target_properties(
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 
-include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
+# include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
 
 file(GLOB_RECURSE PYXMOLPP_SOURCES
