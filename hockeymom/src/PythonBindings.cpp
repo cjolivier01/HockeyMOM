@@ -1053,7 +1053,9 @@ void init_play_tracker(::pybind11::module_& m) {
           &PlayTracker::set_bboxes_scaled,
           py::arg("bbox"),
           py::arg("scale_step"));
+}
 
+void init_cuda_pano(::pybind11::module_& m) {
   /**
    *   _____           _       _____
    *  / ____|         | |     |  __ \
@@ -1073,4 +1075,5 @@ PYBIND11_MODULE(_hockeymom, m) {
   init_box_structures(m);
   init_living_boxes(m);
   init_play_tracker(m);
+  init_cuda_pano(m);
 }
