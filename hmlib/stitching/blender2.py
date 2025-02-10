@@ -1015,13 +1015,6 @@ def blend_video(
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
     if use_cuda_pano:
-        #   PyCudaStitchPano(
-        #       std::string game_dir,
-        #       int batch_size,
-        #       int num_levels,
-        #       WHDims input1_size,
-        #       WHDims input2_size,
-        #       bool match_exposure)
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
         stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(dir_name, batch_size, 6, size1, size2, False)
@@ -1104,7 +1097,11 @@ def blend_video(
                     device=source_tensor_1.device,
                 )
                 # stream.cuda_stream
-                stitcher.process(source_tensor_1, source_tensor_2, blended, stream.cuda_stream)
+                torch.cuda.synchronize()
+                z1 = torch.zeros_like(source_tensor_1)
+                z2 = torch.zeros_like(source_tensor_2)
+                blended = stitcher.process(z1, z2, blended, stream.cuda_stream)
+                torch.cuda.synchronize()
             else:
                 blended = stitcher.forward(inputs=(source_tensor_1, source_tensor_2))
 
