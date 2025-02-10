@@ -178,7 +178,7 @@ load("//bazel:dependencies.bzl", "conda_repository")
 
 conda_repository(
     name = "libpython",
-    build_file = "@//buildfiles/third_party:lib_python.BUILD",
+    build_file = "@//buildfiles/third_party:libpython.BUILD",
     files = ["lib/libpython3.11.so"],
 )
 
