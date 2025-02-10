@@ -1,40 +1,35 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@py_soabi//:soabi.bzl", "SOABI")  # Now this load will succeed
 
 pybind_extension(
-  name="_hockeymom",
-  srcs=[
+  name = "_hockeymom",
+  srcs = [
     "PythonBindings.cpp",
   ],
-  deps=[
+  deps = [
     "//hockeymom/csrc/bytetrack:bytetrack",
     "//hockeymom/csrc/pytorch:pytorch_stitch",
     "//hockeymom/csrc/kmeans:kmeans",
     "//hockeymom/csrc/play_tracker:play_tracker",
   ],
-  copts=[
+  copts = [
     "-DNO_CPP_BLENDING=1",
   ],
-  linkopts=[
+  linkopts = [
     # "-lpython3.11",
   ],
 )
 
-py_library(
-  name="hockeymom",
-  data=[":_hockeymom.so"],
+# Use a genrule to rename _hockeymom.so to include the SOABI.
+genrule(
+  name = "hockeymom_ext",
+  srcs = [":_hockeymom.so"],
+  outs = [ "_hockeymom.%s.so" % SOABI ],
+  cmd = "cp $(location :_hockeymom.so) $@",
 )
 
-# py_binary(
-#   name="hockeymom",
-#   srcs=[
-#   ],
-#   deps=[
-#     #":hockeymomC",
-#   ],
-#   # extension_modules = {
-#   #     "hmlib": "hmlib",
-#   # },
-#   visibility = ["//visibility:public"],
-#   # python_version="PY3.11",
-# )
+py_library(
+  name = "hockeymom",
+  data = [":hockeymom_ext"],
+)

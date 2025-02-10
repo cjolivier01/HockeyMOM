@@ -31,6 +31,8 @@ rules_cuda_dependencies()
 
 register_detected_cuda_toolchains()
 
+load("//:py_soabi.bzl", "py_soabi")
+py_soabi(name = "py_soabi")
 
 # Install lcov dependencies:
 load("//tools/coverage/lcov:repositories.bzl", "install_lcov_dependencies")
