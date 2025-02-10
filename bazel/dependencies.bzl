@@ -1,108 +1,98 @@
-load(
-    "@bazel_tools//tools/build_defs/repo:utils.bzl",
-    "workspace_and_buildfile",
-)
+load("@bazel_tools//tools/build_defs/repo:utils.bzl", "workspace_and_buildfile")
 
-def _has_trailing_slash(str):
-    if not str:
+# Returns True if the given string ends with a slash.
+def _ends_with_slash(s):
+    if s == "":
         return False
-    str_len = len(str)
-    last_char_of_str = str[str_len-1:]
-    return (last_char_of_str == "/")
+    return s[len(s) - 1:] == "/"
 
+# Implementation of the conda repository rule.
+def conda_repo_setup(ctx):
+    # Get the conda installation root.
+    conda_root = ctx.os.environ.get("CONDA_PREFIX")
+    if not conda_root:
+        fail("Environment variable CONDA_PREFIX is not set.")
 
-def conda_repository_impl(repo_ctx):
-    conda_prefix = repo_ctx.os.environ.get("CONDA_PREFIX")
-    if not conda_prefix:
-        fail("CONDA_PREFIX not defined")
-    package_dir = repo_ctx.attr.package_dir
-    files = repo_ctx.attr.files
-    strip_prefix = repo_ctx.attr.strip_prefix
+    # Retrieve rule attributes.
+    pkg_dir = ctx.attr.package_dir
+    file_list = ctx.attr.files
+    prefix_to_strip = ctx.attr.strip_prefix
 
+    # If a package directory is provided, symlink its content recursively.
+    if pkg_dir:
+        if _ends_with_slash(pkg_dir):
+            fail("Please remove the trailing slash from 'package_dir': " + pkg_dir)
 
-    # Recursively symlink files specified in package_dirs.
-    if package_dir:
-        if _has_trailing_slash(package_dir):
-            fail("Remove trailing slash from package_dir {}".format(package_dir))
+        # Build the absolute path to the package.
+        pkg_absolute = conda_root + "/" + pkg_dir
+        # Default: strip off the conda root and the following slash.
+        num_chars_to_strip = len(conda_root + "/")
 
-        package_link = "{}/{}".format(conda_prefix, package_dir)
-        num_leading_characters_to_strip = len(conda_prefix + "/")
+        if prefix_to_strip:
+            if _ends_with_slash(prefix_to_strip):
+                fail("Please remove the trailing slash from 'strip_prefix': " + prefix_to_strip)
+            alt_pkg_path = conda_root + "/" + prefix_to_strip
+            if not ctx.path(alt_pkg_path).exists:
+                fail("Cannot locate the path derived from 'strip_prefix': " + alt_pkg_path)
+            if alt_pkg_path.find(pkg_absolute) != 0:
+                fail("Expected 'strip_prefix' (" + alt_pkg_path +
+                     ") to be under the package directory (" + pkg_absolute + ")")
+            pkg_absolute = alt_pkg_path
+            num_chars_to_strip = len(alt_pkg_path + "/")
 
-        if strip_prefix:
-            if _has_trailing_slash(strip_prefix):
-                fail("Remove trailing slash from strip_prefix {}".format(strip_prefix))
-            stripped_link = "{}/{}".format(conda_prefix, strip_prefix)
-            if not repo_ctx.path(stripped_link).exists:
-                fail("Could not find path {} in {}".format(stripped_link, package_link))
-            if stripped_link.find(package_link) != 0:
-                fail("Expected strip_prefix {} to be at or under package_link {}".format(stripped_link, package_link))
-            package_link = stripped_link
-            num_leading_characters_to_strip = len(stripped_link + "/")
+        # Iterate over all entries in the package directory and symlink them.
+        for entry in ctx.path(pkg_absolute).readdir():
+            # Compute the destination path by removing the leading portion.
+            dest = str(entry)[num_chars_to_strip:]
+            ctx.symlink(entry, dest)
 
-        for item in repo_ctx.path(package_link).readdir():
-            dest_path = str(item)[num_leading_characters_to_strip:]
-            repo_ctx.symlink(item, dest_path)
-    
-    # Copy individual files.
-    for file in files:
-        file_link = "{}/{}".format(conda_prefix, file)
-        if not repo_ctx.path(file_link).exists:
-            fail("could not find file {}".format(file_link))
-        repo_ctx.symlink(file_link, file)
+    # Symlink any individual files specified.
+    for f in file_list:
+        abs_file = conda_root + "/" + f
+        if not ctx.path(abs_file).exists:
+            fail("File not found: " + abs_file)
+        ctx.symlink(abs_file, f)
 
-    workspace_and_buildfile(repo_ctx)
-  
+    # Finally, generate the BUILD and WORKSPACE files in this repository.
+    workspace_and_buildfile(ctx)
 
+# The repository rule "conda_repository" creates a repository by symlinking
+# content from your conda environment (under CONDA_PREFIX). It can either symlink
+# an entire directory (via "package_dir") with an optional "strip_prefix" or
+# individual files (via "files").
 conda_repository = repository_rule(
     doc = """
-    Create a conda repository by copying files and/or a directory from a path
-    relative to the environment variable CONDA_PREFIX.
+        Creates a repository from a Conda environment by symlinking files and/or
+        a directory located relative to CONDA_PREFIX.
 
-    The files in package_dir are symlinked recursively to the build context.
-    The strip_prefix field applies to the package_dir.
+        The 'package_dir' attribute (if provided) causes the entire directory's
+        contents to be symlinked into the repository. An optional 'strip_prefix'
+        can adjust the subdirectory layout.
 
-    Individual files are symlinked to the build context too. Individual files
-    can be used instead of a directory when the files needed to build
-    things is spread throughout a conda env.
-    Examples include individual headers in include, or shared libraries.
+        Additionally, individual files listed in 'files' are symlinked directly.
 
-    Example usage:
-    In the WORKSPACE file:
-    load("//bazel:conda_library.bzl", "conda_repository")
-    conda_repository(
-        name = "conda_lzma",
-        package_dir = "include/lzma",
-        files = [
-            "include/lzma.h",
-            "lib/liblzma.so"
-        ],
-        build_file = "@//third_party/bazel-builds:conda_lzma.BUILD",
-    )
+        Example usage in WORKSPACE:
 
-    In the third_party/bazel-builds/conda_lzma.BUILD file:
-    filegroup(
-        name = "lzma_private_headers",
-        srcs = glob(["include/lzma/*"])
-    )
-    cc_library(
-        name = "lzma",
-        hdrs = [
-            ":lzma_private_headers",
-        "include/lzma.h"
-        ],
-        srcs = ["lib/liblzma.so"],
-        visibility = ["//visibility:public"]
-    )
+        load("//:conda_repo.bzl", "conda_repository")
+        conda_repository(
+            name = "conda_lzma",
+            package_dir = "include/lzma",
+            files = [
+                "include/lzma.h",
+                "lib/liblzma.so"
+            ],
+            build_file = "@//third_party/bazel-builds:conda_lzma.BUILD",
+        )
     """,
-    implementation = conda_repository_impl,
-    attrs = dict(
-        package_dir = attr.string(),
-        files = attr.string_list(),
-        build_file = attr.label(allow_single_file = True),
-        build_file_content = attr.string(),
-        workspace_file = attr.label(allow_single_file = True),
-        workspace_file_content = attr.string(),
-        strip_prefix = attr.string()
-    ),
-    environ = ["CONDA_PREFIX"]
+    implementation = conda_repo_setup,
+    attrs = {
+        "package_dir": attr.string(),
+        "files": attr.string_list(),
+        "build_file": attr.label(allow_single_file = True),
+        "build_file_content": attr.string(),
+        "workspace_file": attr.label(allow_single_file = True),
+        "workspace_file_content": attr.string(),
+        "strip_prefix": attr.string(),
+    },
+    environ = ["CONDA_PREFIX"],
 )

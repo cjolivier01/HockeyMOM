@@ -21,7 +21,6 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     linkopts = [
-      #"-Wl,-rpath,/home/colivier/.conda/envs/ubuntu/lib/python3.11/site-packages/torch/lib",
       "-Wl,-rpath,lib",
     ],
     linkstatic = 1,
