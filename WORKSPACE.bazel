@@ -195,7 +195,7 @@ new_local_repository(
     path = "/usr/include",
 )
 
-# local_repository(
-#   name = "hmcupano",
-#   path = "external/hm-cupano",
-# )
+local_repository(
+  name = "hmcupano",
+  path = "external/hm-cupano",
+)

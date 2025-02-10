@@ -1,3 +1,4 @@
+#include "cudaPano.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
@@ -1052,6 +1053,18 @@ void init_play_tracker(::pybind11::module_& m) {
           &PlayTracker::set_bboxes_scaled,
           py::arg("bbox"),
           py::arg("scale_step"));
+
+  /**
+   *   _____           _       _____
+   *  / ____|         | |     |  __ \
+   * | |     _   _  __| | __ _| |__) |__ _ _ __   ___
+   * | |    | | | |/ _` |/ _` |  ___// _` | '_ \ / _ \
+   * | |____| |_| | (_| | (_| | |   | (_| | | | | (_) |
+   *  \_____|\__,_|\__,_|\__,_|_|    \__,_|_| |_|\___/
+   *
+   *
+   */
+   // py::class_<hm::pano::cuda::CudaStitchPano, std::shared_ptr<hm::pano::cuda::CudaStitchPano>>(m, "CudaStitchPano");
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
