@@ -8,6 +8,12 @@ sudo apt install -y \
   libexiv2-dev \
   libfftw3-dev \
   libopenexr-dev \
+  libx264-dev \
+  libx265-dev \
+  libvpx-dev \
+  libfdk-aac-dev \
+  libmp3lame-dev \
+  libopus-dev
   libilmbase-dev \
   liblcms2-dev \
   libsqlite3-dev \
