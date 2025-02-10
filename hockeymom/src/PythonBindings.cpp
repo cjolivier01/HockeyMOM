@@ -44,6 +44,55 @@ struct BlenderConfig {
   std::string device = std::string("cpu");
 };
 
+using hm::pano::cuda::CudaStitchPano;
+class PyCudaStitchPano : public CudaStitchPano<float3, float3> {
+  using Super = CudaStitchPano<float3, float3>;
+
+ public:
+  PyCudaStitchPano(
+      std::string game_dir,
+      int batch_size,
+      int num_levels,
+      WHDims input1_size,
+      WHDims input2_size,
+      bool match_exposure)
+      : CudaStitchPano<float3, float3>(
+            batch_size,
+            num_levels,
+            hm::pano::ControlMasks(std::move(game_dir)),
+            match_exposure),
+        input1_size_(input1_size),
+        input2_size_(input2_size) {
+    if (!status().ok()) {
+      std::string ss;
+      throw std::runtime_error(status().message());
+    }
+  }
+  void process(
+      void* input1,
+      void* input2,
+      void* d_canvas,
+      cudaStream_t stream) {
+    const int bs = batch_size();
+    auto canvas = std::make_unique<hm::CudaMat<float3>>(
+        d_canvas, bs, canvas_width(), canvas_height());
+    auto result = Super::process(
+        hm::CudaMat<float3>(
+            input1, bs, input1_size_.width, input1_size_.height),
+        hm::CudaMat<float3>(
+            input2, bs, input2_size_.width, input2_size_.height),
+        stream,
+        std::move(canvas));
+    if (!result.ok()) {
+      throw std::runtime_error(result.status().message());
+    }
+  }
+
+ private:
+  const WHDims input1_size_;
+  const WHDims input2_size_;
+};
+
 } // namespace hm
 
 void init_stitching(::pybind11::module_& m) {
@@ -1066,7 +1115,30 @@ void init_cuda_pano(::pybind11::module_& m) {
    *
    *
    */
-   // py::class_<hm::pano::cuda::CudaStitchPano, std::shared_ptr<hm::pano::cuda::CudaStitchPano>>(m, "CudaStitchPano");
+  py::class_<PyCudaStitchPano, std::shared_ptr<PyCudaStitchPano>>(
+      m, "CudaStitchPano")
+      .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
+      .def("canvas_width", &PyCudaStitchPano::canvas_width)
+      .def("canvas_height", &PyCudaStitchPano::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPano> self,
+             at::Tensor& i1,
+             at::Tensor& i2,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (!i1.is_contiguous() || !i2.is_contiguous()) {
+              throw std::runtime_error("Inputs should be contiguous");
+            }
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            self->process(
+                i1.data_ptr(),
+                i2.data_ptr(),
+                canvas.data_ptr(),
+                (cudaStream_t)stream);
+          });
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
