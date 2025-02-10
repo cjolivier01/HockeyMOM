@@ -30,12 +30,12 @@ from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import image_height, image_width, make_channels_first
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
-from hockeymom.core import CudaStitchPano, WHDims
+from hockeymom.core import CudaStitchPanoU8, WHDims
 
 ROOT_DIR = os.getcwd()
 
@@ -1024,7 +1024,9 @@ def blend_video(
         #       bool match_exposure)
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
-        stitcher: CudaStitchPano = CudaStitchPano(dir_name, batch_size, 6, size1, size2, False)
+        stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(dir_name, batch_size, 6, size1, size2, False)
+        canvas_width = stitcher.canvas_width()
+        canvas_height = stitcher.canvas_height()
     else:
         stitcher: ImageStitcher = create_stitcher(
             dir_name=dir_name,
@@ -1041,6 +1043,9 @@ def blend_video(
 
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
+
+    stream = torch.cuda.current_stream(device)
+    assert stream is not None
 
     cap_1 = VideoStreamReader(
         os.path.join(dir_name, video_file_1),
@@ -1083,7 +1088,25 @@ def blend_video(
             if isinstance(source_tensor_2, np.ndarray):
                 source_tensor_2 = torch.from_numpy(source_tensor_2).to(device, non_blocking=True)
 
-            blended = stitcher.forward(inputs=(source_tensor_1, source_tensor_2))
+            if use_cuda_pano:
+                source_tensor_1 = make_channels_last(source_tensor_1).contiguous()
+                source_tensor_2 = make_channels_last(source_tensor_2).contiguous()
+                canvas_width = stitcher.canvas_width()
+                canvas_height = stitcher.canvas_height()
+                blended = torch.zeros(
+                    [
+                        batch_size,
+                        canvas_width,
+                        canvas_height,
+                        source_tensor_1.shape[-1],
+                    ],
+                    dtype=source_tensor_1.dtype,
+                    device=source_tensor_1.device,
+                )
+                # stream.cuda_stream
+                stitcher.process(source_tensor_1, source_tensor_2, blended, stream.cuda_stream)
+            else:
+                blended = stitcher.forward(inputs=(source_tensor_1, source_tensor_2))
 
             if output_video:
                 if video_out is None:

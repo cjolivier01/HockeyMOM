@@ -45,8 +45,10 @@ struct BlenderConfig {
 };
 
 using hm::pano::cuda::CudaStitchPano;
-class PyCudaStitchPano : public CudaStitchPano<float3, float3> {
-  using Super = CudaStitchPano<float3, float3>;
+// TODO: make templated and name CudaStitchPanoU8 and CudaStitchPanoF16 python classes
+template <typename T> 
+class PyCudaStitchPano : public CudaStitchPano<T, float3> {
+  using Super = CudaStitchPano<T, float3>;
 
  public:
   PyCudaStitchPano(
@@ -56,16 +58,16 @@ class PyCudaStitchPano : public CudaStitchPano<float3, float3> {
       WHDims input1_size,
       WHDims input2_size,
       bool match_exposure)
-      : CudaStitchPano<float3, float3>(
+      : CudaStitchPano<T, float3>(
             batch_size,
             num_levels,
             hm::pano::ControlMasks(std::move(game_dir)),
             match_exposure),
         input1_size_(input1_size),
         input2_size_(input2_size) {
-    if (!status().ok()) {
+    if (!Super::status().ok()) {
       std::string ss;
-      throw std::runtime_error(status().message());
+      throw std::runtime_error(Super::status().message());
     }
   }
   void process(
@@ -73,13 +75,13 @@ class PyCudaStitchPano : public CudaStitchPano<float3, float3> {
       void* input2,
       void* d_canvas,
       cudaStream_t stream) {
-    const int bs = batch_size();
-    auto canvas = std::make_unique<hm::CudaMat<float3>>(
-        d_canvas, bs, canvas_width(), canvas_height());
+    const int bs = Super::batch_size();
+    auto canvas = std::make_unique<hm::CudaMat<T>>(
+        d_canvas, bs, Super::canvas_width(), Super::canvas_height());
     auto result = Super::process(
-        hm::CudaMat<float3>(
+        hm::CudaMat<T>(
             input1, bs, input1_size_.width, input1_size_.height),
-        hm::CudaMat<float3>(
+        hm::CudaMat<T>(
             input2, bs, input2_size_.width, input2_size_.height),
         stream,
         std::move(canvas));
@@ -1115,14 +1117,14 @@ void init_cuda_pano(::pybind11::module_& m) {
    *
    *
    */
-  py::class_<PyCudaStitchPano, std::shared_ptr<PyCudaStitchPano>>(
-      m, "CudaStitchPano")
+  py::class_<PyCudaStitchPano<uchar3>, std::shared_ptr<PyCudaStitchPano<uchar3>>>(
+      m, "CudaStitchPanoU8")
       .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
-      .def("canvas_width", &PyCudaStitchPano::canvas_width)
-      .def("canvas_height", &PyCudaStitchPano::canvas_height)
+      .def("canvas_width", &PyCudaStitchPano<uchar3>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPano<uchar3>::canvas_height)
       .def(
           "process",
-          [](std::shared_ptr<PyCudaStitchPano> self,
+          [](std::shared_ptr<PyCudaStitchPano<uchar3>> self,
              at::Tensor& i1,
              at::Tensor& i2,
              at::Tensor& canvas,
