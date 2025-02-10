@@ -71,8 +71,8 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
     }
   }
   void process(
-      void* input1,
-      void* input2,
+      void* d_input1,
+      void* d_input2,
       void* d_canvas,
       cudaStream_t stream) {
     const int bs = Super::batch_size();
@@ -80,9 +80,9 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
         d_canvas, bs, Super::canvas_width(), Super::canvas_height());
     auto result = Super::process(
         hm::CudaMat<T>(
-            input1, bs, input1_size_.width, input1_size_.height),
+            d_input1, bs, input1_size_.width, input1_size_.height),
         hm::CudaMat<T>(
-            input2, bs, input2_size_.width, input2_size_.height),
+            d_input2, bs, input2_size_.width, input2_size_.height),
         stream,
         std::move(canvas));
     if (!result.ok()) {
@@ -1134,6 +1134,9 @@ void init_cuda_pano(::pybind11::module_& m) {
             }
             if (!canvas.is_contiguous()) {
               throw std::runtime_error("Output should be contiguous");
+            }
+            if (!i1.device().is_cuda() || !i2.device().is_cuda() || !canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
             }
             self->process(
                 i1.data_ptr(),

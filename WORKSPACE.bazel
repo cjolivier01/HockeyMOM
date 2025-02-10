@@ -196,6 +196,6 @@ new_local_repository(
 )
 
 local_repository(
-  name = "hmcupano",
+  name = "hm-cupano",
   path = "external/hm-cupano",
 )

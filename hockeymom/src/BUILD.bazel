@@ -13,7 +13,7 @@ pybind_extension(
     "//hockeymom/csrc/kmeans:kmeans",
     "//hockeymom/csrc/play_tracker:play_tracker",
     "@libtorch//:libtorch_python",
-    "@hmcupano//src/pano:cuda_pano",
+    "@hm-cupano//src/pano:cuda_pano",
   ],
   copts = [
     "-DNO_CPP_BLENDING=1",
