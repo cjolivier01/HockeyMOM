@@ -10,6 +10,7 @@ cc_library(
     name = "libpython",
     srcs = [":libpython_files"],
     linkopts = [
+        "-Wl,-rpath,lib",
         "-lpthread",
         "-lrt",
         "-ldl",

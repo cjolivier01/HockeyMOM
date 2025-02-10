@@ -12,14 +12,12 @@ pybind_extension(
     "//hockeymom/csrc/pytorch:pytorch_stitch",
     "//hockeymom/csrc/kmeans:kmeans",
     "//hockeymom/csrc/play_tracker:play_tracker",
-    "@libpython",
-    # "@libtorch",
+    "@libtorch//:libtorch_python",
   ],
   copts = [
     "-DNO_CPP_BLENDING=1",
   ],
   linkopts = [
-    # "-lpython3.11",
   ],
 )
 

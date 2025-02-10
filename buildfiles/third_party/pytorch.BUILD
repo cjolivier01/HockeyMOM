@@ -20,6 +20,10 @@ cc_library(
         "include/torch/csrc/api/include",
     ],
     visibility = ["//visibility:public"],
+    linkopts = [
+      #"-Wl,-rpath,/home/colivier/.conda/envs/ubuntu/lib/python3.11/site-packages/torch/lib",
+      "-Wl,-rpath,lib",
+    ],
     linkstatic = 1,
 )
 

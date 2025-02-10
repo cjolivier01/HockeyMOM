@@ -2,7 +2,6 @@ load(
     "@bazel_tools//tools/build_defs/repo:utils.bzl",
     "workspace_and_buildfile",
 )
-PYTORCH_LOCAL_DIR = "../"
 
 def _has_trailing_slash(str):
     if not str:
@@ -20,8 +19,6 @@ def conda_repository_impl(repo_ctx):
     files = repo_ctx.attr.files
     strip_prefix = repo_ctx.attr.strip_prefix
 
-
-    root = repo_ctx.path(".")
 
     # Recursively symlink files specified in package_dirs.
     if package_dir:
