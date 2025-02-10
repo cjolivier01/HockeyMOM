@@ -20,6 +20,7 @@ try:
 except:
     torch2trt = None
 
+import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
@@ -27,15 +28,14 @@ from hmlib.stitching.image_remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_first
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
-
-import hockeymom.core as core
-from hmlib.ui import show_image
+from hockeymom.core import CudaStitchPano, WHDims
 
 ROOT_DIR = os.getcwd()
 
@@ -1004,6 +1004,7 @@ def blend_video(
     add_alpha_channel: bool = False,
     overlap_pad: int = 120,
     draw: bool = False,
+    use_cuda_pano: bool = True,
 ) -> None:
     if "/" not in video_file_1:
         video_file_1 = os.path.join(dir_name, video_file_1)
@@ -1013,18 +1014,30 @@ def blend_video(
     vidinfo_1 = BasicVideoInfo(video_file_1)
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
-    stitcher: ImageStitcher = create_stitcher(
-        dir_name=dir_name,
-        batch_size=batch_size,
-        left_image_size_wh=(vidinfo_1.width, vidinfo_1.height),
-        right_image_size_wh=(vidinfo_2.width, vidinfo_2.height),
-        minimize_blend=minimize_blend,
-        device=device,
-        dtype=dtype,
-        blend_mode=blend_mode,
-        draw=draw,
-        add_alpha_channel=add_alpha_channel,
-    )
+    if use_cuda_pano:
+        #   PyCudaStitchPano(
+        #       std::string game_dir,
+        #       int batch_size,
+        #       int num_levels,
+        #       WHDims input1_size,
+        #       WHDims input2_size,
+        #       bool match_exposure)
+        size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
+        size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
+        stitcher: CudaStitchPano = CudaStitchPano(dir_name, batch_size, 6, size1, size2, False)
+    else:
+        stitcher: ImageStitcher = create_stitcher(
+            dir_name=dir_name,
+            batch_size=batch_size,
+            left_image_size_wh=(vidinfo_1.width, vidinfo_1.height),
+            right_image_size_wh=(vidinfo_2.width, vidinfo_2.height),
+            minimize_blend=minimize_blend,
+            device=device,
+            dtype=dtype,
+            blend_mode=blend_mode,
+            draw=draw,
+            add_alpha_channel=add_alpha_channel,
+        )
 
     if lfo is None or rfo is None:
         lfo, rfo = synchronize_by_audio(video_file_1, video_file_2)
