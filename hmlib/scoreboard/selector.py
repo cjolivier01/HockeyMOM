@@ -8,8 +8,6 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from PIL import Image, ImageTk
-
 from hmlib.config import (
     get_game_config,
     get_game_dir,
@@ -19,6 +17,7 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import hm_opts
 from hmlib.utils.image import make_visible_image
+from PIL import Image, ImageTk
 
 
 class ScoreboardSelector:
@@ -36,7 +35,7 @@ class ScoreboardSelector:
             else:
                 if isinstance(image, torch.Tensor):
                     if image.ndim == 4:
-                        image = image.squeeze(0)
+                        image = image[0]
                     image = make_visible_image(image)
                 self.image: Image.Image = Image.fromarray(image)
         except Exception as e:
