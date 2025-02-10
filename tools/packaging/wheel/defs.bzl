@@ -2,8 +2,8 @@ load("@rules_python//python:packaging.bzl", "py_wheel")
 load("@rules_python//python:packaging.bzl", "PyWheelInfo")
 load("@secrets//:vars.bzl", "PYPI_URL", "PYPI_USERNAME", "PYPI_PASSWORD")
 
-_DEFAULT_ORG_AUTHOR = "my-org"
-_DEFAULT_ORG_EMAIL = "my-team@my-org.org"
+_DEFAULT_ORG_AUTHOR = "Christopher Olivier"
+_DEFAULT_ORG_EMAIL = "cjolivier01@apache.org"
 
 
 def python_wheel(
@@ -19,7 +19,7 @@ def python_wheel(
     author_email=_DEFAULT_ORG_EMAIL,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: Implementation :: CPython",
     ],
     python_requires=">=3.10",

@@ -4,6 +4,7 @@ bazel-out
 bazel-test
 bazel-testlogs
 bazel-hm
+*.whl
 *.pyc
 /dist
 /*.log
