@@ -21,6 +21,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
+from hockeymom.core import CudaStitchPanoU8
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensor,
@@ -492,8 +493,22 @@ class StitchDataset:
                     imgs_2 = to_tensor(imgs_2)
                     if self._auto_adjust_exposure:
                         imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
-
-                    blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+                    if isinstance(self._stitcher, CudaStitchPanoU8):
+                        pass
+                    else:
+                        imgs_1 = make_channels_last(imgs_1).contiguous()
+                        imgs_2 = make_channels_last(imgs_2).contiguous()
+                        blended_stream_tensor = torch.empty(
+                            [
+                                imgs_1.shape[0],
+                                self._stitcher.canvas_height(),
+                                self._stitcher.canvas_width(),
+                                imgs_1.shape[-1],
+                            ],
+                            dtype=imgs_1.dtype,
+                            device=imgs_1.device,
+                        )
+                        self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()

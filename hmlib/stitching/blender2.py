@@ -903,7 +903,17 @@ def create_stitcher(
     interpolation: str = "bilinear",
     levels: int = 6,
     draw: bool = False,
+    use_cuda_pano: bool = True,
 ):
+    if use_cuda_pano:
+        assert dir_name
+        size1 = WHDims(left_image_size_wh[0], left_image_size_wh[1])
+        size2 = WHDims(right_image_size_wh[0], right_image_size_wh[1])
+        adjust_exposure: bool = True
+        num_levels: int = 6
+        stitcher = CudaStitchPanoU8(str(dir_name), batch_size, num_levels, size1, size2, adjust_exposure)
+        return stitcher
+
     blender_config: core.BlenderConfig = create_blender_config(
         mode=blend_mode,
         dir_name=dir_name,
