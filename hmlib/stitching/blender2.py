@@ -1089,18 +1089,14 @@ def blend_video(
                 blended = torch.zeros(
                     [
                         batch_size,
-                        canvas_width,
                         canvas_height,
+                        canvas_width,
                         source_tensor_1.shape[-1],
                     ],
                     dtype=source_tensor_1.dtype,
                     device=source_tensor_1.device,
                 )
-                # stream.cuda_stream
-                # torch.cuda.synchronize()
-                z1 = torch.zeros_like(source_tensor_1)
-                z2 = torch.zeros_like(source_tensor_2)
-                stitcher.process(z1, z2, blended, stream.cuda_stream)
+                stitcher.process(source_tensor_1, source_tensor_2, blended, stream.cuda_stream)
                 torch.cuda.synchronize()
             else:
                 blended = stitcher.forward(inputs=(source_tensor_1, source_tensor_2))

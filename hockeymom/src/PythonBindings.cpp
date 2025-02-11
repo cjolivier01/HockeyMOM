@@ -71,24 +71,12 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
       throw std::runtime_error(Super::status().message());
     }
   }
-  void process(
-      void* d_input1,
-      void* d_input2,
-      void* d_canvas,
-      cudaStream_t stream) {
+  void process(void* d_input1, void* d_input2, void* d_canvas, cudaStream_t stream) {
     const int bs = Super::batch_size();
     auto canvas = std::make_unique<hm::CudaMat<T>>(
-        bs, Super::canvas_width(), Super::canvas_height());
-    // auto canvas = std::make_unique<hm::CudaMat<T>>(
-    //     d_canvas, bs, Super::canvas_width(), Super::canvas_height());
-    //hm::CudaMat<T> i1(bs, input1_size_.width, input1_size_.height);
-    //hm::CudaMat<T> i2(bs, input2_size_.width, input2_size_.height);
+        d_canvas, bs, Super::canvas_width(), Super::canvas_height());
     hm::CudaMat<T> i1(d_input1, bs, input1_size_.width, input1_size_.height);
     hm::CudaMat<T> i2(d_input2, bs, input2_size_.width, input2_size_.height);
-    cudaError_t cuerr = cudaMemset(d_input1, 0, input1_size_.width * input1_size_.height * sizeof(T));
-    assert(cuerr == cudaError_t::cudaSuccess);
-    cuerr = cudaMemset(d_input2, 0, input2_size_.width * input2_size_.height * sizeof(T));
-    assert(cuerr == cudaError_t::cudaSuccess);
     auto result = Super::process(i1, i2, stream, std::move(canvas));
     if (!result.ok()) {
       throw std::runtime_error(result.status().message());
