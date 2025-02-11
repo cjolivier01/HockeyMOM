@@ -494,8 +494,6 @@ class StitchDataset:
                     if self._auto_adjust_exposure:
                         imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
                     if isinstance(self._stitcher, CudaStitchPanoF32):
-                        pass
-                    else:
                         imgs_1 = make_channels_last(imgs_1).contiguous()
                         imgs_2 = make_channels_last(imgs_2).contiguous()
                         blended_stream_tensor = torch.empty(
@@ -509,6 +507,9 @@ class StitchDataset:
                             device=imgs_1.device,
                         )
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
+                    else:
+                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
                         stream.synchronize()
