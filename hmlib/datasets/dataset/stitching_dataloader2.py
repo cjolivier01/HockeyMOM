@@ -491,8 +491,6 @@ class StitchDataset:
                 with cuda_stream_scope(stream), torch.no_grad():
                     imgs_1 = to_tensor(imgs_1)
                     imgs_2 = to_tensor(imgs_2)
-                    if self._auto_adjust_exposure:
-                        imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
                     if isinstance(self._stitcher, CudaStitchPanoF32):
                         imgs_1 = make_channels_last(imgs_1).contiguous()
                         imgs_2 = make_channels_last(imgs_2).contiguous()
@@ -508,6 +506,8 @@ class StitchDataset:
                         )
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                     else:
+                        if self._auto_adjust_exposure:
+                            imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
                         blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
 
                     if stream is not None:
