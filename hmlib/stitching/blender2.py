@@ -150,9 +150,7 @@ class PtImageBlender(torch.jit.ScriptModule):
 
     def init(self):
         # Check some sanity
-        print(
-            f"Blending image size: {image_width(self._seam_mask)} x {image_height(self._seam_mask)}"
-        )
+        print(f"Blending image size: {image_width(self._seam_mask)} x {image_height(self._seam_mask)}")
         self._unique_values = torch.unique(self._seam_mask)
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
@@ -209,9 +207,7 @@ class PtImageBlender(torch.jit.ScriptModule):
                 canvas_w=canvas_w,
             )
         else:
-            full_left, full_right = simple_make_full(
-                image_1, x1, y1, image_2, x2, y2, canvas_w, canvas_h
-            )
+            full_left, full_right = simple_make_full(image_1, x1, y1, image_2, x2, y2, canvas_w, canvas_h)
             canvas = torch.empty(
                 size=(
                     batch_size,
@@ -222,12 +218,8 @@ class PtImageBlender(torch.jit.ScriptModule):
                 dtype=image_1.dtype,
                 device=image_1.device,
             )
-            canvas[:, :, self._seam_mask == self._left_value] = full_left[
-                :, :, self._seam_mask == self._left_value
-            ]
-            canvas[:, :, self._seam_mask == self._right_value] = full_right[
-                :, :, self._seam_mask == self._right_value
-            ]
+            canvas[:, :, self._seam_mask == self._left_value] = full_left[:, :, self._seam_mask == self._left_value]
+            canvas[:, :, self._seam_mask == self._right_value] = full_right[:, :, self._seam_mask == self._right_value]
 
         return canvas
 
@@ -296,12 +288,8 @@ def make_seam_and_xor_masks(
     if not force and os.path.isfile(seam_filename):
         mapping_file = os.path.join(dir_name, "mapping_0000.tif")
         if os.path.exists(mapping_file):
-            mapping_file_mtime = datetime.datetime.fromtimestamp(
-                os.path.getmtime(mapping_file)
-            ).isoformat()
-            seam_file_mtime = datetime.datetime.fromtimestamp(
-                os.path.getmtime(seam_filename)
-            ).isoformat()
+            mapping_file_mtime = datetime.datetime.fromtimestamp(os.path.getmtime(mapping_file)).isoformat()
+            seam_file_mtime = datetime.datetime.fromtimestamp(os.path.getmtime(seam_filename)).isoformat()
             force = mapping_file_mtime >= seam_file_mtime
             if force:
                 print(f"Recreating seam files because mapping file is newer ({mapping_file})")
@@ -319,9 +307,7 @@ def make_seam_and_xor_masks(
             )
 
             if not images_and_positions:
-                images_and_positions = get_images_and_positions(
-                    dir_name=dir_name, basename=basename
-                )
+                images_and_positions = get_images_and_positions(dir_name=dir_name, basename=basename)
 
             # Blend one image to create the seam file
             _ = blender.blend_images(
@@ -417,9 +403,7 @@ def my_draw_box(
         y2 = h - 1
     elif y2 == h:
         y2 -= 1
-    return draw_box(
-        image=image, tlbr=[int(x1), int(y1), int(x2), int(y2)], color=color, thickness=thickness
-    )
+    return draw_box(image=image, tlbr=[int(x1), int(y1), int(x2), int(y2)], color=color, thickness=thickness)
 
 
 @dataclass
@@ -435,9 +419,7 @@ class CanvasInfo:
     height: int = 0
 
 
-def get_canvas_info(
-    size_1: List[int], xy_pos_1: List[int], size_2: List[int], xy_pos_2: List[int]
-) -> CanvasInfo:
+def get_canvas_info(size_1: List[int], xy_pos_1: List[int], size_2: List[int], xy_pos_2: List[int]) -> CanvasInfo:
     """
     returns (height, width)
     """
@@ -460,9 +442,7 @@ def get_canvas_info(
         y2 = 0
     canvas_w = max(x1 + w1, x2 + w2)
     canvas_h = max(y1 + h1, y2 + h2)
-    return CanvasInfo(
-        positions=[Point(x=x1, y=y1), Point(x=x2, y=y2)], width=canvas_w, height=canvas_h
-    )
+    return CanvasInfo(positions=[Point(x=x1, y=y1), Point(x=x2, y=y2)], width=canvas_w, height=canvas_h)
 
 
 class SmartRemapperBlender(torch.nn.Module):
@@ -541,8 +521,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 width_1 + self._overlap_pad,  # x2
                 min(
                     self._canvas_info.height,
-                    max(self._y1 + self._remapper_1.height, self._y2 + self._remapper_2.height)
-                    + self._overlap_pad,
+                    max(self._y1 + self._remapper_1.height, self._y2 + self._remapper_2.height) + self._overlap_pad,
                 ),  # y2
             ]
             assert self._x2 - self._overlap_pad >= 0
@@ -584,9 +563,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 ],
                 seam_mask=self._seam_tensor.contiguous().to(self._device),
                 xor_mask=(
-                    self._xor_mask_tensor.contiguous().to(self._device)
-                    if self._xor_mask_tensor is not None
-                    else None
+                    self._xor_mask_tensor.contiguous().to(self._device) if self._xor_mask_tensor is not None else None
                 ),
                 laplacian_blend=self._blend_mode == "laplacian",
                 max_levels=self._blend_levels,
@@ -626,9 +603,7 @@ class SmartRemapperBlender(torch.nn.Module):
             return mask
         return mask[
             ...,
-            self._canvas_info.positions[1].x
-            - self._overlap_pad : self._remapper_1.width
-            + self._overlap_pad,
+            self._canvas_info.positions[1].x - self._overlap_pad : self._remapper_1.width + self._overlap_pad,
         ]
 
     def draw(self, image: torch.Tensor) -> torch.Tensor:
@@ -658,9 +633,7 @@ class SmartRemapperBlender(torch.nn.Module):
         )
         return image
 
-    def forward(
-        self, remapped_image_1: torch.Tensor, remapped_image_2: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, remapped_image_1: torch.Tensor, remapped_image_2: torch.Tensor) -> torch.Tensor:
 
         # show_image("seam", self._seam_tensor, wait=False, enable_resizing=0.1)
         # show_image("xor", self._xor_mask_tensor, wait=False, enable_resizing=0.1)
@@ -690,18 +663,16 @@ class SmartRemapperBlender(torch.nn.Module):
             partial_2 = remapped_image_2[:, :, :, self._overlapping_width - self._overlap_pad :]
 
             assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
-            remapped_image_1 = remapped_image_1[
-                :, :, :, self._x2 - self._overlap_pad : # self._remapper_1.width
-            ]
-            alpha_mask_1 = alpha_mask_1[:, self._x2 - self._overlap_pad : 
+            remapped_image_1 = remapped_image_1[:, :, :, self._x2 - self._overlap_pad :]  # self._remapper_1.width
+            alpha_mask_1 = alpha_mask_1[
+                :,
+                self._x2 - self._overlap_pad :,
                 # self._remapper_1.width
             ]
             assert remapped_image_1.shape[-2:] == alpha_mask_1.shape
 
             assert remapped_image_2.shape[-2:] == alpha_mask_2.shape
-            remapped_image_2 = remapped_image_2[
-                :, :, :, : self._overlapping_width + self._overlap_pad
-            ]
+            remapped_image_2 = remapped_image_2[:, :, :, : self._overlapping_width + self._overlap_pad]
             alpha_mask_2 = alpha_mask_2[:, : self._overlapping_width + self._overlap_pad]
             assert remapped_image_2.shape[-2:] == alpha_mask_2.shape
         fwd_args = OrderedDict(
@@ -749,14 +720,9 @@ class SmartRemapperBlender(torch.nn.Module):
                 :,
                 :,
                 :,
-                self._x2
-                - self._overlap_pad : self._x2
-                + self._overlapping_width
-                + self._overlap_pad,
+                self._x2 - self._overlap_pad : self._x2 + self._overlapping_width + self._overlap_pad,
             ] = blended_img.clamp(min=0, max=255).to(dtype=canvas.dtype, non_blocking=True)
-            canvas[
-                :, :, self._y1 : self._remapper_1.height + self._y1, : self._x2 + self._overlap_pad
-            ] = partial_1
+            canvas[:, :, self._y1 : self._remapper_1.height + self._y1, : self._x2 + self._overlap_pad] = partial_1
             canvas[
                 :,
                 :,
@@ -1017,7 +983,9 @@ def blend_video(
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
-        stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(dir_name, batch_size, 6, size1, size2, False)
+        adjust_exposure: bool = True
+        num_levels: int = 6
+        stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(dir_name, batch_size, num_levels, size1, size2, adjust_exposure)
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()
     else:
@@ -1142,9 +1110,7 @@ def blend_video(
                 timer.toc()
 
             if frame_count % 20 == 0:
-                print(
-                    "Stitching: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
-                )
+                print("Stitching: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time)))
                 if frame_count % 50 == 0:
                     timer = Timer()
 
