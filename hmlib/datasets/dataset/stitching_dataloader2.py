@@ -13,15 +13,11 @@ from typing import Callable, Dict, List, Optional, Union
 import cv2
 import numpy as np
 import torch
-
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
-from hmlib.ui import Shower, show_image
-from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hockeymom.core import CudaStitchPanoF32
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensor,
@@ -37,7 +33,11 @@ from hmlib.utils.image import (
 )
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
+
+from hmlib.ui import Shower, show_image
+from hmlib.utils import MeanTracker
 from hockeymom import core
+from hockeymom.core import CudaStitchPanoF32
 
 
 def _get_dir_name(path):
@@ -182,7 +182,6 @@ class StitchDataset:
         auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
-        # python_blender: bool = False,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
     ):
@@ -566,6 +565,7 @@ class StitchDataset:
                 minimize_blend=self._minimize_blend,
                 blend_mode=self._blend_mode,
                 add_alpha_channel=False,
+                auto_adjust_exposure=self._auto_adjust_exposure,
             )
 
             frame_count = 0

@@ -18,11 +18,14 @@ cc_library(
     ":aarch64-linux-gnu":   [
       # "aarch64-linux-gnu/opencv4/opencv2/cvconfig.h"
     ],
-    ":x86_64-linux-gnu":    ["x86_64-linux-gnu/opencv4/opencv2/cvconfig.h"],
+    ":x86_64-linux-gnu":    [
+    # "x86_64-linux-gnu/opencv4/opencv2/cvconfig.h"
+    ],
     "//conditions:default": [],
   }),
   includes = [
       "opencv4",
+      "x86_64-linux-gnu/opencv4/opencv2",
   ] + select({
     ":aarch64-linux-gnu":   [
       # "aarch64-linux-gnu/opencv4",
