@@ -35,7 +35,7 @@ from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
-from hockeymom.core import CudaStitchPanoU8, WHDims
+from hockeymom.core import CudaStitchPanoU8, CudaStitchPanoF32, WHDims
 
 ROOT_DIR = os.getcwd()
 
@@ -911,7 +911,12 @@ def create_stitcher(
         size2 = WHDims(right_image_size_wh[0], right_image_size_wh[1])
         adjust_exposure: bool = True
         num_levels: int = 6
-        stitcher = CudaStitchPanoU8(str(dir_name), batch_size, num_levels, size1, size2, adjust_exposure)
+        if dtype == torch.float32:
+            stitcher = CudaStitchPanoF32(str(dir_name), batch_size, num_levels, size1, size2, adjust_exposure)
+        elif dtype == torch.uint8:
+            stitcher = CudaStitchPanoU8(str(dir_name), batch_size, num_levels, size1, size2, adjust_exposure)
+        else:
+            assert False
         return stitcher
 
     blender_config: core.BlenderConfig = create_blender_config(
@@ -959,6 +964,7 @@ def create_stitcher(
 
 
 def blend_video(
+
     opts: object,
     video_file_1: str,
     video_file_2: str,
