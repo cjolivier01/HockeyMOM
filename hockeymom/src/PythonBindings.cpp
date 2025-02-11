@@ -71,12 +71,21 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
       throw std::runtime_error(Super::status().message());
     }
   }
-  void process(void* d_input1, void* d_input2, void* d_canvas, cudaStream_t stream) {
+  void process(
+      void* d_input1,
+      void* d_input2,
+      void* d_canvas,
+      cudaStream_t stream) {
     const int bs = Super::batch_size();
     auto canvas = std::make_unique<hm::CudaMat<T>>(
-        d_canvas, bs, Super::canvas_width(), Super::canvas_height());
-    hm::CudaMat<T> i1(d_input1, bs, input1_size_.width, input1_size_.height);
-    hm::CudaMat<T> i2(d_input2, bs, input2_size_.width, input2_size_.height);
+        static_cast<T*>(d_canvas),
+        bs,
+        Super::canvas_width(),
+        Super::canvas_height());
+    hm::CudaMat<T> i1(
+        static_cast<T*>(d_input1), bs, input1_size_.width, input1_size_.height);
+    hm::CudaMat<T> i2(
+        static_cast<T*>(d_input2), bs, input2_size_.width, input2_size_.height);
     auto result = Super::process(i1, i2, stream, std::move(canvas));
     if (!result.ok()) {
       throw std::runtime_error(result.status().message());
@@ -1119,6 +1128,35 @@ void init_cuda_pano(::pybind11::module_& m) {
       .def(
           "process",
           [](std::shared_ptr<PyCudaStitchPano<uchar3>> self,
+             at::Tensor& i1,
+             at::Tensor& i2,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (!i1.is_contiguous() || !i2.is_contiguous()) {
+              throw std::runtime_error("Inputs should be contiguous");
+            }
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            if (!i1.device().is_cuda() || !i2.device().is_cuda() ||
+                !canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
+            }
+            self->process(
+                i1.data_ptr(),
+                i2.data_ptr(),
+                canvas.data_ptr(),
+                (cudaStream_t)stream);
+          });
+  py::class_<
+      PyCudaStitchPano<float3>,
+      std::shared_ptr<PyCudaStitchPano<float3>>>(m, "CudaStitchPanoF32")
+      .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
+      .def("canvas_width", &PyCudaStitchPano<float3>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPano<float3>::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPano<float3>> self,
              at::Tensor& i1,
              at::Tensor& i2,
              at::Tensor& canvas,

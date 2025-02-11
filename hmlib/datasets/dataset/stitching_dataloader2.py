@@ -21,7 +21,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hockeymom.core import CudaStitchPanoU8
+from hockeymom.core import CudaStitchPanoF32
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensor,
@@ -493,7 +493,7 @@ class StitchDataset:
                     imgs_2 = to_tensor(imgs_2)
                     if self._auto_adjust_exposure:
                         imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
-                    if isinstance(self._stitcher, CudaStitchPanoU8):
+                    if isinstance(self._stitcher, CudaStitchPanoF32):
                         pass
                     else:
                         imgs_1 = make_channels_last(imgs_1).contiguous()
