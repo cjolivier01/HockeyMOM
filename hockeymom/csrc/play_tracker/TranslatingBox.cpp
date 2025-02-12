@@ -127,7 +127,8 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   } // end of is_nonstop()
 
-  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
+  //adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
+  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/0.5);
 }
 
 const TranslationState& TranslatingBox::get_state() const {
@@ -219,6 +220,8 @@ void TranslatingBox::adjust_speed(
       accel_y = clamp(
           *accel_y, -config_.max_accel_y * mult, config_.max_accel_y * mult);
     }
+  } else {
+    assert(false);
   }
 
   if (accel_x.has_value()) {
