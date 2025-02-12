@@ -128,7 +128,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   } // end of is_nonstop()
 
   //adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
-  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/0.5);
+  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
 }
 
 const TranslationState& TranslatingBox::get_state() const {

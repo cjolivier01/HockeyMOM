@@ -33,8 +33,9 @@ from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, PlayTrackerConfig, BBox
+from hockeymom.core import AllLivingBoxConfig, BBox
 from hockeymom.core import PlayTracker as CppPlayTracker
+from hockeymom.core import PlayTrackerConfig
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
@@ -189,17 +190,19 @@ class PlayTracker(torch.nn.Module):
             #
             current_roi_aspect_config = AllLivingBoxConfig()
 
+            kEXTRA_FOLLOWING_SCALE_DOWN = 2.0
+
             current_roi_aspect_config.max_speed_x = (
-                self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale
+                self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_speed_y = (
-                self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale
+                self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_accel_x = (
-                self._hockey_mom._camera_box_max_accel_x / speed_scale
+                self._hockey_mom._camera_box_max_accel_x / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_accel_y = (
-                self._hockey_mom._camera_box_max_accel_y / speed_scale
+                self._hockey_mom._camera_box_max_accel_y / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
 
             current_roi_aspect_config.max_speed_w = (
