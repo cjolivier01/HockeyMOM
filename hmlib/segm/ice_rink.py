@@ -38,86 +38,80 @@ from hmlib.utils.image import image_height, image_width, make_channels_last
 DEFAULT_SCORE_THRESH = 0.3
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="MMDetection video demo")
-    # parser.add_argument("video", help="Video file")
-    # parser.add_argument("config", help="Config file")
-    # parser.add_argument("checkpoint", help="Checkpoint file")
-    parser.add_argument("--device", default="cuda:0", help="Device used for inference")
-    parser.add_argument(
-        "--score-thr", type=float, default=DEFAULT_SCORE_THRESH, help="Bbox score threshold"
-    )
-    parser.add_argument("--out", type=str, help="Output video file")
-    parser.add_argument("--perf", action="store_true", help="Performance run")
-    parser.add_argument("--show", action="store_true", help="Show video")
-    parser.add_argument(
-        "--wait-time",
-        type=float,
-        default=1,
-        help="The interval of show (s), 0 is block",
-    )
-    args = parser.parse_args()
-    return args
+# def parse_args():
+#     parser = argparse.ArgumentParser(description="Ice Rink Surface Detector")
+#     parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
+#     parser.add_argument("--score-thr", type=float, default=DEFAULT_SCORE_THRESH, help="Bbox score threshold")
+#     parser.add_argument("--out", type=str, help="Output video file")
+#     parser.add_argument("--perf", action="store_true", help="Performance run")
+#     parser.add_argument("--show", action="store_true", help="Show video")
+#     parser.add_argument(
+#         "--wait-time",
+#         type=float,
+#         default=1,
+#         help="The interval of show (s), 0 is block",
+#     )
+#     args = parser.parse_args()
+#     return args
 
 
-def video_demo_main():
-    args = parse_args()
-    assert args.out or args.show or args.perf, (
-        "Please specify at least one operation (save/show the "
-        'video) with the argument "--out" or "--show"'
-    )
-    model = init_detector(args.config, args.checkpoint, device=args.device)
+# def video_demo_main():
+#     args = parse_args()
+#     assert args.out or args.show or args.perf, (
+#         "Please specify at least one operation (save/show the " 'video) with the argument "--out" or "--show"'
+#     )
+#     model = init_detector(args.config, args.checkpoint, device=args.device)
 
-    video_reader = mmcv.VideoReader(args.video)
-    if not args.perf:
-        video_writer = None
-        if args.out:
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            video_writer = cv2.VideoWriter(
-                args.out,
-                fourcc,
-                video_reader.fps,
-                (video_reader.width, video_reader.height),
-            )
+#     video_reader = mmcv.VideoReader(args.video)
+#     if not args.perf:
+#         video_writer = None
+#         if args.out:
+#             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+#             video_writer = cv2.VideoWriter(
+#                 args.out,
+#                 fourcc,
+#                 video_reader.fps,
+#                 (video_reader.width, video_reader.height),
+#             )
 
-    if args.perf:
-        perf_run = True
-        perf_counter = 0
-        start_time = None
+#     if args.perf:
+#         perf_run = True
+#         perf_counter = 0
+#         start_time = None
 
-    for frame in mmcv.track_iter_progress(video_reader):
+#     for frame in mmcv.track_iter_progress(video_reader):
 
-        # frame = torch.from_numpy(frame).to(args.device)
+#         # frame = torch.from_numpy(frame).to(args.device)
 
-        if args.perf:
-            # Timing
-            if perf_counter == 0:
-                start_time = time.time()
-            perf_counter += 1
+#         if args.perf:
+#             # Timing
+#             if perf_counter == 0:
+#                 start_time = time.time()
+#             perf_counter += 1
 
-        result = inference_detector(model, frame)
+#         result = inference_detector(model, frame)
 
-        if not args.perf:
-            frame = model.show_result(
-                frame.cpu().numpy() if isinstance(frame, torch.Tensor) else frame,
-                result,
-                score_thr=args.score_thr,
-            )
-            if args.show:
-                cv2.namedWindow("video", 0)
-                mmcv.imshow(frame, "video", args.wait_time)
-            if args.out:
-                video_writer.write(frame)
-        elif perf_counter == 20:
-            stop_time = time.time()
-            # fps = perf_counter / (stop_time - start_time)
-            # print(f"\nfps={fps}")
-            perf_counter = 0
+#         if not args.perf:
+#             frame = model.show_result(
+#                 frame.cpu().numpy() if isinstance(frame, torch.Tensor) else frame,
+#                 result,
+#                 score_thr=args.score_thr,
+#             )
+#             if args.show:
+#                 cv2.namedWindow("video", 0)
+#                 mmcv.imshow(frame, "video", args.wait_time)
+#             if args.out:
+#                 video_writer.write(frame)
+#         elif perf_counter == 20:
+#             stop_time = time.time()
+#             # fps = perf_counter / (stop_time - start_time)
+#             # print(f"\nfps={fps}")
+#             perf_counter = 0
 
-    if not args.perf:
-        if video_writer:
-            video_writer.release()
-        cv2.destroyAllWindows()
+#     if not args.perf:
+#         if video_writer:
+#             video_writer.release()
+#         cv2.destroyAllWindows()
 
 
 def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
@@ -270,24 +264,16 @@ def detect_ice_rink_mask(
 
     if show:
         show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
-        show_image = model.show_result(
-            show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False
-        )
+        show_image = model.show_result(show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False)
         do_show_image("Ice-rink", show_image, wait=True)
 
-    rink_results = result_to_polygons(
-        inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False
-    )
+    rink_results = result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False)
 
     if scale and scale != 1.0:
         for contour, mask in zip(rink_results["contours"], rink_results["masks"]):
             scaled_contour = scale_polygon(contour, scale)
-            generated_mask = polygon_to_mask(
-                scaled_contour, height=image_height(image), width=image_width(image)
-            )
-            do_show_image(
-                "Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True
-            )
+            generated_mask = polygon_to_mask(scaled_contour, height=image_height(image), width=image_width(image))
+            do_show_image("Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True)
 
     return rink_results
 
@@ -310,13 +296,9 @@ def find_ice_rink_masks(
     if device.type == "cpu":
         logger.info("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
-    results: List[
-        Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
-    ] = []
+    results: List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]] = []
     for img in image:
-        results.append(
-            detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale)
-        )
+        results.append(detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale))
 
     if device.type == "cpu":
         logger.info("Found the ice at the rink, continuing...")
@@ -467,9 +449,7 @@ def confgure_ice_rink_mask(
                     f"rink mask size of w={mask_w}, h={mask_h}, so mask must be reconstructed"
                 )
 
-    model_config_file, model_checkpoint = get_model_config(
-        game_id=game_id, model_name="ice_rink_segm"
-    )
+    model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
 
     assert model_config_file
     assert model_checkpoint
@@ -618,22 +598,28 @@ class MaskEdgeDistances:
 
 if __name__ == "__main__":
     opts = hm_opts()
+    opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
     args = opts.parse()
 
     this_path = Path(os.path.dirname(__file__))
     root_dir = os.path.realpath(this_path / ".." / ".." / "..")
 
-    gpu_allocator = GpuAllocator(gpus=args.gpus)
-    device: torch.device = (
-        torch.device("cuda", gpu_allocator.allocate_fast())
-        if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
-        else torch.device("cpu")
-    )
-
-    if not args.game_id:
-        args.game_id = "mlk-extreme"
+    if "cuda" in args.device and ":" not in args.device:
+        gpu_allocator = GpuAllocator(gpus=args.gpus)
+        device: torch.device = (
+            torch.device("cuda", gpu_allocator.allocate_fast())
+            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
+            else torch.device("cpu")
+        )
+    else:
+        device = torch.device(args.device)
 
     assert args.game_id
+    stitched_frame_file = f"{os.environ['HOME']}/Videos/{args.game_id}/s.png"
+    if not os.path.exists(stitched_frame_file):
+        print(f"Could not find stitched frame image: {stitched_frame_file}")
+        exit(1)
+
     image = cv2.imread(f"{os.environ['HOME']}/Videos/{args.game_id}/s.png")
 
     results = confgure_ice_rink_mask(
