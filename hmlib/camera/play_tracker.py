@@ -190,7 +190,7 @@ class PlayTracker(torch.nn.Module):
             #
             current_roi_aspect_config = AllLivingBoxConfig()
 
-            kEXTRA_FOLLOWING_SCALE_DOWN = 2.0
+            kEXTRA_FOLLOWING_SCALE_DOWN = 1.0
 
             current_roi_aspect_config.max_speed_x = (
                 self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
