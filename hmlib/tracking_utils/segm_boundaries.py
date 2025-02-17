@@ -23,7 +23,7 @@ class SegmBoundaries:
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
         draw: bool = False,
-        raise_bbox_center_by_height_ratio: float = 0.1,
+        raise_bbox_center_by_height_ratio: float = -0.2,
         lower_bbox_bottom_by_height_ratio: float = 0.1,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):

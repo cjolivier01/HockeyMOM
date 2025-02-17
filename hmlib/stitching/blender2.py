@@ -976,7 +976,6 @@ def create_stitcher(
 
 
 def blend_video(
-
     opts: object,
     video_file_1: str,
     video_file_2: str,
@@ -998,7 +997,7 @@ def blend_video(
     add_alpha_channel: bool = False,
     overlap_pad: int = 120,
     draw: bool = False,
-    use_cuda_pano: bool = True,
+    use_cuda_pano: bool = False,
 ) -> None:
     if "/" not in video_file_1:
         video_file_1 = os.path.join(dir_name, video_file_1)
