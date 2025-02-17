@@ -181,22 +181,15 @@ def build_stitching_project(
             autooptimiser_out,
         ]
         os.system(" ".join(cmd))
-
-        # if test_blend or True:
-        #     if os.path.exists(MULTIBLEND_BIN):
-        #         cmd = [
-        #             MULTIBLEND_BIN,
-        #             # "--save-seams",
-        #             # os.path.join(dir_name, "seam_file.png"),
-        #             # "--save-xor",
-        #             # os.path.join(dir_name, "xor_file.png"),
-        #             "-o",
-        #             os.path.join(dir_name, "panorama.tif"),
-        #             os.path.join(dir_name, "mapping_????.tif"),
-        #         ]
-        #     else:
-        #         print(f"Could not find blender for sample panorama creation: {MULTIBLEND_BIN}")
-        #     os.system(" ".join(cmd))
+        cmd = [
+            "enblend",
+            "--save-masks",
+            os.path.join(dir_name, "seam_file.png"),
+            "-o",
+            os.path.join(dir_name, "panorama.tif"),
+            os.path.join(dir_name, "mapping_????.tif"),
+        ]
+        os.system(" ".join(cmd))
     finally:
         os.chdir(curr_dir)
     return True
