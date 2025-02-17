@@ -183,8 +183,7 @@ def build_stitching_project(
         os.system(" ".join(cmd))
         cmd = [
             "enblend",
-            "--save-masks",
-            os.path.join(dir_name, "seam_file.png"),
+            f"--save-masks={os.path.join(dir_name, 'seam_file.png')}",
             "-o",
             os.path.join(dir_name, "panorama.tif"),
             os.path.join(dir_name, "mapping_????.tif"),
