@@ -1,0 +1,1 @@
+../external/hm-cupano/scripts/install_bazelisk.sh
