@@ -68,13 +68,6 @@ def make_parser():
     return parser
 
 
-class ImageAndPos:
-    def __init__(self, image: torch.Tensor, xpos: int, ypos: int):
-        self.image = image
-        self.xpos = xpos
-        self.ypos = ypos
-
-
 def make_cv_compatible_tensor(tensor):
     if isinstance(tensor, torch.Tensor):
         assert tensor.dim() == 3
