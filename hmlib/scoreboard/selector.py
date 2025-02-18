@@ -36,7 +36,9 @@ class ScoreboardSelector:
                 if isinstance(image, torch.Tensor):
                     if image.ndim == 4:
                         image = image[0]
-                    image = make_visible_image(image)
+                    # Make a CPU tensor since this sometimes causes CUDA OOM
+                    # on low-memory GPU cards
+                    image = make_visible_image(image.cpu())
                 self.image: Image.Image = Image.fromarray(image)
         except Exception as e:
             traceback.print_exc()
@@ -48,9 +50,7 @@ class ScoreboardSelector:
         self.canvas_width: int
         self.canvas_height: int
         self.canvas_width, self.canvas_height = self.image.size
-        self.canvas: tk.Canvas = tk.Canvas(
-            self.root, width=self.canvas_width, height=self.canvas_height
-        )
+        self.canvas: tk.Canvas = tk.Canvas(self.root, width=self.canvas_width, height=self.canvas_height)
         self.canvas.pack()
 
         self.tk_image: ImageTk.PhotoImage = ImageTk.PhotoImage(self.image)
@@ -97,9 +97,7 @@ class ScoreboardSelector:
             self.points = initial_points
             self.draw_points_and_lines()
         elif initial_points:
-            messagebox.showwarning(
-                "Warning", "Initial points provided are not exactly 4 points. Ignoring them."
-            )
+            messagebox.showwarning("Warning", "Initial points provided are not exactly 4 points. Ignoring them.")
 
     def draw_points_and_lines(self) -> None:
         # Draw existing points and lines
@@ -137,15 +135,11 @@ class ScoreboardSelector:
             self.point_markers.append(point_marker)
             # If there are at least two points, draw a line
             if len(self.points) > 1:
-                line: int = self.canvas.create_line(
-                    self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2
-                )
+                line: int = self.canvas.create_line(self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2)
                 self.lines.append(line)
             # If there are four points, draw a line from last to first to close the shape
             if len(self.points) == 4:
-                line = self.canvas.create_line(
-                    self.points[0][0], self.points[0][1], x, y, fill="red", width=2
-                )
+                line = self.canvas.create_line(self.points[0][0], self.points[0][1], x, y, fill="red", width=2)
                 self.lines.append(line)
         else:
             messagebox.showinfo("Info", "Already selected 4 points. Press Delete to reset.")
@@ -185,9 +179,7 @@ class ScoreboardSelector:
         # Sort top two points based on x-coordinate
         top_two_sorted: List[Tuple[int, int]] = sorted(top_two, key=lambda p: p[0])
         # Sort bottom two in reverse order based on x-coordinate
-        bottom_two_sorted: List[Tuple[int, int]] = sorted(
-            bottom_two, key=lambda p: p[0], reverse=True
-        )
+        bottom_two_sorted: List[Tuple[int, int]] = sorted(bottom_two, key=lambda p: p[0], reverse=True)
         # Now assign the points
         tl: Tuple[int, int] = top_two_sorted[0]
         tr: Tuple[int, int] = bottom_two_sorted[1]
@@ -248,9 +240,7 @@ def _untuple_points(points: List[Tuple[int, int]]) -> List[List[int]]:
     return results
 
 
-def configure_scoreboard(
-    game_id: str, image: Optional[torch.Tensor] = None, force: bool = False
-) -> List[List[int]]:
+def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, force: bool = False) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
     current_scoreboard = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")
