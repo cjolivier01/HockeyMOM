@@ -1,14 +1,14 @@
 import time
 from typing import List, Optional, Union
 
+import hmlib.vis.pt_visualization as ptv
 import numpy as np
 import torch
-
-import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
-from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_first
+
+from hmlib.tracking_utils import visualization as vis
 
 from .boundaries import adjust_point_for_clip_box, adjust_tlbr_for_clip_box
 
@@ -23,7 +23,7 @@ class SegmBoundaries:
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
         draw: bool = False,
-        raise_bbox_center_by_height_ratio: float = -0.2,
+        raise_bbox_center_by_height_ratio: float = -0.2,  # FIXME: used to be 0.1, Jr Gulls Game 1 Hack
         lower_bbox_bottom_by_height_ratio: float = 0.1,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
