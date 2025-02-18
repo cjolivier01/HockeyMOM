@@ -18,19 +18,8 @@ from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    copy_gpu_to_gpu_async,
-    cuda_stream_scope,
-)
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 
@@ -44,6 +33,7 @@ def _get_dir_name(path):
     if os.path.isdir(str(path)):
         return path
     return Path(path).parent
+
 
 _VERBOSE = True
 
@@ -64,6 +54,7 @@ def safe_put_queue(queue, object):
 
 
 _LARGE_NUMBER_OF_FRAMES = 1e128
+
 
 def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
     if isinstance(tensor, torch.Tensor):
@@ -113,9 +104,7 @@ class MultiDataLoaderWrapper:
         self._iters = []
         for dl in self._dataloaders:
             if self._input_queueue_size:
-                self._iters.append(
-                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
-                )
+                self._iters.append(CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size))
             else:
                 self._iters.append(iter(dl))
         return self
@@ -346,9 +335,7 @@ class StitchDataset:
                 no_cuda_streams=self._no_cuda_streams,
             )
         )
-        stitching_worker = MultiDataLoaderWrapper(
-            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
-        )
+        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
         return stitching_worker
 
     def configure_stitching(self):
@@ -602,14 +589,10 @@ class StitchDataset:
         else:
             image_roi = fix_clip_box(image_roi, [image_height(image), image_width(image)])
             if len(image.shape) == 4:
-                image = make_channels_last(image)[
-                    :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
-                ]
+                image = make_channels_last(image)[:, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
             else:
                 assert len(image.shape) == 3
-                image = make_channels_last(image)[
-                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
-                ]
+                image = make_channels_last(image)[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
         return image
 
     def __iter__(self):
@@ -644,10 +627,7 @@ class StitchDataset:
 
         if stitched_frame is not None:
             # INFO(f"Locally dequeued frame id: {self._current_frame}")
-            if (
-                not self._max_frames
-                or self._next_requested_frame < self._start_frame_number + self._max_frames
-            ):
+            if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
                 # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
                 self._to_coordinator_queue.put(self._next_requested_frame)
                 self._next_requested_frame += self._batch_size
@@ -701,9 +681,7 @@ class StitchDataset:
 
         if self._batch_count == 1:
             frame_path = os.path.join(self._dir_name, "s.png")
-            print(
-                f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
-            )
+            print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
