@@ -19,6 +19,8 @@ struct PlayTrackerConfig {
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
   bool ignore_largest_bbox{true};
+  // Ignore a cluster item that's very far away from the next person on that side
+  bool ignore_outlier_players{true};
   PlayDetectorConfig play_detector;
 };
 

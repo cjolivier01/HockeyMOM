@@ -2,8 +2,10 @@
 #include "hockeymom/csrc//kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
 
+#include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace hm {
@@ -87,6 +89,128 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
   return BBox(/*l=*/minLeft, /*t=*/minTop, /*r=*/maxRight, /*b=*/maxBottom);
 }
 
+int find_outlier_index(const std::vector<BBox>& boxes, float r = 0.5) {
+  int numBoxes = boxes.size();
+  if (numBoxes < 2)
+    return -1; // need at least 2 boxes for comparison
+
+  // Precompute centers and global extremes for union bounding box.
+  std::vector<float> centers(numBoxes);
+
+  // For union bounding box, we need the global min left and max right, plus the
+  // second min and second max.
+  float globalMinLeft = std::numeric_limits<float>::max();
+  float secondMinLeft = std::numeric_limits<float>::max();
+  int globalMinLeftIndex = -1;
+
+  float globalMaxRight = std::numeric_limits<float>::lowest();
+  float secondMaxRight = std::numeric_limits<float>::lowest();
+  int globalMaxRightIndex = -1;
+
+  // Also track the leftmost and rightmost candidate based on center.
+  int leftCandidate = 0;
+  int rightCandidate = 0;
+  float leftCandidateCenter = std::numeric_limits<float>::max();
+  float rightCandidateCenter = std::numeric_limits<float>::lowest();
+
+  for (int i = 0; i < numBoxes; i++) {
+    // Compute center for the i-th box.
+    centers[i] = (boxes[i].left + boxes[i].right) * 0.5f;
+
+    // Update leftmost candidate (smallest center).
+    if (centers[i] < leftCandidateCenter) {
+      leftCandidateCenter = centers[i];
+      leftCandidate = i;
+    }
+    // Update rightmost candidate (largest center).
+    if (centers[i] > rightCandidateCenter) {
+      rightCandidateCenter = centers[i];
+      rightCandidate = i;
+    }
+
+    // Update global minimum left and second minimum left.
+    if (boxes[i].left < globalMinLeft) {
+      secondMinLeft = globalMinLeft;
+      globalMinLeft = boxes[i].left;
+      globalMinLeftIndex = i;
+    } else if (boxes[i].left < secondMinLeft) {
+      secondMinLeft = boxes[i].left;
+    }
+
+    // Update global maximum right and second maximum right.
+    if (boxes[i].right > globalMaxRight) {
+      secondMaxRight = globalMaxRight;
+      globalMaxRight = boxes[i].right;
+      globalMaxRightIndex = i;
+    } else if (boxes[i].right > secondMaxRight) {
+      secondMaxRight = boxes[i].right;
+    }
+  }
+
+  // --- Check leftCandidate (box with smallest center) ---
+  // Find the second left candidate center: the smallest center >
+  // leftCandidateCenter.
+  float secondLeftCandidateCenter = std::numeric_limits<float>::max();
+  bool foundLeftNeighbor = false;
+  for (int i = 0; i < numBoxes; i++) {
+    if (i == leftCandidate)
+      continue;
+    if (centers[i] > leftCandidateCenter &&
+        centers[i] < secondLeftCandidateCenter) {
+      secondLeftCandidateCenter = centers[i];
+      foundLeftNeighbor = true;
+    }
+  }
+
+  // Compute union bounding box excluding the leftCandidate.
+  float unionLeft =
+      (leftCandidate == globalMinLeftIndex) ? secondMinLeft : globalMinLeft;
+  float unionRight =
+      (leftCandidate == globalMaxRightIndex) ? secondMaxRight : globalMaxRight;
+  float unionWidth = unionRight - unionLeft;
+
+  // If the gap between leftCandidate and its neighbor exceeds r * unionWidth,
+  // return leftCandidate.
+  if (foundLeftNeighbor) {
+    float gap = secondLeftCandidateCenter - leftCandidateCenter;
+    if (gap > r * unionWidth)
+      return leftCandidate;
+  }
+
+  // --- Check rightCandidate (box with largest center) ---
+  // Find the second right candidate center: the largest center <
+  // rightCandidateCenter.
+  float secondRightCandidateCenter = std::numeric_limits<float>::lowest();
+  bool foundRightNeighbor = false;
+  for (int i = 0; i < numBoxes; i++) {
+    if (i == rightCandidate)
+      continue;
+    if (centers[i] < rightCandidateCenter &&
+        centers[i] > secondRightCandidateCenter) {
+      secondRightCandidateCenter = centers[i];
+      foundRightNeighbor = true;
+    }
+  }
+
+  // Compute union bounding box excluding the rightCandidate.
+  unionLeft =
+      (rightCandidate == globalMinLeftIndex) ? secondMinLeft : globalMinLeft;
+  unionRight =
+      (rightCandidate == globalMaxRightIndex) ? secondMaxRight : globalMaxRight;
+  unionWidth = unionRight - unionLeft;
+
+  // If the gap between rightCandidate and its neighbor exceeds r * unionWidth,
+  // return rightCandidate.
+  if (foundRightNeighbor) {
+    float gap = rightCandidateCenter - secondRightCandidateCenter;
+    if (gap > r * unionWidth)
+      return rightCandidate;
+  }
+
+  // If neither candidate meets the criterion, return -1.
+  return -1;
+}
+
 } // namespace
 
 PlayTracker::PlayTracker(
@@ -143,6 +267,16 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     bboxes.reserve(this_cluster_item_indexes.size());
     for (size_t idx : this_cluster_item_indexes) {
       bboxes.emplace_back(tracking_boxes.at(idx));
+    }
+
+    if (config_.ignore_outlier_players && bboxes.size() > 3) {
+      int outlier_index = find_outlier_index(bboxes, /*r=*/0.75);
+      if (outlier_index >= 0) {
+        auto outlier_iter = bboxes.begin() + outlier_index;
+        // FIXME(maybe): Removing this is slow :(
+        std::cout << "Removing outlier box: " << *outlier_iter << std::endl;
+        bboxes.erase(outlier_iter);
+      }
     }
     cluster_bboxes.at(cluster_id) = get_union_bounding_box(bboxes);
   }

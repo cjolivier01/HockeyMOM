@@ -7,11 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh
-from hmlib.datasets.dataframe import (
-    HmDataFrameBase,
-    dataclass_to_json,
-    json_to_dataclass,
-)
+from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 
 

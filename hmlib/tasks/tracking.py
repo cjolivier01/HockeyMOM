@@ -131,61 +131,52 @@ def run_mmtrack(
 
                     batch_size = origin_imgs.shape[0]
 
-                    if True or not using_precalculated_tracking:
-                        if detect_timer is None:
-                            detect_timer = Timer()
+                    if detect_timer is None:
+                        detect_timer = Timer()
 
-                        # TODO: maybe make f16/bf16?
-                        # So far, tracking goes to Hell for some reason when using 16-bit,
-                        # maybe the Kalman filter. Seems like detection itself should be good
-                        # enough at 16-bit, so maybe need to modify that
-                        # ByteTrack does a "batch" of just one, but the second dim
-                        # is the # frames, so it's like a batch, but the frames of the same
-                        # video are the batch items.  This is why we unsqueeze here.
-                        detection_image = data["img"]
-                        detection_image = make_channels_first(detection_image)
-                        if isinstance(detection_image, StreamTensor):
-                            detection_image.verbose = True
-                            detection_image = detection_image.wait(cuda_stream)
+                    # TODO: maybe make f16/bf16?
+                    # So far, tracking goes to Hell for some reason when using 16-bit,
+                    # maybe the Kalman filter. Seems like detection itself should be good
+                    # enough at 16-bit, so maybe need to modify that
+                    # ByteTrack does a "batch" of just one, but the second dim
+                    # is the # frames, so it's like a batch, but the frames of the same
+                    # video are the batch items.  This is why we unsqueeze here.
+                    detection_image = data["img"]
+                    detection_image = make_channels_first(detection_image)
+                    if isinstance(detection_image, StreamTensor):
+                        detection_image.verbose = True
+                        detection_image = detection_image.wait(cuda_stream)
 
-                        if detection_image.device != device:
-                            detection_image, _ = copy_gpu_to_gpu_async(
-                                tensor=detection_image, dest_device=device
-                            )
+                    if detection_image.device != device:
+                        detection_image, _ = copy_gpu_to_gpu_async(tensor=detection_image, dest_device=device)
 
-                        # Make batch size of 1, but some T number of frames (prev batch size)
-                        detection_image = detection_image.unsqueeze(0)
-                        assert detection_image.ndim == 5
+                    # Make batch size of 1, but some T number of frames (prev batch size)
+                    detection_image = detection_image.unsqueeze(0)
+                    assert detection_image.ndim == 5
 
-                        if "original_images" not in data:
-                            data["original_images"] = origin_imgs
+                    if "original_images" not in data:
+                        data["original_images"] = origin_imgs
 
-                        if dataset_results:
-                            data["dataset_results"] = dataset_results
+                    if dataset_results:
+                        data["dataset_results"] = dataset_results
 
-                        if mean_tracker is not None:
-                            detection_image = mean_tracker.forward(detection_image)
+                    if mean_tracker is not None:
+                        detection_image = mean_tracker.forward(detection_image)
 
-                        # forward the model
-                        detect_timer.tic()
-                        with torch.no_grad():
-                            with autocast() if fp16 else nullcontext():
-                                data["img"] = detection_image
-                                detection_image = None
-                                data = model(return_loss=False, rescale=True, **data)
+                    # forward the model
+                    detect_timer.tic()
+                    with torch.no_grad():
+                        with autocast() if fp16 else nullcontext():
+                            data["img"] = detection_image
+                            detection_image = None
+                            data = model(return_loss=False, rescale=True, **data)
 
-                        detect_timer.toc()
-                        track_data_sample = data["data_samples"]
-                        nr_tracks = int(
-                            track_data_sample.video_data_samples[0].metainfo["nr_tracks"]
-                        )
-                        tracking_ids = track_data_sample.video_data_samples[
-                            -1
-                        ].pred_track_instances.instances_id
-                        if len(tracking_ids):
-                            max_tracking_id = torch.max(tracking_ids)
-                    else:
-                        assert False
+                    detect_timer.toc()
+                    track_data_sample = data["data_samples"]
+                    nr_tracks = int(track_data_sample.video_data_samples[0].metainfo["nr_tracks"])
+                    tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
+                    if len(tracking_ids):
+                        max_tracking_id = torch.max(tracking_ids)
 
                     if True:
                         jersey_results = data.get("jersey_results")
