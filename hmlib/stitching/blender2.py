@@ -28,12 +28,7 @@ from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
@@ -909,7 +904,7 @@ def create_stitcher(
     interpolation: str = "bilinear",
     levels: int = 6,
     draw: bool = False,
-    use_cuda_pano: bool = True,
+    use_cuda_pano: bool = False,
     auto_adjust_exposure: bool = True,
 ):
     if use_cuda_pano:
