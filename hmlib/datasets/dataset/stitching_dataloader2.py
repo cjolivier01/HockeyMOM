@@ -185,7 +185,7 @@ class StitchDataset:
         python_blender: bool = True,
         no_cuda_streams: bool = False,
     ):
-        max_input_queue_size = max(1, max_input_queue_size)
+        # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = no_cuda_streams
         self._dtype = dtype
@@ -524,7 +524,7 @@ class StitchDataset:
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
-        for _ in range(min(self._max_input_queue_size, self._max_frames)):
+        for _ in range(max(1, min(self._max_input_queue_size, self._max_frames))):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
             self._to_coordinator_queue.put(self._next_requested_frame)
             self._from_coordinator_queue.put(("ok", self._next_requested_frame))

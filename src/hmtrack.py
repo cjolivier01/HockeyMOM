@@ -18,17 +18,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib.tracking_utils.ice_rink_segm_boundaries
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
-from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.cam_post_process import DefaultArguments
+from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import (
-    get_clip_box,
-    get_config,
-    get_game_dir,
-    get_nested_value,
-    set_nested_value,
-    update_config,
-)
+from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
 from hmlib.datasets.dataframe import DataFrameDataset
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
@@ -71,9 +64,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--root-dir", type=str, default=ROOT_DIR, help="Root directory")
     parser.add_argument("--local_rank", default=0, type=int, help="local rank for dist training")
     parser.add_argument("--num_machines", default=1, type=int, help="num of node for training")
-    parser.add_argument(
-        "--machine_rank", default=0, type=int, help="node rank for multi-node training"
-    )
+    parser.add_argument("--machine_rank", default=0, type=int, help="node rank for multi-node training")
     parser.add_argument(
         "-f",
         "--exp_file",
@@ -173,9 +164,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=0.1,
         help="tracking confidence threshold lower bound",
     )
-    parser.add_argument(
-        "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
-    )
+    parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
     parser.add_argument(
         "--match_thresh",
         type=float,
@@ -195,19 +184,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="force video stitching",
     )
-    parser.add_argument(
-        "--plot-tracking", action="store_true", help="plot individual tracking boxes"
-    )
+    parser.add_argument("--plot-tracking", action="store_true", help="plot individual tracking boxes")
     parser.add_argument("--plot-ice-mask", action="store_true", help="plot the ice mask")
-    parser.add_argument(
-        "--plot-trajectories", action="store_true", help="plot individual track trajectories"
-    )
-    parser.add_argument(
-        "--detect-jersey-numbers", action="store_true", help="Detect jersey numbers"
-    )
-    parser.add_argument(
-        "--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers"
-    )
+    parser.add_argument("--plot-trajectories", action="store_true", help="plot individual track trajectories")
+    parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect jersey numbers")
+    parser.add_argument("--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers")
     parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
     parser.add_argument(
         "--plot-all-detections",
@@ -220,9 +201,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="plot moving camera tracking boxes",
     )
-    parser.add_argument(
-        "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
-    )
+    parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     parser.add_argument(
         "--save-frame-dir",
@@ -240,9 +219,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
-    parser.add_argument(
-        "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
-    )
+    parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
     parser.add_argument(
         "--input-video",
         type=str,
@@ -301,8 +278,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--smooth",
         action="store_true",
-        help="Apply a temporal filter to smooth the pose estimation results. "
-        "See also --smooth-filter-cfg.",
+        help="Apply a temporal filter to smooth the pose estimation results. " "See also --smooth-filter-cfg.",
     )
     return parser
 
@@ -459,9 +435,7 @@ def main(args, num_gpu):
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
-        cam_args.cam_ignore_largest = get_nested_value(
-            game_config, "rink.tracking.cam_ignore_largest", True
-        )
+        cam_args.cam_ignore_largest = get_nested_value(game_config, "rink.tracking.cam_ignore_largest", True)
 
         if args.cvat_output:
             cam_args.crop_output_image = False
@@ -480,9 +454,7 @@ def main(args, num_gpu):
                 if args.force_stitching:
                     args.input_video = game_video_dir
                 else:
-                    pre_stitched_file_name = find_stitched_file(
-                        dir_name=game_video_dir, game_id=args.game_id
-                    )
+                    pre_stitched_file_name = find_stitched_file(dir_name=game_video_dir, game_id=args.game_id)
                     if pre_stitched_file_name and os.path.exists(pre_stitched_file_name):
                         args.input_video = pre_stitched_file_name
                     else:
@@ -493,15 +465,11 @@ def main(args, num_gpu):
 
         if args.save_tracking_data or args.input_tracking_data:
             if args.input_tracking_data:
-                args.input_tracking_data = args.input_tracking_data.replace(
-                    "${GAME_DIR}", get_game_dir(args.game_id)
-                )
+                args.input_tracking_data = args.input_tracking_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
             tracking_dataframe = TrackingDataFrame(
                 input_file=args.input_tracking_data,
                 output_file=(
-                    os.path.join(results_folder, "tracking.csv")
-                    if args.input_tracking_data is None
-                    else None
+                    os.path.join(results_folder, "tracking.csv") if args.input_tracking_data is None else None
                 ),
                 input_batch_size=args.batch_size,
                 write_interval=100,
@@ -515,15 +483,11 @@ def main(args, num_gpu):
 
         if args.save_detection_data or args.input_detection_data:
             if args.input_detection_data:
-                args.input_detection_data = args.input_detection_data.replace(
-                    "${GAME_DIR}", get_game_dir(args.game_id)
-                )
+                args.input_detection_data = args.input_detection_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
             detection_dataframe = DetectionDataFrame(
                 input_file=args.input_detection_data,
                 output_file=(
-                    os.path.join(results_folder, "detections.csv")
-                    if args.input_detection_data is None
-                    else None
+                    os.path.join(results_folder, "detections.csv") if args.input_detection_data is None else None
                 ),
                 input_batch_size=args.batch_size,
                 write_interval=100,
@@ -535,12 +499,8 @@ def main(args, num_gpu):
                     dataset=detection_dataframe_ds,
                 )
 
-        using_precalculated_tracking = (
-            tracking_dataframe is not None and tracking_dataframe.has_input_data()
-        )
-        using_precalculated_detections = (
-            detection_dataframe is not None and detection_dataframe.has_input_data()
-        )
+        using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
+        using_precalculated_detections = detection_dataframe is not None and detection_dataframe.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -681,9 +641,7 @@ def main(args, num_gpu):
 
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
-                    args.start_frame = time_to_frame(
-                        time_str=args.start_frame_time, fps=left_vid.fps
-                    )
+                    args.start_frame = time_to_frame(time_str=args.start_frame_time, fps=left_vid.fps)
 
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
@@ -715,19 +673,17 @@ def main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
-
+                stitch_cache_size = args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
                 stitched_dataset = StitchDataset(
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
                     start_frame_number=args.start_frame,
                     max_frames=args.max_frames,
-                    max_input_queue_size=args.cache_size,
+                    max_input_queue_size=stitch_cache_size,
                     image_roi=None,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
-                    decoder_device=(
-                        torch.device(args.decoder_device) if args.decoder_device else None
-                    ),
+                    decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
                     auto_adjust_exposure=args.stitch_auto_adjust_exposure,
@@ -743,11 +699,7 @@ def main(args, num_gpu):
                     start_frame_number=args.start_frame,
                     batch_size=1,
                     embedded_data_loader=stitched_dataset,
-                    embedded_data_loader_cache_size=(
-                        args.cache_size
-                        if args.stitch_cache_size is None
-                        else args.stitch_cache_size
-                    ),
+                    embedded_data_loader_cache_size=stitch_cache_size,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
@@ -765,9 +717,7 @@ def main(args, num_gpu):
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
                     vid_info = BasicVideoInfo(input_video_files[0])
-                    args.start_frame = time_to_frame(
-                        time_str=args.start_frame_time, fps=vid_info.fps
-                    )
+                    args.start_frame = time_to_frame(time_str=args.start_frame_time, fps=vid_info.fps)
 
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
@@ -779,9 +729,7 @@ def main(args, num_gpu):
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
                     device=main_device,
-                    decoder_device=(
-                        torch.device(args.decoder_device) if args.decoder_device else None
-                    ),
+                    decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     original_image_only=tracking_dataframe is not None,
@@ -819,9 +767,7 @@ def main(args, num_gpu):
                     raise ValueError("--end-zones specified, but no end-zone videos found")
 
         if dataloader is None:
-            dataloader = exp.get_eval_loader(
-                args.batch_size, is_distributed, args.test, return_origin_img=True
-            )
+            dataloader = exp.get_eval_loader(args.batch_size, is_distributed, args.test, return_origin_img=True)
 
         if not args.no_progress_bar:
             table_map = OrderedDict()
@@ -855,9 +801,7 @@ def main(args, num_gpu):
                 #
                 # Video output pipeline
                 #
-                video_out_pipeline = (
-                    getattr(model.cfg, "video_out_pipeline") if model is not None else model_config
-                )
+                video_out_pipeline = getattr(model.cfg, "video_out_pipeline") if model is not None else model_config
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
                     fixed_edge_rotation_angle = (
@@ -871,8 +815,7 @@ def main(args, num_gpu):
                         dict(
                             fixed_edge_rotation_angle=fixed_edge_rotation_angle,
                             fixed_edge_rotation=(
-                                fixed_edge_rotation_angle is not None
-                                and fixed_edge_rotation_angle != 0
+                                fixed_edge_rotation_angle is not None and fixed_edge_rotation_angle != 0
                             ),
                             pre_clip=cam_args.crop_output_image,
                             dtype=torch.float,
@@ -1009,9 +952,7 @@ if __name__ == "__main__":
     parser = make_parser()
     args = parser.parse_args()
 
-    game_config = get_config(
-        game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir
-    )
+    game_config = get_config(game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir)
 
     # Set up the task flags
     args.tracking = False
