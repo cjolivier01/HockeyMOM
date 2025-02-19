@@ -93,6 +93,8 @@ def stitch_videos(
     configure_only: bool = False,
     lowmem: bool = False,
 ):
+    if configure_only:
+        cache_size = 0
     if dir_name is None and game_id:
         dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
     left_vid = BasicVideoInfo(",".join(videos["left"]))
