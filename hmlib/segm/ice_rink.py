@@ -20,13 +20,7 @@ from mmdet.structures import DetDataSample
 from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
 from PIL import Image
 
-from hmlib.config import (
-    get_game_config_private,
-    get_game_dir,
-    get_nested_value,
-    save_private_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
@@ -596,24 +590,7 @@ class MaskEdgeDistances:
         return top_distance, bottom_distance, left_distance, right_distance
 
 
-if __name__ == "__main__":
-    opts = hm_opts()
-    opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
-    args = opts.parse()
-
-    this_path = Path(os.path.dirname(__file__))
-    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-
-    if "cuda" in args.device and ":" not in args.device:
-        gpu_allocator = GpuAllocator(gpus=args.gpus)
-        device: torch.device = (
-            torch.device("cuda", gpu_allocator.allocate_fast())
-            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
-            else torch.device("cpu")
-        )
-    else:
-        device = torch.device(args.device)
-
+def main(args: argparse.Namespace, device: torch.device):
     assert args.game_id
     stitched_frame_file = f"{os.environ['HOME']}/Videos/{args.game_id}/s.png"
     if not os.path.exists(stitched_frame_file):
@@ -637,3 +614,23 @@ if __name__ == "__main__":
     logger.info(
         f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
     )
+
+
+if __name__ == "__main__":
+    opts = hm_opts()
+    opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
+    args = opts.parse()
+
+    this_path = Path(os.path.dirname(__file__))
+    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
+
+    if "cuda" in args.device and ":" not in args.device:
+        gpu_allocator = GpuAllocator(gpus=args.gpus)
+        device: torch.device = (
+            torch.device("cuda", gpu_allocator.allocate_fast())
+            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
+            else torch.device("cpu")
+        )
+    else:
+        device = torch.device(args.device)
+    main(args, device=device)

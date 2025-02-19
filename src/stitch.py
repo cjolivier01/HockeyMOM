@@ -16,6 +16,7 @@ from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.orientation import configure_game_videos
+from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
@@ -36,9 +37,7 @@ def make_parser():
     parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
-    parser.add_argument(
-        "--configure-only", action="store_true", help="Run stitching configuration only"
-    )
+    parser.add_argument("--configure-only", action="store_true", help="Run stitching configuration only")
     parser.add_argument(
         "--single-file",
         default=0,
@@ -146,9 +145,7 @@ def stitch_videos(
         batch_size=batch_size,
         num_workers=1,
         max_input_queue_size=cache_size,
-        image_roi=(
-            get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
-        ),
+        image_roi=(get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None),
         decoder_device=decoder_device,
         blend_mode=blend_mode,
         remapping_device=remapping_device,
@@ -279,7 +276,6 @@ def main(args):
         force=args.force,
     )
 
-    # HalfFloatType = torch.bfloat16
     HalfFloatType = torch.float16
 
     if args.fp16:
@@ -295,9 +291,7 @@ def main(args):
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if args.multi_gpu:
         encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
-        decoder_device = (
-            torch.device(args.decoder_device) if args.decoder_device else remapping_device
-        )
+        decoder_device = torch.device(args.decoder_device) if args.decoder_device else remapping_device
     else:
         encoder_device, decoder_device = remapping_device, remapping_device
     if args.encoder_device:
@@ -334,6 +328,10 @@ def main(args):
             configure_only=args.configure_only,
             lowmem=gpu_allocator.is_single_lowmem_gpu(),
         )
+
+    if args.configure_only:
+        # Configure the rink mask as well
+        ice_rink_main(args, device=decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu"))
 
 
 if __name__ == "__main__":
