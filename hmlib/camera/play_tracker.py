@@ -683,7 +683,7 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            if self._args.plot_cluster_tracking:
+            if True or self._args.plot_cluster_tracking:
                 cluster_box_colors = {
                     cluster_counts[0]: (128, 0, 0),  # dark red
                     cluster_counts[1]: (0, 0, 128),  # dark blue
@@ -712,6 +712,15 @@ class PlayTracker(torch.nn.Module):
                         label="union_clusters",
                         opacity_percent=25,
                     )
+                for cluster_id, outlier_box in playtracker_results.removed_cluster_outlier_box.items():
+                    online_im = vis.plot_alpha_rectangle(
+                        online_im,
+                        from_bbox(outlier_box),
+                        color=(255, 0, 0),
+                        label=f"OUTLIER({cluster_id})",
+                        opacity_percent=75,
+                    )
+                    
             #
             # END Clusters and Cluster Boxes
             #
