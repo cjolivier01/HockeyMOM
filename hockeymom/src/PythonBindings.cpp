@@ -1068,7 +1068,8 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite("living_boxes", &PlayTrackerConfig::living_boxes)
       .def_readwrite(
           "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox)
-          .def_readwrite("ignore_outlier_players", &PlayTrackerConfig::ignore_outlier_players)
+      .def_readwrite(
+          "ignore_outlier_players", &PlayTrackerConfig::ignore_outlier_players)
       .def_readwrite("play_detector", &PlayTrackerConfig::play_detector);
 
   py::class_<PlayDetectorResults>(m, "PlayDetectorResults")
@@ -1079,6 +1080,9 @@ void init_play_tracker(::pybind11::module_& m) {
   py::class_<PlayTrackerResults>(m, "PlayTrackerResults")
       .def(py::init<>())
       .def_readonly("cluster_boxes", &PlayTrackerResults::cluster_boxes)
+      .def_readonly(
+          "removed_cluster_outlier_box",
+          &PlayTrackerResults::removed_cluster_outlier_box)
       .def_readonly("final_cluster_box", &PlayTrackerResults::final_cluster_box)
       .def_readonly("tracking_boxes", &PlayTrackerResults::tracking_boxes)
       .def_readonly("play_detection", &PlayTrackerResults::play_detection)

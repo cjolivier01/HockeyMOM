@@ -19,8 +19,10 @@ struct PlayTrackerConfig {
   // After this number of ticks, "lost" tracks are discarded
   size_t max_lost_track_age{30};
   bool ignore_largest_bbox{true};
-  // Ignore a cluster item that's very far away from the next person on that side
-  bool ignore_outlier_players{true};
+  // Ignore a cluster item that's very far away from the next person on that
+  // side
+  size_t ignore_outlier_players{true};
+  float ignore_outlier_players_dist_ratio{0.75};
   PlayDetectorConfig play_detector;
 };
 
@@ -32,6 +34,7 @@ struct PlayTrackerState {
 
 struct PlayTrackerResults {
   std::unordered_map<size_t, BBox> cluster_boxes;
+  std::unordered_map<size_t, BBox> removed_cluster_outlier_box;
   BBox final_cluster_box;
   std::vector<BBox> tracking_boxes;
   std::optional<PlayDetectorResults> play_detection;
@@ -44,6 +47,7 @@ class PlayTracker : public IBreakawayAdjuster {
 
   struct ClusterBoxes {
     std::unordered_map<size_t, BBox> cluster_boxes;
+    std::unordered_map<size_t, BBox> removed_cluster_outlier_box;
     BBox final_cluster_box;
   };
 

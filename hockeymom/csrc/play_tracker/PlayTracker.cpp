@@ -270,11 +270,14 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
     }
 
     if (config_.ignore_outlier_players && bboxes.size() > 3) {
-      int outlier_index = find_outlier_index(bboxes, /*r=*/0.75);
+      int outlier_index = find_outlier_index(
+          bboxes, /*r=*/config_.ignore_outlier_players_dist_ratio);
       if (outlier_index >= 0) {
         auto outlier_iter = bboxes.begin() + outlier_index;
         // FIXME(maybe): Removing this is slow :(
-        std::cout << "Removing outlier box: " << *outlier_iter << std::endl;
+        // std::cout << "Removing outlier box: " << *outlier_iter << std::endl;
+        cluster_boxes_result.removed_cluster_outlier_box.emplace(
+            cluster_id, bboxes[outlier_index]);
         bboxes.erase(outlier_iter);
       }
     }
@@ -360,6 +363,8 @@ PlayTrackerResults PlayTracker::forward(
   {
     ClusterBoxes cluster_boxes_result = get_cluster_boxes(*p_cluster_bboxes);
     results.cluster_boxes = std::move(cluster_boxes_result.cluster_boxes);
+    results.removed_cluster_outlier_box =
+        std::move(cluster_boxes_result.removed_cluster_outlier_box);
     results.final_cluster_box = cluster_boxes_result.final_cluster_box;
   }
 
