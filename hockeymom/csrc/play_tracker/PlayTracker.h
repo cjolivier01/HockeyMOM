@@ -22,7 +22,7 @@ struct PlayTrackerConfig {
   // Ignore a cluster item that's very far away from the next person on that
   // side
   size_t ignore_outlier_players{true};
-  float ignore_outlier_players_dist_ratio{0.75};
+  float ignore_outlier_players_dist_ratio{1.0};
   PlayDetectorConfig play_detector;
 };
 

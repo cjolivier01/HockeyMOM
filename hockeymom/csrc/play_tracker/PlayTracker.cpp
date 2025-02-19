@@ -89,7 +89,7 @@ BBox get_union_bounding_box(const std::vector<BBox>& boxes) {
   return BBox(/*l=*/minLeft, /*t=*/minTop, /*r=*/maxRight, /*b=*/maxBottom);
 }
 
-int find_outlier_index(const std::vector<BBox>& boxes, float r = 0.5) {
+int find_outlier_index(const std::vector<BBox>& boxes, float r = 1.0) {
   int numBoxes = boxes.size();
   if (numBoxes < 2)
     return -1; // need at least 2 boxes for comparison
@@ -277,7 +277,7 @@ PlayTracker::ClusterBoxes PlayTracker::get_cluster_boxes(
         // FIXME(maybe): Removing this is slow :(
         // std::cout << "Removing outlier box: " << *outlier_iter << std::endl;
         cluster_boxes_result.removed_cluster_outlier_box.emplace(
-            cluster_id, bboxes[outlier_index]);
+            cluster_sizes.at(cluster_id), bboxes[outlier_index]);
         bboxes.erase(outlier_iter);
       }
     }
