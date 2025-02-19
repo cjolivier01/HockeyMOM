@@ -873,6 +873,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "stop_translation_on_dir_change",
           &TranslatingBoxConfig::stop_translation_on_dir_change)
+      .def_readwrite(
+          "dynamic_acceleration_scaling",
+          &TranslatingBoxConfig::dynamic_acceleration_scaling)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
       .def_readwrite(
           "sticky_translation", &TranslatingBoxConfig::sticky_translation)

@@ -146,6 +146,7 @@ struct TranslatingBoxConfig {
   FloatValue max_accel_x{0.0};
   FloatValue max_accel_y{0.0};
   bool stop_translation_on_dir_change{true};
+  bool dynamic_acceleration_scaling{false};
   std::optional<BBox> arena_box{std::nullopt};
   // Sticky Sizing
   bool sticky_translation{false};

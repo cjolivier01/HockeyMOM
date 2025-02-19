@@ -174,7 +174,7 @@ class PlayTracker(torch.nn.Module):
             #
             current_roi_aspect_config = AllLivingBoxConfig()
 
-            kEXTRA_FOLLOWING_SCALE_DOWN = 1.1
+            kEXTRA_FOLLOWING_SCALE_DOWN = 1
 
             current_roi_aspect_config.max_speed_x = (
                 self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
@@ -200,6 +200,9 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.stop_resizing_on_dir_change = True
             current_roi_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
+
+            current_roi_aspect_config.dynamic_acceleration_scaling = True  # EXPERIMENTAL
+
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"]["camera"][
                 "sticky_size_ratio_to_frame_width"
