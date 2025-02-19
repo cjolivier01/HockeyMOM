@@ -23,7 +23,7 @@ fi
 set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd)/build:$(pwd)/src" \
+  PYTHONPATH="$(pwd):$(pwd)/src" \
   ${WRAPPER_CMD} python src/hmtrack.py \
   ${SAVE_DATA_ARGS} \
   ${EXPOSURE} \
