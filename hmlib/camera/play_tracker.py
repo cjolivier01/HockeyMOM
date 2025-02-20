@@ -250,8 +250,8 @@ class PlayTracker(torch.nn.Module):
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
                 pt_config.no_wide_start = self._args.no_wide_start
 
-                pt_config.ignore_outlier_players = False  # EXPERIMENTAL
-                pt_config.ignore_left_and_right_extremes = True  # EXPERIMENTAL
+                pt_config.ignore_outlier_players = True  # EXPERIMENTAL
+                pt_config.ignore_left_and_right_extremes = False  # EXPERIMENTAL
 
                 breakaway_detection = get_nested_value(args.game_config, "rink.camera.breakaway_detection", None)
                 pt_config.play_detector.min_considered_group_velocity = breakaway_detection[
