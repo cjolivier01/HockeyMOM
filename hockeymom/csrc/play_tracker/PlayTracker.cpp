@@ -14,7 +14,6 @@ namespace play_tracker {
 namespace {
 
 constexpr size_t kMinTracksBeforePruning = 3;
-constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
 // Arbitrarily large jump in bbox center that would be a bug
 constexpr size_t kMaxJumpAssertionValue = 300;
 #if 0
@@ -428,26 +427,26 @@ PlayTrackerResults PlayTracker::forward(
     if (prune_results.largest_area_index != kBadIdOrIndex) {
       ignore_tracking_ids.emplace(
           tracking_ids.at(prune_results.largest_area_index));
-      results.largest_tracking_bbox_id =
-          tracking_ids.at(prune_results.largest_area_index);
-      results.largest_tracking_bbox =
-          tracking_boxes.at(prune_results.largest_area_index);
+      results.largest_tracking_bbox = Track{
+          .tracking_id = tracking_ids.at(prune_results.largest_area_index),
+          .bbox = tracking_boxes.at(prune_results.largest_area_index),
+      };
     }
     if (prune_results.leftmost_index != kBadIdOrIndex) {
       ignore_tracking_ids.emplace(
           tracking_ids.at(prune_results.leftmost_index));
-      results.leftmost_tracking_bbox_id =
-          tracking_ids.at(prune_results.leftmost_index);
-      results.leftmost_tracking_bbox =
-          tracking_boxes.at(prune_results.leftmost_index);
+      results.leftmost_tracking_bbox = Track{
+          .tracking_id = tracking_ids.at(prune_results.leftmost_index),
+          .bbox = tracking_boxes.at(prune_results.leftmost_index),
+      };
     }
     if (prune_results.rightmost_index != kBadIdOrIndex) {
       ignore_tracking_ids.emplace(
           tracking_ids.at(prune_results.rightmost_index));
-      results.rightmost_tracking_bbox_id =
-          tracking_ids.at(prune_results.rightmost_index);
-      results.rightmost_tracking_bbox =
-          tracking_boxes.at(prune_results.rightmost_index);
+      results.rightmost_tracking_bbox = Track{
+          .tracking_id = tracking_ids.at(prune_results.rightmost_index),
+          .bbox = tracking_boxes.at(prune_results.rightmost_index),
+      };
     }
     std::set<size_t> remove_indices{
         prune_results.largest_area_index,

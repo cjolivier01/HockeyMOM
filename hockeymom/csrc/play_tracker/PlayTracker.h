@@ -4,12 +4,15 @@
 #include "hockeymom/csrc/play_tracker/PlayDetector.h"
 
 #include <array>
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 namespace hm {
 namespace play_tracker {
+
+constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
 
 struct PlayTrackerConfig {
   bool no_wide_start{false};
@@ -33,6 +36,11 @@ struct PlayTrackerState {
   size_t tracked_player_count{0};
 };
 
+struct Track {
+  size_t tracking_id{kBadIdOrIndex};
+  BBox bbox;
+};
+
 struct PlayTrackerResults {
   std::unordered_map<size_t, BBox> cluster_boxes;
   std::unordered_map<size_t, BBox> removed_cluster_outlier_box;
@@ -40,12 +48,9 @@ struct PlayTrackerResults {
   std::vector<BBox> tracking_boxes;
   std::optional<PlayDetectorResults> play_detection;
   // TODO: combine these ignored items
-  std::optional<size_t> largest_tracking_bbox_id;
-  std::optional<BBox> largest_tracking_bbox;
-  std::optional<size_t> leftmost_tracking_bbox_id;
-  std::optional<BBox> leftmost_tracking_bbox;
-  std::optional<size_t> rightmost_tracking_bbox_id;
-  std::optional<BBox> rightmost_tracking_bbox;
+  std::optional<Track> largest_tracking_bbox;
+  std::optional<Track> leftmost_tracking_bbox;
+  std::optional<Track> rightmost_tracking_bbox;
 };
 
 class PlayTracker : public IBreakawayAdjuster {

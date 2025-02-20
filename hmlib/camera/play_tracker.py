@@ -472,10 +472,10 @@ class PlayTracker(torch.nn.Module):
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
                 playtracker_results = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
 
-                if playtracker_results.largest_tracking_bbox_id is not None:
-                    largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox)
+                if playtracker_results.largest_tracking_bbox is not None:
+                    largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox.bbox)
                     largest_bbox = batch_tlbrs_to_tlwhs(largest_bbox.unsqueeze(0)).squeeze(0)
-                    vis_ignored_tracking_ids = {playtracker_results.largest_tracking_bbox_id}
+                    vis_ignored_tracking_ids = {playtracker_results.largest_tracking_bbox.tracking_id}
                 else:
                     largest_bbox = None
 

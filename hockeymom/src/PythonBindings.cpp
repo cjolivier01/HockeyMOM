@@ -1039,6 +1039,11 @@ void init_play_tracker(::pybind11::module_& m) {
    *                 |___/
    */
 
+  py::class_<Track>(m, "Track")
+      .def(py::init<>())
+      .def_readwrite("tracking_id", &Track::tracking_id)
+      .def_readwrite("bbox", &Track::bbox);
+
   py::class_<PlayDetectorConfig>(m, "PlayDetectorConfig")
       .def(py::init<>())
       .def_readwrite("fps_speed_scale", &PlayDetectorConfig::fps_speed_scale)
@@ -1094,18 +1099,9 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readonly("tracking_boxes", &PlayTrackerResults::tracking_boxes)
       .def_readonly("play_detection", &PlayTrackerResults::play_detection)
       .def_readonly(
-          "largest_tracking_bbox_id",
-          &PlayTrackerResults::largest_tracking_bbox_id)
-      .def_readonly(
           "largest_tracking_bbox", &PlayTrackerResults::largest_tracking_bbox)
       .def_readonly(
-          "leftmost_tracking_bbox_id",
-          &PlayTrackerResults::leftmost_tracking_bbox_id)
-      .def_readonly(
           "leftmost_tracking_bbox", &PlayTrackerResults::leftmost_tracking_bbox)
-      .def_readonly(
-          "rightmost_tracking_bbox_id",
-          &PlayTrackerResults::rightmost_tracking_bbox_id)
       .def_readonly(
           "rightmost_tracking_bbox",
           &PlayTrackerResults::rightmost_tracking_bbox);
