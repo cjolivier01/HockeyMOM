@@ -1072,6 +1072,10 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite(
           "ignore_largest_bbox", &PlayTrackerConfig::ignore_largest_bbox)
       .def_readwrite(
+          "ignore_left_and_right_extremes",
+          &PlayTrackerConfig::ignore_left_and_right_extremes)
+
+      .def_readwrite(
           "ignore_outlier_players", &PlayTrackerConfig::ignore_outlier_players)
       .def_readwrite("play_detector", &PlayTrackerConfig::play_detector);
 
@@ -1093,7 +1097,18 @@ void init_play_tracker(::pybind11::module_& m) {
           "largest_tracking_bbox_id",
           &PlayTrackerResults::largest_tracking_bbox_id)
       .def_readonly(
-          "largest_tracking_bbox", &PlayTrackerResults::largest_tracking_bbox);
+          "largest_tracking_bbox", &PlayTrackerResults::largest_tracking_bbox)
+      .def_readonly(
+          "leftmost_tracking_bbox_id",
+          &PlayTrackerResults::leftmost_tracking_bbox_id)
+      .def_readonly(
+          "leftmost_tracking_bbox", &PlayTrackerResults::leftmost_tracking_bbox)
+      .def_readonly(
+          "rightmost_tracking_bbox_id",
+          &PlayTrackerResults::rightmost_tracking_bbox_id)
+      .def_readonly(
+          "rightmost_tracking_bbox",
+          &PlayTrackerResults::rightmost_tracking_bbox);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(

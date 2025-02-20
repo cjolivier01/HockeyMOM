@@ -17,7 +17,7 @@ constexpr size_t kMinTracksBeforePruning = 3;
 constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
 // Arbitrarily large jump in bbox center that would be a bug
 constexpr size_t kMaxJumpAssertionValue = 300;
-
+#if 0
 std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
 remove_largest(std::vector<size_t> ids, std::vector<BBox> bboxes) {
   double largest_area = 0.0;
@@ -38,6 +38,80 @@ remove_largest(std::vector<size_t> ids, std::vector<BBox> bboxes) {
     bboxes.erase(bboxes.begin() + largest_index);
   }
   return std::make_tuple(largest_index, std::move(ids), std::move(bboxes));
+}
+#endif
+
+struct PruneResults {
+  size_t largest_area_index{kBadIdOrIndex};
+  size_t leftmost_index{kBadIdOrIndex};
+  size_t rightmost_index{kBadIdOrIndex};
+};
+
+PruneResults remove_extremes(
+    const std::vector<size_t>& ids,
+    const std::vector<BBox>& bboxes,
+    bool ignore_largest,
+    bool ignore_lr_extremes,
+    const size_t min_boxes = 10) {
+  if (!ignore_largest && !ignore_lr_extremes) {
+    return PruneResults();
+  }
+  PruneResults results;
+  double largest_area = 0.0;
+
+  // size_t leftmost_index = kBadIdOrIndex;
+  int64_t leftmost_x = std::numeric_limits<int64_t>::max();
+
+  // size_t rightmost_index = kBadIdOrIndex;
+  int64_t rightmost_x = std::numeric_limits<int64_t>::min();
+
+  const bool remove_lr = (bboxes.size() >= min_boxes) && ignore_lr_extremes;
+
+  // Single loop: compute largest area as well as leftmost/rightmost center x.
+  const size_t n = ids.size();
+  for (size_t i = 0; i < n; ++i) {
+    const auto& box = bboxes[i];
+
+    if (ignore_largest) {
+      // Compute area.
+      double area = box.area();
+      if (area > largest_area) {
+        largest_area = area;
+        results.largest_area_index = i;
+      }
+    }
+
+    if (remove_lr) {
+      // Compute center x.
+      int64_t center_x = (box.left + box.right) / 2;
+      if (center_x < leftmost_x) {
+        leftmost_x = center_x;
+        results.leftmost_index = i;
+      }
+      if (center_x > rightmost_x) {
+        rightmost_x = center_x;
+        results.rightmost_index = i;
+      }
+    }
+  }
+
+  return results;
+}
+
+std::vector<BBox> prune_bboxes(
+    std::vector<BBox> bboxes,
+    const std::set<size_t>& remove_indices) {
+  if (remove_indices.empty()) {
+    return bboxes;
+  }
+  std::vector<BBox> new_bboxes;
+  new_bboxes.reserve(bboxes.size());
+  for (size_t i = 0, n = bboxes.size(); i < n; ++i) {
+    if (!remove_indices.count(i)) {
+      new_bboxes.emplace_back(bboxes[i]);
+    }
+  }
+  return bboxes;
 }
 
 std::vector<size_t> get_largest_cluster_item_indexes(
@@ -340,20 +414,49 @@ PlayTrackerResults PlayTracker::forward(
   PlayTrackerResults results;
 
   std::set<size_t> ignore_tracking_ids;
-  std::tuple</*index_removed=*/size_t, std::vector<size_t>, std::vector<BBox>>
-      prune_results;
+  PruneResults prune_results;
   std::vector<BBox>* p_cluster_bboxes = &tracking_boxes;
-  if (config_.ignore_largest_bbox &&
+  std::vector<BBox> repl_bboxes;
+  if ((config_.ignore_largest_bbox || config_.ignore_left_and_right_extremes) &&
       tracking_ids.size() > kMinTracksBeforePruning) {
-    prune_results = remove_largest(tracking_ids, tracking_boxes);
-    const size_t ignore_index = std::get<0>(prune_results);
-    if (ignore_index != kBadIdOrIndex) {
-      p_cluster_bboxes = &std::get<2>(prune_results);
+    // prune_results = remove_largest(tracking_ids, tracking_boxes);
+    prune_results = remove_extremes(
+        tracking_ids,
+        *p_cluster_bboxes,
+        config_.ignore_largest_bbox,
+        config_.ignore_left_and_right_extremes);
+    if (prune_results.largest_area_index != kBadIdOrIndex) {
       assert(p_cluster_bboxes->size() == tracking_boxes.size() - 1);
-      ignore_tracking_ids.emplace(tracking_ids.at(ignore_index));
-      results.largest_tracking_bbox_id = tracking_ids.at(ignore_index);
-      results.largest_tracking_bbox = tracking_boxes.at(ignore_index);
+      ignore_tracking_ids.emplace(
+          tracking_ids.at(prune_results.largest_area_index));
+      results.largest_tracking_bbox_id =
+          tracking_ids.at(prune_results.largest_area_index);
+      results.largest_tracking_bbox =
+          tracking_boxes.at(prune_results.largest_area_index);
     }
+    if (prune_results.leftmost_index != kBadIdOrIndex) {
+      ignore_tracking_ids.emplace(
+          tracking_ids.at(prune_results.leftmost_index));
+      results.leftmost_tracking_bbox_id =
+          tracking_ids.at(prune_results.leftmost_index);
+      results.leftmost_tracking_bbox =
+          tracking_boxes.at(prune_results.leftmost_index);
+    }
+    if (prune_results.rightmost_index != kBadIdOrIndex) {
+      ignore_tracking_ids.emplace(
+          tracking_ids.at(prune_results.rightmost_index));
+      results.rightmost_tracking_bbox_id =
+          tracking_ids.at(prune_results.rightmost_index);
+      results.rightmost_tracking_bbox =
+          tracking_boxes.at(prune_results.rightmost_index);
+    }
+    repl_bboxes = prune_bboxes(
+        *p_cluster_bboxes,
+        std::set<size_t>{
+            prune_results.largest_area_index,
+            prune_results.leftmost_index,
+            prune_results.rightmost_index});
+    p_cluster_bboxes = &repl_bboxes;
   }
 
   //
