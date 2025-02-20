@@ -102,6 +102,7 @@ def build_stitching_project(
     skip_if_exists: bool = True,
     test_blend: bool = True,
     fov: int = 108,
+    scale: Optional[float] = None,
     force: bool = False,
 ):
     pto_path = Path(project_file_path)
@@ -165,6 +166,11 @@ def build_stitching_project(
             autooptimiser_out,
             hm_project,
         ]
+        if scale and scale != 1.0:
+            cmd += [
+                "-x",
+                str(scale),
+            ]
         os.system(" ".join(cmd))
 
         # Output mapping files
