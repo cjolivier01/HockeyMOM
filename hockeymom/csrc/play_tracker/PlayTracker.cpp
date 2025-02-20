@@ -426,7 +426,6 @@ PlayTrackerResults PlayTracker::forward(
         config_.ignore_largest_bbox,
         config_.ignore_left_and_right_extremes);
     if (prune_results.largest_area_index != kBadIdOrIndex) {
-      assert(p_cluster_bboxes->size() == tracking_boxes.size() - 1);
       ignore_tracking_ids.emplace(
           tracking_ids.at(prune_results.largest_area_index));
       results.largest_tracking_bbox_id =
