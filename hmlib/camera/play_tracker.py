@@ -638,7 +638,7 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            if True or self._args.plot_cluster_tracking:
+            if self._args.plot_cluster_tracking:
                 cluster_box_colors = {
                     cluster_counts[0]: (128, 0, 0),  # dark red
                     cluster_counts[1]: (0, 0, 128),  # dark blue

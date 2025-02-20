@@ -111,7 +111,7 @@ std::vector<BBox> prune_bboxes(
       new_bboxes.emplace_back(bboxes[i]);
     }
   }
-  return bboxes;
+  return new_bboxes;
 }
 
 std::vector<size_t> get_largest_cluster_item_indexes(
@@ -449,13 +449,15 @@ PlayTrackerResults PlayTracker::forward(
       results.rightmost_tracking_bbox =
           tracking_boxes.at(prune_results.rightmost_index);
     }
-    repl_bboxes = prune_bboxes(
-        *p_cluster_bboxes,
-        std::set<size_t>{
-            prune_results.largest_area_index,
-            prune_results.leftmost_index,
-            prune_results.rightmost_index});
-    p_cluster_bboxes = &repl_bboxes;
+    std::set<size_t> remove_indices{
+        prune_results.largest_area_index,
+        prune_results.leftmost_index,
+        prune_results.rightmost_index};
+    remove_indices.erase(kBadIdOrIndex);
+    if (!remove_indices.empty()) {
+      repl_bboxes = prune_bboxes(*p_cluster_bboxes, remove_indices);
+      p_cluster_bboxes = &repl_bboxes;
+    }
   }
 
   //
