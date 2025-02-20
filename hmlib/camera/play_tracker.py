@@ -250,7 +250,8 @@ class PlayTracker(torch.nn.Module):
                 pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
                 pt_config.no_wide_start = self._args.no_wide_start
 
-                pt_config.ignore_outlier_players = True  # EXPERIMENTAL
+                pt_config.ignore_outlier_players = False  # EXPERIMENTAL
+                pt_config.ignore_left_and_right_extremes = True  # EXPERIMENTAL
 
                 breakaway_detection = get_nested_value(args.game_config, "rink.camera.breakaway_detection", None)
                 pt_config.play_detector.min_considered_group_velocity = breakaway_detection[
@@ -465,7 +466,7 @@ class PlayTracker(torch.nn.Module):
             #
             cluster_counts = [3, 2]
 
-            vis_ignored_tracking_ids: Union[Set[int], None] = None
+            vis_ignored_tracking_ids: Union[Set[int], None] = set()
 
             if self._playtracker is not None:
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
@@ -477,6 +478,12 @@ class PlayTracker(torch.nn.Module):
                     vis_ignored_tracking_ids = {playtracker_results.largest_tracking_bbox_id}
                 else:
                     largest_bbox = None
+
+                if playtracker_results.leftmost_tracking_bbox_id is not None:
+                    vis_ignored_tracking_ids.add(playtracker_results.leftmost_tracking_bbox_id)
+
+                if playtracker_results.rightmost_tracking_bbox_id is not None:
+                    vis_ignored_tracking_ids.add(playtracker_results.rightmost_tracking_bbox_id)
 
                 cluster_enclosing_box = from_bbox(playtracker_results.final_cluster_box)
                 cluster_boxes_map = playtracker_results.cluster_boxes
