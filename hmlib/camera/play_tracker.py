@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import cv2
 import numpy as np
 import torch
-
 from hmlib.bbox.box_functions import (
     center,
     center_batch,
@@ -21,18 +20,19 @@ from hmlib.bbox.box_functions import (
     width,
 )
 from hmlib.builder import HM
-from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
-from hmlib.tracking_utils import visualization as vis
 
 # from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
+
+from hmlib.camera.camera import HockeyMOM
+from hmlib.tracking_utils import visualization as vis
 from hockeymom.core import AllLivingBoxConfig, BBox
 from hockeymom.core import PlayTracker as CppPlayTracker
 from hockeymom.core import PlayTrackerConfig
@@ -479,11 +479,11 @@ class PlayTracker(torch.nn.Module):
                 else:
                     largest_bbox = None
 
-                if playtracker_results.leftmost_tracking_bbox_id is not None:
-                    vis_ignored_tracking_ids.add(playtracker_results.leftmost_tracking_bbox_id)
+                # if playtracker_results.leftmost_tracking_bbox_id is not None:
+                #     vis_ignored_tracking_ids.add(playtracker_results.leftmost_tracking_bbox_id)
 
-                if playtracker_results.rightmost_tracking_bbox_id is not None:
-                    vis_ignored_tracking_ids.add(playtracker_results.rightmost_tracking_bbox_id)
+                # if playtracker_results.rightmost_tracking_bbox_id is not None:
+                #     vis_ignored_tracking_ids.add(playtracker_results.rightmost_tracking_bbox_id)
 
                 cluster_enclosing_box = from_bbox(playtracker_results.final_cluster_box)
                 cluster_boxes_map = playtracker_results.cluster_boxes
