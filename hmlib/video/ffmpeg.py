@@ -25,7 +25,7 @@ def preexec_fn():
 @classinstancememoize
 class BasicVideoInfo:
 
-    def __init__(self, video_file: str, use_ffprobe: bool = False):
+    def __init__(self, video_file: str, use_ffprobe: bool = True):
         assert isinstance(video_file, str)
         video_file = video_file.split(",")
         self._multiple = None
