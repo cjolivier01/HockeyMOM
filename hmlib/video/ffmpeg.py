@@ -25,7 +25,7 @@ def preexec_fn():
 @classinstancememoize
 class BasicVideoInfo:
 
-    def __init__(self, video_file: str, use_ffprobe: bool = True):
+    def __init__(self, video_file: str, use_ffprobe: bool = False):
         assert isinstance(video_file, str)
         video_file = video_file.split(",")
         self._multiple = None
@@ -82,7 +82,7 @@ class BasicVideoInfo:
                 self.duration = self.frame_count / self.fps
                 self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                self.bit_rate = cap.get(cv2.CAP_PROP_BITRATE)
+                self.bit_rate = int(cap.get(cv2.CAP_PROP_BITRATE) * 1000)
                 self.fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
                 self.codec = "".join([chr((self.fourcc >> 8 * i) & 0xFF) for i in range(4)]).upper()
                 cap.release()
