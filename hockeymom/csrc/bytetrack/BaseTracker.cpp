@@ -7,9 +7,10 @@ BaseTracker::BaseTracker(
     std::optional<std::unordered_map<std::string, float>> momentums,
     int num_frames_retain,
     bool validate)
-    : momentums_(momentums),
+    : validate_(validate),
+      momentums_(std::move(momentums)),
       num_frames_retain_(num_frames_retain),
-      validate_(validate) {
+      num_tracks_(0) {
   reset();
 }
 
@@ -41,7 +42,7 @@ bool BaseTracker::with_reid() const {
 }
 
 // bool is_single_value(const at::Tensor& t) {
-  
+
 // }
 
 // Update the tracker with new information
@@ -101,7 +102,6 @@ void BaseTracker::init_track(
       auto& mm = momentums_.value();
       auto iter = mm.find(key);
       if (iter != mm.end()) {
-        auto m = iter->second;
         float v = item.second.item<float>();
         track.ref_momentum(key) = v;
         continue;
@@ -134,7 +134,7 @@ void BaseTracker::update_track(
     // regular
     auto& val_list = track.get_ref(key);
     val_list.emplace_back(item.second);
-    while (val_list.size() > num_frames_retain_) {
+    while (val_list.size() > static_cast<size_t>(num_frames_retain_)) {
       val_list.pop_front();
     }
   }

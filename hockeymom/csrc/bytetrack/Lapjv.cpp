@@ -1,9 +1,11 @@
 #include "Lapjv.h"
 
-#include <torch/torch.h>
-
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+
+#include <iostream>
+
 
 namespace lapjv {
 
@@ -367,6 +369,7 @@ int lapjv_internal(const uint_t n, cost_t* cost[], int_t* x, int_t* y) {
 }
 
 // Untested version
+#if 0
 double pt_lapjv_simple(
     const at::Tensor& cost_matrix,
     at::Tensor& row_solution,
@@ -518,6 +521,7 @@ double pt_lapjv_full(
 
   return total_cost;
 }
+#endif
 
 double lapjv(
     const std::vector<std::vector<float>>& cost,

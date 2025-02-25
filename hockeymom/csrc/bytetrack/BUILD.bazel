@@ -1,14 +1,48 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+INCLUDE_PREFIX = "hockeymom/csrc/bytetrack"
+
 cc_library(
     name = "bytetrack",
-    srcs = glob(["*.cpp"]),
-    hdrs = glob(["*.h"]),
+    srcs = [
+        "BYTETracker.cpp",
+        "BaseTracker.cpp",
+        "HmTracker.cpp",
+        "STrack.cpp",
+        "Utils.cpp",
+    ],
+    hdrs = [
+        "BYTETracker.h",
+        "BaseTracker.h",
+        "HmTracker.h",
+        "STrack.h",
+        "Utils.h",
+    ],
     includes = ["."],
     visibility = ["//visibility:public"],
     deps = [
-      "@libtorch",
-      "@eigen//:eigen",
+        "@libtorch",
+        ":bytetrack_lib",
+        # "@eigen",
     ],
 )
 
+cc_library(
+    name = "bytetrack_lib",
+    srcs = [
+        "BYTETrackerUtils.cpp",
+        "KalmanFilter.cpp",
+        "Lapjv.cpp",
+        "Tracker.cpp",
+    ],
+    hdrs = [
+        "KalmanFilter.h",
+        "Lapjv.h",
+        "Tracker.h",
+    ],
+    include_prefix = INCLUDE_PREFIX,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@eigen",
+    ],
+)
