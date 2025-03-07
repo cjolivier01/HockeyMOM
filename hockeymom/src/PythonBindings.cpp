@@ -1,4 +1,4 @@
-#include "pano/cudaPano.h"
+#include "cupano/pano/cudaPano.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"

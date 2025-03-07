@@ -591,7 +591,6 @@ class MaskEdgeDistances:
 
 
 def main(args: argparse.Namespace, device: torch.device):
-    assert args.game_id
     stitched_frame_file = f"{os.environ['HOME']}/Videos/{args.game_id}/s.png"
     if not os.path.exists(stitched_frame_file):
         print(f"Could not find stitched frame image: {stitched_frame_file}")
