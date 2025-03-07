@@ -30,10 +30,10 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   PointDiff total_diff = center_dest - center_current;
 
   FloatValue x_gaussian = 1.0;
-  if (config_.dynamic_acceleration_scaling) {
-    x_gaussian =
-        1.0 - get_gaussian_ratio(total_diff.dx, config_.arena_box->width());
-  }
+  // if (config_.dynamic_acceleration_scaling) {
+  //   x_gaussian =
+  //       1.0 - get_gaussian_ratio(total_diff.dx, config_.arena_box->width());
+  // }
 
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
