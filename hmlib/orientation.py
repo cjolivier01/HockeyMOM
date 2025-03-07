@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-
 from hmlib.config import (
     get_game_config_private,
     get_game_dir,
@@ -323,8 +322,6 @@ if __name__ == "__main__":
     parser = make_parser()
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
-
-    args.game_id = "test"
 
     main(args)
     print("Done.")
