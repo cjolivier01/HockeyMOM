@@ -6,13 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from hmlib.config import (
-    get_game_config_private,
-    get_game_dir,
-    get_nested_value,
-    save_private_config,
-    set_nested_value,
-)
+
+from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
@@ -322,6 +317,8 @@ if __name__ == "__main__":
     parser = make_parser()
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
+
+    args.game_id = "ev-cougars-2"
 
     main(args)
     print("Done.")
