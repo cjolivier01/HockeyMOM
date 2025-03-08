@@ -318,7 +318,5 @@ if __name__ == "__main__":
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
 
-    args.game_id = "ev-cougars-2"
-
     main(args)
     print("Done.")
