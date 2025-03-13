@@ -13,7 +13,7 @@ sudo apt install -y \
   libvpx-dev \
   libfdk-aac-dev \
   libmp3lame-dev \
-  libopus-dev
+  libopus-dev \
   libilmbase-dev \
   liblcms2-dev \
   libsqlite3-dev \
