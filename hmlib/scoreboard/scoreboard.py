@@ -30,34 +30,22 @@ def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
     return torch.norm(pt0 - pt1)
 
 
-# does not work
-def order_points_clockwise(points: torch.Tensor) -> torch.Tensor:
-    # Sort by y first (top), then by x (left) to find the top-left point
-    sorted_points = points[points[:, 1].argsort()]  # Sort by the second column (y)
+def order_points_clockwise(pts: torch.Tensor):
+    # Ensure pts is a NumPy array of shape (4, 2)
+    pts = pts.to(torch.float32).cpu().numpy()
 
-    # Top-left is the first point after sorting
-    top_left = sorted_points[0]
+    # Compute the sum and difference of the points.
+    s = pts.sum(axis=1)
+    diff = np.diff(pts, axis=1)
 
-    # Calculate the vector cross-product to determine clockwise order
-    def cross_product(point: Tensor) -> float:
-        # Using the cross product to determine the relative orientation from top-left
-        x_diff = point[0] - top_left[0]
-        y_diff = point[1] - top_left[1]
-        return x_diff * (-1) + y_diff  # Clockwise: positive x, negative y
+    # Allocate an array for the ordered points: [top-left, top-right, bottom-right, bottom-left]
+    ordered = np.zeros((4, 2), dtype="float32")
+    ordered[0] = pts[np.argmin(s)]       # top-left: smallest sum
+    ordered[2] = pts[np.argmax(s)]       # bottom-right: largest sum
+    ordered[1] = pts[np.argmin(diff)]    # top-right: smallest difference
+    ordered[3] = pts[np.argmax(diff)]    # bottom-left: largest difference
 
-    remaining_points = sorted(sorted_points[1:], key=cross_product)
-    remaining_points = reversed(remaining_points)
-
-    # Stack the top-left point with the remaining points in clockwise order
-    ordered_points = torch.vstack(
-        [top_left.unsqueeze(0)] + [p.unsqueeze(0) for p in remaining_points]
-    )
-
-    return ordered_points
-
-
-def _maybe_ratio(config_value: Union[int, float, str], reference_value: Union[int]) -> int:
-    pass
+    return torch.from_numpy(ordered)
 
 
 class Scoreboard(torch.nn.Module):
@@ -379,135 +367,6 @@ def _apply_grid_transform(
 
     img = _cast_squeeze_out(img, need_cast, need_squeeze, out_dtype)
     return img
-
-
-def main():
-    # Load your image
-    image_path = "/home/colivier/Videos/sharks-bb3-1/panorama.tif"  # Specify the path to your image
-    # image = Image.open(image_path)
-    image = Image.open(image_path)
-    image_tensor = TF.to_tensor(image).unsqueeze(0)  # Add batch dimension
-
-    # Prepare for interactive point selection
-    fig, ax = plt.subplots()
-    original_image = np.array(np.ascontiguousarray(image))
-    img_plot = plt.imshow(image)
-
-    selected_points = []
-
-    # selected_points = [[2007.2903225806454, 389.07741935483864], [2400.2741935483873, 639.1580645161289], [2043.0161290322585, 860.6580645161291], [1907.2580645161293, 574.8516129032257]]
-    selected_points = [
-        [5845.921076009106, 911.8827549830662],
-        [6032.949003386821, 969.4298095608242],
-        [5996.9820942757215, 1120.4908278274388],
-        [5790.954166898008, 1048.5570096052415],
-    ]
-
-    def onclick(event):
-        if event.xdata is not None and event.ydata is not None:
-            # Add the point and redraw
-            selected_points.append([event.xdata, event.ydata])
-            ax.plot(event.xdata, event.ydata, "ro")
-            if len(selected_points) > 1:
-                plt.plot(
-                    [selected_points[-2][0], selected_points[-1][0]],
-                    [selected_points[-2][1], selected_points[-1][1]],
-                    "r-",
-                )
-            if len(selected_points) == 4:
-                plt.plot(
-                    [selected_points[-1][0], selected_points[0][0]],
-                    [selected_points[-1][1], selected_points[0][1]],
-                    "r-",
-                )
-                fig.canvas.mpl_disconnect(cid)
-                plt.draw()
-                # Proceed to warp perspective after 4 points have been selected
-                proceed_with_warp_cv2()
-            plt.draw()
-
-    def proceed_with_warp_cv2():
-        nonlocal original_image
-        # print(selected_points)
-
-        src_pts = np.array(selected_points, dtype=np.float32)
-
-        src_height = original_image.shape[0]
-        src_width = original_image.shape[1]
-        width = 200
-        height = 100
-
-        src_pts = torch.tensor(selected_points, dtype=torch.float)
-
-        if True:
-            bbox_src = int_bbox(get_bbox(selected_points))
-            original_image = make_channels_first(torch.from_numpy(original_image).unsqueeze(0))
-
-            src_image = original_image[:, :, bbox_src[1] : bbox_src[3], bbox_src[0] : bbox_src[2]]
-            src_pts[:, 0] -= bbox_src[0]
-            src_pts[:, 1] -= bbox_src[1]
-
-            src_width = image_width(src_image)
-            src_height = image_height(src_image)
-
-            totw = max(width, src_width)
-            toth = max(height, src_height)
-            if totw > src_width or toth > src_height:
-                src_image = pad_tensor_to_size_batched(
-                    src_image,
-                    target_width=totw,
-                    target_height=toth,
-                    pad_value=0,
-                )
-                dest_w = totw
-                dest_h = toth
-            else:
-                dest_w = src_width
-                dest_h = src_height
-
-        dst_pts = np.array(
-            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
-            dtype=np.float32,
-        )
-
-        perspective_coeffs = _get_perspective_coeffs(startpoints=src_pts, endpoints=dst_pts)
-
-        ow = dest_w
-        oh = dest_h
-        dtype = src_image.dtype if torch.is_floating_point(src_image) else torch.float
-        grid = _perspective_grid(
-            perspective_coeffs, ow=ow, oh=oh, dtype=dtype, device=src_image.device
-        )
-        warped_image = _apply_grid_transform(src_image, grid, mode="bilinear", fill=None)
-
-        warped_image = warped_image[:, :, :height, :width]
-
-        wmin = torch.min(warped_image)
-        wmax = torch.max(warped_image)
-
-        # Display the warped image
-        plt.figure()
-        if warped_image.ndim == 4:
-            assert warped_image.size(0) == 1
-            warped_image = warped_image.squeeze(0)
-
-        if warped_image.shape[0] == 4 or warped_image.shape[0] == 3:
-            warped_image = warped_image.permute(1, 2, 0)
-            warped_image = warped_image.contiguous().numpy()
-
-        wi_min = np.min(warped_image)
-        wi_max = np.max(warped_image)
-
-        original_image *= 1
-        plt.imshow(warped_image)
-        plt.title("Warped Image")
-        plt.show()
-
-    if False:
-        cid = fig.canvas.mpl_connect("button_press_event", onclick)
-        plt.show()
-    else:
-        proceed_with_warp_cv2()
 
 
 def sb_main(game_id: str):
