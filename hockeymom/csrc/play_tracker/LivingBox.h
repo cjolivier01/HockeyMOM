@@ -57,7 +57,7 @@ struct IBasicLivingBox {
  */
 struct ILivingBox : virtual public IBasicLivingBox {
   virtual void set_dest(std::shared_ptr<IBasicLivingBox>) = 0;
-  virtual void set_destination(
+  virtual void set_destination_ex(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;
   virtual void set_dest_ex(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) = 0;

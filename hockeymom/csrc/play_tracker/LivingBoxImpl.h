@@ -20,7 +20,7 @@ class LivingBox : public ILivingBox,
   LivingBox(std::string label, BBox bbox, const AllLivingBoxConfig& config);
 
   // -ILivingBox
-  void set_destination(
+  void set_destination_ex(
       const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest)
       override;
   void set_dest(std::shared_ptr<IBasicLivingBox>) override {}

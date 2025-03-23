@@ -120,7 +120,7 @@ BBox LivingBox::bounding_box() const {
   return BoundingBox::bounding_box();
 }
 
-void LivingBox::set_destination(
+void LivingBox::set_destination_ex(
     const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
   BBox dest_box;
   std::visit(
@@ -136,10 +136,7 @@ void LivingBox::set_destination(
 
 BBox LivingBox::forward(
     const std::variant<BBox, std::shared_ptr<IBasicLivingBox>>& dest) {
-  set_destination(dest);
-  // if (forward_counter_ == 41) {
-  //   std::cout << "j38e9d-8231jd932" << std::endl;
-  // }
+  set_destination_ex(dest);
   BBox new_pos = next_position();
   assert(new_pos.left >= 0);
   assert(new_pos.top >= 0);
