@@ -26,4 +26,4 @@ echo -e "Package: *\nPin: origin developer.download.nvidia.com\nPin-Priority: 60
 # Update package list
 sudo apt-get update
 
-sudo apt-get install cuda-12-6 libcudnn9-dev-cuda-12
+# sudo apt-get install cuda-12-6 libcudnn9-dev-cuda-12
