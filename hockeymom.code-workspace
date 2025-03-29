@@ -5,6 +5,18 @@
     },
     {
       "path": "../HockeyMOM"
+    },
+    {
+      "path": "../../../enblend-enfuse"
+    },
+    {
+      "path": "../../../PCA9685"
+    },
+    {
+      "path": "../../../Adafruit_Python_PlatformDetect"
+    },
+    {
+      "path": "../../../Adafruit_Blinka"
     }
   ],
   "settings": {
