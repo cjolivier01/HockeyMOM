@@ -10,6 +10,9 @@ namespace {
 constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
 constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
 
+constexpr FloatValue kDegreesEdgePerspecive = 20.0;
+const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
+
 } // namespace
 
 TranslatingBox::TranslatingBox(const TranslatingBoxConfig& config)
@@ -329,6 +332,36 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
   FloatValue unsticky_size =
       sticky_size * config_.unsticky_translation_size_ratio;
   return std::make_tuple(sticky_size, unsticky_size);
+}
+
+static FloatValue adjusted_horizontal_position(FloatValue x_distance_from_edge, FloatValue y, const BBox& arena_box) {
+  FloatValue percent_y = (y - arena_box.top) / arena_box.height();
+  FloatValue full_x_adjusted_distance = kSineEdgePerspecive * arena_box.height();
+  FloatValue adjusted_x_diff = (1.0 - percent_y) * full_x_adjusted_distance;
+
+  return x;
+}
+
+FloatValue TranslatingBox::get_arena_edge_position_scale() const {
+  assert(config_.arena_box.has_value());
+  const BBox bbox = bounding_box();
+  const BBox& arena_box = *config_.arena_box;
+
+  const FloatValue our_width = bbox.width();
+  const FloatValue arena_width = arena_box.width();
+
+  // Let's say 1/10th of arena width will be our "smallest" box
+  // Let's also assume a 20-degree shift from bottom-left to top-left dur to
+  // perspective (and same logic for right side), since perspective will make it
+  // "harder" (or impossible) for the box to reach the far edge at the top
+  // relative to the bottom of the view
+
+  const FloatValue left_x = adjusted_horizontal_position(bbox.left, bbox.center().y, arena_box);
+
+  std::cout << "left_x=" << left_x << std::endl;
+
+
+  return 0.0;
 }
 
 } // namespace play_tracker

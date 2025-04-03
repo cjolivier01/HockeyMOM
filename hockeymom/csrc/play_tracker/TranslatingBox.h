@@ -43,6 +43,13 @@ class TranslatingBox : virtual public IBasicLivingBox {
 
   std::tuple<FloatValue, FloatValue> get_sticky_translation_sizes() const;
 
+  // From the current position and size, get the ratio of closeness to the left or right
+  // edge, where 1.0 means on the edge and 0.0 means in the middle.
+  // The size of the box may be part of the consideration, for example a very large
+  // box will cover more horizontal ground and thus be less "completely on the edge",
+  // so some of the result will be a heuristic wrt size and position.
+  FloatValue get_arena_edge_position_scale() const;
+
  protected:
   PointDiff get_proposed_next_position_change() const;
 

@@ -12,10 +12,6 @@ namespace {
 
 using Velocity = PointDiff;
 
-// constexpr float kLargestPosFloatValue =
-// std::numeric_limits<FloatValue>::max(); constexpr float kLargestNegFloatValue
-// = std::numeric_limits<FloatValue>::min();
-
 constexpr size_t kMinPlayersForBreakawayDetection = 4;
 
 // Helper function to compute the magnitude of a velocity
