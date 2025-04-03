@@ -339,7 +339,7 @@ static FloatValue adjusted_horizontal_position(FloatValue x_distance_from_edge, 
   FloatValue full_x_adjusted_distance = kSineEdgePerspecive * arena_box.height();
   FloatValue adjusted_x_diff = (1.0 - percent_y) * full_x_adjusted_distance;
 
-  return x;
+  return x_distance_from_edge;
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale() const {
