@@ -362,6 +362,7 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
   return std::make_tuple(sticky_size, unsticky_size);
 }
 
+// TODO: left and right can be joined and just pass in that first line's x
 static FloatValue adjusted_horizontal_left_distance_from_edge(
     FloatValue x,
     FloatValue y,
