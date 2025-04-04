@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
 
 #include <cassert>
+#include <iomanip>
 #include <iostream>
 
 #include <unistd.h>
@@ -348,18 +349,30 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
   return std::make_tuple(sticky_size, unsticky_size);
 }
 
-static FloatValue adjusted_horizontal_left_position(
+static FloatValue adjusted_horizontal_left_distance_from_edge(
     FloatValue x,
     FloatValue y,
     const BBox& arena_box) {
   x = std::max(0.0f, x - arena_box.left);
-  // const FloatValue center_x = arena_box.center().x;
-  // negative is to the left
-  // int direction = int(x - center_x);
-  // if (direction >= 0) {
-  //   // In center or to the right, so no scaling
-  //   return x;
-  // }
+  const FloatValue half_height = arena_box.height() / 2;
+  // On the edges, the perspective will have only the top half or so with
+  // icve/field.
+  FloatValue percent_y =
+      (std::min(half_height, y) - arena_box.top) / half_height;
+  FloatValue max_x_adjusted_distance = kSineEdgePerspecive * half_height;
+  FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
+
+  FloatValue adjusted_x_distance_from_edge =
+      std::max(x - x_adjusted_distance, 0.0f);
+  return adjusted_x_distance_from_edge;
+}
+
+static FloatValue adjusted_horizontal_right_distance_from_edge(
+    FloatValue x,
+    FloatValue y,
+    const BBox& arena_box) {
+  // x = std::min(arena_box.right, arena_box.right - x);
+  x = std::max(0.0f, arena_box.right - x);
   const FloatValue half_height = arena_box.height() / 2;
   // On the edges, the perspective will have only the top half or so with
   // icve/field.
@@ -388,27 +401,57 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // "harder" (or impossible) for the box to reach the far edge at the top
   // relative to the bottom of the view
 
-  const FloatValue center_x = arena_box.center().x - arena_box.left;
-  FloatValue left_x_eff =
-      adjusted_horizontal_left_position(bbox.left, bbox.center().y, arena_box);
-  if (left_x_eff == 0.0) {
+  if (int(bbox.center().x == arena_box.center().x)) {
     usleep(0);
   }
-  FloatValue side_percent_x = (center_x - left_x_eff) / half_arena_width;
+
+  const FloatValue center_x = arena_box.center().x - arena_box.left;
+  FloatValue left_dist_eff = adjusted_horizontal_left_distance_from_edge(
+      // bbox.left,
+      bbox.center().x,
+      bbox.center().y,
+      arena_box);
+  FloatValue right_dist_eff = adjusted_horizontal_right_distance_from_edge(
+      // bbox.right,
+      bbox.center().x,
+      bbox.center().y,
+      arena_box);
+  if (left_dist_eff == 0.0) {
+    usleep(0);
+  }
+  if (right_dist_eff == 0.0) {
+    usleep(0);
+  }
+  FloatValue left_side_percent_x = 1.0f - left_dist_eff / half_arena_width;
+  FloatValue right_side_percent_x = 1.0f - right_dist_eff / half_arena_width;
   // if (left_x != bbox.left) {
   //   percent_x = std::min(left_x - center_x, arena_width) / arena_width;
   // } else {
   //   percent_x = 1.0;
   // }
 
-  std::cout << "x=" << bbox.left << " -> left_x_eff=" << left_x_eff
-            << ", side_percent_x=" << side_percent_x << std::endl;
+  // std::cout
+  //     << std::fixed
+  //     << std::setprecision(1)
+  //     //     // << "left=" << bbox.left << " -> left_dist_eff=" << left_dist_eff
+  //     //     << "right=" << bbox.right << " -> right_dist_eff="
+  //     //     << right_dist_eff
+  //     << ", left_side_percent_x=" << left_side_percent_x
+  //     << ", right_side_percent_x=" << right_side_percent_x << std::endl;
   // const FloatValue left_x =
   //     adjusted_horizontal_position(bbox.left, bbox.center().y, arena_box);
 
   // std::cout << "left_x=" << left_x << std::endl;
 
-  return 0.0;
+  FloatValue ratio = std::max(left_side_percent_x, right_side_percent_x);
+
+  // if (bbox.center().x < arena_box.center().x) {
+  //   ratio = left_side_percent_x;
+  // } else if (bbox.center().x > arena_box.center().x) {
+  //   ratio = right_side_percent_x;
+  // }
+  std::cout << "X Scale Ratio: " << ratio << "\n";
+  return ratio;
 }
 
 } // namespace play_tracker
