@@ -49,7 +49,9 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
             kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed) {
       x_gaussian = 1.0 - get_arena_edge_position_scale();
     } else {
-      std::cout << "We are way off, ignoring position scale of " << x_gaussian
+      static size_t wayoff_count = 0;
+      std::cout << ++wayoff_count
+                << ": We are way off, ignoring position scale of " << x_gaussian
                 << "\n";
     }
     //   x_gaussian =
@@ -486,7 +488,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // } else if (bbox.center().x > arena_box.center().x) {
   //   ratio = right_side_percent_x;
   // }
-  std::cout << "X Scale Ratio: " << ratio << "\n";
+  // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }
 
