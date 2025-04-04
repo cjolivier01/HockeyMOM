@@ -40,10 +40,17 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   FloatValue x_gaussian = 1.0;
   if (config_.dynamic_acceleration_scaling) {
     assert(config_.sticky_translation);
-    usleep(0);
-    x_gaussian = 1.0 - get_arena_edge_position_scale();
-  //   x_gaussian =
-  //       1.0 - get_gaussian_ratio(total_diff.dx, config_.arena_box->width());
+    // Only do this if we aren't super off so that massive movements are still
+    // possible in desperate situations
+    if (total_diff.dx < config_.arena_box->width() / 3) {
+      x_gaussian = 1.0 - get_arena_edge_position_scale();
+    } else {
+      std::cout << "We are way off, ignoring position scale of " << x_gaussian
+                << "\n";
+    }
+    //   x_gaussian =
+    //       1.0 - get_gaussian_ratio(total_diff.dx,
+    //       config_.arena_box->width());
   }
 
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
@@ -367,9 +374,11 @@ static FloatValue adjusted_horizontal_left_distance_from_edge(
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
 #if 1
+  FloatValue x_adjusted_width = half_width - x_adjusted_distance;
+  assert(x_adjusted_width > 0);
   // Scale back x_adjusted_distance based on how close to center
-  FloatValue dist_from_center = std::abs(half_width - x);
-  FloatValue dist_from_center_ratio = dist_from_center / half_width;
+  FloatValue dist_from_center = std::abs(x_adjusted_width - x);
+  FloatValue dist_from_center_ratio = dist_from_center / x_adjusted_width;
   x_adjusted_distance *= dist_from_center_ratio;
 #endif
 
@@ -394,9 +403,11 @@ static FloatValue adjusted_horizontal_right_distance_from_edge(
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
 #if 1
+  FloatValue x_adjusted_width = half_width - x_adjusted_distance;
+  assert(x_adjusted_width > 0);
   // Scale back x_adjusted_distance based on how close to center
-  FloatValue dist_from_center = std::abs(half_width - x);
-  FloatValue dist_from_center_ratio = dist_from_center / half_width;
+  FloatValue dist_from_center = std::abs(x_adjusted_width - x);
+  FloatValue dist_from_center_ratio = dist_from_center / x_adjusted_width;
   x_adjusted_distance *= dist_from_center_ratio;
 #endif
 
@@ -410,8 +421,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   const BBox bbox = bounding_box();
   const BBox& arena_box = *config_.arena_box;
 
-  //const FloatValue our_width = bbox.width();
-  //const FloatValue arena_width = arena_box.width();
+  // const FloatValue our_width = bbox.width();
+  // const FloatValue arena_width = arena_box.width();
   const FloatValue half_arena_width = arena_box.width() / 2;
 
   // Let's say 1/10th of arena width will be our "smallest" box
@@ -452,7 +463,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // std::cout
   //     << std::fixed
   //     << std::setprecision(1)
-  //     //     // << "left=" << bbox.left << " -> left_dist_eff=" << left_dist_eff
+  //     //     // << "left=" << bbox.left << " -> left_dist_eff=" <<
+  //     left_dist_eff
   //     //     << "right=" << bbox.right << " -> right_dist_eff="
   //     //     << right_dist_eff
   //     << ", left_side_percent_x=" << left_side_percent_x
