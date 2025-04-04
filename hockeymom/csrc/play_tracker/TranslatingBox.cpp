@@ -38,10 +38,13 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   PointDiff total_diff = center_dest - center_current;
 
   FloatValue x_gaussian = 1.0;
-  // if (config_.dynamic_acceleration_scaling) {
+  if (config_.dynamic_acceleration_scaling) {
+    assert(config_.sticky_translation);
+    usleep(0);
+    x_gaussian = 1.0 - get_arena_edge_position_scale();
   //   x_gaussian =
   //       1.0 - get_gaussian_ratio(total_diff.dx, config_.arena_box->width());
-  // }
+  }
 
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
@@ -141,9 +144,8 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   } // end of is_nonstop()
 
-  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
-  // adjust_speed(total_diff.dx, total_diff.dy,
-  // /*scale_constraints=*/x_gaussian);
+  // adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
+  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/x_gaussian);
 
   // static int ctr = 0;
   // if (ctr++ % 5) {
@@ -391,8 +393,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   const BBox bbox = bounding_box();
   const BBox& arena_box = *config_.arena_box;
 
-  const FloatValue our_width = bbox.width();
-  const FloatValue arena_width = arena_box.width();
+  //const FloatValue our_width = bbox.width();
+  //const FloatValue arena_width = arena_box.width();
   const FloatValue half_arena_width = arena_box.width() / 2;
 
   // Let's say 1/10th of arena width will be our "smallest" box
@@ -405,7 +407,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
     usleep(0);
   }
 
-  const FloatValue center_x = arena_box.center().x - arena_box.left;
+  // const FloatValue center_x = arena_box.center().x - arena_box.left;
   FloatValue left_dist_eff = adjusted_horizontal_left_distance_from_edge(
       // bbox.left,
       bbox.center().x,
@@ -450,7 +452,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // } else if (bbox.center().x > arena_box.center().x) {
   //   ratio = right_side_percent_x;
   // }
-  std::cout << "X Scale Ratio: " << ratio << "\n";
+  // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }
 
