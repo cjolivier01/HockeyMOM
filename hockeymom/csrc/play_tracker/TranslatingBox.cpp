@@ -12,6 +12,8 @@ namespace play_tracker {
 namespace {
 constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
 constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
+constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
+    1.0f / 3;
 
 // This would actually be the tilt amount we configure for final video
 // presenation
@@ -42,7 +44,9 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     assert(config_.sticky_translation);
     // Only do this if we aren't super off so that massive movements are still
     // possible in desperate situations
-    if (total_diff.dx < config_.arena_box->width() / 3) {
+    // TODO: We can cache this computation
+    if (total_diff.dx < config_.arena_box->width() *
+            kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed) {
       x_gaussian = 1.0 - get_arena_edge_position_scale();
     } else {
       std::cout << "We are way off, ignoring position scale of " << x_gaussian
