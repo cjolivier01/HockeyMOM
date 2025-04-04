@@ -51,8 +51,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     } else {
       static size_t wayoff_count = 0;
       std::cout << ++wayoff_count
-                << ": We are way off, ignoring position scale of " << x_gaussian
-                << "\n";
+                << ": We are way off, ignoring any position scale\n";
     }
     //   x_gaussian =
     //       1.0 - get_gaussian_ratio(total_diff.dx,
