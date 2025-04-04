@@ -3,6 +3,8 @@
 #include <cassert>
 #include <iostream>
 
+#include <unistd.h>
+
 namespace hm {
 namespace play_tracker {
 
@@ -10,6 +12,8 @@ namespace {
 constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
 constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
 
+// This would actually be the tilt amount we configure for final video
+// presenation
 constexpr FloatValue kDegreesEdgePerspecive = 20.0;
 const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
 
@@ -136,8 +140,18 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   } // end of is_nonstop()
 
-  // adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
-  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/x_gaussian);
+  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/1.0);
+  // adjust_speed(total_diff.dx, total_diff.dy,
+  // /*scale_constraints=*/x_gaussian);
+
+  // static int ctr = 0;
+  // if (ctr++ % 5) {
+  //   std::cout << "total_diff=" << total_diff.dx << ", " << total_diff.dy
+  //             << ", edge scale: " << get_arena_edge_position_scale() << "\n";
+  // }
+  if (config_.sticky_translation) {
+    get_arena_edge_position_scale();
+  }
 }
 
 const TranslationState& TranslatingBox::get_state() const {
@@ -334,12 +348,29 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
   return std::make_tuple(sticky_size, unsticky_size);
 }
 
-static FloatValue adjusted_horizontal_position(FloatValue x_distance_from_edge, FloatValue y, const BBox& arena_box) {
-  FloatValue percent_y = (y - arena_box.top) / arena_box.height();
-  FloatValue full_x_adjusted_distance = kSineEdgePerspecive * arena_box.height();
-  FloatValue adjusted_x_diff = (1.0 - percent_y) * full_x_adjusted_distance;
+static FloatValue adjusted_horizontal_left_position(
+    FloatValue x,
+    FloatValue y,
+    const BBox& arena_box) {
+  x = std::max(0.0f, x - arena_box.left);
+  // const FloatValue center_x = arena_box.center().x;
+  // negative is to the left
+  // int direction = int(x - center_x);
+  // if (direction >= 0) {
+  //   // In center or to the right, so no scaling
+  //   return x;
+  // }
+  const FloatValue half_height = arena_box.height() / 2;
+  // On the edges, the perspective will have only the top half or so with
+  // icve/field.
+  FloatValue percent_y =
+      (std::min(half_height, y) - arena_box.top) / half_height;
+  FloatValue max_x_adjusted_distance = kSineEdgePerspecive * half_height;
+  FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
-  return x_distance_from_edge;
+  FloatValue adjusted_x_distance_from_edge =
+      std::max(x - x_adjusted_distance, 0.0f);
+  return adjusted_x_distance_from_edge;
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale() const {
@@ -349,6 +380,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
 
   const FloatValue our_width = bbox.width();
   const FloatValue arena_width = arena_box.width();
+  const FloatValue half_arena_width = arena_box.width() / 2;
 
   // Let's say 1/10th of arena width will be our "smallest" box
   // Let's also assume a 20-degree shift from bottom-left to top-left dur to
@@ -356,10 +388,25 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // "harder" (or impossible) for the box to reach the far edge at the top
   // relative to the bottom of the view
 
-  const FloatValue left_x = adjusted_horizontal_position(bbox.left, bbox.center().y, arena_box);
+  const FloatValue center_x = arena_box.center().x - arena_box.left;
+  FloatValue left_x_eff =
+      adjusted_horizontal_left_position(bbox.left, bbox.center().y, arena_box);
+  if (left_x_eff == 0.0) {
+    usleep(0);
+  }
+  FloatValue side_percent_x = (center_x - left_x_eff) / half_arena_width;
+  // if (left_x != bbox.left) {
+  //   percent_x = std::min(left_x - center_x, arena_width) / arena_width;
+  // } else {
+  //   percent_x = 1.0;
+  // }
 
-  std::cout << "left_x=" << left_x << std::endl;
+  std::cout << "x=" << bbox.left << " -> left_x_eff=" << left_x_eff
+            << ", side_percent_x=" << side_percent_x << std::endl;
+  // const FloatValue left_x =
+  //     adjusted_horizontal_position(bbox.left, bbox.center().y, arena_box);
 
+  // std::cout << "left_x=" << left_x << std::endl;
 
   return 0.0;
 }
