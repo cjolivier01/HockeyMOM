@@ -465,9 +465,9 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // "harder" (or impossible) for the box to reach the far edge at the top
   // relative to the bottom of the view
 
-  if (std::abs(int(bbox.center().x - arena_box.center().x)) < 10) {
-    usleep(0);
-  }
+  // if (std::abs(int(bbox.center().x - arena_box.center().x)) < 10) {
+  //   usleep(0);
+  // }
 
   FloatValue left_dist_eff = adjusted_horizontal_distance_from_edge(
       std::max(0.0f, bbox.center().x - arena_box.left),
@@ -490,7 +490,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   FloatValue left_side_percent_x = 1.0f - left_dist_eff / half_arena_width;
   FloatValue right_side_percent_x = 1.0f - right_dist_eff / half_arena_width;
 
-  std::cout << left_side_percent_x << ", " << right_side_percent_x << std::endl;
+  // std::cout << left_side_percent_x << ", " << right_side_percent_x << std::endl;
 
   // if (left_x != bbox.left) {
   //   percent_x = std::min(left_x - center_x, arena_width) / arena_width;
