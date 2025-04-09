@@ -382,14 +382,14 @@ static FloatValue adjusted_horizontal_distance_from_edge(
     FloatValue x,
     FloatValue y,
     const BBox& arena_box,
-    const FloatValue veritcal_angle) {
+    const FloatValue field_edge_veritcal_angle) {
   const FloatValue half_height = arena_box.height() / 2;
   const FloatValue half_width = arena_box.width() / 2;
   // On the edges, the perspective will have only the top half or so with
-  // icve/field.
+  // ice/field, with the center of the field warping down to the bottom in the middle
   FloatValue percent_y =
       (std::min(half_height, y) - arena_box.top) / half_height;
-  FloatValue max_x_adjusted_distance = std::sin(veritcal_angle) * half_height;
+  FloatValue max_x_adjusted_distance = std::sin(field_edge_veritcal_angle) * half_height;
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
 #if 1
