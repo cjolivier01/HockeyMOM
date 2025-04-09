@@ -450,20 +450,21 @@ void TranslatingBox::test_arena_edge_position_scale() {
   assert(std::fabs(1.0 - far_left) < kSmallTestDistance / 10);
   assert(left_of_center < kSmallTestDistance / 10);
 
-  // Now check differenced in Y
-  FloatValue adjusted_x_last = 0;
+  // Now check difference in Y changes
+  FloatValue adjusted_x_last = 0, first_adjusted_x = 0.0;
   for (FloatValue y = arena_box.bottom; y >= 0.0f; y -= 100) {
     FloatValue left_x = arena_box.center().x - arena_box.left / 2;
     FloatValue adjusted_x = adjusted_horizontal_distance_from_edge(
         left_x, y, arena_box, kDegreesEdgePerspecive);
-    std::cout << adjusted_x << ", ";
     if (adjusted_x_last) {
       assert(adjusted_x <= adjusted_x_last);
+    } else {
+      first_adjusted_x = adjusted_x;
     }
     adjusted_x_last = adjusted_x;
   }
-  // std::cout << std::endl;
-  // usleep(0);
+  // It should have decreased with decreasing y
+  assert(adjusted_x_last < first_adjusted_x);
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale(
