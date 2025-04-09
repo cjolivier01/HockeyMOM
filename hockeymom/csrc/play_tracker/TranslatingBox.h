@@ -69,7 +69,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
   void clamp_speed(FloatValue scale);
 
   FloatValue get_gaussian_y_about_width_center(FloatValue x) const;
-  FloatValue get_gaussian_ratio(FloatValue position, FloatValue overall_length) const;
+  // FloatValue get_gaussian_ratio(FloatValue position, FloatValue overall_length) const;
 
  private:
   TranslatingBoxConfig config_;
