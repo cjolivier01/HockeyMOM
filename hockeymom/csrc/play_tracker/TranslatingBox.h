@@ -49,6 +49,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
   // box will cover more horizontal ground and thus be less "completely on the edge",
   // so some of the result will be a heuristic wrt size and position.
   FloatValue get_arena_edge_position_scale() const;
+  FloatValue get_arena_edge_position_scale(const Point& pt) const;
 
  protected:
   PointDiff get_proposed_next_position_change() const;
@@ -61,6 +62,8 @@ class TranslatingBox : virtual public IBasicLivingBox {
   void on_new_position();
 
  private:
+  void test_arena_edge_position_scale();
+
   bool is_nonstop() const;
 
   void clamp_speed(FloatValue scale);

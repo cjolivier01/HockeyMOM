@@ -43,6 +43,10 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   FloatValue x_gaussian = 1.0;
   if (config_.dynamic_acceleration_scaling) {
     assert(config_.sticky_translation);
+    static size_t test_pass_counter = 0;
+    if (!test_pass_counter++) {
+      test_arena_edge_position_scale();
+    }
     // Only do this if we aren't super off so that massive movements are still
     // possible in desperate situations
     // TODO: We can cache this computation
@@ -364,65 +368,6 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
   return std::make_tuple(sticky_size, unsticky_size);
 }
 
-// TODO: left and right can be joined and just pass in that first line's x
-// static FloatValue adjusted_horizontal_left_distance_from_edge(
-//     FloatValue x,
-//     FloatValue y,
-//     const BBox& arena_box) {
-//   x = std::max(0.0f, x - arena_box.left);
-//   const FloatValue half_height = arena_box.height() / 2;
-//   const FloatValue half_width = arena_box.width() / 2;
-//   // On the edges, the perspective will have only the top half or so with
-//   // icve/field.
-//   FloatValue percent_y =
-//       (std::min(half_height, y) - arena_box.top) / half_height;
-//   FloatValue max_x_adjusted_distance = kSineEdgePerspecive * half_height;
-
-//   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
-
-// #if 1
-//   FloatValue x_adjusted_width = half_width - x_adjusted_distance;
-//   assert(x_adjusted_width > 0);
-//   // Scale back x_adjusted_distance based on how close to center
-//   FloatValue dist_from_center = std::abs(x_adjusted_width - x);
-//   FloatValue dist_from_center_ratio = dist_from_center / x_adjusted_width;
-//   x_adjusted_distance *= dist_from_center_ratio;
-// #endif
-
-//   FloatValue adjusted_x_distance_from_edge =
-//       std::max(x - x_adjusted_distance, 0.0f);
-//   return adjusted_x_distance_from_edge;
-// }
-
-// static FloatValue adjusted_horizontal_right_distance_from_edge(
-//     FloatValue x,
-//     FloatValue y,
-//     const BBox& arena_box) {
-//   // x = std::min(arena_box.right, arena_box.right - x);
-//   x = std::max(0.0f, arena_box.right - x);
-//   const FloatValue half_height = arena_box.height() / 2;
-//   const FloatValue half_width = arena_box.width() / 2;
-//   // On the edges, the perspective will have only the top half or so with
-//   // icve/field.
-//   FloatValue percent_y =
-//       (std::min(half_height, y) - arena_box.top) / half_height;
-//   FloatValue max_x_adjusted_distance = kSineEdgePerspecive * half_height;
-//   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
-
-// #if 1
-//   FloatValue x_adjusted_width = half_width - x_adjusted_distance;
-//   assert(x_adjusted_width > 0);
-//   // Scale back x_adjusted_distance based on how close to center
-//   FloatValue dist_from_center = std::abs(x_adjusted_width - x);
-//   FloatValue dist_from_center_ratio = dist_from_center / x_adjusted_width;
-//   x_adjusted_distance *= dist_from_center_ratio;
-// #endif
-
-//   FloatValue adjusted_x_distance_from_edge =
-//       std::max(x - x_adjusted_distance, 0.0f);
-//   return adjusted_x_distance_from_edge;
-// }
-
 static FloatValue adjusted_horizontal_distance_from_edge(
     FloatValue x,
     FloatValue y,
@@ -450,35 +395,46 @@ static FloatValue adjusted_horizontal_distance_from_edge(
   return std::min(adjusted_x_distance_from_edge, half_width);
 }
 
+void TranslatingBox::test_arena_edge_position_scale() {
+  // FloatValue full_left =
+}
+
+FloatValue TranslatingBox::get_arena_edge_position_scale(
+    const Point& pt) const {
+  const BBox& arena_box = *config_.arena_box;
+  const FloatValue arena_center_x = arena_box.center().x;
+  if (pt.x == arena_center_x) {
+    return 0.0;
+  }
+  FloatValue x_eff;
+  if (pt.x < arena_center_x) {
+    x_eff = std::max(0.0f, pt.x - arena_box.left);
+  } else {
+    x_eff = std::max(0.0f, arena_box.right - pt.x);
+  }
+  const FloatValue half_arena_width = arena_box.width() / 2;
+  FloatValue ratio = 1.0f - (x_eff / half_arena_width);
+  return ratio;
+}
+
 FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
   const BBox& arena_box = *config_.arena_box;
 
-  // const FloatValue our_width = bbox.width();
-  // const FloatValue arena_width = arena_box.width();
-  const FloatValue half_arena_width = arena_box.width() / 2;
-
-  // Let's say 1/10th of arena width will be our "smallest" box
-  // Let's also assume a 20-degree shift from bottom-left to top-left dur to
-  // perspective (and same logic for right side), since perspective will make it
-  // "harder" (or impossible) for the box to reach the far edge at the top
-  // relative to the bottom of the view
-
-  // if (std::abs(int(bbox.center().x - arena_box.center().x)) < 10) {
-  //   usleep(0);
-  // }
-
   FloatValue left_dist_eff = adjusted_horizontal_distance_from_edge(
       std::max(0.0f, bbox.center().x - arena_box.left),
       bbox.center().y,
       arena_box);
+
+  const FloatValue half_arena_width = arena_box.width() / 2;
   assert(left_dist_eff >= 0 && left_dist_eff <= half_arena_width);
 
   FloatValue right_dist_eff = adjusted_horizontal_distance_from_edge(
       std::max(0.0f, arena_box.right - bbox.center().x),
       bbox.center().y,
       arena_box);
+
   assert(right_dist_eff >= 0 && right_dist_eff <= half_arena_width);
 
   if (left_dist_eff == 0.0) {
@@ -490,7 +446,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   FloatValue left_side_percent_x = 1.0f - left_dist_eff / half_arena_width;
   FloatValue right_side_percent_x = 1.0f - right_dist_eff / half_arena_width;
 
-  // std::cout << left_side_percent_x << ", " << right_side_percent_x << std::endl;
+  // std::cout << left_side_percent_x << ", " << right_side_percent_x <<
+  // std::endl;
 
   // if (left_x != bbox.left) {
   //   percent_x = std::min(left_x - center_x, arena_width) / arena_width;
@@ -513,6 +470,9 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // std::cout << "left_x=" << left_x << std::endl;
 
   FloatValue ratio = std::max(left_side_percent_x, right_side_percent_x);
+
+  FloatValue new_calc = get_arena_edge_position_scale(bbox.center());
+  std::cout << ratio << ", " << new_calc << std::endl;
 
   // if (bbox.center().x < arena_box.center().x) {
   //   ratio = left_side_percent_x;
