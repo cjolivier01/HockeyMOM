@@ -462,8 +462,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
     }
     adjusted_x_last = adjusted_x;
   }
-  std::cout << std::endl;
-  usleep(0);
+  // std::cout << std::endl;
+  // usleep(0);
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale(
@@ -489,47 +489,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale(
 FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
-#if 1
   FloatValue ratio = get_arena_edge_position_scale(bbox.center());
-#else
-  const BBox& arena_box = *config_.arena_box;
-
-  FloatValue left_dist_eff = adjusted_horizontal_distance_from_edge(
-      std::max(0.0f, bbox.center().x - arena_box.left),
-      bbox.center().y,
-      arena_box);
-
-  const FloatValue half_arena_width = arena_box.width() / 2;
-  assert(left_dist_eff >= 0 && left_dist_eff <= half_arena_width);
-
-  FloatValue right_dist_eff = adjusted_horizontal_distance_from_edge(
-      std::max(0.0f, arena_box.right - bbox.center().x),
-      bbox.center().y,
-      arena_box);
-
-  assert(right_dist_eff >= 0 && right_dist_eff <= half_arena_width);
-
-  if (left_dist_eff == 0.0) {
-    usleep(0);
-  }
-  if (right_dist_eff == 0.0) {
-    usleep(0);
-  }
-  FloatValue left_side_percent_x = 1.0f - left_dist_eff / half_arena_width;
-  FloatValue right_side_percent_x = 1.0f - right_dist_eff / half_arena_width;
-
-  FloatValue ratio = std::max(left_side_percent_x, right_side_percent_x);
-
-  FloatValue new_calc = get_arena_edge_position_scale(bbox.center());
-  std::cout << ratio << ", " << new_calc << std::endl;
-
-  // if (bbox.center().x < arena_box.center().x) {
-  //   ratio = left_side_percent_x;
-  // } else if (bbox.center().x > arena_box.center().x) {
-  //   ratio = right_side_percent_x;
-  // }
-#endif
-  std::cout << "X Scale Ratio: " << ratio << "\n";
+  // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }
 
