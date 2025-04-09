@@ -21,6 +21,16 @@ constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
 constexpr FloatValue kDegreesEdgePerspecive = 20.0;
 const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
 
+constexpr FloatValue kEpsilon = 1e-4f;
+constexpr FloatValue kSmallTestDistance = 10.0f;
+
+bool is_close(
+    const FloatValue& f1,
+    const FloatValue& f2,
+    const FloatValue epsilon = kEpsilon) {
+  return std::abs(f2 - f1) < epsilon;
+}
+
 } // namespace
 
 TranslatingBox::TranslatingBox(const TranslatingBoxConfig& config)
@@ -396,7 +406,46 @@ static FloatValue adjusted_horizontal_distance_from_edge(
 }
 
 void TranslatingBox::test_arena_edge_position_scale() {
-  // FloatValue full_left =
+  const BBox arena_box = *config_.arena_box;
+  const Point arena_center = arena_box.center();
+  FloatValue full_left =
+      get_arena_edge_position_scale(Point{.x = 0, .y = arena_center.y});
+  FloatValue arena_left = get_arena_edge_position_scale(
+      Point{.x = arena_box.left, .y = arena_center.y});
+  FloatValue full_center = get_arena_edge_position_scale(
+      Point{.x = arena_center.x, .y = arena_center.y});
+  FloatValue full_right = get_arena_edge_position_scale(
+      Point{.x = arena_box.right * 2, .y = arena_center.y});
+  FloatValue arena_right = get_arena_edge_position_scale(
+      Point{.x = arena_box.right, .y = arena_center.y});
+  // The edge cases, far edges = 1, dead center = 0
+  assert(is_close(full_left, 1.0f));
+  assert(is_close(full_left, arena_left));
+  assert(is_close(full_right, 1.0f));
+  assert(is_close(full_right, arena_right));
+  assert(is_close(full_center, 0.0f));
+
+  // Now check that the calculation is continuous near those edge points
+  // (doesn't jump to some crazy value)
+  FloatValue far_left = get_arena_edge_position_scale(
+      Point{.x = arena_box.left + kSmallTestDistance, .y = arena_center.y});
+  FloatValue far_right = get_arena_edge_position_scale(
+      Point{.x = arena_box.right - kSmallTestDistance, .y = arena_center.y});
+  FloatValue left_of_center = get_arena_edge_position_scale(
+      Point{.x = arena_center.x - kSmallTestDistance, .y = arena_center.y});
+  FloatValue right_of_center = get_arena_edge_position_scale(
+      Point{.x = arena_center.x + kSmallTestDistance, .y = arena_center.y});
+
+  std::cout << far_left << ", " << left_of_center << ", " << right_of_center
+            << ", " << far_right << std::endl;
+
+  assert(is_close(far_left, far_right));
+  assert(is_close(left_of_center, right_of_center));
+  assert(far_left > left_of_center && far_right > right_of_center);
+  // Don't want to restrict/define the algorithm in this test, so just make sure
+  // it's some reasonable value.
+  assert(std::fabs(1.0 - far_left) < kSmallTestDistance / 10);
+  assert(left_of_center < kSmallTestDistance / 10);
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale(
