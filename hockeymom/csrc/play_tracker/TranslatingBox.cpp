@@ -386,10 +386,12 @@ static FloatValue adjusted_horizontal_distance_from_edge(
   const FloatValue half_height = arena_box.height() / 2;
   const FloatValue half_width = arena_box.width() / 2;
   // On the edges, the perspective will have only the top half or so with
-  // ice/field, with the center of the field warping down to the bottom in the middle
+  // ice/field, with the center of the field warping down to the bottom in the
+  // middle
   FloatValue percent_y =
       (std::min(half_height, y) - arena_box.top) / half_height;
-  FloatValue max_x_adjusted_distance = std::sin(field_edge_veritcal_angle) * half_height;
+  FloatValue max_x_adjusted_distance =
+      std::sin(field_edge_veritcal_angle) * half_height;
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
 #if 1
@@ -449,6 +451,19 @@ void TranslatingBox::test_arena_edge_position_scale() {
   assert(left_of_center < kSmallTestDistance / 10);
 
   // Now check differenced in Y
+  FloatValue adjusted_x_last = 0;
+  for (FloatValue y = arena_box.bottom; y >= 0.0f; y -= 100) {
+    FloatValue left_x = arena_box.center().x - arena_box.left / 2;
+    FloatValue adjusted_x = adjusted_horizontal_distance_from_edge(
+        left_x, y, arena_box, kDegreesEdgePerspecive);
+    std::cout << adjusted_x << ", ";
+    if (adjusted_x_last) {
+      assert(adjusted_x <= adjusted_x_last);
+    }
+    adjusted_x_last = adjusted_x;
+  }
+  std::cout << std::endl;
+  usleep(0);
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale(
