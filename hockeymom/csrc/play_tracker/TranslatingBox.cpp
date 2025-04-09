@@ -436,8 +436,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
   FloatValue right_of_center = get_arena_edge_position_scale(
       Point{.x = arena_center.x + kSmallTestDistance, .y = arena_center.y});
 
-  std::cout << far_left << ", " << left_of_center << ", " << right_of_center
-            << ", " << far_right << std::endl;
+  // std::cout << far_left << ", " << left_of_center << ", " << right_of_center
+  //           << ", " << far_right << std::endl;
 
   assert(is_close(far_left, far_right));
   assert(is_close(left_of_center, right_of_center));
@@ -469,6 +469,9 @@ FloatValue TranslatingBox::get_arena_edge_position_scale(
 FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
+#if 1
+  return get_arena_edge_position_scale(bbox.center());
+#else
   const BBox& arena_box = *config_.arena_box;
 
   FloatValue left_dist_eff = adjusted_horizontal_distance_from_edge(
@@ -495,29 +498,6 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   FloatValue left_side_percent_x = 1.0f - left_dist_eff / half_arena_width;
   FloatValue right_side_percent_x = 1.0f - right_dist_eff / half_arena_width;
 
-  // std::cout << left_side_percent_x << ", " << right_side_percent_x <<
-  // std::endl;
-
-  // if (left_x != bbox.left) {
-  //   percent_x = std::min(left_x - center_x, arena_width) / arena_width;
-  // } else {
-  //   percent_x = 1.0;
-  // }
-
-  // std::cout
-  //     << std::fixed
-  //     << std::setprecision(1)
-  //     //     // << "left=" << bbox.left << " -> left_dist_eff=" <<
-  //     left_dist_eff
-  //     //     << "right=" << bbox.right << " -> right_dist_eff="
-  //     //     << right_dist_eff
-  //     << ", left_side_percent_x=" << left_side_percent_x
-  //     << ", right_side_percent_x=" << right_side_percent_x << std::endl;
-  // const FloatValue left_x =
-  //     adjusted_horizontal_position(bbox.left, bbox.center().y, arena_box);
-
-  // std::cout << "left_x=" << left_x << std::endl;
-
   FloatValue ratio = std::max(left_side_percent_x, right_side_percent_x);
 
   FloatValue new_calc = get_arena_edge_position_scale(bbox.center());
@@ -530,6 +510,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // }
   // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
+#endif
 }
 
 } // namespace play_tracker
