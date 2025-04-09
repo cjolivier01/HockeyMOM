@@ -461,8 +461,9 @@ FloatValue TranslatingBox::get_arena_edge_position_scale(
   } else {
     x_eff = std::max(0.0f, arena_box.right - pt.x);
   }
+  FloatValue x_eff_adjusted = adjusted_horizontal_distance_from_edge(x_eff, pt.y, arena_box);
   const FloatValue half_arena_width = arena_box.width() / 2;
-  FloatValue ratio = 1.0f - (x_eff / half_arena_width);
+  FloatValue ratio = 1.0f - (x_eff_adjusted / half_arena_width);
   return ratio;
 }
 
@@ -470,7 +471,7 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
 #if 1
-  return get_arena_edge_position_scale(bbox.center());
+  FloatValue ratio = get_arena_edge_position_scale(bbox.center());
 #else
   const BBox& arena_box = *config_.arena_box;
 
@@ -508,9 +509,9 @@ FloatValue TranslatingBox::get_arena_edge_position_scale() const {
   // } else if (bbox.center().x > arena_box.center().x) {
   //   ratio = right_side_percent_x;
   // }
-  // std::cout << "X Scale Ratio: " << ratio << "\n";
-  return ratio;
 #endif
+  std::cout << "X Scale Ratio: " << ratio << "\n";
+  return ratio;
 }
 
 } // namespace play_tracker
