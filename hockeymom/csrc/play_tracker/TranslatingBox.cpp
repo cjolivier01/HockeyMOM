@@ -19,7 +19,7 @@ constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
 // This would actually be the tilt amount we configure for final video
 // presenation
 constexpr FloatValue kDegreesEdgePerspecive = 20.0;
-const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
+// const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
 
 constexpr FloatValue kEpsilon = 1e-4f;
 constexpr FloatValue kSmallTestDistance = 10.0f;
@@ -381,14 +381,15 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
 static FloatValue adjusted_horizontal_distance_from_edge(
     FloatValue x,
     FloatValue y,
-    const BBox& arena_box) {
+    const BBox& arena_box,
+    const FloatValue veritcal_angle) {
   const FloatValue half_height = arena_box.height() / 2;
   const FloatValue half_width = arena_box.width() / 2;
   // On the edges, the perspective will have only the top half or so with
   // icve/field.
   FloatValue percent_y =
       (std::min(half_height, y) - arena_box.top) / half_height;
-  FloatValue max_x_adjusted_distance = kSineEdgePerspecive * half_height;
+  FloatValue max_x_adjusted_distance = std::sin(veritcal_angle) * half_height;
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
 #if 1
@@ -446,6 +447,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
   // it's some reasonable value.
   assert(std::fabs(1.0 - far_left) < kSmallTestDistance / 10);
   assert(left_of_center < kSmallTestDistance / 10);
+
+  // Now check differenced in Y
 }
 
 FloatValue TranslatingBox::get_arena_edge_position_scale(
@@ -461,7 +464,8 @@ FloatValue TranslatingBox::get_arena_edge_position_scale(
   } else {
     x_eff = std::max(0.0f, arena_box.right - pt.x);
   }
-  FloatValue x_eff_adjusted = adjusted_horizontal_distance_from_edge(x_eff, pt.y, arena_box);
+  FloatValue x_eff_adjusted = adjusted_horizontal_distance_from_edge(
+      x_eff, pt.y, arena_box, kDegreesEdgePerspecive);
   const FloatValue half_arena_width = arena_box.width() / 2;
   FloatValue ratio = 1.0f - (x_eff_adjusted / half_arena_width);
   return ratio;
