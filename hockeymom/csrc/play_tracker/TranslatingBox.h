@@ -12,6 +12,7 @@ struct TranslationState {
   FloatValue current_speed_x{0.0};
   FloatValue current_speed_y{0.0};
   bool translation_is_frozen{false};
+  FloatValue last_edge_position_scale{0.0};
   // Nonstop stuff
   std::optional<IntValue> nonstop_delay{0};
   IntValue nonstop_delay_counter{0};
@@ -69,7 +70,6 @@ class TranslatingBox : virtual public IBasicLivingBox {
   void clamp_speed(FloatValue scale);
 
   FloatValue get_gaussian_y_about_width_center(FloatValue x) const;
-  // FloatValue get_gaussian_ratio(FloatValue position, FloatValue overall_length) const;
 
  private:
   TranslatingBoxConfig config_;

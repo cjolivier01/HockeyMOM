@@ -72,7 +72,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     //       1.0 - get_gaussian_ratio(total_diff.dx,
     //       config_.arena_box->width());
   }
-
+  state_.last_edge_position_scale = x_gaussian;
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
   // If both the dest box and our current box are on an edge, we zero-out
@@ -336,27 +336,6 @@ FloatValue TranslatingBox::get_gaussian_y_about_width_center(
   // Just simple linear scaling
   return 1 - x / center_x;
 }
-
-// FloatValue TranslatingBox::get_gaussian_ratio(
-//     FloatValue position,
-//     FloatValue overall_length) const {
-//   position = std::abs(position);
-//   if (position > overall_length) {
-//     position = overall_length;
-//   }
-//   FloatValue gaussian_length =
-//       (gasussian_clamp_lr->second - gasussian_clamp_lr->first) / 2;
-//   assert(gaussian_length > 0.0);
-//   position *= overall_length / gaussian_length;
-//   // We just sample the right side of the gaussian curve
-//   position += config_.arena_box->center().x;
-//   FloatValue gaussian = get_gaussian_y_about_width_center(position);
-//   // std::cout << "position=" << position << ", overall_length=" <<
-//   // overall_length
-//   //           << ", gaussian=" << gaussian << std::endl;
-//   assert(gaussian >= 0 && gaussian <= 1);
-//   return gaussian;
-// }
 
 std::tuple<FloatValue, FloatValue> TranslatingBox::
     get_sticky_translation_sizes() const {
