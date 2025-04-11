@@ -14,7 +14,7 @@ namespace {
 constexpr FloatValue kSpeedDiffDirectionAssumeStoppedMaxRatio = 6.0;
 constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
 constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
-    1.0f / 3;
+    1.0f / 4;
 
 // This would actually be the tilt amount we configure for final video
 // presenation
@@ -50,7 +50,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   Point center_dest = dest_box.center();
   PointDiff total_diff = center_dest - center_current;
 
-  FloatValue x_gaussian = 1.0;
+  std::optional<FloatValue> x_gaussian;
   if (config_.dynamic_acceleration_scaling) {
     assert(config_.sticky_translation);
     static size_t test_pass_counter = 0;
@@ -67,12 +67,15 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       static size_t wayoff_count = 0;
       std::cout << ++wayoff_count
                 << ": We are way off, ignoring any position scale\n";
+      x_gaussian = 3.0;
     }
     //   x_gaussian =
     //       1.0 - get_gaussian_ratio(total_diff.dx,
     //       config_.arena_box->width());
+  } else {
+    x_gaussian = 1.0;
   }
-  state_.last_edge_position_scale = x_gaussian;
+  state_.last_edge_position_scale = x_gaussian ? *x_gaussian : 1.0;
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
   // If both the dest box and our current box are on an edge, we zero-out
