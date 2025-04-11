@@ -67,7 +67,8 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       static size_t wayoff_count = 0;
       std::cout << ++wayoff_count
                 << ": We are way off, ignoring any position scale\n";
-      x_gaussian = 3.0;
+      constexpr FloatValue kEmergencyPanFixScaleConstraintRatio = 4.0;
+      x_gaussian = kEmergencyPanFixScaleConstraintRatio;
     }
     //   x_gaussian =
     //       1.0 - get_gaussian_ratio(total_diff.dx,
