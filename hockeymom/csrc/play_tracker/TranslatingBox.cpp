@@ -60,7 +60,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     // Only do this if we aren't super off so that massive movements are still
     // possible in desperate situations
     // TODO: We can cache this computation
-    if (total_diff.dx < config_.arena_box->width() *
+    if (std::abs(total_diff.dx) < config_.arena_box->width() *
             kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed) {
       x_gaussian = 1.0 - get_arena_edge_position_scale();
     } else {
