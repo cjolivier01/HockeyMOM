@@ -76,7 +76,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   } else {
     x_gaussian = 1.0;
   }
-  state_.last_edge_position_scale = x_gaussian ? *x_gaussian : 1.0;
+  state_.last_arena_edge_center_position_scale = x_gaussian ? *x_gaussian : 1.0;
   // std::cout << name() << ": total_diff: " << total_diff << std::endl;
 
   // If both the dest box and our current box are on an edge, we zero-out
@@ -384,16 +384,16 @@ static FloatValue adjusted_horizontal_distance_from_edge(
 void TranslatingBox::test_arena_edge_position_scale() {
   const BBox arena_box = *config_.arena_box;
   const Point arena_center = arena_box.center();
-  FloatValue full_left =
-      get_arena_edge_point_position_scale(Point{.x = 0, .y = arena_center.y});
+  FloatValue full_left = get_arena_edge_point_position_scale(
+      Point{.x = 0, .y = arena_center.y}, arena_box);
   FloatValue arena_left = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.left, .y = arena_center.y});
+      Point{.x = arena_box.left, .y = arena_center.y}, arena_box);
   FloatValue full_center = get_arena_edge_point_position_scale(
-      Point{.x = arena_center.x, .y = arena_center.y});
+      Point{.x = arena_center.x, .y = arena_center.y}, arena_box);
   FloatValue full_right = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.right * 2, .y = arena_center.y});
+      Point{.x = arena_box.right * 2, .y = arena_center.y}, arena_box);
   FloatValue arena_right = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.right, .y = arena_center.y});
+      Point{.x = arena_box.right, .y = arena_center.y}, arena_box);
   // The edge cases, far edges = 1, dead center = 0
   assert(is_close(full_left, -1.0f));
   assert(is_close(full_left, arena_left));
@@ -404,13 +404,17 @@ void TranslatingBox::test_arena_edge_position_scale() {
   // Now check that the calculation is continuous near those edge points
   // (doesn't jump to some crazy value)
   FloatValue far_left = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.left + kSmallTestDistance, .y = arena_center.y});
+      Point{.x = arena_box.left + kSmallTestDistance, .y = arena_center.y},
+      arena_box);
   FloatValue far_right = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.right - kSmallTestDistance, .y = arena_center.y});
+      Point{.x = arena_box.right - kSmallTestDistance, .y = arena_center.y},
+      arena_box);
   FloatValue left_of_center = get_arena_edge_point_position_scale(
-      Point{.x = arena_center.x - kSmallTestDistance, .y = arena_center.y});
+      Point{.x = arena_center.x - kSmallTestDistance, .y = arena_center.y},
+      arena_box);
   FloatValue right_of_center = get_arena_edge_point_position_scale(
-      Point{.x = arena_center.x + kSmallTestDistance, .y = arena_center.y});
+      Point{.x = arena_center.x + kSmallTestDistance, .y = arena_center.y},
+      arena_box);
 
   // std::cout << far_left << ", " << left_of_center << ", " << right_of_center
   //           << ", " << far_right << std::endl;
@@ -441,8 +445,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
 }
 
 FloatValue TranslatingBox::get_arena_edge_point_position_scale(
-    const Point& pt) const {
-  const BBox& arena_box = *config_.arena_box;
+    const Point& pt,
+    const BBox& arena_box) {
   const FloatValue arena_center_x = arena_box.center().x;
   if (pt.x == arena_center_x) {
     return 0.0;
@@ -464,7 +468,8 @@ FloatValue TranslatingBox::get_arena_edge_point_position_scale(
 FloatValue TranslatingBox::get_arena_edge_center_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
-  FloatValue ratio = get_arena_edge_point_position_scale(bbox.center());
+  FloatValue ratio =
+      get_arena_edge_point_position_scale(bbox.center(), *config_.arena_box);
   // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }

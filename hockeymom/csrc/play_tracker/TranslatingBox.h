@@ -12,7 +12,7 @@ struct TranslationState {
   FloatValue current_speed_x{0.0};
   FloatValue current_speed_y{0.0};
   bool translation_is_frozen{false};
-  FloatValue last_edge_position_scale{0.0};
+  FloatValue last_arena_edge_center_position_scale{0.0};
   // Nonstop stuff
   std::optional<IntValue> nonstop_delay{0};
   IntValue nonstop_delay_counter{0};
@@ -50,7 +50,7 @@ class TranslatingBox : virtual public IBasicLivingBox {
   // box will cover more horizontal ground and thus be less "completely on the edge",
   // so some of the result will be a heuristic wrt size and position.
   FloatValue get_arena_edge_center_position_scale() const;
-  FloatValue get_arena_edge_point_position_scale(const Point& pt) const;
+  static FloatValue get_arena_edge_point_position_scale(const Point& pt, const BBox& arena_box);
 
  protected:
   PointDiff get_proposed_next_position_change() const;
