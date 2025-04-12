@@ -349,14 +349,13 @@ static FloatValue adjusted_horizontal_distance_from_edge(
       std::sin(field_edge_veritcal_angle) * half_height;
   FloatValue x_adjusted_distance = max_x_adjusted_distance * (1.0 - percent_y);
 
-#if 1
   FloatValue x_adjusted_width = half_width - x_adjusted_distance;
   assert(x_adjusted_width > 0);
-  // Scale back x_adjusted_distance based on how close to center
+  // Scale back x_adjusted_distance based on how close to center (linearly
+  // interpolation)
   FloatValue dist_from_center = std::abs(x_adjusted_width - x);
   FloatValue dist_from_center_ratio = dist_from_center / x_adjusted_width;
   x_adjusted_distance *= dist_from_center_ratio;
-#endif
 
   FloatValue adjusted_x_distance_from_edge =
       std::max(x - x_adjusted_distance, 0.0f);

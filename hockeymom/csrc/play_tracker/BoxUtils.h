@@ -135,6 +135,12 @@ struct BBox {
       FloatValue dbottom) const {
     return BBox(left + dleft, top + dtop, right + dright, bottom + dbottom);
   }
+  BBox inflate(FloatValue dx, FloatValue dy) const {
+    return BBox(left - dx, top - dy, right + dx, bottom + dy);
+  }
+  BBox deflate(FloatValue dx, FloatValue dy) const {
+    return BBox(left + dx, top + dy, right - dx, bottom - dy);
+  }
   BBox at_center(const Point& center) const {
     double half_w = width() / 2.0, half_h = height() / 2.0;
     return BBox(
