@@ -1,8 +1,6 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
 
 #include <cassert>
-#include <iomanip>
-#include <ios>
 #include <iostream>
 
 #include <unistd.h>
@@ -104,19 +102,6 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     // BEGIN Sticky Translation
     //
     const FloatValue diff_magnitude = norm(total_diff);
-
-    // Check if the new center is in a direction opposed to our current
-    // velocity
-    // const bool changed_direction_x =
-    //     (sign(state_.current_speed_x) * sign(total_diff.dx)) < 0;
-    // const bool changed_direction_y =
-    //     (sign(state_.current_speed_y) * sign(total_diff.dy)) < 0;
-
-    // // Reduce velocities on axes that changed direction
-    // const FloatValue velocity_x =
-    //     changed_direction_x ? 0.0 : state_.current_speed_x;
-    // const FloatValue velocity_y =
-    //     changed_direction_y ? 0.0 : state_.current_speed_y;
 
     // See if we are breaking the sticky or unsticky threshold
     const auto sticky_unsticky = get_sticky_translation_sizes();
@@ -259,9 +244,6 @@ void TranslatingBox::adjust_speed(
     std::optional<IntValue> nonstop_delay) {
   if (scale_constraints.has_value()) {
     const FloatValue mult = *scale_constraints;
-    // if (config_.dynamic_acceleration_scaling) {
-    //   std::cout << "Scale max accel: " << mult << std::endl;
-    // }
     if (accel_x.has_value()) {
       accel_x = clamp(
           *accel_x, -config_.max_accel_x * mult, config_.max_accel_x * mult);
