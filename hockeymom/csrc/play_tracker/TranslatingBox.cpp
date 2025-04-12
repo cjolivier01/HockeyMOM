@@ -367,15 +367,23 @@ void TranslatingBox::test_arena_edge_position_scale() {
   const BBox arena_box = *config_.arena_box;
   const Point arena_center = arena_box.center();
   FloatValue full_left = get_arena_edge_point_position_scale(
-      Point{.x = 0, .y = arena_center.y}, arena_box);
+      Point{.x = 0, .y = arena_center.y}, arena_box, kDegreesEdgePerspecive);
   FloatValue arena_left = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.left, .y = arena_center.y}, arena_box);
+      Point{.x = arena_box.left, .y = arena_center.y},
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue full_center = get_arena_edge_point_position_scale(
-      Point{.x = arena_center.x, .y = arena_center.y}, arena_box);
+      Point{.x = arena_center.x, .y = arena_center.y},
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue full_right = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.right * 2, .y = arena_center.y}, arena_box);
+      Point{.x = arena_box.right * 2, .y = arena_center.y},
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue arena_right = get_arena_edge_point_position_scale(
-      Point{.x = arena_box.right, .y = arena_center.y}, arena_box);
+      Point{.x = arena_box.right, .y = arena_center.y},
+      arena_box,
+      kDegreesEdgePerspecive);
   // The edge cases, far edges = 1, dead center = 0
   assert(is_close(full_left, -1.0f));
   assert(is_close(full_left, arena_left));
@@ -387,16 +395,20 @@ void TranslatingBox::test_arena_edge_position_scale() {
   // (doesn't jump to some crazy value)
   FloatValue far_left = get_arena_edge_point_position_scale(
       Point{.x = arena_box.left + kSmallTestDistance, .y = arena_center.y},
-      arena_box);
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue far_right = get_arena_edge_point_position_scale(
       Point{.x = arena_box.right - kSmallTestDistance, .y = arena_center.y},
-      arena_box);
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue left_of_center = get_arena_edge_point_position_scale(
       Point{.x = arena_center.x - kSmallTestDistance, .y = arena_center.y},
-      arena_box);
+      arena_box,
+      kDegreesEdgePerspecive);
   FloatValue right_of_center = get_arena_edge_point_position_scale(
       Point{.x = arena_center.x + kSmallTestDistance, .y = arena_center.y},
-      arena_box);
+      arena_box,
+      kDegreesEdgePerspecive);
 
   // std::cout << far_left << ", " << left_of_center << ", " << right_of_center
   //           << ", " << far_right << std::endl;
@@ -428,7 +440,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
 
 FloatValue TranslatingBox::get_arena_edge_point_position_scale(
     const Point& pt,
-    const BBox& arena_box) {
+    const BBox& arena_box,
+    const FloatValue field_edge_veritcal_angle) {
   const FloatValue arena_center_x = arena_box.center().x;
   if (pt.x == arena_center_x) {
     return 0.0;
@@ -440,7 +453,7 @@ FloatValue TranslatingBox::get_arena_edge_point_position_scale(
     x_eff = std::max(0.0f, arena_box.right - pt.x);
   }
   FloatValue x_eff_adjusted = adjusted_horizontal_distance_from_edge(
-      x_eff, pt.y, arena_box, kDegreesEdgePerspecive);
+      x_eff, pt.y, arena_box, field_edge_veritcal_angle);
   const FloatValue half_arena_width = arena_box.width() / 2;
   FloatValue ratio = 1.0f - (x_eff_adjusted / half_arena_width);
   // Negative just means we're to the left
@@ -450,8 +463,8 @@ FloatValue TranslatingBox::get_arena_edge_point_position_scale(
 FloatValue TranslatingBox::get_arena_edge_center_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
-  FloatValue ratio =
-      get_arena_edge_point_position_scale(bbox.center(), *config_.arena_box);
+  FloatValue ratio = get_arena_edge_point_position_scale(
+      bbox.center(), *config_.arena_box, kDegreesEdgePerspecive);
   // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }
