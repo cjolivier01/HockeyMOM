@@ -16,7 +16,7 @@ constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
 
 // This would actually be the tilt amount we configure for final video
 // presenation
-constexpr FloatValue kDegreesEdgePerspecive = 20.0;
+// constexpr FloatValue kDegreesEdgePerspecive = 20.0;
 // const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
 
 constexpr FloatValue kEpsilon = 1e-4f;
@@ -367,6 +367,10 @@ static FloatValue adjusted_horizontal_distance_from_edge(
 void TranslatingBox::test_arena_edge_position_scale() {
   const BBox arena_box = *config_.arena_box;
   const Point arena_center = arena_box.center();
+  assert(
+      config_.arena_angle_from_vertical !=
+      0); // should have been set to something, please.
+  const FloatValue kDegreesEdgePerspecive = config_.arena_angle_from_vertical;
   FloatValue full_left = get_arena_edge_point_position_scale(
       Point{.x = 0, .y = arena_center.y}, arena_box, kDegreesEdgePerspecive);
   FloatValue arena_left = get_arena_edge_point_position_scale(
@@ -464,8 +468,9 @@ FloatValue TranslatingBox::get_arena_edge_point_position_scale(
 FloatValue TranslatingBox::get_arena_edge_center_position_scale() const {
   assert(config_.arena_box.has_value());
   const BBox bbox = bounding_box();
+  ;
   FloatValue ratio = get_arena_edge_point_position_scale(
-      bbox.center(), *config_.arena_box, kDegreesEdgePerspecive);
+      bbox.center(), *config_.arena_box, config_.arena_angle_from_vertical);
   // std::cout << "X Scale Ratio: " << ratio << "\n";
   return ratio;
 }
