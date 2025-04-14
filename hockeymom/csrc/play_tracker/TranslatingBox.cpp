@@ -49,7 +49,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   PointDiff total_diff = center_dest - center_current;
 
   std::optional<FloatValue> x_gaussian;
-  if (config_.dynamic_acceleration_scaling) {
+  if (!is_zero(config_.dynamic_acceleration_scaling)) {
     assert(config_.sticky_translation);
     static size_t test_pass_counter = 0;
     if (!test_pass_counter++) {
@@ -60,7 +60,9 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     // TODO: We can cache this computation
     if (std::abs(total_diff.dx) < config_.arena_box->width() *
             kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed) {
-      x_gaussian = 1.0 - std::abs(get_arena_edge_center_position_scale());
+      x_gaussian = 1.0 -
+          std::abs(config_.dynamic_acceleration_scaling *
+                   get_arena_edge_center_position_scale());
     } else {
       static size_t wayoff_count = 0;
       std::cout << ++wayoff_count

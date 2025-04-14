@@ -21,6 +21,11 @@ struct GrowShrink {
   FloatValue grow_width, grow_height, shrink_width, shrink_height;
 };
 
+inline constexpr bool is_zero(const FloatValue& f) {
+  // Good enough as zero for opur purposes
+  return std::abs(f) < 1e-6;
+}
+
 /* clang-format off */
 /**
  *  _____ ____              _      _      _         _             ____
@@ -146,7 +151,7 @@ struct TranslatingBoxConfig {
   FloatValue max_accel_x{0.0};
   FloatValue max_accel_y{0.0};
   bool stop_translation_on_dir_change{true};
-  bool dynamic_acceleration_scaling{false};
+  FloatValue dynamic_acceleration_scaling{0.0};
   std::optional<BBox> arena_box{std::nullopt};
   // Sticky Sizing
   bool sticky_translation{false};
