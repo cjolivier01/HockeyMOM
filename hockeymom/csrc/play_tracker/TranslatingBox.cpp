@@ -14,13 +14,7 @@ constexpr FloatValue kMaxSpeedDiffDirectionCutRateRatio = 2.0;
 constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
     1.0f / 4;
 
-// This would actually be the tilt amount we configure for final video
-// presenation
-// constexpr FloatValue kDegreesEdgePerspecive = 20.0;
-// const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
-
 constexpr FloatValue kEpsilon = 1e-4f;
-// constexpr FloatValue kSmallTestDistance = 100.0f;
 
 bool is_close(
     const FloatValue& f1,
