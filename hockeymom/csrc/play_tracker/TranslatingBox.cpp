@@ -20,7 +20,7 @@ constexpr FloatValue kDestinationDistanceToArenaWidthRatioToIgnoreScalingSpeed =
 // const FloatValue kSineEdgePerspecive = std::sin(kDegreesEdgePerspecive);
 
 constexpr FloatValue kEpsilon = 1e-4f;
-constexpr FloatValue kSmallTestDistance = 10.0f;
+// constexpr FloatValue kSmallTestDistance = 100.0f;
 
 bool is_close(
     const FloatValue& f1,
@@ -395,6 +395,8 @@ void TranslatingBox::test_arena_edge_position_scale() {
   assert(is_close(full_right, 1.0f));
   assert(is_close(full_right, arena_right));
   assert(is_close(full_center, 0.0f));
+
+  const size_t kSmallTestDistance = arena_box.width() / 25;
 
   // Now check that the calculation is continuous near those edge points
   // (doesn't jump to some crazy value)
