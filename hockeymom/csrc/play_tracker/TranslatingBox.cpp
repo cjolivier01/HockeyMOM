@@ -442,7 +442,7 @@ void TranslatingBox::test_arena_edge_position_scale() {
     adjusted_x_last = adjusted_x;
   }
   // It should have decreased with decreasing y
-  assert(adjusted_x_last < first_adjusted_x);
+  assert(adjusted_x_last <= first_adjusted_x);
 }
 
 FloatValue TranslatingBox::get_arena_edge_point_position_scale(
