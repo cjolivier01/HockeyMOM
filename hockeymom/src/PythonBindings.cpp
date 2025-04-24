@@ -896,8 +896,8 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readonly(
           "translation_is_frozen", &TranslationState::translation_is_frozen)
       .def_readonly(
-          "last_edge_position_scale",
-          &TranslationState::last_edge_position_scale)
+          "last_arena_edge_center_position_scale",
+          &TranslationState::last_arena_edge_center_position_scale)
       .def_readonly("nonstop_delay", &TranslationState::nonstop_delay)
       .def_readonly(
           "nonstop_delay_counter", &TranslationState::nonstop_delay_counter);
