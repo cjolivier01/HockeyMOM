@@ -821,7 +821,6 @@ void init_box_structures(::pybind11::module_& m) {
       .def("clone", &BBox::clone)
       .def("center", &BBox::center)
       .def("make_scaled", &BBox::make_scaled)
-      .def("inflate", &BBox::inflate)
       .def("validate", &BBox::validate)
       .def("empty", &BBox::empty);
 
