@@ -201,6 +201,10 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
 
+            # FIXME: fron config
+            current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
+            current_roi_aspect_config.arena_angle_from_vertical = 30
+
             current_roi_aspect_config.dynamic_acceleration_scaling = True  # EXPERIMENTAL
 
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
