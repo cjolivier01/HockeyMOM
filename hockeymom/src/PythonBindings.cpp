@@ -875,7 +875,7 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
-      .def_readonly(
+      .def_readwrite(
           "arena_angle_from_vertical",
           &TranslatingBoxConfig::arena_angle_from_vertical)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
