@@ -875,6 +875,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
+      .def_readonly(
+          "arena_angle_from_vertical",
+          &TranslatingBoxConfig::arena_angle_from_vertical)
       .def_readwrite("arena_box", &TranslatingBoxConfig::arena_box)
       .def_readwrite(
           "sticky_translation", &TranslatingBoxConfig::sticky_translation)
@@ -894,9 +897,6 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readonly("current_speed_y", &TranslationState::current_speed_y)
       .def_readonly(
           "translation_is_frozen", &TranslationState::translation_is_frozen)
-      .def_readonly(
-          "arena_angle_from_vertical",
-          &TranslationState::arena_angle_from_vertical)
       .def_readonly(
           "last_arena_edge_center_position_scale",
           &TranslationState::last_arena_edge_center_position_scale)
