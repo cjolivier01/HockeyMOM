@@ -197,8 +197,8 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
             current_roi_aspect_config.min_height = play_height / 5
-            current_roi_config.stop_resizing_on_dir_change = True
-            current_roi_config.stop_translation_on_dir_change = True
+            current_roi_aspect_config.stop_resizing_on_dir_change = True
+            current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
 
             # FIXME: fron config
