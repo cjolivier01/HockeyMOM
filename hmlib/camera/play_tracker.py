@@ -203,7 +203,7 @@ class PlayTracker(torch.nn.Module):
 
             # FIXME: fron config
             current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
-            current_roi_aspect_config.arena_angle_from_vertical = 30
+            current_roi_aspect_config.arena_angle_from_vertical = 30.0
 
             current_roi_aspect_config.dynamic_acceleration_scaling = True  # EXPERIMENTAL
 
