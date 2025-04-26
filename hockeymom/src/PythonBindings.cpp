@@ -895,6 +895,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readonly(
           "translation_is_frozen", &TranslationState::translation_is_frozen)
       .def_readonly(
+          "arena_angle_from_vertical",
+          &TranslationState::arena_angle_from_vertical)
+      .def_readonly(
           "last_arena_edge_center_position_scale",
           &TranslationState::last_arena_edge_center_position_scale)
       .def_readonly("nonstop_delay", &TranslationState::nonstop_delay)
