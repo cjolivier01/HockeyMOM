@@ -8,19 +8,19 @@ from threading import Thread
 from typing import Any, Dict, Optional, Union
 
 import torch
-
-from hmlib.bbox.box_functions import aspect_ratio, width, height
+from hmlib.bbox.box_functions import aspect_ratio, height, width
 from hmlib.builder import HM
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.ui import Shower
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
+
+from hmlib.ui import Shower
 
 
 ##
@@ -281,10 +281,10 @@ class CamTrackPostProcessor:
         self.final_frame_width = int(self.final_frame_width + 0.5)
         self.final_frame_height = int(self.final_frame_height + 0.5)
 
-        if True:
-            print("FORCING OUTPUT FRAME SIZE")
-            self.final_frame_width = 5856
-            self.final_frame_height = 3294
+        # if True:
+        #     print("FORCING OUTPUT FRAME SIZE")
+        #     self.final_frame_width = 5856
+        #     self.final_frame_height = 3294
 
         if self._args.save_camera_data and self._save_dir:
             self._camera_tracking_data = CameraTrackingDataFrame(
