@@ -13,6 +13,7 @@ import cv2
 import mmcv
 import numpy as np
 import torch
+import torch.nn.functional as F
 from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.models.detectors.base import BaseDetector
@@ -27,9 +28,10 @@ from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
-from hmlib.utils.image import image_height, image_width, make_channels_last
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
+
 
 def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     video_reader = mmcv.VideoReader(str(video_path))
@@ -37,6 +39,57 @@ def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     if frame is None:
         return None
     return torch.from_numpy(frame).unsqueeze(0)
+
+
+def scale_images_nn(images: torch.Tensor, scale: float) -> torch.Tensor:
+    """
+    Scale a batch of images by a given factor using nearest-neighbor interpolation.
+
+    Args:
+        images (torch.Tensor):
+            Input batch of images, either
+            - (B, C, H, W) for color/batched images, or
+            - (B, H, W)   for grayscale batches.
+        scale (float):
+            Positive scaling factor.
+
+    Returns:
+        torch.Tensor:
+            Scaled batch. If input was (B, C, H, W), output is (B, C, H', W').
+            If input was (B, H, W), output is (B, H', W').
+    """
+    if scale <= 0.0:
+        raise ValueError(f"Scale must be > 0, got {scale}")
+
+    was_channels_first = None
+
+    # Handle grayscale batch by adding a channel dim
+    is_gray: bool = images.ndim == 3  # (B, H, W)
+    if is_gray:
+        # becomes (B, 1, H, W)
+        images = images.unsqueeze(1)
+    elif images.ndim != 4:
+        raise ValueError(f"Expected 3D or 4D tensor, got shape {tuple(images.shape)}")
+    else:
+        was_channels_first = is_channels_first(images)
+        images = make_channels_first(images)
+
+    # compute new spatial size
+    _, _, H, W = images.shape
+    new_H: int = int(H * scale)
+    new_W: int = int(W * scale)
+
+    # interpolate all at once
+    scaled: torch.Tensor = F.interpolate(images, size=(new_H, new_W), mode="nearest")
+
+    # if grayscale, remove the channel dim back to (B, H', W')
+    if is_gray:
+        scaled = scaled.squeeze(1)
+    else:
+        if not was_channels_first:
+            scaled = make_channels_last(scaled)
+
+    return scaled
 
 
 def find_extreme_points(
@@ -194,7 +247,8 @@ def detect_ice_rink_mask(
         for contour, mask in zip(rink_results["contours"], rink_results["masks"]):
             scaled_contour = scale_polygon(contour, scale)
             generated_mask = polygon_to_mask(scaled_contour, height=image_height(image), width=image_width(image))
-            do_show_image("Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True)
+            if show:
+                do_show_image("Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True)
 
     return rink_results
 
@@ -205,7 +259,7 @@ def find_ice_rink_masks(
     checkpoint: str,
     device: Optional[torch.device] = None,
     show: bool = False,
-    scale: float = None,
+    scale: Optional[float] = None,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
     if device is None:
         device = torch.device("cuda:0")
@@ -354,6 +408,7 @@ def confgure_ice_rink_mask(
     force: bool = False,
     show: bool = False,
     image: torch.Tensor = None,
+    scale: Optional[float] = None,
 ) -> Optional[torch.Tensor]:
     if not force:
         combined_mask_profile = load_rink_combined_mask(game_id=game_id)
@@ -400,13 +455,17 @@ def confgure_ice_rink_mask(
     if expected_shape is not None:
         assert image_height(image_frame) == expected_shape[0]
         assert image_width(image_frame) == expected_shape[1]
+
+    if scale and scale != 1.0:
+        image_frame = scale_images_nn(images=image_frame, scale=scale)
+
     rink_results = find_ice_rink_masks(
         image=image_frame,
         config_file=model_config_file,
         checkpoint=model_checkpoint,
         show=show,
-        scale=None,
         device=device,
+        scale=scale,
     )
     if "combined_mask" in rink_results:
         rink_mask = rink_results["combined_mask"]
@@ -532,6 +591,7 @@ def main(args: argparse.Namespace, device: torch.device):
         force=True,
         image=image,
         expected_shape=image.shape,
+        scale=args.scale,
     )
     mask = results["combined_mask"]
     centroid = [int(i) for i in results["centroid"]]
