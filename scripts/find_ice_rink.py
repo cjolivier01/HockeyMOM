@@ -11,6 +11,7 @@ if __name__ == "__main__":
     opts = hm_opts()
     opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
     opts.parser.add_argument("--scale", default=None, type=float, help="Scale image by this when processing")
+    opts.parser.add_argument("--force", action="store_true", help="Force all processing to take place")
     args = opts.parse()
 
     this_path = Path(os.path.dirname(__file__))

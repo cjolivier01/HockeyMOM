@@ -238,7 +238,7 @@ def detect_ice_rink_mask(
 
     if show:
         show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
-        show_image = model.show_result(show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False)
+        # show_image = model.show_result(show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False)
         do_show_image("Ice-rink", show_image, wait=True)
 
     rink_results = result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False)
@@ -587,10 +587,10 @@ def main(args: argparse.Namespace, device: torch.device):
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
         device=device,
-        show=False,
-        force=True,
+        show=args.show_image,
+        force=args.force,
         image=image,
-        expected_shape=image.shape,
+        expected_shape=(image_height(image), image_width(image)),
         scale=args.scale,
     )
     mask = results["combined_mask"]
@@ -600,23 +600,3 @@ def main(args: argparse.Namespace, device: torch.device):
     logger.info(
         f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
     )
-
-
-if __name__ == "__main__":
-    opts = hm_opts()
-    opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
-    args = opts.parse()
-
-    this_path = Path(os.path.dirname(__file__))
-    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-
-    if "cuda" in args.device and ":" not in args.device:
-        gpu_allocator = GpuAllocator(gpus=args.gpus)
-        device: torch.device = (
-            torch.device("cuda", gpu_allocator.allocate_fast())
-            if not gpu_allocator.is_single_lowmem_gpu(low_threshold_mb=1024 * 10)
-            else torch.device("cpu")
-        )
-    else:
-        device = torch.device(args.device)
-    main(args, device=device)
