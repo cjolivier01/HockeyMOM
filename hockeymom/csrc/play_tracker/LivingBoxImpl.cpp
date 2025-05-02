@@ -147,7 +147,7 @@ BBox LivingBox::forward(
 void LivingBox::set_destination(const BBox& dest_box) {
   BBox destination_box = dest_box;
   WHDims scale_box = get_size_scale();
-  if (scale_box.width != 1 && scale_box.height != 1) {
+  if (scale_box.width != 1 || scale_box.height != 1) {
     destination_box =
         destination_box.make_scaled(scale_box.width, scale_box.height);
     auto& arena_box = TranslatingBox::get_config().arena_box;
