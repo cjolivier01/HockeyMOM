@@ -283,8 +283,8 @@ class CamTrackPostProcessor:
 
         # if True:
         #     print("FORCING OUTPUT FRAME SIZE")
-        #     self.final_frame_width = 5856
-        #     self.final_frame_height = 3294
+        #     self.final_frame_width = 4978
+        #     self.final_frame_height = 2800
 
         if self._args.save_camera_data and self._save_dir:
             self._camera_tracking_data = CameraTrackingDataFrame(
