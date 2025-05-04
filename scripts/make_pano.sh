@@ -30,7 +30,7 @@ nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 #enblend --verbose=1 --save-masks=seam_file.png -o panorama.tif  mapping_0000.tif mapping_0001.tif
 enblend --verbose=1 --save-masks=seam_file.png -o panorama.tif mapping_????.tif
 # enblend -v --save-masks=seam_file.png -o panorama.tif  mapping_????.tif
-# $HOME/src/multiblend/src/multiblend -o panorama.tif mapping_????.tif
+# $HOME/src/multiblend/src/multiblend --save-seams=seam_file.png -o panorama.tif mapping_????.tif
 
 #
 # mapping files
