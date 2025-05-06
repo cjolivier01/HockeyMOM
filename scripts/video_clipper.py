@@ -241,21 +241,21 @@ def main():
     if args.video_file_list:
         args.video_file_list = args.video_file_list.split(",")
 
-    args.video_file_list: Optional[List[str]] = [
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1297.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1298.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1299.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1300.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1301.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1302.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1303.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1304.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1305.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1306.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1307.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1308.MOV",
-        "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1309.MOV",
-    ]
+    # args.video_file_list: Optional[List[str]] = [
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1297.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1298.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1299.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1300.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1301.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1302.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1303.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1304.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1305.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1306.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1307.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1308.MOV",
+    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1309.MOV",
+    # ]
 
     if not args.video_file_list and not (args.input and args.timestamps):
         print("--video-file-list or both --input and --timestamps must be provided")
