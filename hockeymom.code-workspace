@@ -17,6 +17,9 @@
     },
     {
       "path": "../../../Adafruit_Blinka"
+    },
+    {
+      "path": "../../../opencv-python/opencv"
     }
   ],
   "settings": {
