@@ -1244,7 +1244,7 @@ void init_cuda_pano(::pybind11::module_& m) {
           });
 
   m.def(
-      "_show_cuda_tensor",
+      "show_cuda_tensor",
       [](const std::string& label,
          const at::Tensor img_cuda,
          bool wait) -> void { show_cuda_tensor_impl(label, img_cuda, wait); },

@@ -22,6 +22,7 @@ from ._hockeymom import (
     StitchImageInfo,
     WHDims,
     compute_kmeans_clusters,
+    show_cuda_tensor,
 )
 
 try:
@@ -53,4 +54,5 @@ __all__ = [
     "WHDims",
     "GrowShrink",
     "compute_kmeans_clusters",
+    "show_cuda_tensor",
 ]
