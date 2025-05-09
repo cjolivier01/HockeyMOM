@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Union
 
 import torch
 
+# from hockeymom.core import show_cuda_tensor
+
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
