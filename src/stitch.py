@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Union
 
 import torch
 
-# from hockeymom.core import show_cuda_tensor
+from hockeymom.core import show_cuda_tensor
 
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
@@ -233,7 +233,11 @@ def stitch_videos(
             _maybe_save_frame(frame=stitched_image)
 
             if shower is not None:
-                shower.show(stitched_image)
+                if stitched_image.device.type == "cuda":
+                    for stitched_img in stitched_image:
+                        show_cuda_tensor("Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False)
+                else:
+                    shower.show(stitched_image)
 
             if i > 1:
                 dataset_timer.toc()

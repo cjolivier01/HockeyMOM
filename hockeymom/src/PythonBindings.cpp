@@ -123,12 +123,9 @@ void show_cuda_tensor_impl(
   //    data_ptr<T>() gives you a raw device pointer to the tensor’s storage.
   uint8_t* d_ptr = img.data_ptr<uint8_t>();
 
-  // 3) Pitch (row-stride in bytes)
-  //    stride(0) tells you how many elements you skip to go down one row.
-  //    multiply by element_size() to convert to bytes.
-  size_t pitch = img.stride(0) * img.element_size();
-  // — or explicitly:
-  // size_t pitch = img.stride(0) * sizeof(uint8_t);
+  // size_t pitch = img.stride(0);
+  size_t pitch = width * img.element_size() * channels;
+
   CudaSurface<uchar3> surface{
       .d_ptr = reinterpret_cast<uchar3*>(d_ptr),
       .width = static_cast<std::uint32_t>(width),
