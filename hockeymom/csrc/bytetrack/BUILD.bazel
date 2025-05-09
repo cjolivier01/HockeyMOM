@@ -23,7 +23,6 @@ cc_library(
     deps = [
         "@libtorch",
         ":bytetrack_lib",
-        # "@eigen",
     ],
 )
 

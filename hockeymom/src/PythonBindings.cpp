@@ -1,4 +1,5 @@
 #include "cupano/pano/cudaPano.h"
+#include "cupano/pano/showImage.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
@@ -15,6 +16,7 @@
 #include "hockeymom/csrc/mblend/mblend.h"
 #endif
 
+#include <ATen/ATen.h>
 #include <torch/extension.h>
 #include <torch/torch.h>
 
@@ -96,6 +98,45 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
   const WHDims input1_size_;
   const WHDims input2_size_;
 };
+
+void show_cuda_tensor_impl(
+    const std::string& label,
+    const at::Tensor& img_cuda,
+    bool wait) {
+  // Expecting a CUDA tensor of shape [H, W, C] and dtype uint8
+  TORCH_CHECK(img_cuda.device().is_cuda(), "Tensor must be on CUDA");
+  TORCH_CHECK(img_cuda.scalar_type() == at::kByte, "Tensor must be uint8");
+  TORCH_CHECK(
+      img_cuda.dim() == 3 && img_cuda.size(2) == 3, "Tensor must be H×W×3");
+
+  // Make sure it’s contiguous in memory
+  auto img = img_cuda.is_contiguous() ? img_cuda : img_cuda.contiguous();
+
+  // 1) Dimensions
+  int height = img.size(0); // number of rows
+  int width = img.size(1); // number of columns
+  int channels = img.size(2); // should be 3
+
+  TORCH_CHECK(channels == 3, "Tensor must have three channels");
+
+  // 2) GPU data pointer
+  //    data_ptr<T>() gives you a raw device pointer to the tensor’s storage.
+  uint8_t* d_ptr = img.data_ptr<uint8_t>();
+
+  // 3) Pitch (row-stride in bytes)
+  //    stride(0) tells you how many elements you skip to go down one row.
+  //    multiply by element_size() to convert to bytes.
+  size_t pitch = img.stride(0) * img.element_size();
+  // — or explicitly:
+  // size_t pitch = img.stride(0) * sizeof(uint8_t);
+  CudaSurface<uchar3> surface{
+      .d_ptr = reinterpret_cast<uchar3*>(d_ptr),
+      .width = static_cast<std::uint32_t>(width),
+      .height = static_cast<std::uint32_t>(height),
+      .pitch = static_cast<std::uint32_t>(pitch),
+  };
+  hm::utils::show_surface(label, surface, wait);
+}
 
 } // namespace hm
 
@@ -1201,6 +1242,16 @@ void init_cuda_pano(::pybind11::module_& m) {
                 canvas.data_ptr(),
                 (cudaStream_t)stream);
           });
+
+  m.def(
+      "_show_cuda_tensor",
+      [](const std::string& label,
+         const at::Tensor img_cuda,
+         bool wait) -> void { show_cuda_tensor_impl(label, img_cuda, wait); },
+      py::arg("label"),
+      py::arg("img"),
+      py::arg("wait"),
+      py::call_guard<py::gil_scoped_release>());
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
