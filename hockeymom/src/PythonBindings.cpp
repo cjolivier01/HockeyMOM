@@ -1,3 +1,9 @@
+#include <ATen/ATen.h>
+#include <c10/cuda/CUDAGuard.h> // for CUDAStreamGuard
+#include <c10/cuda/CUDAStream.h>
+#include <torch/extension.h>
+#include <torch/torch.h>
+
 #include "cupano/pano/cudaPano.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
@@ -15,10 +21,6 @@
 #ifndef NO_CPP_BLENDING
 #include "hockeymom/csrc/mblend/mblend.h"
 #endif
-
-#include <ATen/ATen.h>
-#include <torch/extension.h>
-#include <torch/torch.h>
 
 PYBIND11_MAKE_OPAQUE(std::map<std::string, std::complex<double>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::pair<std::string, double>>);
@@ -99,9 +101,23 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
   const WHDims input2_size_;
 };
 
+at::Tensor bgr_to_rgb(const at::Tensor& bgr_hwc) {
+  auto idx =
+      torch::tensor(
+          {2, 1, 0},
+          at::TensorOptions().dtype(torch::kLong).device(bgr_hwc.device()))
+          .to(bgr_hwc.device(), /*non_blocking=*/true);
+
+  // move channels to front, swap, then move back:
+  at::Tensor chw = bgr_hwc.permute({2, 0, 1}); // [3, H, W]
+  at::Tensor rgb_chw = chw.index_select(0, idx); // swap
+  at::Tensor rgb_hwc = rgb_chw.permute({1, 2, 0}); // [H, W, 3]
+  return rgb_hwc;
+}
+
 void show_cuda_tensor_impl(
     const std::string& label,
-    const at::Tensor& img_cuda,
+    at::Tensor img_cuda,
     bool wait,
     cudaStream_t stream) {
   // Expecting a CUDA tensor of shape [H, W, C] and dtype uint8
@@ -109,6 +125,17 @@ void show_cuda_tensor_impl(
   TORCH_CHECK(img_cuda.scalar_type() == at::kByte, "Tensor must be uint8");
   TORCH_CHECK(
       img_cuda.dim() == 3 && img_cuda.size(2) == 3, "Tensor must be H×W×3");
+
+  // wrap your raw stream
+  std::unique_ptr<c10::cuda::CUDAStream> cuda_stream;
+  std::unique_ptr<c10::cuda::CUDAStreamGuard> stream_guard;
+  if (stream) {
+    cuda_stream = std::make_unique<c10::cuda::CUDAStream>(
+        c10::cuda::getStreamFromExternal(stream, img_cuda.device().index()));
+    stream_guard = std::make_unique<c10::cuda::CUDAStreamGuard>(*cuda_stream);
+  }
+
+  img_cuda = bgr_to_rgb(std::move(img_cuda));
 
   // Make sure it’s contiguous in memory
   auto img = img_cuda.is_contiguous() ? img_cuda : img_cuda.contiguous();
