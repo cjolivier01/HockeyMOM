@@ -200,3 +200,8 @@ local_repository(
   name = "hm-cupano",
   path = "external/hm-cupano",
 )
+
+local_repository(
+  name = "jetson-utils",
+  path = "external/jetson-utils",
+)
