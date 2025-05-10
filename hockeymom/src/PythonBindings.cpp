@@ -1,5 +1,4 @@
 #include "cupano/pano/cudaPano.h"
-#include "cupano/pano/showImage.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
@@ -11,6 +10,7 @@
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_stitch.h"
+#include "hockeymom/csrc/ui/HmRenderSet.h"
 
 #ifndef NO_CPP_BLENDING
 #include "hockeymom/csrc/mblend/mblend.h"
@@ -102,7 +102,8 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
 void show_cuda_tensor_impl(
     const std::string& label,
     const at::Tensor& img_cuda,
-    bool wait) {
+    bool wait,
+    cudaStream_t stream) {
   // Expecting a CUDA tensor of shape [H, W, C] and dtype uint8
   TORCH_CHECK(img_cuda.device().is_cuda(), "Tensor must be on CUDA");
   TORCH_CHECK(img_cuda.scalar_type() == at::kByte, "Tensor must be uint8");
@@ -117,7 +118,9 @@ void show_cuda_tensor_impl(
   int width = img.size(1); // number of columns
   int channels = img.size(2); // should be 3
 
-  TORCH_CHECK(channels == 3, "Tensor must have three channels");
+  TORCH_CHECK(
+      channels == 3 || channels == 4,
+      "Tensor must have three or four channels");
 
   // 2) GPU data pointer
   //    data_ptr<T>() gives you a raw device pointer to the tensor’s storage.
@@ -126,13 +129,12 @@ void show_cuda_tensor_impl(
   // size_t pitch = img.stride(0);
   size_t pitch = width * img.element_size() * channels;
 
-  CudaSurface<uchar3> surface{
-      .d_ptr = reinterpret_cast<uchar3*>(d_ptr),
-      .width = static_cast<std::uint32_t>(width),
-      .height = static_cast<std::uint32_t>(height),
-      .pitch = static_cast<std::uint32_t>(pitch),
-  };
-  hm::utils::show_surface(label, surface, wait);
+  hm::display::DisplaySurface surface(d_ptr, width, height, pitch, channels);
+  auto render_set = hm::display::get_or_create_global_render_set().lock();
+  if (!render_set) {
+    throw std::runtime_error("Render set has been destroyed");
+  }
+  render_set->render(label, surface, stream);
 }
 
 } // namespace hm
@@ -1244,7 +1246,10 @@ void init_cuda_pano(::pybind11::module_& m) {
       "show_cuda_tensor",
       [](const std::string& label,
          const at::Tensor img_cuda,
-         bool wait) -> void { show_cuda_tensor_impl(label, img_cuda, wait); },
+         bool wait,
+         ptrdiff_t stream) -> void {
+        show_cuda_tensor_impl(label, img_cuda, wait, (cudaStream_t)stream);
+      },
       py::arg("label"),
       py::arg("img"),
       py::arg("wait"),
