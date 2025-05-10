@@ -1,0 +1,1 @@
+../../external/jetson-utils/buildfiles/third_party/libsoup.BUILD

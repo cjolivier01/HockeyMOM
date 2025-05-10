@@ -189,11 +189,48 @@ conda_repository(
     strip_prefix = "lib/python3.11/site-packages/torch",
 )
 
+
+################################ Other Modules ################################
 new_local_repository(
     name = "opencv_linux",
     build_file = "@//buildfiles/third_party:opencv_linux.BUILD",
-    # path = "/usr/local/include",
     path = "/usr/include",
+)
+
+new_local_repository(
+    name = "glibconfig_x86",
+    build_file = "@//buildfiles/third_party:glibconfig.BUILD",
+    path = "/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+)
+
+new_local_repository(
+    name = "glibconfig_aarch64",
+    build_file = "@//buildfiles/third_party:glibconfig.BUILD",
+    path = "/usr/lib/aarch64-linux-gnu/glib-2.0/include",
+)
+
+new_local_repository(
+    name = "glib",
+    build_file = "@//buildfiles/third_party:glib_nobuild.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "json_glib",
+    build_file = "@//buildfiles/third_party:json_glib.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "gstreamer",
+    build_file = "@//buildfiles/third_party:gstreamer_nobuild.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "libsoup",
+    build_file = "@//buildfiles/third_party:libsoup.BUILD",
+    path = "/usr",
 )
 
 local_repository(
