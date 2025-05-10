@@ -9,8 +9,7 @@ imageFormat get_image_format(int channels) {
     case 4:
       return imageFormat::IMAGE_RGBA8;
     case 3:
-      // return imageFormat::IMAGE_RGB8;
-      return imageFormat::IMAGE_BGR8;
+      return imageFormat::IMAGE_RGB8;
     default:
       assert(false);
       return imageFormat::IMAGE_UNKNOWN;
