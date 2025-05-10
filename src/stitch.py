@@ -161,7 +161,7 @@ def stitch_videos(
     frame_count = 0
     dataset_delivery_fps = 0.0
 
-    use_progress_bar: bool = False
+    use_progress_bar: bool = True
     scroll_output: Optional[ScrollOutput] = None
 
     shower = None
