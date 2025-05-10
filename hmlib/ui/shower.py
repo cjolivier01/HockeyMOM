@@ -12,6 +12,8 @@ from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, make_visible_image
+from hockeymom.core import show_cuda_tensor
+
 from .show import cv2_has_opengl, show_gpu_tensor
 
 # from .tk import get_tk_root
@@ -51,8 +53,10 @@ class Shower:
         cache_on_cpu: bool = False,
         logger=None,
         use_tk: bool = False,
+        allow_gpu_gl: bool = True,
     ):
         self._label = label
+        self._allow_gpu_gl = allow_gpu_gl
         self._show_scaled = show_scaled
         self._max_size: int = max(max_size, 1)
         self._fps = fps
@@ -88,11 +92,16 @@ class Shower:
                 if self._cv2_has_opengl_support and s_img.device.type == "cuda":
                     show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                 else:
-                    cv2.imshow(
-                        self._label,
-                        make_visible_image(s_img, enable_resizing=self._show_scaled),
-                    )
-                    cv2.waitKey(1)
+                    if self._allow_gpu_gl and s_img.device.type == "cuda":
+                        s_img = make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=False)
+                        show_cuda_tensor("Stitched Image", s_img, False, None)
+
+                    else:
+                        cv2.imshow(
+                            self._label,
+                            make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=True),
+                        )
+                        cv2.waitKey(1)
 
     def close(self):
         if self._thread is not None:

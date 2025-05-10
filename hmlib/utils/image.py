@@ -52,9 +52,7 @@ def pt_transform_preds(coords, center, scale, output_size, trans):
     return target_coords, trans
 
 
-def get_affine_transform(
-    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
-):
+def get_affine_transform(center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0):
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
         scale = np.array([scale, scale], dtype=np.float32)
 
@@ -100,9 +98,7 @@ def pt_cv2_get_affine_transform(src, dst):
     return transform_matrix
 
 
-def pt_get_affine_transform(
-    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
-):
+def pt_get_affine_transform(center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0):
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
         scale = torch.tensor([scale, scale], dtype=torch.float, device=scale.device)
     if isinstance(shift, np.ndarray):
@@ -122,9 +118,7 @@ def pt_get_affine_transform(
     src[0, :] = center + scale_tmp * shift
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
-    dst[1, :] = (
-        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device) + dst_dir
-    )
+    dst[1, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device) + dst_dir
 
     src[2:, :] = pt_get_3rd_point(src[0, :], src[1, :])
     dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
@@ -193,9 +187,7 @@ def pt_get_dir(src_point, rot_rad):
 def crop(img, center, scale, output_size, rot=0):
     trans = get_affine_transform(center, scale, rot, output_size)
 
-    dst_img = cv2.warpAffine(
-        img, trans, (int(output_size[0]), int(output_size[1])), flags=cv2.INTER_LINEAR
-    )
+    dst_img = cv2.warpAffine(img, trans, (int(output_size[0]), int(output_size[1])), flags=cv2.INTER_LINEAR)
 
     return dst_img
 
@@ -273,9 +265,7 @@ def draw_dense_reg(regmap, heatmap, center, value, radius, is_offset=False):
     masked_gaussian = gaussian[radius - top : radius + bottom, radius - left : radius + right]
     masked_reg = reg[:, radius - top : radius + bottom, radius - left : radius + right]
     if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
-        idx = (masked_gaussian >= masked_heatmap).reshape(
-            1, masked_gaussian.shape[0], masked_gaussian.shape[1]
-        )
+        idx = (masked_gaussian >= masked_heatmap).reshape(1, masked_gaussian.shape[0], masked_gaussian.shape[1])
         masked_regmap = (1 - idx) * masked_regmap + idx * masked_reg
     regmap[:, y - top : y + bottom, x - left : x + right] = masked_regmap
     return regmap
@@ -364,16 +354,10 @@ class ImageColorScaler:
                 )
                 self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
             else:
-                self._scale_color_tensor = np.array(
-                    self._image_channel_adjustment, dtype=np.float32
-                )
-                self._scale_color_tensor = np.expand_dims(
-                    np.expand_dims(self._scale_color_tensor, 0), 0
-                )
+                self._scale_color_tensor = np.array(self._image_channel_adjustment, dtype=np.float32)
+                self._scale_color_tensor = np.expand_dims(np.expand_dims(self._scale_color_tensor, 0), 0)
         if isinstance(image, torch.Tensor):
-            image = torch.clamp(
-                image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0
-            ).to(torch.uint8)
+            image = torch.clamp(image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0).to(torch.uint8)
         else:
             image = np.clip(
                 image.astype(np.float32) * self._scale_color_tensor,
@@ -620,9 +604,7 @@ def resize_image(
                 was_batched = img.ndim == 4
                 if not was_batched:
                     img = img.unsqueeze(0)
-                img = TF.interpolate(
-                    img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
-                )
+                img = TF.interpolate(img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False))
                 if not was_batched:
                     img = img.squeeze(0)
                 # Assert that it reshaped as we expected
@@ -680,6 +662,7 @@ def pad_tensor_to_size_batched(
 def make_showable_type(
     img: Union[torch.Tensor, np.ndarray],
     scale_elements: Union[float, None] = None,
+    force_numpy: bool = False,
 ):
     if isinstance(img, torch.Tensor):
         if img.ndim == 2:
@@ -697,7 +680,8 @@ def make_showable_type(
             img = torch.clamp(img, min=0, max=255.0).to(torch.uint8, non_blocking=False)
         elif img.dtype == torch.bool:
             img = img.to(torch.uint8) * 255
-        img = np.ascontiguousarray(img.cpu().numpy())
+        if force_numpy or img.device.type != "cuda":
+            img = np.ascontiguousarray(img.cpu().numpy())
     return img
 
 
@@ -705,10 +689,11 @@ def make_visible_image(
     img,
     enable_resizing: Union[bool, float] = None,
     scale_elements: Union[float, None] = None,
+    force_numpy=False,
 ):
     if enable_resizing is None:
         if isinstance(img, torch.Tensor):
-            img = make_showable_type(img, scale_elements)
+            img = make_showable_type(img, scale_elements, force_numpy=force_numpy)
         return img
     width = image_width(img)
     if enable_resizing != 0:
@@ -725,7 +710,7 @@ def make_visible_image(
         new_w = vis_w * mult
         new_h = new_w / ar
         img = resize_image(img, new_width=int(new_w), new_height=int(new_h))
-    return make_showable_type(img)
+    return make_showable_type(img, force_numpy=force_numpy)
 
 
 def get_complete_monitor_width():
@@ -818,9 +803,7 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # W, H, C -> C, H, W
             img = img.permute(2, 1, 0)
     elif isinstance(img, PIL.Image.Image):
-        img = img.rotate(
-            angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
-        )
+        img = img.rotate(angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1]))
     else:
         rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
         img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))

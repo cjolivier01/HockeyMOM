@@ -684,7 +684,7 @@ class StitchDataset:
             print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
-            cv2.imwrite(frame_path, make_visible_image(stitched_frame[0]))
+            cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
             if self._on_first_stitched_image_callback is not None:
                 self._on_first_stitched_image_callback(stitched_frame[0])
 

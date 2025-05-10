@@ -232,7 +232,7 @@ def stitch_videos(
             _maybe_save_frame(frame=stitched_image)
 
             if shower is not None:
-                if stitched_image.device.type == "cuda":
+                if False and stitched_image.device.type == "cuda":
                     for stitched_img in stitched_image:
                         show_cuda_tensor(
                             "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
