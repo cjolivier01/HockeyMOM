@@ -16,7 +16,23 @@ imageFormat get_image_format(int channels) {
   }
 }
 
+std::mutex grs_mu;
+std::shared_ptr<HmRenderSet> global_render_set;
+
 } // namespace
+
+std::weak_ptr<HmRenderSet> get_or_create_global_render_set() {
+  std::unique_lock lk(grs_mu);
+  if (!global_render_set) {
+    global_render_set = std::make_shared<HmRenderSet>();
+  }
+  return global_render_set;
+}
+
+void destroy_global_render_set() {
+  std::unique_lock lk(grs_mu);
+  global_render_set.reset();
+}
 
 std::unique_ptr<glDisplay> HmRenderSet::create_video_output(
     const std::string& name,

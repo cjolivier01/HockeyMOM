@@ -48,5 +48,8 @@ class HmRenderSet {
   std::map<std::string, std::unique_ptr<glDisplay>> video_outputs_;
 };
 
+std::weak_ptr<HmRenderSet> get_or_create_global_render_set();
+void destroy_global_render_set();
+
 } // namespace display
 } // namespace hm
