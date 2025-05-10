@@ -11,8 +11,6 @@ from typing import Dict, List, Optional, Union
 
 import torch
 
-from hockeymom.core import show_cuda_tensor
-
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
@@ -28,6 +26,7 @@ from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
+from hockeymom.core import show_cuda_tensor
 
 ROOT_DIR = os.getcwd()
 
@@ -235,7 +234,9 @@ def stitch_videos(
             if shower is not None:
                 if stitched_image.device.type == "cuda":
                     for stitched_img in stitched_image:
-                        show_cuda_tensor("Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False)
+                        show_cuda_tensor(
+                            "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
+                        )
                 else:
                     shower.show(stitched_image)
 
