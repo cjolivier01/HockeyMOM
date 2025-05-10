@@ -161,7 +161,7 @@ def stitch_videos(
     frame_count = 0
     dataset_delivery_fps = 0.0
 
-    use_progress_bar: bool = True
+    use_progress_bar: bool = False
     scroll_output: Optional[ScrollOutput] = None
 
     shower = None
@@ -242,17 +242,17 @@ def stitch_videos(
 
             if i > 1:
                 dataset_timer.toc()
-            if (i + 1) % 20 == 0:
-                assert stitched_image.ndim == 4
-                dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
-                logger.info(
-                    "Dataset frame {} ({:.2f} fps)".format(
-                        i * batch_size,
-                        batch_size / max(1e-5, dataset_timer.average_time),
-                    )
-                )
-                if i % 100 == 0:
-                    dataset_timer = Timer()
+            # if (i + 1) % 20 == 0:
+            #     assert stitched_image.ndim == 4
+            #     dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
+            #     logger.info(
+            #         "Dataset frame {} ({:.2f} fps)".format(
+            #             i * batch_size,
+            #             batch_size / max(1e-5, dataset_timer.average_time),
+            #         )
+            #     )
+            #     if i % 100 == 0:
+            #         dataset_timer = Timer()
 
             frame_count += batch_size
 
