@@ -44,3 +44,6 @@
 [submodule "external/hm-cupano"]
 	path = external/hm-cupano
 	url = ssh://git@github.com/cjolivier01/hm-cupano
+[submodule "external/jetson-utils"]
+	path = external/jetson-utils
+	url = ssh://git@github.com/cjolivier01/jetson-utils
