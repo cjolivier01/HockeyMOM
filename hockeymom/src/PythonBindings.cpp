@@ -137,6 +137,10 @@ void show_cuda_tensor_impl(
   render_set->render(label, surface, stream);
 }
 
+void on_python_exit() {
+  hm::display::destroy_global_render_set();
+}
+
 } // namespace hm
 
 void init_stitching(::pybind11::module_& m) {
@@ -1253,7 +1257,11 @@ void init_cuda_pano(::pybind11::module_& m) {
       py::arg("label"),
       py::arg("img"),
       py::arg("wait"),
+      py::arg("stream") = nullptr,
       py::call_guard<py::gil_scoped_release>());
+
+  py::module_ atexit = py::module_::import("atexit");
+  atexit.attr("register")(py::cpp_function(&hm::on_python_exit));
 }
 
 PYBIND11_MODULE(_hockeymom, m) {
