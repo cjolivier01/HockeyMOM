@@ -1252,13 +1252,19 @@ void init_cuda_pano(::pybind11::module_& m) {
          at::Tensor img_cuda,
          bool wait,
          std::optional<size_t> stream) -> void {
-        cudaStream_t strm = stream.has_value() ? (cudaStream_t)*stream : (cudaStream_t)nullptr;
+        cudaStream_t strm =
+            stream.has_value() ? (cudaStream_t)*stream : (cudaStream_t) nullptr;
         show_cuda_tensor_impl(label, img_cuda, wait, strm);
       },
       py::arg("label"),
       py::arg("img"),
       py::arg("wait"),
       py::arg("stream") = py::none(),
+      py::call_guard<py::gil_scoped_release>());
+
+  m.def(
+      "destroy_cuda_windows",
+      []() { hm::display::destroy_global_render_set(); },
       py::call_guard<py::gil_scoped_release>());
 
   py::module_ atexit = py::module_::import("atexit");
