@@ -103,7 +103,7 @@ BBox LivingBox::next_position() {
   if (config_.fixed_aspect_ratio.has_value()) {
     assert(isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
   }
-  std::cout << name() << ": " << bounding_box() << std::endl;
+  // std::cout << name() << ": " << bounding_box() << std::endl;
   return bounding_box();
 }
 
