@@ -33,12 +33,13 @@ def validate_timestamp(timestamp):
 
 _DEBUG = True
 
-ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
 ENCODER_ARGS_FAST = "-c:v mpeg4 -preset ultrafast -crf 23".split(" ")
 # ENCODER_ARGS_FAST = "-c:v h264_nvenc -preset p1".split(" ")
-ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_HQ = "-c:v hevc_nvenc -preset medium".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
