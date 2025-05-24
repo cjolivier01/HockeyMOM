@@ -94,7 +94,9 @@ class LivingBox : public ILivingBox,
  private:
   const std::string label_;
   const LivingBoxConfig config_;
-
+  // Copnstraints when "clamping to arena box" that we can calculate once
+  // beforehand
+  FloatValue max_eff_width_{0}, max_eff_height_{0};
   // Flag to show we were size-constrained on the last update
   // (debugging/visualization only)
   LivingState state_;

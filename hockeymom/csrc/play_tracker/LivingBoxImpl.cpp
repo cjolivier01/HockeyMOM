@@ -33,6 +33,12 @@ LivingBox::LivingBox(
     const BBox& arena_box = *config.arena_box;
     assert(config.max_width <= arena_box.width());
     assert(config.max_height <= arena_box.height());
+    max_eff_width_ = config.max_width != 0
+        ? std::min(arena_box.width(), config.max_width)
+        : arena_box.width();
+    max_eff_height_ = config.max_height != 0
+        ? std::min(arena_box.height(), config.max_height)
+        : arena_box.height();
   }
 }
 
@@ -106,17 +112,11 @@ void LivingBox::clamp_to_arena() {
   auto arena = TranslatingBox::get_config().arena_box;
   // Constrain size
   const ResizingConfig& rconfig = ResizingBox::get_config();
-  if (rconfig.max_width || rconfig.max_height) {
-    bbox = hm::BBox(
-        bbox.center(),
-        hm::WHDims{
-            .width = rconfig.max_width
-                ? std::min(bbox.width(), rconfig.max_width)
-                : bbox.width(),
-            .height = rconfig.max_height
-                ? std::min(bbox.height(), rconfig.max_height)
-                : bbox.height()});
-  }
+  bbox = hm::BBox(
+      bbox.center(),
+      hm::WHDims{
+          .width = std::min(bbox.width(), max_eff_width_),
+          .height = std::min(bbox.height(), max_eff_height_)});
   if (arena.has_value()) {
     // is shifting necessary or was already done?
     // shift_box_to_edge(bbox, *arena);
