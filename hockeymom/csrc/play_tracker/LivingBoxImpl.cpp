@@ -117,6 +117,7 @@ void LivingBox::clamp_to_arena() {
                 : bbox.height()});
   }
   if (arena.has_value()) {
+    // Constrain by arena outer limits
     bbox = clamp_box(bbox, TranslatingBox::get_config().arena_box.value());
   }
   set_bbox(bbox);
