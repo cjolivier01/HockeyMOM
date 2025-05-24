@@ -15,7 +15,7 @@ namespace play_tracker {
 constexpr size_t kBadIdOrIndex = std::numeric_limits<size_t>::max();
 
 struct PlayTrackerConfig {
-  bool no_wide_start{false};
+  int no_wide_start{false};
   // For less than this, we just move towards the arena box
   size_t min_tracked_players{4};
   std::vector<AllLivingBoxConfig> living_boxes;

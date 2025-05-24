@@ -96,18 +96,29 @@ BBox LivingBox::next_position() {
   if (config_.fixed_aspect_ratio.has_value()) {
     assert(isClose(bounding_box().aspect_ratio(), *config_.fixed_aspect_ratio));
   }
-  // std::cout << name() << ": " << bounding_box() << std::endl;
+  std::cout << name() << ": " << bounding_box() << std::endl;
   return bounding_box();
 }
 
 void LivingBox::clamp_to_arena() {
-  const ResizingConfig& rconfig = ResizingBox::get_config();
   BBox bbox = bounding_box();
-  auto z = zero();
-  bbox.left = clamp(bbox.left, z, rconfig.max_width);
-  bbox.top = clamp(bbox.top, z, rconfig.max_height);
-  bbox.right = clamp(bbox.right, z, rconfig.max_width);
-  bbox.bottom = clamp(bbox.bottom, z, rconfig.max_height);
+  auto arena = TranslatingBox::get_config().arena_box;
+  // Constrain size
+  const ResizingConfig& rconfig = ResizingBox::get_config();
+  if (rconfig.max_width || rconfig.max_height) {
+    bbox = hm::BBox(
+        bbox.center(),
+        hm::WHDims{
+            .width = rconfig.max_width
+                ? std::min(bbox.width(), rconfig.max_width)
+                : bbox.width(),
+            .height = rconfig.max_height
+                ? std::min(bbox.height(), rconfig.max_height)
+                : bbox.height()});
+  }
+  if (arena.has_value()) {
+    bbox = clamp_box(bbox, TranslatingBox::get_config().arena_box.value());
+  }
   set_bbox(bbox);
 }
 

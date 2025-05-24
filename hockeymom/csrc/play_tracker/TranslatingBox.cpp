@@ -1,6 +1,7 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
 
 #include <cassert>
+#include <csignal>
 #include <iostream>
 
 #include <unistd.h>
@@ -37,6 +38,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   if (!config_.translation_enabled) {
     return;
   }
+  // raise(SIGTRAP);
   BBox bbox = bounding_box();
   Point center_current = bbox.center();
   Point center_dest = dest_box.center();
@@ -64,9 +66,6 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       constexpr FloatValue kEmergencyPanFixScaleConstraintRatio = 4.0;
       x_gaussian = kEmergencyPanFixScaleConstraintRatio;
     }
-    //   x_gaussian =
-    //       1.0 - get_gaussian_ratio(total_diff.dx,
-    //       config_.arena_box->width());
   } else {
     x_gaussian = 1.0;
   }
