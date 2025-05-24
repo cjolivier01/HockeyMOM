@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <iostream>
+#include "BoxUtils.h"
 
 namespace hm {
 namespace play_tracker {
@@ -117,8 +118,10 @@ void LivingBox::clamp_to_arena() {
                 : bbox.height()});
   }
   if (arena.has_value()) {
+    // is shifting necessary or was already done?
+    // shift_box_to_edge(bbox, *arena);
     // Constrain by arena outer limits
-    bbox = clamp_box(bbox, TranslatingBox::get_config().arena_box.value());
+    bbox = clamp_box(bbox, *arena);
   }
   set_bbox(bbox);
 }
