@@ -39,9 +39,9 @@ ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".sp
 # ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset slow {PIXEL_FORMAT}".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
-ENCODER_ARGS_FAST = "-c:v mpeg4 -preset ultrafast -crf 23".split(" ")
+ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
 # ENCODER_ARGS_FAST = "-c:v h264_nvenc -preset p1".split(" ")
-ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium".split(" ")
+ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset slow".split(" ")
 # ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium {PIXEL_FORMAT}".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
@@ -50,7 +50,7 @@ if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     # FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
-else:
+else: 
     # Debugging, faster, lower quality encoding
     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
     # FINAL_ENCODER_ARGS = ENCODER_ARGS_FAST
