@@ -209,8 +209,8 @@ def create_text_video(
     ]
     cmd += (
         [
-            "-vf",
-            f"format=nv12",
+            # "-vf",
+            # f"format=nv12",
         ]
         + WORKING_ENCODER_ARGS
         + [
@@ -231,13 +231,13 @@ def add_clip_number(
             "-i",
             input_file,
             "-vf",
-            f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10",
+            f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10,fps={dest_fps},format=nv12",
             "-codec:a",
             "copy",
         ]
         + [
-            "-vf",
-            f"fps={dest_fps},format=nv12",
+            #     "-vf",
+            #     f"fps={dest_fps},format=nv12",
         ]
         + WORKING_ENCODER_ARGS
         + [
