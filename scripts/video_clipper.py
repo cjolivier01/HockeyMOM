@@ -35,13 +35,15 @@ _DEBUG = True
 
 # PIXEL_FORMAT = "-pix_fmt yuv444p"
 # IXEL_FORMAT = ""
-ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 20M -preset p4".split(" ")
 # ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset slow {PIXEL_FORMAT}".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
 ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
 # ENCODER_ARGS_FAST = "-c:v h264_nvenc -preset p1".split(" ")
-ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset slow".split(" ")
+ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset slow -b:v 40M".split(" ")
 # ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium {PIXEL_FORMAT}".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
@@ -50,7 +52,7 @@ if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
     # FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
-else: 
+else:
     # Debugging, faster, lower quality encoding
     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
     # FINAL_ENCODER_ARGS = ENCODER_ARGS_FAST
@@ -112,7 +114,7 @@ def get_audio_sample_rate(file_path: str):
 
 
 def extract_clip(
-    input_video: str, start_time: str, end_time: str, clip_file: str, rate_k: int = 192
+    input_video: str, start_time: str, end_time: str, clip_file: str, dest_fps: float, rate_k: int = 192
 ) -> None:
     if end_time:
         duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
@@ -133,6 +135,12 @@ def extract_clip(
             "-t",
             str(duration),
         ]
+    cmd += (
+        [
+            "-vf",
+            f"fps={dest_fps},format=nv12",
+        ],
+    )
     cmd += (
         [
             "-c:a",
@@ -184,22 +192,25 @@ def create_text_video(
     audio_sample_rate: int,
 ) -> None:
     text = friendly_label(text)
-    cmd = (
-        FFMPEG_BASE_HW
-        + [
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=black:s={}x{}:d={}".format(width, height, duration),
-            "-f",
-            "lavfi",
-            "-i",
-            f"anullsrc=r={int(audio_sample_rate)}:cl=stereo",
+    cmd = FFMPEG_BASE_HW + [
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s={}x{}:d={}".format(width, height, duration),
+        "-f",
+        "lavfi",
+        "-i",
+        f"anullsrc=r={int(audio_sample_rate)}:cl=stereo",
+        "-vf",
+        f"drawtext=text='{text}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
+        "-r",
+        str(fps),
+        "-shortest",
+    ]
+    cmd += (
+        [
             "-vf",
-            f"drawtext=text='{text}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
-            "-r",
-            str(fps),
-            "-shortest",
+            f"format=nv12",
         ]
         + WORKING_ENCODER_ARGS
         + [
@@ -210,9 +221,7 @@ def create_text_video(
     subprocess.run(cmd, check=True)
 
 
-def add_clip_number(
-    input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int
-) -> None:
+def add_clip_number(input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int) -> None:
     text = friendly_label(label) + " " + str(clip_number)
     cmd = (
         [
@@ -341,7 +350,7 @@ def main():
 
             # Extract clip
             clip_file = f"{temp_dir}/clip_{i}.mp4"
-            extract_clip(args.input, start_time, end_time, clip_file)
+            extract_clip(args.input, start_time, end_time, clip_file, dest_fps=fps)
 
             # Create transition screen
             transition = f"{temp_dir}/transition_{i}.mp4"
