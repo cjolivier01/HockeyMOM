@@ -36,8 +36,8 @@ _DEBUG = True
 # PIXEL_FORMAT = "-pix_fmt yuv444p"
 # IXEL_FORMAT = ""
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 20M -preset p4".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
 # ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset slow {PIXEL_FORMAT}".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
@@ -221,7 +221,9 @@ def create_text_video(
     subprocess.run(cmd, check=True)
 
 
-def add_clip_number(input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int) -> None:
+def add_clip_number(
+    input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int, dest_fps: float
+) -> None:
     text = friendly_label(label) + " " + str(clip_number)
     cmd = (
         [
@@ -232,6 +234,10 @@ def add_clip_number(input_file: str, output_file: str, label: str, clip_number: 
             f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10",
             "-codec:a",
             "copy",
+        ]
+        + [
+            "-vf",
+            f"fps={dest_fps},format=nv12",
         ]
         + WORKING_ENCODER_ARGS
         + [
@@ -326,7 +332,7 @@ def main():
 
             # Add clip number overlay
             numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
+            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height, dest_fps=fps)
             clips.append(numbered_clip)
     else:
         with open(args.timestamps, "r") as f:
@@ -367,7 +373,7 @@ def main():
 
             # Add clip number overlay
             numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height)
+            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height, dest_fps=fps)
             clips.append(numbered_clip)
 
     # Create file list for concatenation
