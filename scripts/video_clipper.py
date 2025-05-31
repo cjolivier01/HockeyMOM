@@ -207,17 +207,10 @@ def create_text_video(
         str(fps),
         "-shortest",
     ]
-    cmd += (
-        [
-            # "-vf",
-            # f"format=nv12",
-        ]
-        + WORKING_ENCODER_ARGS
-        + [
-            "-y",
-            output_file,
-        ]
-    )
+    cmd += WORKING_ENCODER_ARGS + [
+        "-y",
+        output_file,
+    ]
     subprocess.run(cmd, check=True)
 
 
@@ -234,10 +227,6 @@ def add_clip_number(
             f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10,fps={dest_fps},format=nv12",
             "-codec:a",
             "copy",
-        ]
-        + [
-            #     "-vf",
-            #     f"fps={dest_fps},format=nv12",
         ]
         + WORKING_ENCODER_ARGS
         + [
@@ -259,22 +248,6 @@ def main():
 
     if args.video_file_list:
         args.video_file_list = args.video_file_list.split(",")
-
-    # args.video_file_list: Optional[List[str]] = [
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1297.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1298.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1299.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1300.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1301.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1302.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1303.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1304.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1305.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1306.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1307.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1308.MOV",
-    #     "/home/colivier/Videos/ev-donahue-2/momshifts/IMG_1309.MOV",
-    # ]
 
     if not args.video_file_list and not (args.input and args.timestamps):
         print("--video-file-list or both --input and --timestamps must be provided")
