@@ -187,6 +187,8 @@ struct BBox {
   FloatValue bottom{0.0};
 };
 
+#ifndef __CUDACC__
+
 /**
  *  _____       _  _
  * |_   _|     | |(_)
@@ -330,5 +332,7 @@ std::ostream& operator<<(std::ostream& os, const PointDiff& diff);
 std::ostream& operator<<(std::ostream& os, const SizeDiff& diff);
 std::ostream& operator<<(std::ostream& os, const Point& point);
 std::ostream& operator<<(std::ostream& os, const BBox& bbox);
+
+#endif // __CUDACC__
 
 } // namespace hm
