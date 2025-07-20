@@ -1021,6 +1021,7 @@ def blend_video(
             blend_mode=blend_mode,
             draw=draw,
             add_alpha_channel=add_alpha_channel,
+            use_cuda_pano=use_cuda_pano,
         )
 
     if lfo is None or rfo is None:
@@ -1139,7 +1140,7 @@ def blend_video(
                 for this_blended in blended:
                     show_image(
                         "this_blended",
-                        this_blended,
+                        this_blended if use_cuda_pano else this_blended.cpu(),
                         wait=False,
                         enable_resizing=show_scaled,
                     )
