@@ -1,1 +1,14 @@
-../../external/jetson-utils/buildfiles/third_party/python.BUILD
+
+cc_library(
+    name = "python",
+    hdrs = glob(["include/**/*.h"]),
+    includes = [
+      "include",
+      "include/python3.12"
+    ],
+    linkopts = [
+      "-Llib",
+      "-lpython3",
+    ],
+    visibility = ["//visibility:public"],
+)

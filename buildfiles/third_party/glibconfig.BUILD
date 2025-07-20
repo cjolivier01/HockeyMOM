@@ -1,1 +1,6 @@
-../../external/jetson-utils/buildfiles/third_party/glibconfig.BUILD
+cc_library (
+  name="glibconfig",
+  hdrs=["glibconfig.h"],
+  includes=["."],
+  visibility = ["//visibility:public"],
+)
