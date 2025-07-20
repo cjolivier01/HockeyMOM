@@ -246,6 +246,14 @@ new_local_repository(
     path = "/usr",
 )
 
+
+git_repository(
+    name = "com_google_absl",
+    remote = "https://github.com/abseil/abseil-cpp.git",
+    # tag = "20250127.0",
+    commit = "9ac7062b1860d895fb5a8cbf58c3e9ef8f674b5f",
+)
+
 # local_repository(
 #   name = "hm-cupano",
 #   path = "external/hm-cupano",

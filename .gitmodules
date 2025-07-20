@@ -20,9 +20,6 @@
 [submodule "external/concurrentqueue"]
 	path = external/concurrentqueue
 	url = ssh://git@github.com/cjolivier01/concurrentqueue
-[submodule "external/abseil-cpp"]
-	path = external/abseil-cpp
-	url = https://github.com/abseil/abseil-cpp
 [submodule "models/SVHNClassifier"]
 	path = xmodels/SVHNClassifier
 	url = ssh://git@github.com/cjolivier01/SVHNClassifier-PyTorch
