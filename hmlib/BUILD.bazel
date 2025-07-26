@@ -3,7 +3,9 @@ load("@rules_python//python:packaging.bzl", "py_wheel")
 
 py_library(
     name = "hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi"]),
+    srcs=glob(["**/*.py", "**/*.pyi"]) + [
+      # "//hockeymom/src:hockeymom",
+    ],
     visibility = ["//visibility:public"],
     deps = [],
     imports=[".."],
