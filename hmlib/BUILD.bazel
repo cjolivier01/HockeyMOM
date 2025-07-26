@@ -1,20 +1,50 @@
-load("@python_deps//:requirements.bzl", "requirement")
-load("//tools/python/library:defs.bzl", "python_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+# load("@rules_python//python:packaging.bzl", "py_wheel", "py_wheel_dist")
 
-python_library(
-    srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
-    data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
-        #"py.typed",
-        #"words.txt",
+py_library(
+    name = "hmlib",
+    srcs=glob(["**/*.py", "**/*.pyi"]),
+    visibility = ["//visibility:public"],
+    deps = [],
+    imports=[".."],
+    data = [
+      "//hockeymom/src:hockeymom",
     ],
-    deps=[
-        # "//other/lib",
-        #requirement("requests"),
-    ],
-    # test_data=glob("tests/**/fixtures/*.txt"),
-    test_deps=[
-        requirement("pytest"),
-        requirement("types-requests"),
-    ],
-    imports=[".."],  # Add the parent directory to PYTHONPATH
 )
+
+py_wheel(
+    name = "hmlib_wheel",
+    distribution = "hockeymom",
+    version = "0.0.1",
+    deps = [
+      ":hmlib",
+    ],
+)
+
+# py_wheel_dist(
+#     name = "hmlib_wheel_dist",
+#     out = "dist",
+#     wheel = ":hmlib_wheel",
+# )
+
+
+# load("@python_deps//:requirements.bzl", "requirement")
+# load("//tools/python/library:defs.bzl", "python_library")
+
+# python_library(
+#     srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
+#     data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
+#         #"py.typed",
+#         #"words.txt",
+#     ],
+#     deps=[
+#         # "//other/lib",
+#         #requirement("requests"),
+#     ],
+#     # test_data=glob("tests/**/fixtures/*.txt"),
+#     test_deps=[
+#         requirement("pytest"),
+#         requirement("types-requests"),
+#     ],
+#     imports=[".."],  # Add the parent directory to PYTHONPATH
+# )

@@ -20,6 +20,9 @@
     },
     {
       "path": "../../../opencv-python/opencv"
+    },
+    {
+      "path": "../bazel-python-package-example"
     }
   ],
   "settings": {
