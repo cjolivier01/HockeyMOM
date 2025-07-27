@@ -34,7 +34,7 @@ def main():
         return 1
     
     # Get workspace root
-    workspace_root = os.environ.get('DIST_WORKSPACE_DIRECTORY', os.getcwd())
+    workspace_root = os.environ.get('BUILD_WORKSPACE_DIRECTORY', os.getcwd())
     dist_dir = os.path.join(workspace_root, 'dist')
     
     # Create dist directory
