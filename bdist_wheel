@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+./bld //hmlib:hmlib.wheel
+./bld //hmlib:hmlib.wheel.publish
