@@ -33,7 +33,7 @@ python_library(
         requires=[
             # "fastapi==0.68.2",
             # "core.logging",
-            "//hockeymom/src:_hockeymom.%s.so" % SOABI,
+            # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
         ],
 
     )
