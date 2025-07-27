@@ -29,6 +29,7 @@ genrule(
   srcs = [":_hockeymom.so"],
   outs = [ "_hockeymom.%s.so" % SOABI ],
   cmd = "cp $(location :_hockeymom.so) $@",
+  visibility = ["//visibility:public"],
 )
 
 py_library(
