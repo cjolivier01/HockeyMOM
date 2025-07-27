@@ -1,0 +1,37 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@py_soabi//:soabi.bzl", "SOABI")  # Now this load will succeed
+
+
+# Use a genrule to rename _hockeymom.so to include the SOABI.
+genrule(
+  name = "hockeymom_ext",
+  srcs = ["//hockeymom/src:_hockeymom.so"],
+  outs = [ "_hockeymom.%s.so" % SOABI ],
+  cmd = "cp $(location //hockeymom/src:_hockeymom.so) $@",
+  visibility = ["//visibility:public"],
+)
+
+py_wheel(
+    name = "wheel",
+    distribution = "my_package",
+    version = "1.0.0",
+    # abi = "cp312", # Match the ABI tag to your target environment and SOABI
+    abi = "",
+    platform = SOABI, # Or other appropriate platform tag
+    deps = [
+        ":hockeymom_ext",
+        ":hockeymom",
+    ],
+)
+
+py_library(
+  name = "hockeymom",
+  data = [":hockeymom_ext"],
+  srcs = [
+    "__init__.py",
+    "core.py",
+  ],
+  visibility = ["//visibility:public"],
+)

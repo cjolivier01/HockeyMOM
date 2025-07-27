@@ -1,4 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
 load("@py_soabi//:soabi.bzl", "SOABI")  # Now this load will succeed
 
@@ -19,20 +20,15 @@ pybind_extension(
   copts = [
     "-DNO_CPP_BLENDING=1",
   ],
-  linkopts = [
-  ],
-)
-
-# Use a genrule to rename _hockeymom.so to include the SOABI.
-genrule(
-  name = "hockeymom_ext",
-  srcs = [":_hockeymom.so"],
-  outs = [ "_hockeymom.%s.so" % SOABI ],
-  cmd = "cp $(location :_hockeymom.so) $@",
   visibility = ["//visibility:public"],
 )
 
-py_library(
-  name = "hockeymom",
-  data = [":hockeymom_ext"],
-)
+# py_library(
+#   name = "hockeymom",
+#   data = [":hockeymom_ext"],
+#   srcs = [
+#     "__init__.py",
+#     "core.py",
+#   ],
+#   visibility = ["//visibility:public"],
+# )

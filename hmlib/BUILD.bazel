@@ -1,17 +1,24 @@
 load("@python_deps//:requirements.bzl", "requirement")
-load("//tools/python/library:defs.bzl", "python_library")
+load("//tools/python/library:defs.bzl", "python_library", "wheel")
+load("@py_soabi//:soabi.bzl", "SOABI")
 
 python_library(
     name = "hmlib",
     srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
     data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
-        #"py.typed",
-        #"words.txt",
-        "//hockeymom/src:hockeymom_ext",
+        "py.typed",
+        # "words.txt",
+        # "//hockeymom/src:hockeymom_ext",
+        # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
+    ],
+    libs = [
+      "//hockeymom/src:_hockeymom.%s.so" % SOABI,
     ],
     deps=[
         # "//other/lib",
-        #requirement("requests"),
+        # requirement("requests"),
+        # "//hockeymom/src:hockeymom",
+        # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
     ],
     # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps=[
@@ -19,4 +26,15 @@ python_library(
         requirement("types-requests"),
     ],
     imports=[".."],  # Add the parent directory to PYTHONPATH
+    visibility=["//visibility:public"],
+    version="0.1.0",
+    wheel=wheel(
+        name="hmlib",
+        requires=[
+            # "fastapi==0.68.2",
+            # "core.logging",
+            "//hockeymom/src:_hockeymom.%s.so" % SOABI,
+        ],
+
+    )
 )
