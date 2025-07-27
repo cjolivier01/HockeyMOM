@@ -15,8 +15,9 @@ genrule(
 
 py_wheel(
     name = "wheel",
-    distribution = "my_package",
+    distribution = "hockeymom",
     version = "0.1.0",
+    python_tag = ABI,
     abi = ABI,
     platform = PLATFORM,
     deps = [
