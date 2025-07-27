@@ -190,6 +190,19 @@ conda_repository(
 )
 
 
+################################ HockeyMOM Sub-Modules ################################
+git_repository(
+    name = "hm-cupano",
+    branch = "colivier/hm",
+    remote = "ssh://git@github.com/cjolivier01/hm-cupano",
+)
+
+git_repository(
+    name = "jetson-utils",
+    branch = "colivier/hm",
+    remote = "ssh://git@github.com/cjolivier01/jetson-utils",
+)
+
 ################################ Other Modules ################################
 new_local_repository(
     name = "opencv_linux",
@@ -233,12 +246,12 @@ new_local_repository(
     path = "/usr",
 )
 
-local_repository(
-  name = "hm-cupano",
-  path = "external/hm-cupano",
-)
+# local_repository(
+#   name = "hm-cupano",
+#   path = "external/hm-cupano",
+# )
 
-local_repository(
-  name = "jetson-utils",
-  path = "external/jetson-utils",
-)
+# local_repository(
+#   name = "jetson-utils",
+#   path = "external/jetson-utils",
+# )
