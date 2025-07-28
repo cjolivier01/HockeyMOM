@@ -1,24 +1,13 @@
 load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
-load("@py_soabi//:soabi.bzl", "SOABI")
 
 python_library(
     name = "hmlib",
     srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
     data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
         "py.typed",
-        # "words.txt",
-        # "//hockeymom/src:hockeymom_ext",
-        # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
-    ],
-    libs = [
-      "//hockeymom/src:_hockeymom.%s.so" % SOABI,
     ],
     deps=[
-        # "//other/lib",
-        # requirement("requests"),
-        # "//hockeymom/src:hockeymom",
-        # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
     ],
     # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps=[
@@ -31,10 +20,13 @@ python_library(
     wheel=wheel(
         name="hmlib",
         requires=[
-            # "fastapi==0.68.2",
-            # "core.logging",
-            # "//hockeymom/src:_hockeymom.%s.so" % SOABI,
         ],
-
+        entry_points = {
+          "console_scripts": [
+              "hmtrack = hmlib.cli.hmtrack:main",
+              "stitch = hmlib.cli.stitch:main",
+              "hmplayers = hmlib.cli.players:main",
+          ],
+        },
     )
 )

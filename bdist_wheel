@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
 #./bld //hmlib:hmlib.wheel
-#./bld //hmlib:hmlib.wheel.publish
-bazelisk run //hockeymom:bdist_wheel
+./bld //hmlib:hmlib.wheel.publish
+# bazelisk run //hockeymom:bdist_wheel
 

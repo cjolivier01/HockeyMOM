@@ -276,7 +276,7 @@ def stitch_videos(
     return lfo, rfo
 
 
-def main(args):
+def _main(args) -> None:
     game_videos = configure_game_videos(
         game_id=args.game_id,
         write_results=not args.single_file,
@@ -341,10 +341,9 @@ def main(args):
         ice_rink_main(args, device=decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu"))
 
 
-if __name__ == "__main__":
-    parser = make_parser()
-    parser = hm_opts.parser(parser=parser)
-    args = parser.parse_args()
+def main() -> None:
+    _main(hm_opts.parser(parser=make_parser()).parse_args())
 
-    main(args)
+if __name__ == "__main__":
+    main()
     print("Done.")
