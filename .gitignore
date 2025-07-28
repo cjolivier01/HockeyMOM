@@ -1,4 +1,5 @@
 .idea
+/dist
 bazel-bin
 bazel-out
 bazel-test

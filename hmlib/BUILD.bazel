@@ -1,17 +1,34 @@
-load("@rules_python//python:packaging.bzl", "py_wheel")
-# load("@rules_python//python:packaging.bzl", "py_wheel", "py_wheel_dist")
+load("@python_deps//:requirements.bzl", "requirement")
+load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
-py_library(
+python_library(
     name = "hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi"]) + [
-      # "//hockeymom/src:hockeymom",
+    srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
+    data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
+        "py.typed",
     ],
-    visibility = ["//visibility:public"],
-    deps = [],
-    imports=[".."],
-    data = [
-      "//hockeymom/src:hockeymom",
+    deps=[
     ],
+    # test_data=glob("tests/**/fixtures/*.txt"),
+    test_deps=[
+        requirement("pytest"),
+        requirement("types-requests"),
+    ],
+    imports=[".."],  # Add the parent directory to PYTHONPATH
+    visibility=["//visibility:public"],
+    version="0.1.0",
+    wheel=wheel(
+        name="hmlib",
+        requires=[
+        ],
+        entry_points = {
+          "console_scripts": [
+              "hmtrack = hmlib.cli.hmtrack:main",
+              "stitch = hmlib.cli.stitch:main",
+              "hmplayers = hmlib.cli.players:main",
+          ],
+        },
+    )
 )
 
 py_wheel(

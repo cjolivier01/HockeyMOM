@@ -43,7 +43,7 @@ def get_uncropped_width_height(game_id: str) -> Tuple[int, int]:
     return image_width(img), image_height(img)
 
 
-if __name__ == "__main__":
+def main():
     opts = hm_opts()
     args = opts.parse()
 
@@ -132,3 +132,7 @@ if __name__ == "__main__":
 
     except Exception:
         traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
