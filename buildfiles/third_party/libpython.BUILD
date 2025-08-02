@@ -1,7 +1,7 @@
 filegroup(
     name = "libpython_files",
     srcs = [
-        "lib/libpython3.11.so"
+      # "lib/libpython3.11.so"
     ],
     visibility = ["//visibility:public"],
 )
