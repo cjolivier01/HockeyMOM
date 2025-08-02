@@ -1,3 +1,4 @@
+load("@rules_python//python:defs.bzl", "py_binary")
 load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
@@ -28,7 +29,13 @@ python_library(
               "hmplayers = hmlib.cli.players:main",
           ],
         },
-    )
+    ),
+)
+
+py_binary(
+    name = "bdist_wheel",
+    srcs = ["scripts/bdist_wheel.py"],
+    data = [":hmlib.wheel"],
 )
 
 # wheel(
