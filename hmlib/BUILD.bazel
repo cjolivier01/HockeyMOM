@@ -31,14 +31,14 @@ python_library(
     )
 )
 
-py_wheel(
-    name = "hmlib_wheel",
-    distribution = "hockeymom",
-    version = "0.0.1",
-    deps = [
-      ":hmlib",
-    ],
-)
+# wheel(
+#     name = "hmlib_wheel",
+#     distribution = "hockeymom",
+#     version = "0.0.1",
+#     deps = [
+#       ":hmlib",
+#     ],
+# )
 
 # py_wheel_dist(
 #     name = "hmlib_wheel_dist",
