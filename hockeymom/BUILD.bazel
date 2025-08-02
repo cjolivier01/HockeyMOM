@@ -62,6 +62,6 @@ genrule(
 
 py_binary(
     name = "bdist_wheel",
-    srcs = ["bdist_wheel.py"],
+    srcs = ["scripts/bdist_wheel.py"],
     data = [":hockeymom_wheel"],
 )
