@@ -3,7 +3,7 @@ load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
 python_library(
     name = "hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi"]), # Omit this argument for sensible default behaviour
+    srcs=glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
     data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
         "py.typed",
     ],
