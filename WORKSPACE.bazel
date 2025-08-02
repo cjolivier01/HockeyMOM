@@ -179,14 +179,15 @@ load("//bazel:dependencies.bzl", "conda_repository")
 conda_repository(
     name = "libpython",
     build_file = "@//buildfiles/third_party:libpython.BUILD",
-    files = ["lib/libpython3.12.so"],
+    # the {python} gets filled in at repo-fetch time
+    files = ["lib/libpython{python}.so"],
 )
 
 conda_repository(
     name = "libtorch",
     build_file = "@//buildfiles/third_party:pytorch.BUILD",
-    package_dir = "lib/python3.12/site-packages/torch",
-    strip_prefix = "lib/python3.12/site-packages/torch",
+    package_dir = "lib/python{python}/site-packages/torch",
+    strip_prefix = "lib/python{python}/site-packages/torch",
 )
 
 

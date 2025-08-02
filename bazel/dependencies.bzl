@@ -1,5 +1,17 @@
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "workspace_and_buildfile")
 
+def _detect_py_version(ctx):
+    conda_root = ctx.os.environ.get("CONDA_PREFIX")
+    python_bin = conda_root + "/bin/python"
+    # run Python to get "3.12", "3.11", etc
+    result = ctx.execute([
+        python_bin,
+        "-c", "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")"
+    ])
+    if result.return_code != 0:
+        fail("Could not detect Python version: " + result.stderr)
+    return result.stdout.strip()
+
 # Returns True if the given string ends with a slash.
 def _ends_with_slash(s):
     if s == "":
@@ -13,10 +25,17 @@ def conda_repo_setup(ctx):
     if not conda_root:
         fail("Environment variable CONDA_PREFIX is not set.")
 
+    # 1) figure out what Python X.Y we’re on,
+    #    so users don’t have to hard-code “3.12” in WORKSPACE
+    py_ver = _detect_py_version(ctx)
+
     # Retrieve rule attributes.
-    pkg_dir = ctx.attr.package_dir
-    file_list = ctx.attr.files
-    prefix_to_strip = ctx.attr.strip_prefix
+    pkg_dir = ctx.attr.package_dir.replace("{python}", py_ver)
+    # substitute any `{python}` tokens
+    file_list    = [f.replace("{python}", py_ver) for f in ctx.attr.files]
+    for i, f in enumerate(ctx.attr.files):
+        ctx.attr.files[i] = f.replace("{python}", py_ver)
+    prefix_to_strip = ctx.attr.strip_prefix.replace("{python}", py_ver) if ctx.attr.strip_prefix else None
 
     # If a package directory is provided, symlink its content recursively.
     if pkg_dir:
