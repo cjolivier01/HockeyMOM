@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import stat
 import shutil
 import glob
 
@@ -44,7 +45,8 @@ def main():
     wheel_name = os.path.basename(wheel_path)
     dest_path = os.path.join(dist_dir, wheel_name)
     shutil.copy2(wheel_path, dest_path)
-    
+    os.chmod(dest_path, 0o644)
+    # Remove execute flag
     print(f"Installed {wheel_name} to {dist_dir}/")
     return 0
 
