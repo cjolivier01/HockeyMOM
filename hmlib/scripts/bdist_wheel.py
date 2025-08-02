@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 import os
+import argparse
 import stat
 import shutil
 import glob
 
-def find_wheel():
+def find_wheel(name: str):
     # Look for wheel in various possible locations
     patterns = [
-        "hockeymom-*.whl",
-        "*/hockeymom-*.whl",
-        "*/*/hockeymom-*.whl",
-        "bazel-out/*/bin/hockeymom/hockeymom-*.whl",
+        f"{name}-*.whl",
+        f"*/{name}-*.whl",
+        f"*/*/{name}-*.whl",
+        f"bazel-out/*/bin/{name}/{name}-*.whl",
     ]
     
     for pattern in patterns:
@@ -28,8 +29,8 @@ def find_wheel():
     
     return None
 
-def main():
-    wheel_path = find_wheel()
+def main(name: str):
+    wheel_path = find_wheel(name=name)
     if not wheel_path:
         print("Error: Could not find wheel file")
         return 1
@@ -51,4 +52,7 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    exit(main())
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--name', type=str, default="hmlib", help="Package file name of the wheel file")
+    args = parser.parse_args()
+    exit(main(args.name))
