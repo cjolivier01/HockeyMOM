@@ -23,7 +23,7 @@ class hm_opts(object):
     def __init__(self, parser: argparse.ArgumentParser = None):
         if parser is None:
             parser = argparse.ArgumentParser()
-        self.parser = self.parser(parser)
+        self._parser: argparse.ArgumentParser = self.parser(parser)
 
     @staticmethod
     def parser(parser: argparse.ArgumentParser = None):
@@ -313,7 +313,7 @@ class hm_opts(object):
         parser.add_argument(
             "--python-blender",
             type=int,
-            default=1,
+            default=0,
             help="Use the pythonb lending code (should be identical to C++, but may have performance differences)",
         )
         parser.add_argument(
@@ -359,9 +359,9 @@ class hm_opts(object):
 
     def parse(self, args=""):
         if args == "":
-            opt = self.parser.parse_args()
+            opt = self._parser.parse_args()
         else:
-            opt = self.parser.parse_args(args)
+            opt = self._parser.parse_args(args)
         return self.init(opt)
 
     # TODO: How can this be generalized with the nesting in the yaml?
@@ -378,23 +378,6 @@ class hm_opts(object):
             opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
-
-        if getattr(opt, "tracker", "") == "centertrack":
-            if hasattr(opt, "test_size") and (hasattr(opt, "input_w") and hasattr(opt, "input_h")):
-                from lib.opts import opts
-
-                assert not opt.test_size or (
-                    opt.input_h in [-1, opts.DEFAULT_INPUT_HW]
-                    and opt.input_w in [-1, opts.DEFAULT_INPUT_HW]
-                )
-                if not opt.test_size:
-                    opt.test_size = f"{opt.input_h}x{opt.input_w}"
-                else:
-                    sz = opt.test_size.split("x")
-                    opt.input_h = int(sz[0])
-                    opt.input_w = int(sz[1]) if len(sz) > 1 else opt.input_h
-
-            print("Have")
 
         for key in hm_opts.CONFIG_TO_ARGS:
             nested_item = get_nested_value(getattr(opt, "game_config", {}), key, None)
