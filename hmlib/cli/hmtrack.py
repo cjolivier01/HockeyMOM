@@ -982,7 +982,7 @@ if __name__ == "__main__":
         if isinstance(args.gpus, str):
             args.gpus = [int(g) for g in args.gpus.split(",")]
         num_gpus = len(args.gpus) if args.gpus else 0
-        assert num_gpus <= torch.cuda.device_count()
+        num_gpus = min(num_gpus, torch.cuda.device_count())
 
     main(args, num_gpus)
     print("Done.")
