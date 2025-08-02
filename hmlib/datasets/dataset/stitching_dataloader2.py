@@ -8,43 +8,43 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import cv2
 import numpy as np
 import torch
+
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import Shower, show_image
+from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
-
-from hmlib.ui import Shower, show_image
-from hmlib.utils import MeanTracker
 from hockeymom import core
 from hockeymom.core import CudaStitchPanoF32
 
 
-def _get_dir_name(path):
+def _get_dir_name(path: Any) -> Any:
     if os.path.isdir(str(path)):
         return path
     return Path(path).parent
 
 
-_VERBOSE = True
+_VERBOSE: bool = True
 
 
-def INFO(*args, **kwargs):
+def INFO(*args: Any, **kwargs: Any) -> None:
     if not _VERBOSE:
         return
     print(*args, **kwargs)
 
 
-def safe_put_queue(queue, object):
+def safe_put_queue(queue: Any, object: Any) -> None:
     try:
         queue.put(object)
     except BrokenPipeError:
@@ -53,16 +53,13 @@ def safe_put_queue(queue, object):
     return
 
 
-_LARGE_NUMBER_OF_FRAMES = 1e128
+_LARGE_NUMBER_OF_FRAMES: float = 1e128
 
 
-def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
+def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Tensor:
     if isinstance(tensor, torch.Tensor):
         return tensor
     if isinstance(tensor, StreamTensor):
-        # faster to do a get than a wait, but a coupel fps
-        # return tensor.wait(torch.cuda.current_stream(tensor.device))
-        # return tensor.wait()
         tensor.verbose = True
         return tensor.get()
     elif isinstance(tensor, np.ndarray):
@@ -71,19 +68,19 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor]):
         assert False
 
 
-def sync_required(tensor: Union[torch.Tensor, StreamTensor]):
-    if isinstance(tensor, (torch.Tensor, np.ndartray)):
+def sync_required(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+    if isinstance(tensor, (torch.Tensor, np.ndarray)):
         return False
-    if tensor.owns_stream:
+    if getattr(tensor, "owns_stream", False):
         return False
     return True
 
 
-def distribute_items_detailed(total_item_count, worker_count):
-    base_items_per_worker = total_item_count // worker_count
-    remainder = total_item_count % worker_count
+def distribute_items_detailed(total_item_count: int, worker_count: int) -> List[int]:
+    base_items_per_worker: int = total_item_count // worker_count
+    remainder: int = total_item_count % worker_count
 
-    distribution = []
+    distribution: List[int] = []
     for i in range(worker_count):
         if i < remainder:
             distribution.append(base_items_per_worker + 1)
@@ -94,13 +91,14 @@ def distribute_items_detailed(total_item_count, worker_count):
 
 
 class MultiDataLoaderWrapper:
-    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0):
-        self._dataloaders = dataloaders
-        self._iters = []
-        self._input_queueue_size = input_queueue_size
-        self._len = None
 
-    def __iter__(self):
+    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0) -> None:
+        self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
+        self._iters: List[Any] = []
+        self._input_queueue_size: int = input_queueue_size
+        self._len: Optional[int] = None
+
+    def __iter__(self) -> "MultiDataLoaderWrapper":
         self._iters = []
         for dl in self._dataloaders:
             if self._input_queueue_size:
@@ -109,15 +107,14 @@ class MultiDataLoaderWrapper:
                 self._iters.append(iter(dl))
         return self
 
-    def close(self):
+    def close(self) -> None:
         for dl in self._dataloaders:
             dl.close()
 
-    def __next__(self):
-        result = []
+    def __next__(self) -> Any:
+        result: List[Any] = []
         for it in self._iters:
             item = next(it)
-            # Should get StopIteration instead of None
             assert item is not None
             result.append(item)
         if not result:
@@ -127,15 +124,16 @@ class MultiDataLoaderWrapper:
         else:
             return result
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self._len is None:
             self._len = -1
             for dl in self._dataloaders:
                 this_len = len(dl)
                 self._len = this_len if self._len is None else min(self._len, this_len)
+        return self._len
 
 
-def as_torch_device(device):
+def as_torch_device(device: Any) -> torch.device:
     if isinstance(device, str):
         return torch.device(device)
     return device
@@ -709,13 +707,13 @@ class StitchDataset:
         return self._total_number_of_frames // self._batch_size
 
 
-def is_none(val):
+def is_none(val: Any) -> bool:
     if isinstance(val, str) and val == "None":
         return True
     return val is None
 
 
-def fix_clip_box(clip_box, hw: List[int]):
+def fix_clip_box(clip_box: Any, hw: List[int]) -> Any:
     if isinstance(clip_box, list):
         if is_none(clip_box[0]):
             clip_box[0] = 0
