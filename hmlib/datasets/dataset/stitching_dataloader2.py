@@ -470,7 +470,6 @@ class StitchDataset:
                         img = img.to(self._dtype, non_blocking=True)
                     return img
 
-                stream = None
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
                     imgs_1 = to_tensor(imgs_1)

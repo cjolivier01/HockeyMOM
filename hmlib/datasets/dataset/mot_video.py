@@ -13,12 +13,7 @@ from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import VideoStreamReader
