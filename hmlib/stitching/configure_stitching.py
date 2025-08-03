@@ -7,14 +7,9 @@ import scipy
 import tifffile
 import torch
 import torch.nn.functional as F
+from PIL import Image, ImageOps
 
-from hmlib.config import (
-    get_game_config_private,
-    get_game_dir,
-    get_nested_value,
-    save_private_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.control_points import calculate_control_points
 from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
@@ -187,17 +182,72 @@ def build_stitching_project(
             autooptimiser_out,
         ]
         os.system(" ".join(cmd))
+        seam_file: str = os.path.join(dir_name, "seam_file.png")
         cmd = [
             "enblend",
-            f"--save-masks={os.path.join(dir_name, 'seam_file.png')}",
+            f"--save-masks={seam_file}",
             "-o",
             os.path.join(dir_name, "panorama.tif"),
             os.path.join(dir_name, "mapping_????.tif"),
         ]
         os.system(" ".join(cmd))
+        # See if it came out with a reasonable seam file
+        distribution: Dict[int, float] = get_pixel_value_percentages(seam_file)
+        # Really, it should be way above this number for a good seam, but so far
+        # the "broken case" is much below this number (like 0.5%).
+        kMinAllowableSeamPercent: float = 10.0
+        if any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
+            print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
+            for val, pct in sorted(distribution.items()):
+                print(f"Seam value {val:3d}: {pct:5.2f}%")
+            # If the seam is bad, try using multiblend instead
+            cmd = [
+                "multiblend",
+                f"--save-seams={seam_file}",
+                "-o",
+                os.path.join(dir_name, "panorama.tif"),
+                os.path.join(dir_name, "mapping_????.tif"),
+            ]
+            os.system(" ".join(cmd))
+            # Check again (should be ok now unless the stitch is really bad)
+            distribution: Dict[int, float] = get_pixel_value_percentages(seam_file)
+            if any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
+                print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
+                for val, pct in sorted(distribution.items()):
+                    print(f"Seam value {val:3d}: {pct:5.2f}%")
+                return False
+
     finally:
         os.chdir(curr_dir)
     return True
+
+
+def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
+    """
+    Opens a grayscale image and computes the percentage of each pixel value.
+
+    Args:
+        image_path (str): Path to the input PNG.
+
+    Returns:
+        Dict[int, float]: Mapping from pixel value (0–255) to percentage of image,
+                          as a float in [0.0, 100.0].
+    """
+    # Open image and ensure it's in 8-bit grayscale mode
+    with Image.open(image_path) as img:
+        gray: Image.Image = img.convert("L")
+        arr: np.ndarray = np.array(gray, dtype=np.uint8)
+
+    # Total number of pixels
+    total: int = arr.size
+
+    # Count occurrences of each value
+    counts: np.ndarray = np.bincount(arr.flatten(), minlength=256)
+
+    # Build percentage dict, omitting values with zero count
+    percentages: Dict[int, float] = {value: (count / total) * 100.0 for value, count in enumerate(counts) if count > 0}
+
+    return percentages
 
 
 def load_or_calculate_control_points(
