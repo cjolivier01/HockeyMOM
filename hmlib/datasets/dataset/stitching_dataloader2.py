@@ -200,11 +200,8 @@ class StitchDataset:
         self._python_blender = python_blender
         self._minimize_blend = minimize_blend
         self._show_image_components = show_image_components
-
-        if self._remapping_device.type == "cuda":
-            self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
-        else:
-            self._remapping_stream = None
+        self._remapping_cuda = self._remapping_device.type == "cuda"
+        self._remapping_stream = None
 
         # Optimize the roi box
         if image_roi is not None:
@@ -472,6 +469,9 @@ class StitchDataset:
                     if img.dtype != self._dtype:
                         img = img.to(self._dtype, non_blocking=True)
                     return img
+
+                if self._remapping_cuda and self._remapping_stream is None:
+                    self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
