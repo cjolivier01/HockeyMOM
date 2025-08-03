@@ -487,6 +487,21 @@ class StitchDataset:
                             dtype=imgs_1.dtype,
                             device=imgs_1.device,
                         )
+                        if True:
+                            show_image(
+                                "imgs_1",
+                                imgs_1.get(),
+                                wait=False,
+                                shower=self._shower,
+                                mean_tracker=self._mean_tracker,
+                            )
+                            show_image(
+                                "imgs_2",
+                                imgs_2.get(),
+                                wait=False,
+                                shower=self._shower,
+                                mean_tracker=self._mean_tracker,
+                            )
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                     else:
                         if self._auto_adjust_exposure:
