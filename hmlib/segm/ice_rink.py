@@ -270,7 +270,7 @@ def find_ice_rink_masks(
 
     if device.type == "cpu":
         logger.info("Looking for the ice at the rink, this may take awhile...")
-    model = init_detector(config_file, checkpoint, device=device)
+    model = init_detector(config_file, checkpoint, device=device, weights_only=True)
     results: List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]] = []
     for img in image:
         results.append(detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale))
