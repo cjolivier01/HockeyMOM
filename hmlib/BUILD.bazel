@@ -27,6 +27,7 @@ python_library(
               "hmtrack = hmlib.cli.hmtrack:main",
               "stitch = hmlib.cli.stitch:main",
               "hmplayers = hmlib.cli.players:main",
+              "find_ice_rink = hmlib.cli.find_ice_rink:main",
           ],
         },
     ),
