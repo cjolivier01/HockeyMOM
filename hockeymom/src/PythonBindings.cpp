@@ -1305,5 +1305,6 @@ PYBIND11_MODULE(_hockeymom, m) {
   init_box_structures(m);
   init_living_boxes(m);
   init_play_tracker(m);
-  init_cuda_pano<float4>(m);
+  // init_cuda_pano<float4>(m);
+  init_cuda_pano<half4>(m);
 }
