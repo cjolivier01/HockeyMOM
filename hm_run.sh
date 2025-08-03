@@ -24,7 +24,7 @@ set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONPATH="$(pwd):$(pwd)/src" \
-  ${WRAPPER_CMD} python src/hmtrack.py \
+  ${WRAPPER_CMD} python -m hmlib.cli.hmtrack \
   ${SAVE_DATA_ARGS} \
   ${EXPOSURE} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
