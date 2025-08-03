@@ -260,7 +260,7 @@ def find_ice_rink_masks(
     device: Optional[torch.device] = None,
     show: bool = False,
     scale: Optional[float] = None,
-) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
+) -> List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]]:
     if device is None:
         device = torch.device("cuda:0")
 
