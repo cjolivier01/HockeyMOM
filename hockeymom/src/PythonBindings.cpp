@@ -51,9 +51,9 @@ struct BlenderConfig {
 using hm::pano::cuda::CudaStitchPano;
 // TODO: make templated and name CudaStitchPanoU8 and CudaStitchPanoF16 python
 // classes
-template <typename T>
-class PyCudaStitchPano : public CudaStitchPano<T, float3> {
-  using Super = CudaStitchPano<T, float3>;
+template <typename T, typename T_compute>
+class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
+  using Super = CudaStitchPano<T, T_compute>;
 
  public:
   PyCudaStitchPano(
@@ -63,7 +63,7 @@ class PyCudaStitchPano : public CudaStitchPano<T, float3> {
       WHDims input1_size,
       WHDims input2_size,
       bool match_exposure)
-      : CudaStitchPano<T, float3>(
+      : CudaStitchPano<T, T_compute>(
             batch_size,
             num_levels,
             hm::pano::ControlMasks(std::move(game_dir)),
@@ -1203,6 +1203,7 @@ void init_play_tracker(::pybind11::module_& m) {
           py::arg("scale_step"));
 }
 
+template<typename T_compute>
 void init_cuda_pano(::pybind11::module_& m) {
   /**
    *   _____           _       _____
@@ -1215,14 +1216,14 @@ void init_cuda_pano(::pybind11::module_& m) {
    *
    */
   py::class_<
-      PyCudaStitchPano<uchar3>,
-      std::shared_ptr<PyCudaStitchPano<uchar3>>>(m, "CudaStitchPanoU8")
+      PyCudaStitchPano<uchar3, T_compute>,
+      std::shared_ptr<PyCudaStitchPano<uchar3, T_compute>>>(m, "CudaStitchPanoU8")
       .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
-      .def("canvas_width", &PyCudaStitchPano<uchar3>::canvas_width)
-      .def("canvas_height", &PyCudaStitchPano<uchar3>::canvas_height)
+      .def("canvas_width", &PyCudaStitchPano<uchar3, T_compute>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPano<uchar3, T_compute>::canvas_height)
       .def(
           "process",
-          [](std::shared_ptr<PyCudaStitchPano<uchar3>> self,
+          [](std::shared_ptr<PyCudaStitchPano<uchar3, T_compute>> self,
              at::Tensor& i1,
              at::Tensor& i2,
              at::Tensor& canvas,
@@ -1244,14 +1245,14 @@ void init_cuda_pano(::pybind11::module_& m) {
                 (cudaStream_t)stream);
           });
   py::class_<
-      PyCudaStitchPano<float3>,
-      std::shared_ptr<PyCudaStitchPano<float3>>>(m, "CudaStitchPanoF32")
+      PyCudaStitchPano<float3, T_compute>,
+      std::shared_ptr<PyCudaStitchPano<float3, T_compute>>>(m, "CudaStitchPanoF32")
       .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
-      .def("canvas_width", &PyCudaStitchPano<float3>::canvas_width)
-      .def("canvas_height", &PyCudaStitchPano<float3>::canvas_height)
+      .def("canvas_width", &PyCudaStitchPano<float3, T_compute>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPano<float3, T_compute>::canvas_height)
       .def(
           "process",
-          [](std::shared_ptr<PyCudaStitchPano<float3>> self,
+          [](std::shared_ptr<PyCudaStitchPano<float3, T_compute>> self,
              at::Tensor& i1,
              at::Tensor& i2,
              at::Tensor& canvas,
@@ -1304,5 +1305,5 @@ PYBIND11_MODULE(_hockeymom, m) {
   init_box_structures(m);
   init_living_boxes(m);
   init_play_tracker(m);
-  init_cuda_pano(m);
+  init_cuda_pano<half4>(m);
 }
