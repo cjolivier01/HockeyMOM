@@ -22,13 +22,3 @@ pybind_extension(
   ],
   visibility = ["//visibility:public"],
 )
-
-# py_library(
-#   name = "hockeymom",
-#   data = [":hockeymom_ext"],
-#   srcs = [
-#     "__init__.py",
-#     "core.py",
-#   ],
-#   visibility = ["//visibility:public"],
-# )
