@@ -172,6 +172,14 @@ cc_library(
 )
 """)
 
+################################ Abseil Setup #################################
+
+git_repository(
+    name = "com_google_absl",
+    remote = "https://github.com/abseil/abseil-cpp.git",
+    commit = "9ac7062b1860d895fb5a8cbf58c3e9ef8f674b5f",
+)
+
 ################################ PyTorch Setup ################################
 
 load("//bazel:dependencies.bzl", "conda_repository")
@@ -186,6 +194,7 @@ conda_repository(
 conda_repository(
     name = "libtorch",
     build_file = "@//buildfiles/third_party:pytorch.BUILD",
+    # the {python} gets filled in at repo-fetch time
     package_dir = "lib/python{python}/site-packages/torch",
     strip_prefix = "lib/python{python}/site-packages/torch",
 )
@@ -246,21 +255,3 @@ new_local_repository(
     build_file = "@//buildfiles/third_party:libsoup.BUILD",
     path = "/usr",
 )
-
-
-git_repository(
-    name = "com_google_absl",
-    remote = "https://github.com/abseil/abseil-cpp.git",
-    # tag = "20250127.0",
-    commit = "9ac7062b1860d895fb5a8cbf58c3e9ef8f674b5f",
-)
-
-# local_repository(
-#   name = "hm-cupano",
-#   path = "external/hm-cupano",
-# )
-
-# local_repository(
-#   name = "jetson-utils",
-#   path = "external/jetson-utils",
-# )
