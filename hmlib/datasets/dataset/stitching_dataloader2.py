@@ -490,17 +490,13 @@ class StitchDataset:
                         if True:
                             show_image(
                                 "imgs_1",
-                                imgs_1.get(),
+                                imgs_1,
                                 wait=False,
-                                shower=self._shower,
-                                mean_tracker=self._mean_tracker,
                             )
                             show_image(
                                 "imgs_2",
-                                imgs_2.get(),
+                                imgs_2,
                                 wait=False,
-                                shower=self._shower,
-                                mean_tracker=self._mean_tracker,
                             )
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                     else:
