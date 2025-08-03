@@ -171,8 +171,7 @@ class StitchDataset:
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
-        show_image_components: bool = True,
-        # show_image_components: bool = False,
+        show_image_components: bool = False,
     ):
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
