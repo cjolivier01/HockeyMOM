@@ -1285,7 +1285,7 @@ void init_cuda_pano(::pybind11::module_& m) {
       },
       py::arg("label"),
       py::arg("img"),
-      py::arg("wait"),
+      py::arg("wait") = false,
       py::arg("stream") = py::none(),
       py::call_guard<py::gil_scoped_release>());
 

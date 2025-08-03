@@ -80,6 +80,7 @@ def show_image(
                 img,
                 # scale_elements=255.0,
                 enable_resizing=enable_resizing,
+                force_numpy=True,
             ),
         )
         cv2.waitKey(1 if not wait else 0)

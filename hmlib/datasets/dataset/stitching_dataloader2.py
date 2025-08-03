@@ -171,6 +171,8 @@ class StitchDataset:
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
+        show_image_components: bool = True,
+        # show_image_components: bool = False,
     ):
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -197,6 +199,7 @@ class StitchDataset:
         self._xy_pos_1, self._xy_pos_2 = None, None
         self._python_blender = python_blender
         self._minimize_blend = minimize_blend
+        self._show_image_components = show_image_components
 
         if self._remapping_device.type == "cuda":
             self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
@@ -487,21 +490,39 @@ class StitchDataset:
                             dtype=imgs_1.dtype,
                             device=imgs_1.device,
                         )
-                        if True:
+                        if self._show_image_components:
                             for img1, img2 in zip(imgs_1, imgs_2):
-                                show_cuda_tensor(
+                                t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                # show_cuda_tensor(
+                                show_image(
                                     "img-1",
-                                    make_channels_last(img1).clamp(min=0, max=255).to(torch.uint8),
-                                    False,
-                                    None,
+                                    make_visible_image(t1),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
                                 )
-                                show_cuda_tensor(
+                                show_image(
+                                    # show_cuda_tensor(
                                     "img-2",
-                                    make_channels_last(img2).clamp(min=0, max=255).to(torch.uint8),
-                                    False,
-                                    None,
+                                    img2.clamp(min=0, max=255).to(torch.uint8),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
                                 )
+                        torch.cuda.synchronize()
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
+                        torch.cuda.synchronize()
+                        if self._show_image_components:
+                            for blended_image in blended_stream_tensor:
+                                show_image(
+                                    # show_cuda_tensor(
+                                    "blended",
+                                    blended_image.clamp(min=0, max=255).to(torch.uint8),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
+                                )
                     else:
                         if self._auto_adjust_exposure:
                             imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
@@ -518,7 +539,9 @@ class StitchDataset:
             if not isinstance(ex, StopIteration):
                 print(ex)
                 traceback.print_exc()
-            self._ordering_queue.put((None, None))
+            else:
+                ex = None
+            self._ordering_queue.put((ex, None))
 
     def _start_coordinator_thread(self):
         assert self._coordinator_thread is None
@@ -576,7 +599,6 @@ class StitchDataset:
                 if next_requested_frame < self._start_frame_number + self._max_frames:
                     self._from_coordinator_queue.put(("ok", next_requested_frame))
                 else:
-                    # print(f"Not requesting frame {next_requested_frame}")
                     pass
                 frame_count += self._batch_size
                 next_requested_frame += self._batch_size
@@ -635,7 +657,8 @@ class StitchDataset:
         # INFO(f"Dequeing frame id: {self._current_frame}...")
         # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
         frame_id, stitched_frame = self._ordering_queue.get()
-
+        if isinstance(frame_id, Exception):
+            raise frame_id
         if stitched_frame is not None:
             # INFO(f"Locally dequeued frame id: {self._current_frame}")
             if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
