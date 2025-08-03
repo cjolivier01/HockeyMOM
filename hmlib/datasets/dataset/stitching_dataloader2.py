@@ -25,7 +25,7 @@ from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_asyn
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hockeymom import core
+from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32
 
 
@@ -488,16 +488,19 @@ class StitchDataset:
                             device=imgs_1.device,
                         )
                         if True:
-                            show_image(
-                                "imgs_1",
-                                imgs_1,
-                                wait=False,
-                            )
-                            show_image(
-                                "imgs_2",
-                                imgs_2,
-                                wait=False,
-                            )
+                            for img1, img2 in zip(imgs_1, imgs_2):
+                                show_cuda_tensor(
+                                    "img-1",
+                                    make_channels_last(img1).clamp(min=0, max=255).to(torch.uint8),
+                                    False,
+                                    None,
+                                )
+                                show_cuda_tensor(
+                                    "img-2",
+                                    make_channels_last(img2).clamp(min=0, max=255).to(torch.uint8),
+                                    False,
+                                    None,
+                                )
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                     else:
                         if self._auto_adjust_exposure:
