@@ -1,5 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_binary")
-load("@python_deps//:requirements.bzl", "requirement")
+# load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
 python_library(
@@ -12,8 +12,8 @@ python_library(
     ],
     # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps=[
-        requirement("pytest"),
-        requirement("types-requests"),
+        # requirement("pytest"),
+        # requirement("types-requests"),
     ],
     imports=[".."],  # Add the parent directory to PYTHONPATH
     visibility=["//visibility:public"],
@@ -31,6 +31,16 @@ python_library(
           ],
         },
     ),
+)
+
+# Used for egneric import
+py_library(
+    name = "exported_hmlib",
+    srcs=glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
+    data=[
+        "py.typed",
+    ],
+    imports=[".."],  # Add the parent directory to PYTHONPATH
 )
 
 py_binary(
