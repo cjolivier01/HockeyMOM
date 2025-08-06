@@ -10,8 +10,8 @@ import yaml
 import hmlib
 from hmlib.bbox.box_functions import scale_bbox_with_constraints
 
-GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
-ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
+GAME_DIR_BASE: str = os.path.join(os.environ["HOME"], "Videos")
+ROOT_DIR: str = os.path.dirname(os.path.abspath(hmlib.__file__))
 
 
 @dataclass
@@ -19,6 +19,18 @@ class Game:
     game_id: Optional[str] = None
     season: Optional[str] = None
     team: Optional[str] = None
+
+
+def get_root_dir() -> str:
+    return ROOT_DIR
+
+
+def prepend_root_dir(path: str) -> str:
+    if not path:
+        return ROOT_DIR
+    if path[0] != "/":
+        return os.path.join(ROOT_DIR, path)
+    return path
 
 
 def get_game_dir(game_id: str, assert_exists: bool = True) -> Optional[str]:

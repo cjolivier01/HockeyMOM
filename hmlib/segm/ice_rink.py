@@ -21,7 +21,14 @@ from mmdet.structures import DetDataSample
 from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
 from PIL import Image
 
-from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    prepend_root_dir,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
@@ -461,8 +468,8 @@ def confgure_ice_rink_mask(
 
     rink_results = find_ice_rink_masks(
         image=image_frame,
-        config_file=model_config_file,
-        checkpoint=model_checkpoint,
+        config_file=prepend_root_dir(model_config_file),
+        checkpoint=prepend_root_dir(model_checkpoint),
         show=show,
         device=device,
         scale=scale,
