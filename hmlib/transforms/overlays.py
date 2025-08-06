@@ -6,7 +6,7 @@ import torch
 from mmengine.registry import TRANSFORMS
 
 from hmlib.bbox.box_functions import center, height, width
-from hmlib.config import get_clip_box, get_config, get_nested_value
+from hmlib.config import get_clip_box, get_config, get_nested_value, prepend_root_dir
 from hmlib.log import logger
 from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.tracking_utils import visualization as vis
@@ -70,14 +70,14 @@ class HmImageOverlays:
             if self._watermark is None:
                 return
             if isinstance(self._watermark, str):
-                self._watermark = cv2.imread(
-                    self._watermark,
-                    cv2.IMREAD_UNCHANGED,
+                self._watermark = prepend_root_dir(
+                    cv2.imread(
+                        self._watermark,
+                        cv2.IMREAD_UNCHANGED,
+                    )
                 )
             if self._watermark is None:
-                raise InvalidArgumentError(
-                    f"Could not load watermark image: {self._watermark_image}"
-                )
+                raise InvalidArgumentError(f"Could not load watermark image: {self._watermark_image}")
             self._watermark_height = image_height(self._watermark)
             self._watermark_width = image_width(self._watermark)
             self._watermark_rgb_channels = self._watermark[:, :, :3]
@@ -91,12 +91,8 @@ class HmImageOverlays:
             )
 
             if self._device is not None:
-                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(
-                    self._device
-                )
-                self._watermark_mask = (
-                    torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
-                )
+                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(self._device)
+                self._watermark_mask = torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
                 # Scale mask to [0, 1]
                 self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
         else:
