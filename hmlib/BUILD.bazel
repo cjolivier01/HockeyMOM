@@ -1,4 +1,5 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
 _SOURCES = glob(
@@ -18,16 +19,7 @@ _DATA = [
 python_library(
     name = "hmlib",
     srcs = _SOURCES,
-    data = [
-        "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
-        "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
-        "py.typed",
-    ] + glob(["**/*.yaml"]),
     imports = [".."],  # Add the parent directory to PYTHONPATH
-    # deps=[
-    #   ":python_data",
-    # ],
-    # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps = [
         # requirement("pytest"),
         # requirement("types-requests"),
@@ -47,20 +39,20 @@ python_library(
         requires = [
         ],
     ),
+    wheel_deps = [
+      ":wheel_data_files",
+    ],
 )
 
-# py_library(
-#   name = "python_data",
-#   data = _DATA,
-# )
-
-# Used for generic import
-# py_library(
-#     name = "exported_hmlib",
-#     srcs = _SOURCES,  # Omit this argument for sensible default behaviour
-#     data = _DATA,
-#     imports = [".."],  # Add the parent directory to PYTHONPATH
-# )
+filegroup(
+    name = "wheel_data_files",
+    srcs  = [
+        "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
+        "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
+        "py.typed",
+    ] + glob(["**/*.yaml"]),
+    visibility = ["//visibility:public"],
+)
 
 py_binary(
     name = "bdist_wheel",

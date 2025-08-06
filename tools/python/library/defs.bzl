@@ -18,6 +18,7 @@ def python_library(
     test_data=[],
     test_deps=[],
     imports=[],
+    wheel_deps=[],
     pyproject="//:pyproject.toml",
     image_repository=None,
     wheel=None,
@@ -131,7 +132,7 @@ def python_library(
             wheel_name=wheel.name,
             version=version,
             description=description,
-            libs=[make_name("lib")],
+            libs=[make_name("lib")] + wheel_deps,
             requires=wheel.requires,
             extra_requires=wheel.extra_requires,
             entry_points=wheel.entry_points,
@@ -227,6 +228,7 @@ def wheel(
     extra_requires={},
     entry_points={},
     publish=True,
+    **kwargs,
 ):
     """Constructor for wheel options."""
     return struct(
@@ -235,6 +237,7 @@ def wheel(
         extra_requires=extra_requires,
         entry_points=entry_points,
         publish=publish,
+        **kwargs,
     )
 
 
