@@ -1,7 +1,14 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
-_SOURCES = glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"])
+_SOURCES = glob(
+    [
+        "**/*.py",
+        "**/*.pyi",
+    ],
+    exclude = ["scripts/**"],
+)
+
 _DATA = [
     "py.typed",
     "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
@@ -11,30 +18,34 @@ _DATA = [
 python_library(
     name = "hmlib",
     srcs = _SOURCES,
-    data = _DATA,
+    data = [
+        "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
+        "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
+        "py.typed",
+    ] + glob(["**/*.yaml"]),
+    imports = [".."],  # Add the parent directory to PYTHONPATH
     # deps=[
     #   ":python_data",
     # ],
     # test_data=glob("tests/**/fixtures/*.txt"),
-    test_deps=[
+    test_deps = [
         # requirement("pytest"),
         # requirement("types-requests"),
     ],
-    imports=[".."],  # Add the parent directory to PYTHONPATH
-    visibility=["//visibility:public"],
-    version="0.1.0",
-    wheel=wheel(
-        name="hmlib",
-        requires=[
-        ],
+    version = "0.1.0",
+    visibility = ["//visibility:public"],
+    wheel = wheel(
+        name = "hmlib",
         entry_points = {
-          "console_scripts": [
-              "hmtrack = hmlib.cli.hmtrack:main",
-              "stitch = hmlib.cli.stitch:main",
-              "hmplayers = hmlib.cli.players:main",
-              "find_ice_rink = hmlib.cli.find_ice_rink:main",
-          ],
+            "console_scripts": [
+                "hmtrack = hmlib.cli.hmtrack:main",
+                "stitch = hmlib.cli.stitch:main",
+                "hmplayers = hmlib.cli.players:main",
+                "find_ice_rink = hmlib.cli.find_ice_rink:main",
+            ],
         },
+        requires = [
+        ],
     ),
 )
 
@@ -46,9 +57,9 @@ python_library(
 # Used for generic import
 py_library(
     name = "exported_hmlib",
-    srcs = _SOURCES, # Omit this argument for sensible default behaviour
+    srcs = _SOURCES,  # Omit this argument for sensible default behaviour
     data = _DATA,
-    imports=[".."],  # Add the parent directory to PYTHONPATH
+    imports = [".."],  # Add the parent directory to PYTHONPATH
 )
 
 py_binary(
