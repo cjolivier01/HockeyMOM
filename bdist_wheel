@@ -1,5 +1,5 @@
 #!/bin/bash
 set -e
-bazelisk run --config=release //hockeymom:bdist_wheel
-bazelisk run --config=release //hmlib:bdist_wheel
+bazelisk run --config=release $@ //hockeymom:bdist_wheel
+bazelisk run --config=release $@ //hmlib:bdist_wheel
 
