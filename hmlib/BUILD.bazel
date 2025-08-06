@@ -1,5 +1,4 @@
 load("@rules_python//python:defs.bzl", "py_binary")
-# load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
 _SOURCES = glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"])
