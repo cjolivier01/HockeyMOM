@@ -332,16 +332,11 @@ def find_stitched_file(dir_name: str, game_id: str):
     return None
 
 
-class FakeExp:
-    def __init__(self):
-        self.test_size = None
-
-
 def is_stitching(input_video: str) -> bool:
     if not input_video:
         raise AttributeError("No valid input video specified")
     input_video_files = input_video.split(",")
-    return len(input_video_files) == 2 or os.path.isdir(args.input_video)
+    return len(input_video_files) == 2 or os.path.isdir(input_video)
 
 
 def configure_boundaries(
@@ -536,8 +531,10 @@ def _main(args, num_gpu):
 
         if not args.exp_file:
             args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
+            args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
         if not args.checkpoint:
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
+            args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
 
         args.config = args.exp_file
 

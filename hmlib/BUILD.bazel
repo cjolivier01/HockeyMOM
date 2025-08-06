@@ -2,12 +2,17 @@ load("@rules_python//python:defs.bzl", "py_binary")
 # load("@python_deps//:requirements.bzl", "requirement")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
+_SOURCES = glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"])
+_DATA = [
+    "py.typed",
+    "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
+    "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
+] + glob(["**/*.yaml"])
+
 python_library(
     name = "hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
-    data=[  # If not provided, collect sensible defaults if present e.g. `py.typed`
-        "py.typed",
-    ],
+    srcs = _SOURCES, # Omit this argument for sensible default behaviour
+    data = _DATA,
     deps=[
     ],
     # test_data=glob("tests/**/fixtures/*.txt"),
@@ -36,10 +41,8 @@ python_library(
 # Used for egneric import
 py_library(
     name = "exported_hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi", "**/*.yaml"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
-    data=[
-        "py.typed",
-    ],
+    srcs = _SOURCES, # Omit this argument for sensible default behaviour
+    data = _DATA,
     imports=[".."],  # Add the parent directory to PYTHONPATH
 )
 
