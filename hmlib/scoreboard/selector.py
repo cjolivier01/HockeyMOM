@@ -265,4 +265,4 @@ if __name__ == "__main__":
     opts = hm_opts()
     args = opts.parse()
 
-    configure_scoreboard(game_id="ev-blackstars-ps", force=True)
+    configure_scoreboard(game_id=args.game_id, force=True)
