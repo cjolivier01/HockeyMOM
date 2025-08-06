@@ -583,7 +583,15 @@ class MaskEdgeDistances:
         return top_distance, bottom_distance, left_distance, right_distance
 
 
-def main(args: argparse.Namespace, device: torch.device):
+def main(args: argparse.Namespace = None, device: torch.device = torch.device("cpu")) -> None:
+    if args is None:
+        parser = argparse.ArgumentParser(description="Ice rink segmentation script")
+        parser.add_argument("--game_id", type=str, required=True, help="Game ID to process")
+        parser.add_argument("--show_image", action="store_true", help="Show the image with the mask")
+        parser.add_argument("--force", action="store_true", help="Force reconfiguration of the ice rink mask")
+        parser.add_argument("--scale", type=float, default=None, help="Scale factor for the image")
+        args = parser.parse_args()
+
     stitched_frame_file = f"{os.environ['HOME']}/Videos/{args.game_id}/s.png"
     if not os.path.exists(stitched_frame_file):
         print(f"Could not find stitched frame image: {stitched_frame_file}")
@@ -607,3 +615,7 @@ def main(args: argparse.Namespace, device: torch.device):
     logger.info(
         f"centroid={centroid}, distances=(top={cent_dist[0]}, bottom={cent_dist[1]}, left={cent_dist[2]}, right={cent_dist[3]}"
     )
+
+
+if __name__ == "__main__":
+    main()
