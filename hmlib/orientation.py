@@ -7,7 +7,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    prepend_root_dir,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
@@ -158,8 +165,8 @@ def detect_video_rink_masks(
 
     frame_ir_masks = find_ice_rink_masks(
         image=images,
-        config_file=config_file,
-        checkpoint=checkpoint,
+        config_file=prepend_root_dir(config_file),
+        checkpoint=prepend_root_dir(checkpoint),
         device=device,
     )
     assert len(frame_ir_masks) == len(keys)
