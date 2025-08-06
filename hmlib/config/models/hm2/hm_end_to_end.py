@@ -3,11 +3,7 @@ _base_ = [
 ]
 
 post_detection_pipeline = [
-    # dict(type="BoundaryLines"),
     dict(type="IceRinkSegmBoundaries"),
-    # dict(type="HmExtractBoundingBoxes"),
-    # dict(type="HmTopDownGetBboxCenterScale", padding=1.25),
-    # dict(type="HmTopDownAffine"),
 ]
 
 post_tracking_pipeline = [

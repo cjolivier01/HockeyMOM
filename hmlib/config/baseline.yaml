@@ -144,7 +144,8 @@ game:
 #
 model:
   end_to_end:
-    config: config/models/hm2/hm_end_to_end.py
+    # config: config/models/hm2/hm_end_to_end.py
+    config: config/models/hm2/hm2_composited.py
     checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
     checkpoint_local: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
     # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)

@@ -15,6 +15,7 @@ from mmdet.apis import init_track_model
 from mmengine.config import Config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+import hmlib
 import hmlib.tracking_utils.ice_rink_segm_boundaries
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
@@ -41,8 +42,6 @@ from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
-
-import hmlib
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -541,65 +540,69 @@ def _main(args, num_gpu):
         model_config = Config.fromfile(args.config)
         assert model_config is not None
 
-        if True:  # not using_precalculated_tracking:
-            if args.tracking or args.multi_pose:
+        if False:
+            # Development mode, print the config
+            print(model_config.pretty_text)
 
-                update_pipeline_item(
-                    model_config.model.post_tracking_pipeline,
-                    "HmNumberClassifier",
-                    dict(
-                        enabled=args.detect_jersey_numbers,
-                    ),
-                )
+        if args.tracking or args.multi_pose:
 
-                # build the model from a config file and a checkpoint file
-                if not using_precalculated_detections and not using_precalculated_tracking:
-                    model_checkpoint = args.checkpoint
-                    model_device = main_device
-                else:
-                    model_checkpoint = None
-                    model_device = "cpu"
-
-                model = init_track_model(
-                    model_config,
-                    model_checkpoint,
-                    args.detector,
-                    args.reid,
-                    device=model_device,
-                )
-
-                # Maybe apply a clip box in the data pipeline
-                orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
-                if orig_clip_box:
-                    hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
-                    if hm_crop is not None:
-                        hm_crop["rectangle"] = orig_clip_box
-
-                cfg = model.cfg.copy()
-                pipeline = cfg.inference_pipeline
-                pipeline[0].type = "HmLoadImageFromWebcam"
-
-                update_pipeline_item(
-                    pipeline,
-                    "IceRinkSegmConfig",
-                    dict(
-                        game_id=args.game_id,
-                    ),
-                )
-
-                data_pipeline = Compose(pipeline)
-
-            #
-            # post-detection pipeline updates
-            #
-            configure_boundaries(
-                game_id=args.game_id,
-                model=model,
-                top_border_lines=cam_args.top_border_lines,
-                bottom_border_lines=cam_args.bottom_border_lines,
-                original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                plot_ice_mask=args.plot_ice_mask,
+            update_pipeline_item(
+                model_config.model.post_tracking_pipeline,
+                "HmNumberClassifier",
+                dict(
+                    enabled=args.detect_jersey_numbers,
+                ),
             )
+
+            # build the model from a config file and a checkpoint file
+            if not using_precalculated_detections and not using_precalculated_tracking:
+                model_checkpoint = args.checkpoint
+                model_device = main_device
+            else:
+                model_checkpoint = None
+                model_device = "cpu"
+
+            model = init_track_model(
+                model_config,
+                model_checkpoint,
+                args.detector,
+                args.reid,
+                device=model_device,
+            )
+
+            # Maybe apply a clip box in the data pipeline
+            orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
+            if orig_clip_box:
+                hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
+                if hm_crop is not None:
+                    hm_crop["rectangle"] = orig_clip_box
+
+            cfg = model.cfg.copy()
+            pipeline = cfg.inference_pipeline
+            pipeline[0].type = "HmLoadImageFromWebcam"
+
+            update_pipeline_item(
+                pipeline,
+                "IceRinkSegmConfig",
+                dict(
+                    game_id=args.game_id,
+                ),
+            )
+
+            data_pipeline = Compose(pipeline)
+
+        #
+        # post-detection pipeline updates
+        #
+        configure_boundaries(
+            game_id=args.game_id,
+            model=model,
+            top_border_lines=cam_args.top_border_lines,
+            bottom_border_lines=cam_args.bottom_border_lines,
+            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
+            plot_ice_mask=args.plot_ice_mask,
+        )
+
         pose_inferencer = None
         if args.multi_pose:
             from mmpose.apis.inferencers import MMPoseInferencer

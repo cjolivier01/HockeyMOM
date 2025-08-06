@@ -1,5 +1,5 @@
 # pylint: disable=use-dict-literal
-_base_ = ["../../../openmm/mmdetection/configs/yolox/yolox_s_8xb8-300e_coco.py"]
+_base_ = ["../../../../openmm/mmdetection/configs/yolox/yolox_s_8xb8-300e_coco.py"]
 
 dataset_type = "MOTChallengeDataset"
 data_root = "data/MOT17/"
