@@ -13,8 +13,9 @@ python_library(
     name = "hmlib",
     srcs = _SOURCES,
     data = _DATA,
-    deps=[
-    ],
+    # deps=[
+    #   ":python_data",
+    # ],
     # test_data=glob("tests/**/fixtures/*.txt"),
     test_deps=[
         # requirement("pytest"),
@@ -38,7 +39,12 @@ python_library(
     ),
 )
 
-# Used for egneric import
+# py_library(
+#   name = "python_data",
+#   data = _DATA,
+# )
+
+# Used for generic import
 py_library(
     name = "exported_hmlib",
     srcs = _SOURCES, # Omit this argument for sensible default behaviour
