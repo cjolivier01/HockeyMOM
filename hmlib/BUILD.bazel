@@ -36,7 +36,7 @@ python_library(
 # Used for egneric import
 py_library(
     name = "exported_hmlib",
-    srcs=glob(["**/*.py", "**/*.pyi"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
+    srcs=glob(["**/*.py", "**/*.pyi", "**/*.yaml"], exclude=["scripts/**"]), # Omit this argument for sensible default behaviour
     data=[
         "py.typed",
     ],

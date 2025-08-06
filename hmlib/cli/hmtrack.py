@@ -42,7 +42,9 @@ from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
 
-ROOT_DIR = os.getcwd()
+import hmlib
+
+ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
 
 def make_parser(parser: argparse.ArgumentParser = None):
