@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+import hmlib
 from hmlib.bbox.box_functions import scale_bbox_with_constraints
 
 GAME_DIR_BASE = os.path.join(os.environ["HOME"], "Videos")
@@ -173,9 +174,7 @@ def get_config(
     return consolidated_config
 
 
-def update_config(
-    baseline_config: dict, config_type: str, config_name: str, root_dir: Optional[str] = None
-):
+def update_config(baseline_config: dict, config_type: str, config_name: str, root_dir: Optional[str] = None):
     yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     if not os.path.exists(yaml_file_path):
         return baseline_config
