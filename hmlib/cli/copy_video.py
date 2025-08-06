@@ -283,8 +283,9 @@ def copy_video(
 #
 
 
-def main(args):
-    # opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
+def main():
+    args = make_parser().parse_args()
+
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:
         args.video_dir = get_game_dir(args.game_id)
@@ -318,6 +319,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = make_parser().parse_args()
-    main(args)
+    main()
     print("Done.")

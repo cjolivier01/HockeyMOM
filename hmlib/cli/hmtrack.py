@@ -376,7 +376,7 @@ def configure_boundaries(
             )
 
 
-def main(args, num_gpu):
+def _main(args, num_gpu):
     dataloader = None
     tracking_dataframe = None
     tracking_dataframe_ds = None
@@ -942,7 +942,7 @@ def setup_logging():
     mm_logger.setLevel(logging.INFO)
 
 
-if __name__ == "__main__":
+def main():
     setup_logging()
 
     # Just quick check to make sure you build PyTorch correctly
@@ -986,3 +986,6 @@ if __name__ == "__main__":
 
     main(args, num_gpus)
     print("Done.")
+
+if __name__ == "__main__":
+    main()
