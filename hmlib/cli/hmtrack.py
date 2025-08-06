@@ -984,7 +984,7 @@ def main():
         num_gpus = len(args.gpus) if args.gpus else 0
         num_gpus = min(num_gpus, torch.cuda.device_count())
 
-    main(args, num_gpus)
+    _main(args, num_gpus)
     print("Done.")
 
 if __name__ == "__main__":
