@@ -70,11 +70,9 @@ class HmImageOverlays:
             if self._watermark is None:
                 return
             if isinstance(self._watermark, str):
-                self._watermark = prepend_root_dir(
-                    cv2.imread(
-                        self._watermark,
-                        cv2.IMREAD_UNCHANGED,
-                    )
+                self._watermark = cv2.imread(
+                    prepend_root_dir(self._watermark),
+                    cv2.IMREAD_UNCHANGED,
                 )
             if self._watermark is None:
                 raise InvalidArgumentError(f"Could not load watermark image: {self._watermark_image}")
