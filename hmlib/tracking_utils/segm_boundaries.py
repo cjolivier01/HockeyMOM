@@ -1,14 +1,14 @@
 import time
 from typing import List, Optional, Union
 
-import hmlib.vis.pt_visualization as ptv
 import numpy as np
 import torch
+
+import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
+from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_first
-
-from hmlib.tracking_utils import visualization as vis
 
 from .boundaries import adjust_point_for_clip_box, adjust_tlbr_for_clip_box
 
@@ -72,23 +72,8 @@ class SegmBoundaries:
             img = make_channels_first(img)
             if not torch.is_floating_point(img):
                 img = img.to(torch.float, non_blocking=True)
-            img[:, :, self._segment_mask] = (
-                img[:, :, self._segment_mask] * (1 - alpha) + self._color_mask * alpha
-            )
-            # img[:, :, self._segment_mask] = 0
+            img[:, :, self._segment_mask] = img[:, :, self._segment_mask] * (1 - alpha) + self._color_mask * alpha
         if self._centroid is not None:
-            # box_side_size = 50 // 2
-            # ptv.draw_box(
-            #     image=img,
-            #     tlbr=(
-            #         int(self._centroid[0] - box_side_size),
-            #         int(self._centroid[1] - box_side_size),
-            #         int(self._centroid[0] + box_side_size),
-            #         int(self._centroid[1] + box_side_size),
-            #     ),
-            #     color=(255, 0, 0),
-            #     thickness=5,
-            # )
             img = ptv.draw_filled_square(
                 img,
                 center_x=int(self._centroid[0]),
@@ -160,10 +145,6 @@ class SegmBoundaries:
             points_when_above=all_bottoms,
             points_when_below=all_centers,
         )
-
-        # if self._raise_bbox_by_height_ratio is not None and self._raise_bbox_by_height_ratio != 1:
-        #     heights = calculate_box_heights(batch_item_bboxes)
-        #     points[:, 1] += heights * self._raise_bbox_by_height_ratio
 
         valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._segment_mask.shape[1])
         valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._segment_mask.shape[0])
