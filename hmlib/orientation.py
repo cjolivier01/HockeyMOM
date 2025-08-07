@@ -306,7 +306,7 @@ def configure_game_videos(
     }
 
 
-def main(args: argparse.Namespace):
+def _main(args: argparse.Namespace):
     game_id = args.game_id
     assert game_id
     results = configure_game_videos(game_id=game_id)
