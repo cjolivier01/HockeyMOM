@@ -8,15 +8,6 @@ from hmlib.segm.ice_rink import main
 from hmlib.utils.gpu import GpuAllocator
 
 if __name__ == "__main__":
-    opts = hm_opts()
-    opts.parser.add_argument("--device", default="cuda:0", type=str, help="Device used for inference")
-    opts.parser.add_argument("--scale", default=None, type=float, help="Scale image by this when processing")
-    opts.parser.add_argument("--force", action="store_true", help="Force all processing to take place")
-    args = opts.parse()
-
-    this_path = Path(os.path.dirname(__file__))
-    root_dir = os.path.realpath(this_path / ".." / ".." / "..")
-
     if "cuda" in args.device and ":" not in args.device:
         gpu_allocator = GpuAllocator(gpus=args.gpus)
         device: torch.device = (
@@ -26,4 +17,4 @@ if __name__ == "__main__":
         )
     else:
         device = torch.device(args.device)
-    main(args, device=device)
+    main(args=None, device=device)
