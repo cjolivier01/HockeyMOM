@@ -325,7 +325,7 @@ def main():
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
 
-    main(args)
+    _main(args)
 
 
 if __name__ == "__main__":
