@@ -586,11 +586,11 @@ class MaskEdgeDistances:
 def main(args: argparse.Namespace = None, device: torch.device = torch.device("cpu")) -> None:
     if args is None:
         parser = argparse.ArgumentParser(description="Ice rink segmentation script")
-        parser.add_argument("--game-id", type=str, required=True, help="Game ID to process")
-        parser.add_argument("--show-image", action="store_true", help="Show the image with the mask")
-        parser.add_argument("--force", action="store_true", help="Force reconfiguration of the ice rink mask")
-        parser.add_argument("--scale", type=float, default=None, help="Scale factor for the image")
-        parser.add_argument("--device", type=str, default=None, help="Device used for inference")
+        parser.add_argument("--game-id", "-g", type=str, required=True, help="Game ID to process")
+        parser.add_argument("--show-image", "--show", action="store_true", help="Show the image with the mask")
+        parser.add_argument("--force", "-f", action="store_true", help="Force reconfiguration of the ice rink mask")
+        parser.add_argument("--scale", "-s", type=float, default=None, help="Scale factor for the image")
+        parser.add_argument("--device", "-d", type=str, default=None, help="Device used for inference")
         args = parser.parse_args()
 
     if args.device is not None:
