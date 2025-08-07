@@ -29,9 +29,11 @@ python_library(
         entry_points = {
             "console_scripts": [
                 "hmtrack = hmlib.cli.hmtrack:main",
-                "stitch = hmlib.cli.stitch:main",
+                "hmstitch = hmlib.cli.stitch:main",
+                "hmcreate_control_points = hmlib.cli.create_control_points:main",
                 "hmplayers = hmlib.cli.players:main",
                 "hmfind_ice_rink = hmlib.cli.find_ice_rink:main",
+                "hmvideo_clipper = hmlib.cli.video_clipper:main",
             ],
         },
         requires = [
