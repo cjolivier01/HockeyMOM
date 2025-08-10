@@ -1,77 +1,75 @@
-load("@rules_python//python:packaging.bzl", "py_wheel")
-load("@rules_python//python:packaging.bzl", "PyWheelInfo")
-load("@secrets//:vars.bzl", "PYPI_URL", "PYPI_USERNAME", "PYPI_PASSWORD")
+load("@rules_python//python:packaging.bzl", "PyWheelInfo", "py_wheel")
+load("@secrets//:vars.bzl", "PYPI_PASSWORD", "PYPI_URL", "PYPI_USERNAME")
 
 _DEFAULT_ORG_AUTHOR = "Christopher Olivier"
 _DEFAULT_ORG_EMAIL = "cjolivier01@apache.org"
 
-
 def python_wheel(
-    wheel_name,
-    version,
-    name="wheel",
-    libs=[],
-    requires=[],
-    extra_requires={},
-    entry_points={},
-    description=None,
-    author=_DEFAULT_ORG_AUTHOR,
-    author_email=_DEFAULT_ORG_EMAIL,
-    classifiers=[
-        "Development Status :: 5 - Production/Stable",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: Implementation :: CPython",
-    ],
-    python_requires=">=3.10",
-    stamp=0,
-    strip_path_prefixes=["src/"],
-    publish=True,
-    **kwargs,
-):
+        wheel_name,
+        version,
+        name = "wheel",
+        libs = [],
+        requires = [],
+        extra_requires = {},
+        entry_points = {},
+        description = None,
+        author = _DEFAULT_ORG_AUTHOR,
+        author_email = _DEFAULT_ORG_EMAIL,
+        classifiers = [
+            "Development Status :: 5 - Production/Stable",
+            "Programming Language :: Python :: 3.11",
+            "Programming Language :: Python :: Implementation :: CPython",
+        ],
+        python_requires = ">=3.10",
+        stamp = 0,
+        strip_path_prefixes = ["src/"],
+        publish = True,
+        tags = [],
+        **kwargs):
     def make_name(subname):
         prefix = "{}.".format(name) if name else ""
         return "{}{}".format(prefix, subname)
 
     py_wheel(
-        name=name,
-        author=author,
-        author_email=author_email,
-        classifiers=classifiers,
-        deps=libs,
-        description_file=_make_description_file(make_name("description"), description),
-        distribution=wheel_name,
-        python_requires=python_requires,
-        requires=requires,
-        extra_requires=extra_requires,
-        entry_points=entry_points,
-        stamp=stamp,
-        version=version,
-        strip_path_prefixes=strip_path_prefixes,
-        **kwargs,
+        name = name,
+        author = author,
+        author_email = author_email,
+        classifiers = classifiers,
+        deps = libs,
+        description_file = _make_description_file(make_name("description"), description),
+        distribution = wheel_name,
+        python_requires = python_requires,
+        requires = requires,
+        extra_requires = extra_requires,
+        entry_points = entry_points,
+        stamp = stamp,
+        version = version,
+        strip_path_prefixes = strip_path_prefixes,
+        tags = tags + ["python-wheel"],
+        **kwargs
     )
 
     if publish:
         wheel_publish(
-            name=make_name("publish"),
-            wheel=name,
+            name = make_name("publish"),
+            wheel = name,
+            tags = tags + ["python-wheel"],
         )
 
-
-def _make_description_file(name, description=None):
+def _make_description_file(name, description = None):
     if not description:
         return None
     if len(description.splitlines()) != 1:
         fail("description must be a single line")
     native.genrule(
-        name=name,
-        srcs=[],
-        outs=["description.txt"],
-        cmd="""
+        name = name,
+        srcs = [],
+        outs = ["description.txt"],
+        cmd = """
 echo '{description}' > "$@"
 """,
     )
     return name
-
 
 def _wheel_publish_impl(ctx):
     """Implementation of the wheel publish rule.
@@ -94,8 +92,8 @@ def _wheel_publish_impl(ctx):
         "--password={}".format(PYPI_PASSWORD),
     ]
     ctx.actions.write(
-        output=exe,
-        content="""#!/usr/bin/env bash
+        output = exe,
+        content = """#!/usr/bin/env bash
 
 set -o errexit
 set -o nounset
@@ -104,35 +102,33 @@ set -o pipefail
 {TWINE_EXE} upload {TWINE_OPTIONS} {WHEEL_DIST}
 
 """.format(
-            TWINE_EXE=_resolve_executable(ctx.executable._twine_cli),
-            TWINE_OPTIONS=" ".join(twine_options),
-            WHEEL_DIST=ctx.attr.wheel[PyWheelInfo].wheel.short_path,
+            TWINE_EXE = _resolve_executable(ctx.executable._twine_cli),
+            TWINE_OPTIONS = " ".join(twine_options),
+            WHEEL_DIST = ctx.attr.wheel[PyWheelInfo].wheel.short_path,
         ),
-        is_executable=True,
+        is_executable = True,
     )
     runfiles = ctx.runfiles(
-        files=ctx.attr._twine_cli.default_runfiles.files.to_list() + ctx.attr.wheel.default_runfiles.files.to_list()
+        files = ctx.attr._twine_cli.default_runfiles.files.to_list() + ctx.attr.wheel.default_runfiles.files.to_list(),
     )
-    return [DefaultInfo(executable=exe, runfiles=runfiles)]
-
+    return [DefaultInfo(executable = exe, runfiles = runfiles)]
 
 wheel_publish = rule(
-    implementation=_wheel_publish_impl,
-    attrs={
-        "wheel": attr.label(mandatory=True, providers=[PyWheelInfo]),
+    implementation = _wheel_publish_impl,
+    attrs = {
+        "wheel": attr.label(mandatory = True, providers = [PyWheelInfo]),
         "_twine_cli": attr.label(
-            default=Label("//tools/packaging/twine:twine"),
-            executable=True,
-            cfg="host",
+            default = Label("//tools/packaging/twine:twine"),
+            executable = True,
+            cfg = "exec",
         ),
     },
-    executable=True,
+    executable = True,
 )
-
 
 def _resolve_executable(executable):
     """Resolve an executable's location relative to the root."""
     root = executable.root.path.rstrip("/") + "/"
     if executable.path.startswith(root):
-        return executable.path[len(root) :]
+        return executable.path[len(root):]
     return executable.path

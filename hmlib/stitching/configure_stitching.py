@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageOps
 
+import hockeymom
 from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.control_points import calculate_control_points
@@ -20,7 +21,12 @@ from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
 
-# MULTIBLEND_BIN = os.path.join(os.environ["HOME"], "src", "multiblend", "src", "multiblend")
+
+def get_multiblend_bin() -> str:
+    parent_dir: str = os.path.join(os.path.join(os.path.dirname(hockeymom.__file__)), "..")
+    local_multiblend: str = os.path.join(parent_dir, "multiblend")
+    if os.path.exists(local_multiblend):
+        return os.path.realpath(local_multiblend)
 
 
 def get_tiff_tag_value(tiff_tag):
@@ -200,9 +206,11 @@ def build_stitching_project(
             print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
             for val, pct in sorted(distribution.items()):
                 print(f"Seam value {val:3d}: {pct:5.2f}%")
+            # Delete the seam file so that it doesn't get used accidentally
+            os.remove(seam_file)
             # If the seam is bad, try using multiblend instead
             cmd = [
-                "multiblend",
+                get_multiblend_bin(),
                 f"--save-seams={seam_file}",
                 "-o",
                 os.path.join(dir_name, "panorama.tif"),

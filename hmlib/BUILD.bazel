@@ -54,4 +54,5 @@ py_binary(
     name = "bdist_wheel",
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hmlib.wheel"],
+    tags = ["python-wheel"],
 )

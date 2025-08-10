@@ -19,6 +19,7 @@ py_wheel(
     python_tag = ABI,
     abi = ABI,
     platform = PLATFORM,
+    tags = ["python-wheel"],
     deps = [
         ":hockeymom_ext",
         ":hockeymom",
@@ -41,4 +42,5 @@ py_binary(
     name = "bdist_wheel",
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hockeymom_wheel"],
+    tags = ["python-wheel"],
 )

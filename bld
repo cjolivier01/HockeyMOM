@@ -20,4 +20,4 @@ if [ -z "${TARGET}" ]; then
   TARGET="//..."
 fi
 
-bazelisk build ${BAZEL_FLAGS} ${TARGET}
+bazelisk build ${BAZEL_FLAGS} --build_tag_filters=-python-wheel ${TARGET}
