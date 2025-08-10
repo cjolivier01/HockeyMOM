@@ -22,6 +22,7 @@ py_wheel(
     deps = [
         ":hockeymom_ext",
         ":hockeymom",
+        "@multiblend//:multiblend",
     ],
 )
 
@@ -35,31 +36,6 @@ py_library(
   imports = [".."],
   visibility = ["//visibility:public"],
 )
-
-# genrule(
-#     name = "copy_wheel_script",
-#     srcs = [":hockeymom_wheel"],
-#     outs = ["copy_wheel.sh"],
-#     cmd = """
-#     echo '#!/bin/bash' > $@
-#     echo 'mkdir -p dist' >> $@
-#     echo 'cp $(location :hockeymom_wheel) dist/' >> $@
-#     echo 'echo "Wheel copied to dist/"' >> $@
-#     chmod +x $@
-#     """,
-# )
-
-# sh_binary(
-#     name = "install_local",
-#     srcs = [":copy_wheel_script"],
-#     data = [":hockeymom_wheel"],
-# )
-
-# py_binary(
-#     name = "install_local",
-#     srcs = ["install_local.py"],
-#     data = [":hockeymom_wheel"],
-# )
 
 py_binary(
     name = "bdist_wheel",
