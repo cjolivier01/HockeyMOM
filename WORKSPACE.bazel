@@ -213,6 +213,13 @@ git_repository(
     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
 )
 
+################################ Multiblend ################################
+git_repository(
+    name = "multiblend",
+    branch = "colivier/bazel",
+    remote = "ssh://git@github.com/cjolivier01/multiblend",
+)
+
 ################################ Other Modules ################################
 new_local_repository(
     name = "opencv_linux",
