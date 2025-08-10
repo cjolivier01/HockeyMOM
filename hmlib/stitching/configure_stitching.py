@@ -24,9 +24,11 @@ from .synchronize import configure_synchronization
 
 def get_multiblend_bin() -> str:
     parent_dir: str = os.path.join(os.path.join(os.path.dirname(hockeymom.__file__)), "..")
-    local_multiblend: str = os.path.join(parent_dir, "multiblend")
+    multiblend_app_name: str = "multiblend"
+    local_multiblend: str = os.path.join(parent_dir, multiblend_app_name)
     if os.path.exists(local_multiblend):
         return os.path.realpath(local_multiblend)
+    return multiblend_app_name
 
 
 def get_tiff_tag_value(tiff_tag):
