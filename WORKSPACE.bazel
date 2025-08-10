@@ -216,7 +216,7 @@ git_repository(
 ################################ Multiblend ################################
 git_repository(
     name = "multiblend",
-    commit = "b7f6cebcd6a32219994c06e119facf6d0a72dcd1",
+    commit = "4fe978fbd6b89a61dbcc290e22e656e5ed0cefd8",
     remote = "ssh://git@github.com/cjolivier01/multiblend",
 )
 
