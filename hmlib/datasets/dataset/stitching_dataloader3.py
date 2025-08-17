@@ -181,9 +181,26 @@ class StitchDataset:
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
         self._decoder_device = decoder_device
-        self._video_left_offset_frame = videos["left"]["frame_offset"]
-        self._video_right_offset_frame = videos["right"]["frame_offset"]
+        # Accept either legacy {left,right} or a dict of N streams
         self._videos = videos
+        self._stream_keys: List[str] = []
+        if "left" in videos and "right" in videos:
+            self._stream_keys = ["left", "right"]
+        else:
+            # Generic N streams: deterministic order by key name
+            self._stream_keys = sorted(list(videos.keys()))
+        # Offsets per stream (legacy left/right kept for compatibility)
+        self._stream_offsets: Dict[str, Optional[int]] = {
+            k: videos[k].get("frame_offset", None) for k in self._stream_keys
+        }
+        # Legacy aliases
+        self._video_left_offset_frame = (
+            videos["left"]["frame_offset"] if "left" in videos else self._stream_offsets[self._stream_keys[0]]
+        )
+        self._video_right_offset_frame = (
+            videos["right"]["frame_offset"] if "right" in videos else (
+                self._stream_offsets[self._stream_keys[1]] if len(self._stream_keys) > 1 else None
+            )
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._blend_mode = blend_mode
@@ -227,19 +244,23 @@ class StitchDataset:
 
         self._prepare_next_frame_timer = Timer()
 
-        self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
-        self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
-        self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
-        # This would affect number of frames, but actually it's supported
-        # for stitching later if one os a modulus of the other
-        assert np.isclose(self._video_left_info.fps, self._video_right_info.fps)
+        # Build per-stream video infos
+        self._video_infos: Dict[str, BasicVideoInfo] = {
+            k: BasicVideoInfo(",".join(videos[k]["files"])) for k in self._stream_keys
+        }
+        # Use the first stream’s dir for saves/logs
+        self._dir_name = _get_dir_name(str(videos[self._stream_keys[0]]["files"][0]))
+        # Validate fps equality (or near-equality) across all streams
+        fps_vals = [self._video_infos[k].fps for k in self._stream_keys]
+        assert all(np.isclose(fps_vals[0], f) for f in fps_vals), "All streams must have matching FPS"
 
-        v1o = 0 if self._video_left_offset_frame is None else self._video_left_offset_frame
-        v2o = 0 if self._video_right_offset_frame is None else self._video_right_offset_frame
+        # Derive min frame count across streams after offsets
         self._total_number_of_frames = int(
             min(
-                self._video_left_info.frame_count - v1o,
-                self._video_right_info.frame_count - v2o,
+                [
+                    self._video_infos[k].frame_count - (0 if self._stream_offsets[k] is None else self._stream_offsets[k])
+                    for k in self._stream_keys
+                ]
             )
         )
         self._stitcher = None
@@ -254,17 +275,23 @@ class StitchDataset:
 
     @property
     def bit_rate(self) -> int:
-        return max(self._video_left_info.bit_rate, self._video_right_info.bit_rate)
+        return max(self._video_infos[k].bit_rate for k in self._stream_keys)
 
     @property
     def lfo(self):
-        assert self._video_left_offset_frame is not None
-        return self._video_left_offset_frame
+        assert self._stream_keys
+        first = self._stream_keys[0]
+        assert self._stream_offsets[first] is not None
+        return self._stream_offsets[first]
 
     @property
     def rfo(self):
-        assert self._video_right_offset_frame is not None
-        return self._video_right_offset_frame
+        # Keep legacy behavior for the second stream when present
+        if len(self._stream_keys) > 1:
+            second = self._stream_keys[1]
+            assert self._stream_offsets[second] is not None
+            return self._stream_offsets[second]
+        raise AttributeError("rfo not defined for <2 streams")
 
     @property
     def batch_size(self) -> int:
@@ -283,76 +310,64 @@ class StitchDataset:
         remapping_device: torch.device,
         dataset_name: str = "crowdhuman",
     ):
-        #
-        # Handle when one of the cameras is 60 fps and the other is 30 (oops)
-        #
-        frame_step_1 = 1
-        frame_step_2 = 1
-
-        if self._video_left_info.fps > self._video_right_info.fps:
-            int_ratio = self._video_left_info.fps // self._video_right_info.fps
-            float_ratio = self._video_left_info.fps / self._video_right_info.fps
-            if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
-                frame_step_1 = int(int_ratio)
-        elif self._video_right_info.fps > self._video_left_info.fps:
-            int_ratio = self._video_right_info.fps // self._video_left_info.fps
-            float_ratio = self._video_right_info.fps / self._video_left_info.fps
-            if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
-                frame_step_2 = int(int_ratio)
-
-        # TODO: must correct for lfo, which is generally calculated based upon
-        # one video or the other's frame number.
-        # Should turn this into a time seek instead.
-        dataloaders = []
-        dataloaders.append(
-            MOTLoadVideoWithOrig(
-                path=self._videos["left"]["files"],
-                max_frames=max_frames,
-                batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_left_offset_frame,
-                original_image_only=True,
-                dtype=self._dtype,
-                device=remapping_device,
-                decoder_device=self._decoder_device,
-                frame_step=frame_step_1,
-                no_cuda_streams=self._no_cuda_streams,
+        # Support N streams. If fps differ by an integer ratio, step frames accordingly.
+        base_fps = self._video_infos[self._stream_keys[0]].fps
+        dataloaders: List[MOTLoadVideoWithOrig] = []
+        for k in self._stream_keys:
+            info = self._video_infos[k]
+            frame_step = 1
+            if info.fps != base_fps:
+                int_ratio = max(info.fps, base_fps) // min(info.fps, base_fps)
+                float_ratio = max(info.fps, base_fps) / min(info.fps, base_fps)
+                if np.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                    # If this stream is faster than base, step it; else step base (handled by others)
+                    frame_step = int(int_ratio) if info.fps > base_fps else 1
+            dataloaders.append(
+                MOTLoadVideoWithOrig(
+                    path=self._videos[k]["files"],
+                    max_frames=max_frames,
+                    batch_size=self._batch_size,
+                    start_frame_number=start_frame_number + (self._stream_offsets[k] or 0),
+                    original_image_only=True,
+                    dtype=self._dtype,
+                    device=remapping_device,
+                    decoder_device=self._decoder_device,
+                    frame_step=frame_step,
+                    no_cuda_streams=self._no_cuda_streams,
+                )
             )
+        stitching_worker = MultiDataLoaderWrapper(
+            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
         )
-        dataloaders.append(
-            MOTLoadVideoWithOrig(
-                path=self._videos["right"]["files"],
-                max_frames=max_frames,
-                batch_size=self._batch_size,
-                start_frame_number=start_frame_number + self._video_right_offset_frame,
-                original_image_only=True,
-                dtype=self._dtype,
-                device=remapping_device,
-                decoder_device=self._decoder_device,
-                frame_step=frame_step_2,
-                no_cuda_streams=self._no_cuda_streams,
-            )
-        )
-        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
         return stitching_worker
 
     def configure_stitching(self):
-        if self._video_left_offset_frame is None or self._video_right_offset_frame is None:
-            self._pto_project_file, lfo, rfo = configure_video_stitching(
-                self._dir_name,
-                video_left=self._videos["left"]["files"][0],
-                video_right=self._videos["right"]["files"][0],
-                left_frame_offset=self._video_left_offset_frame,
-                right_frame_offset=self._video_right_offset_frame,
-            )
-            self._video_left_offset_frame = lfo
-            self._video_right_offset_frame = rfo
+        # Only the 2-stream case is supported by configure_video_stitching
+        if len(self._stream_keys) >= 2:
+            k0, k1 = self._stream_keys[0], self._stream_keys[1]
+            if self._stream_offsets[k0] is None or self._stream_offsets[k1] is None:
+                self._pto_project_file, lfo, rfo = configure_video_stitching(
+                    self._dir_name,
+                    video_left=self._videos[k0]["files"][0],
+                    video_right=self._videos[k1]["files"][0],
+                    left_frame_offset=self._stream_offsets[k0],
+                    right_frame_offset=self._stream_offsets[k1],
+                )
+                self._stream_offsets[k0] = lfo
+                self._stream_offsets[k1] = rfo
+                # Legacy aliases remain available
+                if "left" in self._videos:
+                    self._video_left_offset_frame = lfo
+                if "right" in self._videos:
+                    self._video_right_offset_frame = rfo
 
     def initialize(self):
         if self._auto_configure:
             self.configure_stitching()
 
     def _load_video_props(self):
-        info = BasicVideoInfo(",".join(self._videos["left"]["files"]))
+        # Use first stream as reference
+        info = BasicVideoInfo(",".join(self._videos[self._stream_keys[0]]["files"]))
         self._fps = info.fps
         self._bitrate = info.bit_rate
 
@@ -452,12 +467,11 @@ class StitchDataset:
             self._prepare_next_frame_timer.tic()
 
             stitching_worker = self._stitching_workers[self._current_worker]
-            image_data_1, image_data_2 = next(stitching_worker)
-
-            imgs_1 = image_data_1["img"]
-            ids_1 = image_data_1["frame_ids"]
-
-            imgs_2 = image_data_2["img"]
+            image_data_list = next(stitching_worker)
+            if not isinstance(image_data_list, list):
+                image_data_list = [image_data_list]
+            imgs_list = [item["img"] for item in image_data_list]
+            ids_1 = image_data_list[0]["frame_ids"]
 
             with torch.no_grad():
 
@@ -474,56 +488,55 @@ class StitchDataset:
 
                 stream = self._remapping_stream
                 with cuda_stream_scope(stream), torch.no_grad():
-                    imgs_1 = to_tensor(imgs_1)
-                    imgs_2 = to_tensor(imgs_2)
-                    if isinstance(self._stitcher, CudaStitchPanoF32):
-                        imgs_1 = make_channels_last(imgs_1).contiguous()
-                        imgs_2 = make_channels_last(imgs_2).contiguous()
+                    # Normalize tensors to actual torch tensors on the target device
+                    imgs_list = [to_tensor(x) for x in imgs_list]
+
+                    if isinstance(self._stitcher, CudaStitchPanoF32) and len(imgs_list) == 2:
+                        img_a = make_channels_last(imgs_list[0]).contiguous()
+                        img_b = make_channels_last(imgs_list[1]).contiguous()
                         blended_stream_tensor = torch.empty(
                             [
-                                imgs_1.shape[0],
+                                img_a.shape[0],
                                 self._stitcher.canvas_height(),
                                 self._stitcher.canvas_width(),
-                                imgs_1.shape[-1],
+                                img_a.shape[-1],
                             ],
-                            dtype=imgs_1.dtype,
-                            device=imgs_1.device,
+                            dtype=img_a.dtype,
+                            device=img_a.device,
                         )
                         if self._show_image_components:
-                            for img1, img2 in zip(imgs_1, imgs_2):
+                            for img1, img2 in zip(img_a, img_b):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                # show_cuda_tensor(
-                                show_image(
-                                    "img-1",
-                                    make_visible_image(t1),
-                                    wait=False,
-                                    # stream=int(stream.cuda_stream),
-                                    enable_resizing=0.2,
-                                )
-                                show_image(
-                                    # show_cuda_tensor(
-                                    "img-2",
-                                    img2.clamp(min=0, max=255).to(torch.uint8),
-                                    wait=False,
-                                    # stream=int(stream.cuda_stream),
-                                    enable_resizing=0.2,
-                                )
-                        self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
+                                show_image("img-1", make_visible_image(t1), wait=False, enable_resizing=0.2)
+                                show_image("img-2", t2, wait=False, enable_resizing=0.2)
+                        self._stitcher.process(img_a, img_b, blended_stream_tensor, stream.cuda_stream)
                         if self._show_image_components:
                             for blended_image in blended_stream_tensor:
-                                show_image(
-                                    # show_cuda_tensor(
-                                    "blended",
-                                    blended_image.clamp(min=0, max=255).to(torch.uint8),
-                                    wait=False,
-                                    # stream=int(stream.cuda_stream),
-                                    enable_resizing=0.2,
-                                )
-                    else:
+                                show_image("blended", blended_image.clamp(min=0, max=255).to(torch.uint8), wait=False, enable_resizing=0.2)
+                    elif len(imgs_list) == 2:
+                        # Python blender path for 2 streams
                         if self._auto_adjust_exposure:
-                            imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
-                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+                            imgs_list[0], imgs_list[1] = self._adjust_exposures(images=[imgs_list[0], imgs_list[1]])
+                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_list[0], imgs_list[1]])
+                    else:
+                        # Fallback for N>2: simple horizontal tiling
+                        # Move to target device/dtype and HWC for easy placement
+                        imgs_hwc = [make_channels_last(x.to(self._dtype, non_blocking=True)) for x in imgs_list]
+                        bsz = imgs_hwc[0].shape[0]
+                        ch = imgs_hwc[0].shape[-1]
+                        heights = [x.shape[-2] for x in imgs_hwc]
+                        widths = [x.shape[-1] for x in imgs_hwc]
+                        max_h = max(heights)
+                        total_w = sum(widths)
+                        blended_stream_tensor = torch.zeros(
+                            [bsz, max_h, total_w, ch], dtype=imgs_hwc[0].dtype, device=imgs_hwc[0].device
+                        )
+                        xoff = 0
+                        for x in imgs_hwc:
+                            h, w = x.shape[-2], x.shape[-1]
+                            blended_stream_tensor[:, :h, xoff : xoff + w, :] = x
+                            xoff += w
 
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
@@ -569,22 +582,25 @@ class StitchDataset:
             assert self._remapping_device.type != "cpu"
             from hmlib.stitching.blender2 import create_stitcher
 
-            self._stitcher = create_stitcher(
-                dir_name=self._dir_name,
-                batch_size=self._batch_size,
-                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                right_image_size_wh=(
-                    self._video_right_info.width,
-                    self._video_right_info.height,
-                ),
-                device=self._remapping_device,
-                dtype=self._dtype,
-                python_blender=self._python_blender,
-                minimize_blend=self._minimize_blend,
-                blend_mode=self._blend_mode,
-                add_alpha_channel=False,
-                auto_adjust_exposure=self._auto_adjust_exposure,
-            )
+            # Only create a stitcher for the first two streams; N>2 falls back to tiling
+            if len(self._stream_keys) >= 2:
+                k0, k1 = self._stream_keys[0], self._stream_keys[1]
+                info0, info1 = self._video_infos[k0], self._video_infos[k1]
+                self._stitcher = create_stitcher(
+                    dir_name=self._dir_name,
+                    batch_size=self._batch_size,
+                    left_image_size_wh=(info0.width, info0.height),
+                    right_image_size_wh=(info1.width, info1.height),
+                    device=self._remapping_device,
+                    dtype=self._dtype,
+                    python_blender=self._python_blender,
+                    minimize_blend=self._minimize_blend,
+                    blend_mode=self._blend_mode,
+                    add_alpha_channel=False,
+                    auto_adjust_exposure=self._auto_adjust_exposure,
+                )
+            else:
+                self._stitcher = None
 
             frame_count = 0
             while frame_count < self._max_frames:
