@@ -1366,6 +1366,36 @@ void init_cuda_pano(::pybind11::module_& m) {
                 canvas.data_ptr(),
                 (cudaStream_t)stream);
           });
+  py::class_<
+      PyCudaStitchPano3<float3, T_compute>,
+      std::shared_ptr<PyCudaStitchPano3<float3, T_compute>>>(
+      m, "CudaStitchPano3F32")
+      .def(py::init<std::string, int, int, std::vector<WHDims>, bool>())
+      .def("canvas_width", &PyCudaStitchPano3<float3, T_compute>::canvas_width)
+      .def(
+          "canvas_height", &PyCudaStitchPano3<float3, T_compute>::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPano3<uchar3, T_compute>> self,
+             const std::vector<at::Tensor>& inputs,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
+            }
+            std::vector<void*> data_ptrs;
+            data_ptrs.reserve(inputs.size());
+            for (const auto& t : inputs) {
+              if (!t.is_contiguous()) {
+                throw std::runtime_error("Inputs should be contiguous");
+              }
+              if (!t.device().is_cuda()) {
+                throw std::runtime_error("All tensors must be Cuda tensors");
+              }
+              data_ptrs.emplace_back(t.data_ptr());
+            }
+            self->process(data_ptrs, canvas.data_ptr(), (cudaStream_t)stream);
+          });
 
   m.def(
       "show_cuda_tensor",
