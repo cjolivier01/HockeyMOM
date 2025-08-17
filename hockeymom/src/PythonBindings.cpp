@@ -5,6 +5,7 @@
 #include <torch/torch.h>
 
 #include "cupano/pano/cudaPano.h"
+#include "cupano/pano/cudaPano3.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
@@ -99,6 +100,66 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
  private:
   const WHDims input1_size_;
   const WHDims input2_size_;
+};
+
+using hm::pano::cuda::CudaStitchPano3;
+// TODO: make templated and name CudaStitchPanoU8 and CudaStitchPanoF16 python
+// classes
+template <typename T, typename T_compute>
+class PyCudaStitchPano3 : public CudaStitchPano3<T, T_compute> {
+  using Super = CudaStitchPano3<T, T_compute>;
+
+ public:
+  PyCudaStitchPano3(
+      std::string game_dir,
+      int batch_size,
+      int num_levels,
+      std::vector<WHDims> input_sizes,
+      bool match_exposure)
+      : CudaStitchPano3<T, T_compute>(
+            batch_size,
+            num_levels,
+            hm::pano::ControlMasks3(std::move(game_dir)),
+            match_exposure),
+        input_sizes_(std::move(input_sizes)) {
+    if (!Super::status().ok()) {
+      std::string ss;
+      throw std::runtime_error(Super::status().message());
+    }
+  }
+  void process(
+      const std::vector<void*>& d_inputs,
+      void* d_canvas,
+      cudaStream_t stream) {
+    const int bs = Super::batch_size();
+    auto canvas = std::make_unique<hm::CudaMat<T>>(
+        static_cast<T*>(d_canvas),
+        bs,
+        Super::canvas_width(),
+        Super::canvas_height());
+    hm::CudaMat<T> i1(
+        static_cast<T*>(d_inputs[0]),
+        bs,
+        input_sizes_[0].width,
+        input_sizes_[0].height);
+    hm::CudaMat<T> i2(
+        static_cast<T*>(d_inputs[1]),
+        bs,
+        input_sizes_[1].width,
+        input_sizes_[1].height);
+    hm::CudaMat<T> i3(
+        static_cast<T*>(d_inputs[2]),
+        bs,
+        input_sizes_[2].width,
+        input_sizes_[2].height);
+    auto result = Super::process(i1, i2, i3, stream, std::move(canvas));
+    if (!result.ok()) {
+      throw std::runtime_error(result.status().message());
+    }
+  }
+
+ private:
+  const std::vector<WHDims> input_sizes_;
 };
 
 at::Tensor bgr_to_rgb(const at::Tensor& bgr_hwc) {
@@ -1203,7 +1264,7 @@ void init_play_tracker(::pybind11::module_& m) {
           py::arg("scale_step"));
 }
 
-template<typename T_compute>
+template <typename T_compute>
 void init_cuda_pano(::pybind11::module_& m) {
   /**
    *   _____           _       _____
@@ -1217,7 +1278,8 @@ void init_cuda_pano(::pybind11::module_& m) {
    */
   py::class_<
       PyCudaStitchPano<uchar3, T_compute>,
-      std::shared_ptr<PyCudaStitchPano<uchar3, T_compute>>>(m, "CudaStitchPanoU8")
+      std::shared_ptr<PyCudaStitchPano<uchar3, T_compute>>>(
+      m, "CudaStitchPanoU8")
       .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
       .def("canvas_width", &PyCudaStitchPano<uchar3, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<uchar3, T_compute>::canvas_height)
@@ -1245,8 +1307,39 @@ void init_cuda_pano(::pybind11::module_& m) {
                 (cudaStream_t)stream);
           });
   py::class_<
+      PyCudaStitchPano3<uchar3, T_compute>,
+      std::shared_ptr<PyCudaStitchPano3<uchar3, T_compute>>>(
+      m, "CudaStitchPano3U8")
+      .def(py::init<std::string, int, int, std::vector<WHDims>, bool>())
+      .def("canvas_width", &PyCudaStitchPano3<uchar3, T_compute>::canvas_width)
+      .def(
+          "canvas_height", &PyCudaStitchPano3<uchar3, T_compute>::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPano3<uchar3, T_compute>> self,
+             const std::vector<at::Tensor>& inputs,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
+            }
+            std::vector<void*> data_ptrs;
+            data_ptrs.reserve(inputs.size());
+            for (const auto& t : inputs) {
+              if (!t.is_contiguous()) {
+                throw std::runtime_error("Inputs should be contiguous");
+              }
+              if (!t.device().is_cuda()) {
+                throw std::runtime_error("All tensors must be Cuda tensors");
+              }
+              data_ptrs.emplace_back(t.data_ptr());
+            }
+            self->process(data_ptrs, canvas.data_ptr(), (cudaStream_t)stream);
+          });
+  py::class_<
       PyCudaStitchPano<float3, T_compute>,
-      std::shared_ptr<PyCudaStitchPano<float3, T_compute>>>(m, "CudaStitchPanoF32")
+      std::shared_ptr<PyCudaStitchPano<float3, T_compute>>>(
+      m, "CudaStitchPanoF32")
       .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
       .def("canvas_width", &PyCudaStitchPano<float3, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<float3, T_compute>::canvas_height)
