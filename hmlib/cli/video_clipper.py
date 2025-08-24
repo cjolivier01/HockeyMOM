@@ -14,13 +14,13 @@ video along with text labeling of the clip number and user-designated label
 """
 
 import argparse
-import subprocess
+import json
 import os
 import re
+import subprocess
 from datetime import datetime
-from typing import List, Optional
 from pathlib import Path
-import json
+from typing import List, Optional
 
 
 def validate_timestamp(timestamp):
@@ -247,7 +247,11 @@ def main():
     args = parser.parse_args()
 
     if args.video_file_list:
-        args.video_file_list = args.video_file_list.split(",")
+        if os.path.isfile(args.video_file_list):
+            with open(args.video_file_list, "r") as f:
+                args.video_file_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+        else:
+            args.video_file_list = args.video_file_list.split(",")
 
     if not args.video_file_list and not (args.input and args.timestamps):
         print("--video-file-list or both --input and --timestamps must be provided")
