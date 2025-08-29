@@ -250,7 +250,7 @@ def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, for
         game_dir = get_game_dir(game_id=game_id)
         image_file = os.path.join(game_dir, "s.png")
         if not os.path.exists(image_file):
-            raise FileNotFoundError(f"Could nto find image file: {image_file}")
+            raise FileNotFoundError(f"Could not find image file: {image_file}")
         image = Image.open(image_file)
     selector = ScoreboardSelector(image=image, initial_points=current_scoreboard)
     selector.run()
