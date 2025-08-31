@@ -28,6 +28,7 @@ python_library(
                 "hmfind_ice_rink = hmlib.cli.find_ice_rink:main",
                 "hmvideo_clipper = hmlib.cli.video_clipper:main",
                 "hmorientation = hmlib.cli.hmorientation:main",
+                "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
             ],
         },
         requires = [
