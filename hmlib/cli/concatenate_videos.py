@@ -315,14 +315,14 @@ def build_filtergraph(
     use_gpu: bool = False,
     enforce_mono_to_stereo_only: bool = False,
 ) -> Tuple[str, List[str], List[str]]:
-    """@brief Build the filter_complex string and output label maps.
-    @param infos Probed media infos.
-    @param target Target profile.
-    @param clips Per-input clip spec 'START-END', '-END', 'START-' or '' for full. May be None/empty.
-    @param aspect_mode One of: 'pad' (fit then pad), 'crop' (fill then crop), 'stretch' (exact resize, no AR keep).
-    @param use_gpu If True, use 'scale_npp' else 'scale'.
-    @param enforce_mono_to_stereo_only If True, only upmix mono->stereo; if multi-channel, downmix to stereo anyway. (Kept for future flexibility.)
-    @return (filter_complex, v_labels, a_labels) to feed concat.
+    """Build the filter_complex and output maps.
+
+    Notes:
+    - For aspect_mode in {'pad','crop'} we use CPU 'scale' so that
+      force_original_aspect_ratio works (not supported by scale_npp).
+    - For aspect_mode == 'stretch' we can use GPU 'scale_npp' safely.
+    - Audio chains no longer start with a stray comma.
+    - Concat inputs are interleaved [v0][a0][v1][a1]...
     """
     assert len(infos) == len(clips), "clips must have same length as inputs"
 
@@ -336,116 +336,100 @@ def build_filtergraph(
     arate = target.audio_rate
     ach = target.audio_channels
 
-    # Helper to format clip filters
     def parse_clip_spec(spec: Optional[str], total_dur: float) -> Tuple[Optional[float], Optional[float]]:
-        if not spec:
+        if not spec or not spec.strip():
             return (None, None)
         s = spec.strip()
-        if not s:
-            return (None, None)
-        # Allowed forms: "start-end", "-end", "start-"
         if "-" in s:
             pre, post = s.split("-", 1)
             start = parse_time_to_seconds(pre) if pre.strip() else 0.0
             end = parse_time_to_seconds(post) if post.strip() else total_dur
             end = min(end, total_dur)
             if end < start:
-                start, end = end, start  # swap to be safe
+                start, end = end, start
             return (start, end)
         else:
-            # Single number means 'start-' from that time
+            # single number: start-
             start = parse_time_to_seconds(s)
             return (start, None)
 
-    # Choose scaling strategy
+    # Choose scaler
     if aspect_mode not in {"pad", "crop", "stretch"}:
         raise ValueError("--aspect-mode must be pad|crop|stretch")
+
+    # Use CPU scale for AR-safe modes; use scale_npp only for stretch
+    def scaler_name() -> str:
+        if aspect_mode == "stretch" and use_gpu:
+            return "scale_npp"
+        return "scale"
 
     for idx, (mi, clip_spec) in enumerate(zip(infos, clips)):
         base_v = f"[{idx}:v]"
         base_a = f"[{idx}:a]"
-        vchain = base_v
-        achain: Optional[str] = base_a
 
         start_sec, end_sec = parse_clip_spec(clip_spec, mi.duration)
-        # --- Video trim and reset PTS
+
+        # ---------- VIDEO CHAIN ----------
+        vfilters: List[str] = []
         if start_sec is not None or end_sec is not None:
-            # Use trim in filtergraph to keep A/V aligned
-            if start_sec is None:
-                start_sec = 0.0
-            if end_sec is None:
-                end_sec = mi.duration
-            vchain += f"trim=start={start_sec}:end={end_sec},setpts=PTS-STARTPTS"
+            s = 0.0 if start_sec is None else start_sec
+            e = mi.duration if end_sec is None else end_sec
+            vfilters.append(f"trim=start={s}:end={e}")
+            vfilters.append("setpts=PTS-STARTPTS")
 
-            # Audio chain may be absent if no audio stream
-            if mi.a is not None:
-                achain = base_a + f"atrim=start={start_sec}:end={end_sec},asetpts=PTS-STARTPTS"
-        else:
-            # No trim, but keep original PTS as-is (we'll normalize later)
-            vchain += "null"
-            if mi.a is not None:
-                achain = base_a + "anull"
-
-        # --- Video normalize: scale + AR handling + fps + pix_fmt + sar
+        sc = scaler_name()
         if aspect_mode == "stretch":
-            scale_f = "scale_npp" if use_gpu else "scale"
-            vchain += f",{scale_f}={w}:{h}"
+            # exact resize, no AR keep
+            vfilters.append(f"{sc}={w}:{h}")
         elif aspect_mode == "pad":
-            scale_f = "scale_npp" if use_gpu else "scale"
-            # Fit inside, then pad around to exact size
-            vchain += f",{scale_f}={w}:{h}:force_original_aspect_ratio=decrease"
-            vchain += f",pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black"
+            vfilters.append(f"{sc}={w}:{h}:force_original_aspect_ratio=decrease")
+            vfilters.append(f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black")
         else:  # crop
-            # Fill (increase) then center-crop to exact size
-            scale_f = "scale_npp" if use_gpu else "scale"
-            vchain += f",{scale_f}={w}:{h}:force_original_aspect_ratio=increase"
-            vchain += f",crop={w}:{h}:(iw-{w})/2:(ih-{h})/2"
+            vfilters.append(f"{sc}={w}:{h}:force_original_aspect_ratio=increase")
+            vfilters.append(f"crop={w}:{h}:(iw-{w})/2:(ih-{h})/2")
 
-        vchain += f",fps={fps},format={pixfmt},setsar=1"
+        vfilters.append(f"fps={fps}")
+        vfilters.append(f"format={pixfmt}")
+        vfilters.append("setsar=1")
 
         vout = f"[v{idx}]"
-        vchain += vout
-        parts.append(vchain)
+        parts.append(base_v + ",".join(vfilters) + vout)
         vlabels.append(vout)
 
-        # --- Audio normalize (or synthesize silence if missing)
+        # ---------- AUDIO CHAIN ----------
         if mi.a is None:
-            # Synthesize silence equal to the (trimmed) video duration
-            # Determine the segment duration for this input
-            if start_sec is None:
+            # synth silence to match trimmed duration
+            if start_sec is None and end_sec is None:
                 dur = mi.duration
             else:
-                end_eff = end_sec if end_sec is not None else mi.duration
-                dur = max(0.0, end_eff - start_sec)
-            # Generate silent stereo at target rate for that duration
-            achain = f"anullsrc=r={arate}:cl={'stereo' if ach >= 2 else 'mono'},atrim=0:{dur},asetpts=N/SR/TB[a{idx}]"
+                s = 0.0 if start_sec is None else start_sec
+                e = mi.duration if end_sec is None else end_sec
+                dur = max(0.0, e - s)
+            tgt_layout = "stereo" if ach >= 2 else "mono"
+            achain = f"anullsrc=r={arate}:cl={tgt_layout},atrim=0:{dur},asetpts=N/SR/TB[a{idx}]"
+            parts.append(achain)
         else:
-            # Resample to target, map to target layout; force monotonic pts
-            # 'ocl' sets output channel layout (FFmpeg alias for out_channel_layout)
-            target_layout = "stereo" if ach >= 2 else "mono"
-            # Make sure achain exists (could be 'anull' or trimmed path from above)
-            if "anull" in (achain or ""):
-                # Replace 'anull' with the real chain
-                achain = base_a
-                if start_sec is not None or end_sec is not None:
-                    # if we had a trim on video but 'anull' here due to no earlier trim,
-                    # align audio trim as well for safety
-                    s = start_sec or 0.0
-                    e = end_sec if end_sec is not None else mi.duration
-                    achain += f"atrim=start={s}:end={e},asetpts=PTS-STARTPTS"
-            # Finally resample/upmix/downmix and ensure monotonic PTS
-            achain += f",aresample={arate}:ocl={target_layout},asetpts=N/SR/TB[a{idx}]"
-
-        parts.append(achain)
+            afilters: List[str] = []
+            if start_sec is not None or end_sec is not None:
+                s = 0.0 if start_sec is None else start_sec
+                e = mi.duration if end_sec is None else end_sec
+                afilters.append(f"atrim=start={s}:end={e}")
+                afilters.append("asetpts=PTS-STARTPTS")
+            tgt_layout = "stereo" if ach >= 2 else "mono"
+            afilters.append(f"aresample={arate}:ocl={tgt_layout}")
+            afilters.append("asetpts=N/SR/TB")
+            parts.append(base_a + ",".join(afilters) + f"[a{idx}]")
         alabels.append(f"[a{idx}]")
 
-    # Concat
-    concat = "".join(vlabels + alabels) + f"concat=n={len(infos)}:v=1:a=1[v][a]"
-    parts.append(concat)
+    # ---------- CONCAT (interleaved) ----------
+    concat_inputs: List[str] = []
+    for i in range(len(infos)):
+        concat_inputs.append(vlabels[i])
+        concat_inputs.append(alabels[i])
+    parts.append("".join(concat_inputs) + f"concat=n={len(infos)}:v=1:a=1[v][a]")
 
     filter_complex = ";".join(parts)
     return filter_complex, ["[v]"], ["[a]"]
-
 
 # ----------------------------- Command builder ------------------------------
 
