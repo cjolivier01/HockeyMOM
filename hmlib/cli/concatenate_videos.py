@@ -3,7 +3,7 @@
 
 """
 /**
- * @file concatenate_videos.py
+ * @file concat_normalize.py
  * @brief Concatenate videos after normalizing them to a common target (max resolution, fps, etc).
  *
  * The script:
