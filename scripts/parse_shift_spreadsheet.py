@@ -354,6 +354,10 @@ def process_sheet(
     #  - TOI (total and per period) based on scoreboard times
     #  - #shifts, avg/median/longest/shortest shift
     #  - Plus/Minus (GF = +1, GA = -1) if goal time ∈ any shift interval of that period
+    # Collect rows for a consolidated player_stats table
+    stats_table_rows: List[Dict[str, str]] = []
+    all_periods_seen: set[int] = set()
+
     for player_key, sb_list in sb_pairs_by_player.items():
         # By period grouping (for per-period TOI & goal checks)
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
@@ -427,6 +431,22 @@ def process_sheet(
         # Write file
         (outdir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
 
+        # Accumulate consolidated table row (omit explicit goal listings)
+        row_map: Dict[str, str] = {
+            "player": player_key,
+            "shifts": shift_summary["num_shifts"],
+            "toi_total": shift_summary["toi_total"],
+            "avg": shift_summary["toi_avg"],
+            "median": shift_summary["toi_median"],
+            "longest": shift_summary["toi_longest"],
+            "shortest": shift_summary["toi_shortest"],
+            "plus_minus": str(plus_minus),
+        }
+        for period, toi in per_period_toi_map.items():
+            row_map[f"P{period}_toi"] = toi
+            all_periods_seen.add(period)
+        stats_table_rows.append(row_map)
+
     # Global summary CSV (optional quick view)
     summary_rows = []
     for player_key, sb_list in sb_pairs_by_player.items():
@@ -454,6 +474,44 @@ def process_sheet(
         summary_rows.append(row)
     if summary_rows:
         pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
+
+    # Consolidated player stats text table
+    if stats_table_rows:
+        # Order columns
+        base_cols = [
+            "player",
+            "shifts",
+            "toi_total",
+            "avg",
+            "median",
+            "longest",
+            "shortest",
+            "plus_minus",
+        ]
+        period_cols = [f"P{p}_toi" for p in sorted(all_periods_seen)]
+        cols = base_cols + period_cols
+
+        # Build rows with missing period cols filled as empty
+        rows_for_print: List[List[str]] = []
+        for r in sorted(stats_table_rows, key=lambda x: x.get("player", "")):
+            rows_for_print.append([r.get(c, "") for c in cols])
+
+        # Compute column widths
+        widths = [len(c) for c in cols]
+        for row in rows_for_print:
+            for i, cell in enumerate(row):
+                if len(str(cell)) > widths[i]:
+                    widths[i] = len(str(cell))
+
+        # Render table
+        def fmt_row(values: List[str]) -> str:
+            return "  ".join(str(v).ljust(widths[i]) for i, v in enumerate(values))
+
+        lines = [fmt_row(cols)]
+        lines.append(fmt_row(["-" * w for w in widths]))
+        for row in rows_for_print:
+            lines.append(fmt_row(row))
+        (outdir / "player_stats.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # ---------- Goals window files (optional) ----------
     # If any goals were provided, write goals_for.txt and goals_against.txt
