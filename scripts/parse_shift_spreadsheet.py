@@ -438,6 +438,24 @@ def process_sheet(
     if summary_rows:
         pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
 
+    # ---------- Goals window files (optional) ----------
+    # If any goals were provided, write goals_for.txt and goals_against.txt
+    if goals:
+        gf_lines = []
+        ga_lines = []
+        for ev in goals:
+            start_sec = max(ev.t_sec - 30, 0)
+            end_sec = ev.t_sec + 10
+            start_str = seconds_to_mmss_or_hhmmss(start_sec)
+            end_str = seconds_to_mmss_or_hhmmss(end_sec)
+            line = f"{ev.period} {start_str} {end_str}"
+            if ev.kind == "GF":
+                gf_lines.append(line)
+            else:
+                ga_lines.append(line)
+        (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
+        (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
+
 
 # ----------------------------- CLI -----------------------------
 
