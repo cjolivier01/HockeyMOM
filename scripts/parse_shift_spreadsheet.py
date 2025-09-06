@@ -392,7 +392,7 @@ if [ "$HQ" -gt 0 ]; then
   export VIDEO_CLIPPER_HQ=1
 fi
 
-python -m hmlib.cli.video_clipper -j {nr_jobs}-input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP" "${{EXTRA_FLAGS[@]}}"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP" "${{EXTRA_FLAGS[@]}}"
 """.format(
             nr_jobs=5, player_key=player_key, player_label=player_label
         )
