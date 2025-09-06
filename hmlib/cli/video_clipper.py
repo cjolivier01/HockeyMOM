@@ -357,7 +357,8 @@ def main():
             f.write(f"file '{os.path.realpath(clip)}'\n")
     print("Doing final join quietly...")
     # Concatenate all clips
-    concat_video_clips(f"{temp_dir}/list.txt", f"clips-{args.label}.mp4")
+    label = args.label.replace(" ", "_")
+    concat_video_clips(f"{temp_dir}/list.txt", f"clips-{label}.mp4")
 
     # Cleanup
     # for file in os.listdir(temp_dir):
