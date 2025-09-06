@@ -14,6 +14,7 @@ video along with text labeling of the clip number and user-designated label
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -43,7 +44,7 @@ ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
 ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
 # ENCODER_ARGS_FAST = "-c:v h264_nvenc -preset p1".split(" ")
-ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset slow -b:v 40M".split(" ")
+ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium -b:v 40M".split(" ")
 # ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium {PIXEL_FORMAT}".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
@@ -51,11 +52,10 @@ FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
-    # FINAL_ENCODER_ARGS = ENCODER_ARGS_HQ
 else:
     # Debugging, faster, lower quality encoding
-    WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
-    # FINAL_ENCODER_ARGS = ENCODER_ARGS_FAST
+    # WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
+    WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
@@ -235,6 +235,67 @@ def add_clip_number(
     subprocess.run(cmd, check=True)
 
 
+def _process_clip_from_timestamps(
+    idx: int,
+    *,
+    input_video: str,
+    start_time: str,
+    end_time: str,
+    label: str,
+    temp_dir: str,
+    width: int,
+    height: int,
+    fps: float,
+    audio_sample_rate: int,
+) -> list[str]:
+    clip_file = f"{temp_dir}/clip_{idx}.mp4"
+    extract_clip(input_video, start_time, end_time, clip_file, dest_fps=fps)
+
+    transition = f"{temp_dir}/transition_{idx}.mp4"
+    create_text_video(
+        f"{label}\nClip {idx + 1}",
+        3.0,
+        transition,
+        width,
+        height,
+        fps,
+        audio_sample_rate,
+    )
+
+    numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
+    add_clip_number(clip_file, numbered_clip, label, idx + 1, width, height, dest_fps=fps)
+
+    return [transition, numbered_clip]
+
+
+def _process_clip_from_filelist(
+    idx: int,
+    *,
+    clip_file: str,
+    label: str,
+    temp_dir: str,
+    width: int,
+    height: int,
+    fps: float,
+    audio_sample_rate: int,
+) -> list[str]:
+    transition = f"{temp_dir}/transition_{idx}.mp4"
+    create_text_video(
+        f"{label}\nClip {idx + 1}",
+        3.0,
+        transition,
+        width,
+        height,
+        fps,
+        audio_sample_rate,
+    )
+
+    numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
+    add_clip_number(clip_file, numbered_clip, label, idx + 1, width, height, dest_fps=fps)
+
+    return [transition, numbered_clip]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", "-i", default=None, help="Input video file")
@@ -242,6 +303,13 @@ def main():
     parser.add_argument("--quick", type=int, default=0, help="Quick mode (lower quality)")
     parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
     parser.add_argument("--temp-dir", type=str, default=None, help="Directory to store intermediate clips")
+    parser.add_argument(
+        "--threads",
+        "-j",
+        type=int,
+        default=1,
+        help="Maximum number of clips to process in parallel",
+    )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
@@ -301,32 +369,38 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
 
     clips: List[str] = []
+    max_workers = max(1, int(args.threads)) if args.threads is not None else 1
 
     if args.video_file_list:
-        # Extract clips and create transition screens
-        for i, clip_file in enumerate(args.video_file_list):
-            # Create transition screen
-            transition = f"{temp_dir}/transition_{i}.mp4"
-            create_text_video(
-                f"{args.label}\nClip {i + 1}",
-                3.0,
-                transition,
-                width,
-                height,
-                fps,
-                audio_sample_rate,
-            )
-            clips.append(transition)
-
-            # Add clip number overlay
-            numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height, dest_fps=fps)
-            clips.append(numbered_clip)
+        jobs = [(i, clip_file) for i, clip_file in enumerate(args.video_file_list)]
+        results: dict[int, list[str]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _process_clip_from_filelist,
+                    i,
+                    clip_file=clip_file,
+                    label=args.label,
+                    temp_dir=temp_dir,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                    audio_sample_rate=audio_sample_rate,
+                ): i
+                for i, clip_file in jobs
+            }
+            for fut in concurrent.futures.as_completed(future_map):
+                idx = future_map[fut]
+                results[idx] = fut.result()
+        for i in sorted(results.keys()):
+            clips.extend(results[i])
     else:
         with open(args.timestamps, "r") as f:
-            timestamps = f.readlines()
-        # Extract clips and create transition screens
-        for i, line in enumerate(timestamps):
+            raw_lines = f.readlines()
+
+        # Build timestamp jobs in order, skipping comments/blank lines
+        ts_jobs: list[tuple[int, str, str]] = []
+        for i, line in enumerate(raw_lines):
             line = re.sub(r"\s+", " ", line)
             line = line.strip()
             if not line or line[0] == "#":
@@ -342,27 +416,31 @@ def main():
             if not all(validate_timestamp(t) for t in time_tokens):
                 raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
 
-            # Extract clip
-            clip_file = f"{temp_dir}/clip_{i}.mp4"
-            extract_clip(args.input, start_time, end_time, clip_file, dest_fps=fps)
+            ts_jobs.append((i, start_time, end_time))
 
-            # Create transition screen
-            transition = f"{temp_dir}/transition_{i}.mp4"
-            create_text_video(
-                f"{args.label}\nClip {i + 1}",
-                3.0,
-                transition,
-                width,
-                height,
-                fps,
-                audio_sample_rate,
-            )
-            clips.append(transition)
-
-            # Add clip number overlay
-            numbered_clip = f"{temp_dir}/clip_{i}_numbered.mp4"
-            add_clip_number(clip_file, numbered_clip, args.label, i + 1, width, height, dest_fps=fps)
-            clips.append(numbered_clip)
+        results: dict[int, list[str]] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(
+                    _process_clip_from_timestamps,
+                    i,
+                    input_video=args.input,
+                    start_time=start_time,
+                    end_time=end_time,
+                    label=args.label,
+                    temp_dir=temp_dir,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                    audio_sample_rate=audio_sample_rate,
+                ): i
+                for (i, start_time, end_time) in ts_jobs
+            }
+            for fut in concurrent.futures.as_completed(future_map):
+                idx = future_map[fut]
+                results[idx] = fut.result()
+        for i in sorted(results.keys()):
+            clips.extend(results[i])
 
     # Create file list for concatenation
     with open(f"{temp_dir}/list.txt", "w") as f:
