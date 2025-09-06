@@ -245,6 +245,18 @@ def main():
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
+    # Override encoder selection based on flags/env at runtime
+    # --quick > 0 forces fast encoder; VIDEO_CLIPPER_HQ>0 forces lossless
+    global WORKING_ENCODER_ARGS
+    try:
+        q = int(args.quick) if args.quick is not None else 0
+    except Exception:
+        q = 0
+    if q > 0:
+        WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
+    elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
+        WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
+
     if args.video_file_list:
         if os.path.isfile(args.video_file_list):
             with open(args.video_file_list, "r") as f:

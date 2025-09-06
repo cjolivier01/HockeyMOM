@@ -365,14 +365,34 @@ def process_sheet(
         script_body = """#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
-  echo "Usage: $0 <input_video> <opposing_team>"
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
 INPUT="$1"
 OPP="$2"
 THIS_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
 TS_FILE="$THIS_DIR/{player_key}_video_times.txt"
-python -m hmlib.cli.video_clipper --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP"
+# Parse optional flags
+QUICK=0
+HQ=0
+shift 2 || true
+for ARG in "$@"; do
+  if [ "$ARG" = "--quick" ] || [ "$ARG" = "-q" ]; then
+    QUICK=1
+  elif [ "$ARG" = "--hq" ]; then
+    HQ=1
+  fi
+done
+
+EXTRA_FLAGS=()
+if [ "$QUICK" -gt 0 ]; then
+  EXTRA_FLAGS+=("--quick" "1")
+fi
+if [ "$HQ" -gt 0 ]; then
+  export VIDEO_CLIPPER_HQ=1
+fi
+
+python -m hmlib.cli.video_clipper --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP" "${{EXTRA_FLAGS[@]}}"
 """.format(player_key=player_key, player_label=player_label)
         script_path.write_text(script_body, encoding="utf-8")
         try:
@@ -659,6 +679,33 @@ python -m hmlib.cli.video_clipper --input "$INPUT" --timestamps "$TS_FILE" --tem
 
         (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
         (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
+
+    # ---------- Aggregate clip launcher ----------
+    # Write a convenience script to run all per-player clip scripts.
+    # Usage: ./clip_all.sh <input_video> <opposing_team> [--quick|-q] [--hq]
+    clip_all_path = outdir / "clip_all.sh"
+    clip_all_body = """#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+  exit 1
+fi
+INPUT="$1"
+OPP="$2"
+shift 2 || true
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for s in "$THIS_DIR"/clip_*.sh; do
+  [ -x "$s" ] || continue
+  echo "Running $s..."
+  "$s" "$INPUT" "$OPP" "$@"
+done
+"""
+    clip_all_path.write_text(clip_all_body, encoding="utf-8")
+    try:
+        import os as _os
+        _os.chmod(clip_all_path, 0o755)
+    except Exception:
+        pass
 
 
 # ----------------------------- CLI -----------------------------
